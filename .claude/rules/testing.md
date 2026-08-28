@@ -11,7 +11,7 @@
 
 ## Mocking：只 mock 介面，且只用 mocking 套件
 
-- **一律用 mocking 套件對「介面」產生替身**（NSubstitute、Moq、mockery、Jest mock…）。
+- **一律用 mocking 套件對「介面」產生替身**（NSubstitute、Moq、uber-go/mock、Jest mock…）。
 - **禁止手寫假物件**——不准出現 `FakeDbContext`、`InMemoryXxxRepository`、`StubPaymentProxy` 這類自己刻的假實作型別。
 - 需要被 mock 的東西一定要先有介面（`I` 前綴，放 `domain/interface/`）。沒有介面就先補介面，不要為了測試改用具體型別。
 - mock 只設在**最外層的邊界**：repository / proxy（DB、外部 API、時間、亂數）。
