@@ -65,3 +65,14 @@ func TestKCandleToDto(t *testing.T) {
 		})
 	}
 }
+
+func TestKCandleToDtoHandsOutTheOpenTimeInUniversalTime(t *testing.T) {
+	elsewhere := time.FixedZone("UTC+8", 8*60*60)
+	openTimeElsewhere := time.Date(2026, 8, 29, 17, 0, 0, 0, elsewhere)
+
+	kCandleDto := entities.KCandle{Symbol: "BTCUSDT", OpenTime: openTimeElsewhere}.ToDto()
+
+	assert.Equal(t, time.UTC, kCandleDto.OpenTime.Location())
+	assert.Equal(t, "2026-08-29T09:00:00Z", kCandleDto.OpenTime.Format(time.RFC3339))
+	assert.True(t, openTimeElsewhere.Equal(kCandleDto.OpenTime))
+}

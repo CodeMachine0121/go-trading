@@ -7,8 +7,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const symbolOpenTimeUniqueIndex = "idx_k_candles_symbol_open_time"
-
 // KCandle is a single K candle row. It is a plain data model: fields, persistence
 // mapping and shape conversion only, no business rules.
 type KCandle struct {
@@ -30,17 +28,12 @@ func (kCandle KCandle) TableName() string {
 	return "KCandles"
 }
 
-// SymbolOpenTimeUniqueIndexName is the name of the index that makes
-// symbol plus open time identify exactly one K candle.
-func (kCandle KCandle) SymbolOpenTimeUniqueIndexName() string {
-	return symbolOpenTimeUniqueIndex
-}
-
-// ToDto converts this record into the shape the domain hands outwards.
+// ToDto converts this record into the shape the domain hands outwards. The open
+// time is always handed out in universal time, whatever zone it was read back in.
 func (kCandle KCandle) ToDto() dto.KCandleDto {
 	return dto.KCandleDto{
 		Symbol:              kCandle.Symbol,
-		OpenTime:            kCandle.OpenTime,
+		OpenTime:            kCandle.OpenTime.UTC(),
 		Open:                kCandle.Open,
 		High:                kCandle.High,
 		Low:                 kCandle.Low,
