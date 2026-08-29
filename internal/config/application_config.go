@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // DatabaseConfig holds the PostgreSQL connection settings.
@@ -30,14 +31,16 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
-	ServerPort string
-	Database   DatabaseConfig
+	ServerPort             string
+	KCandleQueryMaxResults int
+	Database               DatabaseConfig
 }
 
 // Load reads the configuration from the process environment, applying defaults.
 func Load() ApplicationConfig {
 	return ApplicationConfig{
-		ServerPort: stringWithDefault("SERVER_PORT", "8080"),
+		ServerPort:             stringWithDefault("SERVER_PORT", "8080"),
+		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),
 			Port:     stringWithDefault("POSTGRES_PORT", "5432"),
@@ -47,6 +50,17 @@ func Load() ApplicationConfig {
 			SslMode:  stringWithDefault("POSTGRES_SSL_MODE", "disable"),
 		},
 	}
+}
+
+// positiveIntWithDefault reads a whole number greater than zero, falling back to the
+// default when the variable is missing, unreadable, or not a usable count.
+func positiveIntWithDefault(key string, defaultValue int) int {
+	value, parseError := strconv.Atoi(os.Getenv(key))
+	if parseError != nil || value <= 0 {
+		return defaultValue
+	}
+
+	return value
 }
 
 func stringWithDefault(key string, defaultValue string) string {

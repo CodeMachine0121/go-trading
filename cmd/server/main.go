@@ -22,7 +22,7 @@ func main() {
 	}
 
 	engine := gin.Default()
-	registerRoutes(engine, database)
+	registerRoutes(engine, database, applicationConfig)
 
 	if runError := engine.Run(":" + applicationConfig.ServerPort); runError != nil {
 		log.Fatalf("failed to start server: %v", runError)

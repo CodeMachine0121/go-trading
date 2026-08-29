@@ -1,4 +1,4 @@
-.PHONY: start build test mock migrate
+.PHONY: start build test test-storage mock migrate
 
 start:
 	go run ./cmd/server
@@ -12,6 +12,11 @@ build:
 
 test:
 	go test ./...
+
+# Same suite, but the storage tests need TEST_POSTGRES_DSN pointing at a
+# reachable PostgreSQL; without it they skip. See the README.
+test-storage:
+	go test ./... -count=1
 
 # Regenerates every mock. Each interface file in internal/domain/interface/
 # carries its own directive:
