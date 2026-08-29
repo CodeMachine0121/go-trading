@@ -1,11 +1,20 @@
 package entities
 
-import "github.com/shopspring/decimal"
+import (
+	"time"
 
-// KCandle is a single OHLCV candlestick row. It is a plain data model:
-// fields and persistence mapping only, no business behavior.
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/shopspring/decimal"
+)
+
+const symbolOpenTimeUniqueIndex = "idx_k_candles_symbol_open_time"
+
+// KCandle is a single K candle row. It is a plain data model: fields, persistence
+// mapping and shape conversion only, no business rules.
 type KCandle struct {
 	ID                  uint            `gorm:"primaryKey"`
+	Symbol              string          `gorm:"size:64;not null;uniqueIndex:idx_k_candles_symbol_open_time,priority:1"`
+	OpenTime            time.Time       `gorm:"type:timestamptz;not null;uniqueIndex:idx_k_candles_symbol_open_time,priority:2"`
 	Open                decimal.Decimal `gorm:"type:numeric(38,18);not null"`
 	High                decimal.Decimal `gorm:"type:numeric(38,18);not null"`
 	Low                 decimal.Decimal `gorm:"type:numeric(38,18);not null"`
@@ -19,4 +28,26 @@ type KCandle struct {
 // TableName pins the table to KCandles instead of GORM's default k_candles.
 func (kCandle KCandle) TableName() string {
 	return "KCandles"
+}
+
+// SymbolOpenTimeUniqueIndexName is the name of the index that makes
+// symbol plus open time identify exactly one K candle.
+func (kCandle KCandle) SymbolOpenTimeUniqueIndexName() string {
+	return symbolOpenTimeUniqueIndex
+}
+
+// ToDto converts this record into the shape the domain hands outwards.
+func (kCandle KCandle) ToDto() dto.KCandleDto {
+	return dto.KCandleDto{
+		Symbol:              kCandle.Symbol,
+		OpenTime:            kCandle.OpenTime,
+		Open:                kCandle.Open,
+		High:                kCandle.High,
+		Low:                 kCandle.Low,
+		Close:               kCandle.Close,
+		Volume:              kCandle.Volume,
+		QuoteVolume:         kCandle.QuoteVolume,
+		TakerBuyBaseVolume:  kCandle.TakerBuyBaseVolume,
+		TakerBuyQuoteVolume: kCandle.TakerBuyQuoteVolume,
+	}
 }
