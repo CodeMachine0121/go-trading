@@ -65,7 +65,8 @@ curl localhost:8080/health
 | 變數 | 預設值 | 用途 |
 | :--- | :--- | :--- |
 | `SERVER_PORT` | `8080` | HTTP 服務埠號 |
-| `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕 |
+| `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值 |
+| `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
 | `POSTGRES_HOST` | `localhost` | 資料庫主機 |
 | `POSTGRES_PORT` | `5432` | 資料庫埠號 |
 | `POSTGRES_USER` | `postgres` | 資料庫帳號 |
@@ -203,7 +204,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 **算式能用什麼**
 
-只有**純運算**：四則運算、比較、迴圈，加上 `math` 套件。
+只有**純運算**：四則運算、比較、迴圈，加上 `math` 與 `sort` 兩個套件。
 `os`、`net/http`、`time`、亂數一律 import 不到——這是白名單擋的，也是為了讓同一批 K 線
 跑兩次結果必定相同。想放寬只要改
 `internal/infrastructure/script/yaegi_indicator_script_proxy.go` 裡的白名單一處。
@@ -217,7 +218,8 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 | 算式跑不動（無法解讀、執行失敗、越權） | `422` |
 | 資料庫讀取失敗 | `502` |
 
-> ⚠️ **算式沒有執行時間上限。** 寫出無窮迴圈會讓那個請求一直等下去，沒有自動恢復的辦法。
+**算不完會被砍掉。** 超過 `INDICATOR_SCRIPT_TIMEOUT_SECONDS`（預設 40 秒）即中止，
+回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。
 
 ## 資料庫測試
 
