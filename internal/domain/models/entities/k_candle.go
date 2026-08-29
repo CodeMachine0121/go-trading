@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -42,5 +43,23 @@ func (kCandle KCandle) ToDto() dto.KCandleDto {
 		QuoteVolume:         kCandle.QuoteVolume,
 		TakerBuyBaseVolume:  kCandle.TakerBuyBaseVolume,
 		TakerBuyQuoteVolume: kCandle.TakerBuyQuoteVolume,
+	}
+}
+
+// ToVo converts this record into the shape an indicator script sees. The precise
+// figures become ordinary numbers, which is acceptable because an indicator is a
+// statistic rather than an amount of money.
+func (kCandle KCandle) ToVo() vo.KCandleVo {
+	return vo.KCandleVo{
+		Symbol:              kCandle.Symbol,
+		OpenTimeUnixSeconds: kCandle.OpenTime.UTC().Unix(),
+		Open:                kCandle.Open.InexactFloat64(),
+		High:                kCandle.High.InexactFloat64(),
+		Low:                 kCandle.Low.InexactFloat64(),
+		Close:               kCandle.Close.InexactFloat64(),
+		Volume:              kCandle.Volume.InexactFloat64(),
+		QuoteVolume:         kCandle.QuoteVolume.InexactFloat64(),
+		TakerBuyBaseVolume:  kCandle.TakerBuyBaseVolume.InexactFloat64(),
+		TakerBuyQuoteVolume: kCandle.TakerBuyQuoteVolume.InexactFloat64(),
 	}
 }
