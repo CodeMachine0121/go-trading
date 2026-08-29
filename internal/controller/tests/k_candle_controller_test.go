@@ -230,6 +230,17 @@ func TestNamedKCandleResponses(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recorder.Code)
 	})
 
+	t.Run("reports updating a candle that does not exist as not found", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			Update(gomock.Any()).
+			Return(entities.KCandle{}, domains.ErrKCandleNotFound)
+
+		recorder := fixture.call(http.MethodPut, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", validBody)
+
+		assert.Equal(t, http.StatusNotFound, recorder.Code)
+	})
+
 	t.Run("refuses an update that would move the candle to another open time", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		movingBody := strings.Replace(validBody, "T09:00:00Z", "T09:05:00Z", 1)

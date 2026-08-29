@@ -224,3 +224,42 @@ func TestDelete(t *testing.T) {
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
 }
+
+func TestEveryOperationReportsAnUnusableStore(t *testing.T) {
+	database := newTestDatabase(t)
+	kCandleRepository := persistence.NewKCandleRepository(database)
+
+	sqlDatabase, err := database.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDatabase.Close())
+
+	t.Run("save", func(t *testing.T) {
+		_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
+	})
+
+	t.Run("update", func(t *testing.T) {
+		_, err := kCandleRepository.Update(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
+	})
+
+	t.Run("read one", func(t *testing.T) {
+		_, err := kCandleRepository.FindOne("BTCUSDT", at(9, 0))
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
+	})
+
+	t.Run("read a range", func(t *testing.T) {
+		storedKCandles, err := kCandleRepository.FindInRange(queryFor(t, "BTCUSDT", at(9, 0), at(9, 10)), 10)
+		assert.Error(t, err)
+		assert.Nil(t, storedKCandles)
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		err := kCandleRepository.Delete("BTCUSDT", at(9, 0))
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
+	})
+}
