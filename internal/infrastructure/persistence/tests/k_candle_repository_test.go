@@ -257,9 +257,69 @@ func TestEveryOperationReportsAnUnusableStore(t *testing.T) {
 		assert.Nil(t, storedKCandles)
 	})
 
+	t.Run("read the latest", func(t *testing.T) {
+		storedKCandles, err := kCandleRepository.FindLatest("BTCUSDT", 5)
+		assert.Error(t, err)
+		assert.Nil(t, storedKCandles)
+	})
+
 	t.Run("delete", func(t *testing.T) {
 		err := kCandleRepository.Delete("BTCUSDT", at(9, 0))
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
+}
+
+func TestFindLatest(t *testing.T) {
+	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+	for _, openTime := range []time.Time{at(9, 5), at(9, 15), at(9, 0), at(9, 10)} {
+		_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "100"))
+		require.NoError(t, err)
+	}
+	_, err := kCandleRepository.Save(kCandleAt("ETHUSDT", at(9, 20), "200"))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name              string
+		symbol            string
+		limit             int
+		expectedOpenTimes []time.Time
+	}{
+		{
+			name:              "returns the latest candles newest first",
+			symbol:            "BTCUSDT",
+			limit:             2,
+			expectedOpenTimes: []time.Time{at(9, 15), at(9, 10)},
+		},
+		{
+			name:              "returns every candle when the limit exceeds what is stored",
+			symbol:            "BTCUSDT",
+			limit:             10,
+			expectedOpenTimes: []time.Time{at(9, 15), at(9, 10), at(9, 5), at(9, 0)},
+		},
+		{
+			name:              "keeps trading symbols apart",
+			symbol:            "ETHUSDT",
+			limit:             10,
+			expectedOpenTimes: []time.Time{at(9, 20)},
+		},
+		{
+			name:              "returns nothing for a symbol with no candles",
+			symbol:            "SOLUSDT",
+			limit:             10,
+			expectedOpenTimes: []time.Time{},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			storedKCandles, err := kCandleRepository.FindLatest(testCase.symbol, testCase.limit)
+
+			assert.NoError(t, err)
+			assert.Len(t, storedKCandles, len(testCase.expectedOpenTimes))
+			for index, expectedOpenTime := range testCase.expectedOpenTimes {
+				assert.Equal(t, expectedOpenTime, storedKCandles[index].OpenTime.UTC())
+			}
+		})
+	}
 }

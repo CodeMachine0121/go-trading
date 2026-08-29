@@ -101,6 +101,27 @@ func (kCandleRepository *KCandleRepository) FindInRange(
 	return kCandles, nil
 }
 
+// FindLatest returns at most limit K candles for the trading symbol, newest first.
+// The order is deliberately the opposite of FindInRange: reading "the latest few"
+// is a descending query, and turning the result the right way round is the
+// caller's business rule, not this repository's.
+func (kCandleRepository *KCandleRepository) FindLatest(
+	symbol string, limit int,
+) ([]entities.KCandle, error) {
+	kCandles := make([]entities.KCandle, 0, limit)
+
+	result := kCandleRepository.database.
+		Where(&entities.KCandle{Symbol: symbol}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "open_time"}, Desc: true}).
+		Limit(limit).
+		Find(&kCandles)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find latest k candles: %w", result.Error)
+	}
+
+	return kCandles, nil
+}
+
 // Delete removes the K candle named by trading symbol and open time, reporting not
 // found when it names no candle.
 func (kCandleRepository *KCandleRepository) Delete(symbol string, openTime time.Time) error {
