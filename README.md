@@ -2,9 +2,12 @@
 
 以 **Go + Gin** 打造的交易服務後端 REST API。
 
-目前提供 **K 線（KCandle）的完整讀寫**：新增（同交易標的同起始時間即覆蓋）、
-依交易標的與時間區間查詢、以及單一 K 線的讀取、修改、刪除。
-一根 K 線固定涵蓋五分鐘。
+目前提供兩件事：
+
+1. **K 線（KCandle）的完整讀寫** —— 新增（同交易標的同起始時間即覆蓋）、依交易標的與
+   時間區間查詢、以及單一 K 線的讀取、修改、刪除。一根 K 線固定涵蓋五分鐘。
+2. **自訂指標計算** —— 你自己寫一段 Go 算式送進來，系統拿指定根數的 K 線餵它，
+   把輸出統一收成一組「名稱 → 數字」。加新指標不用改程式。
 
 ## Tech Stack
 
@@ -17,6 +20,7 @@
 | 數值處理 | [shopspring/decimal](https://github.com/shopspring/decimal)（價格與量值一律精確小數，禁用 float） |
 | 設定 | 環境變數 + [godotenv](https://github.com/joho/godotenv)（`.env`） |
 | 測試 | `testing` + [uber-go/mock](https://github.com/uber-go/mock)（gomock） |
+| 指標算式 | [traefik/yaegi](https://github.com/traefik/yaegi)（內嵌 Go 直譯器，白名單控管） |
 | 架構 | Clean / Onion Architecture |
 
 ## 快速開始
@@ -61,7 +65,8 @@ curl localhost:8080/health
 | 變數 | 預設值 | 用途 |
 | :--- | :--- | :--- |
 | `SERVER_PORT` | `8080` | HTTP 服務埠號 |
-| `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕 |
+| `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值 |
+| `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
 | `POSTGRES_HOST` | `localhost` | 資料庫主機 |
 | `POSTGRES_PORT` | `5432` | 資料庫埠號 |
 | `POSTGRES_USER` | `postgres` | 資料庫帳號 |
@@ -79,6 +84,7 @@ curl localhost:8080/health
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
+| `POST` | `/indicator-calculations` | 用自訂算式計算指標 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
 **修改的對象由網址決定**：內文若帶了與網址不同的交易標的或起始時間，會被拒絕。
@@ -124,7 +130,8 @@ internal/
 │       └── mocks/       mockgen 產生的 mock
 └── infrastructure/
     ├── clock/           系統時鐘（讓「不得指向未來」這條規則可被測試）
-    └── persistence/     GORM 連線、schema migrator 與 repository 實作
+    ├── persistence/     GORM 連線、schema migrator 與 repository 實作
+    └── script/          指標算式的執行環境（內嵌直譯器與白名單）
 ```
 
 依賴方向一律指向 `domain/`；`domain/` 不認識 HTTP、GORM 或任何 SDK。
@@ -158,6 +165,61 @@ controller := gomock.NewController(t)
 stockProxy := mocks.NewMockIStockProxy(controller)
 stockProxy.EXPECT().Fetch("2330").Return(quote, nil)
 ```
+
+## 自訂指標計算
+
+送出交易標的、要用幾根 K 線、以及一段算式：
+
+```bash
+curl -X POST localhost:8080/indicator-calculations -H 'Content-Type: application/json' -d '{
+  "symbol": "BTCUSDT",
+  "candleCount": 4,
+  "script": "package main\nimport \"indicator\"\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\n sum := 0.0\n for _, c := range data { sum += c.Close }\n return map[string]float64{\"ma\": sum / float64(len(data))}\n}"
+}'
+# {"symbol":"BTCUSDT","usedCandleCount":4,"values":{"ma":115}}
+```
+
+**算式的形狀**固定為：
+
+```go
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+    // 你的運算
+}
+```
+
+`indicator.KCandle` 有：`Symbol`、`OpenTimeUnixSeconds`、`Open`、`High`、`Low`、
+`Close`、`Volume`、`QuoteVolume`、`TakerBuyBaseVolume`、`TakerBuyQuoteVolume`。
+
+**幾條規則**
+
+- **一律排除最新那一根** K 線，因為它涵蓋的五分鐘還沒走完。要 4 根就會撈 5 根丟掉最新的。
+- `data` 依起始時間**由早到晚**排列。
+- 回傳是**一組「名稱 → 數字」**，放幾個由你決定；回空的也算成功。
+- 單次最多用 `KCANDLE_QUERY_MAX_RESULTS` 根，且不得為零或負數。
+- 排除最新一根後不夠用，會拒絕並告訴你**實際可用幾根**。
+
+**算式能用什麼**
+
+只有**純運算**：四則運算、比較、迴圈，加上 `math` 與 `sort` 兩個套件。
+`os`、`net/http`、`time`、亂數一律 import 不到——這是白名單擋的，也是為了讓同一批 K 線
+跑兩次結果必定相同。想放寬只要改
+`internal/infrastructure/script/yaegi_indicator_script_proxy.go` 裡的白名單一處。
+
+**回應狀態**
+
+| 狀況 | 狀態碼 |
+| :--- | :--- |
+| 成功（含空的結果） | `200` |
+| 根數不對、K 線不夠 | `400` |
+| 算式跑不動（無法解讀、執行失敗、越權） | `422` |
+| 資料庫讀取失敗 | `502` |
+
+**算不完會被砍掉。** 超過 `INDICATOR_SCRIPT_TIMEOUT_SECONDS`（預設 40 秒）即中止，
+回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。
 
 ## 資料庫測試
 

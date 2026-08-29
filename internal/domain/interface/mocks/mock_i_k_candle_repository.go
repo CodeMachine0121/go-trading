@@ -71,6 +71,21 @@ func (mr *MockIKCandleRepositoryMockRecorder) FindInRange(query, limit any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindInRange", reflect.TypeOf((*MockIKCandleRepository)(nil).FindInRange), query, limit)
 }
 
+// FindLatest mocks base method.
+func (m *MockIKCandleRepository) FindLatest(symbol string, limit int) ([]entities.KCandle, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindLatest", symbol, limit)
+	ret0, _ := ret[0].([]entities.KCandle)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindLatest indicates an expected call of FindLatest.
+func (mr *MockIKCandleRepositoryMockRecorder) FindLatest(symbol, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatest", reflect.TypeOf((*MockIKCandleRepository)(nil).FindLatest), symbol, limit)
+}
+
 // FindOne mocks base method.
 func (m *MockIKCandleRepository) FindOne(symbol string, openTime time.Time) (entities.KCandle, error) {
 	m.ctrl.T.Helper()

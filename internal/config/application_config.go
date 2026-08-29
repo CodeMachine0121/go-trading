@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // DatabaseConfig holds the PostgreSQL connection settings.
@@ -33,6 +34,7 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 type ApplicationConfig struct {
 	ServerPort             string
 	KCandleQueryMaxResults int
+	IndicatorScriptTimeout time.Duration
 	Database               DatabaseConfig
 }
 
@@ -41,6 +43,8 @@ func Load() ApplicationConfig {
 	return ApplicationConfig{
 		ServerPort:             stringWithDefault("SERVER_PORT", "8080"),
 		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
+		IndicatorScriptTimeout: time.Duration(
+			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),
 			Port:     stringWithDefault("POSTGRES_PORT", "5432"),

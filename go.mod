@@ -7,6 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.12.1
+	github.com/traefik/yaegi v0.16.1
 	go.uber.org/mock v0.6.0
 	gorm.io/driver/postgres v1.6.2
 	gorm.io/gorm v1.31.2

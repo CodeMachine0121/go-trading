@@ -76,3 +76,41 @@ func TestKCandleToDtoHandsOutTheOpenTimeInUniversalTime(t *testing.T) {
 	assert.Equal(t, "2026-08-29T09:00:00Z", kCandleDto.OpenTime.Format(time.RFC3339))
 	assert.True(t, openTimeElsewhere.Equal(kCandleDto.OpenTime))
 }
+
+func TestKCandleToVo(t *testing.T) {
+	openTime := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
+
+	kCandleVo := entities.KCandle{
+		Symbol:              "BTCUSDT",
+		OpenTime:            openTime,
+		Open:                decimal.RequireFromString("100.5"),
+		High:                decimal.RequireFromString("120.25"),
+		Low:                 decimal.RequireFromString("90.75"),
+		Close:               decimal.RequireFromString("110.125"),
+		Volume:              decimal.RequireFromString("11.5"),
+		QuoteVolume:         decimal.RequireFromString("1200.5"),
+		TakerBuyBaseVolume:  decimal.RequireFromString("5.25"),
+		TakerBuyQuoteVolume: decimal.RequireFromString("600.75"),
+	}.ToVo()
+
+	assert.Equal(t, "BTCUSDT", kCandleVo.Symbol)
+	assert.Equal(t, openTime.Unix(), kCandleVo.OpenTimeUnixSeconds)
+	assert.Equal(t, 100.5, kCandleVo.Open)
+	assert.Equal(t, 120.25, kCandleVo.High)
+	assert.Equal(t, 90.75, kCandleVo.Low)
+	assert.Equal(t, 110.125, kCandleVo.Close)
+	assert.Equal(t, 11.5, kCandleVo.Volume)
+	assert.Equal(t, 1200.5, kCandleVo.QuoteVolume)
+	assert.Equal(t, 5.25, kCandleVo.TakerBuyBaseVolume)
+	assert.Equal(t, 600.75, kCandleVo.TakerBuyQuoteVolume)
+}
+
+func TestKCandleToVoCarriesTheOpenTimeAsUniversalSeconds(t *testing.T) {
+	elsewhere := time.FixedZone("UTC+8", 8*60*60)
+
+	kCandleVo := entities.KCandle{
+		OpenTime: time.Date(2026, 8, 29, 17, 0, 0, 0, elsewhere),
+	}.ToVo()
+
+	assert.Equal(t, time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC).Unix(), kCandleVo.OpenTimeUnixSeconds)
+}
