@@ -1,10 +1,14 @@
-.PHONY: start build test mock
+.PHONY: start build test mock migrate
 
 start:
 	go run ./cmd/server
 
+migrate:
+	go run ./cmd/migrate
+
 build:
 	go build -o bin/server ./cmd/server
+	go build -o bin/migrate ./cmd/migrate
 
 test:
 	go test ./...

@@ -25,8 +25,12 @@
 ```bash
 cp .env.example .env     # 填入你的 DB 連線資訊
 go mod download
+make migrate             # 建立 / 更新資料表（可重複執行）
 make start               # 啟動於 SERVER_PORT（預設 8080）
 ```
+
+`make migrate` 與 `make start` 是分開的：**server 啟動時不會動 schema**，
+資料表變更一律由 migrate 指令明確套用。
 
 確認服務活著：
 
@@ -40,7 +44,8 @@ curl localhost:8080/health
 | 指令 | 用途 |
 | :--- | :--- |
 | `make start` | 啟動 server（`go run ./cmd/server`） |
-| `make build` | 編譯到 `bin/server` |
+| `make migrate` | 套用 schema 到資料庫（`go run ./cmd/migrate`） |
+| `make build` | 編譯到 `bin/server` 與 `bin/migrate` |
 | `make test` | 跑全部測試（`go test ./...`） |
 | `make mock` | 重新產生所有 mock（`go generate ./...`） |
 | `go vet ./...` | 靜態檢查 |
@@ -73,12 +78,15 @@ application / service 層——它檢查的是行程活著與否，不是業務�
 ## 專案結構
 
 ```
-cmd/server/
-├── main.go              進入點：載入設定、開 DB、啟動 Gin
-├── config.go            環境變數讀取與 PostgreSQL DSN 組裝
-└── dependencies.go      組裝根：手動 DI 與路由註冊
+cmd/
+├── server/
+│   ├── main.go          進入點：載入設定、開 DB、啟動 Gin
+│   └── dependencies.go  組裝根：手動 DI 與路由註冊
+└── migrate/
+    └── main.go          migration 指令：把 entity 定義同步進資料庫
 
 internal/
+├── config/              環境變數讀取與 PostgreSQL DSN 組裝
 ├── controller/          Gin handler + Request struct
 ├── application/         用例編排，呼叫 Domain Service
 │   └── tests/
@@ -92,7 +100,7 @@ internal/
 │   └── interface/       repository / proxy 介面，一介面一檔
 │       └── mocks/       mockgen 產生的 mock
 └── infrastructure/
-    └── persistence/     GORM 連線與 repository 實作
+    └── persistence/     GORM 連線、schema migrator 與 repository 實作
 ```
 
 依賴方向一律指向 `domain/`；`domain/` 不認識 HTTP、GORM 或任何 SDK。
@@ -100,8 +108,8 @@ internal/
 ## 新增資料表（Code First）
 
 1. 在 `internal/domain/models/entities/` 定義 entity struct。
-2. 到 `internal/infrastructure/persistence/database.go` 的 `AutoMigrate(...)` 補上它。
-3. 重啟服務，GORM 自動同步 schema。
+2. 到 `internal/infrastructure/persistence/schema_migrator.go` 的 `migratedEntities` 補上它。
+3. 執行 `make migrate`，GORM 自動同步 schema。
 
 **不手寫 SQL 字串、不手寫 DDL、不從既有 DB 反向產生模型。**
 

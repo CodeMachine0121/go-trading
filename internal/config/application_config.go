@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"fmt"
@@ -28,14 +28,15 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 	)
 }
 
-// ServerConfig holds every setting the server reads from the environment.
-type ServerConfig struct {
+// ApplicationConfig holds every setting the binaries read from the environment.
+type ApplicationConfig struct {
 	ServerPort string
 	Database   DatabaseConfig
 }
 
-func loadServerConfig() ServerConfig {
-	return ServerConfig{
+// Load reads the configuration from the process environment, applying defaults.
+func Load() ApplicationConfig {
+	return ApplicationConfig{
 		ServerPort: stringWithDefault("SERVER_PORT", "8080"),
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),
