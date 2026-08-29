@@ -1,62 +1,145 @@
-# claude-rules
+# go-trading
 
-一組**與程式語言無關**的 coding 規範，給 [Claude Code](https://claude.com/claude-code) 讀。
-拉進任何新專案，AI 就照同一套架構、命名、測試原則寫程式。
+以 **Go + Gin** 打造的交易服務後端 REST API。
 
-## 為什麼
+目前是**專案骨架**階段：分層資料夾、資料庫連線、設定讀取與健康檢查端點已就緒，
+尚未實作任何業務功能。
 
-每開一個新專案就要重講一次「entity 要乾淨」「介面別綁供應商」「不要開 Helper」很煩。
-這個 repo 把這些規則寫死一次，之後複製過去就好。
+## Tech Stack
 
-規則只談**怎麼設計、怎麼命名、怎麼測**，不談產品、不綁語言。
-大小寫、檔名格式、lint 工具一律 follow 各語言自身的慣例。
+| 層面 | 選型 |
+| :--- | :--- |
+| 語言 | Go 1.26.1 |
+| Web 框架 | [Gin](https://github.com/gin-gonic/gin) |
+| ORM | [GORM](https://gorm.io)（Code First，`AutoMigrate` 同步 schema） |
+| 資料庫 | PostgreSQL |
+| 設定 | 環境變數 + [godotenv](https://github.com/joho/godotenv)（`.env`） |
+| 測試 | `testing` + [uber-go/mock](https://github.com/uber-go/mock)（gomock） |
+| 架構 | Clean / Onion Architecture |
 
-## 怎麼用
+## 快速開始
 
-把兩個東西複製到新專案根目錄：
+需要一個可連線的 PostgreSQL。
 
 ```bash
-git clone https://github.com/<your-account>/claude-rules.git /tmp/claude-rules
-cp -r /tmp/claude-rules/CLAUDE.md /tmp/claude-rules/.claude /path/to/your-project/
+cp .env.example .env     # 填入你的 DB 連線資訊
+go mod download
+make start               # 啟動於 SERVER_PORT（預設 8080）
 ```
 
-就這樣。Claude Code 啟動時會自動讀 `CLAUDE.md`，再依情境去翻對應的規則檔。
+確認服務活著：
 
-專案自己的產品知識（介紹、環境變數、API 路由、領域詞彙）**另外寫在專案文件裡**，
-不要塞進 `CLAUDE.md`——它只負責指路。
-
-## 內容
-
-```
-CLAUDE.md              情境 → 該讀哪份規則（Claude Code 的入口）
-.claude/rules/
-├── README.md          規則索引
-├── architecture.md    Clean/Onion 分層、domain/models/ 結構、充血模型
-├── naming.md          角色後綴、介面抽象命名、Proxy、檔名
-├── code-style.md      型別、變數宣告、static helper、金額、錯誤處理
-├── persistence.md     Code First、ORM schema sync、禁手寫 SQL
-├── testing.md         只測業務行為、mocking 策略
-└── background-jobs.md 背景 job 配置、管線輪次記錄
+```bash
+curl localhost:8080/health
+# {"status":"Healthy"}
 ```
 
-## 核心主張
+## Commands
 
-| 主張 | 白話 |
+| 指令 | 用途 |
 | :--- | :--- |
-| 依賴方向永遠指向 Domain | Domain 不認識 HTTP / ORM / 任何 SDK |
-| Entity 乾淨，行為放 Domain Model | Entity 只有欄位；業務邏輯另外拉一個物件裝 |
-| 行為住在它操作的資料旁邊 | 沒有 `private static`、沒有 `XxxHelper` 雜物櫃 |
-| model 內沒有 `static` | 轉換寫在來源身上：`a.toB()` ✅　`B.fromA(a)` ❌ |
-| 介面只抽象行為，不抽象資料 | `IPaymentProxy` ✅　`interface OrderSummary { ... }` ❌，資料一律 class |
-| 介面綁「能力」，不綁「供應商」 | `IMapProxy` ✅　`IGoogleProxy` ❌ |
-| 外部服務一律 `Proxy` 結尾 | 不用 Client / Gateway / Adapter |
-| 一律 Code First | schema 由 code 定義，sync 交給 ORM |
-| 測試只驗業務行為 | mock 只用套件 mock 介面，禁手寫 `FakeDbContext` |
+| `make start` | 啟動 server（`go run ./cmd/server`） |
+| `make build` | 編譯到 `bin/server` |
+| `make test` | 跑全部測試（`go test ./...`） |
+| `make mock` | 重新產生所有 mock（`go generate ./...`） |
+| `go vet ./...` | 靜態檢查 |
 
-規則不是教條。跟專案現實衝突時，**改規則、進 commit**，不要讓程式碼跟文件漂移。
+`mockgen` 已用 Go 1.24+ 的 `tool` 指示詞釘在 `go.mod`，**不需要另外全域安裝**。
 
-## 客製
+## 環境變數
 
-- 不需要的規則直接刪檔，記得同步改 `CLAUDE.md` 的情境對照表與 `.claude/rules/README.md`。
-- 要加規則就開新檔案放進 `.claude/rules/`，並在那兩個地方各補一行。
-- 團隊各自的 workflow（commit 節奏、分支策略）**刻意不放這裡**——因人而異，寫在專案自己的文件。
+讀取於 `cmd/server/config.go`，**全部都有預設值**，`.env` 可整份省略。
+
+| 變數 | 預設值 | 用途 |
+| :--- | :--- | :--- |
+| `SERVER_PORT` | `8080` | HTTP 服務埠號 |
+| `POSTGRES_HOST` | `localhost` | 資料庫主機 |
+| `POSTGRES_PORT` | `5432` | 資料庫埠號 |
+| `POSTGRES_USER` | `postgres` | 資料庫帳號 |
+| `POSTGRES_PASSWORD` | `postgres` | 資料庫密碼 |
+| `POSTGRES_DATABASE` | `go_trading` | 資料庫名稱 |
+| `POSTGRES_SSL_MODE` | `disable` | SSL 模式 |
+
+## API Routes
+
+| Method | Path | 說明 |
+| :--- | :--- | :--- |
+| `GET` | `/health` | 健康檢查，恆回 `200 {"status":"Healthy"}` |
+
+`/health` 刻意**直接寫在路由註冊處**（`cmd/server/dependencies.go`），不經過任何
+application / service 層——它檢查的是行程活著與否，不是業務行為。
+
+## 專案結構
+
+```
+cmd/server/
+├── main.go              進入點：載入設定、開 DB、啟動 Gin
+├── config.go            環境變數讀取與 PostgreSQL DSN 組裝
+└── dependencies.go      組裝根：手動 DI 與路由註冊
+
+internal/
+├── controller/          Gin handler + Request struct
+├── application/         用例編排，呼叫 Domain Service
+│   └── tests/
+├── domain/              核心，不依賴任何其他層
+│   ├── models/
+│   │   ├── entities/    乾淨的 Data Model（只有欄位與 ORM 標註）
+│   │   ├── domains/     Domain Model：業務行為所在地
+│   │   ├── dto/         domain 對 application 的回傳形狀
+│   │   └── vo/          不可變、無行為的值物件
+│   ├── service/         Domain Service：application 的唯一入口
+│   └── interface/       repository / proxy 介面，一介面一檔
+│       └── mocks/       mockgen 產生的 mock
+└── infrastructure/
+    └── persistence/     GORM 連線與 repository 實作
+```
+
+依賴方向一律指向 `domain/`；`domain/` 不認識 HTTP、GORM 或任何 SDK。
+
+## 新增資料表（Code First）
+
+1. 在 `internal/domain/models/entities/` 定義 entity struct。
+2. 到 `internal/infrastructure/persistence/database.go` 的 `AutoMigrate(...)` 補上它。
+3. 重啟服務，GORM 自動同步 schema。
+
+**不手寫 SQL 字串、不手寫 DDL、不從既有 DB 反向產生模型。**
+
+## 新增可 mock 的介面
+
+介面放 `internal/domain/interface/`，一介面一檔，並在檔內加上 generate 指示詞：
+
+```go
+package _interface
+
+//go:generate go tool mockgen -source=i_stock_proxy.go -destination=mocks/mock_i_stock_proxy.go -package=mocks
+
+type IStockProxy interface {
+	Fetch(symbol string) (StockQuote, error)
+}
+```
+
+接著 `make mock`，測試裡就能用：
+
+```go
+controller := gomock.NewController(t)
+stockProxy := mocks.NewMockIStockProxy(controller)
+stockProxy.EXPECT().Fetch("2330").Return(quote, nil)
+```
+
+## 開發規範
+
+架構、命名、測試、風格規範全部寫在 [`.claude/rules/`](.claude/rules/)，
+入口是 [`CLAUDE.md`](CLAUDE.md)（情境 → 該讀哪一份規則）。
+
+動工前至少讀這兩份：
+
+- [architecture.md](.claude/rules/architecture.md) — 東西該放哪一層
+- [naming.md](.claude/rules/naming.md) — 東西該叫什麼名字
+
+commit 前請自行跑過：
+
+```bash
+go build ./... && go vet ./... && go test ./...
+```
+
+commit 訊息一律 **English Conventional Commits**。
