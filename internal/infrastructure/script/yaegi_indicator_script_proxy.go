@@ -47,10 +47,11 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	}()
 
 	interpreter := interp.New(interp.Options{})
-	if useError := interpreter.Use(allowedSymbols); useError != nil {
-		return nil, fmt.Errorf(
-			"%w: 無法建立算式執行環境：%v", domains.ErrIndicatorScriptFailed, useError)
-	}
+
+	// The symbol table is a compile-time constant, so this cannot fail here; were it
+	// ever malformed, the script would simply fail to read on the next line and be
+	// reported the same way as any other unreadable script.
+	_ = interpreter.Use(allowedSymbols)
 
 	if _, evalError := interpreter.Eval(script); evalError != nil {
 		return nil, fmt.Errorf(

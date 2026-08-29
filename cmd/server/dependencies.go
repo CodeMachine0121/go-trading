@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -19,10 +20,12 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})
 	})
 
+	kCandleRepository := persistence.NewKCandleRepository(database)
+
 	kCandleController := controller.NewKCandleController(
 		application.NewKCandleApplication(
 			service.NewKCandleService(
-				persistence.NewKCandleRepository(database),
+				kCandleRepository,
 				clock.NewSystemClockProxy(),
 				applicationConfig.KCandleQueryMaxResults,
 			),
@@ -34,4 +37,16 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
+
+	indicatorCalculationController := controller.NewIndicatorCalculationController(
+		application.NewIndicatorCalculationApplication(
+			service.NewIndicatorCalculationService(
+				kCandleRepository,
+				script.NewYaegiIndicatorScriptProxy(),
+				applicationConfig.KCandleQueryMaxResults,
+			),
+		),
+	)
+
+	engine.POST("/indicator-calculations", indicatorCalculationController.CalculateIndicator)
 }
