@@ -40,7 +40,7 @@
 | `internal/application/indicator_calculation_application.go` | **Add** | 用例編排 |
 | `internal/controller/indicator_calculation_controller.go` | **Add** | 請求解析與狀態碼對映 |
 | **資料庫 schema** | **Not touched** | 指標結果不留存，**不新增任何資料表**；`schema_migrator.go` 與 migrate 指令完全不動 |
-| **設定** | **Not touched** | 單次最大根數**沿用** `KCANDLE_QUERY_MAX_RESULTS`，不新增環境變數 |
+| `internal/config/application_config.go` | **Modify** | 新增 `INDICATOR_SCRIPT_TIMEOUT_SECONDS`（預設 `40`）。單次最大根數仍**沿用** `KCANDLE_QUERY_MAX_RESULTS` |
 | `KCandleService` / `KCandleApplication` / `KCandleController` | **Not touched** | 指標計算直接依賴 `IKCandleRepository`，不跨 domain service 呼叫 |
 | `/health`、`cmd/migrate` | **Not touched** | 與本功能無關 |
 
@@ -53,7 +53,7 @@
 | `IndicatorCalculationDomain` | Domain Model | 保護**一次計算請求自身的不變量**：計算根數大於零、不超過單次可用的最大根數。並持有本功能最核心的兩條取用規則：**排除最新一根**、**可用根數是否足夠**（不足時報出實際可用幾根） | `KCandle`、`KCandleVo` | US-01 前三個；US-02 全部六個 |
 | `KCandleVo` | VO | 算式看得到的 K 線形狀：交易標的、起始時間（Unix 秒數）與八個一般數字。不可變、無行為 | — | US-01 全部 |
 | `IIndicatorScriptProxy` | Interface | **執行一段指標算式**並收回一組「名稱 → 數字」。以能力命名，不綁任何引擎 | — | US-01 後四個；US-03 全部三個 |
-| `YaegiIndicatorScriptProxy` | Proxy | 以 yaegi 實作上述契約。負責：把 `KCandleVo` 型別匯出給算式、**只開放白名單運算**、取出算式入口並呼叫、把 panic 與型別不符一律轉成可讀的錯誤 | `KCandleVo` | 同上 |
+| `YaegiIndicatorScriptProxy` | Proxy | 以 yaegi 實作上述契約。負責：把 `KCandleVo` 型別與該次輸入匯出給算式、**只開放白名單運算**、檢查算式入口的形式、**在允許時間內透過直譯器呼叫入口**、把每一種失敗轉成可讀的錯誤 | `KCandleVo` | 同上、逾時情境 |
 | `IndicatorCalculationService` | Domain Service | 唯一入口 `CalculateIndicator`：建構請求 domain model（驗根數）→ 取最新 `根數+1` 根 → 交由 domain model 排除最新一根並檢查足量 → 交給 proxy 執行 → 轉成 DTO | `IKCandleRepository`、`IIndicatorScriptProxy`、`IndicatorCalculationDomain` | 全部 16 個 |
 | `IndicatorCalculationApplication` | Application | 用例編排。單一方法，一次呼叫 service，回傳 DTO | `IndicatorCalculationService` | 全部 |
 | `IndicatorCalculationController` | Controller | 解析請求內文成 DTO；依哨兵錯誤對映狀態碼 | `IndicatorCalculationApplication` | 全部 |
@@ -172,12 +172,13 @@ flowchart TD
 - **Do not hardcode:**
   - **單次最大根數**——一律取自設定，不得在 service 或 domain model 寫死。
   - **排除的根數（目前為 1）**——只能出現在 `IndicatorCalculationDomain` 裡的那一個常數。
-  - **白名單**——算式可用的運算只能在 `YaegiIndicatorScriptProxy` 一處定義，
-    不得散落；新增可用運算就是往那份白名單加一筆。
+  - **白名單**——算式可用的運算只能在 `YaegiIndicatorScriptProxy` 的 `allowedPackages`
+    一處定義，不得散落；新增可用運算就是往那份白名單加一筆。
+  - **允許時間**——一律由建構子注入，取自設定；不得寫死在 proxy 內。
 
 - **Known debt / deferred:**
-  - **沒有執行時間上限**（使用者明確選擇）。一支算不完的算式會佔住該次請求不放。
-    **該重看的訊號**：第一次因為算式卡住而必須重啟服務。
+  - **允許時間為單一數值，所有算式共用。** 重的指標與輕的指標吃同一個上限。
+    **該重看的訊號**：出現正常算式被誤砍，或需要為特定指標放寬時間。
   - **逐根數列輸出沒有預留縫。** 要畫線就得改 `IIndicatorScriptProxy` 的回傳型別。
     現在不預留，因為 PRD 明列為 Out of Scope，先做等於臆測。
     **該重看的訊號**：出現第一個「我要畫這條指標線」的需求。
@@ -207,6 +208,7 @@ flowchart TD
 | **US-03** 算式寫得不完整而無法解讀 | `YaegiIndicatorScriptProxy`（解讀失敗）→ `ErrIndicatorScriptFailed` |
 | **US-03** 算式在計算過程中失敗 | `YaegiIndicatorScriptProxy`（攔截執行期中斷）→ `ErrIndicatorScriptFailed`，不回任何部分結果 |
 | **US-03** 算式試圖取用 K 線以外的資料 | `YaegiIndicatorScriptProxy`（白名單未開放該項，解讀階段即失敗）→ `ErrIndicatorScriptFailed` |
+| **US-03** 算式永遠算不完 | `YaegiIndicatorScriptProxy`（在允許時間內透過直譯器呼叫入口，逾時即中止）→ `ErrIndicatorScriptFailed` |
 
 ---
 
@@ -216,8 +218,9 @@ flowchart TD
 
 - **yaegi 不是安全沙箱。** 防護完全靠「只開放白名單」。這是本設計最脆弱的一點，
   可接受的唯一理由是自架、僅本人使用、未對外開放。
-- **沒有執行時間上限。** 使用者明確選擇。單次最大根數是唯一的緩衝，擋得住大量資料，
-  擋不住無窮迴圈。
+- **允許時間靠直譯器實作。** 算式入口是**透過直譯器呼叫**（而非取出型別化函式直接呼叫），
+  因為只有前者能在時間到時真正停下一段永不結束的運算。實測：一支無窮迴圈在允許時間到達後
+  即中止，且不留下持續執行的東西。代價是失敗訊息由直譯器產生，措辭不完全在我們掌握中。
 - **算式的時間欄位是 Unix 秒數而非時間型別。** 這是為了**不開放時間套件**——
   開放了就等於開放取得當下時間，會直接打破「同一批 K 線跑兩次結果必須相同」。
   代價是算式裡處理時間比較不直觀。
@@ -230,7 +233,6 @@ flowchart TD
 
 **Open decisions（留給實作階段解決）**
 
-- 白名單除了數學運算，是否要開放排序與切片處理（許多指標需要排序求中位數）。
 - 算式的入口名稱是否固定為 `Calculate`，或允許使用者指定。
 - 是否需要限制算式本身的長度。
 - 交易標的為空字串時的處理：沿用 K 線既有的「必須指定交易標的」規則，或視為查無資料而回可用 0 根。
