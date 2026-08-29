@@ -5,26 +5,10 @@ import (
 	"net/http"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/gin-gonic/gin"
 )
-
-// IndicatorCalculationRequest is the body a caller sends to run an indicator script.
-type IndicatorCalculationRequest struct {
-	Symbol      string `json:"symbol"`
-	CandleCount int    `json:"candleCount"`
-	Script      string `json:"script"`
-}
-
-// ToRequestDto turns the request into the shape the domain accepts.
-func (indicatorCalculationRequest IndicatorCalculationRequest) ToRequestDto() dto.IndicatorCalculationRequestDto {
-	return dto.IndicatorCalculationRequestDto{
-		Symbol:      indicatorCalculationRequest.Symbol,
-		CandleCount: indicatorCalculationRequest.CandleCount,
-		Script:      indicatorCalculationRequest.Script,
-	}
-}
 
 // IndicatorCalculationController exposes the indicator calculation use case over HTTP.
 type IndicatorCalculationController struct {
@@ -43,7 +27,7 @@ func NewIndicatorCalculationController(
 func (indicatorCalculationController *IndicatorCalculationController) CalculateIndicator(
 	context *gin.Context,
 ) {
-	var indicatorCalculationRequest IndicatorCalculationRequest
+	var indicatorCalculationRequest models.IndicatorCalculationRequest
 
 	if bindError := context.ShouldBindJSON(&indicatorCalculationRequest); bindError != nil {
 		context.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})

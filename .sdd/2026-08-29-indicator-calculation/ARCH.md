@@ -59,7 +59,7 @@
 | `IndicatorCalculationController` | Controller | 解析請求內文成 DTO；依哨兵錯誤對映狀態碼 | `IndicatorCalculationApplication` | 全部 |
 | `IndicatorCalculationRequestDto` | DTO | 進 domain 的形狀：交易標的、計算根數、指標算式 | — | 全部 |
 | `IndicatorCalculationResultDto` | DTO | 出 domain 的形狀：交易標的、實際使用根數、一組「名稱 → 數字」 | — | US-01 後四個 |
-| `IndicatorCalculationRequest` | Request | 端點接收的 JSON 內文，宣告於 controller 同檔 | — | 全部 |
+| `IndicatorCalculationRequest` | Request | 端點接收的 JSON 內文，宣告於 `internal/controller/models/` | — | 全部 |
 | `ErrIndicatorCalculationValidation` / `ErrIndicatorScriptFailed` | 哨兵錯誤 | 前者＝**請求本身不對**（根數、可用根數）；後者＝**算式跑不動**（無法解讀、執行失敗、越權）。宣告於 `domains` 套件，與 K 線的哨兵錯誤同址（domain model 需回傳它們，放 service 會造成循環相依） | — | US-02、US-03 |
 
 **刻意不建立的類別**

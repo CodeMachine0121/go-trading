@@ -61,7 +61,7 @@
 | `KCandleDto` | DTO | domain 回傳給 application 的唯一形狀（含交易標的、起始時間與八個價量數字） | — | 全部讀取類情境 |
 | `KCandleWriteDto` | DTO | 新增與修改的輸入形狀 | — | US-02、US-04 |
 | `KCandleQueryDto` | DTO | 區間查詢的輸入形狀（交易標的、起訖時間） | — | US-01 |
-| `KCandleRequest` | Request | 端點接收的 JSON 內文形狀，宣告於 controller 同檔 | — | US-02、US-04 |
+| `KCandleRequest` | Request | 端點接收的 JSON 內文形狀，宣告於 `internal/controller/models/` | — | US-02、US-04 |
 
 **Depth check（deep-module 診斷）**
 
