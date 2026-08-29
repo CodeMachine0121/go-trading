@@ -2,8 +2,8 @@
 
 以 **Go + Gin** 打造的交易服務後端 REST API。
 
-目前是**專案骨架**階段：分層資料夾、資料庫連線、設定讀取與健康檢查端點已就緒，
-尚未實作任何業務功能。
+目前是**早期階段**：分層資料夾、資料庫連線、設定讀取與健康檢查端點已就緒，
+並落地第一個 entity `KCandle`（K 線）。
 
 ## Tech Stack
 
@@ -13,6 +13,7 @@
 | Web 框架 | [Gin](https://github.com/gin-gonic/gin) |
 | ORM | [GORM](https://gorm.io)（Code First，`AutoMigrate` 同步 schema） |
 | 資料庫 | PostgreSQL |
+| 數值處理 | [shopspring/decimal](https://github.com/shopspring/decimal)（價格與量值一律精確小數，禁用 float） |
 | 設定 | 環境變數 + [godotenv](https://github.com/joho/godotenv)（`.env`） |
 | 測試 | `testing` + [uber-go/mock](https://github.com/uber-go/mock)（gomock） |
 | 架構 | Clean / Onion Architecture |
