@@ -67,6 +67,12 @@ curl localhost:8080/health
 | `SERVER_PORT` | `8080` | HTTP 服務埠號 |
 | `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值 |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
+| `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
+| `KCANDLE_INGESTION_SYMBOLS` | 空 | 觀察清單，逗號分隔（如 `BTCUSDT,ETHUSDT`）。啟動時讀一次，執行中不變；空清單等同關閉自動抓取 |
+| `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `5` | 每輪針對單一交易標的取回幾根已收完的 K 線 |
+| `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
+| `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 行情來源位址 |
+| `MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向行情來源請求的逾時 |
 | `POSTGRES_HOST` | `localhost` | 資料庫主機 |
 | `POSTGRES_PORT` | `5432` | 資料庫埠號 |
 | `POSTGRES_USER` | `postgres` | 資料庫帳號 |
@@ -117,6 +123,8 @@ cmd/
 internal/
 ├── config/              環境變數讀取與 PostgreSQL DSN 組裝
 ├── controller/          Gin handler + Request struct
+├── job/                 背景工作：一工作一檔，統一由 BackgroundJobManager 啟動
+│   └── tests/
 ├── application/         用例編排，呼叫 Domain Service
 │   └── tests/
 ├── domain/              核心，不依賴任何其他層
@@ -130,6 +138,7 @@ internal/
 │       └── mocks/       mockgen 產生的 mock
 └── infrastructure/
     ├── clock/           系統時鐘（讓「不得指向未來」這條規則可被測試）
+    ├── marketdata/      行情來源的呼叫與電報格式正規化
     ├── persistence/     GORM 連線、schema migrator 與 repository 實作
     └── script/          指標算式的執行環境（內嵌直譯器與白名單）
 ```
@@ -220,6 +229,62 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 **算不完會被砍掉。** 超過 `INDICATOR_SCRIPT_TIMEOUT_SECONDS`（預設 40 秒）即中止，
 回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。
+
+## K 線自動抓取
+
+設定 `KCANDLE_INGESTION_SYMBOLS` 之後，系統會自己把 K 線抓回來，不必手動餵。
+
+**啟動時**先回補：每個交易標的從「最後一根的下一根」補到現在，最多往回
+`KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` 小時。**回補全部跑完**才開始定時抓取——
+兩邊同時跑會互相覆蓋同一根。
+
+**之後每五分鐘**一輪，每輪取回最近 `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` 根**已收完**的
+K 線。取多於一根有兩個用處：吸收行情來源事後修正的數字，以及自動補回上一輪失敗漏掉的。
+重複的一律覆蓋，不會產生第二根。
+
+**間隔沒有設定值**，固定五分鐘。它跟 K 線本身的長度綁在一起，設成別的值會有 K 線永遠抓不到。
+要停掉只有兩條路：`BACKGROUND_JOBS_ENABLED=false`，或觀察清單留空。
+
+幾條刻意的行為：
+
+- **進行中那一根不存。** 它的數字還會變，而且指標計算本來就排除最新一根。
+- **各交易標的彼此獨立。** 一個取不到資料不影響其他，也不用人管——五分鐘後下一輪自然重試。
+- **違反 K 線規則的逐根跳過。** 同一批其他合規的照常存入，並留下紀錄指出是哪一根、哪條規則。
+- **只在出事時留紀錄。** 正常的輪次不寫任何東西。
+
+換行情來源就是實作 `IMarketDataProxy` 再改組裝根一行，其餘一律不動。
+
+## Postman
+
+`postman/` 底下有一份完整的 collection 與一份本機環境檔。
+
+```
+postman/go-trading.postman_collection.json
+postman/go-trading.postman_environment.json
+```
+
+**可以整包按順序跑**（Postman Runner 或 Newman）：
+
+```bash
+newman run postman/go-trading.postman_collection.json \
+       -e postman/go-trading.postman_environment.json
+```
+
+四個資料夾：健康檢查、K 線、指標計算、收尾。31 個請求、45 條斷言，
+含成功路徑與每一種被拒絕的情形（`400` / `404` / `422`）。
+
+**兩個設計上的選擇：**
+
+- **時間在執行當下算出來。** 所有起始時間由 collection 的 pre-request script
+  對齊到五分鐘刻度、且一定落在過去，所以不會有寫死的日期過期。
+- **CRUD 一律用 `TESTONLY` 這個交易標的**，刻意避開自動抓取的觀察清單，
+  測試資料不會跟真實行情互相干擾。收尾資料夾會清掉自己建立的東西，
+  所以整包可以重複跑。
+
+**新增或修改路由時，這份 collection 要同步更新。**
+
+> 自動抓取**沒有任何端點**，這是刻意的——它是背景工作，只由環境變數控制，
+> 觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。
 
 ## 資料庫測試
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"github.com/CodeMachine0121/go-trading/internal/job"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -23,6 +24,9 @@ func main() {
 
 	engine := gin.Default()
 	registerRoutes(engine, database, applicationConfig)
+
+	// Started before the server takes over the goroutine: Run never returns.
+	job.NewBackgroundJobManager(backgroundJobsFor(database, applicationConfig)).StartAll()
 
 	if runError := engine.Run(":" + applicationConfig.ServerPort); runError != nil {
 		log.Fatalf("failed to start server: %v", runError)

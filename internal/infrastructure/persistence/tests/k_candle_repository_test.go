@@ -323,3 +323,27 @@ func TestFindLatest(t *testing.T) {
 		})
 	}
 }
+
+func TestSavingABatchOverwritesWhatIsHeldAndAddsWhatIsNotWithoutDuplicating(t *testing.T) {
+	database := newTestDatabase(t)
+	kCandleRepository := persistence.NewKCandleRepository(database)
+	for _, openTime := range []time.Time{at(8, 50), at(8, 55), at(9, 0)} {
+		_, saveError := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "100"))
+		require.NoError(t, saveError)
+	}
+
+	batch := []time.Time{at(8, 50), at(8, 55), at(9, 0), at(9, 5), at(9, 10)}
+	for _, openTime := range batch {
+		_, saveError := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "120"))
+		require.NoError(t, saveError)
+	}
+
+	stored, findError := kCandleRepository.FindInRange(queryFor(t, "BTCUSDT", at(8, 50), at(9, 10)), 100)
+	require.NoError(t, findError)
+	storedOpenTimes := make([]time.Time, 0, len(stored))
+	for _, kCandle := range stored {
+		storedOpenTimes = append(storedOpenTimes, kCandle.OpenTime.UTC())
+		assert.Equal(t, "120", kCandle.Close.String())
+	}
+	assert.Equal(t, batch, storedOpenTimes)
+}
