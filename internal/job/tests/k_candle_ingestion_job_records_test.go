@@ -73,9 +73,22 @@ func brokenKCandle(openTime time.Time) vo.MarketKCandleVo {
 }
 
 // startJobWith wires the real ingestion path around the given source behaviour and
-// starts the job, which begins with its backfill.
+// starts the job, which begins with its backfill. The interval is long enough that
+// only the backfill happens unless a test asks for a shorter one.
 func startJobWith(
 	t *testing.T,
+	roundCandleCount int,
+	fetch func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error),
+) {
+	t.Helper()
+
+	startJobEvery(t, time.Hour, roundCandleCount, fetch)
+}
+
+// startJobEvery is the same, with the interval between rounds under the test's control.
+func startJobEvery(
+	t *testing.T,
+	interval time.Duration,
 	roundCandleCount int,
 	fetch func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error),
 ) {
@@ -95,7 +108,7 @@ func startJobWith(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
 				kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback)),
-		[]string{"BTCUSDT"}, time.Hour)
+		[]string{"BTCUSDT"}, interval)
 	t.Cleanup(ingestionJob.Stop)
 	ingestionJob.Start()
 }
@@ -135,4 +148,54 @@ func TestTheJobRecordsARunThatCouldNotHappenAtAll(t *testing.T) {
 	})
 
 	assert.Contains(t, recorded.waitFor(t, "did not run"), "startup backfill")
+}
+
+func TestRoundsKeepComingAfterAWholeRoundFails(t *testing.T) {
+	recorded := captureRecords(t)
+
+	startJobEvery(t, 20*time.Millisecond, roundCandleCount,
+		func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			return nil, errors.New("market source unreachable")
+		})
+
+	// The backfill fails, then a round fails, and the round after that still happens:
+	// nothing about a failed round stops the next one.
+	recorded.waitFor(t, "startup backfill got no answer")
+	recorded.waitFor(t, "scheduled round got no answer")
+	assert.Contains(t, recorded.waitFor(t, "scheduled round got no answer"), "BTCUSDT")
+}
+
+func soundKCandle(openTime time.Time) vo.MarketKCandleVo {
+	marketKCandle := brokenKCandle(openTime)
+	marketKCandle.High = decimal.RequireFromString("120")
+	marketKCandle.Low = decimal.RequireFromString("90")
+
+	return marketKCandle
+}
+
+func TestARoundWithNothingWrongRecordsNothing(t *testing.T) {
+	recorded := captureRecords(t)
+	fetched := make(chan struct{}, 64)
+
+	startJobEvery(t, 20*time.Millisecond, roundCandleCount,
+		func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			fetched <- struct{}{}
+			return []vo.MarketKCandleVo{soundKCandle(scheduledWindowStart)}, nil
+		})
+
+	// Two trips to the source: the backfill, then a round. Both went cleanly.
+	waitForFetch(t, fetched)
+	waitForFetch(t, fetched)
+
+	assert.Empty(t, recorded.lines)
+}
+
+func waitForFetch(t *testing.T, fetched chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-fetched:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the job never reached the market source")
+	}
 }
