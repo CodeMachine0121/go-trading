@@ -39,6 +39,13 @@ func NewKCandleIngestionDomain(
 	}, nil
 }
 
+// CurrentTime is the moment every ingestion rule is judged against. It is handed
+// out so that a caller applying the K candle rules to a fetched candle judges
+// "in the future" against the same moment the window was built from.
+func (kCandleIngestionDomain KCandleIngestionDomain) CurrentTime() time.Time {
+	return kCandleIngestionDomain.currentTime
+}
+
 // LatestClosedOpenTime is the open time of the newest K candle whose interval has
 // fully elapsed. The one after it is still running, so its figures would still move.
 func (kCandleIngestionDomain KCandleIngestionDomain) LatestClosedOpenTime() time.Time {
