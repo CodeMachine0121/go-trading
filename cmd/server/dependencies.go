@@ -6,10 +6,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
+	"github.com/CodeMachine0121/go-trading/internal/job"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -49,4 +52,35 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 	)
 
 	engine.POST("/indicator-calculations", indicatorCalculationController.CalculateIndicator)
+}
+
+// backgroundJobsFor assembles the work the system does on its own. Switching
+// background jobs off leaves nothing to start; the ingestion job itself decides what
+// an empty watchlist means, which is nothing to fetch.
+func backgroundJobsFor(
+	database *gorm.DB,
+	applicationConfig config.ApplicationConfig,
+) []domaininterface.IBackgroundJob {
+	if !applicationConfig.BackgroundJobsEnabled {
+		return []domaininterface.IBackgroundJob{}
+	}
+
+	kCandleIngestionJob := job.NewKCandleIngestionJob(
+		application.NewKCandleIngestionApplication(
+			service.NewKCandleIngestionService(
+				persistence.NewKCandleRepository(database),
+				marketdata.NewBinanceMarketDataProxy(
+					applicationConfig.Ingestion.MarketDataBaseUrl,
+					applicationConfig.Ingestion.MarketDataRequestTimeout,
+				),
+				clock.NewSystemClockProxy(),
+				applicationConfig.Ingestion.RoundCandleCount,
+				applicationConfig.Ingestion.BackfillLookback,
+			),
+		),
+		applicationConfig.Ingestion.Symbols,
+		job.KCandleIngestionInterval,
+	)
+
+	return []domaininterface.IBackgroundJob{kCandleIngestionJob}
 }
