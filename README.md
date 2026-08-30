@@ -254,6 +254,38 @@ K 線。取多於一根有兩個用處：吸收行情來源事後修正的數字
 
 換行情來源就是實作 `IMarketDataProxy` 再改組裝根一行，其餘一律不動。
 
+## Postman
+
+`postman/` 底下有一份完整的 collection 與一份本機環境檔。
+
+```
+postman/go-trading.postman_collection.json
+postman/go-trading.postman_environment.json
+```
+
+**可以整包按順序跑**（Postman Runner 或 Newman）：
+
+```bash
+newman run postman/go-trading.postman_collection.json \
+       -e postman/go-trading.postman_environment.json
+```
+
+四個資料夾：健康檢查、K 線、指標計算、收尾。31 個請求、45 條斷言，
+含成功路徑與每一種被拒絕的情形（`400` / `404` / `422`）。
+
+**兩個設計上的選擇：**
+
+- **時間在執行當下算出來。** 所有起始時間由 collection 的 pre-request script
+  對齊到五分鐘刻度、且一定落在過去，所以不會有寫死的日期過期。
+- **CRUD 一律用 `TESTONLY` 這個交易標的**，刻意避開自動抓取的觀察清單，
+  測試資料不會跟真實行情互相干擾。收尾資料夾會清掉自己建立的東西，
+  所以整包可以重複跑。
+
+**新增或修改路由時，這份 collection 要同步更新。**
+
+> 自動抓取**沒有任何端點**，這是刻意的——它是背景工作，只由環境變數控制，
+> 觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。
+
 ## 資料庫測試
 
 `internal/infrastructure/persistence/tests/` 直接對真實的 PostgreSQL 驗證覆蓋語意、

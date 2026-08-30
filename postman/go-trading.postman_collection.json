@@ -1,0 +1,1332 @@
+{
+  "info": {
+    "name": "go-trading",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊五分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "symbol",
+      "value": "TESTONLY"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// 所有時間都在執行當下算出來：對齊五分鐘刻度，且一定落在過去。",
+          "const FIVE_MINUTES = 5 * 60 * 1000;",
+          "const asRfc3339 = (date) => date.toISOString().replace(/\\.\\d{3}Z$/, 'Z');",
+          "",
+          "// 往回退兩根，確保用到的每一根都已經收完。",
+          "const latestClosed = new Date(Math.floor(Date.now() / FIVE_MINUTES) * FIVE_MINUTES - 2 * FIVE_MINUTES);",
+          "",
+          "pm.collectionVariables.set('openTime', asRfc3339(latestClosed));",
+          "pm.collectionVariables.set('rangeStart', asRfc3339(new Date(latestClosed.getTime() - 60 * 60 * 1000)));",
+          "pm.collectionVariables.set('rangeEnd', asRfc3339(latestClosed));",
+          "",
+          "// 不在五分鐘刻度上，用來驗證系統會拒絕。",
+          "pm.collectionVariables.set('offTickTime', asRfc3339(new Date(latestClosed.getTime() + 3 * 60 * 1000)));",
+          "",
+          "// 從未建立過的一根，用來驗證找不到的回應。",
+          "pm.collectionVariables.set('unknownOpenTime', asRfc3339(new Date(latestClosed.getTime() - 30 * 24 * 60 * 60 * 1000)));",
+          "",
+          "// 指標計算需要連續的五根：排除最新一根之後才剩四根可用。",
+          "for (let index = 1; index <= 5; index += 1) {",
+          "    const seeded = new Date(latestClosed.getTime() - (5 - index) * FIVE_MINUTES);",
+          "    pm.collectionVariables.set('seedTime' + index, asRfc3339(seeded));",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "健康檢查",
+      "item": [
+        {
+          "name": "服務活著嗎",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回報 Healthy\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"Healthy\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "K 線",
+      "description": "K 線的新增、查詢、修改、刪除。一根固定涵蓋五分鐘，以「交易標的 + 起始時間」唯一辨識，一律使用世界標準時間。",
+      "item": [
+        {
+          "name": "新增一根 K 線",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "description": "同一個交易標的在同一個起始時間上只會有一根。重複送出會**覆蓋**，不會變成兩根。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"存回來的就是送出去的那一根\", function () {",
+                  "    const stored = pm.response.json();",
+                  "    pm.expect(stored.symbol).to.eql(pm.collectionVariables.get(\"symbol\"));",
+                  "    pm.expect(stored.openTime).to.eql(pm.collectionVariables.get(\"openTime\"));",
+                  "    pm.expect(stored.close).to.eql(\"110\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重送同一根會覆蓋，不會多一根",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "description": "後到的行情通常比較準，所以是覆蓋而不是拒絕。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"130\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"收盤價被新的蓋掉\", function () {",
+                  "    pm.expect(pm.response.json().close).to.eql(\"130\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀取指名的那一根",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"拿到的是剛剛覆蓋後的值\", function () {",
+                  "    pm.expect(pm.response.json().close).to.eql(\"130\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查詢一段區間",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{rangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeEnd}}"
+                }
+              ]
+            },
+            "description": "起訖**兩端都包含在內**，起訖本身不必落在五分鐘刻度上。結果依起始時間由早到晚排列。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"由早到晚排列\", function () {",
+                  "    const candles = pm.response.json();",
+                  "    const openTimes = candles.map((candle) => candle.openTime);",
+                  "    pm.expect(openTimes).to.eql(openTimes.slice().sort());",
+                  "});",
+                  "pm.test(\"剛剛那一根在裡面\", function () {",
+                  "    const openTimes = pm.response.json().map((candle) => candle.openTime);",
+                  "    pm.expect(openTimes).to.include(pm.collectionVariables.get(\"openTime\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "修改那一根的數字",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            },
+            "description": "只能改價量。交易標的與起始時間由網址指名，body 帶了就必須一致。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"150\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"收盤價改成 150\", function () {",
+                  "    pm.expect(pm.response.json().close).to.eql(\"150\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪除那一根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪掉之後就找不到了",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：起始時間不在五分鐘刻度上",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{offTickTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明是哪條規則\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"分鐘刻度上\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：最高價低於最低價",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"90\",\n  \"low\": \"100\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明是哪條規則\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"最高價不得低於最低價\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：結束時間早於開始時間",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles?symbol={{symbol}}&startTime={{rangeEnd}}&endTime={{rangeStart}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{rangeEnd}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeStart}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：查詢未指定交易標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles?startTime={{rangeStart}}&endTime={{rangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ],
+              "query": [
+                {
+                  "key": "startTime",
+                  "value": "{{rangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeEnd}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：修改時試圖更換起始時間",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{unknownOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{unknownOpenTime}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明不得更換身分\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"不得更換\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀取從未建立過的一根",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{unknownOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{unknownOpenTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：刪除從未建立過的一根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{unknownOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{unknownOpenTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "指標計算",
+      "description": "送出交易標的、要用幾根 K 線、以及一段算式，拿回一組「指標名稱 → 數字」。結果不留存。",
+      "item": [
+        {
+          "name": "準備第 1 根",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{seedTime1}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"110\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "準備第 2 根",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{seedTime2}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"120\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "準備第 3 根",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{seedTime3}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"130\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "準備第 4 根",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{seedTime4}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"140\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "準備第 5 根",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{seedTime5}}\",\n  \"open\": \"100\",\n  \"high\": \"120\",\n  \"low\": \"90\",\n  \"close\": \"150\",\n  \"volume\": \"11\",\n  \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\",\n  \"takerBuyQuoteVolume\": \"600\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "算一條移動平均",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**最新一根一律被排除**，因為它涵蓋的五分鐘還沒走完——要 4 根就會撈 5 根丟掉最新的。\n所以上面才要先準備 5 根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"用了 4 根\", function () {",
+                  "    pm.expect(pm.response.json().usedCandleCount).to.eql(4);",
+                  "});",
+                  "pm.test(\"算出前四根收盤價的平均 125\", function () {",
+                  "    // 準備的五根收盤價為 110/120/130/140/150，排除最新的 150 之後平均為 125。",
+                  "    pm.expect(pm.response.json().values.movingAverage).to.eql(125);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "算式可以一次回多個指標",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\thighest := data[0].High\\n\\tlowest := data[0].Low\\n\\tfor _, candle := range data {\\n\\t\\tif candle.High > highest {\\n\\t\\t\\thighest = candle.High\\n\\t\\t}\\n\\t\\tif candle.Low < lowest {\\n\\t\\t\\tlowest = candle.Low\\n\\t\\t}\\n\\t}\\n\\treturn map[string]float64{\\\"highest\\\": highest, \\\"lowest\\\": lowest}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"兩個指標都回來了\", function () {",
+                  "    const values = pm.response.json().values;",
+                  "    pm.expect(values).to.have.property(\"highest\");",
+                  "    pm.expect(values).to.have.property(\"lowest\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：計算根數不大於零",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "`400` 代表**你送的參數不對**。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 0,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：可用根數不足",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 999,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"告訴我實際可用幾根\", function () {",
+                  "    pm.expect(pm.response.json().message).to.match(/\\d/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：算式無法解讀",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "`422` 代表**參數沒問題，但你的算式跑不動**。跟 `400` 分開，就是為了讓呼叫端不必讀訊息也分得出來。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"script\": \"package main\\nfunc Calculate(\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 422\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：算式試圖碰不該碰的東西",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "白名單沒開放 `os`，所以在解讀階段就失敗了。同一批 K 線跑兩次結果必定相同，靠的就是這條。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"script\": \"package main\\nimport (\\n\\t\\\"indicator\\\"\\n\\t\\\"os\\\"\\n)\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"leak\\\": float64(len(os.Args))}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 422\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "收尾",
+      "description": "把上面準備的測試資料清掉，讓整包可以重複跑。",
+      "item": [
+        {
+          "name": "清掉第 1 根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{seedTime1}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{seedTime1}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉第 2 根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{seedTime2}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{seedTime2}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉第 3 根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{seedTime3}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{seedTime3}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉第 4 根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{seedTime4}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{seedTime4}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉第 5 根",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{seedTime5}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{seedTime5}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
