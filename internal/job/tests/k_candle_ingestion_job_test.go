@@ -138,3 +138,7 @@ func drain(events chan string) {
 		}
 	}
 }
+
+func TestTheIntervalBetweenRoundsIsTheLengthOneKCandleCovers(t *testing.T) {
+	assert.Equal(t, 5*time.Minute, job.KCandleIngestionInterval)
+}
