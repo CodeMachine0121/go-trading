@@ -524,3 +524,65 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 	assert.Contains(t, saved.all(), ingestionAt(9, 0, 0))
 	assert.Equal(t, 5, reportFor(t, recoveredReport, "BTCUSDT").StoredCount)
 }
+
+// TestEveryWatchedSymbolIsUnderwayAtOnce holds the difference between "independent"
+// and "at the same time", which the other tests cannot tell apart.
+//
+// The source refuses to answer either symbol until both have arrived. Symbols run
+// one after another would deadlock on the first, so the second never arrives and the
+// test fails on its own deadline rather than hanging the suite.
+func TestEveryWatchedSymbolIsUnderwayAtOnce(t *testing.T) {
+	arrived := make(chan string, 2)
+	release := make(chan struct{})
+
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).
+		DoAndReturn(func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			arrived <- window.Symbol
+			select {
+			case <-release:
+				return []vo.MarketKCandleVo{}, nil
+			case <-time.After(3 * time.Second):
+				return nil, errors.New("waited alone for the other symbol")
+			}
+		}).Times(2)
+
+	finished := make(chan dto.KCandleIngestionReportDto, 1)
+	go func() {
+		report, _ := underTest.service.RunScheduledRound([]string{"BTCUSDT", "ETHUSDT"})
+		finished <- report
+	}()
+
+	firstArrival := waitForArrival(t, arrived)
+	secondArrival := waitForArrival(t, arrived)
+	close(release)
+
+	assert.ElementsMatch(t, []string{"BTCUSDT", "ETHUSDT"}, []string{firstArrival, secondArrival})
+	report := waitForRound(t, finished)
+	assert.Empty(t, reportFor(t, report, "BTCUSDT").FetchFailureReason)
+	assert.Empty(t, reportFor(t, report, "ETHUSDT").FetchFailureReason)
+}
+
+func waitForArrival(t *testing.T, arrived chan string) string {
+	t.Helper()
+
+	select {
+	case symbol := <-arrived:
+		return symbol
+	case <-time.After(2 * time.Second):
+		t.Fatal("only one trading symbol ever reached the market source, so they are not running at once")
+		return ""
+	}
+}
+
+func waitForRound(t *testing.T, finished chan dto.KCandleIngestionReportDto) dto.KCandleIngestionReportDto {
+	t.Helper()
+
+	select {
+	case report := <-finished:
+		return report
+	case <-time.After(2 * time.Second):
+		t.Fatal("the round never finished")
+		return dto.KCandleIngestionReportDto{}
+	}
+}
