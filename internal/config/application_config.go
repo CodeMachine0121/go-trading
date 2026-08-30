@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,11 +31,25 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 	)
 }
 
+// IngestionConfig holds the settings automatic K candle ingestion runs on. The
+// interval between rounds is deliberately absent: it is fixed at the length one K
+// candle covers, so the way to switch ingestion off is BackgroundJobsEnabled or an
+// empty watchlist.
+type IngestionConfig struct {
+	Symbols                  []string
+	RoundCandleCount         int
+	BackfillLookback         time.Duration
+	MarketDataBaseUrl        string
+	MarketDataRequestTimeout time.Duration
+}
+
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
 	KCandleQueryMaxResults int
 	IndicatorScriptTimeout time.Duration
+	BackgroundJobsEnabled  bool
+	Ingestion              IngestionConfig
 	Database               DatabaseConfig
 }
 
@@ -45,6 +60,17 @@ func Load() ApplicationConfig {
 		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
+		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
+		Ingestion: IngestionConfig{
+			Symbols:          commaSeparatedList("KCANDLE_INGESTION_SYMBOLS"),
+			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 5),
+			BackfillLookback: time.Duration(
+				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
+			MarketDataBaseUrl: stringWithDefault(
+				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
+			MarketDataRequestTimeout: time.Duration(
+				positiveIntWithDefault("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),
 			Port:     stringWithDefault("POSTGRES_PORT", "5432"),
@@ -73,4 +99,29 @@ func stringWithDefault(key string, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+// boolWithDefault reads a true or false, falling back to the default when the
+// variable is missing or says something that is neither.
+func boolWithDefault(key string, defaultValue bool) bool {
+	value, parseError := strconv.ParseBool(os.Getenv(key))
+	if parseError != nil {
+		return defaultValue
+	}
+
+	return value
+}
+
+// commaSeparatedList reads a list written as one comma separated line, ignoring
+// surrounding spaces and empty entries. A missing variable is an empty list.
+func commaSeparatedList(key string) []string {
+	entries := make([]string, 0)
+	for _, entry := range strings.Split(os.Getenv(key), ",") {
+		trimmedEntry := strings.TrimSpace(entry)
+		if trimmedEntry != "" {
+			entries = append(entries, trimmedEntry)
+		}
+	}
+
+	return entries
 }
