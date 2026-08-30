@@ -481,3 +481,46 @@ func TestBothUseCasesRefuseToRunOnAnUnusableCandleCount(t *testing.T) {
 		})
 	}
 }
+
+func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
+	mockController := gomock.NewController(t)
+	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+
+	// Time moves on by one candle between the two rounds, so the second round is not
+	// simply asking for the same window again.
+	gomock.InOrder(
+		clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 0)),
+		clockProxy.EXPECT().Now().Return(ingestionAt(9, 12, 0)),
+	)
+	marketDataProxy.EXPECT().
+		FetchKCandles(vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
+		Return(nil, sourceUnreachable)
+	marketDataProxy.EXPECT().
+		FetchKCandles(vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 45, 0), ingestionAt(9, 5, 0))).
+		Return([]vo.MarketKCandleVo{
+			validReportedKCandle(ingestionAt(8, 45, 0)),
+			validReportedKCandle(ingestionAt(8, 50, 0)),
+			validReportedKCandle(ingestionAt(8, 55, 0)),
+			validReportedKCandle(ingestionAt(9, 0, 0)),
+			validReportedKCandle(ingestionAt(9, 5, 0)),
+		}, nil)
+
+	underTest := ingestionUnderTest{
+		service: service.NewKCandleIngestionService(
+			kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback),
+		kCandleRepository: kCandleRepository,
+		marketDataProxy:   marketDataProxy,
+	}
+	saved := underTest.acceptEverySave()
+
+	failedReport, failedError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+	recoveredReport, recoveredError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+
+	require.NoError(t, failedError)
+	require.NoError(t, recoveredError)
+	assert.Equal(t, 0, reportFor(t, failedReport, "BTCUSDT").StoredCount)
+	assert.Contains(t, saved.all(), ingestionAt(9, 0, 0))
+	assert.Equal(t, 5, reportFor(t, recoveredReport, "BTCUSDT").StoredCount)
+}
