@@ -49,10 +49,7 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols() ([]dto.Tr
 		return nil, findHeldError
 	}
 
-	listedSymbols := make(map[string]bool, len(registeredSymbols)+len(heldSymbols))
-	for _, registeredSymbol := range registeredSymbols {
-		listedSymbols[registeredSymbol.Symbol] = true
-	}
+	listedSymbols := tradingSymbolService.namesOf(registeredSymbols)
 	for _, heldSymbol := range heldSymbols {
 		listedSymbols[heldSymbol] = true
 	}
@@ -80,10 +77,7 @@ func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
 		return nil, findError
 	}
 
-	alreadyRegistered := make(map[string]bool, len(registeredSymbols))
-	for _, registeredSymbol := range registeredSymbols {
-		alreadyRegistered[registeredSymbol.Symbol] = true
-	}
+	alreadyRegistered := tradingSymbolService.namesOf(registeredSymbols)
 
 	newcomers := make([]entities.TradingSymbol, 0, len(defaultTradingSymbols))
 	newcomerNames := make([]string, 0, len(defaultTradingSymbols))
@@ -99,4 +93,18 @@ func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
 	}
 
 	return newcomerNames, nil
+}
+
+// namesOf is the set of names those registered symbols carry. Both use cases start
+// by asking "is this name already registered?", and answering it twice would give
+// the two answers a chance to drift apart.
+func (tradingSymbolService *TradingSymbolService) namesOf(
+	registeredSymbols []entities.TradingSymbol,
+) map[string]bool {
+	names := make(map[string]bool, len(registeredSymbols))
+	for _, registeredSymbol := range registeredSymbols {
+		names[registeredSymbol.Symbol] = true
+	}
+
+	return names
 }
