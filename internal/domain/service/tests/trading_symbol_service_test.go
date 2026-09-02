@@ -68,9 +68,11 @@ func TestListTradingSymbols(t *testing.T) {
 			expectedSymbols: []string{"BTCUSDT", "SOLUSDT"},
 		},
 		{
+			// ETHUSDT is registered but holds nothing, while BTCUSDT still holds candles:
+			// only a list that keeps registered-but-empty markets answers with both.
 			name:              "a registered market stays listed after its candles are deleted",
-			registeredSymbols: []string{"ETHUSDT"}, heldSymbols: []string{},
-			expectedSymbols: []string{"ETHUSDT"},
+			registeredSymbols: []string{"ETHUSDT"}, heldSymbols: []string{"BTCUSDT"},
+			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
 		},
 		{
 			name:              "nothing on either side is an empty list",
