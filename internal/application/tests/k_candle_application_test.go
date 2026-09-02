@@ -164,6 +164,22 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 	})
 }
 
+func TestKCandleApplicationListTradingSymbols(t *testing.T) {
+	t.Run("hands back the symbols the system holds candles for", func(t *testing.T) {
+		fixture := newApplicationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindDistinctSymbols().
+			Return([]string{"BTCUSDT", "ETHUSDT"}, nil)
+
+		tradingSymbolDtos, err := fixture.kCandleApplication.ListTradingSymbols()
+
+		assert.NoError(t, err)
+		assert.Equal(t,
+			[]dto.TradingSymbolDto{{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"}},
+			tradingSymbolDtos)
+	})
+}
+
 func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 	t.Run("hands back the named candle", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)

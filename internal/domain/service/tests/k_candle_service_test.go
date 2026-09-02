@@ -333,6 +333,43 @@ func TestGetKCandleSeries(t *testing.T) {
 	})
 }
 
+func TestListTradingSymbols(t *testing.T) {
+	t.Run("hands back every symbol storage named, as it named them", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindDistinctSymbols().
+			Return([]string{"BTCUSDT", "ETHUSDT", "SOLUSDT"}, nil)
+
+		tradingSymbolDtos, err := fixture.kCandleService.ListTradingSymbols()
+
+		assert.NoError(t, err)
+		assert.Equal(t, []dto.TradingSymbolDto{
+			{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"}, {Symbol: "SOLUSDT"},
+		}, tradingSymbolDtos)
+	})
+
+	t.Run("returns an empty list rather than an error when nothing is stored", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindDistinctSymbols().Return([]string{}, nil)
+
+		tradingSymbolDtos, err := fixture.kCandleService.ListTradingSymbols()
+
+		assert.NoError(t, err)
+		assert.Empty(t, tradingSymbolDtos)
+		assert.NotNil(t, tradingSymbolDtos)
+	})
+
+	t.Run("reports a storage failure", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		storageFailure := errors.New("storage unreachable")
+		fixture.kCandleRepository.EXPECT().FindDistinctSymbols().Return(nil, storageFailure)
+
+		_, err := fixture.kCandleService.ListTradingSymbols()
+
+		assert.ErrorIs(t, err, storageFailure)
+	})
+}
+
 func TestSaveKCandle(t *testing.T) {
 	t.Run("stores the candle and returns what was stored", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
