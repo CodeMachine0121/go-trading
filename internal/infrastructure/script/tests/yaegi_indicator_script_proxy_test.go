@@ -22,16 +22,6 @@ func candlesWithClosePrices(closePrices ...float64) []vo.KCandleVo {
 	return kCandleVos
 }
 
-// floatResultType is the kind every calculation had before kinds could be declared:
-// one number per indicator.
-func floatResultType(t *testing.T) domains.IndicatorResultTypeDomain {
-	t.Helper()
-	resultType, err := domains.NewIndicatorResultTypeDomain("float")
-	assert.NoError(t, err)
-
-	return resultType
-}
-
 func resultTypeOf(t *testing.T, declared string) domains.IndicatorResultTypeDomain {
 	t.Helper()
 	resultType, err := domains.NewIndicatorResultTypeDomain(declared)
@@ -62,7 +52,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 func TestExecuteProducesIndicatorValues(t *testing.T) {
 	t.Run("produces a single named value", func(t *testing.T) {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(averageCloseScript, floatResultType(t), candlesWithClosePrices(100, 110, 120))
+			Execute(averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 1)
@@ -90,7 +80,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(highestAndLowestScript, floatResultType(t), candlesWithClosePrices(100, 110, 120))
+			Execute(highestAndLowestScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 2)
@@ -109,7 +99,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(emptyScript, floatResultType(t), candlesWithClosePrices(100))
+			Execute(emptyScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 		assert.NoError(t, err)
 		assert.Empty(t, indicatorValues)
@@ -126,7 +116,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(nothingScript, floatResultType(t), candlesWithClosePrices(100))
+			Execute(nothingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 		assert.NoError(t, err)
 		assert.NotNil(t, indicatorValues)
@@ -147,7 +137,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(repeatedNameScript, floatResultType(t), candlesWithClosePrices(100))
+			Execute(repeatedNameScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 1)
@@ -172,7 +162,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 			readEverythingScript,
-			floatResultType(t),
+			resultTypeOf(t, "float"),
 			[]vo.KCandleVo{{Close: 110.5, High: 120.25, Volume: 11.5, OpenTimeUnixSeconds: 1700000000}})
 
 		assert.NoError(t, err)
@@ -201,7 +191,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(medianScript, floatResultType(t), candlesWithClosePrices(120, 100, 110))
+			Execute(medianScript, resultTypeOf(t, "float"), candlesWithClosePrices(120, 100, 110))
 
 		assert.NoError(t, err)
 		assert.Equal(t, 110.0, numberOf(indicatorValues, "median"))
@@ -221,7 +211,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(squareRootScript, floatResultType(t), candlesWithClosePrices(144))
+			Execute(squareRootScript, resultTypeOf(t, "float"), candlesWithClosePrices(144))
 
 		assert.NoError(t, err)
 		assert.Equal(t, 12.0, numberOf(indicatorValues, "root"))
@@ -378,7 +368,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-				Execute(testCase.script, floatResultType(t), candlesWithClosePrices(100))
+				Execute(testCase.script, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 			assert.Contains(t, err.Error(), testCase.expectedReason)
@@ -405,7 +395,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 	startedAt := time.Now()
 	indicatorValues, err := script.NewYaegiIndicatorScriptProxy(allowance).
-		Execute(neverEndingScript, floatResultType(t), candlesWithClosePrices(100))
+		Execute(neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 	elapsed := time.Since(startedAt)
 
 	assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
@@ -430,10 +420,10 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 	indicatorScriptProxy := script.NewYaegiIndicatorScriptProxy(300 * time.Millisecond)
-	_, abandonedError := indicatorScriptProxy.Execute(neverEndingScript, floatResultType(t), candlesWithClosePrices(100))
+	_, abandonedError := indicatorScriptProxy.Execute(neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 	assert.ErrorIs(t, abandonedError, domains.ErrIndicatorScriptFailed)
 
-	indicatorValues, err := indicatorScriptProxy.Execute(averageCloseScript, floatResultType(t), candlesWithClosePrices(100, 110, 120))
+	indicatorValues, err := indicatorScriptProxy.Execute(averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120))
 
 	assert.NoError(t, err)
 	assert.Equal(t, 110.0, numberOf(indicatorValues, "ma"))
