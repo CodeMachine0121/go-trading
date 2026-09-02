@@ -29,7 +29,7 @@
 | `infrastructure/persistence/k_candle_repository.go` | **Modify** | 以 GORM 的 `Distinct` + `Order` + `Pluck` 取單一欄位的相異值。去重與排序交給資料庫——那正是它擅長的，也讓「順序每次都一樣」有一個明確的負責人 |
 | `domain/service/k_candle_service.go` | **Modify** | 多一個用例 `ListTradingSymbols`。與既有五個用例互不呼叫 |
 | `application/k_candle_application.go` | **Modify** | 多一行轉呼叫 |
-| `controller/k_candle_controller.go` | **Modify** | 多一個 `ListTradingSymbols` handler，沿用既有的 `respondWithError` |
+| `controller/k_candle_controller.go` | **Modify** | 多一個 `ListTradingSymbols` handler，沿用既有的 `respondWithError`。**路徑雖然不同（`/trading-symbols`），handler 仍住在這裡**：它問的是 K 線的用例，另開一個只會轉呼叫 `KCandleApplication` 的 controller，只是多一層什麼都不做的東西 |
 | `cmd/server/dependencies.go` | **Modify** | 掛 `GET /trading-symbols` |
 | `domain/models/entities` | **Not touched** | 可查交易標的沒有自己的欄位、沒有自己的表——它是 `KCandles.symbol` 的相異值，不是一個 entity |
 | `domain/models/domains` | **Not touched** | 沒有任何計算、驗證或狀態轉換。硬拉一個 domain model 出來只會是一個空殼 |
