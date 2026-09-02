@@ -32,6 +32,7 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		"GET /k-candles",
 		"GET /k-candles/:symbol/:openTime",
 		"GET /k-candles/series",
+		"GET /trading-symbols",
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"PUT /k-candles/:symbol/:openTime",

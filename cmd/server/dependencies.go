@@ -44,6 +44,9 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
 
+	// 交易標的清單是另一個資源（「我們握有哪幾檔」），不是某一根 K 線，所以不掛在 /k-candles 底下。
+	engine.GET("/trading-symbols", kCandleController.ListTradingSymbols)
+
 	indicatorCalculationController := controller.NewIndicatorCalculationController(
 		application.NewIndicatorCalculationApplication(
 			service.NewIndicatorCalculationService(
