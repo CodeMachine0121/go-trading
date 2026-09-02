@@ -88,6 +88,7 @@ curl localhost:8080/health
 | `GET` | `/health` | 健康檢查，恆回 `200 {"status":"Healthy"}` |
 | `POST` | `/k-candles` | 新增一根 K 線；同交易標的同起始時間即覆蓋 |
 | `GET` | `/k-candles?symbol=&startTime=&endTime=` | 依交易標的與時間區間查詢，起訖兩端都包含，依起始時間由早到晚 |
+| `GET` | `/k-candles/series?symbol=&startTime=&endTime=&interval=` | 同一段區間，依彙總刻度合併後回覆；`interval` 為 `5m`／`15m`／`1h`／`4h`／`1d`，省略視為 `5m` |
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
@@ -99,6 +100,12 @@ curl localhost:8080/health
 狀態碼：規則不通過 `400`、指名的 K 線不存在 `404`、資料庫讀寫失敗 `502`、刪除成功 `204`。
 查詢成功但區間內無資料回 `200` 與空陣列。
 
+彙總查詢（`/k-candles/series`）的刻度區間邊界一律自**世界標準時間當日零點**起依刻度長度切分，
+查詢區間的起訖不必對齊；一個刻度區間裡的 K 線合併成一根（開盤取最早、收盤取最晚、
+最高取最高、最低取最低，成交數字加總），**沒有資料的刻度區間不產出那一根**。
+區間依刻度切出的根數超過 `KCANDLE_QUERY_MAX_RESULTS` 時回 `400`，訊息同時給出縮小區間與改用更長刻度兩條出路。
+回覆是一個物件（不是陣列）：`{"symbol":…,"interval":…,"kCandles":[…]}`。
+
 ```bash
 curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
   "symbol":"BTCUSDT","openTime":"2026-08-28T09:00:00Z",
@@ -106,6 +113,8 @@ curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
   "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600"}'
 
 curl "localhost:8080/k-candles?symbol=BTCUSDT&startTime=2026-08-28T09:00:00Z&endTime=2026-08-28T09:10:00Z"
+
+curl "localhost:8080/k-candles/series?symbol=BTCUSDT&startTime=2026-08-01T00:00:00Z&endTime=2026-08-28T00:00:00Z&interval=1d"
 ```
 
 `/health` 刻意**直接寫在路由註冊處**（`cmd/server/dependencies.go`），不經過任何

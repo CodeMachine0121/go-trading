@@ -273,6 +273,218 @@
           ]
         },
         {
+          "name": "彙總成一小時一根",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}&interval=1h",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{rangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeEnd}}"
+                },
+                {
+                  "key": "interval",
+                  "value": "1h"
+                }
+              ]
+            },
+            "description": "同一個刻度區間內的 K 線合併成一根：開盤取最早、收盤取最晚、最高取最高、最低取最低，成交數字加總。起始時間是**刻度區間的起點**，不是任何一根 K 線的起始時間。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回報這次用的彙總刻度\", function () {",
+                  "    pm.expect(pm.response.json().interval).to.eql(\"1h\");",
+                  "});",
+                  "pm.test(\"每一根都落在整點上\", function () {",
+                  "    const openTimes = pm.response.json().kCandles.map((candle) => candle.openTime);",
+                  "    openTimes.forEach((openTime) => pm.expect(openTime).to.match(/T\\d{2}:00:00Z$/));",
+                  "});",
+                  "pm.test(\"由早到晚排列\", function () {",
+                  "    const openTimes = pm.response.json().kCandles.map((candle) => candle.openTime);",
+                  "    pm.expect(openTimes).to.eql(openTimes.slice().sort());",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "不指定彙總刻度就是五分鐘",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{rangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeEnd}}"
+                }
+              ]
+            },
+            "description": "沒有指明彙總刻度時視為五分鐘——等同不合併，每根就是原本存下的那一根。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"預設是五分鐘\", function () {",
+                  "    pm.expect(pm.response.json().interval).to.eql(\"5m\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：彙總刻度不在五種之內",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}&interval=7m",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{rangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeEnd}}"
+                },
+                {
+                  "key": "interval",
+                  "value": "7m"
+                }
+              ]
+            },
+            "description": "彙總刻度只接受 5m、15m、1h、4h、1d。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明只接受哪五種\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"彙總刻度只能是\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：區間切出太多根",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime=2020-01-01T00:00:00Z&endTime=2026-01-01T00:00:00Z&interval=5m",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "2020-01-01T00:00:00Z"
+                },
+                {
+                  "key": "endTime",
+                  "value": "2026-01-01T00:00:00Z"
+                },
+                {
+                  "key": "interval",
+                  "value": "5m"
+                }
+              ]
+            },
+            "description": "刻度區間數超過單次查詢筆數上限時整次拒絕，並同時給出兩條出路：縮小區間，或改用更長的彙總刻度。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"指出縮小區間或改用更長的刻度\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"請縮小區間或改用更長的彙總刻度\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "修改那一根的數字",
           "request": {
             "method": "PUT",
