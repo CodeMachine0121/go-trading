@@ -12,6 +12,7 @@ package mocks
 import (
 	reflect "reflect"
 
+	domains "github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -41,16 +42,16 @@ func (m *MockIIndicatorScriptProxy) EXPECT() *MockIIndicatorScriptProxyMockRecor
 }
 
 // Execute mocks base method.
-func (m *MockIIndicatorScriptProxy) Execute(script string, kCandles []vo.KCandleVo) (map[string]float64, error) {
+func (m *MockIIndicatorScriptProxy) Execute(script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo) (map[string]vo.IndicatorValueVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Execute", script, kCandles)
-	ret0, _ := ret[0].(map[string]float64)
+	ret := m.ctrl.Call(m, "Execute", script, resultType, kCandles)
+	ret0, _ := ret[0].(map[string]vo.IndicatorValueVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Execute indicates an expected call of Execute.
-func (mr *MockIIndicatorScriptProxyMockRecorder) Execute(script, kCandles any) *gomock.Call {
+func (mr *MockIIndicatorScriptProxyMockRecorder) Execute(script, resultType, kCandles any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockIIndicatorScriptProxy)(nil).Execute), script, kCandles)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockIIndicatorScriptProxy)(nil).Execute), script, resultType, kCandles)
 }

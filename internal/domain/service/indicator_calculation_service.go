@@ -27,8 +27,8 @@ func NewIndicatorCalculationService(
 }
 
 // CalculateIndicator runs the script over the requested number of K candles for the
-// trading symbol, leaving out the newest candle, and reports one number per
-// indicator name. An empty set of names is a valid result.
+// trading symbol, leaving out the newest candle, and reports one value per indicator
+// name in the kind the request declared. An empty set of names is a valid result.
 func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicator(
 	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
@@ -50,14 +50,20 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	}
 
 	indicatorValues, executionError := indicatorCalculationService.indicatorScriptProxy.Execute(
-		requestDto.Script, inputKCandleVos)
+		requestDto.Script, calculationDomain.ResultType(), inputKCandleVos)
 	if executionError != nil {
 		return dto.IndicatorCalculationResultDto{}, executionError
+	}
+
+	indicatorValueDtos := make(map[string]dto.IndicatorValueDto, len(indicatorValues))
+	for indicatorName, indicatorValue := range indicatorValues {
+		indicatorValueDtos[indicatorName] = indicatorValue.ToDto()
 	}
 
 	return dto.IndicatorCalculationResultDto{
 		Symbol:          calculationDomain.Symbol(),
 		UsedCandleCount: len(inputKCandleVos),
-		Values:          indicatorValues,
+		ResultType:      string(calculationDomain.ResultType().Value()),
+		Values:          indicatorValueDtos,
 	}, nil
 }

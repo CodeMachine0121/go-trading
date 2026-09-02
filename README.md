@@ -177,18 +177,30 @@ stockProxy.EXPECT().Fetch("2330").Return(quote, nil)
 
 ## 自訂指標計算
 
-送出交易標的、要用幾根 K 線、以及一段算式：
+送出交易標的、要用幾根 K 線、算式產出的**指標值種類**，以及一段算式：
 
 ```bash
 curl -X POST localhost:8080/indicator-calculations -H 'Content-Type: application/json' -d '{
   "symbol": "BTCUSDT",
   "candleCount": 4,
+  "resultType": "float",
   "script": "package main\nimport \"indicator\"\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\n sum := 0.0\n for _, c := range data { sum += c.Close }\n return map[string]float64{\"ma\": sum / float64(len(data))}\n}"
 }'
-# {"symbol":"BTCUSDT","usedCandleCount":4,"values":{"ma":115}}
+# {"symbol":"BTCUSDT","usedCandleCount":4,"resultType":"float","values":{"ma":115}}
 ```
 
-**算式的形狀**固定為：
+**指標值種類**（`resultType`）決定算式要回傳什麼形狀，四選一，**省略等同 `float`**：
+
+| `resultType` | 算式要回傳 | 回應中的值長這樣 | 適合 |
+| :--- | :--- | :--- | :--- |
+| `float`（預設） | `map[string]float64` | `{"ma":115}` | 一個數字的指標，如均價 |
+| `floatList` | `map[string][]float64` | `{"line":[110,112,115]}` | 一整條線，如逐根均線 |
+| `bool` | `map[string]bool` | `{"crossed":true}` | 是非題，如黃金交叉發生了嗎 |
+| `boolList` | `map[string][]bool` | `{"red":[true,false,true]}` | 逐根的是非，如每根是否收紅 |
+
+**一次計算只有一種**：同一次算出的所有指標都是同一種。要不同種類就分兩次算。
+
+**算式的形狀**固定為（`map` 的值型別跟著 `resultType` 走）：
 
 ```go
 package main
@@ -200,6 +212,9 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 ```
 
+算式回傳的形狀與宣告的種類不符時，會被當成**算式的問題**（`422`）擋下，
+訊息會告訴你宣告的是哪一種、`Calculate` 該長什麼樣。
+
 `indicator.KCandle` 有：`Symbol`、`OpenTimeUnixSeconds`、`Open`、`High`、`Low`、
 `Close`、`Volume`、`QuoteVolume`、`TakerBuyBaseVolume`、`TakerBuyQuoteVolume`。
 
@@ -207,7 +222,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 - **一律排除最新那一根** K 線，因為它涵蓋的五分鐘還沒走完。要 4 根就會撈 5 根丟掉最新的。
 - `data` 依起始時間**由早到晚**排列。
-- 回傳是**一組「名稱 → 數字」**，放幾個由你決定；回空的也算成功。
+- 回傳是**一組「名稱 → 值」**，值的形狀由 `resultType` 決定，放幾個由你決定；回空的也算成功，`floatList` / `boolList` 下某個名稱給空的一串也算成功。
 - 單次最多用 `KCANDLE_QUERY_MAX_RESULTS` 根，且不得為零或負數。
 - 排除最新一根後不夠用，會拒絕並告訴你**實際可用幾根**。
 

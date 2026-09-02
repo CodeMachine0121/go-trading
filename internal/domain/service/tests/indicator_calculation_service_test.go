@@ -41,6 +41,14 @@ func calculationRequest(symbol string, candleCount int) dto.IndicatorCalculation
 	}
 }
 
+func calculationRequestOf(
+	symbol string, candleCount int, resultType string,
+) dto.IndicatorCalculationRequestDto {
+	return dto.IndicatorCalculationRequestDto{
+		Symbol: symbol, CandleCount: candleCount, Script: "the script", ResultType: resultType,
+	}
+}
+
 type calculationUnderTest struct {
 	indicatorCalculationService *service.IndicatorCalculationService
 	kCandleRepository           *mocks.MockIKCandleRepository
@@ -67,8 +75,8 @@ func TestCalculateIndicator(t *testing.T) {
 			FindLatest("BTCUSDT", 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
-			Return(map[string]float64{"ma": 110}, nil)
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(calculationRequest("BTCUSDT", 3))
 
@@ -79,13 +87,17 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute("the script", gomock.Any()).
-			DoAndReturn(func(script string, kCandleVos []vo.KCandleVo) (map[string]float64, error) {
+			Execute("the script", gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				script string,
+				resultType domains.IndicatorResultTypeDomain,
+				kCandleVos []vo.KCandleVo,
+			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Len(t, kCandleVos, 3)
 				assert.Equal(t, storedCandleAt(0).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
 				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[1].OpenTimeUnixSeconds)
 				assert.Equal(t, storedCandleAt(10).OpenTime.Unix(), kCandleVos[2].OpenTimeUnixSeconds)
-				return map[string]float64{"ma": 110}, nil
+				return map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil
 			})
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(calculationRequest("BTCUSDT", 3))
@@ -97,8 +109,10 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
-			Return(map[string]float64{"high": 120, "low": 100}, nil)
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{
+				"high": {Numbers: []float64{120}}, "low": {Numbers: []float64{100}},
+			}, nil)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
 			calculationRequest("BTCUSDT", 3))
@@ -106,16 +120,16 @@ func TestCalculateIndicator(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", resultDto.Symbol)
 		assert.Equal(t, 3, resultDto.UsedCandleCount)
-		assert.Equal(t, 120.0, resultDto.Values["high"])
-		assert.Equal(t, 100.0, resultDto.Values["low"])
+		assert.Equal(t, []float64{120}, resultDto.Values["high"].Numbers)
+		assert.Equal(t, []float64{100}, resultDto.Values["low"].Numbers)
 	})
 
 	t.Run("treats an empty set of indicator values as a success", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 2).Return(newestFirst(5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
-			Return(map[string]float64{}, nil)
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
 			calculationRequest("BTCUSDT", 1))
@@ -172,7 +186,7 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
@@ -181,5 +195,116 @@ func TestCalculateIndicator(t *testing.T) {
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Empty(t, resultDto.Values)
 		assert.Equal(t, 0, resultDto.UsedCandleCount)
+	})
+}
+
+func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
+	t.Run("hands the script runner the kind that was declared", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				script string,
+				resultType domains.IndicatorResultTypeDomain,
+				kCandleVos []vo.KCandleVo,
+			) (map[string]vo.IndicatorValueVo, error) {
+				assert.Equal(t, vo.IndicatorResultTypeFloatList, resultType.Value())
+				return map[string]vo.IndicatorValueVo{}, nil
+			})
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 3, "floatList"))
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("reports the kind alongside the values", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{
+				"red": {IsList: true, Booleans: []bool{true, false}},
+			}, nil)
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 3, "boolList"))
+
+		assert.NoError(t, err)
+		assert.Equal(t, "boolList", resultDto.ResultType)
+		assert.True(t, resultDto.Values["red"].IsList)
+		assert.Equal(t, []bool{true, false}, resultDto.Values["red"].Booleans)
+	})
+
+	t.Run("reports one number per indicator when nothing was declared", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 2).Return(newestFirst(5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequest("BTCUSDT", 1))
+
+		assert.NoError(t, err)
+		assert.Equal(t, "float", resultDto.ResultType)
+	})
+
+	t.Run("never reaches storage when the declared kind is not on offer", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 3, "string"))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "指標值種類只能是")
+	})
+}
+
+func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
+	t.Run("a candle count of zero is refused just the same", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 0, "floatList"))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "計算根數必須大於零")
+	})
+
+	t.Run("too few usable candles is refused just the same, naming what is usable", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 31).Return(newestFirst(45, 40, 35), nil)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 30, "bool"))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "可用 2 根")
+	})
+
+	t.Run("the candles handed to the script are chosen the same way", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				script string,
+				resultType domains.IndicatorResultTypeDomain,
+				kCandleVos []vo.KCandleVo,
+			) (map[string]vo.IndicatorValueVo, error) {
+				assert.Len(t, kCandleVos, 3)
+				assert.Equal(t, storedCandleAt(0).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
+				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[1].OpenTimeUnixSeconds)
+				assert.Equal(t, storedCandleAt(10).OpenTime.Unix(), kCandleVos[2].OpenTimeUnixSeconds)
+				return map[string]vo.IndicatorValueVo{}, nil
+			})
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 3, "floatList"))
+
+		assert.NoError(t, err)
+		assert.Equal(t, 3, resultDto.UsedCandleCount)
 	})
 }

@@ -42,16 +42,17 @@ func NewYaegiIndicatorScriptProxy(executionTimeout time.Duration) *YaegiIndicato
 	return &YaegiIndicatorScriptProxy{executionTimeout: executionTimeout}
 }
 
-// Execute runs the script over the K candles. Anything that goes wrong — the script
-// cannot be read, it has no usable entry point, it reaches for something it may not
-// use, it fails while running, or it outlives its allowance — is reported as a script
-// failure with no partial result. Running the entry point through the interpreter
-// rather than calling it directly is what makes both the giving up and the reporting
-// possible: the interpreter turns every failure, including a deliberate one, into an
-// error rather than letting it escape.
+// Execute runs the script over the K candles and collects its values in the declared
+// kind. Anything that goes wrong — the script cannot be read, it has no usable entry
+// point, it hands back a shape other than the declared one, it reaches for something
+// it may not use, it fails while running, or it outlives its allowance — is reported
+// as a script failure with no partial result. Running the entry point through the
+// interpreter rather than calling it directly is what makes both the giving up and
+// the reporting possible: the interpreter turns every failure, including a deliberate
+// one, into an error rather than letting it escape.
 func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
-	script string, kCandles []vo.KCandleVo,
-) (map[string]float64, error) {
+	script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo,
+) (map[string]vo.IndicatorValueVo, error) {
 	inputKCandles := kCandles
 	scriptSymbols := interp.Exports{
 		scriptDataPackage: {
@@ -81,10 +82,11 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 			"%w: 算式必須提供 Calculate 進入點：%v", domains.ErrIndicatorScriptFailed, lookupError)
 	}
 
-	if _, hasExpectedShape := entryPoint.Interface().(func([]vo.KCandleVo) map[string]float64); !hasExpectedShape {
+	scriptShape := indicatorScriptShape{resultType: resultType}
+	if entryPoint.Type() != scriptShape.entryPointType() {
 		return nil, fmt.Errorf(
-			"%w: Calculate 的形式必須是 func Calculate(data []indicator.KCandle) map[string]float64",
-			domains.ErrIndicatorScriptFailed)
+			"%w: 宣告的指標值種類是 %s，Calculate 的形式必須是 func Calculate(data []indicator.KCandle) %s",
+			domains.ErrIndicatorScriptFailed, resultType.Value(), resultType.ScriptResultShape())
 	}
 
 	executionContext, stopWaiting := context.WithTimeout(context.Background(), yaegiIndicatorScriptProxy.executionTimeout)
@@ -101,10 +103,5 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 			"%w: 算式執行失敗：%v", domains.ErrIndicatorScriptFailed, callError)
 	}
 
-	calculatedValues, _ := calculated.Interface().(map[string]float64)
-	if calculatedValues == nil {
-		return map[string]float64{}, nil
-	}
-
-	return calculatedValues, nil
+	return scriptShape.readValues(calculated), nil
 }

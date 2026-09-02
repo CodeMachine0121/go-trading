@@ -22,6 +22,19 @@ func candlesWithClosePrices(closePrices ...float64) []vo.KCandleVo {
 	return kCandleVos
 }
 
+func resultTypeOf(t *testing.T, declared string) domains.IndicatorResultTypeDomain {
+	t.Helper()
+	resultType, err := domains.NewIndicatorResultTypeDomain(declared)
+	assert.NoError(t, err)
+
+	return resultType
+}
+
+// numberOf reads the lone number an indicator carries.
+func numberOf(indicatorValues map[string]vo.IndicatorValueVo, indicatorName string) float64 {
+	return indicatorValues[indicatorName].Numbers[0]
+}
+
 const averageCloseScript = `
 package main
 
@@ -39,11 +52,11 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 func TestExecuteProducesIndicatorValues(t *testing.T) {
 	t.Run("produces a single named value", func(t *testing.T) {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(averageCloseScript, candlesWithClosePrices(100, 110, 120))
+			Execute(averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 1)
-		assert.Equal(t, 110.0, indicatorValues["ma"])
+		assert.Equal(t, 110.0, numberOf(indicatorValues, "ma"))
 	})
 
 	t.Run("produces several named values", func(t *testing.T) {
@@ -67,12 +80,12 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(highestAndLowestScript, candlesWithClosePrices(100, 110, 120))
+			Execute(highestAndLowestScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 2)
-		assert.Equal(t, 120.0, indicatorValues["high"])
-		assert.Equal(t, 100.0, indicatorValues["low"])
+		assert.Equal(t, 120.0, numberOf(indicatorValues, "high"))
+		assert.Equal(t, 100.0, numberOf(indicatorValues, "low"))
 	})
 
 	t.Run("produces an empty set when the script names nothing", func(t *testing.T) {
@@ -86,7 +99,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(emptyScript, candlesWithClosePrices(100))
+			Execute(emptyScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 		assert.NoError(t, err)
 		assert.Empty(t, indicatorValues)
@@ -103,7 +116,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(nothingScript, candlesWithClosePrices(100))
+			Execute(nothingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 		assert.NoError(t, err)
 		assert.NotNil(t, indicatorValues)
@@ -124,11 +137,11 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(repeatedNameScript, candlesWithClosePrices(100))
+			Execute(repeatedNameScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 1)
-		assert.Equal(t, 120.0, indicatorValues["ma"])
+		assert.Equal(t, 120.0, numberOf(indicatorValues, "ma"))
 	})
 
 	t.Run("lets the script read every figure it was given", func(t *testing.T) {
@@ -149,13 +162,14 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 			readEverythingScript,
+			resultTypeOf(t, "float"),
 			[]vo.KCandleVo{{Close: 110.5, High: 120.25, Volume: 11.5, OpenTimeUnixSeconds: 1700000000}})
 
 		assert.NoError(t, err)
-		assert.Equal(t, 110.5, indicatorValues["close"])
-		assert.Equal(t, 120.25, indicatorValues["high"])
-		assert.Equal(t, 11.5, indicatorValues["volume"])
-		assert.Equal(t, 1700000000.0, indicatorValues["openTime"])
+		assert.Equal(t, 110.5, numberOf(indicatorValues, "close"))
+		assert.Equal(t, 120.25, numberOf(indicatorValues, "high"))
+		assert.Equal(t, 11.5, numberOf(indicatorValues, "volume"))
+		assert.Equal(t, 1700000000.0, numberOf(indicatorValues, "openTime"))
 	})
 
 	t.Run("lets the script sort its way to a middle value", func(t *testing.T) {
@@ -177,10 +191,10 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(medianScript, candlesWithClosePrices(120, 100, 110))
+			Execute(medianScript, resultTypeOf(t, "float"), candlesWithClosePrices(120, 100, 110))
 
 		assert.NoError(t, err)
-		assert.Equal(t, 110.0, indicatorValues["median"])
+		assert.Equal(t, 110.0, numberOf(indicatorValues, "median"))
 	})
 
 	t.Run("lets the script use common mathematics", func(t *testing.T) {
@@ -197,10 +211,10 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(squareRootScript, candlesWithClosePrices(144))
+			Execute(squareRootScript, resultTypeOf(t, "float"), candlesWithClosePrices(144))
 
 		assert.NoError(t, err)
-		assert.Equal(t, 12.0, indicatorValues["root"])
+		assert.Equal(t, 12.0, numberOf(indicatorValues, "root"))
 	})
 }
 
@@ -354,7 +368,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-				Execute(testCase.script, candlesWithClosePrices(100))
+				Execute(testCase.script, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 
 			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 			assert.Contains(t, err.Error(), testCase.expectedReason)
@@ -381,7 +395,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 	startedAt := time.Now()
 	indicatorValues, err := script.NewYaegiIndicatorScriptProxy(allowance).
-		Execute(neverEndingScript, candlesWithClosePrices(100))
+		Execute(neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 	elapsed := time.Since(startedAt)
 
 	assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
@@ -406,11 +420,227 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 	indicatorScriptProxy := script.NewYaegiIndicatorScriptProxy(300 * time.Millisecond)
-	_, abandonedError := indicatorScriptProxy.Execute(neverEndingScript, candlesWithClosePrices(100))
+	_, abandonedError := indicatorScriptProxy.Execute(neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100))
 	assert.ErrorIs(t, abandonedError, domains.ErrIndicatorScriptFailed)
 
-	indicatorValues, err := indicatorScriptProxy.Execute(averageCloseScript, candlesWithClosePrices(100, 110, 120))
+	indicatorValues, err := indicatorScriptProxy.Execute(averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120))
 
 	assert.NoError(t, err)
-	assert.Equal(t, 110.0, indicatorValues["ma"])
+	assert.Equal(t, 110.0, numberOf(indicatorValues, "ma"))
+}
+
+func TestExecuteCollectsValuesInTheDeclaredKind(t *testing.T) {
+	t.Run("a series of numbers keeps its order", func(t *testing.T) {
+		movingAverageScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]float64 {
+	closePrices := []float64{}
+	for _, candle := range data {
+		closePrices = append(closePrices, candle.Close)
+	}
+	return map[string][]float64{"line": closePrices}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(movingAverageScript, resultTypeOf(t, "floatList"), candlesWithClosePrices(100, 105, 110))
+
+		assert.NoError(t, err)
+		assert.True(t, indicatorValues["line"].IsList)
+		assert.Equal(t, []float64{100, 105, 110}, indicatorValues["line"].Numbers)
+		assert.Nil(t, indicatorValues["line"].Booleans)
+	})
+
+	t.Run("a lone answer is carried as an answer", func(t *testing.T) {
+		crossScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]bool {
+	return map[string]bool{"crossed": data[len(data)-1].Close > data[0].Close}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(crossScript, resultTypeOf(t, "bool"), candlesWithClosePrices(100, 120))
+
+		assert.NoError(t, err)
+		assert.False(t, indicatorValues["crossed"].IsList)
+		assert.Equal(t, []bool{true}, indicatorValues["crossed"].Booleans)
+		assert.Nil(t, indicatorValues["crossed"].Numbers)
+	})
+
+	t.Run("a negative answer is a value, not a missing one", func(t *testing.T) {
+		neverCrossScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]bool {
+	return map[string]bool{"crossed": false}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(neverCrossScript, resultTypeOf(t, "bool"), candlesWithClosePrices(100))
+
+		assert.NoError(t, err)
+		assert.Contains(t, indicatorValues, "crossed")
+		assert.Equal(t, []bool{false}, indicatorValues["crossed"].Booleans)
+	})
+
+	t.Run("a series of answers keeps its order", func(t *testing.T) {
+		eachCandleRedScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]bool {
+	answers := []bool{}
+	for _, candle := range data {
+		answers = append(answers, candle.Close > 100)
+	}
+	return map[string][]bool{"red": answers}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(eachCandleRedScript, resultTypeOf(t, "boolList"), candlesWithClosePrices(110, 90, 120))
+
+		assert.NoError(t, err)
+		assert.True(t, indicatorValues["red"].IsList)
+		assert.Equal(t, []bool{true, false, true}, indicatorValues["red"].Booleans)
+	})
+
+	t.Run("every indicator in one calculation carries the same kind", func(t *testing.T) {
+		twoSeriesScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]float64 {
+	highs := []float64{}
+	lows := []float64{}
+	for _, candle := range data {
+		highs = append(highs, candle.High)
+		lows = append(lows, candle.Low)
+	}
+	return map[string][]float64{"highs": highs, "lows": lows}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
+			twoSeriesScript,
+			resultTypeOf(t, "floatList"),
+			[]vo.KCandleVo{{High: 120, Low: 100}, {High: 130, Low: 110}})
+
+		assert.NoError(t, err)
+		assert.True(t, indicatorValues["highs"].IsList)
+		assert.True(t, indicatorValues["lows"].IsList)
+		assert.Equal(t, []float64{120, 130}, indicatorValues["highs"].Numbers)
+		assert.Equal(t, []float64{100, 110}, indicatorValues["lows"].Numbers)
+	})
+
+	t.Run("an empty series is a value, not a failure", func(t *testing.T) {
+		emptySeriesScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]float64 {
+	return map[string][]float64{"line": {}}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(emptySeriesScript, resultTypeOf(t, "floatList"), candlesWithClosePrices(100))
+
+		assert.NoError(t, err)
+		assert.Contains(t, indicatorValues, "line")
+		assert.Empty(t, indicatorValues["line"].Numbers)
+		assert.NotNil(t, indicatorValues["line"].Numbers)
+	})
+
+	t.Run("naming nothing gives an empty set under any kind", func(t *testing.T) {
+		nothingScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]bool {
+	return nil
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(nothingScript, resultTypeOf(t, "boolList"), candlesWithClosePrices(100))
+
+		assert.NoError(t, err)
+		assert.NotNil(t, indicatorValues)
+		assert.Empty(t, indicatorValues)
+	})
+}
+
+func TestExecuteRefusesAScriptWhoseShapeIsNotTheDeclaredKind(t *testing.T) {
+	numberScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	return map[string]float64{"ma": 110}
+}
+`
+	seriesScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]float64 {
+	return map[string][]float64{"line": {110}}
+}
+`
+	answerScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]bool {
+	return map[string]bool{"crossed": true}
+}
+`
+
+	testCases := []struct {
+		name          string
+		declared      string
+		script        string
+		expectedShape string
+	}{
+		{
+			name:     "one number was declared but a series came back",
+			declared: "float", script: seriesScript, expectedShape: "map[string]float64",
+		},
+		{
+			name:     "a series of answers was declared but a number came back",
+			declared: "boolList", script: numberScript, expectedShape: "map[string][]bool",
+		},
+		{
+			name:     "a series of numbers was declared but an answer came back",
+			declared: "floatList", script: answerScript, expectedShape: "map[string][]float64",
+		},
+		{
+			name:     "one answer was declared but a number came back",
+			declared: "bool", script: numberScript, expectedShape: "map[string]bool",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+				Execute(testCase.script, resultTypeOf(t, testCase.declared), candlesWithClosePrices(100, 110))
+
+			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+			assert.Contains(t, err.Error(), "Calculate 的形式必須是")
+			assert.Contains(t, err.Error(), testCase.expectedShape)
+			assert.Contains(t, err.Error(), testCase.declared)
+			assert.Nil(t, indicatorValues)
+		})
+	}
 }
