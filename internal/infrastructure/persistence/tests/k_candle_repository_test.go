@@ -60,6 +60,18 @@ func databaseNameIn(dataSourceName string) string {
 	return ""
 }
 
+// closedDatabase hands back a connection that is already shut, which is the only way
+// to make the storage layer fail on demand. Every read and write must say so rather
+// than quietly answering with nothing.
+func closedDatabase(t *testing.T) *gorm.DB {
+	database := newTestDatabase(t)
+	connection, connectionError := database.DB()
+	require.NoError(t, connectionError)
+	require.NoError(t, connection.Close())
+
+	return database
+}
+
 func at(hour int, minute int) time.Time {
 	return time.Date(2026, 8, 29, hour, minute, 0, 0, time.UTC)
 }
@@ -414,4 +426,12 @@ func TestSavingABatchOverwritesWhatIsHeldAndAddsWhatIsNotWithoutDuplicating(t *t
 		assert.Equal(t, "120", kCandle.Close.String())
 	}
 	assert.Equal(t, batch, storedOpenTimes)
+}
+
+func TestFindDistinctSymbolsStorageFailure(t *testing.T) {
+	repository := persistence.NewKCandleRepository(closedDatabase(t))
+
+	_, findError := repository.FindDistinctSymbols()
+
+	assert.Error(t, findError)
 }

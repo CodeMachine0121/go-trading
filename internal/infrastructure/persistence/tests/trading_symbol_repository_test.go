@@ -59,3 +59,21 @@ func TestRegisterAll(t *testing.T) {
 		assert.Empty(t, registeredNames(t, repository))
 	})
 }
+
+func TestTradingSymbolStorageFailures(t *testing.T) {
+	t.Run("reports a failure reading the registered markets", func(t *testing.T) {
+		repository := persistence.NewTradingSymbolRepository(closedDatabase(t))
+
+		_, findError := repository.FindAll()
+
+		assert.Error(t, findError)
+	})
+
+	t.Run("reports a failure while registering", func(t *testing.T) {
+		repository := persistence.NewTradingSymbolRepository(closedDatabase(t))
+
+		registerError := repository.RegisterAll([]entities.TradingSymbol{{Symbol: "BTCUSDT"}})
+
+		assert.Error(t, registerError)
+	})
+}
