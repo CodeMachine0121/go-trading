@@ -261,3 +261,50 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 		assert.Contains(t, err.Error(), "指標值種類只能是")
 	})
 }
+
+func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
+	t.Run("a candle count of zero is refused just the same", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 0, "floatList"))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "計算根數必須大於零")
+	})
+
+	t.Run("too few usable candles is refused just the same, naming what is usable", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 31).Return(newestFirst(45, 40, 35), nil)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 30, "bool"))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "可用 2 根")
+	})
+
+	t.Run("the candles handed to the script are chosen the same way", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				script string,
+				resultType domains.IndicatorResultTypeDomain,
+				kCandleVos []vo.KCandleVo,
+			) (map[string]vo.IndicatorValueVo, error) {
+				assert.Len(t, kCandleVos, 3)
+				assert.Equal(t, storedCandleAt(0).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
+				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[1].OpenTimeUnixSeconds)
+				assert.Equal(t, storedCandleAt(10).OpenTime.Unix(), kCandleVos[2].OpenTimeUnixSeconds)
+				return map[string]vo.IndicatorValueVo{}, nil
+			})
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
+			calculationRequestOf("BTCUSDT", 3, "floatList"))
+
+		assert.NoError(t, err)
+		assert.Equal(t, 3, resultDto.UsedCandleCount)
+	})
+}

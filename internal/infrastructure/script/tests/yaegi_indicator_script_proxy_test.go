@@ -512,6 +512,34 @@ func Calculate(data []indicator.KCandle) map[string][]bool {
 		assert.Equal(t, []bool{true, false, true}, indicatorValues["red"].Booleans)
 	})
 
+	t.Run("every indicator in one calculation carries the same kind", func(t *testing.T) {
+		twoSeriesScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string][]float64 {
+	highs := []float64{}
+	lows := []float64{}
+	for _, candle := range data {
+		highs = append(highs, candle.High)
+		lows = append(lows, candle.Low)
+	}
+	return map[string][]float64{"highs": highs, "lows": lows}
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
+			twoSeriesScript,
+			resultTypeOf(t, "floatList"),
+			[]vo.KCandleVo{{High: 120, Low: 100}, {High: 130, Low: 110}})
+
+		assert.NoError(t, err)
+		assert.True(t, indicatorValues["highs"].IsList)
+		assert.True(t, indicatorValues["lows"].IsList)
+		assert.Equal(t, []float64{120, 130}, indicatorValues["highs"].Numbers)
+		assert.Equal(t, []float64{100, 110}, indicatorValues["lows"].Numbers)
+	})
+
 	t.Run("an empty series is a value, not a failure", func(t *testing.T) {
 		emptySeriesScript := `
 package main

@@ -20,12 +20,12 @@ Oracle: Acceptance Criteria (14 scenarios) ＋ Core Business Rules (8) ＋ Non-F
 | AC-9 | 算式什麼都沒放進結果 | 回傳空的一組結果、不是錯誤，種類仍照宣告回報 | `indicator_script_shape.go:48` | `yaegi_indicator_script_proxy_test.go:534`（以一串是非涵蓋同一條規則） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-10 | 某個指標對應到空的一串 | 該指標是空的一串，不視為錯誤 | `indicator_script_shape.go:76` · `indicator_value_dto.go:19` | `yaegi_indicator_script_proxy_test.go:515` · `indicator_value_dto_test.go:44` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-11 | 算出「否」不等於沒有值 | 該指標存在且為「否」，不會從結果中消失 | `indicator_script_shape.go:82` · `indicator_value_dto.go:19` | `yaegi_indicator_script_proxy_test.go:475` · `indicator_value_dto_test.go:31` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-12 | 宣告一串數字＋根數為 0 | 拒絕，告知計算根數必須大於零 | `indicator_calculation_domain.go:33` | `indicator_calculation_service_test.go:142`（未宣告種類）· `indicator_calculation_domain_test.go:158`（種類不合法＋根數 0） | shallow | produces-oracle | 🟠 mis-asserted |
-| AC-13 | 宣告一個是非＋可用根數不足 | 拒絕，告知目前實際可用幾根 | `indicator_calculation_domain.go:77` | `indicator_calculation_service_test.go:161`（未宣告種類） | shallow | produces-oracle | 🟠 mis-asserted |
-| AC-14 | 宣告一串數字時取用的 K 線與種類無關 | 算式拿到排除最新一根後、由早到晚的三根 | `indicator_calculation_domain.go:77` | `indicator_calculation_service_test.go:86`（未宣告種類） | shallow | produces-oracle | 🟠 mis-asserted |
+| AC-12 | 宣告一串數字＋根數為 0 | 拒絕，告知計算根數必須大於零 | `indicator_calculation_domain.go:33` | `indicator_calculation_service_test.go:275`（宣告一串數字＋根數 0） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-13 | 宣告一個是非＋可用根數不足 | 拒絕，告知目前實際可用幾根 | `indicator_calculation_domain.go:77` | `indicator_calculation_service_test.go:285`（宣告一個是非＋可用不足） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-14 | 宣告一串數字時取用的 K 線與種類無關 | 算式拿到排除最新一根後、由早到晚的三根 | `indicator_calculation_domain.go:77` | `indicator_calculation_service_test.go:297`（宣告一串數字，仍是排除最新一根後由早到晚的三根） | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-1 | 四選一 | 只有四種可宣告，其他一律拒絕 | `indicator_result_type_domain.go:14` | `indicator_result_type_domain_test.go:59` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-2 | 預設是一個數字 | 未宣告等同宣告「一個數字」 | `indicator_result_type_domain.go:41` | `indicator_result_type_domain_test.go:37` | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-3 | 一次一種 | 同一次計算所有指標的值都是同一種 | `indicator_calculation_domain.go:64`（種類掛在一次計算上，無逐指標宣告的路徑） | — | no-test | produces-oracle | 🟡 partial |
+| BR-3 | 一次一種 | 同一次計算所有指標的值都是同一種 | `indicator_calculation_domain.go:64`（種類掛在一次計算上，無逐指標宣告的路徑） | `yaegi_indicator_script_proxy_test.go:515` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-4 | 依宣告驗收 | 算式形狀與宣告不一致即拒絕整次計算 | `yaegi_indicator_script_proxy.go:78` | `yaegi_indicator_script_proxy_test.go:553` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-5 | 形狀不符是算式的問題 | 以算式失敗（非請求失敗）呈現 | `yaegi_indicator_script_proxy.go:78` · `indicator_calculation_controller.go:52` | `yaegi_indicator_script_proxy_test.go:612` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-6 | 結果自帶種類 | 結果一併說明這次的指標值種類 | `indicator_calculation_service.go:66` | `indicator_calculation_service_test.go:238` · `indicator_calculation_controller_test.go:161` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -44,10 +44,17 @@ Oracle: Acceptance Criteria (14 scenarios) ＋ Core Business Rules (8) ＋ Non-F
 
 ## Summary
 
-- Conforms: 21/25 clauses ✅ (84%)
+- Conforms: 25/25 clauses ✅ (100%)
 - Violations: 無
-- Mis-asserted: AC-12、AC-13、AC-14（程式行為正確，但測試都在「未宣告種類」的前提下驗，沒有釘住 US-05 真正要保證的事：**宣告了種類也一樣**）
-- Partial: BR-3
+- Mis-asserted: 無
+- Partial: 無
+
+**第一輪稽核發現、已於本輪修掉的問題**
+
+| ID | 當時的問題 | 修法 |
+| :--- | :--- | :--- |
+| AC-12、AC-13、AC-14 | 程式行為正確，但這三條的測試都在「未宣告種類」的前提下驗，沒有釘住 US-05 真正要保證的事：**宣告了種類也一樣**。種類的驗證若哪天被誤搬到根數之前，這三條不會變紅 | 補上三個在宣告種類之下重跑既有規則的測試（根數為零、可用不足、取用哪幾根） |
+| BR-3 | 「一次計算只有一種」沒有任何測試釘住，只靠結構上沒有逐指標宣告的路徑 | 補上一個一次算出兩個指標的測試，斷言兩者都是同一種 |
 - Gaps: 無
 - Unclear: 無
 - Orphans: 2
