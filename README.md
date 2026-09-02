@@ -325,6 +325,9 @@ TEST_POSTGRES_DSN="host=localhost port=55433 user=postgres password=testpass dbn
   make test-storage
 ```
 
+**這些測試每次都會清空 `KCandles`**，所以 `TEST_POSTGRES_DSN` 指到的資料庫**名稱必須以 `_test` 結尾**——
+不是的話測試會直接失敗並說明原因，而不是把應用程式在用的那一份資料清掉。
+
 ## 開發規範
 
 架構、命名、測試、風格規範全部寫在 [`.claude/rules/`](.claude/rules/)，
