@@ -11,3 +11,14 @@ type KCandleSeriesQueryDto struct {
 	EndTime   time.Time
 	Interval  string
 }
+
+// ToQueryDto drops the interval, leaving the plain time-range query underneath. The
+// rules about naming a trading symbol and not ending before it starts belong to that
+// query, so an aggregated ask hands them over rather than answering them twice.
+func (kCandleSeriesQueryDto KCandleSeriesQueryDto) ToQueryDto() KCandleQueryDto {
+	return KCandleQueryDto{
+		Symbol:    kCandleSeriesQueryDto.Symbol,
+		StartTime: kCandleSeriesQueryDto.StartTime,
+		EndTime:   kCandleSeriesQueryDto.EndTime,
+	}
+}

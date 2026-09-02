@@ -91,11 +91,7 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 		return dto.KCandleSeriesDto{}, findError
 	}
 
-	return domains.NewKCandleSeriesDomain(
-		seriesQueryDomain.RangeQuery().Symbol(),
-		seriesQueryDomain.Interval(),
-		kCandles,
-	).ToDto(), nil
+	return seriesQueryDomain.SeriesOf(kCandles).ToDto(), nil
 }
 
 // GetKCandle returns the single K candle named by trading symbol and open time.

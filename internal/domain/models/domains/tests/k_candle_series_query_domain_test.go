@@ -121,6 +121,6 @@ func TestNewKCandleSeriesQueryDomainDeclaringNoIntervalMeansFiveMinutes(t *testi
 	}, seriesQueryMaxBucketCount)
 
 	require.NoError(t, validationError)
-	assert.Equal(t, "5m", string(seriesQueryDomain.Interval().Value()))
+	assert.Equal(t, "5m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
 	assert.Equal(t, 12, seriesQueryDomain.SourceCandleLimit())
 }

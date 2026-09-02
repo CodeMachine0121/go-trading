@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
 // KCandleSeriesQueryDomain holds one aggregated query and guarantees its own
@@ -27,11 +28,7 @@ type KCandleSeriesQueryDomain struct {
 func NewKCandleSeriesQueryDomain(
 	seriesQueryDto dto.KCandleSeriesQueryDto, maxBucketCount int,
 ) (KCandleSeriesQueryDomain, error) {
-	rangeQuery, rangeValidationError := NewKCandleQueryDomain(dto.KCandleQueryDto{
-		Symbol:    seriesQueryDto.Symbol,
-		StartTime: seriesQueryDto.StartTime,
-		EndTime:   seriesQueryDto.EndTime,
-	})
+	rangeQuery, rangeValidationError := NewKCandleQueryDomain(seriesQueryDto.ToQueryDto())
 	if rangeValidationError != nil {
 		return KCandleSeriesQueryDomain{}, rangeValidationError
 	}
@@ -60,8 +57,14 @@ func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) RangeQuery() KCandleQue
 	return kCandleSeriesQueryDomain.rangeQuery
 }
 
-func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) Interval() AggregationIntervalDomain {
-	return kCandleSeriesQueryDomain.interval
+// SeriesOf is the series those source candles make under this query. Asking the query
+// for it keeps what a series is made of — which symbol, which interval — in one place;
+// the caller only has to read the candles and hand them back.
+func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SeriesOf(
+	kCandles []entities.KCandle,
+) KCandleSeriesDomain {
+	return NewKCandleSeriesDomain(
+		kCandleSeriesQueryDomain.rangeQuery.Symbol(), kCandleSeriesQueryDomain.interval, kCandles)
 }
 
 // SourceCandleLimit is the most source candles this query's buckets can possibly
