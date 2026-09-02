@@ -93,6 +93,17 @@ func (kCandleController *KCandleController) GetKCandleSeries(context *gin.Contex
 	context.JSON(http.StatusOK, kCandleSeriesDto)
 }
 
+// ListTradingSymbols handles GET /trading-symbols.
+func (kCandleController *KCandleController) ListTradingSymbols(context *gin.Context) {
+	tradingSymbolDtos, err := kCandleController.kCandleApplication.ListTradingSymbols()
+	if err != nil {
+		kCandleController.respondWithError(context, err)
+		return
+	}
+
+	context.JSON(http.StatusOK, tradingSymbolDtos)
+}
+
 // GetKCandle handles GET /k-candles/:symbol/:openTime.
 func (kCandleController *KCandleController) GetKCandle(context *gin.Context) {
 	openTime, openTimeIsReadable := kCandleController.readTime(
