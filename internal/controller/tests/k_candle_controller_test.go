@@ -59,7 +59,6 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 	engine.POST("/k-candles", kCandleController.CreateKCandle)
 	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
 	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
-	engine.GET("/trading-symbols", kCandleController.ListTradingSymbols)
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
@@ -278,41 +277,6 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 		recorder := fixture.call(http.MethodGet,
 			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z"+
 				"&endTime=2026-08-29T09:10:00Z&interval=1h", "")
-
-		assert.Equal(t, http.StatusBadGateway, recorder.Code)
-	})
-}
-
-func TestListTradingSymbolsResponses(t *testing.T) {
-	t.Run("returns the symbols by name", func(t *testing.T) {
-		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().
-			FindDistinctSymbols().
-			Return([]string{"BTCUSDT", "ETHUSDT"}, nil)
-
-		recorder := fixture.call(http.MethodGet, "/trading-symbols", "")
-
-		assert.Equal(t, http.StatusOK, recorder.Code)
-		assert.Equal(t, `[{"symbol":"BTCUSDT"},{"symbol":"ETHUSDT"}]`, recorder.Body.String())
-	})
-
-	t.Run("returns an empty list when nothing is stored", func(t *testing.T) {
-		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindDistinctSymbols().Return([]string{}, nil)
-
-		recorder := fixture.call(http.MethodGet, "/trading-symbols", "")
-
-		assert.Equal(t, http.StatusOK, recorder.Code)
-		assert.Equal(t, "[]", recorder.Body.String())
-	})
-
-	t.Run("reports a storage failure as a bad gateway", func(t *testing.T) {
-		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().
-			FindDistinctSymbols().
-			Return(nil, errors.New("storage unreachable"))
-
-		recorder := fixture.call(http.MethodGet, "/trading-symbols", "")
 
 		assert.Equal(t, http.StatusBadGateway, recorder.Code)
 	})
