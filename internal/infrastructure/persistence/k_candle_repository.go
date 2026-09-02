@@ -11,6 +11,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// preallocationCeiling bounds how much room a read reserves before it has seen a
+// single row. A read limit is an upper bound on what the data *could* hold, and an
+// aggregated query's bound reaches into the hundreds of thousands; reserving that up
+// front would let one request over an empty database claim tens of megabytes. The
+// slice still grows to hold whatever actually arrives — this only stops the guess
+// from being the expensive part.
+const preallocationCeiling = 1000
+
 // figureColumns are the columns a write always sets, listed explicitly so that a
 // figure of zero is stored rather than skipped as an empty value.
 var figureColumns = []string{
@@ -83,7 +91,7 @@ func (kCandleRepository *KCandleRepository) FindOne(symbol string, openTime time
 func (kCandleRepository *KCandleRepository) FindInRange(
 	query domains.KCandleQueryDomain, limit int,
 ) ([]entities.KCandle, error) {
-	kCandles := make([]entities.KCandle, 0, limit)
+	kCandles := make([]entities.KCandle, 0, min(limit, preallocationCeiling))
 
 	result := kCandleRepository.database.
 		Clauses(clause.Where{Exprs: []clause.Expression{
@@ -127,7 +135,7 @@ func (kCandleRepository *KCandleRepository) FindDistinctSymbols() ([]string, err
 func (kCandleRepository *KCandleRepository) FindLatest(
 	symbol string, limit int,
 ) ([]entities.KCandle, error) {
-	kCandles := make([]entities.KCandle, 0, limit)
+	kCandles := make([]entities.KCandle, 0, min(limit, preallocationCeiling))
 
 	result := kCandleRepository.database.
 		Where(&entities.KCandle{Symbol: symbol}).
