@@ -92,6 +92,7 @@ curl localhost:8080/health
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
+| `GET` | `/trading-symbols` | 列出系統**實際握有 K 線**的每一個交易標的，去重、依名稱由小到大 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
@@ -106,6 +107,9 @@ curl localhost:8080/health
 區間依刻度切出的根數超過 `KCANDLE_QUERY_MAX_RESULTS` 時回 `400`，訊息同時給出縮小區間與改用更長刻度兩條出路。
 回覆是一個物件（不是陣列）：`{"symbol":…,"interval":…,"kCandles":[…]}`。
 
+`/trading-symbols` 取的是**實際存下的 K 線**裡出現過的交易標的，不是觀察清單設定——
+挑得到卻查不出東西的選項比沒有這個選項更糟。一根 K 線都沒有時回 `200` 與空陣列。
+
 ```bash
 curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
   "symbol":"BTCUSDT","openTime":"2026-08-28T09:00:00Z",
@@ -115,6 +119,8 @@ curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
 curl "localhost:8080/k-candles?symbol=BTCUSDT&startTime=2026-08-28T09:00:00Z&endTime=2026-08-28T09:10:00Z"
 
 curl "localhost:8080/k-candles/series?symbol=BTCUSDT&startTime=2026-08-01T00:00:00Z&endTime=2026-08-28T00:00:00Z&interval=1d"
+
+curl localhost:8080/trading-symbols
 ```
 
 `/health` 刻意**直接寫在路由註冊處**（`cmd/server/dependencies.go`），不經過任何

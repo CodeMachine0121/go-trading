@@ -485,6 +485,45 @@
           ]
         },
         {
+          "name": "有哪些交易標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/trading-symbols",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-symbols"
+              ]
+            },
+            "description": "系統**實際握有 K 線**的每一個交易標的，去重、依名稱由小到大。取的是存下來的資料，不是觀察清單設定——挑得到卻查不出東西的選項比沒有這個選項更糟。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"剛剛那一根的交易標的在裡面\", function () {",
+                  "    const symbols = pm.response.json().map((entry) => entry.symbol);",
+                  "    pm.expect(symbols).to.include(pm.collectionVariables.get(\"symbol\"));",
+                  "});",
+                  "pm.test(\"依名稱由小到大且不重複\", function () {",
+                  "    const symbols = pm.response.json().map((entry) => entry.symbol);",
+                  "    pm.expect(symbols).to.eql(symbols.slice().sort());",
+                  "    pm.expect(symbols).to.eql([...new Set(symbols)]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "修改那一根的數字",
           "request": {
             "method": "PUT",
