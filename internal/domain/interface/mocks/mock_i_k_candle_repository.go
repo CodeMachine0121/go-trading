@@ -56,6 +56,21 @@ func (mr *MockIKCandleRepositoryMockRecorder) Delete(symbol, openTime any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIKCandleRepository)(nil).Delete), symbol, openTime)
 }
 
+// FindDistinctSymbols mocks base method.
+func (m *MockIKCandleRepository) FindDistinctSymbols() ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindDistinctSymbols")
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindDistinctSymbols indicates an expected call of FindDistinctSymbols.
+func (mr *MockIKCandleRepositoryMockRecorder) FindDistinctSymbols() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDistinctSymbols", reflect.TypeOf((*MockIKCandleRepository)(nil).FindDistinctSymbols))
+}
+
 // FindInRange mocks base method.
 func (m *MockIKCandleRepository) FindInRange(query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
 	m.ctrl.T.Helper()

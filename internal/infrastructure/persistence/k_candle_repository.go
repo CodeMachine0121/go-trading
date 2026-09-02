@@ -101,6 +101,25 @@ func (kCandleRepository *KCandleRepository) FindInRange(
 	return kCandles, nil
 }
 
+// FindDistinctSymbols returns every trading symbol that has at least one stored K
+// candle, each once, ordered by name. Both the de-duplication and the ordering are
+// the database's job: doing either of them again in Go would give the two places a
+// chance to disagree.
+func (kCandleRepository *KCandleRepository) FindDistinctSymbols() ([]string, error) {
+	symbols := make([]string, 0)
+
+	result := kCandleRepository.database.
+		Model(&entities.KCandle{}).
+		Distinct().
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "symbol"}}).
+		Pluck("symbol", &symbols)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find distinct k candle symbols: %w", result.Error)
+	}
+
+	return symbols, nil
+}
+
 // FindLatest returns at most limit K candles for the trading symbol, newest first.
 // The order is deliberately the opposite of FindInRange: reading "the latest few"
 // is a descending query, and turning the result the right way round is the
