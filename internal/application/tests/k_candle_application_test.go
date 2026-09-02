@@ -126,6 +126,44 @@ func TestKCandleApplicationGetInRange(t *testing.T) {
 	})
 }
 
+func TestKCandleApplicationGetSeries(t *testing.T) {
+	t.Run("hands back one candle per bucket, earliest first", func(t *testing.T) {
+		fixture := newApplicationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), 2*12).
+			Return([]entities.KCandle{
+				kCandleAt(at(9, 55), "150"),
+				kCandleAt(at(9, 0), "100"),
+				kCandleAt(at(10, 0), "200"),
+			}, nil)
+
+		seriesDto, err := fixture.kCandleApplication.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 30), Interval: "1h",
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "1h", seriesDto.Interval)
+		assert.Len(t, seriesDto.KCandles, 2)
+		assert.Equal(t, at(9, 0), seriesDto.KCandles[0].OpenTime)
+		assert.True(t, decimal.RequireFromString("150").Equal(seriesDto.KCandles[0].Close))
+		assert.Equal(t, at(10, 0), seriesDto.KCandles[1].OpenTime)
+	})
+
+	t.Run("refuses a range cut into more buckets than one query may answer with", func(t *testing.T) {
+		fixture := newApplicationUnderTest(t)
+
+		_, err := fixture.kCandleApplication.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol:    "BTCUSDT",
+			StartTime: at(0, 0),
+			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
+			Interval:  "5m",
+		})
+
+		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
+		assert.Contains(t, err.Error(), "請縮小區間或改用更長的彙總刻度")
+	})
+}
+
 func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 	t.Run("hands back the named candle", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)

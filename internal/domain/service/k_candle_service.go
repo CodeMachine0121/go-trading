@@ -73,6 +73,31 @@ func (kCandleService *KCandleService) GetKCandlesInRange(queryDto dto.KCandleQue
 	return kCandleDtos, nil
 }
 
+// GetKCandleSeries returns the K candles inside the range merged into one candle per
+// bucket of the requested aggregation interval, earliest first. A range cut into more
+// buckets than the configured maximum is refused before anything is read.
+func (kCandleService *KCandleService) GetKCandleSeries(
+	seriesQueryDto dto.KCandleSeriesQueryDto,
+) (dto.KCandleSeriesDto, error) {
+	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
+		seriesQueryDto, kCandleService.queryMaxResults)
+	if validationError != nil {
+		return dto.KCandleSeriesDto{}, validationError
+	}
+
+	kCandles, findError := kCandleService.kCandleRepository.FindInRange(
+		seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
+	if findError != nil {
+		return dto.KCandleSeriesDto{}, findError
+	}
+
+	return domains.NewKCandleSeriesDomain(
+		seriesQueryDomain.RangeQuery().Symbol(),
+		seriesQueryDomain.Interval(),
+		kCandles,
+	).ToDto(), nil
+}
+
 // GetKCandle returns the single K candle named by trading symbol and open time.
 func (kCandleService *KCandleService) GetKCandle(symbol string, openTime time.Time) (dto.KCandleDto, error) {
 	kCandle, findError := kCandleService.kCandleRepository.FindOne(symbol, openTime.UTC())

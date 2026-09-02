@@ -188,6 +188,151 @@ func TestGetKCandlesInRange(t *testing.T) {
 	})
 }
 
+func TestGetKCandleSeries(t *testing.T) {
+	t.Run("merges the candles of each bucket into one, earliest first", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), 3*12).
+			Return([]entities.KCandle{
+				kCandleAt(at(9, 0), "100"),
+				kCandleAt(at(9, 55), "150"),
+				kCandleAt(at(11, 0), "200"),
+			}, nil)
+
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(11, 30), Interval: "1h",
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "BTCUSDT", seriesDto.Symbol)
+		assert.Equal(t, "1h", seriesDto.Interval)
+		assert.Len(t, seriesDto.KCandles, 2)
+		assert.Equal(t, at(9, 0), seriesDto.KCandles[0].OpenTime)
+		assert.True(t, decimal.RequireFromString("150").Equal(seriesDto.KCandles[0].Close))
+		assert.Equal(t, at(11, 0), seriesDto.KCandles[1].OpenTime)
+		assert.True(t, decimal.RequireFromString("200").Equal(seriesDto.KCandles[1].Close))
+	})
+
+	t.Run("leaves out a bucket nothing fell into", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), 3*12).
+			Return([]entities.KCandle{kCandleAt(at(10, 5), "100"), kCandleAt(at(12, 30), "200")}, nil)
+
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(10, 0), EndTime: at(12, 59), Interval: "1h",
+		})
+
+		assert.NoError(t, err)
+		assert.Len(t, seriesDto.KCandles, 2)
+		assert.Equal(t, at(10, 0), seriesDto.KCandles[0].OpenTime)
+		assert.Equal(t, at(12, 0), seriesDto.KCandles[1].OpenTime)
+	})
+
+	t.Run("returns an empty series rather than an error when nothing falls in the range", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{}, nil)
+
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "1h",
+		})
+
+		assert.NoError(t, err)
+		assert.Empty(t, seriesDto.KCandles)
+		assert.Equal(t, "BTCUSDT", seriesDto.Symbol)
+		assert.Equal(t, "1h", seriesDto.Interval)
+	})
+
+	t.Run("aggregating at five minutes leaves every candle as it was", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), 3).
+			Return([]entities.KCandle{
+				kCandleAt(at(9, 0), "100"),
+				kCandleAt(at(9, 5), "101"),
+				kCandleAt(at(9, 10), "102"),
+			}, nil)
+
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10), Interval: "5m",
+		})
+
+		assert.NoError(t, err)
+		assert.Len(t, seriesDto.KCandles, 3)
+		assert.Equal(t, at(9, 5), seriesDto.KCandles[1].OpenTime)
+		assert.True(t, decimal.RequireFromString("101").Equal(seriesDto.KCandles[1].Close))
+	})
+
+	t.Run("never reaches storage when the range is cut into too many buckets", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+
+		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol:    "BTCUSDT",
+			StartTime: at(0, 0),
+			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
+			Interval:  "5m",
+		})
+
+		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
+		assert.Contains(t, err.Error(), "時間區間過大，請縮小區間或改用更長的彙總刻度")
+	})
+
+	t.Run("answers the same range at a longer interval", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
+
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol:    "BTCUSDT",
+			StartTime: at(0, 0),
+			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
+			Interval:  "1d",
+		})
+
+		assert.NoError(t, err)
+		assert.Len(t, seriesDto.KCandles, 1)
+	})
+
+	t.Run("never reaches storage when the interval is one nobody offers", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+
+		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "7m",
+		})
+
+		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
+		assert.Contains(t, err.Error(), "彙總刻度只能是")
+	})
+
+	t.Run("never reaches storage when the query breaks a range rule", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+
+		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "1h",
+		})
+
+		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
+		assert.Contains(t, err.Error(), "必須指定交易標的")
+	})
+
+	t.Run("reports a storage failure", func(t *testing.T) {
+		fixture := newServiceUnderTest(t)
+		storageFailure := errors.New("storage unreachable")
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return(nil, storageFailure)
+
+		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "1h",
+		})
+
+		assert.ErrorIs(t, err, storageFailure)
+	})
+}
+
 func TestSaveKCandle(t *testing.T) {
 	t.Run("stores the candle and returns what was stored", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
