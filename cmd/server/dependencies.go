@@ -39,6 +39,7 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 
 	engine.POST("/k-candles", kCandleController.CreateKCandle)
 	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
+	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
