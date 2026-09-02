@@ -42,6 +42,7 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	clearedDatabase := database.Session(&gorm.Session{AllowGlobalUpdate: true})
 	require.NoError(t, clearedDatabase.Delete(&entities.KCandle{}).Error)
+	require.NoError(t, clearedDatabase.Delete(&entities.TradingSymbol{}).Error)
 
 	return database
 }
