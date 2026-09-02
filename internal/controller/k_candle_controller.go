@@ -42,15 +42,14 @@ func (kCandleController *KCandleController) CreateKCandle(context *gin.Context) 
 
 // GetKCandlesInRange handles GET /k-candles.
 func (kCandleController *KCandleController) GetKCandlesInRange(context *gin.Context) {
-	startTime, startTimeError := time.Parse(time.RFC3339, context.Query("startTime"))
-	if startTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "startTime 必須為 RFC3339 格式的時間"})
+	startTime, startTimeIsReadable := kCandleController.readTime(
+		context, "startTime", context.Query("startTime"))
+	if !startTimeIsReadable {
 		return
 	}
 
-	endTime, endTimeError := time.Parse(time.RFC3339, context.Query("endTime"))
-	if endTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "endTime 必須為 RFC3339 格式的時間"})
+	endTime, endTimeIsReadable := kCandleController.readTime(context, "endTime", context.Query("endTime"))
+	if !endTimeIsReadable {
 		return
 	}
 
@@ -69,15 +68,14 @@ func (kCandleController *KCandleController) GetKCandlesInRange(context *gin.Cont
 
 // GetKCandleSeries handles GET /k-candles/series.
 func (kCandleController *KCandleController) GetKCandleSeries(context *gin.Context) {
-	startTime, startTimeError := time.Parse(time.RFC3339, context.Query("startTime"))
-	if startTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "startTime 必須為 RFC3339 格式的時間"})
+	startTime, startTimeIsReadable := kCandleController.readTime(
+		context, "startTime", context.Query("startTime"))
+	if !startTimeIsReadable {
 		return
 	}
 
-	endTime, endTimeError := time.Parse(time.RFC3339, context.Query("endTime"))
-	if endTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "endTime 必須為 RFC3339 格式的時間"})
+	endTime, endTimeIsReadable := kCandleController.readTime(context, "endTime", context.Query("endTime"))
+	if !endTimeIsReadable {
 		return
 	}
 
@@ -97,9 +95,9 @@ func (kCandleController *KCandleController) GetKCandleSeries(context *gin.Contex
 
 // GetKCandle handles GET /k-candles/:symbol/:openTime.
 func (kCandleController *KCandleController) GetKCandle(context *gin.Context) {
-	openTime, openTimeError := time.Parse(time.RFC3339, context.Param("openTime"))
-	if openTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "openTime 必須為 RFC3339 格式的時間"})
+	openTime, openTimeIsReadable := kCandleController.readTime(
+		context, "openTime", context.Param("openTime"))
+	if !openTimeIsReadable {
 		return
 	}
 
@@ -116,9 +114,9 @@ func (kCandleController *KCandleController) GetKCandle(context *gin.Context) {
 func (kCandleController *KCandleController) UpdateKCandle(context *gin.Context) {
 	symbol := context.Param("symbol")
 
-	openTime, openTimeError := time.Parse(time.RFC3339, context.Param("openTime"))
-	if openTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "openTime 必須為 RFC3339 格式的時間"})
+	openTime, openTimeIsReadable := kCandleController.readTime(
+		context, "openTime", context.Param("openTime"))
+	if !openTimeIsReadable {
 		return
 	}
 
@@ -148,9 +146,9 @@ func (kCandleController *KCandleController) UpdateKCandle(context *gin.Context) 
 
 // DeleteKCandle handles DELETE /k-candles/:symbol/:openTime.
 func (kCandleController *KCandleController) DeleteKCandle(context *gin.Context) {
-	openTime, openTimeError := time.Parse(time.RFC3339, context.Param("openTime"))
-	if openTimeError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "openTime 必須為 RFC3339 格式的時間"})
+	openTime, openTimeIsReadable := kCandleController.readTime(
+		context, "openTime", context.Param("openTime"))
+	if !openTimeIsReadable {
 		return
 	}
 
@@ -160,6 +158,21 @@ func (kCandleController *KCandleController) DeleteKCandle(context *gin.Context) 
 	}
 
 	context.Status(http.StatusNoContent)
+}
+
+// readTime reads one RFC3339 time out of the request, answering the caller with a
+// bad request when it cannot be read. The second return value says whether the
+// handler may carry on — a handler that gets false has already had its answer sent.
+func (kCandleController *KCandleController) readTime(
+	context *gin.Context, name string, value string,
+) (time.Time, bool) {
+	parsedTime, parseError := time.Parse(time.RFC3339, value)
+	if parseError != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"message": name + " 必須為 RFC3339 格式的時間"})
+		return time.Time{}, false
+	}
+
+	return parsedTime, true
 }
 
 // respondWithError maps a domain error onto the status code that reports it.
