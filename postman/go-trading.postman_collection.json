@@ -498,7 +498,7 @@
                 "trading-symbols"
               ]
             },
-            "description": "系統**實際握有 K 線**的每一個交易標的，去重、依名稱由小到大。取的是存下來的資料，不是觀察清單設定——挑得到卻查不出東西的選項比沒有這個選項更糟。"
+            "description": "系統認得的每一個交易標的：**已登錄的**（`make migrate` 時登錄的預設標的）加上**實際有 K 線的**，去重、依名稱由小到大。已登錄但還沒有資料的也會出現——資料庫剛建好時它們就是唯一的選項。"
           },
           "event": [
             {
@@ -512,6 +512,10 @@
                   "pm.test(\"剛剛那一根的交易標的在裡面\", function () {",
                   "    const symbols = pm.response.json().map((entry) => entry.symbol);",
                   "    pm.expect(symbols).to.include(pm.collectionVariables.get(\"symbol\"));",
+                  "});",
+                  "pm.test(\"預設交易標的在裡面\", function () {",
+                  "    const symbols = pm.response.json().map((entry) => entry.symbol);",
+                  "    pm.expect(symbols).to.include.members([\"BTCUSDT\", \"ETHUSDT\"]);",
                   "});",
                   "pm.test(\"依名稱由小到大且不重複\", function () {",
                   "    const symbols = pm.response.json().map((entry) => entry.symbol);",

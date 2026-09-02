@@ -92,7 +92,7 @@ curl localhost:8080/health
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
-| `GET` | `/trading-symbols` | 列出系統**實際握有 K 線**的每一個交易標的，去重、依名稱由小到大 |
+| `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
@@ -107,8 +107,10 @@ curl localhost:8080/health
 區間依刻度切出的根數超過 `KCANDLE_QUERY_MAX_RESULTS` 時回 `400`，訊息同時給出縮小區間與改用更長刻度兩條出路。
 回覆是一個物件（不是陣列）：`{"symbol":…,"interval":…,"kCandles":[…]}`。
 
-`/trading-symbols` 取的是**實際存下的 K 線**裡出現過的交易標的，不是觀察清單設定——
-挑得到卻查不出東西的選項比沒有這個選項更糟。一根 K 線都沒有時回 `200` 與空陣列。
+`/trading-symbols` 回的是**兩邊的聯集**：`TradingSymbols` 裡已登錄的市場，
+加上 `KCandles` 裡實際出現過的交易標的。已登錄但還沒有資料的**會出現**——
+資料庫剛建好時它們就是選單上唯一的選項；有資料但沒登錄過的（例如手動建的新市場）**也會出現**。
+兩邊都空時回 `200` 與空陣列。**它不取自觀察清單設定**——那是「打算抓什麼」，與「系統認得什麼」是兩件事。
 
 ```bash
 curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
@@ -316,6 +318,22 @@ newman run postman/go-trading.postman_collection.json \
 
 > 自動抓取**沒有任何端點**，這是刻意的——它是背景工作，只由環境變數控制，
 > 觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。
+
+## 預設交易標的
+
+`make migrate` 除了建立資料表，還會把**預設交易標的**（`BTCUSDT`、`ETHUSDT`）登錄進
+`TradingSymbols`，讓操作介面的交易標的選單在第一批 K 線抓回來之前就有東西可挑。
+
+登錄前會先讀出已經登錄了哪些，**只寫還沒有的那些**，並印出這次新登錄了哪幾個：
+
+```
+migration applied to 2 table(s): KCandles, TradingSymbols
+default trading symbols: registered 2 new (BTCUSDT, ETHUSDT)
+```
+
+重跑幾次都安全，第二次起會說 `already registered, nothing to add`。
+預設清單寫在 `internal/domain/service/trading_symbol_service.go` 的 `defaultTradingSymbols`，
+目前不可用環境變數設定。
 
 ## 資料庫測試
 
