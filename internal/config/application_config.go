@@ -46,6 +46,7 @@ type IngestionConfig struct {
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
+	CorsAllowedOrigins     []string
 	KCandleQueryMaxResults int
 	IndicatorScriptTimeout time.Duration
 	BackgroundJobsEnabled  bool
@@ -56,7 +57,9 @@ type ApplicationConfig struct {
 // Load reads the configuration from the process environment, applying defaults.
 func Load() ApplicationConfig {
 	return ApplicationConfig{
-		ServerPort:             stringWithDefault("SERVER_PORT", "8080"),
+		ServerPort: stringWithDefault("SERVER_PORT", "8080"),
+		CorsAllowedOrigins: commaSeparatedListWithDefault(
+			"CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
 		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
@@ -110,6 +113,17 @@ func boolWithDefault(key string, defaultValue bool) bool {
 	}
 
 	return value
+}
+
+// commaSeparatedListWithDefault reads a comma separated list, falling back to the
+// default when the variable is missing or names nothing.
+func commaSeparatedListWithDefault(key string, defaultValue []string) []string {
+	entries := commaSeparatedList(key)
+	if len(entries) == 0 {
+		return defaultValue
+	}
+
+	return entries
 }
 
 // commaSeparatedList reads a list written as one comma separated line, ignoring

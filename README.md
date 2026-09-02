@@ -65,6 +65,7 @@ curl localhost:8080/health
 | 變數 | 預設值 | 用途 |
 | :--- | :--- | :--- |
 | `SERVER_PORT` | `8080` | HTTP 服務埠號 |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 允許讀取本 API 回應的前端來源，逗號分隔；清單外的來源不會拿到授權標頭 |
 | `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值 |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
