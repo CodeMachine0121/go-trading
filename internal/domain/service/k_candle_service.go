@@ -94,23 +94,6 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 	return seriesQueryDomain.SeriesOf(kCandles).ToDto(), nil
 }
 
-// ListTradingSymbols returns every trading symbol the system holds K candles for,
-// each once, ordered by name. Nothing stored is an empty list, not an error: it is a
-// perfectly ordinary state for a system that has not ingested anything yet.
-func (kCandleService *KCandleService) ListTradingSymbols() ([]dto.TradingSymbolDto, error) {
-	symbols, findError := kCandleService.kCandleRepository.FindDistinctSymbols()
-	if findError != nil {
-		return nil, findError
-	}
-
-	tradingSymbolDtos := make([]dto.TradingSymbolDto, 0, len(symbols))
-	for _, symbol := range symbols {
-		tradingSymbolDtos = append(tradingSymbolDtos, dto.TradingSymbolDto{Symbol: symbol})
-	}
-
-	return tradingSymbolDtos, nil
-}
-
 // GetKCandle returns the single K candle named by trading symbol and open time.
 func (kCandleService *KCandleService) GetKCandle(symbol string, openTime time.Time) (dto.KCandleDto, error) {
 	kCandle, findError := kCandleService.kCandleRepository.FindOne(symbol, openTime.UTC())

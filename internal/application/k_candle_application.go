@@ -31,10 +31,6 @@ func (kCandleApplication *KCandleApplication) GetKCandleSeries(
 	return kCandleApplication.kCandleService.GetKCandleSeries(seriesQueryDto)
 }
 
-func (kCandleApplication *KCandleApplication) ListTradingSymbols() ([]dto.TradingSymbolDto, error) {
-	return kCandleApplication.kCandleService.ListTradingSymbols()
-}
-
 func (kCandleApplication *KCandleApplication) GetKCandle(symbol string, openTime time.Time) (dto.KCandleDto, error) {
 	return kCandleApplication.kCandleService.GetKCandle(symbol, openTime)
 }
