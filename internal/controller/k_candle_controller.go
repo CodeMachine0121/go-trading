@@ -67,6 +67,34 @@ func (kCandleController *KCandleController) GetKCandlesInRange(context *gin.Cont
 	context.JSON(http.StatusOK, kCandleDtos)
 }
 
+// GetKCandleSeries handles GET /k-candles/series.
+func (kCandleController *KCandleController) GetKCandleSeries(context *gin.Context) {
+	startTime, startTimeError := time.Parse(time.RFC3339, context.Query("startTime"))
+	if startTimeError != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"message": "startTime 必須為 RFC3339 格式的時間"})
+		return
+	}
+
+	endTime, endTimeError := time.Parse(time.RFC3339, context.Query("endTime"))
+	if endTimeError != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"message": "endTime 必須為 RFC3339 格式的時間"})
+		return
+	}
+
+	kCandleSeriesDto, err := kCandleController.kCandleApplication.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		Symbol:    context.Query("symbol"),
+		StartTime: startTime,
+		EndTime:   endTime,
+		Interval:  context.Query("interval"),
+	})
+	if err != nil {
+		kCandleController.respondWithError(context, err)
+		return
+	}
+
+	context.JSON(http.StatusOK, kCandleSeriesDto)
+}
+
 // GetKCandle handles GET /k-candles/:symbol/:openTime.
 func (kCandleController *KCandleController) GetKCandle(context *gin.Context) {
 	openTime, openTimeError := time.Parse(time.RFC3339, context.Param("openTime"))
