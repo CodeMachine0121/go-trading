@@ -907,10 +907,10 @@
                 "indicator-calculations"
               ]
             },
-            "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**最新一根一律被排除**，因為它涵蓋的五分鐘還沒走完——要 4 根就會撈 5 根丟掉最新的。\n所以上面才要先準備 5 根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。",
+            "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**最新一根一律被排除**，因為它涵蓋的五分鐘還沒走完——要 4 根就會撈 5 根丟掉最新的。\n所以上面才要先準備 5 根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種；`float` 是預設值，省略不寫的行為完全相同。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -933,6 +933,9 @@
                   "pm.test(\"算出前四根收盤價的平均 125\", function () {",
                   "    // 準備的五根收盤價為 110/120/130/140/150，排除最新的 150 之後平均為 125。",
                   "    pm.expect(pm.response.json().values.movingAverage).to.eql(125);",
+                  "});",
+                  "pm.test(\"回報這次的種類是 float\", function () {",
+                  "    pm.expect(pm.response.json().resultType).to.eql(\"float\");",
                   "});"
                 ]
               }
@@ -981,6 +984,249 @@
                   "    const values = pm.response.json().values;",
                   "    pm.expect(values).to.have.property(\"highest\");",
                   "    pm.expect(values).to.have.property(\"lowest\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "算一整條線（floatList）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "宣告 `resultType` 為 `floatList` 時，算式要回傳 `map[string][]float64`，一個指標名稱帶一整串數字——畫線用的形狀。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tclosePrices := []float64{}\\n\\tfor _, candle := range data {\\n\\t\\tclosePrices = append(closePrices, candle.Close)\\n\\t}\\n\\treturn map[string][]float64{\\\"line\\\": closePrices}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回報這次的種類是 floatList\", function () {",
+                  "    pm.expect(pm.response.json().resultType).to.eql(\"floatList\");",
+                  "});",
+                  "pm.test(\"一個名稱帶回四個依序排好的收盤價\", function () {",
+                  "    // 準備的五根收盤價為 110/120/130/140/150，排除最新的 150。",
+                  "    pm.expect(pm.response.json().values.line).to.eql([110, 120, 130, 140]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "算一個是非（bool）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "宣告 `resultType` 為 `bool` 時，算式要回傳 `map[string]bool`。訊號類的指標本來就是是非題，不必再用 1 和 0 迂迴表達。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"bool\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]bool {\\n\\treturn map[string]bool{\\\"rising\\\": data[len(data)-1].Close > data[0].Close}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回報這次的種類是 bool\", function () {",
+                  "    pm.expect(pm.response.json().resultType).to.eql(\"bool\");",
+                  "});",
+                  "pm.test(\"最後一根比第一根高，所以是 true\", function () {",
+                  "    pm.expect(pm.response.json().values.rising).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "算逐根的是非（boolList）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "宣告 `resultType` 為 `boolList` 時，算式要回傳 `map[string][]bool`——每根 K 線各一個答案。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]bool {\\n\\tanswers := []bool{}\\n\\tfor _, candle := range data {\\n\\t\\tanswers = append(answers, candle.Close > 125)\\n\\t}\\n\\treturn map[string][]bool{\\\"aboveAverage\\\": answers}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"四根各給一個答案\", function () {",
+                  "    // 收盤價 110/120/130/140 與 125 相比。",
+                  "    pm.expect(pm.response.json().values.aboveAverage).to.eql([false, false, true, true]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：指標值種類不在四種之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "`resultType` 只認得 `float`、`floatList`、`bool`、`boolList`；其他一律是**請求的問題**，連算式都不會跑。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"string\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"告知可以宣告哪四種\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"指標值種類只能是\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：算式的形狀不是宣告的種類",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "宣告了 `boolList` 卻回傳 `map[string]float64`，是**算式的問題**（`422`），訊息會說出 `Calculate` 該長什麼樣。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 422\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test(\"說出算式該有的形式\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"map[string][]bool\");",
                   "});"
                 ]
               }

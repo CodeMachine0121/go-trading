@@ -27,11 +27,12 @@
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
 | `internal/domain/models/vo/indicator_result_type_vo.go` | **Add** | 指標值種類的四個合法取值本身（具名字串型別＋四個常數）。不可變、無行為 |
-| `internal/domain/models/vo/indicator_value_vo.go` | **Add** | 一個指標的值：帶著自己的種類，內容放在數字串列或是非串列其中之一。負責把自己序列化成正確的 JSON 形狀（純量或陣列） |
+| `internal/domain/models/vo/indicator_value_vo.go` | **Add** | 一個指標的值，執行端產出的形狀：是不是一串，加上內容（數字串列或是非串列其中之一）。以 `ToDto()` 交棒出去 |
+| `internal/domain/models/dto/indicator_value_dto.go` | **Add** | 同一個值離開 domain 的形狀，並負責把自己寫成正確的 JSON（一串寫成陣列，否則寫成值本身）。**與 VO 分成兩個型別是相依方向逼出來的**：`vo` 已經匯入 `dto`（`MarketKCandleVo.ToWriteDto`），`dto` 不能反過來認識 `vo` |
 | `internal/domain/models/domains/indicator_result_type_domain.go` | **Add** | 指標值種類的**全部行為**：解讀使用者宣告的字串（去空白、大小寫寬容、空字串視為 `float`、不認得即拒絕）、`IsList()` / `HoldsNumbers()` 兩個述詞、以及對外說明算式該回傳什麼形狀 |
 | `internal/domain/models/domains/indicator_calculation_domain.go` | **Modify** | 建構時多驗一項：指標值種類。驗過的種類由它持有並對外提供，讓「一次計算請求的規則」仍集中在同一個地方 |
 | `internal/domain/models/dto/indicator_calculation_request_dto.go` | **Modify** | 多一個欄位承接使用者宣告的原始字串（未解讀） |
-| `internal/domain/models/dto/indicator_calculation_result_dto.go` | **Modify** | 值的形狀由 `map[string]float64` 改為 `map[string]IndicatorValueVo`，並多回傳這次的指標值種類 |
+| `internal/domain/models/dto/indicator_calculation_result_dto.go` | **Modify** | 值的形狀由 `map[string]float64` 改為 `map[string]IndicatorValueDto`，並多回傳這次的指標值種類（以字串承載，同上，`dto` 無法認識 `vo` 的具名型別） |
 | `internal/domain/interface/i_indicator_script_proxy.go` | **Modify** | 契約多收一個「已驗過的指標值種類」，回傳改為 `map[string]IndicatorValueVo` |
 | `internal/infrastructure/script/yaegi_indicator_script_proxy.go` | **Modify** | 依種類的兩個述詞組出期望的進入點型別（`reflect`）、比對形式、並以同一段程式把產物收成指標值 |
 | `internal/domain/service/indicator_calculation_service.go` | **Modify** | 把驗過的種類交給執行端，並把種類放進結果 |
@@ -51,7 +52,8 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `IndicatorResultTypeVo` | VO | 指標值種類的四個合法取值（`float` / `floatList` / `bool` / `boolList`）。具名字串型別，不可變、無行為 | — | US-01 全部 |
 | `IndicatorResultTypeDomain` | Domain Model | 種類的**唯一行為所在地**：解讀宣告字串（空字串→`float`、去空白與大小寫寬容、不認得→驗證錯誤）；`IsList()`／`HoldsNumbers()` 兩個述詞；`ScriptResultShape()` 供錯誤訊息說明算式該回傳什麼 | `IndicatorResultTypeVo` | US-01「不在四種之內」、US-02、US-03 |
-| `IndicatorValueVo` | VO | 一個指標的值：自己的種類 ＋ 數字串列或是非串列。並負責把自己寫成正確的 JSON 形狀——`float` 寫成一個數字、`floatList` 寫成陣列、是非同理 | `IndicatorResultTypeVo` | US-01 全部、US-04 全部 |
+| `IndicatorValueVo` | VO | 一個指標的值，執行端產出的形狀：是不是一串 ＋ 數字串列或是非串列（其中一個必為空）。一個值與一串值存法相同，第一格就是那個值 | `IndicatorValueDto` | US-01 全部、US-04 全部 |
+| `IndicatorValueDto` | DTO | 同一個值離開 domain 的形狀，並把自己寫成正確的 JSON——一串寫成陣列，否則寫成值本身 | — | US-01 全部、US-04 全部 |
 
 **刻意不建立的類別**
 
@@ -112,8 +114,9 @@ flowchart TD
 - **Where it lands:**
   - 多一種種類 → `IndicatorResultTypeVo` 加一個常數、`IndicatorResultTypeDomain` 的解讀表加一列、
     兩個述詞各補一句。若新種類裝的既不是數字也不是是非，才需要在 `IndicatorValueVo` 多一個串列欄位。
-  - 每個指標各自宣告 → `IndicatorValueVo` **已經帶著自己的種類**，
-    所以結果那一側不必改；要改的只有「宣告從哪裡來」（從一次計算改成算式自己表達）。
+  - 每個指標各自宣告 → 值**已經各自帶著「是不是一串」**，所以序列化那一側不必改；
+    要改的是「內容是數字還是是非」也得跟著逐值走，以及宣告從哪裡來
+    （從一次計算改成算式自己表達）。
 - **How to add it:** 加常數與述詞，不要在 `YaegiIndicatorScriptProxy` 裡開 `switch`。
   直譯器那一側一旦出現對種類的分支，這個設計就開始腐爛。
 - **Patterns applied & why:** 以**述詞驅動**取代型別分派——四種種類的差異只有兩個維度
@@ -136,8 +139,8 @@ flowchart TD
 | 完全沒有宣告種類 | `IndicatorResultTypeDomain` 解讀空字串為 `float` |
 | 宣告一個數字卻產出一串 / 宣告一串是非卻產出數字 | `YaegiIndicatorScriptProxy` 進入點型別比對失敗 → 算式失敗錯誤，訊息含 `ScriptResultShape()` |
 | 算式什麼都沒放進結果 | `YaegiIndicatorScriptProxy` 空產物回空的一組值 |
-| 某個指標對應到空的一串 | `IndicatorValueVo` 空串列序列化為空陣列 |
-| 算出「否」不等於沒有值 | `IndicatorValueVo` 以是非串列承載，`false` 照常寫出 |
+| 某個指標對應到空的一串 | `IndicatorValueDto` 空串列序列化為空陣列 |
+| 算出「否」不等於沒有值 | `IndicatorValueDto` 以是非串列承載，`false` 照常寫出 |
 | 根數不大於零 / 可用根數不足 / 取用的 K 線與種類無關 | `IndicatorCalculationDomain`（既有規則，驗證順序保證訊息不變） |
 
 ---
@@ -145,10 +148,12 @@ flowchart TD
 ## 8. Risks & Open Decisions
 
 - **Risks / trade-offs:**
+  - 值有 VO 與 DTO 兩個幾乎一樣的型別。這不是設計偏好，是既有相依方向（`vo` → `dto`）
+    的結果；把它併成一個就得反轉那個方向，代價遠大於一個三欄位的轉換。
   - 以 `reflect` 組出期望的進入點型別，比四段寫死的型別斷言難讀一些；
     換來的是新增種類不必動執行端。這是刻意的取捨，並以測試涵蓋四種種類的比對結果。
-  - `IndicatorValueVo` 同時帶著數字串列與是非串列，其中一個必為空。
-    以「值自己帶著種類」換取序列化的自足性；不變量寫在型別註解裡，由建構點保證。
+  - 值同時帶著數字串列與是非串列，其中一個必為空。
+    以「值自己知道怎麼被寫出來」換取序列化的自足性；不變量寫在型別註解裡，由建構點保證。
 - **Open decisions (for implementation):**
   - 種類解讀的寬容度以「去前後空白 ＋ 大小寫不敏感」為準。
   - 結果中的值為空時一律寫出 `{}` 而非 `null`（沿用現行行為）。
