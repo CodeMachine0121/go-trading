@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -48,15 +49,15 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			FindLatest("BTCUSDT", 3).
 			Return([]entities.KCandle{kCandleAt(at(9, 10), "100"), kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute("the script", gomock.Any()).
-			Return(map[string]float64{"ma": 110}, nil)
+			Execute("the script", gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(indicatorRequest(2))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", resultDto.Symbol)
 		assert.Equal(t, 2, resultDto.UsedCandleCount)
-		assert.Equal(t, 110.0, resultDto.Values["ma"])
+		assert.Equal(t, []float64{110}, resultDto.Values["ma"].Numbers)
 	})
 
 	t.Run("refuses a request whose candle count is not usable", func(t *testing.T) {
@@ -86,7 +87,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			FindLatest("BTCUSDT", 2).
 			Return([]entities.KCandle{kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, fmt.Errorf("%w: 算式無法解讀", domains.ErrIndicatorScriptFailed))
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(indicatorRequest(1))

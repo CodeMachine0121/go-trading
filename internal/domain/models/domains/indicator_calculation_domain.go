@@ -19,6 +19,7 @@ const excludedNewestCandleCount = 1
 type IndicatorCalculationDomain struct {
 	symbol      string
 	candleCount int
+	resultType  IndicatorResultTypeDomain
 }
 
 // NewIndicatorCalculationDomain validates the request against every request rule.
@@ -41,11 +42,27 @@ func NewIndicatorCalculationDomain(
 			ErrIndicatorCalculationValidation, maxCandleCount)
 	}
 
-	return IndicatorCalculationDomain{symbol: requestDto.Symbol, candleCount: requestDto.CandleCount}, nil
+	resultType, resultTypeError := NewIndicatorResultTypeDomain(requestDto.ResultType)
+	if resultTypeError != nil {
+		return IndicatorCalculationDomain{}, resultTypeError
+	}
+
+	return IndicatorCalculationDomain{
+		symbol:      requestDto.Symbol,
+		candleCount: requestDto.CandleCount,
+		resultType:  resultType,
+	}, nil
 }
 
 func (indicatorCalculationDomain IndicatorCalculationDomain) Symbol() string {
 	return indicatorCalculationDomain.symbol
+}
+
+// ResultType is the indicator value kind this request declared, already read and
+// accepted. Everything downstream takes the kind from here rather than from the raw
+// declaration, so a declaration is only ever interpreted once.
+func (indicatorCalculationDomain IndicatorCalculationDomain) ResultType() IndicatorResultTypeDomain {
+	return indicatorCalculationDomain.resultType
 }
 
 // CandleFetchCount is how many K candles must be read to satisfy this request:

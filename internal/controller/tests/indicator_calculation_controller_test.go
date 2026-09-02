@@ -12,6 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -66,8 +67,8 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute("the script", gomock.Any()).
-			Return(map[string]float64{"ma": 110}, nil)
+			Execute("the script", gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)
 
@@ -81,8 +82,8 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
-			Return(map[string]float64{}, nil)
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		recorder := fixture.post(indicatorBody)
 
@@ -115,7 +116,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
 		recorder := fixture.post(indicatorBody)
@@ -140,5 +141,63 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		recorder := fixture.post(`{"candleCount":`)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	})
+}
+
+func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
+	t.Run("writes a series out as a series", func(t *testing.T) {
+		fixture := newIndicatorRouterUnderTest(t)
+		fixture.expectTwoUsableCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{
+				"line": {IsList: true, Numbers: []float64{100, 105}},
+			}, nil)
+
+		recorder := fixture.post(
+			`{"symbol":"BTCUSDT","candleCount":2,"script":"the script","resultType":"floatList"}`)
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"resultType":"floatList"`)
+		assert.Contains(t, recorder.Body.String(), `"line":[100,105]`)
+	})
+
+	t.Run("writes a lone answer out as an answer", func(t *testing.T) {
+		fixture := newIndicatorRouterUnderTest(t)
+		fixture.expectTwoUsableCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"crossed": {Booleans: []bool{false}}}, nil)
+
+		recorder := fixture.post(
+			`{"symbol":"BTCUSDT","candleCount":2,"script":"the script","resultType":"bool"}`)
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"resultType":"bool"`)
+		assert.Contains(t, recorder.Body.String(), `"crossed":false`)
+	})
+
+	t.Run("declaring nothing still reports one number per indicator", func(t *testing.T) {
+		fixture := newIndicatorRouterUnderTest(t)
+		fixture.expectTwoUsableCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
+
+		recorder := fixture.post(indicatorBody)
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"resultType":"float"`)
+		assert.Contains(t, recorder.Body.String(), `"ma":110`)
+	})
+
+	t.Run("reports a kind that is not on offer as a bad request", func(t *testing.T) {
+		fixture := newIndicatorRouterUnderTest(t)
+
+		recorder := fixture.post(
+			`{"symbol":"BTCUSDT","candleCount":2,"script":"the script","resultType":"string"}`)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "指標值種類只能是")
 	})
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -165,4 +166,48 @@ func TestSelectInputCandlesRefusesWhenTooFewRemain(t *testing.T) {
 			assert.Nil(t, kCandleVos)
 		})
 	}
+}
+
+func TestNewIndicatorCalculationDomainReadsTheDeclaredResultType(t *testing.T) {
+	t.Run("keeps the declared kind for the rest of the calculation", func(t *testing.T) {
+		calculationDomain, err := domains.NewIndicatorCalculationDomain(
+			dto.IndicatorCalculationRequestDto{
+				Symbol: "BTCUSDT", CandleCount: 3, Script: "irrelevant", ResultType: "boolList",
+			},
+			maxCandleCount)
+
+		require.NoError(t, err)
+		assert.Equal(t, vo.IndicatorResultTypeBoolList, calculationDomain.ResultType().Value())
+	})
+
+	t.Run("declaring nothing means one number per indicator", func(t *testing.T) {
+		calculationDomain, err := domains.NewIndicatorCalculationDomain(
+			dto.IndicatorCalculationRequestDto{Symbol: "BTCUSDT", CandleCount: 3, Script: "irrelevant"},
+			maxCandleCount)
+
+		require.NoError(t, err)
+		assert.Equal(t, vo.IndicatorResultTypeFloat, calculationDomain.ResultType().Value())
+	})
+
+	t.Run("refuses a kind that is not on offer", func(t *testing.T) {
+		_, err := domains.NewIndicatorCalculationDomain(
+			dto.IndicatorCalculationRequestDto{
+				Symbol: "BTCUSDT", CandleCount: 3, Script: "irrelevant", ResultType: "string",
+			},
+			maxCandleCount)
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "指標值種類只能是")
+	})
+
+	t.Run("a broken candle count is still reported first", func(t *testing.T) {
+		_, err := domains.NewIndicatorCalculationDomain(
+			dto.IndicatorCalculationRequestDto{
+				Symbol: "BTCUSDT", CandleCount: 0, Script: "irrelevant", ResultType: "string",
+			},
+			maxCandleCount)
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+		assert.Contains(t, err.Error(), "計算根數必須大於零")
+	})
 }
