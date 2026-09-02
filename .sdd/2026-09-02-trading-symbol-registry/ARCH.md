@@ -27,7 +27,7 @@
 
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
-| `domain/models/entities/trading_symbol.go` | **Add** | 已登錄交易標的。名稱本身就是主鍵——一個市場只會有一列，不需要另一個代理鍵 |
+| `domain/models/entities/trading_symbol.go` | **Add** | 已登錄交易標的。名稱本身就是主鍵——一個市場只會有一列，不需要另一個代理鍵。**沒有 `ToDto()`**：清單是以名稱合併兩個來源產生的，不會把已登錄的 entity 轉成 DTO |
 | `domain/interface/i_trading_symbol_repository.go` | **Add** | 一個 entity 一個 repository：`FindAll` 與 `RegisterAll` |
 | `infrastructure/persistence/trading_symbol_repository.go` | **Add** | GORM 實作。`RegisterAll` 帶 `OnConflict DoNothing`——**不是**用來取代「先確認在不在」，而是保險：兩個 migrate 同時跑時不該有人因為搶著登錄同一個標的而失敗 |
 | `infrastructure/persistence/schema_migrator.go` | **Modify** | 多註冊一個 entity |
@@ -50,7 +50,7 @@
 
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies (PRD scenario) |
 | :--- | :--- | :--- | :--- | :--- |
-| `entities.TradingSymbol` | Entity | 一個已登錄的交易標的。只有欄位與持久化對應，帶一個 `ToDto()` 形狀轉換 | `dto.TradingSymbolDto` | （全部） |
+| `entities.TradingSymbol` | Entity | 一個已登錄的交易標的。只有欄位與持久化對應 | — | （全部） |
 | `ITradingSymbolRepository` | 介面 | 已登錄交易標的的讀與寫 | — | （全部） |
 | `TradingSymbolRepository` | Repository | GORM 實作。`FindAll` 依名稱排序；`RegisterAll` 只寫進來的那些，衝突就跳過 | `entities.TradingSymbol` | 全新的資料庫／重跑不重複／只補缺的 |
 | `TradingSymbolService` | Domain Service | 兩個彼此獨立的用例：把兩個來源合成一份清單，以及冪等地登錄預設標的。**先讀出已登錄的、算出還沒登錄的、只寫那些**——「先確認在不在」是業務要求，不是靠資料庫的衝突處理默默達成 | `ITradingSymbolRepository`、`IKCandleRepository` | （全部） |
@@ -100,8 +100,12 @@ flowchart TD
 - **Patterns applied & why:** 沒有套用模式。這個切片是把一個概念從「投影」升格成「實體」，
   並把它的用例搬到它自己的家。
 - **Do not hardcode:**
-  排序交給資料庫與合併時的一次排序，**不要在兩個地方各排一次**。
   預設交易標的只寫在 `TradingSymbolService` 一處。
+  **排序**：兩個 repository 各自依名稱排序（那是它們自己的契約），而清單合併之後
+  必須再排一次——把兩份已排序的清單併起來本來就不會保持有序。
+  所以最終順序**只由 `ListTradingSymbols` 的那一次排序決定**，repository 的排序不影響它。
+  這兩層用的是不同的比較規則（資料庫的 collation vs Go 的位元組順序），
+  因此**不要**倒過來依賴 repository 的順序當成最終順序。
 - **Known debt / deferred:**
   - 已登錄但長期沒有資料的標的會一直在清單上，挑了就是「查無 K 線」。
     這是刻意的取捨（PRD 的 Background 說明了為什麼），目前沒有移除登錄的方式。

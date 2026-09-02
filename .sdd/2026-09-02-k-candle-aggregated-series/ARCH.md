@@ -91,10 +91,14 @@ flowchart TD
 
 - **Most likely next requirement:** 再多一種彙總刻度（三十分鐘、一週），或讓圖表一併拿到彙總後的成交量長條。
 - **Where it lands:**
-  多一種刻度 → `vo` 多一個常數 + `AggregationIntervalDomain` 的可選清單多一列，**其他檔案一行都不用改**。
-  刻度的長度必須整除一天，否則對齊基準會漂掉——這條寫在清單旁邊。
+  多一種刻度 → `vo` 多一個常數 + `AggregationIntervalDomain` 的可選清單多一列（代號與時長同一列），
+  **其他檔案一行都不用改**。刻度的長度必須整除一天，否則對齊基準會漂掉——這條寫在清單旁邊。
   彙總後多帶一個數字 → 只動 `KCandleBucketDomain.ToDto()`。
-- **How to add it:** 在 `selectableAggregationIntervals` 加一列，並在 `AggregationIntervalVo` 加對應常數；不需要新增 `switch`。
+- **How to add it:** 在 `AggregationIntervalVo` 加一個常數，並在 `selectableAggregationIntervals`
+  加一列 `{value, duration}`；不需要新增 `switch`。
+  **代號與時長必須在同一列宣告**——初版把它們拆成 map 與 slice 兩個結構要人工同步，
+  只加其中一邊會分別得到「新刻度被靜默拒絕」與「除以零 panic」兩種失敗，
+  所以現在只剩一個清單，漏掉一半在編譯期就過不了。
 - **Patterns applied & why:**
   - **值 + 行為分家**（`Vo` 常數 / `Domain` 行為）——沿用 `IndicatorResultTypeVo` / `IndicatorResultTypeDomain` 已建立的做法，讓「這是什麼」與「它會做什麼」各有一個家。
   - **組合而非繼承**：`KCandleSeriesQueryDomain` 內含一組 `KCandleQueryDomain`，交易標的與起訖的規則因此只寫一次。
@@ -139,6 +143,8 @@ flowchart TD
   - 一次彙總查詢最多可能讀進「刻度區間數 × 每個刻度區間的原始根數」根 K 線
     （一天刻度 × 1000 格 ≈ 288,000 根）。以本系統實際持有的資料量而言不會發生，
     但這是設計上接受的成本，換到的是合併規則留在 Domain Model 而不是查詢語句裡。
+    **注意讀取上限只是上限，不是預先配置的量**：`KCandleRepository` 的預先配置有自己的天花板
+    （`preallocationCeiling`），否則光是一個查空資料庫的請求就會先要走幾十 MB。
   - `GET /k-candles/series` 與 `GET /k-candles/:symbol/:openTime` 同層。
     已確認 Gin 的路由樹允許同層並存靜態節點與參數節點，不會在啟動時衝突。
 - **Open decisions:** 無。

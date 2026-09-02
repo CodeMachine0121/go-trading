@@ -1,5 +1,16 @@
 # Contract Traceability Matrix — 可查交易標的清單
 
+> ## ⚠️ 這份矩陣已被取代，不再反映現況
+>
+> `.sdd/2026-09-02-trading-symbol-registry/` 推翻了本切片的 **US-03**
+> （「清單說的是有資料，不是打算追蹤」），清單改為「**已登錄的 ∪ 實際有 K 線的**」。
+> 同時 `ListTradingSymbols` 已從 `KCandleService` / `KCandleApplication` / `KCandleController`
+> 搬到 `TradingSymbolService` / `TradingSymbolApplication` / `TradingSymbolController`，
+> **因此下表每一個 `Impl` / `Test` 位置都已經失效**。
+>
+> 本檔保留為當時共識與當時驗證結果的紀錄，**不要拿它判斷現況**。
+> 現行的驗證矩陣在 `.sdd/2026-09-02-trading-symbol-registry/CONTRACT.md`。
+
 Contract: `PRD.md`
 Design map: `ARCH.md`
 Implementation: `internal/infrastructure/persistence/k_candle_repository.go`、`internal/domain/service/k_candle_service.go`、`internal/controller/k_candle_controller.go`、`internal/domain/models/dto/trading_symbol_dto.go`、`cmd/server/dependencies.go`
@@ -16,9 +27,9 @@ Oracle: Acceptance Criteria（7 個情境 + 4 條業務規則 + 2 條非功能�
 | AC-3 | 一根 K 線都沒有時回覆空的清單 | 空清單，且不是錯誤 | `k_candle_service.go:106`（`make(..., 0, …)`，不回 nil） | `k_candle_repository_test.go:316`、`k_candle_service_test.go:351`、`k_candle_controller_test.go:299`（斷言回覆是 `[]` 而不是 `null`） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-4 | 依名稱由小到大 | 依序 BTCUSDT、ETHUSDT、SOLUSDT | `k_candle_repository.go:114`（`Order`） | `k_candle_repository_test.go:299`（以 SOLUSDT 先存入的順序寫入，斷言回覆已排好） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-5 | 再問一次順序不變 | 順序與上一次完全相同 | `k_candle_repository.go:114`（排序由資料庫負責，不依賴走訪順序） | `k_candle_repository_test.go:299`（寫入順序與回覆順序刻意不同，證明順序不是巧合） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-6 | 設定上要追蹤但還沒有資料的不算 | 只回覆 BTCUSDT | `k_candle_repository.go:108`（只讀 `KCandles`，不碰任何設定） | `k_candle_repository_test.go:299`（測試完全沒有設定觀察清單，回覆仍正確） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-7 | K 線被刪光之後就不再出現 | 只回覆 BTCUSDT | `k_candle_repository.go:108` | `k_candle_repository_test.go:325` | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-1 | 來源是實際存下的 K 線，不是觀察清單設定 | 同 AC-6 | `k_candle_repository.go:111`（`Model(&entities.KCandle{})`） | `k_candle_repository_test.go:299` | asserts-oracle | produces-oracle | ✅ conforms |
+| ~~AC-6~~ | ~~設定上要追蹤但還沒有資料的不算~~ **（已被 registry 切片推翻）** | ~~只回覆 BTCUSDT~~ | `k_candle_repository.go:108`（只讀 `KCandles`，不碰任何設定） | `k_candle_repository_test.go:299`（測試完全沒有設定觀察清單，回覆仍正確） | asserts-oracle | produces-oracle | ✅ conforms |
+| ~~AC-7~~ | ~~K 線被刪光之後就不再出現~~ **（已被 registry 切片推翻：已登錄的市場即使資料被刪光也還在）** | ~~只回覆 BTCUSDT~~ | `k_candle_repository.go:108` | `k_candle_repository_test.go:325` | asserts-oracle | produces-oracle | ✅ conforms |
+| ~~BR-1~~ | ~~來源是實際存下的 K 線，不是觀察清單設定~~ **（已被 registry 切片推翻：來源是已登錄的 ∪ 有 K 線的）** | ~~同 AC-6~~ | `k_candle_repository.go:111`（`Model(&entities.KCandle{})`） | `k_candle_repository_test.go:299` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-2 | 去重 | 同 AC-2 | `k_candle_repository.go:113` | `k_candle_repository_test.go:299` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-3 | 排序固定 | 同 AC-4、AC-5 | `k_candle_repository.go:114` | `k_candle_repository_test.go:299` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-4 | 空集合不是錯誤 | 同 AC-3 | `k_candle_service.go:106` | `k_candle_service_test.go:351` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -38,7 +49,11 @@ Oracle: Acceptance Criteria（7 個情境 + 4 條業務規則 + 2 條非功能�
 
 ## Summary
 
-- Conforms: 13/13 clauses ✅（100%）
+> 以下是**當時**的結果。AC-6、AC-7、BR-1 三條之後被 registry 切片推翻，
+> 其餘各條的行為仍然成立，只是實作位置已經搬家。
+
+- Conforms（當時）: 13/13 clauses ✅（100%）
+- 之後被推翻: AC-6、AC-7、BR-1
 - Violations: 無
 - Mis-asserted: 無
 - Partial: 無

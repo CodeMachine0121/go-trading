@@ -3,7 +3,7 @@
 Contract: `PRD.md`
 Design map: `ARCH.md`
 Implementation: `internal/domain/models/{vo,domains,dto}`、`internal/domain/service/k_candle_service.go`、`internal/controller/k_candle_controller.go`、`cmd/server/dependencies.go`
-Oracle: Acceptance Criteria（18 個情境 + 6 條業務規則 + 4 條非功能需求 = 28 clauses）
+Oracle: Acceptance Criteria（19 個情境 + 6 條業務規則 + 4 條非功能需求 = 29 clauses）
 
 ## Clauses
 
@@ -17,7 +17,8 @@ Oracle: Acceptance Criteria（18 個情境 + 6 條業務規則 + 4 條非功能�
 | AC-4 | 五分鐘刻度等同不合併 | 三根，起始時間與價量逐根與原本相同 | `aggregation_interval_domain.go:87` + `k_candle_bucket_domain.go:30` | `k_candle_series_domain_test.go:41`（第二列）、`k_candle_service_test.go:248` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-5 | 序列依起始時間由早到晚 | 依序為起始 10:00、11:00、12:00 | `k_candle_series_domain.go:46` | `k_candle_series_domain_test.go:90` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-6 | 查詢區間的起訖不必對齊刻度區間 | 一根，起始 10:00，只採計 10:35 與 10:40 | `aggregation_interval_domain.go:88` | `aggregation_interval_domain_test.go:70`（10:35→10:00 一列）、`k_candle_series_domain_test.go:106` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-7 | 落在不同刻度區間的資料不會被查詢區間併在一起 | 兩根：起始 09:00 只含 09:55、起始 10:00 只含 10:00 | `k_candle_series_domain.go:38` | `k_candle_series_domain_test.go:41`（跨小時邊界一列） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-7 | 落在不同刻度區間的資料不會被併在一起（查 09:50–10:30） | 兩根：起始 09:00 只含 09:55、起始 10:00 只含 10:00 | `k_candle_series_domain.go:38` | `k_candle_series_domain_test.go:41`（跨小時邊界一列） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-7b | 查詢區間切掉的那幾根不算（查 09:58–10:30） | 只回一根：起始 10:00，只含 10:00 那根 | `k_candle_repository.go:91`（`open_time >= startTime`）+ `k_candle_series_domain.go:33` | `k_candle_series_storage_test.go`（走真實資料庫：兩根存進去，一次查 09:50 起回兩根、一次查 09:58 起只回一根） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-8 | 一天的刻度自世界標準時間的零點切分 | 兩根，起始時間為那兩日的零點 | `aggregation_interval_domain.go:88` | `aggregation_interval_domain_test.go:70`（1d 兩列）、`k_candle_series_domain_test.go:41`（跨午夜一列） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-9 | 中間整段沒有資料時不產出那一根 | 兩根：起始 10:00 與 12:00，沒有 11:00 那根 | `k_candle_series_domain.go:33`（只走讀到的 K 線） | `k_candle_series_domain_test.go:41`（空桶一列）、`k_candle_service_test.go:216` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-10 | 整段區間都沒有資料時回覆空的序列 | 空序列，且不是錯誤 | `k_candle_series_domain.go:33` | `k_candle_series_domain_test.go:119`、`k_candle_service_test.go:232`、`k_candle_controller_test.go:193` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -52,13 +53,24 @@ Oracle: Acceptance Criteria（18 個情境 + 6 條業務規則 + 4 條非功能�
 
 ## Summary
 
-- Conforms: 28/28 clauses ✅（100%）
+- Conforms: 29/29 clauses ✅（100%）
 - Violations: 無
 - Mis-asserted: 無
 - Partial: 無
 - Gaps: 無
 - Unclear: 無
 - Orphans: 2（皆為重構產物，非未記載的行為）
+
+### Code review 之後的修正
+
+初版的 AC-7 寫的是「查 09:58 到 10:30 會回兩根」，但那與 PRD 第 4 節自己的 Edge Case
+（「只採計落在查詢區間內的 K 線」）互相矛盾——09:55 落在查詢區間之外，本來就不該被採計。
+更嚴重的是本表當時引用的證據是 `k_candle_series_domain_test.go` 的一列，
+它直接把兩根 K 線餵進 `KCandleSeriesDomain`，**完全繞過範圍過濾**，
+結構上不可能分辨規格與實際行為的差異，卻被評為 `asserts-oracle`。
+
+已把情境改成與 Edge Case 一致的兩條（AC-7 換成真的涵蓋兩根的區間，AC-7b 明寫被切掉的不算），
+並改引用會走過範圍過濾的 service 層測試。
 
 > 本表是**靜態一致性稽核**：它把測試斷言與程式碼路徑分別對照規格推導出的預期結果，
 > 而不是以「跑起來是綠的」作為判準。作為佐證，本切片新增／變更的每一個函式

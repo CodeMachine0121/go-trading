@@ -4,6 +4,12 @@
 **Source PRD:** `.sdd/2026-09-02-tradable-symbol-list/PRD.md`
 **Tech context:** Go · Gin · GORM · Clean Architecture（Controller → Application → Domain ← Infrastructure）
 
+> ## ⚠️ 這份設計已被取代
+>
+> `.sdd/2026-09-02-trading-symbol-registry/` 把交易標的從「K 線的一欄」升格成 entity，
+> 用例也從 `KCandleService` 搬進 `TradingSymbolService`。
+> 本檔「把它當成 K 線的一種讀法」的前提已經不成立，保留為當時的設計紀錄。
+
 ---
 
 ## 1. Design Goal & Guiding Principle
