@@ -39,9 +39,22 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 
 	engine.POST("/k-candles", kCandleController.CreateKCandle)
 	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
+	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
+
+	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
+	tradingSymbolController := controller.NewTradingSymbolController(
+		application.NewTradingSymbolApplication(
+			service.NewTradingSymbolService(
+				persistence.NewTradingSymbolRepository(database),
+				kCandleRepository,
+			),
+		),
+	)
+
+	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
 
 	indicatorCalculationController := controller.NewIndicatorCalculationController(
 		application.NewIndicatorCalculationApplication(

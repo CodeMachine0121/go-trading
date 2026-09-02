@@ -58,6 +58,7 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 	engine := gin.New()
 	engine.POST("/k-candles", kCandleController.CreateKCandle)
 	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
+	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
@@ -169,6 +170,115 @@ func TestGetKCandlesInRangeResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "endTime")
+	})
+}
+
+func TestGetKCandleSeriesResponses(t *testing.T) {
+	t.Run("returns the merged series and names the interval it was cut at", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{kCandleAt(at(9, 0), "100"), kCandleAt(at(9, 55), "150")}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z"+
+				"&endTime=2026-08-29T09:59:00Z&interval=1h", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"1h"`)
+		assert.Contains(t, recorder.Body.String(), `"openTime":"2026-08-29T09:00:00Z"`)
+		assert.Contains(t, recorder.Body.String(), `"close":"150"`)
+	})
+
+	t.Run("returns an empty series when the range holds nothing", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z"+
+				"&endTime=2026-08-29T09:59:00Z&interval=1h", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"kCandles":[]`)
+	})
+
+	t.Run("naming no interval falls back to five minutes", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z&endTime=2026-08-29T09:10:00Z", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"5m"`)
+	})
+
+	t.Run("reports an interval nobody offers as a bad request", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z"+
+				"&endTime=2026-08-29T09:10:00Z&interval=7m", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "彙總刻度只能是")
+	})
+
+	t.Run("reports a range cut into too many buckets as a bad request", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T00:00:00Z"+
+				"&endTime=2026-09-01T11:20:00Z&interval=5m", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "請縮小區間或改用更長的彙總刻度")
+	})
+
+	t.Run("reports a missing trading symbol as a bad request", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?startTime=2026-08-29T09:00:00Z&endTime=2026-08-29T09:10:00Z&interval=1h", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "必須指定交易標的")
+	})
+
+	t.Run("reports an unreadable start time as a bad request", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet, "/k-candles/series?symbol=BTCUSDT&startTime=yesterday", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "startTime")
+	})
+
+	t.Run("reports an unreadable end time as a bad request", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z&endTime=today", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "endTime")
+	})
+
+	t.Run("reports a storage failure as a bad gateway", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any()).
+			Return(nil, errors.New("storage unreachable"))
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z"+
+				"&endTime=2026-08-29T09:10:00Z&interval=1h", "")
+
+		assert.Equal(t, http.StatusBadGateway, recorder.Code)
 	})
 }
 

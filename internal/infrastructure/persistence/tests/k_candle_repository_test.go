@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// testDatabaseNameSuffix is what a database must be called before these tests will
+// touch it. They empty the table on every run, so pointing them at the database the
+// application actually uses destroys real data — and a developer who typed the wrong
+// DSN finds that out only afterwards. Refusing anything not named for testing turns
+// that mistake into a failed test instead of lost K candles.
+const testDatabaseNameSuffix = "_test"
+
 // newTestDatabase connects to the PostgreSQL instance named by TEST_POSTGRES_DSN and
 // starts each test from an empty table. Without that variable the storage behaviors
 // cannot be exercised, so the tests skip rather than pretend to pass.
@@ -24,12 +32,42 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 		t.Skip("TEST_POSTGRES_DSN is not set; skipping storage tests")
 	}
 
+	require.True(t, strings.HasSuffix(databaseNameIn(dataSourceName), testDatabaseNameSuffix),
+		"TEST_POSTGRES_DSN 指向的資料庫必須以 %s 結尾——這些測試每次都會清空 KCandles，"+
+			"指到應用程式在用的那一個會毀掉真實資料", testDatabaseNameSuffix)
+
 	database, err := persistence.NewDatabase(dataSourceName)
 	require.NoError(t, err)
 	_, err = persistence.NewSchemaMigrator(database).Migrate()
 	require.NoError(t, err)
 	clearedDatabase := database.Session(&gorm.Session{AllowGlobalUpdate: true})
 	require.NoError(t, clearedDatabase.Delete(&entities.KCandle{}).Error)
+	require.NoError(t, clearedDatabase.Delete(&entities.TradingSymbol{}).Error)
+
+	return database
+}
+
+// databaseNameIn reads the dbname out of a key=value DSN, answering with an empty
+// name when the DSN does not carry one — which fails the guard above, as it should.
+func databaseNameIn(dataSourceName string) string {
+	for _, setting := range strings.Fields(dataSourceName) {
+		name, found := strings.CutPrefix(setting, "dbname=")
+		if found {
+			return name
+		}
+	}
+
+	return ""
+}
+
+// closedDatabase hands back a connection that is already shut, which is the only way
+// to make the storage layer fail on demand. Every read and write must say so rather
+// than quietly answering with nothing.
+func closedDatabase(t *testing.T) *gorm.DB {
+	database := newTestDatabase(t)
+	connection, connectionError := database.DB()
+	require.NoError(t, connectionError)
+	require.NoError(t, connection.Close())
 
 	return database
 }
@@ -270,6 +308,48 @@ func TestEveryOperationReportsAnUnusableStore(t *testing.T) {
 	})
 }
 
+func TestFindDistinctSymbols(t *testing.T) {
+	t.Run("returns every symbol that has a stored candle, each once, by name", func(t *testing.T) {
+		repository := persistence.NewKCandleRepository(newTestDatabase(t))
+		_, saveError := repository.Save(kCandleAt("SOLUSDT", at(9, 0), "100"))
+		require.NoError(t, saveError)
+		_, saveError = repository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		require.NoError(t, saveError)
+		_, saveError = repository.Save(kCandleAt("BTCUSDT", at(9, 5), "101"))
+		require.NoError(t, saveError)
+		_, saveError = repository.Save(kCandleAt("ETHUSDT", at(9, 0), "100"))
+		require.NoError(t, saveError)
+
+		symbols, findError := repository.FindDistinctSymbols()
+
+		assert.NoError(t, findError)
+		assert.Equal(t, []string{"BTCUSDT", "ETHUSDT", "SOLUSDT"}, symbols)
+	})
+
+	t.Run("returns an empty list when nothing is stored", func(t *testing.T) {
+		repository := persistence.NewKCandleRepository(newTestDatabase(t))
+
+		symbols, findError := repository.FindDistinctSymbols()
+
+		assert.NoError(t, findError)
+		assert.Empty(t, symbols)
+	})
+
+	t.Run("stops naming a symbol once its candles are gone", func(t *testing.T) {
+		repository := persistence.NewKCandleRepository(newTestDatabase(t))
+		_, saveError := repository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		require.NoError(t, saveError)
+		_, saveError = repository.Save(kCandleAt("ETHUSDT", at(9, 0), "100"))
+		require.NoError(t, saveError)
+		require.NoError(t, repository.Delete("ETHUSDT", at(9, 0)))
+
+		symbols, findError := repository.FindDistinctSymbols()
+
+		assert.NoError(t, findError)
+		assert.Equal(t, []string{"BTCUSDT"}, symbols)
+	})
+}
+
 func TestFindLatest(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
 	for _, openTime := range []time.Time{at(9, 5), at(9, 15), at(9, 0), at(9, 10)} {
@@ -346,4 +426,12 @@ func TestSavingABatchOverwritesWhatIsHeldAndAddsWhatIsNotWithoutDuplicating(t *t
 		assert.Equal(t, "120", kCandle.Close.String())
 	}
 	assert.Equal(t, batch, storedOpenTimes)
+}
+
+func TestFindDistinctSymbolsStorageFailure(t *testing.T) {
+	repository := persistence.NewKCandleRepository(closedDatabase(t))
+
+	_, findError := repository.FindDistinctSymbols()
+
+	assert.Error(t, findError)
 }

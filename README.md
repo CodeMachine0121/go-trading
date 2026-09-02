@@ -88,9 +88,11 @@ curl localhost:8080/health
 | `GET` | `/health` | 健康檢查，恆回 `200 {"status":"Healthy"}` |
 | `POST` | `/k-candles` | 新增一根 K 線；同交易標的同起始時間即覆蓋 |
 | `GET` | `/k-candles?symbol=&startTime=&endTime=` | 依交易標的與時間區間查詢，起訖兩端都包含，依起始時間由早到晚 |
+| `GET` | `/k-candles/series?symbol=&startTime=&endTime=&interval=` | 同一段區間，依彙總刻度合併後回覆；`interval` 為 `5m`／`15m`／`1h`／`4h`／`1d`，省略視為 `5m` |
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
+| `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
@@ -99,6 +101,17 @@ curl localhost:8080/health
 狀態碼：規則不通過 `400`、指名的 K 線不存在 `404`、資料庫讀寫失敗 `502`、刪除成功 `204`。
 查詢成功但區間內無資料回 `200` 與空陣列。
 
+彙總查詢（`/k-candles/series`）的刻度區間邊界一律自**世界標準時間當日零點**起依刻度長度切分，
+查詢區間的起訖不必對齊；一個刻度區間裡的 K 線合併成一根（開盤取最早、收盤取最晚、
+最高取最高、最低取最低，成交數字加總），**沒有資料的刻度區間不產出那一根**。
+區間依刻度切出的根數超過 `KCANDLE_QUERY_MAX_RESULTS` 時回 `400`，訊息同時給出縮小區間與改用更長刻度兩條出路。
+回覆是一個物件（不是陣列）：`{"symbol":…,"interval":…,"kCandles":[…]}`。
+
+`/trading-symbols` 回的是**兩邊的聯集**：`TradingSymbols` 裡已登錄的市場，
+加上 `KCandles` 裡實際出現過的交易標的。已登錄但還沒有資料的**會出現**——
+資料庫剛建好時它們就是選單上唯一的選項；有資料但沒登錄過的（例如手動建的新市場）**也會出現**。
+兩邊都空時回 `200` 與空陣列。**它不取自觀察清單設定**——那是「打算抓什麼」，與「系統認得什麼」是兩件事。
+
 ```bash
 curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
   "symbol":"BTCUSDT","openTime":"2026-08-28T09:00:00Z",
@@ -106,6 +119,10 @@ curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
   "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600"}'
 
 curl "localhost:8080/k-candles?symbol=BTCUSDT&startTime=2026-08-28T09:00:00Z&endTime=2026-08-28T09:10:00Z"
+
+curl "localhost:8080/k-candles/series?symbol=BTCUSDT&startTime=2026-08-01T00:00:00Z&endTime=2026-08-28T00:00:00Z&interval=1d"
+
+curl localhost:8080/trading-symbols
 ```
 
 `/health` 刻意**直接寫在路由註冊處**（`cmd/server/dependencies.go`），不經過任何
@@ -302,6 +319,22 @@ newman run postman/go-trading.postman_collection.json \
 > 自動抓取**沒有任何端點**，這是刻意的——它是背景工作，只由環境變數控制，
 > 觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。
 
+## 預設交易標的
+
+`make migrate` 除了建立資料表，還會把**預設交易標的**（`BTCUSDT`、`ETHUSDT`）登錄進
+`TradingSymbols`，讓操作介面的交易標的選單在第一批 K 線抓回來之前就有東西可挑。
+
+登錄前會先讀出已經登錄了哪些，**只寫還沒有的那些**，並印出這次新登錄了哪幾個：
+
+```
+migration applied to 2 table(s): KCandles, TradingSymbols
+default trading symbols: registered 2 new (BTCUSDT, ETHUSDT)
+```
+
+重跑幾次都安全，第二次起會說 `already registered, nothing to add`。
+預設清單寫在 `internal/domain/service/trading_symbol_service.go` 的 `defaultTradingSymbols`，
+目前不可用環境變數設定。
+
 ## 資料庫測試
 
 `internal/infrastructure/persistence/tests/` 直接對真實的 PostgreSQL 驗證覆蓋語意、
@@ -315,6 +348,9 @@ docker run -d --name go-trading-test -e POSTGRES_PASSWORD=testpass \
 TEST_POSTGRES_DSN="host=localhost port=55433 user=postgres password=testpass dbname=go_trading_test sslmode=disable" \
   make test-storage
 ```
+
+**這些測試每次都會清空 `KCandles`**，所以 `TEST_POSTGRES_DSN` 指到的資料庫**名稱必須以 `_test` 結尾**——
+不是的話測試會直接失敗並說明原因，而不是把應用程式在用的那一份資料清掉。
 
 ## 開發規範
 

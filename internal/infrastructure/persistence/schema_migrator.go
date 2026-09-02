@@ -23,6 +23,7 @@ func NewSchemaMigrator(database *gorm.DB) *SchemaMigrator {
 func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migratedEntities := []any{
 		&entities.KCandle{},
+		&entities.TradingSymbol{},
 	}
 
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)

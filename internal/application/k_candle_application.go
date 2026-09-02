@@ -25,6 +25,12 @@ func (kCandleApplication *KCandleApplication) GetKCandlesInRange(queryDto dto.KC
 	return kCandleApplication.kCandleService.GetKCandlesInRange(queryDto)
 }
 
+func (kCandleApplication *KCandleApplication) GetKCandleSeries(
+	seriesQueryDto dto.KCandleSeriesQueryDto,
+) (dto.KCandleSeriesDto, error) {
+	return kCandleApplication.kCandleService.GetKCandleSeries(seriesQueryDto)
+}
+
 func (kCandleApplication *KCandleApplication) GetKCandle(symbol string, openTime time.Time) (dto.KCandleDto, error) {
 	return kCandleApplication.kCandleService.GetKCandle(symbol, openTime)
 }
