@@ -19,6 +19,8 @@ import (
 
 // registerRoutes is the composition root: it wires every concrete type and mounts the routes.
 func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig) {
+	engine.Use(controller.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
+
 	engine.GET("/health", func(context *gin.Context) {
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})
 	})
