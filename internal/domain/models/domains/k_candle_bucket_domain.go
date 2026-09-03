@@ -25,14 +25,6 @@ func NewKCandleBucketDomain(bucketStart time.Time, kCandles []entities.KCandle) 
 	return KCandleBucketDomain{bucketStart: bucketStart, kCandles: kCandles}
 }
 
-// BucketStart is where this bucket's stretch of the grid begins. Whoever picks
-// buckets out of a series orders and cuts them by this, never by any candle's own
-// open time — a bucket stands for its whole stretch, not for the candles that
-// happened to land in it.
-func (kCandleBucketDomain KCandleBucketDomain) BucketStart() time.Time {
-	return kCandleBucketDomain.bucketStart
-}
-
 // ToDto merges the bucket into the one candle that stands for it. The open time it
 // carries is the bucket's own start, not any candle's — that is what makes two
 // queries over the same stretch of market line up.

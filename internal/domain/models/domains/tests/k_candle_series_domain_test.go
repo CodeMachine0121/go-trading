@@ -145,9 +145,9 @@ func TestKCandleSeriesDomainBucketsAreHandedOutEarliestFirst(t *testing.T) {
 	buckets := seriesDomain.Buckets()
 
 	require.Len(t, buckets, 3)
-	assert.Equal(t, mustParseTime(t, "2026-09-02T10:00:00Z"), buckets[0].BucketStart())
-	assert.Equal(t, mustParseTime(t, "2026-09-02T11:00:00Z"), buckets[1].BucketStart())
-	assert.Equal(t, mustParseTime(t, "2026-09-02T12:00:00Z"), buckets[2].BucketStart())
+	assert.Equal(t, mustParseTime(t, "2026-09-02T10:00:00Z"), buckets[0].ToDto().OpenTime)
+	assert.Equal(t, mustParseTime(t, "2026-09-02T11:00:00Z"), buckets[1].ToDto().OpenTime)
+	assert.Equal(t, mustParseTime(t, "2026-09-02T12:00:00Z"), buckets[2].ToDto().OpenTime)
 }
 
 func TestKCandleSeriesDomainBucketsLeaveOutTheStretchesNothingFellInto(t *testing.T) {
@@ -162,8 +162,8 @@ func TestKCandleSeriesDomainBucketsLeaveOutTheStretchesNothingFellInto(t *testin
 	buckets := seriesDomain.Buckets()
 
 	require.Len(t, buckets, 2)
-	assert.Equal(t, mustParseTime(t, "2026-09-02T10:00:00Z"), buckets[0].BucketStart())
-	assert.Equal(t, mustParseTime(t, "2026-09-02T12:00:00Z"), buckets[1].BucketStart())
+	assert.Equal(t, mustParseTime(t, "2026-09-02T10:00:00Z"), buckets[0].ToDto().OpenTime)
+	assert.Equal(t, mustParseTime(t, "2026-09-02T12:00:00Z"), buckets[1].ToDto().OpenTime)
 }
 
 func TestKCandleSeriesDomainBucketsGatherEveryCandleOfTheSameStretch(t *testing.T) {

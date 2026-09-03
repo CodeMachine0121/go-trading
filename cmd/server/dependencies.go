@@ -69,9 +69,10 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 
 	engine.POST("/indicator-calculations", indicatorCalculationController.CalculateIndicator)
 
-	// A saved strategy is its own resource: it holds an algorithm and the data that
-	// algorithm needs, and it is not any one calculation. It reads no K candles, so
-	// it is given no K candle repository.
+	// A saved strategy is its own resource: it holds an algorithm and nothing else —
+	// how coarse the K candles are, how many of them and up to when describe one run
+	// and travel with the calculation instead. It reads no K candles, so it is given
+	// no K candle repository.
 	strategyController := controller.NewStrategyController(
 		application.NewStrategyApplication(
 			service.NewStrategyService(persistence.NewStrategyRepository(database)),

@@ -39,7 +39,20 @@ func NewIndicatorCalculationService(
 //
 // It reads up to the cut-off the request works out rather than simply the latest
 // few, so that the same question asked twice about the same stretch of market
-// answers the same thing both times.
+// answers the same thing both times — **as long as that stretch has settled**.
+//
+// It has not settled at the live edge. The cut-off is worked out from the clock,
+// not from what has actually been stored, and ingestion writes a candle a little
+// after the five minutes it covers have passed. So at 10:00:30 with one-hour
+// buckets, the hour that began at 09:00 counts as finished while the candle for
+// 09:55 may still be on its way: that bucket merges eleven of its twelve candles,
+// and the same request a few minutes later answers differently.
+//
+// The alternative — refusing a bucket until it holds every candle it could hold —
+// is worse: it cannot tell a market that did not trade from one whose data has not
+// arrived, so it would refuse the newest bucket forever on any thin symbol. Naming
+// the limit is the honest option; a caller that needs a settled answer names an
+// end time in the past, where the guarantee does hold.
 func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicator(
 	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {

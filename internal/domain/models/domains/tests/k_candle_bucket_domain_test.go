@@ -81,18 +81,6 @@ func TestKCandleBucketDomainHoldingOneCandleKeepsItsFiguresAsTheyAre(t *testing.
 	assert.True(t, decimal.RequireFromString("4").Equal(mergedKCandle.Volume))
 }
 
-func TestKCandleBucketDomainBucketStartIsTheGridsNotACandles(t *testing.T) {
-	// The only candle in here opened well after the bucket did. A bucket stands for
-	// its whole stretch of the grid, so what it answers is where that stretch began
-	// — otherwise two queries over the same market would line up differently.
-	bucketStart := mustParseTime(t, "2026-09-02T10:00:00Z")
-	bucketDomain := domains.NewKCandleBucketDomain(bucketStart, []entities.KCandle{
-		buildBucketKCandle(t, "2026-09-02T10:35:00Z", "100", "110", "90", "105", "1"),
-	})
-
-	assert.Equal(t, bucketStart, bucketDomain.BucketStart())
-}
-
 func TestKCandleBucketDomainToVoIsTheSameMergeInTheShapeAScriptSees(t *testing.T) {
 	bucketStart := mustParseTime(t, "2026-09-02T10:00:00Z")
 	bucketDomain := domains.NewKCandleBucketDomain(bucketStart, []entities.KCandle{
