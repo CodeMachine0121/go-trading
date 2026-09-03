@@ -33,6 +33,9 @@ type IndicatorResultTypeDomain struct {
 // requests written against the older behavior keep working untouched. Spelling is
 // forgiving about surrounding blanks and letter case; anything else is refused, naming
 // what could have been declared instead.
+//
+// The refusal carries the reason alone, with no sentinel of its own — which kind of
+// validation an unrecognised kind counts as belongs to whoever asked, not to the kind.
 func NewIndicatorResultTypeDomain(declared string) (IndicatorResultTypeDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {
@@ -51,8 +54,7 @@ func NewIndicatorResultTypeDomain(declared string) (IndicatorResultTypeDomain, e
 	}
 
 	return IndicatorResultTypeDomain{}, fmt.Errorf(
-		"%w: 指標值種類只能是 %s 其中之一",
-		ErrIndicatorCalculationValidation, strings.Join(declarableSpellings, "、"))
+		"指標值種類只能是 %s 其中之一", strings.Join(declarableSpellings, "、"))
 }
 
 func (indicatorResultTypeDomain IndicatorResultTypeDomain) Value() vo.IndicatorResultTypeVo {

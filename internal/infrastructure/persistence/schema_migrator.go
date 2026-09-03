@@ -24,6 +24,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migratedEntities := []any{
 		&entities.KCandle{},
 		&entities.TradingSymbol{},
+		&entities.Strategy{},
 	}
 
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)

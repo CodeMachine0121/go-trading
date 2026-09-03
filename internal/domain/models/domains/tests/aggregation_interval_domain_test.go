@@ -61,7 +61,10 @@ func TestNewAggregationIntervalDomainRefusesAnythingElse(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, validationError := domains.NewAggregationIntervalDomain(testCase.declared)
 
-			require.ErrorIs(t, validationError, domains.ErrKCandleValidation)
+			// The reason is all an interval owes anyone. Which sentinel it counts as
+			// is asserted where the wrapping happens — see the series query and the
+			// strategy, which refuse the same bad spelling under their own sentinels.
+			require.Error(t, validationError)
 			assert.Contains(t, validationError.Error(), "彙總刻度只能是 5m、15m、1h、4h、1d 其中之一")
 		})
 	}

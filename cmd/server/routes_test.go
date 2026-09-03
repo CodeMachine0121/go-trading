@@ -28,13 +28,18 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"DELETE /k-candles/:symbol/:openTime",
+		"DELETE /strategies/:id",
 		"GET /health",
 		"GET /k-candles",
 		"GET /k-candles/:symbol/:openTime",
 		"GET /k-candles/series",
+		"GET /strategies",
+		"GET /strategies/:id",
 		"GET /trading-symbols",
 		"POST /indicator-calculations",
 		"POST /k-candles",
+		"POST /strategies",
 		"PUT /k-candles/:symbol/:openTime",
+		"PUT /strategies/:id",
 	}, mountedRoutes)
 }

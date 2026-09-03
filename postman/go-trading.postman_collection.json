@@ -12,6 +12,26 @@
     {
       "key": "symbol",
       "value": "TESTONLY"
+    },
+    {
+      "key": "strategyName",
+      "value": "TESTONLY 二十根均線"
+    },
+    {
+      "key": "strategyId",
+      "value": ""
+    },
+    {
+      "key": "strategyIdDefaults",
+      "value": ""
+    },
+    {
+      "key": "strategyIdDraft",
+      "value": ""
+    },
+    {
+      "key": "strategyCreatedAt",
+      "value": ""
     }
   ],
   "event": [
@@ -1669,6 +1689,947 @@
       ]
     },
     {
+      "name": "策略",
+      "description": "把一套算法留下來：取個名字，記住它算出來的值長什麼樣、要吃多粗、多少根 K 線。\n\n彙總刻度沿用系統既有的那五種（5m／15m／1h／4h／1d），不另立第二套。\n存策略不執行也不檢查指標算式——半成品也該存得住。",
+      "item": [
+        {
+          "name": "存下一支策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "策略是被留下來的一整包：名稱、指標算式，以及它要吃多粗、多少根 K 線。存起來只是被記住，系統不會因此執行它。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"存回來的就是送出去的那一支\", function () {",
+                  "    const saved = pm.response.json();",
+                  "    pm.expect(saved.name).to.eql(pm.collectionVariables.get(\"strategyName\"));",
+                  "    pm.expect(saved.aggregationInterval).to.eql(\"1h\");",
+                  "    pm.expect(saved.resultType).to.eql(\"floatList\");",
+                  "    pm.expect(saved.candleCount).to.eql(20);",
+                  "    pm.expect(saved.id).to.be.above(0);",
+                  "    pm.collectionVariables.set(\"strategyId\", saved.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：名稱已經有人用了",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "名稱是拿來認人的，兩支同名就認不出是哪一支。名稱前後的空白不算數，所以這一支與上一支是同一個名稱。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"　{{strategyName}}　\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "不指定彙總刻度與種類就套預設",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "與彙總查詢、指標計算的規則一致：沒說彙總刻度就是五分鐘，沒說指標值種類就是一個數字。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"套用的是全系統同一套預設\", function () {",
+                  "    const saved = pm.response.json();",
+                  "    pm.expect(saved.aggregationInterval).to.eql(\"5m\");",
+                  "    pm.expect(saved.resultType).to.eql(\"float\");",
+                  "    pm.collectionVariables.set(\"strategyIdDefaults\", saved.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "存得住一支還沒調對的算式",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "存策略不執行、也不檢查算式。一支算式常要調很多次才對，存不進去就沒辦法中途收工、明天再改。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-半成品\",\n  \"script\": \"這根本不是一段程式碼\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"半成品也留得住\", function () {",
+                  "    pm.collectionVariables.set(\"strategyIdDraft\", pm.response.json().id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：彙總刻度不在五種之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "系統只抓得到五分鐘 K 線，更長的刻度都由它併出來。七分鐘既不是它的整數倍、也不整除一天，不是暫時不支援而是不成立。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-七分鐘\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"7m\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出可選的是哪五種\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"彙總刻度只能是\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：指標值種類不在四種之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "可宣告的種類只有一個數字、一串數字、一個是非、一串是非。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-文字\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"string\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：計算根數不大於零",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "一支吃零根 K 線的策略算不出任何東西。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-零根\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：計算根數超過單次上限",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "根數的上限與單次查詢筆數上限是同一個設定，與彙總刻度多粗無關。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-太多根\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 1001\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒有給策略取名字",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "只有空白等同沒取。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"   \",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀取指名的那一支",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "以策略識別碼指名，拿回它記住的全部內容。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"五項內容加上兩個時間都在\", function () {",
+                  "    const found = pm.response.json();",
+                  "    pm.expect(found.id).to.eql(Number(pm.collectionVariables.get(\"strategyId\")));",
+                  "    pm.expect(found.name).to.eql(pm.collectionVariables.get(\"strategyName\"));",
+                  "    pm.expect(found.script).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(found.createdAt).to.be.a(\"string\");",
+                  "    pm.expect(found.updatedAt).to.be.a(\"string\");",
+                  "    pm.collectionVariables.set(\"strategyCreatedAt\", found.createdAt);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "列出全部",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "一次看完系統留著的每一支，依名稱由小到大。一支都沒有時回空清單，那不是錯誤。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"依名稱由小到大\", function () {",
+                  "    const names = pm.response.json().map(strategy => strategy.name);",
+                  "    pm.expect(names).to.eql([...names].sort());",
+                  "});",
+                  "pm.test(\"每一支都帶著完整內容，不是只有名字\", function () {",
+                  "    pm.response.json().forEach(strategy => {",
+                  "        pm.expect(strategy).to.have.property(\"script\");",
+                  "        pm.expect(strategy).to.have.property(\"candleCount\");",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "改掉它",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "五項內容一次改完。建立時的每一條規則，修改時一字不差地同樣適用。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"boolList\",\n  \"aggregationInterval\": \"4h\",\n  \"candleCount\": 60\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"改的是那五項\", function () {",
+                  "    const updated = pm.response.json();",
+                  "    pm.expect(updated.aggregationInterval).to.eql(\"4h\");",
+                  "    pm.expect(updated.resultType).to.eql(\"boolList\");",
+                  "    pm.expect(updated.candleCount).to.eql(60);",
+                  "});",
+                  "pm.test(\"識別碼與建立時間動不了\", function () {",
+                  "    const updated = pm.response.json();",
+                  "    pm.expect(updated.id).to.eql(Number(pm.collectionVariables.get(\"strategyId\")));",
+                  "    pm.expect(updated.createdAt).to.eql(pm.collectionVariables.get(\"strategyCreatedAt\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "改回自己原本的名稱不算重複",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "一支策略不會與自己撞名——它撞到的就是它自己那一列。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：改成另一支的名稱",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "改名一樣受名稱不重複的約束。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：把名稱改成空白",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "整次拒絕，該策略維持原狀。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀取從未建立過的一支",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "999999"
+              ]
+            },
+            "description": "指名一支不存在的策略，與給了不合法的內容是兩件不同的事。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：識別碼不是正整數",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "abc"
+              ]
+            },
+            "description": "識別碼讀不出來時就不必去問儲存層了。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：修改從未建立過的一支",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "999999"
+              ]
+            },
+            "description": "不會因此建立一支新的策略。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}-幽靈\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪除那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "真刪除，不保留、不可復原，名稱隨之空出。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪掉之後就找不到了",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "刪掉的策略讀不回來。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：再刪一次同一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "已經不在了。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "名稱空出來了，同名可以再建一支",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "刪除把名稱一併釋出，所以同一個名字可以再用。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"同名再建一支\", function () {",
+                  "    pm.collectionVariables.set(\"strategyId\", pm.response.json().id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "收尾",
       "description": "把上面準備的測試資料清掉，讓整包可以重複跑。",
       "item": [
@@ -1812,6 +2773,99 @@
                 "{{seedTime5}}"
               ]
             }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉重建的那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyId}}"
+              ]
+            },
+            "description": "把這一輪留下的策略收乾淨。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉套預設的那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyIdDefaults}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyIdDefaults}}"
+              ]
+            },
+            "description": "把這一輪留下的策略收乾淨。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉半成品那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{strategyIdDraft}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{strategyIdDraft}}"
+              ]
+            },
+            "description": "把這一輪留下的策略收乾淨。"
           },
           "event": [
             {

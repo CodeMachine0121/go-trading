@@ -35,7 +35,8 @@ func NewKCandleSeriesQueryDomain(
 
 	interval, intervalValidationError := NewAggregationIntervalDomain(seriesQueryDto.Interval)
 	if intervalValidationError != nil {
-		return KCandleSeriesQueryDomain{}, intervalValidationError
+		return KCandleSeriesQueryDomain{}, fmt.Errorf(
+			"%w: %w", ErrKCandleValidation, intervalValidationError)
 	}
 
 	bucketCount := interval.BucketCount(rangeQuery.StartTime(), rangeQuery.EndTime())

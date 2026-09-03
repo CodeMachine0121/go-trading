@@ -44,7 +44,8 @@ func NewIndicatorCalculationDomain(
 
 	resultType, resultTypeError := NewIndicatorResultTypeDomain(requestDto.ResultType)
 	if resultTypeError != nil {
-		return IndicatorCalculationDomain{}, resultTypeError
+		return IndicatorCalculationDomain{}, fmt.Errorf(
+			"%w: %w", ErrIndicatorCalculationValidation, resultTypeError)
 	}
 
 	return IndicatorCalculationDomain{

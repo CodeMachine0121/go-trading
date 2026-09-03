@@ -49,6 +49,11 @@ type AggregationIntervalDomain struct {
 // nothing about aggregation gets exactly the candles it always got. Spelling is
 // forgiving about surrounding blanks and letter case; anything else is refused, naming
 // what could have been declared instead.
+//
+// The refusal carries the reason alone, with no sentinel of its own. Which kind of
+// validation an unrecognised interval counts as is the caller's question, not the
+// interval's: the same bad spelling is a K candle query problem in one place and a
+// strategy problem in another. Each caller wraps this reason in its own sentinel.
 func NewAggregationIntervalDomain(declared string) (AggregationIntervalDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {
@@ -67,8 +72,7 @@ func NewAggregationIntervalDomain(declared string) (AggregationIntervalDomain, e
 	}
 
 	return AggregationIntervalDomain{}, fmt.Errorf(
-		"%w: 彙總刻度只能是 %s 其中之一",
-		ErrKCandleValidation, strings.Join(selectableSpellings, "、"))
+		"彙總刻度只能是 %s 其中之一", strings.Join(selectableSpellings, "、"))
 }
 
 // newAggregationIntervalDomain is the only way an instance is built, so an interval
