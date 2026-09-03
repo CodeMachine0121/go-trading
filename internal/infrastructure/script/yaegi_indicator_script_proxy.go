@@ -2,6 +2,7 @@ package script
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -11,6 +12,12 @@ import (
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 )
+
+// errScriptAllowanceSpent is why a run was given up on when the script outlived its
+// allowance. It is carried as the deadline's cause so that this reason can be told
+// apart from the caller having gone away, which reaches the same context but is not
+// the script's fault and must not be reported as though it were.
+var errScriptAllowanceSpent = errors.New("indicator script allowance spent")
 
 // scriptEntryPoint is the one name every indicator script must define.
 const scriptEntryPoint = "main.Calculate"
@@ -51,7 +58,10 @@ func NewYaegiIndicatorScriptProxy(executionTimeout time.Duration) *YaegiIndicato
 // the reporting possible: the interpreter turns every failure, including a deliberate
 // one, into an error rather than letting it escape.
 func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
-	script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo,
+	executionContext context.Context,
+	script string,
+	resultType domains.IndicatorResultTypeDomain,
+	kCandles []vo.KCandleVo,
 ) (map[string]vo.IndicatorValueVo, error) {
 	inputKCandles := kCandles
 	scriptSymbols := interp.Exports{
@@ -89,14 +99,22 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 			domains.ErrIndicatorScriptFailed, resultType.Value(), resultType.ScriptResultShape())
 	}
 
-	executionContext, stopWaiting := context.WithTimeout(context.Background(), yaegiIndicatorScriptProxy.executionTimeout)
+	// The allowance is measured from the caller's own context rather than from a
+	// fresh one, so a caller that has gone away takes its script with it instead of
+	// leaving it running for the rest of the allowance with nobody left to answer.
+	allowanceContext, stopWaiting := context.WithTimeoutCause(
+		executionContext, yaegiIndicatorScriptProxy.executionTimeout, errScriptAllowanceSpent)
 	defer stopWaiting()
 
-	calculated, callError := interpreter.EvalWithContext(executionContext, scriptCall)
-	if executionContext.Err() != nil {
+	calculated, callError := interpreter.EvalWithContext(allowanceContext, scriptCall)
+	if errors.Is(context.Cause(allowanceContext), errScriptAllowanceSpent) {
 		return nil, fmt.Errorf(
 			"%w: 算式在 %s 內未能算完，已中止",
 			domains.ErrIndicatorScriptFailed, yaegiIndicatorScriptProxy.executionTimeout)
+	}
+	if allowanceContext.Err() != nil {
+		return nil, fmt.Errorf(
+			"%w: 算式已中止，因為發動它的請求已經結束", domains.ErrIndicatorScriptFailed)
 	}
 	if callError != nil {
 		return nil, fmt.Errorf(

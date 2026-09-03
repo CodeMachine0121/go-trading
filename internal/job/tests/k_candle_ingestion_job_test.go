@@ -1,6 +1,7 @@
 package job_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -50,14 +51,14 @@ func newJobUnderTest(t *testing.T, symbols []string) jobUnderTest {
 	stages := make(chan string, 64)
 	backfillSymbols := make(chan string, 64)
 
-	kCandleRepository.EXPECT().FindLatest(gomock.Any(), 1).
-		DoAndReturn(func(symbol string, limit int) ([]entities.KCandle, error) {
+	kCandleRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any(), 1).
+		DoAndReturn(func(_ context.Context, symbol string, limit int) ([]entities.KCandle, error) {
 			stages <- "backfill"
 			backfillSymbols <- symbol
 			return []entities.KCandle{}, nil
 		}).AnyTimes()
-	marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).
-		DoAndReturn(func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+	marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			if window.StartTime.Equal(scheduledWindowStart) {
 				stages <- "scheduled round"
 			}
@@ -89,7 +90,7 @@ func nextFrom(t *testing.T, events chan string) string {
 func TestTheJobBackfillsBeforeItStartsKeepingUp(t *testing.T) {
 	underTest := newJobUnderTest(t, []string{"BTCUSDT"})
 
-	underTest.job.Start()
+	underTest.job.Start(t.Context())
 
 	assert.Equal(t, "backfill", nextFrom(t, underTest.stages))
 	assert.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
@@ -98,7 +99,7 @@ func TestTheJobBackfillsBeforeItStartsKeepingUp(t *testing.T) {
 func TestTheJobKeepsRunningRoundsAtItsInterval(t *testing.T) {
 	underTest := newJobUnderTest(t, []string{"BTCUSDT"})
 
-	underTest.job.Start()
+	underTest.job.Start(t.Context())
 
 	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
 	assert.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
@@ -110,14 +111,14 @@ func TestTheJobWorksFromItsOwnCopyOfTheWatchlist(t *testing.T) {
 	underTest := newJobUnderTest(t, watchlist)
 	watchlist[0] = "SOLUSDT"
 
-	underTest.job.Start()
+	underTest.job.Start(t.Context())
 
 	assert.Equal(t, "BTCUSDT", nextFrom(t, underTest.backfillSymbols))
 }
 
 func TestAStoppedJobRunsNoFurtherRounds(t *testing.T) {
 	underTest := newJobUnderTest(t, []string{"BTCUSDT"})
-	underTest.job.Start()
+	underTest.job.Start(t.Context())
 	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
 	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
 
@@ -141,4 +142,23 @@ func drain(events chan string) {
 
 func TestTheIntervalBetweenRoundsIsTheLengthOneKCandleCovers(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, job.KCandleIngestionInterval)
+}
+
+// The context is the second way a job ends, and it has to work on its own: an
+// orderly shutdown reaches for Stop first, but a shutdown that has run out of
+// patience has only this.
+func TestAJobWhoseContextIsDoneRunsNoFurtherRounds(t *testing.T) {
+	underTest := newJobUnderTest(t, []string{"BTCUSDT"})
+	backgroundJobWork, giveUpOnBackgroundJobWork := context.WithCancel(t.Context())
+
+	underTest.job.Start(backgroundJobWork)
+	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
+
+	giveUpOnBackgroundJobWork()
+	time.Sleep(5 * testInterval)
+	drain(underTest.stages)
+	time.Sleep(5 * testInterval)
+
+	assert.Empty(t, underTest.stages)
 }

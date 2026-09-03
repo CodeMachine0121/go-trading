@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -46,9 +47,9 @@ func NewStrategyRepository(database *gorm.DB) *StrategyRepository {
 // may exist. Asking first and creating afterwards would let two requests arriving at
 // once both find the name free.
 func (strategyRepository *StrategyRepository) Save(
-	strategy entities.Strategy,
+	executionContext context.Context, strategy entities.Strategy,
 ) (entities.Strategy, error) {
-	result := strategyRepository.database.Create(&strategy)
+	result := strategyRepository.database.WithContext(executionContext).Create(&strategy)
 	if writeError := strategyRepository.writeFailureOf(result.Error, strategy.Name, "save"); writeError != nil {
 		return entities.Strategy{}, writeError
 	}
@@ -60,7 +61,7 @@ func (strategyRepository *StrategyRepository) Save(
 // it now stands. Only the writable columns are sent, so the identifier and the time
 // the strategy was first saved are out of reach by construction.
 func (strategyRepository *StrategyRepository) Update(
-	strategy entities.Strategy,
+	executionContext context.Context, strategy entities.Strategy,
 ) (entities.Strategy, error) {
 	// The write and the read-back share one transaction, so what comes back is what
 	// this call stored. Apart, a second rewrite landing between them would hand this
@@ -68,7 +69,7 @@ func (strategyRepository *StrategyRepository) Update(
 	// landing there would report not found for a row this call had just written.
 	updatedStrategy := entities.Strategy{}
 
-	transactionError := strategyRepository.database.Transaction(
+	transactionError := strategyRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
 			// The strategy handed to Model carries the identifier, which is what
 			// picks the row; only the writable columns are then sent.
@@ -136,10 +137,10 @@ func (strategyRepository *StrategyRepository) isNameAlreadyHeld(writeError error
 }
 
 // FindOne returns the strategy carrying this identifier.
-func (strategyRepository *StrategyRepository) FindOne(id uint) (entities.Strategy, error) {
+func (strategyRepository *StrategyRepository) FindOne(executionContext context.Context, id uint) (entities.Strategy, error) {
 	strategy := entities.Strategy{}
 
-	result := strategyRepository.database.First(&strategy, id)
+	result := strategyRepository.database.WithContext(executionContext).First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Strategy{}, strategyRepository.notFound(id)
 	}
@@ -151,10 +152,10 @@ func (strategyRepository *StrategyRepository) FindOne(id uint) (entities.Strateg
 }
 
 // FindAll returns every saved strategy, ordered by name.
-func (strategyRepository *StrategyRepository) FindAll() ([]entities.Strategy, error) {
+func (strategyRepository *StrategyRepository) FindAll(executionContext context.Context) ([]entities.Strategy, error) {
 	strategies := make([]entities.Strategy, 0)
 
-	result := strategyRepository.database.
+	result := strategyRepository.database.WithContext(executionContext).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "name"}}).
 		Find(&strategies)
 	if result.Error != nil {
@@ -167,8 +168,8 @@ func (strategyRepository *StrategyRepository) FindAll() ([]entities.Strategy, er
 // Delete removes the strategy for good. There is no keeping of what was deleted:
 // a name that is still held by something nobody can read is a name nobody can
 // explain, and this is a single person's own collection.
-func (strategyRepository *StrategyRepository) Delete(id uint) error {
-	result := strategyRepository.database.Delete(&entities.Strategy{}, id)
+func (strategyRepository *StrategyRepository) Delete(executionContext context.Context, id uint) error {
+	result := strategyRepository.database.WithContext(executionContext).Delete(&entities.Strategy{}, id)
 	if result.Error != nil {
 		return fmt.Errorf("delete strategy: %w", result.Error)
 	}

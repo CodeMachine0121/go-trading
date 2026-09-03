@@ -25,38 +25,38 @@ func NewIndicatorCalculationController(
 
 // CalculateIndicator handles POST /indicator-calculations.
 func (indicatorCalculationController *IndicatorCalculationController) CalculateIndicator(
-	context *gin.Context,
+	ginContext *gin.Context,
 ) {
 	var indicatorCalculationRequest models.IndicatorCalculationRequest
 
-	if bindError := context.ShouldBindJSON(&indicatorCalculationRequest); bindError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+	if bindError := ginContext.ShouldBindJSON(&indicatorCalculationRequest); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
 		return
 	}
 
-	resultDto, err := indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator(
+	resultDto, err := indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator(ginContext.Request.Context(),
 		indicatorCalculationRequest.ToRequestDto())
 	if err != nil {
-		indicatorCalculationController.respondWithError(context, err)
+		indicatorCalculationController.respondWithError(ginContext, err)
 		return
 	}
 
-	context.JSON(http.StatusOK, resultDto)
+	ginContext.JSON(http.StatusOK, resultDto)
 }
 
 // respondWithError separates "your request was wrong" from "your script cannot run",
 // so a caller can tell the two apart without reading the message.
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
-	context *gin.Context, err error,
+	ginContext *gin.Context, err error,
 ) {
 	if errors.Is(err, domains.ErrIndicatorCalculationValidation) {
-		context.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	if errors.Is(err, domains.ErrIndicatorScriptFailed) {
-		context.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
+		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
 		return
 	}
 
-	context.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
 }

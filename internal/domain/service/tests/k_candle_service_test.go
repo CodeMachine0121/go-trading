@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -75,14 +76,14 @@ func TestGetKCandlesInRange(t *testing.T) {
 	t.Run("returns every candle in the range, earliest first", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 0), "100"),
 				kCandleAt(at(9, 5), "101"),
 				kCandleAt(at(9, 10), "102"),
 			}, nil)
 
-		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10),
 		})
 
@@ -96,10 +97,10 @@ func TestGetKCandlesInRange(t *testing.T) {
 	t.Run("returns an empty list rather than an error when nothing falls in the range", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return([]entities.KCandle{}, nil)
 
-		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(11, 0), EndTime: at(12, 0),
 		})
 
@@ -110,15 +111,15 @@ func TestGetKCandlesInRange(t *testing.T) {
 	t.Run("passes the trading symbol and range through to storage", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
-			DoAndReturn(func(query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
+			DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
 				assert.Equal(t, "ETHUSDT", query.Symbol())
 				assert.Equal(t, at(9, 1), query.StartTime())
 				assert.Equal(t, at(9, 9), query.EndTime())
 				return []entities.KCandle{}, nil
 			})
 
-		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "ETHUSDT", StartTime: at(9, 1), EndTime: at(9, 9),
 		})
 
@@ -133,10 +134,10 @@ func TestGetKCandlesInRange(t *testing.T) {
 			storedKCandles = append(storedKCandles, kCandleAt(at(9, 0).Add(time.Duration(index)*5*time.Minute), "100"))
 		}
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return(storedKCandles, nil)
 
-		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(23, 0),
 		})
 
@@ -151,10 +152,10 @@ func TestGetKCandlesInRange(t *testing.T) {
 			storedKCandles = append(storedKCandles, kCandleAt(at(9, 0).Add(time.Duration(index)*5*time.Minute), "100"))
 		}
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return(storedKCandles, nil)
 
-		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		kCandleDtos, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(23, 0),
 		})
 
@@ -166,7 +167,7 @@ func TestGetKCandlesInRange(t *testing.T) {
 	t.Run("never reaches storage when the query breaks a rule", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 
-		_, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		_, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "", StartTime: at(9, 0), EndTime: at(9, 10),
 		})
 
@@ -177,10 +178,10 @@ func TestGetKCandlesInRange(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return(nil, storageFailure)
 
-		_, err := fixture.kCandleService.GetKCandlesInRange(dto.KCandleQueryDto{
+		_, err := fixture.kCandleService.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10),
 		})
 
@@ -192,14 +193,14 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("merges the candles of each bucket into one, earliest first", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), 3*12).
+			FindInRange(gomock.Any(), gomock.Any(), 3*12).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 0), "100"),
 				kCandleAt(at(9, 55), "150"),
 				kCandleAt(at(11, 0), "200"),
 			}, nil)
 
-		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(11, 30), Interval: "1h",
 		})
 
@@ -216,10 +217,10 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("leaves out a bucket nothing fell into", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), 3*12).
+			FindInRange(gomock.Any(), gomock.Any(), 3*12).
 			Return([]entities.KCandle{kCandleAt(at(10, 5), "100"), kCandleAt(at(12, 30), "200")}, nil)
 
-		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(10, 0), EndTime: at(12, 59), Interval: "1h",
 		})
 
@@ -232,10 +233,10 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("returns an empty series rather than an error when nothing falls in the range", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{}, nil)
 
-		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "1h",
 		})
 
@@ -248,14 +249,14 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("aggregating at five minutes leaves every candle as it was", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), 3).
+			FindInRange(gomock.Any(), gomock.Any(), 3).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 0), "100"),
 				kCandleAt(at(9, 5), "101"),
 				kCandleAt(at(9, 10), "102"),
 			}, nil)
 
-		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10), Interval: "5m",
 		})
 
@@ -268,7 +269,7 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("never reaches storage when the range is cut into too many buckets", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 
-		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		_, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol:    "BTCUSDT",
 			StartTime: at(0, 0),
 			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
@@ -282,10 +283,10 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("answers the same range at a longer interval", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
 
-		seriesDto, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol:    "BTCUSDT",
 			StartTime: at(0, 0),
 			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
@@ -299,7 +300,7 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("never reaches storage when the interval is one nobody offers", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 
-		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		_, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "7m",
 		})
 
@@ -310,7 +311,7 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("never reaches storage when the query breaks a range rule", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 
-		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		_, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "1h",
 		})
 
@@ -322,10 +323,10 @@ func TestGetKCandleSeries(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, storageFailure)
 
-		_, err := fixture.kCandleService.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		_, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 0), Interval: "1h",
 		})
 
@@ -337,10 +338,10 @@ func TestSaveKCandle(t *testing.T) {
 	t.Run("stores the candle and returns what was stored", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Save(gomock.Any()).
+			Save(gomock.Any(), gomock.Any()).
 			Return(kCandleAt(at(9, 0), "120"), nil)
 
-		kCandleDto, err := fixture.kCandleService.SaveKCandle(writeDtoAt(at(9, 0), "120"))
+		kCandleDto, err := fixture.kCandleService.SaveKCandle(t.Context(), writeDtoAt(at(9, 0), "120"))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", kCandleDto.Symbol)
@@ -351,7 +352,7 @@ func TestSaveKCandle(t *testing.T) {
 	t.Run("never reaches storage when the candle breaks a rule", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 
-		_, err := fixture.kCandleService.SaveKCandle(writeDtoAt(at(9, 3), "120"))
+		_, err := fixture.kCandleService.SaveKCandle(t.Context(), writeDtoAt(at(9, 3), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
 	})
@@ -359,9 +360,9 @@ func TestSaveKCandle(t *testing.T) {
 	t.Run("reports a storage failure", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
-		fixture.kCandleRepository.EXPECT().Save(gomock.Any()).Return(entities.KCandle{}, storageFailure)
+		fixture.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(entities.KCandle{}, storageFailure)
 
-		_, err := fixture.kCandleService.SaveKCandle(writeDtoAt(at(9, 0), "120"))
+		_, err := fixture.kCandleService.SaveKCandle(t.Context(), writeDtoAt(at(9, 0), "120"))
 
 		assert.ErrorIs(t, err, storageFailure)
 	})
@@ -371,10 +372,10 @@ func TestGetKCandle(t *testing.T) {
 	t.Run("returns the named candle", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindOne("BTCUSDT", at(9, 0)).
+			FindOne(gomock.Any(), "BTCUSDT", at(9, 0)).
 			Return(kCandleAt(at(9, 0), "110"), nil)
 
-		kCandleDto, err := fixture.kCandleService.GetKCandle("BTCUSDT", at(9, 0))
+		kCandleDto, err := fixture.kCandleService.GetKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.NoError(t, err)
 		assert.Equal(t, at(9, 0), kCandleDto.OpenTime)
@@ -384,10 +385,10 @@ func TestGetKCandle(t *testing.T) {
 	t.Run("reports that a candle which does not exist was not found", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindOne("BTCUSDT", at(9, 0)).
+			FindOne(gomock.Any(), "BTCUSDT", at(9, 0)).
 			Return(entities.KCandle{}, domains.ErrKCandleNotFound)
 
-		_, err := fixture.kCandleService.GetKCandle("BTCUSDT", at(9, 0))
+		_, err := fixture.kCandleService.GetKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
@@ -397,10 +398,10 @@ func TestUpdateKCandle(t *testing.T) {
 	t.Run("replaces the figures of an existing candle", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Update(gomock.Any()).
+			Update(gomock.Any(), gomock.Any()).
 			Return(kCandleAt(at(9, 0), "120"), nil)
 
-		kCandleDto, err := fixture.kCandleService.UpdateKCandle(writeDtoAt(at(9, 0), "120"))
+		kCandleDto, err := fixture.kCandleService.UpdateKCandle(t.Context(), writeDtoAt(at(9, 0), "120"))
 
 		assert.NoError(t, err)
 		assert.True(t, decimal.RequireFromString("120").Equal(kCandleDto.Close))
@@ -409,10 +410,10 @@ func TestUpdateKCandle(t *testing.T) {
 	t.Run("reports that a candle which does not exist was not found", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Update(gomock.Any()).
+			Update(gomock.Any(), gomock.Any()).
 			Return(entities.KCandle{}, domains.ErrKCandleNotFound)
 
-		_, err := fixture.kCandleService.UpdateKCandle(writeDtoAt(at(9, 0), "120"))
+		_, err := fixture.kCandleService.UpdateKCandle(t.Context(), writeDtoAt(at(9, 0), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
@@ -423,7 +424,7 @@ func TestUpdateKCandle(t *testing.T) {
 		brokenWriteDto.High = decimal.RequireFromString("90")
 		brokenWriteDto.Low = decimal.RequireFromString("100")
 
-		_, err := fixture.kCandleService.UpdateKCandle(brokenWriteDto)
+		_, err := fixture.kCandleService.UpdateKCandle(t.Context(), brokenWriteDto)
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
 		assert.Contains(t, err.Error(), "最高價不得低於最低價")
@@ -433,9 +434,9 @@ func TestUpdateKCandle(t *testing.T) {
 func TestDeleteKCandle(t *testing.T) {
 	t.Run("removes the named candle", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Delete("BTCUSDT", at(9, 0)).Return(nil)
+		fixture.kCandleRepository.EXPECT().Delete(gomock.Any(), "BTCUSDT", at(9, 0)).Return(nil)
 
-		err := fixture.kCandleService.DeleteKCandle("BTCUSDT", at(9, 0))
+		err := fixture.kCandleService.DeleteKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.NoError(t, err)
 	})
@@ -443,10 +444,10 @@ func TestDeleteKCandle(t *testing.T) {
 	t.Run("reports that a candle which does not exist was not found", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Delete("BTCUSDT", at(9, 0)).
+			Delete(gomock.Any(), "BTCUSDT", at(9, 0)).
 			Return(domains.ErrKCandleNotFound)
 
-		err := fixture.kCandleService.DeleteKCandle("BTCUSDT", at(9, 0))
+		err := fixture.kCandleService.DeleteKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})

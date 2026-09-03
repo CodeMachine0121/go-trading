@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"maps"
 	"slices"
 
@@ -39,13 +40,17 @@ func NewTradingSymbolService(
 // built database usable at all; held-but-unregistered ones are what happens when
 // somebody stores a candle for a market nobody registered, and they must stay
 // findable afterwards.
-func (tradingSymbolService *TradingSymbolService) ListTradingSymbols() ([]dto.TradingSymbolDto, error) {
-	registeredSymbols, findRegisteredError := tradingSymbolService.tradingSymbolRepository.FindAll()
+func (tradingSymbolService *TradingSymbolService) ListTradingSymbols(
+	executionContext context.Context,
+) ([]dto.TradingSymbolDto, error) {
+	registeredSymbols, findRegisteredError := tradingSymbolService.tradingSymbolRepository.FindAll(
+		executionContext)
 	if findRegisteredError != nil {
 		return nil, findRegisteredError
 	}
 
-	heldSymbols, findHeldError := tradingSymbolService.kCandleRepository.FindDistinctSymbols()
+	heldSymbols, findHeldError := tradingSymbolService.kCandleRepository.FindDistinctSymbols(
+		executionContext)
 	if findHeldError != nil {
 		return nil, findHeldError
 	}
@@ -68,8 +73,10 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols() ([]dto.Tr
 // RegisterDefaultTradingSymbols registers the markets the system ships knowing about
 // and reports which of them were new. Already-registered ones are read first and
 // left alone, so running this again does nothing and says so.
-func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols() ([]string, error) {
-	registeredSymbols, findError := tradingSymbolService.tradingSymbolRepository.FindAll()
+func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
+	executionContext context.Context,
+) ([]string, error) {
+	registeredSymbols, findError := tradingSymbolService.tradingSymbolRepository.FindAll(executionContext)
 	if findError != nil {
 		return nil, findError
 	}
@@ -85,7 +92,8 @@ func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
 		}
 	}
 
-	if registerError := tradingSymbolService.tradingSymbolRepository.RegisterAll(newcomers); registerError != nil {
+	if registerError := tradingSymbolService.tradingSymbolRepository.RegisterAll(
+		executionContext, newcomers); registerError != nil {
 		return nil, registerError
 	}
 

@@ -47,7 +47,7 @@ func TestFetchKCandlesMapsEveryPositionOfTheSourceArray(t *testing.T) {
 
 	reportedOpenTime := time.Unix(1788019500, 0).UTC()
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", reportedOpenTime, reportedOpenTime))
 
 	require.NoError(t, fetchError)
@@ -79,7 +79,7 @@ func TestFetchKCandlesAsksTheSourceForTheWindow(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	_, fetchError := proxy.FetchKCandles(vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
+	_, fetchError := proxy.FetchKCandles(t.Context(), vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
 	query := <-requestedQuery
@@ -110,7 +110,7 @@ func TestFetchKCandlesKeepsAskingUntilTheWindowIsCovered(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
@@ -131,7 +131,7 @@ func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
@@ -141,7 +141,7 @@ func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
 func TestFetchKCandlesTreatsNothingAvailableAsAnEmptyResult(t *testing.T) {
 	proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, `[]`), requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
@@ -185,7 +185,7 @@ func TestFetchKCandlesReportsAnUnusableAnswer(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, testCase.body), requestTimeout)
 
-			marketKCandles, fetchError := proxy.FetchKCandles(
+			marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 				vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 			require.Error(t, fetchError)
@@ -202,7 +202,7 @@ func TestFetchKCandlesReportsASourceThatWillNotServe(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 	require.Error(t, fetchError)
@@ -216,7 +216,7 @@ func TestFetchKCandlesReportsASourceItCannotReach(t *testing.T) {
 	server.Close()
 	proxy := marketdata.NewBinanceMarketDataProxy(unreachableUrl, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 	require.Error(t, fetchError)
@@ -232,7 +232,7 @@ func TestFetchKCandlesReportsAnAnswerItCannotFinishReading(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 	require.Error(t, fetchError)
@@ -258,7 +258,7 @@ func TestFetchKCandlesDiscardsCandlesOutsideTheWindowAndStopsAsking(t *testing.T
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)

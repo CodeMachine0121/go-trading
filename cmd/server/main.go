@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
@@ -25,10 +30,24 @@ func main() {
 	engine := gin.Default()
 	registerRoutes(engine, database, applicationConfig)
 
-	// Started before the server takes over the goroutine: Run never returns.
-	job.NewBackgroundJobManager(backgroundJobsFor(database, applicationConfig)).StartAll()
+	// The signals are listened for before anything is started, so an interrupt that
+	// arrives during the startup backfill is still the one that ends this run rather
+	// than being the one that kills it.
+	shutdownSignalled, stopListeningForSignals := signal.NotifyContext(
+		context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopListeningForSignals()
 
-	if runError := engine.Run(":" + applicationConfig.ServerPort); runError != nil {
-		log.Fatalf("failed to start server: %v", runError)
+	server := &http.Server{
+		Addr:              ":" + applicationConfig.ServerPort,
+		Handler:           engine,
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
+
+	if serveError := serve(
+		shutdownSignalled,
+		server,
+		job.NewBackgroundJobManager(backgroundJobsFor(database, applicationConfig)),
+	); serveError != nil {
+		log.Fatalf("failed to serve: %v", serveError)
 	}
 }

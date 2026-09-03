@@ -1,6 +1,8 @@
 package application
 
 import (
+	"context"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -19,13 +21,14 @@ func NewKCandleIngestionApplication(
 }
 
 func (kCandleIngestionApplication *KCandleIngestionApplication) RunBackfill(
-	symbols []string,
+	executionContext context.Context, symbols []string,
 ) (dto.KCandleIngestionReportDto, error) {
-	return kCandleIngestionApplication.kCandleIngestionService.RunBackfill(symbols)
+	return kCandleIngestionApplication.kCandleIngestionService.RunBackfill(executionContext, symbols)
 }
 
 func (kCandleIngestionApplication *KCandleIngestionApplication) RunScheduledRound(
-	symbols []string,
+	executionContext context.Context, symbols []string,
 ) (dto.KCandleIngestionReportDto, error) {
-	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(symbols)
+	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(
+		executionContext, symbols)
 }

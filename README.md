@@ -44,6 +44,17 @@ curl localhost:8080/health
 # {"status":"Healthy"}
 ```
 
+### 關機
+
+`Ctrl+C`（或 `SIGTERM`）是有序關機，不是砍掉：
+
+1. 背景工作被要求**不再開新一輪**——手上那一輪留著跑完，不會留下寫一半的 K 線。
+2. server 停止收新請求，並等**已經收下的請求**回答完。
+3. 等待上限 15 秒。超過就放掉——連同背景工作對資料庫與行情來源發出去的呼叫一起中止。
+
+每一層都吃 `context.Context`，所以第 3 步是真的中止，不是等它自己想起來。
+同理，呼叫端斷線時，那個請求觸發的算式與查詢也會跟著收掉。
+
 ## Commands
 
 | 指令 | 用途 |
@@ -141,7 +152,7 @@ cmd/
 internal/
 ├── config/              環境變數讀取與 PostgreSQL DSN 組裝
 ├── controller/          Gin handler + Request struct
-├── job/                 背景工作：一工作一檔，統一由 BackgroundJobManager 啟動
+├── job/                 背景工作：一工作一檔，統一由 BackgroundJobManager 啟動與停止
 │   └── tests/
 ├── application/         用例編排，呼叫 Domain Service
 │   └── tests/

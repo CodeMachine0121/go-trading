@@ -37,10 +37,10 @@ func TestTradingSymbolApplicationListTradingSymbols(t *testing.T) {
 	t.Run("hands back the registered markets and the ones holding candles, merged", func(t *testing.T) {
 		fixture := newTradingSymbolApplicationUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().
-			FindAll().Return([]entities.TradingSymbol{{Symbol: "ETHUSDT"}}, nil)
-		fixture.kCandleRepository.EXPECT().FindDistinctSymbols().Return([]string{"BTCUSDT"}, nil)
+			FindAll(gomock.Any()).Return([]entities.TradingSymbol{{Symbol: "ETHUSDT"}}, nil)
+		fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{"BTCUSDT"}, nil)
 
-		tradingSymbolDtos, err := fixture.tradingSymbolApplication.ListTradingSymbols()
+		tradingSymbolDtos, err := fixture.tradingSymbolApplication.ListTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
 		assert.Equal(t,
@@ -52,10 +52,10 @@ func TestTradingSymbolApplicationListTradingSymbols(t *testing.T) {
 func TestTradingSymbolApplicationRegisterDefaults(t *testing.T) {
 	t.Run("reports which markets this run newly registered", func(t *testing.T) {
 		fixture := newTradingSymbolApplicationUnderTest(t)
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return([]entities.TradingSymbol{}, nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any()).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), gomock.Any()).Return(nil)
 
-		registeredNames, err := fixture.tradingSymbolApplication.RegisterDefaultTradingSymbols()
+		registeredNames, err := fixture.tradingSymbolApplication.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"BTCUSDT", "ETHUSDT"}, registeredNames)

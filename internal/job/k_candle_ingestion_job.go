@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"log"
 	"slices"
 	"sync"
@@ -47,12 +48,16 @@ func NewKCandleIngestionJob(
 }
 
 // Start hands the work to its own goroutine so that starting the system is not held
-// up by a backfill that may have a lot of ground to make up.
-func (kCandleIngestionJob *KCandleIngestionJob) Start() {
-	go kCandleIngestionJob.run()
+// up by a backfill that may have a lot of ground to make up. Every round it goes on
+// to run is run under the context handed in here, so whoever started the job can
+// still reach the work after it has been let go of.
+func (kCandleIngestionJob *KCandleIngestionJob) Start(executionContext context.Context) {
+	go kCandleIngestionJob.run(executionContext)
 }
 
-// Stop ends the job after the round it may be in the middle of.
+// Stop ends the job after the round it may be in the middle of. It asks for no round
+// to be abandoned: a round halfway through storing candles is left to finish, which
+// is why an orderly shutdown asks for this before it stops waiting.
 func (kCandleIngestionJob *KCandleIngestionJob) Stop() {
 	kCandleIngestionJob.stopOnce()
 }
@@ -60,21 +65,26 @@ func (kCandleIngestionJob *KCandleIngestionJob) Stop() {
 // run backfills first and only then begins keeping up, which is the ordering the
 // two halves have to be in: a round that overlapped the backfill would have both
 // halves writing the same candle.
-func (kCandleIngestionJob *KCandleIngestionJob) run() {
+func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Context) {
 	backfillReport, backfillError := kCandleIngestionJob.kCandleIngestionApplication.
-		RunBackfill(kCandleIngestionJob.symbols)
+		RunBackfill(executionContext, kCandleIngestionJob.symbols)
 	kCandleIngestionJob.report("startup backfill", backfillReport, backfillError)
 
 	ticker := time.NewTicker(kCandleIngestionJob.interval)
 	defer ticker.Stop()
 
 	for {
+		// Being stopped and the context being done are both reasons to end, and the
+		// difference between them is what already happened rather than what happens
+		// here: a stop let the round in hand finish, a done context did not.
 		select {
 		case <-kCandleIngestionJob.done:
 			return
+		case <-executionContext.Done():
+			return
 		case <-ticker.C:
 			roundReport, roundError := kCandleIngestionJob.kCandleIngestionApplication.
-				RunScheduledRound(kCandleIngestionJob.symbols)
+				RunScheduledRound(executionContext, kCandleIngestionJob.symbols)
 			kCandleIngestionJob.report("scheduled round", roundReport, roundError)
 		}
 	}

@@ -22,88 +22,88 @@ func NewStrategyController(strategyApplication *application.StrategyApplication)
 }
 
 // CreateStrategy handles POST /strategies.
-func (strategyController *StrategyController) CreateStrategy(context *gin.Context) {
+func (strategyController *StrategyController) CreateStrategy(ginContext *gin.Context) {
 	var strategyRequest models.StrategyRequest
 
-	if bindError := context.ShouldBindJSON(&strategyRequest); bindError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+	if bindError := ginContext.ShouldBindJSON(&strategyRequest); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
 		return
 	}
 
-	strategyDto, err := strategyController.strategyApplication.CreateStrategy(
+	strategyDto, err := strategyController.strategyApplication.CreateStrategy(ginContext.Request.Context(),
 		strategyRequest.ToWriteDto(0))
 	if err != nil {
-		strategyController.respondWithError(context, err)
+		strategyController.respondWithError(ginContext, err)
 		return
 	}
 
-	context.JSON(http.StatusCreated, strategyDto)
+	ginContext.JSON(http.StatusCreated, strategyDto)
 }
 
 // ListStrategies handles GET /strategies.
-func (strategyController *StrategyController) ListStrategies(context *gin.Context) {
-	strategyDtos, err := strategyController.strategyApplication.ListStrategies()
+func (strategyController *StrategyController) ListStrategies(ginContext *gin.Context) {
+	strategyDtos, err := strategyController.strategyApplication.ListStrategies(ginContext.Request.Context())
 	if err != nil {
-		strategyController.respondWithError(context, err)
+		strategyController.respondWithError(ginContext, err)
 		return
 	}
 
-	context.JSON(http.StatusOK, strategyDtos)
+	ginContext.JSON(http.StatusOK, strategyDtos)
 }
 
 // GetStrategy handles GET /strategies/:id.
-func (strategyController *StrategyController) GetStrategy(context *gin.Context) {
-	id, idIsReadable := strategyController.readID(context)
+func (strategyController *StrategyController) GetStrategy(ginContext *gin.Context) {
+	id, idIsReadable := strategyController.readID(ginContext)
 	if !idIsReadable {
 		return
 	}
 
-	strategyDto, err := strategyController.strategyApplication.GetStrategy(id)
+	strategyDto, err := strategyController.strategyApplication.GetStrategy(ginContext.Request.Context(), id)
 	if err != nil {
-		strategyController.respondWithError(context, err)
+		strategyController.respondWithError(ginContext, err)
 		return
 	}
 
-	context.JSON(http.StatusOK, strategyDto)
+	ginContext.JSON(http.StatusOK, strategyDto)
 }
 
 // UpdateStrategy handles PUT /strategies/:id.
-func (strategyController *StrategyController) UpdateStrategy(context *gin.Context) {
-	id, idIsReadable := strategyController.readID(context)
+func (strategyController *StrategyController) UpdateStrategy(ginContext *gin.Context) {
+	id, idIsReadable := strategyController.readID(ginContext)
 	if !idIsReadable {
 		return
 	}
 
 	var strategyRequest models.StrategyRequest
 
-	if bindError := context.ShouldBindJSON(&strategyRequest); bindError != nil {
-		context.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+	if bindError := ginContext.ShouldBindJSON(&strategyRequest); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
 		return
 	}
 
-	strategyDto, err := strategyController.strategyApplication.UpdateStrategy(
+	strategyDto, err := strategyController.strategyApplication.UpdateStrategy(ginContext.Request.Context(),
 		strategyRequest.ToWriteDto(id))
 	if err != nil {
-		strategyController.respondWithError(context, err)
+		strategyController.respondWithError(ginContext, err)
 		return
 	}
 
-	context.JSON(http.StatusOK, strategyDto)
+	ginContext.JSON(http.StatusOK, strategyDto)
 }
 
 // DeleteStrategy handles DELETE /strategies/:id.
-func (strategyController *StrategyController) DeleteStrategy(context *gin.Context) {
-	id, idIsReadable := strategyController.readID(context)
+func (strategyController *StrategyController) DeleteStrategy(ginContext *gin.Context) {
+	id, idIsReadable := strategyController.readID(ginContext)
 	if !idIsReadable {
 		return
 	}
 
-	if err := strategyController.strategyApplication.DeleteStrategy(id); err != nil {
-		strategyController.respondWithError(context, err)
+	if err := strategyController.strategyApplication.DeleteStrategy(ginContext.Request.Context(), id); err != nil {
+		strategyController.respondWithError(ginContext, err)
 		return
 	}
 
-	context.Status(http.StatusNoContent)
+	ginContext.Status(http.StatusNoContent)
 }
 
 // readID reads the strategy identifier out of the path, answering the caller with a
@@ -120,10 +120,10 @@ func (strategyController *StrategyController) DeleteStrategy(context *gin.Contex
 // one through instead reaches the database and comes back as a storage failure,
 // which reads as "something broke" when the truth is that no strategy has that
 // identifier.
-func (strategyController *StrategyController) readID(context *gin.Context) (uint, bool) {
-	id, parseError := strconv.ParseUint(context.Param("id"), 10, strconv.IntSize)
+func (strategyController *StrategyController) readID(ginContext *gin.Context) (uint, bool) {
+	id, parseError := strconv.ParseUint(ginContext.Param("id"), 10, strconv.IntSize)
 	if parseError != nil || id == 0 || id > math.MaxInt64 {
-		context.JSON(http.StatusBadRequest, gin.H{"message": "策略識別碼必須是正整數"})
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": "策略識別碼必須是正整數"})
 		return 0, false
 	}
 
@@ -133,19 +133,19 @@ func (strategyController *StrategyController) readID(context *gin.Context) (uint
 // respondWithError maps a domain error onto the status code that reports it. It
 // knows only the strategy's own errors: a caller must not have to recognise a K
 // candle's failure to find out its strategy was rejected.
-func (strategyController *StrategyController) respondWithError(context *gin.Context, err error) {
+func (strategyController *StrategyController) respondWithError(ginContext *gin.Context, err error) {
 	if errors.Is(err, domains.ErrStrategyValidation) {
-		context.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	if errors.Is(err, domains.ErrStrategyNotFound) {
-		context.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
 	if errors.Is(err, domains.ErrStrategyNameConflict) {
-		context.JSON(http.StatusConflict, gin.H{"message": err.Error()})
+		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return
 	}
 
-	context.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
 }

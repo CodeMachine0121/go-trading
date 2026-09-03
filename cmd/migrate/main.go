@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"strings"
 
@@ -50,7 +51,10 @@ func main() {
 		),
 	)
 
-	registeredSymbols, registerError := tradingSymbolApplication.RegisterDefaultTradingSymbols()
+	// A migration is deliberately not interruptible: it is short, it is idempotent,
+	// and a half-applied schema is worse than one that insists on finishing.
+	registeredSymbols, registerError := tradingSymbolApplication.RegisterDefaultTradingSymbols(
+		context.Background())
 	if registerError != nil {
 		log.Fatalf("registering the default trading symbols failed: %v", registerError)
 	}

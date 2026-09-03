@@ -41,9 +41,9 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	_, err = persistence.NewSchemaMigrator(database).Migrate()
 	require.NoError(t, err)
 	clearedDatabase := database.Session(&gorm.Session{AllowGlobalUpdate: true})
-	require.NoError(t, clearedDatabase.Delete(&entities.KCandle{}).Error)
-	require.NoError(t, clearedDatabase.Delete(&entities.TradingSymbol{}).Error)
-	require.NoError(t, clearedDatabase.Delete(&entities.Strategy{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.KCandle{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.TradingSymbol{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.Strategy{}).Error)
 
 	return database
 }
@@ -102,13 +102,13 @@ func queryFor(t *testing.T, symbol string, startTime time.Time, endTime time.Tim
 
 func TestSaveOverwritesTheCandleAlreadyHeldForTheSameSymbolAndOpenTime(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+	_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 	require.NoError(t, err)
 
-	_, err = kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "120"))
+	_, err = kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "120"))
 	require.NoError(t, err)
 
-	storedKCandles, err := kCandleRepository.FindInRange(queryFor(t, "BTCUSDT", at(9, 0), at(9, 0)), 10)
+	storedKCandles, err := kCandleRepository.FindInRange(t.Context(), queryFor(t, "BTCUSDT", at(9, 0), at(9, 0)), 10)
 	assert.NoError(t, err)
 	assert.Len(t, storedKCandles, 1)
 	assert.True(t, decimal.RequireFromString("120").Equal(storedKCandles[0].Close))
@@ -116,12 +116,12 @@ func TestSaveOverwritesTheCandleAlreadyHeldForTheSameSymbolAndOpenTime(t *testin
 
 func TestSaveKeepsCandlesOfDifferentSymbolsApart(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+	_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 	require.NoError(t, err)
-	_, err = kCandleRepository.Save(kCandleAt("ETHUSDT", at(9, 0), "200"))
+	_, err = kCandleRepository.Save(t.Context(), kCandleAt("ETHUSDT", at(9, 0), "200"))
 	require.NoError(t, err)
 
-	storedKCandles, err := kCandleRepository.FindInRange(queryFor(t, "ETHUSDT", at(9, 0), at(9, 0)), 10)
+	storedKCandles, err := kCandleRepository.FindInRange(t.Context(), queryFor(t, "ETHUSDT", at(9, 0), at(9, 0)), 10)
 	assert.NoError(t, err)
 	assert.Len(t, storedKCandles, 1)
 	assert.True(t, decimal.RequireFromString("200").Equal(storedKCandles[0].Close))
@@ -130,7 +130,7 @@ func TestSaveKeepsCandlesOfDifferentSymbolsApart(t *testing.T) {
 func TestFindInRange(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
 	for _, openTime := range []time.Time{at(9, 10), at(9, 0), at(9, 5)} {
-		_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "100"))
+		_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
 		require.NoError(t, err)
 	}
 
@@ -180,7 +180,7 @@ func TestFindInRange(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			storedKCandles, err := kCandleRepository.FindInRange(
+			storedKCandles, err := kCandleRepository.FindInRange(t.Context(),
 				queryFor(t, "BTCUSDT", testCase.startTime, testCase.endTime), testCase.limit)
 
 			assert.NoError(t, err)
@@ -194,18 +194,18 @@ func TestFindInRange(t *testing.T) {
 
 func TestFindOne(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "110"))
+	_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "110"))
 	require.NoError(t, err)
 
 	t.Run("returns the named candle", func(t *testing.T) {
-		storedKCandle, err := kCandleRepository.FindOne("BTCUSDT", at(9, 0))
+		storedKCandle, err := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.NoError(t, err)
 		assert.True(t, decimal.RequireFromString("110").Equal(storedKCandle.Close))
 	})
 
 	t.Run("reports not found when no candle carries that symbol and open time", func(t *testing.T) {
-		_, err := kCandleRepository.FindOne("BTCUSDT", at(9, 5))
+		_, err := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 5))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
@@ -213,14 +213,14 @@ func TestFindOne(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+	_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 	require.NoError(t, err)
 
 	t.Run("replaces the figures of an existing candle", func(t *testing.T) {
-		_, err := kCandleRepository.Update(kCandleAt("BTCUSDT", at(9, 0), "120"))
+		_, err := kCandleRepository.Update(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "120"))
 		assert.NoError(t, err)
 
-		storedKCandle, err := kCandleRepository.FindOne("BTCUSDT", at(9, 0))
+		storedKCandle, err := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
 		assert.NoError(t, err)
 		assert.True(t, decimal.RequireFromString("120").Equal(storedKCandle.Close))
 	})
@@ -229,16 +229,16 @@ func TestUpdate(t *testing.T) {
 		zeroVolumeKCandle := kCandleAt("BTCUSDT", at(9, 0), "120")
 		zeroVolumeKCandle.Volume = decimal.Zero
 
-		_, err := kCandleRepository.Update(zeroVolumeKCandle)
+		_, err := kCandleRepository.Update(t.Context(), zeroVolumeKCandle)
 		assert.NoError(t, err)
 
-		storedKCandle, err := kCandleRepository.FindOne("BTCUSDT", at(9, 0))
+		storedKCandle, err := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
 		assert.NoError(t, err)
 		assert.True(t, storedKCandle.Volume.IsZero())
 	})
 
 	t.Run("reports not found when no candle carries that symbol and open time", func(t *testing.T) {
-		_, err := kCandleRepository.Update(kCandleAt("BTCUSDT", at(9, 5), "120"))
+		_, err := kCandleRepository.Update(t.Context(), kCandleAt("BTCUSDT", at(9, 5), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
@@ -246,19 +246,19 @@ func TestUpdate(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+	_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 	require.NoError(t, err)
 
 	t.Run("removes the named candle", func(t *testing.T) {
-		err := kCandleRepository.Delete("BTCUSDT", at(9, 0))
+		err := kCandleRepository.Delete(t.Context(), "BTCUSDT", at(9, 0))
 		assert.NoError(t, err)
 
-		_, err = kCandleRepository.FindOne("BTCUSDT", at(9, 0))
+		_, err = kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
 
 	t.Run("reports not found when no candle carries that symbol and open time", func(t *testing.T) {
-		err := kCandleRepository.Delete("BTCUSDT", at(9, 5))
+		err := kCandleRepository.Delete(t.Context(), "BTCUSDT", at(9, 5))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
@@ -273,37 +273,37 @@ func TestEveryOperationReportsAnUnusableStore(t *testing.T) {
 	require.NoError(t, sqlDatabase.Close())
 
 	t.Run("save", func(t *testing.T) {
-		_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
 
 	t.Run("update", func(t *testing.T) {
-		_, err := kCandleRepository.Update(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		_, err := kCandleRepository.Update(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
 
 	t.Run("read one", func(t *testing.T) {
-		_, err := kCandleRepository.FindOne("BTCUSDT", at(9, 0))
+		_, err := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
 
 	t.Run("read a range", func(t *testing.T) {
-		storedKCandles, err := kCandleRepository.FindInRange(queryFor(t, "BTCUSDT", at(9, 0), at(9, 10)), 10)
+		storedKCandles, err := kCandleRepository.FindInRange(t.Context(), queryFor(t, "BTCUSDT", at(9, 0), at(9, 10)), 10)
 		assert.Error(t, err)
 		assert.Nil(t, storedKCandles)
 	})
 
 	t.Run("read the latest", func(t *testing.T) {
-		storedKCandles, err := kCandleRepository.FindLatest("BTCUSDT", 5)
+		storedKCandles, err := kCandleRepository.FindLatest(t.Context(), "BTCUSDT", 5)
 		assert.Error(t, err)
 		assert.Nil(t, storedKCandles)
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		err := kCandleRepository.Delete("BTCUSDT", at(9, 0))
+		err := kCandleRepository.Delete(t.Context(), "BTCUSDT", at(9, 0))
 		assert.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
@@ -312,16 +312,16 @@ func TestEveryOperationReportsAnUnusableStore(t *testing.T) {
 func TestFindDistinctSymbols(t *testing.T) {
 	t.Run("returns every symbol that has a stored candle, each once, by name", func(t *testing.T) {
 		repository := persistence.NewKCandleRepository(newTestDatabase(t))
-		_, saveError := repository.Save(kCandleAt("SOLUSDT", at(9, 0), "100"))
+		_, saveError := repository.Save(t.Context(), kCandleAt("SOLUSDT", at(9, 0), "100"))
 		require.NoError(t, saveError)
-		_, saveError = repository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		_, saveError = repository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 		require.NoError(t, saveError)
-		_, saveError = repository.Save(kCandleAt("BTCUSDT", at(9, 5), "101"))
+		_, saveError = repository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 5), "101"))
 		require.NoError(t, saveError)
-		_, saveError = repository.Save(kCandleAt("ETHUSDT", at(9, 0), "100"))
+		_, saveError = repository.Save(t.Context(), kCandleAt("ETHUSDT", at(9, 0), "100"))
 		require.NoError(t, saveError)
 
-		symbols, findError := repository.FindDistinctSymbols()
+		symbols, findError := repository.FindDistinctSymbols(t.Context())
 
 		assert.NoError(t, findError)
 		assert.Equal(t, []string{"BTCUSDT", "ETHUSDT", "SOLUSDT"}, symbols)
@@ -330,7 +330,7 @@ func TestFindDistinctSymbols(t *testing.T) {
 	t.Run("returns an empty list when nothing is stored", func(t *testing.T) {
 		repository := persistence.NewKCandleRepository(newTestDatabase(t))
 
-		symbols, findError := repository.FindDistinctSymbols()
+		symbols, findError := repository.FindDistinctSymbols(t.Context())
 
 		assert.NoError(t, findError)
 		assert.Empty(t, symbols)
@@ -338,13 +338,13 @@ func TestFindDistinctSymbols(t *testing.T) {
 
 	t.Run("stops naming a symbol once its candles are gone", func(t *testing.T) {
 		repository := persistence.NewKCandleRepository(newTestDatabase(t))
-		_, saveError := repository.Save(kCandleAt("BTCUSDT", at(9, 0), "100"))
+		_, saveError := repository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
 		require.NoError(t, saveError)
-		_, saveError = repository.Save(kCandleAt("ETHUSDT", at(9, 0), "100"))
+		_, saveError = repository.Save(t.Context(), kCandleAt("ETHUSDT", at(9, 0), "100"))
 		require.NoError(t, saveError)
-		require.NoError(t, repository.Delete("ETHUSDT", at(9, 0)))
+		require.NoError(t, repository.Delete(t.Context(), "ETHUSDT", at(9, 0)))
 
-		symbols, findError := repository.FindDistinctSymbols()
+		symbols, findError := repository.FindDistinctSymbols(t.Context())
 
 		assert.NoError(t, findError)
 		assert.Equal(t, []string{"BTCUSDT"}, symbols)
@@ -354,10 +354,10 @@ func TestFindDistinctSymbols(t *testing.T) {
 func TestFindLatest(t *testing.T) {
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
 	for _, openTime := range []time.Time{at(9, 5), at(9, 15), at(9, 0), at(9, 10)} {
-		_, err := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "100"))
+		_, err := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
 		require.NoError(t, err)
 	}
-	_, err := kCandleRepository.Save(kCandleAt("ETHUSDT", at(9, 20), "200"))
+	_, err := kCandleRepository.Save(t.Context(), kCandleAt("ETHUSDT", at(9, 20), "200"))
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -394,7 +394,7 @@ func TestFindLatest(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			storedKCandles, err := kCandleRepository.FindLatest(testCase.symbol, testCase.limit)
+			storedKCandles, err := kCandleRepository.FindLatest(t.Context(), testCase.symbol, testCase.limit)
 
 			assert.NoError(t, err)
 			assert.Len(t, storedKCandles, len(testCase.expectedOpenTimes))
@@ -409,17 +409,17 @@ func TestSavingABatchOverwritesWhatIsHeldAndAddsWhatIsNotWithoutDuplicating(t *t
 	database := newTestDatabase(t)
 	kCandleRepository := persistence.NewKCandleRepository(database)
 	for _, openTime := range []time.Time{at(8, 50), at(8, 55), at(9, 0)} {
-		_, saveError := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "100"))
+		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
 		require.NoError(t, saveError)
 	}
 
 	batch := []time.Time{at(8, 50), at(8, 55), at(9, 0), at(9, 5), at(9, 10)}
 	for _, openTime := range batch {
-		_, saveError := kCandleRepository.Save(kCandleAt("BTCUSDT", openTime, "120"))
+		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "120"))
 		require.NoError(t, saveError)
 	}
 
-	stored, findError := kCandleRepository.FindInRange(queryFor(t, "BTCUSDT", at(8, 50), at(9, 10)), 100)
+	stored, findError := kCandleRepository.FindInRange(t.Context(), queryFor(t, "BTCUSDT", at(8, 50), at(9, 10)), 100)
 	require.NoError(t, findError)
 	storedOpenTimes := make([]time.Time, 0, len(stored))
 	for _, kCandle := range stored {
@@ -432,7 +432,7 @@ func TestSavingABatchOverwritesWhatIsHeldAndAddsWhatIsNotWithoutDuplicating(t *t
 func TestFindDistinctSymbolsStorageFailure(t *testing.T) {
 	repository := persistence.NewKCandleRepository(closedDatabase(t))
 
-	_, findError := repository.FindDistinctSymbols()
+	_, findError := repository.FindDistinctSymbols(t.Context())
 
 	assert.Error(t, findError)
 }

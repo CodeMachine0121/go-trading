@@ -1,6 +1,8 @@
 package application
 
 import (
+	"context"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -15,25 +17,31 @@ func NewStrategyApplication(strategyService *service.StrategyService) *StrategyA
 }
 
 func (strategyApplication *StrategyApplication) CreateStrategy(
-	writeDto dto.StrategyWriteDto,
+	executionContext context.Context, writeDto dto.StrategyWriteDto,
 ) (dto.StrategyDto, error) {
-	return strategyApplication.strategyService.CreateStrategy(writeDto)
+	return strategyApplication.strategyService.CreateStrategy(executionContext, writeDto)
 }
 
-func (strategyApplication *StrategyApplication) GetStrategy(id uint) (dto.StrategyDto, error) {
-	return strategyApplication.strategyService.GetStrategy(id)
+func (strategyApplication *StrategyApplication) GetStrategy(
+	executionContext context.Context, id uint,
+) (dto.StrategyDto, error) {
+	return strategyApplication.strategyService.GetStrategy(executionContext, id)
 }
 
-func (strategyApplication *StrategyApplication) ListStrategies() ([]dto.StrategyDto, error) {
-	return strategyApplication.strategyService.ListStrategies()
+func (strategyApplication *StrategyApplication) ListStrategies(
+	executionContext context.Context,
+) ([]dto.StrategyDto, error) {
+	return strategyApplication.strategyService.ListStrategies(executionContext)
 }
 
 func (strategyApplication *StrategyApplication) UpdateStrategy(
-	writeDto dto.StrategyWriteDto,
+	executionContext context.Context, writeDto dto.StrategyWriteDto,
 ) (dto.StrategyDto, error) {
-	return strategyApplication.strategyService.UpdateStrategy(writeDto)
+	return strategyApplication.strategyService.UpdateStrategy(executionContext, writeDto)
 }
 
-func (strategyApplication *StrategyApplication) DeleteStrategy(id uint) error {
-	return strategyApplication.strategyService.DeleteStrategy(id)
+func (strategyApplication *StrategyApplication) DeleteStrategy(
+	executionContext context.Context, id uint,
+) error {
+	return strategyApplication.strategyService.DeleteStrategy(executionContext, id)
 }

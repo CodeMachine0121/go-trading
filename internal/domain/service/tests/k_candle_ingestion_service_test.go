@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -102,8 +103,8 @@ func (saved *savedOpenTimes) all() []time.Time {
 
 func (underTest ingestionUnderTest) acceptEverySave() *savedOpenTimes {
 	saved := &savedOpenTimes{openTimes: []time.Time{}}
-	underTest.kCandleRepository.EXPECT().Save(gomock.Any()).
-		DoAndReturn(func(kCandle entities.KCandle) (entities.KCandle, error) {
+	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandle entities.KCandle) (entities.KCandle, error) {
 			saved.record(kCandle)
 			return kCandle, nil
 		}).AnyTimes()
@@ -172,10 +173,10 @@ func TestScheduledRoundStoresTheNewestClosedCandles(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newIngestionUnderTest(t, testCase.currentTime)
-			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).Return(testCase.reported, nil)
+			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(testCase.reported, nil)
 			saved := underTest.acceptEverySave()
 
-			report, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+			report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 
 			require.NoError(t, runError)
 			assert.Equal(t, testCase.expectedOpenTimes, saved.all())
@@ -186,24 +187,24 @@ func TestScheduledRoundStoresTheNewestClosedCandles(t *testing.T) {
 
 func TestScheduledRoundAsksForTheNewestClosedCandlesBackwards(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.marketDataProxy.EXPECT().FetchKCandles(vo.NewKCandleFetchWindowVo(
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
 		"BTCUSDT", ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
 		Return([]vo.MarketKCandleVo{}, nil)
 
-	_, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+	_, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 
 	require.NoError(t, runError)
 }
 
 func TestScheduledRoundCoversEveryWatchedSymbol(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).
-		DoAndReturn(func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			return []vo.MarketKCandleVo{reportedFor(window.Symbol, ingestionAt(9, 0, 0))}, nil
 		}).Times(2)
 	saved := underTest.acceptEverySave()
 
-	report, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT", "ETHUSDT"})
+	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
 
 	require.NoError(t, runError)
 	assert.Len(t, saved.all(), 2)
@@ -214,7 +215,7 @@ func TestScheduledRoundCoversEveryWatchedSymbol(t *testing.T) {
 func TestScheduledRoundOnAnEmptyWatchlistDoesNothing(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
 
-	report, runError := underTest.service.RunScheduledRound([]string{})
+	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{})
 
 	require.NoError(t, runError)
 	assert.Empty(t, report.SymbolReports)
@@ -223,14 +224,14 @@ func TestScheduledRoundOnAnEmptyWatchlistDoesNothing(t *testing.T) {
 func TestOneSymbolFailingLeavesTheOthersAlone(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
 	underTest.marketDataProxy.EXPECT().
-		FetchKCandles(gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "BTCUSDT" })).
+		FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "BTCUSDT" })).
 		Return(nil, sourceUnreachable)
 	underTest.marketDataProxy.EXPECT().
-		FetchKCandles(gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "ETHUSDT" })).
+		FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "ETHUSDT" })).
 		Return([]vo.MarketKCandleVo{reportedFor("ETHUSDT", ingestionAt(9, 0, 0))}, nil)
 	saved := underTest.acceptEverySave()
 
-	report, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT", "ETHUSDT"})
+	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
 
 	require.NoError(t, runError)
 	assert.Len(t, saved.all(), 1)
@@ -242,10 +243,10 @@ func TestOneSymbolFailingLeavesTheOthersAlone(t *testing.T) {
 
 func TestEverySymbolFailingStillReportsRatherThanErroring(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return(nil, sourceUnreachable).Times(2)
 
-	report, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT", "ETHUSDT"})
+	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
 
 	require.NoError(t, runError)
 	assert.Contains(t, reportFor(t, report, "BTCUSDT").FetchFailureReason, "market source unreachable")
@@ -309,10 +310,10 @@ func TestACandleBreakingARuleIsSkippedOnItsOwn(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).Return(testCase.reported, nil)
+			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(testCase.reported, nil)
 			underTest.acceptEverySave()
 
-			report, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+			report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 
 			require.NoError(t, runError)
 			symbolReport := reportFor(t, report, "BTCUSDT")
@@ -329,18 +330,18 @@ func TestACandleBreakingARuleIsSkippedOnItsOwn(t *testing.T) {
 
 func TestACandleThatCannotBeStoredIsSkippedRatherThanFailingTheSymbol(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).Return([]vo.MarketKCandleVo{
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return([]vo.MarketKCandleVo{
 		validReportedKCandle(ingestionAt(8, 55, 0)),
 		validReportedKCandle(ingestionAt(9, 0, 0)),
 	}, nil)
 	underTest.kCandleRepository.EXPECT().
-		Save(gomock.Cond(func(kCandle entities.KCandle) bool { return kCandle.OpenTime.Equal(ingestionAt(8, 55, 0)) })).
+		Save(gomock.Any(), gomock.Cond(func(kCandle entities.KCandle) bool { return kCandle.OpenTime.Equal(ingestionAt(8, 55, 0)) })).
 		Return(entities.KCandle{}, errors.New("storage refused the write"))
 	underTest.kCandleRepository.EXPECT().
-		Save(gomock.Cond(func(kCandle entities.KCandle) bool { return kCandle.OpenTime.Equal(ingestionAt(9, 0, 0)) })).
+		Save(gomock.Any(), gomock.Cond(func(kCandle entities.KCandle) bool { return kCandle.OpenTime.Equal(ingestionAt(9, 0, 0)) })).
 		Return(entities.KCandle{}, nil)
 
-	report, runError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 
 	require.NoError(t, runError)
 	symbolReport := reportFor(t, report, "BTCUSDT")
@@ -377,12 +378,12 @@ func TestBackfillAsksOnlyForTheGap(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-			underTest.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 1).Return(testCase.stored, nil)
-			underTest.marketDataProxy.EXPECT().FetchKCandles(vo.NewKCandleFetchWindowVo(
+			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).Return(testCase.stored, nil)
+			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
 				"BTCUSDT", testCase.expectedStartTime, ingestionAt(9, 0, 0))).
 				Return([]vo.MarketKCandleVo{}, nil)
 
-			_, runError := underTest.service.RunBackfill([]string{"BTCUSDT"})
+			_, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT"})
 
 			require.NoError(t, runError)
 		})
@@ -391,10 +392,10 @@ func TestBackfillAsksOnlyForTheGap(t *testing.T) {
 
 func TestBackfillNeverCallsTheSourceWhenThereIsNoGap(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 1).
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: ingestionAt(9, 0, 0)}}, nil)
 
-	report, runError := underTest.service.RunBackfill([]string{"BTCUSDT"})
+	report, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT"})
 
 	require.NoError(t, runError)
 	symbolReport := reportFor(t, report, "BTCUSDT")
@@ -410,16 +411,16 @@ func TestBackfillKeepsSymbolsIndependent(t *testing.T) {
 		{
 			name: "reading the stored candle fails",
 			arrangeFirst: func(underTest ingestionUnderTest) {
-				underTest.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 1).
+				underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 					Return(nil, errors.New("storage refused the read"))
 			},
 		},
 		{
 			name: "the source will not answer",
 			arrangeFirst: func(underTest ingestionUnderTest) {
-				underTest.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 1).Return([]entities.KCandle{}, nil)
+				underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).Return([]entities.KCandle{}, nil)
 				underTest.marketDataProxy.EXPECT().
-					FetchKCandles(gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "BTCUSDT" })).
+					FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "BTCUSDT" })).
 					Return(nil, sourceUnreachable)
 			},
 		},
@@ -429,13 +430,13 @@ func TestBackfillKeepsSymbolsIndependent(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
 			testCase.arrangeFirst(underTest)
-			underTest.kCandleRepository.EXPECT().FindLatest("ETHUSDT", 1).Return([]entities.KCandle{}, nil)
+			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "ETHUSDT", 1).Return([]entities.KCandle{}, nil)
 			underTest.marketDataProxy.EXPECT().
-				FetchKCandles(gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "ETHUSDT" })).
+				FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool { return window.Symbol == "ETHUSDT" })).
 				Return([]vo.MarketKCandleVo{reportedFor("ETHUSDT", ingestionAt(9, 0, 0))}, nil)
 			saved := underTest.acceptEverySave()
 
-			report, runError := underTest.service.RunBackfill([]string{"BTCUSDT", "ETHUSDT"})
+			report, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
 
 			require.NoError(t, runError)
 			assert.Len(t, saved.all(), 1)
@@ -453,13 +454,13 @@ func TestBothUseCasesRefuseToRunOnAnUnusableCandleCount(t *testing.T) {
 		{
 			name: "a scheduled round",
 			run: func(ingestionService *service.KCandleIngestionService) (dto.KCandleIngestionReportDto, error) {
-				return ingestionService.RunScheduledRound([]string{"BTCUSDT"})
+				return ingestionService.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 			},
 		},
 		{
 			name: "the backfill",
 			run: func(ingestionService *service.KCandleIngestionService) (dto.KCandleIngestionReportDto, error) {
-				return ingestionService.RunBackfill([]string{"BTCUSDT"})
+				return ingestionService.RunBackfill(t.Context(), []string{"BTCUSDT"})
 			},
 		},
 	}
@@ -495,10 +496,10 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 		clockProxy.EXPECT().Now().Return(ingestionAt(9, 12, 0)),
 	)
 	marketDataProxy.EXPECT().
-		FetchKCandles(vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
+		FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
 		Return(nil, sourceUnreachable)
 	marketDataProxy.EXPECT().
-		FetchKCandles(vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 45, 0), ingestionAt(9, 5, 0))).
+		FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 45, 0), ingestionAt(9, 5, 0))).
 		Return([]vo.MarketKCandleVo{
 			validReportedKCandle(ingestionAt(8, 45, 0)),
 			validReportedKCandle(ingestionAt(8, 50, 0)),
@@ -515,8 +516,8 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 	}
 	saved := underTest.acceptEverySave()
 
-	failedReport, failedError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
-	recoveredReport, recoveredError := underTest.service.RunScheduledRound([]string{"BTCUSDT"})
+	failedReport, failedError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+	recoveredReport, recoveredError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 
 	require.NoError(t, failedError)
 	require.NoError(t, recoveredError)
@@ -536,8 +537,8 @@ func TestEveryWatchedSymbolIsUnderwayAtOnce(t *testing.T) {
 	release := make(chan struct{})
 
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).
-		DoAndReturn(func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			arrived <- window.Symbol
 			select {
 			case <-release:
@@ -549,7 +550,7 @@ func TestEveryWatchedSymbolIsUnderwayAtOnce(t *testing.T) {
 
 	finished := make(chan dto.KCandleIngestionReportDto, 1)
 	go func() {
-		report, _ := underTest.service.RunScheduledRound([]string{"BTCUSDT", "ETHUSDT"})
+		report, _ := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
 		finished <- report
 	}()
 
@@ -585,4 +586,26 @@ func waitForRound(t *testing.T, finished chan dto.KCandleIngestionReportDto) dto
 		t.Fatal("the round never finished")
 		return dto.KCandleIngestionReportDto{}
 	}
+}
+
+// A round that reaches the outside world under a context of its own making would
+// look identical from here until the day something needed cancelling. Handing in a
+// context that is already done and finding it again at the far end is what tells the
+// two apart.
+func TestTheContextARoundIsGivenIsTheOneItsSourceIsCalledUnder(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
+	callerWentAway, abandonTheRound := context.WithCancel(t.Context())
+	abandonTheRound()
+
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			executionContext context.Context, _ vo.KCandleFetchWindowVo,
+		) ([]vo.MarketKCandleVo, error) {
+			assert.ErrorIs(t, executionContext.Err(), context.Canceled)
+			return []vo.MarketKCandleVo{}, nil
+		})
+
+	_, err := underTest.service.RunScheduledRound(callerWentAway, []string{"BTCUSDT"})
+
+	assert.NoError(t, err)
 }

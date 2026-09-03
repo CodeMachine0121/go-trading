@@ -1,6 +1,8 @@
 package application
 
 import (
+	"context"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -15,11 +17,15 @@ func NewTradingSymbolApplication(tradingSymbolService *service.TradingSymbolServ
 	return &TradingSymbolApplication{tradingSymbolService: tradingSymbolService}
 }
 
-func (tradingSymbolApplication *TradingSymbolApplication) ListTradingSymbols() ([]dto.TradingSymbolDto, error) {
-	return tradingSymbolApplication.tradingSymbolService.ListTradingSymbols()
+func (tradingSymbolApplication *TradingSymbolApplication) ListTradingSymbols(
+	executionContext context.Context,
+) ([]dto.TradingSymbolDto, error) {
+	return tradingSymbolApplication.tradingSymbolService.ListTradingSymbols(executionContext)
 }
 
 // RegisterDefaultTradingSymbols reports which markets this run newly registered.
-func (tradingSymbolApplication *TradingSymbolApplication) RegisterDefaultTradingSymbols() ([]string, error) {
-	return tradingSymbolApplication.tradingSymbolService.RegisterDefaultTradingSymbols()
+func (tradingSymbolApplication *TradingSymbolApplication) RegisterDefaultTradingSymbols(
+	executionContext context.Context,
+) ([]string, error) {
+	return tradingSymbolApplication.tradingSymbolService.RegisterDefaultTradingSymbols(executionContext)
 }

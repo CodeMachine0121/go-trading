@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -84,8 +85,8 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 	t.Run("answers created and hands back the strategy", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				// Every field the body carried has to arrive, and a strategy being
 				// created carries no identifier of its own — the path had none to give.
 				assert.Equal(t, uint(0), strategy.ID)
@@ -144,7 +145,7 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 	t.Run("answers conflict when the name is already held", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
+			Save(gomock.Any(), gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
 
 		response := fixture.send(http.MethodPost, "/strategies", aStrategyBody)
 
@@ -154,7 +155,7 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 	t.Run("answers bad gateway when storage will not answer", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).Return(entities.Strategy{}, errors.New("connection refused"))
+			Save(gomock.Any(), gomock.Any()).Return(entities.Strategy{}, errors.New("connection refused"))
 
 		response := fixture.send(http.MethodPost, "/strategies", aStrategyBody)
 
@@ -165,7 +166,7 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 func TestStrategyRouterListStrategies(t *testing.T) {
 	t.Run("answers with every strategy", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll().Return([]entities.Strategy{
+		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.Strategy{
 			aStoredStrategyRow(1, "二十根均線"),
 			aStoredStrategyRow(2, "六十根均線"),
 		}, nil)
@@ -183,7 +184,7 @@ func TestStrategyRouterListStrategies(t *testing.T) {
 		// A reader that gets null has to guard against it; one that gets [] can just
 		// read it, which is why holding none still answers with a collection.
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll().Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.Strategy{}, nil)
 
 		response := fixture.send(http.MethodGet, "/strategies", "")
 
@@ -193,7 +194,7 @@ func TestStrategyRouterListStrategies(t *testing.T) {
 
 	t.Run("answers bad gateway when storage will not answer", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll().Return(nil, errors.New("connection refused"))
+		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return(nil, errors.New("connection refused"))
 
 		response := fixture.send(http.MethodGet, "/strategies", "")
 
@@ -205,7 +206,7 @@ func TestStrategyRouterGetStrategy(t *testing.T) {
 	t.Run("answers with the named strategy", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 
 		response := fixture.send(http.MethodGet, "/strategies/7", "")
 
@@ -216,7 +217,7 @@ func TestStrategyRouterGetStrategy(t *testing.T) {
 	t.Run("answers not found when no strategy carries that identifier", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		response := fixture.send(http.MethodGet, "/strategies/7", "")
 
@@ -252,10 +253,10 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 	t.Run("answers with the strategy as it now stands", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
-			Update(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				// Which strategy is meant comes from the path, never from the body.
 				assert.Equal(t, uint(7), strategy.ID)
 
@@ -291,7 +292,7 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 	t.Run("answers bad request when the content breaks a rule", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 
 		response := fixture.send(http.MethodPut, "/strategies/7",
 			`{"name": "", "script": "x", "aggregationInterval": "1h", "candleCount": 20}`)
@@ -302,7 +303,7 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 	t.Run("answers not found when no strategy carries that identifier", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		response := fixture.send(http.MethodPut, "/strategies/7", aStrategyBody)
 
@@ -312,9 +313,9 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 	t.Run("answers conflict when the new name is already held", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
-			Update(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
+			Update(gomock.Any(), gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
 
 		response := fixture.send(http.MethodPut, "/strategies/7", aStrategyBody)
 
@@ -325,7 +326,7 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 func TestStrategyRouterDeleteStrategy(t *testing.T) {
 	t.Run("answers no content and says nothing more", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().Delete(uint(7)).Return(nil)
+		fixture.strategyRepository.EXPECT().Delete(gomock.Any(), uint(7)).Return(nil)
 
 		response := fixture.send(http.MethodDelete, "/strategies/7", "")
 
@@ -336,7 +337,7 @@ func TestStrategyRouterDeleteStrategy(t *testing.T) {
 	t.Run("answers not found when no strategy carries that identifier", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Delete(uint(7)).Return(domains.ErrStrategyNotFound)
+			Delete(gomock.Any(), uint(7)).Return(domains.ErrStrategyNotFound)
 
 		response := fixture.send(http.MethodDelete, "/strategies/7", "")
 
@@ -346,7 +347,7 @@ func TestStrategyRouterDeleteStrategy(t *testing.T) {
 	t.Run("answers bad gateway when storage will not answer", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Delete(uint(7)).Return(errors.New("connection refused"))
+			Delete(gomock.Any(), uint(7)).Return(errors.New("connection refused"))
 
 		response := fixture.send(http.MethodDelete, "/strategies/7", "")
 

@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -17,28 +18,38 @@ func NewKCandleApplication(kCandleService *service.KCandleService) *KCandleAppli
 	return &KCandleApplication{kCandleService: kCandleService}
 }
 
-func (kCandleApplication *KCandleApplication) SaveKCandle(writeDto dto.KCandleWriteDto) (dto.KCandleDto, error) {
-	return kCandleApplication.kCandleService.SaveKCandle(writeDto)
+func (kCandleApplication *KCandleApplication) SaveKCandle(
+	executionContext context.Context, writeDto dto.KCandleWriteDto,
+) (dto.KCandleDto, error) {
+	return kCandleApplication.kCandleService.SaveKCandle(executionContext, writeDto)
 }
 
-func (kCandleApplication *KCandleApplication) GetKCandlesInRange(queryDto dto.KCandleQueryDto) ([]dto.KCandleDto, error) {
-	return kCandleApplication.kCandleService.GetKCandlesInRange(queryDto)
+func (kCandleApplication *KCandleApplication) GetKCandlesInRange(
+	executionContext context.Context, queryDto dto.KCandleQueryDto,
+) ([]dto.KCandleDto, error) {
+	return kCandleApplication.kCandleService.GetKCandlesInRange(executionContext, queryDto)
 }
 
 func (kCandleApplication *KCandleApplication) GetKCandleSeries(
-	seriesQueryDto dto.KCandleSeriesQueryDto,
+	executionContext context.Context, seriesQueryDto dto.KCandleSeriesQueryDto,
 ) (dto.KCandleSeriesDto, error) {
-	return kCandleApplication.kCandleService.GetKCandleSeries(seriesQueryDto)
+	return kCandleApplication.kCandleService.GetKCandleSeries(executionContext, seriesQueryDto)
 }
 
-func (kCandleApplication *KCandleApplication) GetKCandle(symbol string, openTime time.Time) (dto.KCandleDto, error) {
-	return kCandleApplication.kCandleService.GetKCandle(symbol, openTime)
+func (kCandleApplication *KCandleApplication) GetKCandle(
+	executionContext context.Context, symbol string, openTime time.Time,
+) (dto.KCandleDto, error) {
+	return kCandleApplication.kCandleService.GetKCandle(executionContext, symbol, openTime)
 }
 
-func (kCandleApplication *KCandleApplication) UpdateKCandle(writeDto dto.KCandleWriteDto) (dto.KCandleDto, error) {
-	return kCandleApplication.kCandleService.UpdateKCandle(writeDto)
+func (kCandleApplication *KCandleApplication) UpdateKCandle(
+	executionContext context.Context, writeDto dto.KCandleWriteDto,
+) (dto.KCandleDto, error) {
+	return kCandleApplication.kCandleService.UpdateKCandle(executionContext, writeDto)
 }
 
-func (kCandleApplication *KCandleApplication) DeleteKCandle(symbol string, openTime time.Time) error {
-	return kCandleApplication.kCandleService.DeleteKCandle(symbol, openTime)
+func (kCandleApplication *KCandleApplication) DeleteKCandle(
+	executionContext context.Context, symbol string, openTime time.Time,
+) error {
+	return kCandleApplication.kCandleService.DeleteKCandle(executionContext, symbol, openTime)
 }
