@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,53 @@ import (
 )
 
 var followingOpenTime = time.Date(2026, 9, 3, 9, 5, 0, 0, time.UTC)
+
+// streamRecorder collects a response that is still being written.
+//
+// The recorder from the standard library is not built to be read while a handler
+// is still writing to it, and a stream is by definition read while it is still
+// being written — so reading one with that recorder is a race, and the race
+// detector says so. This one guards the body, which is the whole difference.
+type streamRecorder struct {
+	responseHeader http.Header
+	mutex          sync.Mutex
+	body           strings.Builder
+	statusCode     int
+}
+
+func newStreamRecorder() *streamRecorder {
+	return &streamRecorder{responseHeader: make(http.Header), statusCode: http.StatusOK}
+}
+
+func (streamRecorder *streamRecorder) Header() http.Header {
+	return streamRecorder.responseHeader
+}
+
+func (streamRecorder *streamRecorder) WriteHeader(statusCode int) {
+	streamRecorder.mutex.Lock()
+	defer streamRecorder.mutex.Unlock()
+
+	streamRecorder.statusCode = statusCode
+}
+
+func (streamRecorder *streamRecorder) Write(body []byte) (int, error) {
+	streamRecorder.mutex.Lock()
+	defer streamRecorder.mutex.Unlock()
+
+	return streamRecorder.body.Write(body)
+}
+
+// Flush is required rather than optional: the handler flushes after every event,
+// and the framework reaches for the flusher without asking whether there is one.
+func (streamRecorder *streamRecorder) Flush() {}
+
+func (streamRecorder *streamRecorder) written() string {
+	streamRecorder.mutex.Lock()
+	defer streamRecorder.mutex.Unlock()
+
+	return streamRecorder.body.String()
+}
+
 
 // followRouterUnderTest mounts the live route over a follow service whose feed the
 // test hands out, so what a viewer receives can be read off the response body.
@@ -108,7 +156,7 @@ func TestEachUpdateIsWrittenAsOneEvent(t *testing.T) {
 	requestContext, endTheRequest := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "/k-candles/live?symbol=BTCUSDT", nil).
 		WithContext(requestContext)
-	recorder := httptest.NewRecorder()
+	recorder := newStreamRecorder()
 
 	router.liveKCandles <- vo.LiveKCandleVo{
 		Symbol:   "BTCUSDT",
@@ -123,7 +171,7 @@ func TestEachUpdateIsWrittenAsOneEvent(t *testing.T) {
 		close(served)
 	}()
 
-	assert.Eventually(t, func() bool { return strings.Contains(recorder.Body.String(), "data:") },
+	assert.Eventually(t, func() bool { return strings.Contains(recorder.written(), "data:") },
 		2*time.Second, 10*time.Millisecond)
 	endTheRequest()
 
@@ -133,7 +181,7 @@ func TestEachUpdateIsWrittenAsOneEvent(t *testing.T) {
 		t.Fatal("請求結束了，串流卻沒有跟著收掉")
 	}
 
-	body := recorder.Body.String()
+	body := recorder.written()
 	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
 	assert.Contains(t, body, `"status":"closed"`)
 	assert.Contains(t, body, `"symbol":"BTCUSDT"`)
@@ -173,7 +221,7 @@ func TestASourceThatRefusesStillOpensTheStream(t *testing.T) {
 	requestContext, endTheRequest := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "/k-candles/live?symbol=BTCUSDT", nil).
 		WithContext(requestContext)
-	recorder := httptest.NewRecorder()
+	recorder := newStreamRecorder()
 
 	served := make(chan struct{})
 	go func() {
@@ -181,7 +229,7 @@ func TestASourceThatRefusesStillOpensTheStream(t *testing.T) {
 		close(served)
 	}()
 
-	require.Eventually(t, func() bool { return strings.Contains(recorder.Body.String(), "stalled") },
+	require.Eventually(t, func() bool { return strings.Contains(recorder.written(), "stalled") },
 		2*time.Second, 10*time.Millisecond, "跟不動時觀看者該收到明說停止的更新")
 	endTheRequest()
 	<-served
