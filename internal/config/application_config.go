@@ -44,6 +44,16 @@ type IngestionConfig struct {
 	MarketDataRequestTimeout time.Duration
 }
 
+// LiveFollowConfig holds the three rules a live follow behaves by. All three carry
+// a number the requirements name, so they are settings rather than constants: a
+// source that behaves differently is a value change, not a code change.
+type LiveFollowConfig struct {
+	UpdateIntervalCeiling time.Duration
+	QuietTimeout          time.Duration
+	MaximumRetryDelay     time.Duration
+	MarketDataStreamUrl   string
+}
+
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
@@ -52,6 +62,7 @@ type ApplicationConfig struct {
 	IndicatorScriptTimeout time.Duration
 	BackgroundJobsEnabled  bool
 	Ingestion              IngestionConfig
+	LiveFollow             LiveFollowConfig
 	Database               DatabaseConfig
 }
 
@@ -74,6 +85,16 @@ func Load() ApplicationConfig {
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
 			MarketDataRequestTimeout: time.Duration(
 				positiveIntWithDefault("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		},
+		LiveFollow: LiveFollowConfig{
+			UpdateIntervalCeiling: time.Duration(
+				positiveIntWithDefault("LIVE_UPDATE_INTERVAL_CEILING_SECONDS", 10)) * time.Second,
+			QuietTimeout: time.Duration(
+				positiveIntWithDefault("LIVE_FEED_QUIET_TIMEOUT_SECONDS", 30)) * time.Second,
+			MaximumRetryDelay: time.Duration(
+				positiveIntWithDefault("LIVE_FEED_MAX_RETRY_DELAY_SECONDS", 30)) * time.Second,
+			MarketDataStreamUrl: stringWithDefault(
+				"MARKET_DATA_STREAM_URL", "wss://stream.binance.com:9443/ws"),
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

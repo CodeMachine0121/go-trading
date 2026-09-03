@@ -40,10 +40,16 @@ const shutdownGrace = 15 * time.Second
 // The jobs therefore run under a context of their own rather than under the signal:
 // were they started under it, an interrupt would abandon a round in the same instant
 // it asked the round to finish, and the asking would mean nothing.
+// stopLiveFollows is called before the requests are drained rather than after, and
+// that ordering is load-bearing: a viewer following a market holds a request open
+// for as long as it is fed, so draining first would wait out the whole grace period
+// every single time. Ending the follows closes those requests, and the drain that
+// follows has nothing left to wait for.
 func serve(
 	shutdownSignalled context.Context,
 	server *http.Server,
 	backgroundJobManager *job.BackgroundJobManager,
+	stopLiveFollows func(),
 ) error {
 	backgroundJobWork, giveUpOnBackgroundJobWork := context.WithCancel(context.Background())
 	defer giveUpOnBackgroundJobWork()
@@ -63,12 +69,14 @@ func serve(
 		// leaving this function with work still being scheduled is never right,
 		// however it is left.
 		backgroundJobManager.StopAll()
+		stopLiveFollows()
 
 		return fmt.Errorf("listen on %s: %w", server.Addr, listenError)
 	case <-shutdownSignalled.Done():
 	}
 
 	backgroundJobManager.StopAll()
+	stopLiveFollows()
 
 	drainRequests, stopDraining := context.WithTimeout(context.Background(), shutdownGrace)
 	defer stopDraining()

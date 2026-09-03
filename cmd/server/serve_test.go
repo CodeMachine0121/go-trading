@@ -31,6 +31,11 @@ func TestServeStopsTheJobsAndReturnsWhenShutdownIsSignalled(t *testing.T) {
 	backgroundJob.EXPECT().Start(gomock.Any()).Times(1)
 	backgroundJob.EXPECT().Stop().Times(1)
 
+	// A viewer following a market holds its request open for as long as it is fed,
+	// so the follows have to end before the requests are drained. Were it the other
+	// way round, every shutdown would sit out the whole grace period.
+	liveFollowsStopped := make(chan struct{}, 1)
+
 	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
 	serveFinished := make(chan error, 1)
 	go func() {
@@ -38,6 +43,7 @@ func TestServeStopsTheJobsAndReturnsWhenShutdownIsSignalled(t *testing.T) {
 			shutdownSignalled,
 			listeningOnAnyFreePort(),
 			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}),
+			func() { liveFollowsStopped <- struct{}{} },
 		)
 	}()
 
@@ -46,6 +52,7 @@ func TestServeStopsTheJobsAndReturnsWhenShutdownIsSignalled(t *testing.T) {
 	select {
 	case serveError := <-serveFinished:
 		assert.NoError(t, serveError)
+		assert.Len(t, liveFollowsStopped, 1, "the live follows were not ended")
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not return after shutdown was signalled")
 	}
@@ -68,7 +75,7 @@ func TestServeReportsAnAddressItCannotListenOn(t *testing.T) {
 		Addr:              takenListener.Addr().String(),
 		Handler:           http.NewServeMux(),
 		ReadHeaderTimeout: readHeaderTimeout,
-	}, job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}))
+	}, job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}), func() {})
 
 	require.Error(t, serveError)
 	assert.Contains(t, serveError.Error(), takenListener.Addr().String())
@@ -84,6 +91,7 @@ func TestServeWithNoBackgroundJobsStillShutsDown(t *testing.T) {
 			shutdownSignalled,
 			listeningOnAnyFreePort(),
 			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}),
+			func() {},
 		)
 	}()
 

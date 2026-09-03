@@ -17,8 +17,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// registerRoutes is the composition root: it wires every concrete type and mounts the routes.
-func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig) {
+// registerRoutes is the composition root: it wires every concrete type and mounts
+// the routes. It hands back how to end the live follows, because they are the one
+// thing here that outlives the request that started it.
+func registerRoutes(
+	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
+) func() {
 	engine.Use(controller.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
 	engine.GET("/health", func(context *gin.Context) {
@@ -84,6 +88,24 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 	engine.GET("/strategies/:id", strategyController.GetStrategy)
 	engine.PUT("/strategies/:id", strategyController.UpdateStrategy)
 	engine.DELETE("/strategies/:id", strategyController.DeleteStrategy)
+
+	// Following a market live is an addition, not a replacement: the five-minute
+	// round keeps running, and it is what fills in every candle that closed while
+	// nobody was looking. This path only shortens the wait for whoever is looking.
+	kCandleFollowService := service.NewKCandleFollowService(
+		marketdata.NewBinanceLiveMarketDataProxy(applicationConfig.LiveFollow.MarketDataStreamUrl),
+		kCandleRepository,
+		clock.NewSystemClockProxy(),
+		applicationConfig.LiveFollow.UpdateIntervalCeiling,
+		applicationConfig.LiveFollow.QuietTimeout,
+		applicationConfig.LiveFollow.MaximumRetryDelay,
+	)
+
+	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
+		application.NewKCandleFollowApplication(kCandleFollowService),
+	).WatchKCandles)
+
+	return kCandleFollowService.Stop
 }
 
 // backgroundJobsFor assembles the work the system does on its own. Switching

@@ -28,7 +28,7 @@ func main() {
 	}
 
 	engine := gin.Default()
-	registerRoutes(engine, database, applicationConfig)
+	stopLiveFollows := registerRoutes(engine, database, applicationConfig)
 
 	// The signals are listened for before anything is started, so an interrupt
 	// arriving during the startup backfill runs the shutdown path instead of falling
@@ -50,6 +50,7 @@ func main() {
 		shutdownSignalled,
 		server,
 		job.NewBackgroundJobManager(backgroundJobsFor(database, applicationConfig)),
+		stopLiveFollows,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)
 	}
