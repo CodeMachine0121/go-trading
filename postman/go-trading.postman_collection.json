@@ -2861,6 +2861,86 @@
           ]
         }
       ]
+    },
+    {
+      "name": "即時跟盤",
+      "description": "有人正在看某個交易標的時，系統就跟著那個市場。每則更新是一個事件，`status` 為 `forming`（還在走，**不存也不參與計算**）、`closed`（走完了，送出的同一刻就被存入）或 `stalled`（即時更新已停止，系統自己在重連）。\n\n**這是一條不會自己結束的連線**：Postman 會一直等下去，要自己按停止。命令列用 `curl -N` 看得更清楚。",
+      "item": [
+        {
+          "name": "跟一個交易標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/live?symbol={{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "live"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{symbol}}"
+                }
+              ]
+            },
+            "description": "跟上的當下就會收到目前進行中的那一根（若這五分鐘已經有成交）。之後每十秒至多送一次目前的樣子；一根走完時立刻送出，不受那個上限限制。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"是一條持續送事件的連線\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/event-stream\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒指定交易標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "live"
+              ]
+            },
+            "description": "沒有交易標的就沒有市場可跟，猜一個比說不出口更糟。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明缺了什麼\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"交易標的\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

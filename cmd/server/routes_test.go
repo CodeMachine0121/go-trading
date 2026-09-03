@@ -32,6 +32,9 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		"GET /health",
 		"GET /k-candles",
 		"GET /k-candles/:symbol/:openTime",
+		// Following a market live reads; it names the symbol the viewer is looking at
+		// and cannot touch the watchlist, so the boundary this test holds is intact.
+		"GET /k-candles/live",
 		"GET /k-candles/series",
 		"GET /strategies",
 		"GET /strategies/:id",

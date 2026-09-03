@@ -67,3 +67,42 @@ func TestLoadReadsTheIndicatorScriptAllowance(t *testing.T) {
 		})
 	}
 }
+
+// The three live follow rules are settings rather than constants because each is a
+// number the requirements name: a source that behaves differently is a value
+// change, not a code change.
+func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *testing.T) {
+	t.Run("未設定時採用規則所寫的值", func(t *testing.T) {
+		applicationConfig := config.Load()
+
+		assert.Equal(t, 10*time.Second, applicationConfig.LiveFollow.UpdateIntervalCeiling)
+		assert.Equal(t, 30*time.Second, applicationConfig.LiveFollow.QuietTimeout)
+		assert.Equal(t, 30*time.Second, applicationConfig.LiveFollow.MaximumRetryDelay)
+		assert.Equal(t, "wss://stream.binance.com:9443/ws",
+			applicationConfig.LiveFollow.MarketDataStreamUrl)
+	})
+
+	t.Run("設定了就照設定的來", func(t *testing.T) {
+		t.Setenv("LIVE_UPDATE_INTERVAL_CEILING_SECONDS", "3")
+		t.Setenv("LIVE_FEED_QUIET_TIMEOUT_SECONDS", "45")
+		t.Setenv("LIVE_FEED_MAX_RETRY_DELAY_SECONDS", "60")
+		t.Setenv("MARKET_DATA_STREAM_URL", "ws://localhost:9000/ws")
+
+		applicationConfig := config.Load()
+
+		assert.Equal(t, 3*time.Second, applicationConfig.LiveFollow.UpdateIntervalCeiling)
+		assert.Equal(t, 45*time.Second, applicationConfig.LiveFollow.QuietTimeout)
+		assert.Equal(t, 60*time.Second, applicationConfig.LiveFollow.MaximumRetryDelay)
+		assert.Equal(t, "ws://localhost:9000/ws", applicationConfig.LiveFollow.MarketDataStreamUrl)
+	})
+
+	t.Run("設成不成立的值就回到規則所寫的值", func(t *testing.T) {
+		t.Setenv("LIVE_UPDATE_INTERVAL_CEILING_SECONDS", "0")
+		t.Setenv("LIVE_FEED_QUIET_TIMEOUT_SECONDS", "不是數字")
+
+		applicationConfig := config.Load()
+
+		assert.Equal(t, 10*time.Second, applicationConfig.LiveFollow.UpdateIntervalCeiling)
+		assert.Equal(t, 30*time.Second, applicationConfig.LiveFollow.QuietTimeout)
+	})
+}

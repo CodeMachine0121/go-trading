@@ -2,12 +2,15 @@
 
 以 **Go + Gin** 打造的交易服務後端 REST API。
 
-目前提供兩件事：
+目前提供三件事：
 
 1. **K 線（KCandle）的完整讀寫** —— 新增（同交易標的同起始時間即覆蓋）、依交易標的與
    時間區間查詢、以及單一 K 線的讀取、修改、刪除。一根 K 線固定涵蓋五分鐘。
 2. **自訂指標計算** —— 你自己寫一段 Go 算式送進來，系統拿指定根數的 K 線餵它，
    把輸出統一收成一組「名稱 → 數字」。加新指標不用改程式。
+3. **即時跟盤** —— 有人正在看某個交易標的時，系統跟著那個市場：最新那一根一邊成形、
+   畫面一邊跟著動。**成形中的那一根只給看，不存也不參與計算**——它的數字還會變。
+   跟盤是加在每五分鐘一輪的自動抓取之上的，壞掉時系統退回原本的樣子。
 
 ## Tech Stack
 
@@ -99,6 +102,10 @@ curl localhost:8080/health
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
 | `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 行情來源位址 |
 | `MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向行情來源請求的逾時 |
+| `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
+| `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
+| `LIVE_FEED_QUIET_TIMEOUT_SECONDS` | `30` | 多久沒收到任何東西就當成跟不動。寧可誤判：白重連一次的代價，遠低於讓人盯著停格的圖 |
+| `LIVE_FEED_MAX_RETRY_DELAY_SECONDS` | `30` | 重連間隔逐次加倍的上限；系統不放棄重試 |
 | `POSTGRES_HOST` | `localhost` | 資料庫主機 |
 | `POSTGRES_PORT` | `5432` | 資料庫埠號 |
 | `POSTGRES_USER` | `postgres` | 資料庫帳號 |
@@ -119,6 +126,7 @@ curl localhost:8080/health
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
 | `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、根數與算到哪個時間為止 |
+| `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
 **修改的對象由網址決定**：內文若帶了與網址不同的交易標的或起始時間，會被拒絕。
@@ -420,3 +428,34 @@ go build ./... && go vet ./... && go test ./...
 ```
 
 commit 訊息一律 **English Conventional Commits**。
+
+## 即時跟盤
+
+有人正在看某個交易標的時，系統就跟著那個市場，並把更新持續送給觀看者：
+
+```
+curl -N 'localhost:8080/k-candles/live?symbol=BTCUSDT'
+
+data: {"symbol":"BTCUSDT","status":"forming","kCandle":{...}}
+data: {"symbol":"BTCUSDT","status":"closed","kCandle":{...}}
+data: {"symbol":"BTCUSDT","status":"stalled","kCandle":{...}}
+```
+
+每則更新的 `status` 是三者之一：
+
+| `status` | 意思 |
+| :--- | :--- |
+| `forming` | 這一根還在走。**數字還會變，系統不會存它，指標計算也不會用它** |
+| `closed` | 這一根走完了，這是它的最終數字。**送出的同一刻就被存進系統** |
+| `stalled` | 即時更新已經停止。系統自己在重連，不需要人介入 |
+
+幾件值得先知道的事：
+
+- **跟盤的單位是交易標的**：同一個標的無論多少人在看，系統只跟一份。
+  最後一個觀看者離開就停——沒有人看的時候，跟盤買不到任何每五分鐘那一輪不會補上的東西。
+- **跟的是觀看者要的那一個**，與觀察清單（`KCANDLE_INGESTION_SYMBOLS`）無關。
+  清單管「長期要留下哪些市場的資料」，跟盤管「現在誰在看什麼」。
+- **每五分鐘一輪的自動抓取照常運作**，它補上沒人看時走完的每一根，
+  並吸收行情來源事後對已收完 K 線的修正——兩件跟盤做不到的事。
+- **即時完全不能用時，其他功能一律照常**：查詢、新增、修改、刪除、指標計算與自動抓取
+  都不受影響，畫面退回原本的樣子（新資料五分鐘內出現）。
