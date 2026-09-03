@@ -38,6 +38,30 @@ func streamUrlOf(server *httptest.Server) string {
 	return "ws" + server.URL[len("http"):]
 }
 
+// Following asks the source for five-minute candles, spelled the way it wants them.
+// Asking for the wrong length would quietly deliver candles of another size, and
+// nothing downstream could tell.
+func TestTheFeedIsOpenedForFiveMinuteCandlesOfThatSymbol(t *testing.T) {
+	askedFor := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(
+		responseWriter http.ResponseWriter, request *http.Request,
+	) {
+		askedFor <- request.URL.Path
+		connection, acceptError := websocket.Accept(responseWriter, request, nil)
+		if acceptError != nil {
+			return
+		}
+		_ = connection.CloseNow()
+	}))
+	t.Cleanup(server.Close)
+
+	_, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
+		FollowKCandles(t.Context(), "BTCUSDT")
+	require.NoError(t, followError)
+
+	assert.Equal(t, "/btcusdt@kline_5m", <-askedFor)
+}
+
 // The live message names its fields in one or two letters. Translating them is this
 // layer's whole job, and getting one wrong would put a price in a volume.
 func TestALiveMessageIsNormalizedIntoOneCandle(t *testing.T) {

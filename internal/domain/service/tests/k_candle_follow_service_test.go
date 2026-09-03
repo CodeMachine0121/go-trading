@@ -153,11 +153,18 @@ func TestOneFollowPerSymbolNoMatterHowManyAreWatching(t *testing.T) {
 
 	secondViewer, cancelSecondViewer := context.WithCancel(context.Background())
 	defer cancelSecondViewer()
-	_, secondError := testBed.service.WatchKCandles(secondViewer, "BTCUSDT")
+	secondUpdates, secondError := testBed.service.WatchKCandles(secondViewer, "BTCUSDT")
 	require.NoError(t, secondError)
 
 	assert.Equal(t, 1, testBed.service.FollowedSymbolCount(),
 		"第二個觀看者不該讓系統跟第二份")
+
+	firstUpdates, _ := testBed.service.WatchKCandles(firstViewer, "BTCUSDT")
+	feed.report(liveKCandleAt(followOpenTime, "115", false))
+
+	assert.Equal(t, "115", (<-firstUpdates).KCandle.Close.String())
+	assert.Equal(t, "115", (<-secondUpdates).KCandle.Close.String(),
+		"一份跟盤的答案要送到每一個在看的人手上")
 }
 
 // Following a market nobody is looking at buys nothing the five-minute round would
@@ -569,6 +576,41 @@ func TestAViewerWhoCannotKeepUpDoesNotStallTheOthers(t *testing.T) {
 
 func decimalString(value int) string {
 	return strconv.Itoa(value)
+}
+
+// Coming back means showing what the market looks like now. Replaying what was
+// missed would make the chart re-live a stretch of trading that is already over,
+// and the person watching only wants to know where things stand.
+func TestComingBackGivesTheShapeNowAndReplaysNothing(t *testing.T) {
+	firstFeed := newLiveFeed()
+	secondFeed := newLiveFeed()
+	feedsHandedOut := 0
+	testBed := newFollowTestBed(t, func(string) (<-chan vo.LiveKCandleVo, error) {
+		feedsHandedOut++
+		if feedsHandedOut == 1 {
+			return firstFeed.kCandles, nil
+		}
+
+		return secondFeed.kCandles, nil
+	})
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, _ := testBed.service.WatchKCandles(viewer, "BTCUSDT")
+
+	firstFeed.report(liveKCandleAt(followOpenTime, "115", false))
+	require.Equal(t, "115", (<-updates).KCandle.Close.String())
+	firstFeed.end()
+	require.Equal(t, dto.KCandleFollowStatusStalled, (<-updates).Status)
+
+	// While it was down the market moved on; only where it stands now is sent.
+	secondFeed.report(liveKCandleAt(followOpenTime, "131", false))
+
+	update := <-updates
+	assert.Equal(t, dto.KCandleFollowStatusForming, update.Status)
+	assert.Equal(t, "131", update.KCandle.Close.String(),
+		"重新跟上之後收到的該是現在的樣子")
+	assert.Empty(t, updates, "中斷期間錯過的變動不該被補播")
 }
 
 // Shutting down must reach the viewers: a channel nobody will ever feed again is
