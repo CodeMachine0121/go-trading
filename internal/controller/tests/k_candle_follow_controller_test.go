@@ -70,7 +70,6 @@ func (streamRecorder *streamRecorder) written() string {
 	return streamRecorder.body.String()
 }
 
-
 // followRouterUnderTest mounts the live route over a follow service whose feed the
 // test hands out, so what a viewer receives can be read off the response body.
 type followRouterUnderTest struct {
