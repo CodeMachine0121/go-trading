@@ -73,6 +73,16 @@ curl localhost:8080/health
 
 `mockgen` 已用 Go 1.24+ 的 `tool` 指示詞釘在 `go.mod`，**不需要另外全域安裝**。
 
+### CI
+
+`.github/workflows/ci.yml` 在每個 PR 與每次推上 `main` 時跑：`gofmt`、`go build`、
+`go vet`、mock 是否與介面同步、`go test ./... -race`。
+
+它會開一個 PostgreSQL service container，所以**資料庫測試在 CI 一定會真的跑**——
+而且有一步專門在**確認它們沒有 skip**。這是整個檔案存在的理由：
+沒設 `TEST_POSTGRES_DSN` 時那些測試會自己 skip，而 skip 掉的守衛跟通過的守衛長得一模一樣。
+本機 `make test` 綠不代表它們驗過了，`make test-storage` 才是。
+
 ## 環境變數
 
 讀取於 `cmd/server/config.go`，**全部都有預設值**，`.env` 可整份省略。

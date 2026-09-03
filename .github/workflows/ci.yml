@@ -1,0 +1,104 @@
+# The reason this exists is the storage tests. They talk to a real PostgreSQL and
+# skip themselves when TEST_POSTGRES_DSN is unset, so `make test` on a laptop stays
+# green through anything they would have caught — and they have caught real defects
+# that no other test could: an ORM handed a context it treats as a model field, a
+# unique-constraint translation that only the driver's own error type can make, a
+# request answered with the wrong status code.
+#
+# So this workflow does not merely run the tests with a database attached. It fails
+# when the storage tests skip, because a skipped guard reads exactly like a passing
+# one and that is the whole problem it was built to solve.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run's answer worthless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: go_trading_test
+        ports:
+          - 5432:5432
+        # Without waiting for health, the first test races the database's startup.
+        options: >-
+          --health-cmd "pg_isready -U postgres -d go_trading_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # The database name has to end in _test: the storage tests refuse to run
+      # against anything else, because they empty the tables every time.
+      TEST_POSTGRES_DSN: >-
+        host=localhost port=5432 user=postgres password=testpass
+        dbname=go_trading_test sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go mod download
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: mocks match the interfaces they are generated from
+        run: |
+          go generate ./...
+          if ! git diff --quiet -- internal/domain/interface/mocks; then
+            echo "::error::the mocks are stale — run 'make mock' and commit the result"
+            git --no-pager diff --stat -- internal/domain/interface/mocks
+            exit 1
+          fi
+
+      - name: go test
+        run: go test ./... -count=1 -race
+
+      # The point of the whole file. A skip here means the database never reached
+      # the tests, and every storage guarantee went unchecked while the run stayed
+      # green.
+      - name: the storage tests ran rather than skipped
+        run: |
+          # Without pipefail the exit status here is tee's, so a storage test that
+          # actually failed would be piped straight past this step.
+          set -o pipefail
+          go test ./internal/infrastructure/persistence/tests/ -count=1 -v | tee storage.log
+          if grep -q '^--- SKIP' storage.log; then
+            echo "::error::storage tests skipped — TEST_POSTGRES_DSN never reached them"
+            grep '^--- SKIP' storage.log
+            exit 1
+          fi
+          echo "storage tests that ran: $(grep -c '^--- PASS' storage.log)"
