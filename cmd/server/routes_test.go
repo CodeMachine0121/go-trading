@@ -1,7 +1,7 @@
 package main
 
 import (
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
@@ -24,7 +24,7 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 	for _, route := range engine.Routes() {
 		mountedRoutes = append(mountedRoutes, route.Method+" "+route.Path)
 	}
-	sort.Strings(mountedRoutes)
+	slices.Sort(mountedRoutes)
 
 	assert.Equal(t, []string{
 		"DELETE /k-candles/:symbol/:openTime",

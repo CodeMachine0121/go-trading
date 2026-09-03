@@ -129,7 +129,7 @@ func TestGetKCandlesInRange(t *testing.T) {
 	t.Run("returns the full page when the range holds exactly the maximum", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		storedKCandles := make([]entities.KCandle, 0, queryMaxResults)
-		for index := 0; index < queryMaxResults; index++ {
+		for index := range queryMaxResults {
 			storedKCandles = append(storedKCandles, kCandleAt(at(9, 0).Add(time.Duration(index)*5*time.Minute), "100"))
 		}
 		fixture.kCandleRepository.EXPECT().
@@ -147,7 +147,7 @@ func TestGetKCandlesInRange(t *testing.T) {
 	t.Run("refuses a range holding more than the maximum", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		storedKCandles := make([]entities.KCandle, 0, queryMaxResults+1)
-		for index := 0; index <= queryMaxResults; index++ {
+		for index := range queryMaxResults + 1 {
 			storedKCandles = append(storedKCandles, kCandleAt(at(9, 0).Add(time.Duration(index)*5*time.Minute), "100"))
 		}
 		fixture.kCandleRepository.EXPECT().

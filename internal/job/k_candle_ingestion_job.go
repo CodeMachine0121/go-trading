@@ -2,6 +2,7 @@ package job
 
 import (
 	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -24,7 +25,7 @@ type KCandleIngestionJob struct {
 	symbols                     []string
 	interval                    time.Duration
 	done                        chan struct{}
-	stopOnce                    sync.Once
+	stopOnce                    func()
 }
 
 // NewKCandleIngestionJob takes its own copy of the watchlist, so the list this job
@@ -34,14 +35,14 @@ func NewKCandleIngestionJob(
 	symbols []string,
 	interval time.Duration,
 ) *KCandleIngestionJob {
-	watchlist := make([]string, len(symbols))
-	copy(watchlist, symbols)
+	done := make(chan struct{})
 
 	return &KCandleIngestionJob{
 		kCandleIngestionApplication: kCandleIngestionApplication,
-		symbols:                     watchlist,
+		symbols:                     slices.Clone(symbols),
 		interval:                    interval,
-		done:                        make(chan struct{}),
+		done:                        done,
+		stopOnce:                    sync.OnceFunc(func() { close(done) }),
 	}
 }
 
@@ -53,7 +54,7 @@ func (kCandleIngestionJob *KCandleIngestionJob) Start() {
 
 // Stop ends the job after the round it may be in the middle of.
 func (kCandleIngestionJob *KCandleIngestionJob) Stop() {
-	kCandleIngestionJob.stopOnce.Do(func() { close(kCandleIngestionJob.done) })
+	kCandleIngestionJob.stopOnce()
 }
 
 // run backfills first and only then begins keeping up, which is the ordering the

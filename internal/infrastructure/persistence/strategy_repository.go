@@ -126,8 +126,8 @@ func (strategyRepository *StrategyRepository) writeFailureOf(
 
 // isNameAlreadyHeld says whether this write broke the name index specifically.
 func (strategyRepository *StrategyRepository) isNameAlreadyHeld(writeError error) bool {
-	postgresError := &pgconn.PgError{}
-	if !errors.As(writeError, &postgresError) {
+	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](writeError)
+	if !isPostgresError {
 		return false
 	}
 

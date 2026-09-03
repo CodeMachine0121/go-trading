@@ -1,7 +1,8 @@
 package service
 
 import (
-	"sort"
+	"maps"
+	"slices"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -54,11 +55,7 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols() ([]dto.Tr
 		listedSymbols[heldSymbol] = true
 	}
 
-	names := make([]string, 0, len(listedSymbols))
-	for name := range listedSymbols {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(listedSymbols))
 
 	tradingSymbolDtos := make([]dto.TradingSymbolDto, 0, len(names))
 	for _, name := range names {

@@ -108,11 +108,9 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
 
 	var waitGroup sync.WaitGroup
 	for index, symbol := range symbols {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
+		waitGroup.Go(func() {
 			symbolReports[index] = kCandleIngestionService.ingestSymbol(ingestionDomain, symbol, windowOf)
-		}()
+		})
 	}
 	waitGroup.Wait()
 

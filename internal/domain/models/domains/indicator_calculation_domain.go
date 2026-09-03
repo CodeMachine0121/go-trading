@@ -78,10 +78,7 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) CandleFetchCount() 
 func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	newestFirstKCandles []entities.KCandle,
 ) ([]vo.KCandleVo, error) {
-	usableCount := len(newestFirstKCandles) - excludedNewestCandleCount
-	if usableCount < 0 {
-		usableCount = 0
-	}
+	usableCount := max(0, len(newestFirstKCandles)-excludedNewestCandleCount)
 
 	if usableCount < indicatorCalculationDomain.candleCount {
 		return nil, fmt.Errorf(
