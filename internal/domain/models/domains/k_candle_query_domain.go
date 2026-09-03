@@ -17,8 +17,9 @@ type KCandleQueryDomain struct {
 // NewKCandleQueryDomain validates the query against every query rule. The start and
 // end times are deliberately not required to sit on a K candle interval boundary.
 func NewKCandleQueryDomain(queryDto dto.KCandleQueryDto) (KCandleQueryDomain, error) {
-	if queryDto.Symbol == "" {
-		return KCandleQueryDomain{}, fmt.Errorf("%w: 必須指定交易標的", ErrKCandleValidation)
+	tradingSymbol, symbolError := NewTradingSymbolDomain(queryDto.Symbol)
+	if symbolError != nil {
+		return KCandleQueryDomain{}, fmt.Errorf("%w: %w", ErrKCandleValidation, symbolError)
 	}
 
 	startTime := queryDto.StartTime.UTC()
@@ -27,7 +28,9 @@ func NewKCandleQueryDomain(queryDto dto.KCandleQueryDto) (KCandleQueryDomain, er
 		return KCandleQueryDomain{}, fmt.Errorf("%w: 結束時間不得早於開始時間", ErrKCandleValidation)
 	}
 
-	return KCandleQueryDomain{symbol: queryDto.Symbol, startTime: startTime, endTime: endTime}, nil
+	return KCandleQueryDomain{
+		symbol: tradingSymbol.Value(), startTime: startTime, endTime: endTime,
+	}, nil
 }
 
 func (kCandleQueryDomain KCandleQueryDomain) Symbol() string {

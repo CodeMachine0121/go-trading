@@ -432,3 +432,51 @@ func TestKCandleRouterRefusesATradingSymbolThatCannotBeStored(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "NUL")
 }
+
+// Refusing a NUL on the way in is only half a fix if every other way in still hands
+// it to PostgreSQL, which refuses it as a broken encoding that no sentinel matches —
+// so the caller is told the server failed. Reads and deletes name a symbol too.
+func TestKCandleRouterRefusesAnUnstorableSymbolOnEveryWayIn(t *testing.T) {
+	const nulSymbol = "%00"
+
+	testCases := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{
+			name:   "reading a range",
+			method: http.MethodGet,
+			target: "/k-candles?symbol=" + nulSymbol +
+				"&startTime=2026-08-30T09:00:00Z&endTime=2026-08-30T10:00:00Z",
+		},
+		{
+			name:   "reading an aggregated series",
+			method: http.MethodGet,
+			target: "/k-candles/series?symbol=" + nulSymbol +
+				"&startTime=2026-08-30T09:00:00Z&endTime=2026-08-30T10:00:00Z&interval=1h",
+		},
+		{
+			name:   "reading one candle",
+			method: http.MethodGet,
+			target: "/k-candles/" + nulSymbol + "/2026-08-30T09:00:00Z",
+		},
+		{
+			name:   "deleting one candle",
+			method: http.MethodDelete,
+			target: "/k-candles/" + nulSymbol + "/2026-08-30T09:00:00Z",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// No expectation is set on the repository: nothing may reach storage.
+			fixture := newRouterUnderTest(t)
+
+			recorder := fixture.call(testCase.method, testCase.target, "")
+
+			assert.Equal(t, http.StatusBadRequest, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "NUL")
+		})
+	}
+}

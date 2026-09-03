@@ -201,3 +201,17 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), "指標值種類只能是")
 	})
 }
+
+// Calculating an indicator names a trading symbol, so it is the fifth way in that
+// used to hand PostgreSQL a byte it will not hold and report the refusal as a
+// broken server.
+func TestIndicatorCalculationRouterRefusesAnUnstorableSymbol(t *testing.T) {
+	// No expectation is set on the repository: nothing may reach storage.
+	fixture := newIndicatorRouterUnderTest(t)
+
+	recorder := fixture.post(
+		`{"symbol":"BTC\u0000USDT","candleCount":3,"script":"package main","resultType":"float"}`)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "NUL")
+}

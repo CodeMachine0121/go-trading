@@ -103,7 +103,17 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 func (kCandleService *KCandleService) GetKCandle(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) (dto.KCandleDto, error) {
-	kCandle, findError := kCandleService.kCandleRepository.FindOne(executionContext, symbol, openTime.UTC())
+	// A symbol and an open time name one candle, and no model is built for the pair,
+	// so the symbol is checked here — every other path that reaches storage with one
+	// has a model doing it, and the two that did not were the two that answered a bad
+	// request with a broken server.
+	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
+	if symbolError != nil {
+		return dto.KCandleDto{}, fmt.Errorf("%w: %w", domains.ErrKCandleValidation, symbolError)
+	}
+
+	kCandle, findError := kCandleService.kCandleRepository.FindOne(
+		executionContext, tradingSymbol.Value(), openTime.UTC())
 	if findError != nil {
 		return dto.KCandleDto{}, findError
 	}
@@ -133,5 +143,11 @@ func (kCandleService *KCandleService) UpdateKCandle(
 func (kCandleService *KCandleService) DeleteKCandle(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) error {
-	return kCandleService.kCandleRepository.Delete(executionContext, symbol, openTime.UTC())
+	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
+	if symbolError != nil {
+		return fmt.Errorf("%w: %w", domains.ErrKCandleValidation, symbolError)
+	}
+
+	return kCandleService.kCandleRepository.Delete(
+		executionContext, tradingSymbol.Value(), openTime.UTC())
 }

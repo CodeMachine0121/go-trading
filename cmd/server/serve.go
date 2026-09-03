@@ -14,10 +14,16 @@ import (
 // as it likes, which is a way to take the server down that costs the caller nothing.
 const readHeaderTimeout = 10 * time.Second
 
-// shutdownGrace is how long work already in hand is given to finish once shutdown
-// has begun: a request being answered, a round part way through storing candles.
-// Past it the work is abandoned, because a shutdown that can be refused is not a
-// shutdown.
+// shutdownGrace is how long the requests already accepted are given to be answered
+// once shutdown has begun. Past it they are abandoned, because a shutdown that can
+// be refused is not a shutdown.
+//
+// It bounds the requests only. A background round part way through storing candles
+// is asked to stop and is then cut off when this draining ends — which, with nothing
+// left to drain, is at once. Giving a round a window of its own would mean waiting
+// for one, and a job cannot yet say when it has finished. Nothing is lost by cutting
+// it: candles are stored one at a time and the next startup backfill closes whatever
+// gap the cut left, which is the whole reason a backfill runs first.
 const shutdownGrace = 15 * time.Second
 
 // serve runs the HTTP server and the background jobs until shutdown is signalled,

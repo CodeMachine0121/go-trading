@@ -30,9 +30,12 @@ func main() {
 	engine := gin.Default()
 	registerRoutes(engine, database, applicationConfig)
 
-	// The signals are listened for before anything is started, so an interrupt that
-	// arrives during the startup backfill is still the one that ends this run rather
-	// than being the one that kills it.
+	// The signals are listened for before anything is started, so an interrupt
+	// arriving during the startup backfill runs the shutdown path instead of falling
+	// back on killing the process. The backfill itself is still cut short — it has
+	// not begun watching for a stop that early — but it is cut short through its
+	// context, so the calls it has out to the database and the market source end
+	// rather than being abandoned mid-flight.
 	shutdownSignalled, stopListeningForSignals := signal.NotifyContext(
 		context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopListeningForSignals()

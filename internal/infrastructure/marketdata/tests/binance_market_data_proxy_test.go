@@ -179,6 +179,20 @@ func TestFetchKCandlesReportsAnUnusableAnswer(t *testing.T) {
 			body:           `[[1788019500000,"abc","2","0.5","1.5","10",1788019799999,"2000",7007,"4","800","0"]]`,
 			expectedReason: "read figure at position 1",
 		},
+		{
+			// A proxy appending its own error page to a good answer. Read only as far
+			// as the first value, this is a successful page of candles.
+			name:           "candles with something appended after them",
+			body:           `[[1788019500000,"1","2","0.5","1.5","10",1788019799999,"2000",7007,"4","800","0"]]<html>oops</html>`,
+			expectedReason: "trailing content after the answer",
+		},
+		{
+			// The same, but the answer it was appended to is empty — which read as a
+			// success is the worse of the two: a window recorded as having no candles.
+			name:           "nothing, with something appended after it",
+			body:           `[]{"error":"rate limited"}`,
+			expectedReason: "trailing content after the answer",
+		},
 	}
 
 	for _, testCase := range testCases {

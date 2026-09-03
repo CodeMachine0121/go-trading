@@ -2,6 +2,7 @@ package job_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,4 +162,80 @@ func TestAJobWhoseContextIsDoneRunsNoFurtherRounds(t *testing.T) {
 	time.Sleep(5 * testInterval)
 
 	assert.Empty(t, underTest.stages)
+}
+
+// slowJobUnderTest is the same real ingestion path, except that a scheduled round
+// does not finish until the test lets it. Holding a round open is what leaves the
+// interval free to tick past it, which is the only way a tick comes to be waiting in
+// the channel when something else happens.
+type slowJobUnderTest struct {
+	job             *job.KCandleIngestionJob
+	stages          chan string
+	releaseTheRound func()
+}
+
+func newSlowJobUnderTest(t *testing.T) slowJobUnderTest {
+	t.Helper()
+
+	mockController := gomock.NewController(t)
+	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+
+	stages := make(chan string, 64)
+	heldRound := make(chan struct{})
+	releaseTheRound := sync.OnceFunc(func() { close(heldRound) })
+
+	kCandleRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any(), 1).
+		DoAndReturn(func(_ context.Context, _ string, _ int) ([]entities.KCandle, error) {
+			stages <- "backfill"
+			return []entities.KCandle{}, nil
+		}).AnyTimes()
+	marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			if !window.StartTime.Equal(scheduledWindowStart) {
+				return []vo.MarketKCandleVo{}, nil
+			}
+
+			stages <- "scheduled round"
+			<-heldRound
+
+			return []vo.MarketKCandleVo{}, nil
+		}).AnyTimes()
+
+	ingestionJob := job.NewKCandleIngestionJob(
+		application.NewKCandleIngestionApplication(
+			service.NewKCandleIngestionService(
+				kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback)),
+		[]string{"BTCUSDT"}, testInterval)
+	// Released first whatever happens, so a test that fails partway cannot leave the
+	// round blocked and the job unable to notice it was stopped.
+	t.Cleanup(releaseTheRound)
+	t.Cleanup(ingestionJob.Stop)
+
+	return slowJobUnderTest{job: ingestionJob, stages: stages, releaseTheRound: releaseTheRound}
+}
+
+// A round that outruns the interval leaves a tick waiting in the ticker's channel,
+// so when a stop arrives both cases are ready at once and a select picks between them
+// at random. Told to stop, the job must not start one more round anyway — half the
+// time was the old answer.
+func TestAJobToldToStopStartsNoRoundFromATickThatWasAlreadyWaiting(t *testing.T) {
+	underTest := newSlowJobUnderTest(t)
+
+	underTest.job.Start(t.Context())
+	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
+
+	// The round is held open well past the interval, so a tick is certainly waiting
+	// by the time the stop lands. Nothing is drained after this point: a round the
+	// job should not have started announces itself on this channel, and draining
+	// would be throwing away the evidence.
+	time.Sleep(10 * testInterval)
+	underTest.job.Stop()
+	underTest.releaseTheRound()
+	time.Sleep(10 * testInterval)
+
+	assert.Empty(t, underTest.stages, "a job told to stop began another round")
 }

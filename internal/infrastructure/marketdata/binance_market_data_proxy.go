@@ -99,8 +99,20 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
 	}
 
 	var kLines []binanceKLine
-	if decodeError := json.NewDecoder(response.Body).Decode(&kLines); decodeError != nil {
+
+	answer := json.NewDecoder(response.Body)
+	if decodeError := answer.Decode(&kLines); decodeError != nil {
 		return nil, fmt.Errorf("read market source answer for %s: %w", symbol, decodeError)
+	}
+
+	// A decoder stops at the end of the first value and would ignore whatever came
+	// after it — an error page a proxy appended to an otherwise good answer, say.
+	// Ignored, a valid but empty array followed by junk reads as "the source has
+	// nothing for this window" rather than as a source that cannot be read, and a
+	// window with candles in it would be quietly recorded as having none.
+	if answer.More() {
+		return nil, fmt.Errorf(
+			"read market source answer for %s: trailing content after the answer", symbol)
 	}
 
 	marketKCandles := make([]vo.MarketKCandleVo, 0, len(kLines))

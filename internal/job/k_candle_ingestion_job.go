@@ -83,6 +83,20 @@ func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Con
 		case <-executionContext.Done():
 			return
 		case <-ticker.C:
+			// A select picks at random among the cases that are ready, and a tick
+			// can already be waiting in the channel — which is what happens
+			// whenever a round outruns the interval, a market source that will not
+			// answer being the ordinary way. Without this second look, a job told
+			// to stop at that moment starts one more round about half the time,
+			// and "take on no further rounds" would be a coin toss.
+			select {
+			case <-kCandleIngestionJob.done:
+				return
+			case <-executionContext.Done():
+				return
+			default:
+			}
+
 			roundReport, roundError := kCandleIngestionJob.kCandleIngestionApplication.
 				RunScheduledRound(executionContext, kCandleIngestionJob.symbols)
 			kCandleIngestionJob.report("scheduled round", roundReport, roundError)

@@ -12,12 +12,6 @@ import (
 // around it are dropped. It is the single place this limit is written down.
 const strategyNameMaxLength = 128
 
-// nulCharacter is the one byte PostgreSQL will not hold in a text column whatever
-// else it holds. Text carrying it is refused here, where refusing is an answer about
-// the content, rather than at the database, where the same text becomes a storage
-// failure and is reported as though the system had broken instead of the request.
-const nulCharacter = '\x00'
-
 // StrategyDomain holds one strategy and guarantees its own invariants. An instance
 // only exists when every rule passed, so there is no half-valid strategy.
 //
