@@ -13,15 +13,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// rewrittenScript stands in for "the algorithm was changed" wherever a test needs to
+// prove a rewrite reached the row. It is deliberately different from the script
+// strategyNamed carries.
+const rewrittenScript = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return map[string]float64{\"x\": 1} }"
+
 // strategyNamed is a strategy that differs from its siblings only by name, so that a
 // test about names is not also a test about anything else.
 func strategyNamed(name string) entities.Strategy {
 	return entities.Strategy{
-		Name:                name,
-		Script:              "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }",
-		ResultType:          "float",
-		AggregationInterval: "5m",
-		CandleCount:         20,
+		Name:       name,
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }",
+		ResultType: "float",
 	}
 }
 
@@ -106,16 +109,16 @@ func TestStrategyRepositoryUpdateHandsBackWhatThisCallStored(t *testing.T) {
 
 	rewritten := strategyNamed("二十根均線")
 	rewritten.ID = savedStrategy.ID
-	rewritten.CandleCount = 60
+	rewritten.Script = rewrittenScript
 
 	updatedStrategy, updateError := strategyRepository.Update(t.Context(), rewritten)
 
 	require.NoError(t, updateError)
-	assert.Equal(t, 60, updatedStrategy.CandleCount)
+	assert.Equal(t, rewrittenScript, updatedStrategy.Script)
 
 	readBack, findError := strategyRepository.FindOne(t.Context(), savedStrategy.ID)
 	require.NoError(t, findError)
-	assert.Equal(t, readBack.CandleCount, updatedStrategy.CandleCount)
+	assert.Equal(t, readBack.Script, updatedStrategy.Script)
 	assert.Equal(t, readBack.UpdatedAt.UTC(), updatedStrategy.UpdatedAt.UTC())
 }
 
@@ -182,12 +185,10 @@ func TestStrategyRepositoryUpdateRewritesTheFiveThingsAStrategyRemembers(t *test
 	require.NoError(t, saveError)
 
 	rewritten := entities.Strategy{
-		ID:                  savedStrategy.ID,
-		Name:                "六十根均線",
-		Script:              "func Calculate(candles []vo.KCandleVo) map[string][]bool { return nil }",
-		ResultType:          "boolList",
-		AggregationInterval: "1h",
-		CandleCount:         60,
+		ID:         savedStrategy.ID,
+		Name:       "六十根均線",
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]bool { return nil }",
+		ResultType: "boolList",
 	}
 
 	updatedStrategy, updateError := strategyRepository.Update(t.Context(), rewritten)
@@ -196,8 +197,6 @@ func TestStrategyRepositoryUpdateRewritesTheFiveThingsAStrategyRemembers(t *test
 	assert.Equal(t, "六十根均線", updatedStrategy.Name)
 	assert.Equal(t, rewritten.Script, updatedStrategy.Script)
 	assert.Equal(t, "boolList", updatedStrategy.ResultType)
-	assert.Equal(t, "1h", updatedStrategy.AggregationInterval)
-	assert.Equal(t, 60, updatedStrategy.CandleCount)
 }
 
 func TestStrategyRepositoryUpdateLeavesTheIdentifierAndTheFirstSavedTimeAlone(t *testing.T) {
@@ -227,12 +226,12 @@ func TestStrategyRepositoryUpdateToItsOwnNameIsNotAConflict(t *testing.T) {
 
 	rewritten := strategyNamed("二十根均線")
 	rewritten.ID = savedStrategy.ID
-	rewritten.CandleCount = 60
+	rewritten.Script = rewrittenScript
 
 	updatedStrategy, updateError := strategyRepository.Update(t.Context(), rewritten)
 
 	require.NoError(t, updateError)
-	assert.Equal(t, 60, updatedStrategy.CandleCount)
+	assert.Equal(t, rewrittenScript, updatedStrategy.Script)
 }
 
 func TestStrategyRepositoryUpdateRefusesAnotherStrategysName(t *testing.T) {

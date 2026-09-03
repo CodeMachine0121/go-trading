@@ -6,7 +6,9 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// Strategy is one saved strategy: an algorithm, plus what data it needs to run.
+// Strategy is one saved strategy: an algorithm and nothing else. How coarse the K
+// candles are, how many of them, and up to when are all decided by whoever runs it,
+// so the same algorithm can be run at any coarseness over any stretch of market.
 // It is a plain data model: fields, persistence mapping and shape conversion only,
 // no business rules.
 //
@@ -16,14 +18,12 @@ import (
 // index. It also gives renaming a strategy to its own current name for free, since
 // the row it collides with is itself.
 type Strategy struct {
-	ID                  uint      `gorm:"primaryKey"`
-	Name                string    `gorm:"size:128;not null;uniqueIndex:idx_strategies_name"`
-	Script              string    `gorm:"type:text;not null"`
-	ResultType          string    `gorm:"size:32;not null"`
-	AggregationInterval string    `gorm:"size:8;not null"`
-	CandleCount         int       `gorm:"not null"`
-	CreatedAt           time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt           time.Time `gorm:"type:timestamptz;not null"`
+	ID         uint      `gorm:"primaryKey"`
+	Name       string    `gorm:"size:128;not null;uniqueIndex:idx_strategies_name"`
+	Script     string    `gorm:"type:text;not null"`
+	ResultType string    `gorm:"size:32;not null"`
+	CreatedAt  time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt  time.Time `gorm:"type:timestamptz;not null"`
 }
 
 // TableName pins the table to Strategies instead of GORM's default strategies.
@@ -35,13 +35,11 @@ func (strategy Strategy) TableName() string {
 // are always handed out in universal time, whatever zone they were read back in.
 func (strategy Strategy) ToDto() dto.StrategyDto {
 	return dto.StrategyDto{
-		ID:                  strategy.ID,
-		Name:                strategy.Name,
-		Script:              strategy.Script,
-		ResultType:          strategy.ResultType,
-		AggregationInterval: strategy.AggregationInterval,
-		CandleCount:         strategy.CandleCount,
-		CreatedAt:           strategy.CreatedAt.UTC(),
-		UpdatedAt:           strategy.UpdatedAt.UTC(),
+		ID:         strategy.ID,
+		Name:       strategy.Name,
+		Script:     strategy.Script,
+		ResultType: strategy.ResultType,
+		CreatedAt:  strategy.CreatedAt.UTC(),
+		UpdatedAt:  strategy.UpdatedAt.UTC(),
 	}
 }

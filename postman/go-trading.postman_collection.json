@@ -57,7 +57,7 @@
           "// 從未建立過的一根，用來驗證找不到的回應。",
           "pm.collectionVariables.set('unknownOpenTime', asRfc3339(new Date(latestClosed.getTime() - 30 * 24 * 60 * 60 * 1000)));",
           "",
-          "// 指標計算需要連續的五根：排除最新一根之後才剩四根可用。",
+          "// 指標計算需要連續的五根：全部都已收完，因此五根都算數——取四根時用的是最靠近現在的那四根。",
           "for (let index = 1; index <= 5; index += 1) {",
           "    const seeded = new Date(latestClosed.getTime() - (5 - index) * FIVE_MINUTES);",
           "    pm.collectionVariables.set('seedTime' + index, asRfc3339(seeded));",
@@ -1182,7 +1182,7 @@
                 "indicator-calculations"
               ]
             },
-            "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**最新一根一律被排除**，因為它涵蓋的五分鐘還沒走完——要 4 根就會撈 5 根丟掉最新的。\n所以上面才要先準備 5 根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種；`float` 是預設值，省略不寫的行為完全相同。",
+            "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是五分鐘一格，而目前正在走的那五分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種；`float` 是預設值，省略不寫的行為完全相同。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
@@ -1205,12 +1205,23 @@
                   "pm.test(\"用了 4 根\", function () {",
                   "    pm.expect(pm.response.json().usedCandleCount).to.eql(4);",
                   "});",
-                  "pm.test(\"算出前四根收盤價的平均 125\", function () {",
-                  "    // 準備的五根收盤價為 110/120/130/140/150，排除最新的 150 之後平均為 125。",
-                  "    pm.expect(pm.response.json().values.movingAverage).to.eql(125);",
+                  "pm.test(\"算出最後四根收盤價的平均 135\", function () {",
+                  "    // 準備的五根收盤價為 110/120/130/140/150，五根都已收完，",
+                  "    // 取最靠近現在的四根（120/130/140/150），平均為 135。",
+                  "    pm.expect(pm.response.json().values.movingAverage).to.eql(135);",
                   "});",
                   "pm.test(\"回報這次的種類是 float\", function () {",
                   "    pm.expect(pm.response.json().resultType).to.eql(\"float\");",
+                  "});",
+                  "pm.test(\"回報這次的彙總刻度是五分鐘\", function () {",
+                  "    pm.expect(pm.response.json().interval).to.eql(\"5m\");",
+                  "});",
+                  "pm.test(\"說得出這次讀了哪四根，由早到晚\", function () {",
+                  "    // 呼叫端要把一串值擺回圖上，就得知道第幾個值對應哪一根。",
+                  "    const openTimes = pm.response.json().openTimes;",
+                  "    pm.expect(openTimes).to.have.lengthOf(4);",
+                  "    pm.expect(openTimes[0]).to.eql(pm.collectionVariables.get(\"seedTime2\"));",
+                  "    pm.expect(openTimes[3]).to.eql(pm.collectionVariables.get(\"seedTime5\"));",
                   "});"
                 ]
               }
@@ -1266,6 +1277,58 @@
           ]
         },
         {
+          "name": "算到指定的時間為止",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "`endTime` 說這次算到哪個時間為止，省略就是現在。\n\n這裡把它訂在第 4 根的起始時間上——那一格從那一刻才開始走，所以只採用它之前走完的三根，收盤價 110/120/130，平均 120。同一個 `endTime` 問幾次都是同一個答案，這正是把時間交給呼叫端指定的理由。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 3,\n  \"endTime\": \"{{seedTime4}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"只算到那個時間之前走完的三根，平均 120\", function () {",
+                  "    pm.expect(pm.response.json().values.movingAverage).to.eql(120);",
+                  "});",
+                  "pm.test(\"讀的是第 1 到第 3 根\", function () {",
+                  "    const openTimes = pm.response.json().openTimes;",
+                  "    pm.expect(openTimes[0]).to.eql(pm.collectionVariables.get(\"seedTime1\"));",
+                  "    pm.expect(openTimes[2]).to.eql(pm.collectionVariables.get(\"seedTime3\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算一整條線（floatList）",
           "request": {
             "method": "POST",
@@ -1308,8 +1371,12 @@
                   "    pm.expect(pm.response.json().resultType).to.eql(\"floatList\");",
                   "});",
                   "pm.test(\"一個名稱帶回四個依序排好的收盤價\", function () {",
-                  "    // 準備的五根收盤價為 110/120/130/140/150，排除最新的 150。",
-                  "    pm.expect(pm.response.json().values.line).to.eql([110, 120, 130, 140]);",
+                  "    // 準備的五根收盤價為 110/120/130/140/150，五根都已收完，取最靠近現在的四根。",
+                  "    pm.expect(pm.response.json().values.line).to.eql([120, 130, 140, 150]);",
+                  "});",
+                  "pm.test(\"第 n 個值對應第 n 個起始時間\", function () {",
+                  "    pm.expect(pm.response.json().openTimes).to.have.lengthOf(",
+                  "        pm.response.json().values.line.length);",
                   "});"
                 ]
               }
@@ -1406,8 +1473,8 @@
                   "    pm.response.to.have.status(200);",
                   "});",
                   "pm.test(\"四根各給一個答案\", function () {",
-                  "    // 收盤價 110/120/130/140 與 125 相比。",
-                  "    pm.expect(pm.response.json().values.aboveAverage).to.eql([false, false, true, true]);",
+                  "    // 收盤價 120/130/140/150 與 125 相比。",
+                  "    pm.expect(pm.response.json().values.aboveAverage).to.eql([false, true, true, true]);",
                   "});"
                 ]
               }
@@ -1553,7 +1620,54 @@
           ]
         },
         {
-          "name": "拒絕：可用根數不足",
+          "name": "拒絕：彙總刻度不在五種之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "彙總刻度五選一：`5m`、`15m`、`1h`、`4h`、`1d`。七分鐘不是暫時不支援，是不成立——它既不是五分鐘的整數倍，也不整除一天，刻度區間的邊界會逐日漂移。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"7m\",\n  \"candleCount\": 2,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"列出可以選的那五種\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"彙總刻度只能是\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：走完的刻度區間湊不滿",
           "request": {
             "method": "POST",
             "header": [
@@ -1590,8 +1704,8 @@
                   "pm.test(\"回應 400\", function () {",
                   "    pm.response.to.have.status(400);",
                   "});",
-                  "pm.test(\"告訴我實際可用幾根\", function () {",
-                  "    pm.expect(pm.response.json().message).to.match(/\\d/);",
+                  "pm.test(\"告訴我實際湊得出幾根\", function () {",
+                  "    pm.expect(pm.response.json().message).to.match(/湊得出 \\d+ 根/);",
                   "});"
                 ]
               }
@@ -1714,7 +1828,7 @@
             "description": "策略是被留下來的一整包：名稱、指標算式，以及它要吃多粗、多少根 K 線。存起來只是被記住，系統不會因此執行它。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1767,7 +1881,7 @@
             "description": "名稱是拿來認人的，兩支同名就認不出是哪一支。名稱前後的空白不算數，所以這一支與上一支是同一個名稱。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"　{{strategyName}}　\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"　{{strategyName}}　\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1790,7 +1904,7 @@
           ]
         },
         {
-          "name": "不指定彙總刻度與種類就套預設",
+          "name": "不指定指標值種類就套預設",
           "request": {
             "method": "POST",
             "header": [
@@ -1811,7 +1925,7 @@
             "description": "與彙總查詢、指標計算的規則一致：沒說彙總刻度就是五分鐘，沒說指標值種類就是一個數字。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1861,7 +1975,7 @@
             "description": "存策略不執行、也不檢查算式。一支算式常要調很多次才對，存不進去就沒辦法中途收工、明天再改。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-半成品\",\n  \"script\": \"這根本不是一段程式碼\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}-半成品\",\n  \"script\": \"這根本不是一段程式碼\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1880,53 +1994,6 @@
                   "});",
                   "pm.test(\"半成品也留得住\", function () {",
                   "    pm.collectionVariables.set(\"strategyIdDraft\", pm.response.json().id);",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：彙總刻度不在五種之內",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategies",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategies"
-              ]
-            },
-            "description": "系統只抓得到五分鐘 K 線，更長的刻度都由它併出來。七分鐘既不是它的整數倍、也不整除一天，不是暫時不支援而是不成立。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-七分鐘\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"7m\",\n  \"candleCount\": 20\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () {",
-                  "    pm.response.to.have.status(400);",
-                  "});",
-                  "pm.test(\"說得出可選的是哪五種\", function () {",
-                  "    pm.expect(pm.response.json().message).to.include(\"彙總刻度只能是\");",
                   "});"
                 ]
               }
@@ -1955,95 +2022,7 @@
             "description": "可宣告的種類只有一個數字、一串數字、一個是非、一串是非。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-文字\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"string\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () {",
-                  "    pm.response.to.have.status(400);",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：計算根數不大於零",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategies",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategies"
-              ]
-            },
-            "description": "一支吃零根 K 線的策略算不出任何東西。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-零根\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 0\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () {",
-                  "    pm.response.to.have.status(400);",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：計算根數超過單次上限",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategies",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategies"
-              ]
-            },
-            "description": "根數的上限與單次查詢筆數上限是同一個設定，與彙總刻度多粗無關。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-太多根\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 1001\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}-文字\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"string\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2087,7 +2066,7 @@
             "description": "只有空白等同沒取。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"   \",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"   \",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2313,7 +2292,7 @@
             "description": "改名一樣受名稱不重複的約束。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2358,7 +2337,7 @@
             "description": "整次拒絕，該策略維持原狀。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2465,7 +2444,7 @@
             "description": "不會因此建立一支新的策略。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-幽靈\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}-幽靈\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2602,7 +2581,7 @@
             "description": "刪除把名稱一併釋出，所以同一個名字可以再用。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 20\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

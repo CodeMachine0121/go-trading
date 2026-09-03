@@ -156,6 +156,30 @@ func (kCandleRepository *KCandleRepository) FindLatest(
 	return kCandles, nil
 }
 
+// FindLatestBefore returns at most limit K candles for the trading symbol that
+// opened strictly before the cut-off, newest first. Strictly before is what makes a
+// cut-off on a bucket edge read the bucket that ends there and not the one that
+// starts there.
+func (kCandleRepository *KCandleRepository) FindLatestBefore(
+	executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
+) ([]entities.KCandle, error) {
+	kCandles := make([]entities.KCandle, 0, min(limit, preallocationCeiling))
+
+	result := kCandleRepository.database.WithContext(executionContext).
+		Clauses(clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "symbol"}, Value: symbol},
+			clause.Lt{Column: clause.Column{Name: "open_time"}, Value: cutoffTime},
+		}}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "open_time"}, Desc: true}).
+		Limit(limit).
+		Find(&kCandles)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find latest k candles before cutoff: %w", result.Error)
+	}
+
+	return kCandles, nil
+}
+
 // Delete removes the K candle named by trading symbol and open time, reporting not
 // found when it names no candle.
 func (kCandleRepository *KCandleRepository) Delete(

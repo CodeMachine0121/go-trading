@@ -102,6 +102,21 @@ func (mr *MockIKCandleRepositoryMockRecorder) FindLatest(executionContext, symbo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatest", reflect.TypeOf((*MockIKCandleRepository)(nil).FindLatest), executionContext, symbol, limit)
 }
 
+// FindLatestBefore mocks base method.
+func (m *MockIKCandleRepository) FindLatestBefore(executionContext context.Context, symbol string, cutoffTime time.Time, limit int) ([]entities.KCandle, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindLatestBefore", executionContext, symbol, cutoffTime, limit)
+	ret0, _ := ret[0].([]entities.KCandle)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindLatestBefore indicates an expected call of FindLatestBefore.
+func (mr *MockIKCandleRepositoryMockRecorder) FindLatestBefore(executionContext, symbol, cutoffTime, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatestBefore", reflect.TypeOf((*MockIKCandleRepository)(nil).FindLatestBefore), executionContext, symbol, cutoffTime, limit)
+}
+
 // FindOne mocks base method.
 func (m *MockIKCandleRepository) FindOne(executionContext context.Context, symbol string, openTime time.Time) (entities.KCandle, error) {
 	m.ctrl.T.Helper()

@@ -28,5 +28,15 @@ type IKCandleRepository interface {
 	// time NEWEST FIRST. Note this is the opposite order to FindInRange, because
 	// "the latest few" is naturally a descending read.
 	FindLatest(executionContext context.Context, symbol string, limit int) ([]entities.KCandle, error)
+	// FindLatestBefore returns at most limit K candles for the symbol whose open
+	// time is STRICTLY BEFORE cutoffTime, newest first.
+	//
+	// It is not FindLatest with one more argument. "The latest few" and "the latest
+	// few as of a moment" are different questions, and the caller asking the first
+	// has no moment to name — handing it a cut-off far in the future would make that
+	// call look like it were filtering by time when it is not.
+	FindLatestBefore(
+		executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
+	) ([]entities.KCandle, error)
 	Delete(executionContext context.Context, symbol string, openTime time.Time) error
 }

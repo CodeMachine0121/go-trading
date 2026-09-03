@@ -23,8 +23,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-const strategyRouterMaxCandleCount = 1000
-
 type strategyRouterUnderTest struct {
 	engine             *gin.Engine
 	strategyRepository *mocks.MockIStrategyRepository
@@ -37,7 +35,7 @@ func newStrategyRouterUnderTest(t *testing.T) strategyRouterUnderTest {
 
 	strategyController := controller.NewStrategyController(
 		application.NewStrategyApplication(
-			service.NewStrategyService(strategyRepository, strategyRouterMaxCandleCount)))
+			service.NewStrategyService(strategyRepository)))
 
 	engine := gin.New()
 	engine.POST("/strategies", strategyController.CreateStrategy)
@@ -63,21 +61,17 @@ func (fixture strategyRouterUnderTest) send(
 const aStrategyBody = `{
 	"name": "二十根均線",
 	"script": "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
-	"resultType": "floatList",
-	"aggregationInterval": "1h",
-	"candleCount": 45
+	"resultType": "floatList"
 }`
 
 func aStoredStrategyRow(id uint, name string) entities.Strategy {
 	return entities.Strategy{
-		ID:                  id,
-		Name:                name,
-		Script:              "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
-		ResultType:          "floatList",
-		AggregationInterval: "1h",
-		CandleCount:         20,
-		CreatedAt:           time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
-		UpdatedAt:           time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		ID:         id,
+		Name:       name,
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
+		ResultType: "floatList",
+		CreatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -93,8 +87,6 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 				assert.Equal(t, "二十根均線", strategy.Name)
 				assert.Equal(t, aStoredStrategyRow(0, "").Script, strategy.Script)
 				assert.Equal(t, "floatList", strategy.ResultType)
-				assert.Equal(t, "1h", strategy.AggregationInterval)
-				assert.Equal(t, 45, strategy.CandleCount)
 
 				return aStoredStrategyRow(7, strategy.Name), nil
 			})
@@ -106,7 +98,29 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &strategyDto))
 		assert.Equal(t, uint(7), strategyDto.ID)
 		assert.Equal(t, "二十根均線", strategyDto.Name)
-		assert.Equal(t, "1h", strategyDto.AggregationInterval)
+	})
+
+	t.Run("a plan for feeding the algorithm is not part of a strategy", func(t *testing.T) {
+		// A caller that still sends how coarse the candles are and how many of them
+		// is not refused — those fields simply bind to nothing, and nothing comes
+		// back carrying them either.
+		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
+				assert.Equal(t, "二十根均線", strategy.Name)
+				assert.Equal(t, "floatList", strategy.ResultType)
+
+				return aStoredStrategyRow(7, strategy.Name), nil
+			})
+
+		response := fixture.send(http.MethodPost, "/strategies",
+			`{"name": "二十根均線", "script": "package main", "resultType": "floatList",`+
+				` "aggregationInterval": "1h", "candleCount": 45}`)
+
+		require.Equal(t, http.StatusCreated, response.Code)
+		assert.NotContains(t, response.Body.String(), "aggregationInterval")
+		assert.NotContains(t, response.Body.String(), "candleCount")
 	})
 
 	t.Run("answers bad request when the body cannot be read", func(t *testing.T) {
@@ -118,17 +132,17 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 	})
 
 	t.Run("says the body could not be read rather than blaming its content", func(t *testing.T) {
-		// Every field is filled in and legal; only the candle count is written as
-		// text. Reading the body fails, and the caller has to be told that — being
-		// told "a strategy needs a name" would send them looking at the wrong field.
+		// Every field is present; only the name is written as a number. Reading the
+		// body fails, and the caller has to be told that — being told "a strategy
+		// needs a name" would send them looking for a missing field rather than a
+		// mistyped one.
 		fixture := newStrategyRouterUnderTest(t)
 
 		response := fixture.send(http.MethodPost, "/strategies",
-			`{"name": "二十根均線", "script": "x", "resultType": "float",`+
-				` "aggregationInterval": "1h", "candleCount": "twenty"}`)
+			`{"name": 20, "script": "x", "resultType": "float"}`)
 
 		require.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), "candleCount")
+		assert.Contains(t, response.Body.String(), "name")
 		assert.NotContains(t, response.Body.String(), "必須給策略取一個名稱")
 	})
 
@@ -136,10 +150,10 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 
 		response := fixture.send(http.MethodPost, "/strategies",
-			`{"name": "七分鐘", "script": "x", "aggregationInterval": "7m", "candleCount": 20}`)
+			`{"name": "無此種類", "script": "x", "resultType": "string"}`)
 
 		require.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), "彙總刻度只能是")
+		assert.Contains(t, response.Body.String(), "指標值種類只能是")
 	})
 
 	t.Run("answers conflict when the name is already held", func(t *testing.T) {
@@ -281,11 +295,10 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 
 		response := fixture.send(http.MethodPut, "/strategies/7",
-			`{"name": "二十根均線", "script": "x", "resultType": "float",`+
-				` "aggregationInterval": "1h", "candleCount": "twenty"}`)
+			`{"name": 20, "script": "x", "resultType": "float"}`)
 
 		require.Equal(t, http.StatusBadRequest, response.Code)
-		assert.Contains(t, response.Body.String(), "candleCount")
+		assert.Contains(t, response.Body.String(), "name")
 		assert.NotContains(t, response.Body.String(), "必須給策略取一個名稱")
 	})
 
@@ -295,7 +308,7 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 
 		response := fixture.send(http.MethodPut, "/strategies/7",
-			`{"name": "", "script": "x", "aggregationInterval": "1h", "candleCount": 20}`)
+			`{"name": "", "script": "x", "resultType": "float"}`)
 
 		assert.Equal(t, http.StatusBadRequest, response.Code)
 	})
@@ -366,13 +379,11 @@ func TestStrategyRouterRefusesTextThatCannotBeStored(t *testing.T) {
 	}{
 		{
 			name: "a name carrying a NUL",
-			body: `{"name":"a\u0000b","script":"package main","resultType":"float",` +
-				`"aggregationInterval":"5m","candleCount":20}`,
+			body: `{"name":"a\u0000b","script":"package main","resultType":"float"}`,
 		},
 		{
 			name: "a script carrying a NUL",
-			body: `{"name":"二十根均線","script":"package \u0000main","resultType":"float",` +
-				`"aggregationInterval":"5m","candleCount":20}`,
+			body: `{"name":"二十根均線","script":"package \u0000main","resultType":"float"}`,
 		},
 	}
 

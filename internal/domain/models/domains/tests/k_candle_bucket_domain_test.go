@@ -80,3 +80,34 @@ func TestKCandleBucketDomainHoldingOneCandleKeepsItsFiguresAsTheyAre(t *testing.
 	assert.True(t, decimal.RequireFromString("105").Equal(mergedKCandle.Close))
 	assert.True(t, decimal.RequireFromString("4").Equal(mergedKCandle.Volume))
 }
+
+func TestKCandleBucketDomainToVoIsTheSameMergeInTheShapeAScriptSees(t *testing.T) {
+	bucketStart := mustParseTime(t, "2026-09-02T10:00:00Z")
+	bucketDomain := domains.NewKCandleBucketDomain(bucketStart, []entities.KCandle{
+		buildBucketKCandle(t, "2026-09-02T10:00:00Z", "100", "130", "95", "120", "3"),
+		buildBucketKCandle(t, "2026-09-02T10:05:00Z", "120", "140", "90", "110", "7"),
+	})
+
+	kCandleVo := bucketDomain.ToVo()
+
+	assert.Equal(t, "BTCUSDT", kCandleVo.Symbol)
+	assert.InDelta(t, 100.0, kCandleVo.Open, 0.0001, "open comes from the earliest candle")
+	assert.InDelta(t, 140.0, kCandleVo.High, 0.0001, "high is the highest high")
+	assert.InDelta(t, 90.0, kCandleVo.Low, 0.0001, "low is the lowest low")
+	assert.InDelta(t, 110.0, kCandleVo.Close, 0.0001, "close comes from the latest candle")
+	assert.InDelta(t, 10.0, kCandleVo.Volume, 0.0001, "volume is the sum")
+	assert.InDelta(t, 100.0, kCandleVo.QuoteVolume, 0.0001)
+	assert.InDelta(t, 5.0, kCandleVo.TakerBuyBaseVolume, 0.0001)
+	assert.InDelta(t, 50.0, kCandleVo.TakerBuyQuoteVolume, 0.0001)
+}
+
+func TestKCandleBucketDomainToVoCarriesTheBucketsOpenTimeAsSeconds(t *testing.T) {
+	// A script is handed seconds rather than a time value, so that it cannot reach
+	// the clock through one. The seconds are the bucket's own start, not a candle's.
+	bucketStart := mustParseTime(t, "2026-09-02T10:00:00Z")
+	bucketDomain := domains.NewKCandleBucketDomain(bucketStart, []entities.KCandle{
+		buildBucketKCandle(t, "2026-09-02T10:35:00Z", "100", "110", "90", "105", "1"),
+	})
+
+	assert.Equal(t, bucketStart.Unix(), bucketDomain.ToVo().OpenTimeUnixSeconds)
+}
