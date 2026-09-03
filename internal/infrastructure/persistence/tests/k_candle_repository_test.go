@@ -436,3 +436,76 @@ func TestFindDistinctSymbolsStorageFailure(t *testing.T) {
 
 	assert.Error(t, findError)
 }
+
+func TestFindLatestBefore(t *testing.T) {
+	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+	for _, openTime := range []time.Time{at(9, 5), at(9, 15), at(9, 0), at(9, 10)} {
+		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
+		require.NoError(t, saveError)
+	}
+	_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("ETHUSDT", at(9, 5), "200"))
+	require.NoError(t, saveError)
+
+	testCases := []struct {
+		name              string
+		symbol            string
+		cutoffTime        time.Time
+		limit             int
+		expectedOpenTimes []time.Time
+	}{
+		{
+			name:   "the newest few from before the cut-off",
+			symbol: "BTCUSDT", cutoffTime: at(9, 15), limit: 2,
+			expectedOpenTimes: []time.Time{at(9, 10), at(9, 5)},
+		},
+		{
+			// This is what makes an end time on a bucket edge take the bucket that
+			// ends there. Were it inclusive, the bucket starting at the cut-off —
+			// the one still running — would be read.
+			name:   "a candle opening exactly at the cut-off is left out",
+			symbol: "BTCUSDT", cutoffTime: at(9, 10), limit: 10,
+			expectedOpenTimes: []time.Time{at(9, 5), at(9, 0)},
+		},
+		{
+			name:   "everything stored when the cut-off is past all of it",
+			symbol: "BTCUSDT", cutoffTime: at(10, 0), limit: 10,
+			expectedOpenTimes: []time.Time{at(9, 15), at(9, 10), at(9, 5), at(9, 0)},
+		},
+		{
+			name:   "nothing at all when the cut-off is before everything stored",
+			symbol: "BTCUSDT", cutoffTime: at(9, 0), limit: 10,
+			expectedOpenTimes: []time.Time{},
+		},
+		{
+			name:   "keeps trading symbols apart",
+			symbol: "ETHUSDT", cutoffTime: at(10, 0), limit: 10,
+			expectedOpenTimes: []time.Time{at(9, 5)},
+		},
+		{
+			name:   "nothing for a symbol with no candles",
+			symbol: "SOLUSDT", cutoffTime: at(10, 0), limit: 10,
+			expectedOpenTimes: []time.Time{},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			storedKCandles, findError := kCandleRepository.FindLatestBefore(
+				t.Context(), testCase.symbol, testCase.cutoffTime, testCase.limit)
+
+			require.NoError(t, findError)
+			require.Len(t, storedKCandles, len(testCase.expectedOpenTimes))
+			for index, expectedOpenTime := range testCase.expectedOpenTimes {
+				assert.Equal(t, expectedOpenTime.UTC(), storedKCandles[index].OpenTime.UTC())
+			}
+		})
+	}
+}
+
+func TestFindLatestBeforeReportsAStorageFailure(t *testing.T) {
+	kCandleRepository := persistence.NewKCandleRepository(closedDatabase(t))
+
+	_, findError := kCandleRepository.FindLatestBefore(t.Context(), "BTCUSDT", at(10, 0), 10)
+
+	assert.Error(t, findError)
+}

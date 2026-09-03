@@ -61,6 +61,7 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 			service.NewIndicatorCalculationService(
 				kCandleRepository,
 				script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+				clock.NewSystemClockProxy(),
 				applicationConfig.KCandleQueryMaxResults,
 			),
 		),
