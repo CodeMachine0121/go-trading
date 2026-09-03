@@ -34,12 +34,8 @@ func (strategyRepository *StrategyRepository) Save(
 	strategy entities.Strategy,
 ) (entities.Strategy, error) {
 	result := strategyRepository.database.Create(&strategy)
-	if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-		return entities.Strategy{}, fmt.Errorf(
-			"%w: 策略名稱「%s」已被使用", domains.ErrStrategyNameConflict, strategy.Name)
-	}
-	if result.Error != nil {
-		return entities.Strategy{}, fmt.Errorf("save strategy: %w", result.Error)
+	if writeError := strategyRepository.writeFailureOf(result.Error, strategy.Name, "save"); writeError != nil {
+		return entities.Strategy{}, writeError
 	}
 
 	return strategy, nil
@@ -51,18 +47,15 @@ func (strategyRepository *StrategyRepository) Save(
 func (strategyRepository *StrategyRepository) Update(
 	strategy entities.Strategy,
 ) (entities.Strategy, error) {
+	// The strategy handed to Model carries the identifier, which is what picks the
+	// row; only the writable columns are then sent.
 	result := strategyRepository.database.
-		Model(&entities.Strategy{}).
-		Where("id = ?", strategy.ID).
+		Model(&entities.Strategy{ID: strategy.ID}).
 		Select(strategyWritableColumns).
 		Updates(strategy)
 
-	if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-		return entities.Strategy{}, fmt.Errorf(
-			"%w: 策略名稱「%s」已被使用", domains.ErrStrategyNameConflict, strategy.Name)
-	}
-	if result.Error != nil {
-		return entities.Strategy{}, fmt.Errorf("update strategy: %w", result.Error)
+	if writeError := strategyRepository.writeFailureOf(result.Error, strategy.Name, "update"); writeError != nil {
+		return entities.Strategy{}, writeError
 	}
 
 	// Reading it back is what reports a strategy that is not there: nothing was
@@ -71,11 +64,28 @@ func (strategyRepository *StrategyRepository) Update(
 	return strategyRepository.FindOne(strategy.ID)
 }
 
+// writeFailureOf says what went wrong with a write, in the terms the domain uses. A
+// broken unique index is the one storage failure that is really a business answer:
+// the name belongs to another strategy. It is written here once because both writes
+// reach the same index and owe the caller the same answer.
+func (strategyRepository *StrategyRepository) writeFailureOf(
+	writeError error, name string, attempt string,
+) error {
+	if errors.Is(writeError, gorm.ErrDuplicatedKey) {
+		return fmt.Errorf("%w: 策略名稱「%s」已被使用", domains.ErrStrategyNameConflict, name)
+	}
+	if writeError != nil {
+		return fmt.Errorf("%s strategy: %w", attempt, writeError)
+	}
+
+	return nil
+}
+
 // FindOne returns the strategy carrying this identifier.
 func (strategyRepository *StrategyRepository) FindOne(id uint) (entities.Strategy, error) {
 	strategy := entities.Strategy{}
 
-	result := strategyRepository.database.First(&strategy, "id = ?", id)
+	result := strategyRepository.database.First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Strategy{}, domains.ErrStrategyNotFound
 	}
@@ -104,7 +114,7 @@ func (strategyRepository *StrategyRepository) FindAll() ([]entities.Strategy, er
 // a name that is still held by something nobody can read is a name nobody can
 // explain, and this is a single person's own collection.
 func (strategyRepository *StrategyRepository) Delete(id uint) error {
-	result := strategyRepository.database.Delete(&entities.Strategy{}, "id = ?", id)
+	result := strategyRepository.database.Delete(&entities.Strategy{}, id)
 	if result.Error != nil {
 		return fmt.Errorf("delete strategy: %w", result.Error)
 	}

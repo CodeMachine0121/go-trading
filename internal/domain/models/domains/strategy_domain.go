@@ -55,14 +55,14 @@ func NewStrategyDomain(
 		return StrategyDomain{}, fmt.Errorf("%w: 策略必須帶一段指標算式", ErrStrategyValidation)
 	}
 
-	resultType, resultTypeError := NewIndicatorResultTypeDomain(writeDto.ResultType)
-	if resultTypeError != nil {
-		return StrategyDomain{}, fmt.Errorf("%w: %w", ErrStrategyValidation, resultTypeError)
-	}
-
 	aggregationInterval, intervalError := NewAggregationIntervalDomain(writeDto.AggregationInterval)
 	if intervalError != nil {
 		return StrategyDomain{}, fmt.Errorf("%w: %w", ErrStrategyValidation, intervalError)
+	}
+
+	resultType, resultTypeError := NewIndicatorResultTypeDomain(writeDto.ResultType)
+	if resultTypeError != nil {
+		return StrategyDomain{}, fmt.Errorf("%w: %w", ErrStrategyValidation, resultTypeError)
 	}
 
 	if writeDto.CandleCount <= 0 {
