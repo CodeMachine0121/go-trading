@@ -40,7 +40,7 @@
 | `service.StrategyService` | **Modify** | 建構子移除 `maxCandleCount` 依賴 |
 | `persistence.SchemaMigrator` | **Modify** | `AutoMigrate` 不會刪欄位，因此明確刪除 `Strategies` 上那兩個殘欄，不留孤兒 |
 | `domains.KCandleSeriesDomain` | **Modify** | 把私有的分組步驟升為公開的 `Buckets()`；`ToDto()` 改為建立在它之上 |
-| `domains.KCandleBucketDomain` | **Modify** | 新增 `BucketStart()` 與 `ToVo()`——同一格既能變成回覆用的 DTO，也能變成算式吃的 VO |
+| `domains.KCandleBucketDomain` | **Modify** | 新增 `ToVo()`——同一格既能變成回覆用的 DTO，也能變成算式吃的 VO |
 | `domains.IndicatorCalculationDomain` | **Modify** | 收下彙總刻度與計算截止時間；`CandleFetchCount()` 換成 `ReadCutoff()` + `SourceCandleLimit()`；`SelectInputCandles` 改為對**彙總 K 線**取數 |
 | `dto.IndicatorCalculationRequestDto` | **Modify** | 新增 `AggregationInterval`、`EndTime` |
 | `dto.IndicatorCalculationResultDto` | **Modify** | 新增 `Interval`、`OpenTimes`（US-05） |
@@ -83,7 +83,7 @@
 | `domains.StrategyDomain` | 策略的全部規則 | 刪那兩樣的驗證與存取子；`NewStrategyDomain(writeDto)` 不再收 `maxCandleCount`。名稱、算式、種類的規則**一字不動** |
 | `persistence.SchemaMigrator` | code-first 同步 schema | `AutoMigrate` 之後，若 `Strategies` 仍有 `aggregation_interval` / `candle_count` 欄位就刪掉。**冪等**：已經沒有就什麼都不做 |
 | `domains.KCandleSeriesDomain` | 一次彙總查詢讀到的 K 線 + 刻度 | 新增 `Buckets() []KCandleBucketDomain`（依 bucket 起點由早到晚、沒有 K 線的格子不出現）；`ToDto()` 改成 `Buckets()` 逐格 `ToDto()`。**外部行為零變化** |
-| `domains.KCandleBucketDomain` | 一格內的 K 線與它們併成的那一根 | 新增 `BucketStart() time.Time`、`ToVo() vo.KCandleVo`。併格規則不動 |
+| `domains.KCandleBucketDomain` | 一格內的 K 線與它們併成的那一根 | 新增 `ToVo() vo.KCandleVo`。併格規則不動 |
 | `domains.IndicatorCalculationDomain` | 一次計算請求的不變式＋取數規則 | 見下方展開 |
 | `IKCandleRepository` | K 線存取契約 | 新增 `FindLatestBefore(ctx, symbol, cutoffTime, limit)`：`openTime` **嚴格早於** `cutoffTime`、newest first、至多 `limit` 根 |
 | `service.IndicatorCalculationService` | 指標計算用例 | 注入 `IClockProxy`；改呼叫 `FindLatestBefore(symbol, domain.ReadCutoff(), domain.SourceCandleLimit())`；回覆多帶刻度與起始時間 |
