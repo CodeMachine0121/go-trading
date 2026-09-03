@@ -131,3 +131,60 @@ func TestKCandleSeriesDomainNamesTheIntervalItWasCutAt(t *testing.T) {
 
 	assert.Equal(t, "5m", seriesDto.Interval, "declaring nothing means five minutes")
 }
+
+func TestKCandleSeriesDomainBucketsAreHandedOutEarliestFirst(t *testing.T) {
+	// Whoever computes from a series reads it in time order, and whoever takes the
+	// latest few takes them off the end. Both depend on this order being the
+	// series' own guarantee rather than the order the candles were read in.
+	seriesDomain := buildSeriesDomain(t, "1h", []entities.KCandle{
+		buildSeriesKCandle(t, "2026-09-02T12:00:00Z", "120"),
+		buildSeriesKCandle(t, "2026-09-02T10:00:00Z", "100"),
+		buildSeriesKCandle(t, "2026-09-02T11:00:00Z", "110"),
+	})
+
+	buckets := seriesDomain.Buckets()
+
+	require.Len(t, buckets, 3)
+	assert.Equal(t, mustParseTime(t, "2026-09-02T10:00:00Z"), buckets[0].BucketStart())
+	assert.Equal(t, mustParseTime(t, "2026-09-02T11:00:00Z"), buckets[1].BucketStart())
+	assert.Equal(t, mustParseTime(t, "2026-09-02T12:00:00Z"), buckets[2].BucketStart())
+}
+
+func TestKCandleSeriesDomainBucketsLeaveOutTheStretchesNothingFellInto(t *testing.T) {
+	// Nothing is invented for the hour in between: an invented candle reads exactly
+	// like a real one, and a market that did not trade is not a market that traded
+	// flat. Whoever counts buckets therefore counts the ones that exist.
+	seriesDomain := buildSeriesDomain(t, "1h", []entities.KCandle{
+		buildSeriesKCandle(t, "2026-09-02T10:00:00Z", "100"),
+		buildSeriesKCandle(t, "2026-09-02T12:00:00Z", "120"),
+	})
+
+	buckets := seriesDomain.Buckets()
+
+	require.Len(t, buckets, 2)
+	assert.Equal(t, mustParseTime(t, "2026-09-02T10:00:00Z"), buckets[0].BucketStart())
+	assert.Equal(t, mustParseTime(t, "2026-09-02T12:00:00Z"), buckets[1].BucketStart())
+}
+
+func TestKCandleSeriesDomainBucketsGatherEveryCandleOfTheSameStretch(t *testing.T) {
+	seriesDomain := buildSeriesDomain(t, "1h", []entities.KCandle{
+		buildSeriesKCandle(t, "2026-09-02T10:00:00Z", "100"),
+		buildSeriesKCandle(t, "2026-09-02T10:05:00Z", "105"),
+		buildSeriesKCandle(t, "2026-09-02T10:55:00Z", "155"),
+	})
+
+	buckets := seriesDomain.Buckets()
+
+	require.Len(t, buckets, 1)
+	assert.True(t, decimal.RequireFromString("155").Equal(buckets[0].ToDto().Close),
+		"三根都併進同一格，收盤價來自最晚那一根")
+}
+
+func TestKCandleSeriesDomainBucketsOfNoCandlesIsEmptyRatherThanNothing(t *testing.T) {
+	seriesDomain := buildSeriesDomain(t, "1h", []entities.KCandle{})
+
+	buckets := seriesDomain.Buckets()
+
+	assert.NotNil(t, buckets)
+	assert.Empty(t, buckets)
+}

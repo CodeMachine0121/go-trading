@@ -28,9 +28,16 @@ func NewKCandleSeriesDomain(
 	return KCandleSeriesDomain{symbol: symbol, interval: interval, kCandles: kCandles}
 }
 
-// ToDto groups the candles into their buckets and hands back the merged series,
-// earliest first. Reading no candles is a legitimate answer: an empty series.
-func (kCandleSeriesDomain KCandleSeriesDomain) ToDto() dto.KCandleSeriesDto {
+// Buckets sorts the candles into the buckets their open times fall into and hands
+// them back earliest first. A bucket no candle fell into is not among them at all.
+//
+// This is the one place a pile of candles becomes a grid, and it is public because
+// it has two customers: a query wants each bucket as a candle to look at, an
+// indicator calculation wants each bucket as a candle to compute from. Were they to
+// group candles separately, the two would sooner or later disagree about where a
+// bucket starts — and the symptom of that is a line quietly drawn one bucket out of
+// place, with nothing reported.
+func (kCandleSeriesDomain KCandleSeriesDomain) Buckets() []KCandleBucketDomain {
 	kCandlesByBucketStart := make(map[time.Time][]entities.KCandle)
 	bucketStarts := make([]time.Time, 0, len(kCandleSeriesDomain.kCandles))
 
@@ -47,11 +54,23 @@ func (kCandleSeriesDomain KCandleSeriesDomain) ToDto() dto.KCandleSeriesDto {
 		return former.Compare(latter)
 	})
 
-	aggregatedKCandles := make([]dto.KCandleDto, 0, len(bucketStarts))
+	buckets := make([]KCandleBucketDomain, 0, len(bucketStarts))
 	for _, bucketStart := range bucketStarts {
-		aggregatedKCandles = append(
-			aggregatedKCandles,
-			NewKCandleBucketDomain(bucketStart, kCandlesByBucketStart[bucketStart]).ToDto())
+		buckets = append(
+			buckets, NewKCandleBucketDomain(bucketStart, kCandlesByBucketStart[bucketStart]))
+	}
+
+	return buckets
+}
+
+// ToDto hands back the merged series, earliest first. Reading no candles is a
+// legitimate answer: an empty series.
+func (kCandleSeriesDomain KCandleSeriesDomain) ToDto() dto.KCandleSeriesDto {
+	buckets := kCandleSeriesDomain.Buckets()
+
+	aggregatedKCandles := make([]dto.KCandleDto, 0, len(buckets))
+	for _, bucket := range buckets {
+		aggregatedKCandles = append(aggregatedKCandles, bucket.ToDto())
 	}
 
 	return dto.KCandleSeriesDto{
