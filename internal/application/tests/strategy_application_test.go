@@ -1,6 +1,7 @@
 package application_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -64,8 +65,8 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 	t.Run("saves the strategy and hands back what was stored", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				// A strategy that does not exist yet carries no identifier of its own.
 				assert.Equal(t, uint(0), strategy.ID)
 				assert.Equal(t, "二十根均線", strategy.Name)
@@ -76,7 +77,7 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 				return aStoredStrategy(7, strategy.Name), nil
 			})
 
-		strategyDto, err := fixture.strategyApplication.CreateStrategy(aStrategyWrite())
+		strategyDto, err := fixture.strategyApplication.CreateStrategy(t.Context(), aStrategyWrite())
 
 		require.NoError(t, err)
 		assert.Equal(t, uint(7), strategyDto.ID)
@@ -87,8 +88,8 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 	t.Run("saves a name without the blanks around it", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				assert.Equal(t, "二十根均線", strategy.Name)
 
 				return aStoredStrategy(7, strategy.Name), nil
@@ -97,7 +98,7 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		writeDto := aStrategyWrite()
 		writeDto.Name = "　二十根均線　"
 
-		_, err := fixture.strategyApplication.CreateStrategy(writeDto)
+		_, err := fixture.strategyApplication.CreateStrategy(t.Context(), writeDto)
 
 		require.NoError(t, err)
 	})
@@ -109,8 +110,8 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		storedNames := make([]string, 0, 2)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				storedNames = append(storedNames, strategy.Name)
 
 				return aStoredStrategy(uint(len(storedNames)), strategy.Name), nil
@@ -121,8 +122,8 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		padded := aStrategyWrite()
 		padded.Name = "　二十根均線　"
 
-		_, plainError := fixture.strategyApplication.CreateStrategy(plainly)
-		_, paddedError := fixture.strategyApplication.CreateStrategy(padded)
+		_, plainError := fixture.strategyApplication.CreateStrategy(t.Context(), plainly)
+		_, paddedError := fixture.strategyApplication.CreateStrategy(t.Context(), padded)
 
 		require.NoError(t, plainError)
 		require.NoError(t, paddedError)
@@ -132,8 +133,8 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 	t.Run("falls back on the same defaults the rest of the system uses", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				assert.Equal(t, "5m", strategy.AggregationInterval)
 				assert.Equal(t, "float", strategy.ResultType)
 
@@ -144,7 +145,7 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		writeDto.AggregationInterval = ""
 		writeDto.ResultType = ""
 
-		_, err := fixture.strategyApplication.CreateStrategy(writeDto)
+		_, err := fixture.strategyApplication.CreateStrategy(t.Context(), writeDto)
 
 		require.NoError(t, err)
 	})
@@ -152,12 +153,12 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 	t.Run("saves a script it cannot vouch for", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).Return(aStoredStrategy(7, "二十根均線"), nil)
+			Save(gomock.Any(), gomock.Any()).Return(aStoredStrategy(7, "二十根均線"), nil)
 
 		writeDto := aStrategyWrite()
 		writeDto.Script = "這根本不是一段程式碼"
 
-		_, err := fixture.strategyApplication.CreateStrategy(writeDto)
+		_, err := fixture.strategyApplication.CreateStrategy(t.Context(), writeDto)
 
 		require.NoError(t, err)
 	})
@@ -165,9 +166,9 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 	t.Run("reports a name another strategy already holds", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
+			Save(gomock.Any(), gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
 
-		_, err := fixture.strategyApplication.CreateStrategy(aStrategyWrite())
+		_, err := fixture.strategyApplication.CreateStrategy(t.Context(), aStrategyWrite())
 
 		require.ErrorIs(t, err, domains.ErrStrategyNameConflict)
 	})
@@ -176,9 +177,9 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		storageFailure := errors.New("connection refused")
 		fixture.strategyRepository.EXPECT().
-			Save(gomock.Any()).Return(entities.Strategy{}, storageFailure)
+			Save(gomock.Any(), gomock.Any()).Return(entities.Strategy{}, storageFailure)
 
-		_, err := fixture.strategyApplication.CreateStrategy(aStrategyWrite())
+		_, err := fixture.strategyApplication.CreateStrategy(t.Context(), aStrategyWrite())
 
 		require.ErrorIs(t, err, storageFailure)
 	})
@@ -230,7 +231,7 @@ func TestStrategyApplicationRefusesContentBeforeAnythingIsWritten(t *testing.T) 
 			writeDto := aStrategyWrite()
 			testCase.breakIt(&writeDto)
 
-			_, err := fixture.strategyApplication.CreateStrategy(writeDto)
+			_, err := fixture.strategyApplication.CreateStrategy(t.Context(), writeDto)
 
 			require.ErrorIs(t, err, domains.ErrStrategyValidation)
 			assert.Contains(t, err.Error(), testCase.expectedMessage)
@@ -241,12 +242,12 @@ func TestStrategyApplicationRefusesContentBeforeAnythingIsWritten(t *testing.T) 
 			// unstubbed, so a write that went out anyway fails the test.
 			fixture := newStrategyApplicationUnderTest(t)
 			fixture.strategyRepository.EXPECT().
-				FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
+				FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 			writeDto := aStrategyWrite()
 			writeDto.ID = 7
 			testCase.breakIt(&writeDto)
 
-			_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+			_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
 			require.ErrorIs(t, err, domains.ErrStrategyValidation)
 			assert.Contains(t, err.Error(), testCase.expectedMessage)
@@ -258,9 +259,9 @@ func TestStrategyApplicationGetStrategy(t *testing.T) {
 	t.Run("hands back the strategy carrying that identifier", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 
-		strategyDto, err := fixture.strategyApplication.GetStrategy(7)
+		strategyDto, err := fixture.strategyApplication.GetStrategy(t.Context(), 7)
 
 		require.NoError(t, err)
 		assert.Equal(t, uint(7), strategyDto.ID)
@@ -276,9 +277,9 @@ func TestStrategyApplicationGetStrategy(t *testing.T) {
 	t.Run("reports a strategy that is not there", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
-		_, err := fixture.strategyApplication.GetStrategy(7)
+		_, err := fixture.strategyApplication.GetStrategy(t.Context(), 7)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
@@ -288,12 +289,12 @@ func TestStrategyApplicationListStrategies(t *testing.T) {
 	t.Run("hands back every strategy in the order it was given them", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindAll().Return([]entities.Strategy{
+			FindAll(gomock.Any()).Return([]entities.Strategy{
 			aStoredStrategy(1, "二十根均線"),
 			aStoredStrategy(2, "六十根均線"),
 		}, nil)
 
-		strategyDtos, err := fixture.strategyApplication.ListStrategies()
+		strategyDtos, err := fixture.strategyApplication.ListStrategies(t.Context())
 
 		require.NoError(t, err)
 		require.Len(t, strategyDtos, 2)
@@ -316,9 +317,9 @@ func TestStrategyApplicationListStrategies(t *testing.T) {
 
 	t.Run("holding none is an answer, not a failure", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll().Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.Strategy{}, nil)
 
-		strategyDtos, err := fixture.strategyApplication.ListStrategies()
+		strategyDtos, err := fixture.strategyApplication.ListStrategies(t.Context())
 
 		require.NoError(t, err)
 		assert.NotNil(t, strategyDtos)
@@ -328,9 +329,9 @@ func TestStrategyApplicationListStrategies(t *testing.T) {
 	t.Run("reports a storage failure", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		storageFailure := errors.New("connection refused")
-		fixture.strategyRepository.EXPECT().FindAll().Return(nil, storageFailure)
+		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return(nil, storageFailure)
 
-		_, err := fixture.strategyApplication.ListStrategies()
+		_, err := fixture.strategyApplication.ListStrategies(t.Context())
 
 		require.ErrorIs(t, err, storageFailure)
 	})
@@ -340,10 +341,10 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 	t.Run("rewrites the strategy the write names", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
-			Update(gomock.Any()).
-			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+			Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				assert.Equal(t, uint(7), strategy.ID)
 				assert.Equal(t, "六十根均線", strategy.Name)
 				assert.Equal(t, 60, strategy.CandleCount)
@@ -356,7 +357,7 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 		writeDto.Name = "六十根均線"
 		writeDto.CandleCount = 60
 
-		strategyDto, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+		strategyDto, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
 		require.NoError(t, err)
 		assert.Equal(t, uint(7), strategyDto.ID)
@@ -366,12 +367,12 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 	t.Run("reports a strategy that is not there", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		writeDto := aStrategyWrite()
 		writeDto.ID = 7
 
-		_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+		_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
@@ -382,13 +383,13 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 		// it, after which there is still nothing to rewrite.
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(999999)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(999999)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		writeDto := aStrategyWrite()
 		writeDto.ID = 999999
 		writeDto.CandleCount = 0
 
-		_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+		_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 		assert.NotErrorIs(t, err, domains.ErrStrategyValidation)
@@ -397,14 +398,14 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 	t.Run("reports a name another strategy already holds", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
-			Update(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
+			Update(gomock.Any(), gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
 
 		writeDto := aStrategyWrite()
 		writeDto.ID = 7
 
-		_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+		_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNameConflict)
 	})
@@ -417,7 +418,7 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 		writeDto := aStrategyWrite()
 		writeDto.ID = 0
 
-		_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+		_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
@@ -426,18 +427,36 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 func TestStrategyApplicationDeleteStrategy(t *testing.T) {
 	t.Run("removes the strategy", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
-		fixture.strategyRepository.EXPECT().Delete(uint(7)).Return(nil)
+		fixture.strategyRepository.EXPECT().Delete(gomock.Any(), uint(7)).Return(nil)
 
-		require.NoError(t, fixture.strategyApplication.DeleteStrategy(7))
+		require.NoError(t, fixture.strategyApplication.DeleteStrategy(t.Context(), 7))
 	})
 
 	t.Run("reports a strategy that is not there", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Delete(uint(7)).Return(domains.ErrStrategyNotFound)
+			Delete(gomock.Any(), uint(7)).Return(domains.ErrStrategyNotFound)
 
-		err := fixture.strategyApplication.DeleteStrategy(7)
+		err := fixture.strategyApplication.DeleteStrategy(t.Context(), 7)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
+}
+
+// A rewrite naming no strategy is refused without looking — the case above keeps
+// that promise — but it used to be refused with the sentinel's own English wording
+// while every other refusal spoke to the reader. The sentence is now written in one
+// place, so the refusal a caller meets here and the one the store gives are the
+// same sentence.
+func TestStrategyApplicationUpdateWithNoIdentifierSpeaksTheLanguageEveryOtherRefusalSpeaks(t *testing.T) {
+	// Nothing is stubbed on the repository: nothing may reach storage.
+	fixture := newStrategyApplicationUnderTest(t)
+	writeDto := aStrategyWrite()
+	writeDto.ID = 0
+
+	_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
+
+	require.ErrorIs(t, err, domains.ErrStrategyNotFound)
+	assert.Equal(t, "strategy not found: 找不到識別碼為 0 的策略", err.Error())
+	assert.NotEqual(t, domains.ErrStrategyNotFound.Error(), err.Error())
 }

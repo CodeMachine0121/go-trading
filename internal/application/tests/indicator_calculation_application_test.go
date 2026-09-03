@@ -46,13 +46,13 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	t.Run("hands back the indicator values and the candles used", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatest("BTCUSDT", 3).
+			FindLatest(gomock.Any(), "BTCUSDT", 3).
 			Return([]entities.KCandle{kCandleAt(at(9, 10), "100"), kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute("the script", gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(indicatorRequest(2))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(2))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", resultDto.Symbol)
@@ -63,7 +63,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	t.Run("refuses a request whose candle count is not usable", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 
-		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(indicatorRequest(0))
+		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(0))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
 		assert.Contains(t, err.Error(), "計算根數必須大於零")
@@ -72,10 +72,10 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	t.Run("refuses when too few candles remain after dropping the newest", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatest("BTCUSDT", 4).
+			FindLatest(gomock.Any(), "BTCUSDT", 4).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
 
-		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(indicatorRequest(3))
+		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(3))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
 		assert.Contains(t, err.Error(), "可用 0 根")
@@ -84,13 +84,13 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	t.Run("passes a script failure through untouched", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatest("BTCUSDT", 2).
+			FindLatest(gomock.Any(), "BTCUSDT", 2).
 			Return([]entities.KCandle{kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, fmt.Errorf("%w: 算式無法解讀", domains.ErrIndicatorScriptFailed))
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(indicatorRequest(1))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(1))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "算式無法解讀")

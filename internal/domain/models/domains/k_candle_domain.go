@@ -31,8 +31,9 @@ type KCandleDomain struct {
 // NewKCandleDomain validates the figures against every K candle rule, judging
 // "in the future" against currentTime.
 func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCandleDomain, error) {
-	if writeDto.Symbol == "" {
-		return KCandleDomain{}, fmt.Errorf("%w: 必須指定交易標的", ErrKCandleValidation)
+	tradingSymbol, symbolError := NewTradingSymbolDomain(writeDto.Symbol)
+	if symbolError != nil {
+		return KCandleDomain{}, fmt.Errorf("%w: %w", ErrKCandleValidation, symbolError)
 	}
 
 	openTime := writeDto.OpenTime.UTC()
@@ -64,7 +65,7 @@ func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCan
 	}
 
 	return KCandleDomain{
-		symbol:              writeDto.Symbol,
+		symbol:              tradingSymbol.Value(),
 		openTime:            openTime,
 		open:                writeDto.Open,
 		high:                writeDto.High,

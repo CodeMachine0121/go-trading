@@ -1,9 +1,9 @@
 package marketdata
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -45,12 +45,13 @@ func NewBinanceMarketDataProxy(baseUrl string, requestTimeout time.Duration) *Bi
 // with candles outside it cannot keep the asking going. A window the source has
 // nothing for is an empty result, not a failure.
 func (binanceMarketDataProxy *BinanceMarketDataProxy) FetchKCandles(
-	window vo.KCandleFetchWindowVo,
+	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.MarketKCandleVo, error) {
 	marketKCandles := make([]vo.MarketKCandleVo, 0)
 
 	for nextStartTime := window.StartTime; !nextStartTime.After(window.EndTime); {
-		page, fetchError := binanceMarketDataProxy.fetchPage(window.Symbol, nextStartTime, window.EndTime)
+		page, fetchError := binanceMarketDataProxy.fetchPage(
+			executionContext, window.Symbol, nextStartTime, window.EndTime)
 		if fetchError != nil {
 			return nil, fetchError
 		}
@@ -69,6 +70,7 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) FetchKCandles(
 // fetchPage asks the source once and normalizes whatever it answers with, keeping
 // only the candles that actually fall inside the stretch it was asked for.
 func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
+	executionContext context.Context,
 	symbol string,
 	startTime time.Time,
 	endTime time.Time,
@@ -80,8 +82,13 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
 	queryValues.Set("endTime", strconv.FormatInt(endTime.UnixMilli(), 10))
 	queryValues.Set("limit", strconv.Itoa(pageLimit))
 
-	response, requestError := binanceMarketDataProxy.httpClient.Get(
-		binanceMarketDataProxy.baseUrl + "?" + queryValues.Encode())
+	request, buildError := http.NewRequestWithContext(executionContext, http.MethodGet,
+		binanceMarketDataProxy.baseUrl+"?"+queryValues.Encode(), nil)
+	if buildError != nil {
+		return nil, fmt.Errorf("reach market source for %s: %w", symbol, buildError)
+	}
+
+	response, requestError := binanceMarketDataProxy.httpClient.Do(request)
 	if requestError != nil {
 		return nil, fmt.Errorf("reach market source for %s: %w", symbol, requestError)
 	}
@@ -91,14 +98,21 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
 		return nil, fmt.Errorf("market source answered %d for %s", response.StatusCode, symbol)
 	}
 
-	body, readError := io.ReadAll(response.Body)
-	if readError != nil {
-		return nil, fmt.Errorf("read market source answer for %s: %w", symbol, readError)
+	var kLines []binanceKLine
+
+	answer := json.NewDecoder(response.Body)
+	if decodeError := answer.Decode(&kLines); decodeError != nil {
+		return nil, fmt.Errorf("read market source answer for %s: %w", symbol, decodeError)
 	}
 
-	var kLines []binanceKLine
-	if decodeError := json.Unmarshal(body, &kLines); decodeError != nil {
-		return nil, fmt.Errorf("read market source answer for %s: %w", symbol, decodeError)
+	// A decoder stops at the end of the first value and would ignore whatever came
+	// after it — an error page a proxy appended to an otherwise good answer, say.
+	// Ignored, a valid but empty array followed by junk reads as "the source has
+	// nothing for this window" rather than as a source that cannot be read, and a
+	// window with candles in it would be quietly recorded as having none.
+	if answer.More() {
+		return nil, fmt.Errorf(
+			"read market source answer for %s: trailing content after the answer", symbol)
 	}
 
 	marketKCandles := make([]vo.MarketKCandleVo, 0, len(kLines))

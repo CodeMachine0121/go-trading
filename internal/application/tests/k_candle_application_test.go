@@ -70,9 +70,9 @@ func newApplicationUnderTest(t *testing.T) applicationUnderTest {
 func TestKCandleApplicationSave(t *testing.T) {
 	t.Run("stores a valid candle and hands back what was stored", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Save(gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
+		fixture.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
 
-		kCandleDto, err := fixture.kCandleApplication.SaveKCandle(writeDtoAt(at(9, 0), "120"))
+		kCandleDto, err := fixture.kCandleApplication.SaveKCandle(t.Context(), writeDtoAt(at(9, 0), "120"))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", kCandleDto.Symbol)
@@ -82,7 +82,7 @@ func TestKCandleApplicationSave(t *testing.T) {
 	t.Run("refuses a candle whose open time is off the five minute mark", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 
-		_, err := fixture.kCandleApplication.SaveKCandle(writeDtoAt(at(9, 3), "120"))
+		_, err := fixture.kCandleApplication.SaveKCandle(t.Context(), writeDtoAt(at(9, 3), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
 		assert.Contains(t, err.Error(), "起始時間必須落在5分鐘刻度上")
@@ -91,7 +91,7 @@ func TestKCandleApplicationSave(t *testing.T) {
 	t.Run("refuses a candle whose open time points into the future", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 
-		_, err := fixture.kCandleApplication.SaveKCandle(writeDtoAt(at(12, 5), "120"))
+		_, err := fixture.kCandleApplication.SaveKCandle(t.Context(), writeDtoAt(at(12, 5), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
 		assert.Contains(t, err.Error(), "起始時間不得指向未來")
@@ -102,10 +102,10 @@ func TestKCandleApplicationGetInRange(t *testing.T) {
 	t.Run("hands back the candles earliest first", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100"), kCandleAt(at(9, 5), "101")}, nil)
 
-		kCandleDtos, err := fixture.kCandleApplication.GetKCandlesInRange(dto.KCandleQueryDto{
+		kCandleDtos, err := fixture.kCandleApplication.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10),
 		})
 
@@ -117,7 +117,7 @@ func TestKCandleApplicationGetInRange(t *testing.T) {
 	t.Run("refuses a query with no trading symbol", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 
-		_, err := fixture.kCandleApplication.GetKCandlesInRange(dto.KCandleQueryDto{
+		_, err := fixture.kCandleApplication.GetKCandlesInRange(t.Context(), dto.KCandleQueryDto{
 			Symbol: "", StartTime: at(9, 0), EndTime: at(9, 10),
 		})
 
@@ -130,14 +130,14 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 	t.Run("hands back one candle per bucket, earliest first", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), 2*12).
+			FindInRange(gomock.Any(), gomock.Any(), 2*12).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 55), "150"),
 				kCandleAt(at(9, 0), "100"),
 				kCandleAt(at(10, 0), "200"),
 			}, nil)
 
-		seriesDto, err := fixture.kCandleApplication.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := fixture.kCandleApplication.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(10, 30), Interval: "1h",
 		})
 
@@ -152,7 +152,7 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 	t.Run("refuses a range cut into more buckets than one query may answer with", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 
-		_, err := fixture.kCandleApplication.GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		_, err := fixture.kCandleApplication.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol:    "BTCUSDT",
 			StartTime: at(0, 0),
 			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
@@ -167,9 +167,9 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 	t.Run("hands back the named candle", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindOne("BTCUSDT", at(9, 0)).Return(kCandleAt(at(9, 0), "110"), nil)
+		fixture.kCandleRepository.EXPECT().FindOne(gomock.Any(), "BTCUSDT", at(9, 0)).Return(kCandleAt(at(9, 0), "110"), nil)
 
-		kCandleDto, err := fixture.kCandleApplication.GetKCandle("BTCUSDT", at(9, 0))
+		kCandleDto, err := fixture.kCandleApplication.GetKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.NoError(t, err)
 		assert.True(t, decimal.RequireFromString("110").Equal(kCandleDto.Close))
@@ -177,9 +177,9 @@ func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 
 	t.Run("hands back the updated figures", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Update(gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
+		fixture.kCandleRepository.EXPECT().Update(gomock.Any(), gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
 
-		kCandleDto, err := fixture.kCandleApplication.UpdateKCandle(writeDtoAt(at(9, 0), "120"))
+		kCandleDto, err := fixture.kCandleApplication.UpdateKCandle(t.Context(), writeDtoAt(at(9, 0), "120"))
 
 		assert.NoError(t, err)
 		assert.True(t, decimal.RequireFromString("120").Equal(kCandleDto.Close))
@@ -187,18 +187,18 @@ func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 
 	t.Run("reports a candle that does not exist as not found", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Delete("BTCUSDT", at(9, 0)).Return(domains.ErrKCandleNotFound)
+		fixture.kCandleRepository.EXPECT().Delete(gomock.Any(), "BTCUSDT", at(9, 0)).Return(domains.ErrKCandleNotFound)
 
-		err := fixture.kCandleApplication.DeleteKCandle("BTCUSDT", at(9, 0))
+		err := fixture.kCandleApplication.DeleteKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleNotFound)
 	})
 
 	t.Run("removes the named candle", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Delete("BTCUSDT", at(9, 0)).Return(nil)
+		fixture.kCandleRepository.EXPECT().Delete(gomock.Any(), "BTCUSDT", at(9, 0)).Return(nil)
 
-		err := fixture.kCandleApplication.DeleteKCandle("BTCUSDT", at(9, 0))
+		err := fixture.kCandleApplication.DeleteKCandle(t.Context(), "BTCUSDT", at(9, 0))
 
 		assert.NoError(t, err)
 	})

@@ -26,9 +26,10 @@ type IndicatorCalculationDomain struct {
 func NewIndicatorCalculationDomain(
 	requestDto dto.IndicatorCalculationRequestDto, maxCandleCount int,
 ) (IndicatorCalculationDomain, error) {
-	if requestDto.Symbol == "" {
+	tradingSymbol, symbolError := NewTradingSymbolDomain(requestDto.Symbol)
+	if symbolError != nil {
 		return IndicatorCalculationDomain{},
-			fmt.Errorf("%w: 必須指定交易標的", ErrIndicatorCalculationValidation)
+			fmt.Errorf("%w: %w", ErrIndicatorCalculationValidation, symbolError)
 	}
 
 	if requestDto.CandleCount <= 0 {
@@ -49,7 +50,7 @@ func NewIndicatorCalculationDomain(
 	}
 
 	return IndicatorCalculationDomain{
-		symbol:      requestDto.Symbol,
+		symbol:      tradingSymbol.Value(),
 		candleCount: requestDto.CandleCount,
 		resultType:  resultType,
 	}, nil
@@ -78,10 +79,7 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) CandleFetchCount() 
 func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	newestFirstKCandles []entities.KCandle,
 ) ([]vo.KCandleVo, error) {
-	usableCount := len(newestFirstKCandles) - excludedNewestCandleCount
-	if usableCount < 0 {
-		usableCount = 0
-	}
+	usableCount := max(0, len(newestFirstKCandles)-excludedNewestCandleCount)
 
 	if usableCount < indicatorCalculationDomain.candleCount {
 		return nil, fmt.Errorf(

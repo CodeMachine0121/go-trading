@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -37,8 +38,10 @@ func NewKCandleRepository(database *gorm.DB) *KCandleRepository {
 
 // Save stores a K candle, replacing the figures of any candle already held for the
 // same trading symbol and open time.
-func (kCandleRepository *KCandleRepository) Save(kCandle entities.KCandle) (entities.KCandle, error) {
-	result := kCandleRepository.database.
+func (kCandleRepository *KCandleRepository) Save(
+	executionContext context.Context, kCandle entities.KCandle,
+) (entities.KCandle, error) {
+	result := kCandleRepository.database.WithContext(executionContext).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
 			DoUpdates: clause.AssignmentColumns(figureColumns),
@@ -53,8 +56,10 @@ func (kCandleRepository *KCandleRepository) Save(kCandle entities.KCandle) (enti
 
 // Update replaces the figures of an existing K candle, reporting not found when the
 // trading symbol and open time name no candle.
-func (kCandleRepository *KCandleRepository) Update(kCandle entities.KCandle) (entities.KCandle, error) {
-	result := kCandleRepository.database.
+func (kCandleRepository *KCandleRepository) Update(
+	executionContext context.Context, kCandle entities.KCandle,
+) (entities.KCandle, error) {
+	result := kCandleRepository.database.WithContext(executionContext).
 		Model(&entities.KCandle{}).
 		Where(&entities.KCandle{Symbol: kCandle.Symbol, OpenTime: kCandle.OpenTime}).
 		Select(figureColumns).
@@ -70,10 +75,12 @@ func (kCandleRepository *KCandleRepository) Update(kCandle entities.KCandle) (en
 }
 
 // FindOne returns the K candle named by trading symbol and open time.
-func (kCandleRepository *KCandleRepository) FindOne(symbol string, openTime time.Time) (entities.KCandle, error) {
+func (kCandleRepository *KCandleRepository) FindOne(
+	executionContext context.Context, symbol string, openTime time.Time,
+) (entities.KCandle, error) {
 	var kCandle entities.KCandle
 
-	result := kCandleRepository.database.
+	result := kCandleRepository.database.WithContext(executionContext).
 		Where(&entities.KCandle{Symbol: symbol, OpenTime: openTime}).
 		First(&kCandle)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -89,11 +96,11 @@ func (kCandleRepository *KCandleRepository) FindOne(symbol string, openTime time
 // FindInRange returns at most limit K candles whose open time falls inside the
 // query's range, both ends included, earliest first.
 func (kCandleRepository *KCandleRepository) FindInRange(
-	query domains.KCandleQueryDomain, limit int,
+	executionContext context.Context, query domains.KCandleQueryDomain, limit int,
 ) ([]entities.KCandle, error) {
 	kCandles := make([]entities.KCandle, 0, min(limit, preallocationCeiling))
 
-	result := kCandleRepository.database.
+	result := kCandleRepository.database.WithContext(executionContext).
 		Clauses(clause.Where{Exprs: []clause.Expression{
 			clause.Eq{Column: clause.Column{Name: "symbol"}, Value: query.Symbol()},
 			clause.Gte{Column: clause.Column{Name: "open_time"}, Value: query.StartTime()},
@@ -113,10 +120,10 @@ func (kCandleRepository *KCandleRepository) FindInRange(
 // candle, each once, ordered by name. Both the de-duplication and the ordering are
 // the database's job: doing either of them again in Go would give the two places a
 // chance to disagree.
-func (kCandleRepository *KCandleRepository) FindDistinctSymbols() ([]string, error) {
+func (kCandleRepository *KCandleRepository) FindDistinctSymbols(executionContext context.Context) ([]string, error) {
 	symbols := make([]string, 0)
 
-	result := kCandleRepository.database.
+	result := kCandleRepository.database.WithContext(executionContext).
 		Model(&entities.KCandle{}).
 		Distinct().
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "symbol"}}).
@@ -133,11 +140,11 @@ func (kCandleRepository *KCandleRepository) FindDistinctSymbols() ([]string, err
 // is a descending query, and turning the result the right way round is the
 // caller's business rule, not this repository's.
 func (kCandleRepository *KCandleRepository) FindLatest(
-	symbol string, limit int,
+	executionContext context.Context, symbol string, limit int,
 ) ([]entities.KCandle, error) {
 	kCandles := make([]entities.KCandle, 0, min(limit, preallocationCeiling))
 
-	result := kCandleRepository.database.
+	result := kCandleRepository.database.WithContext(executionContext).
 		Where(&entities.KCandle{Symbol: symbol}).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "open_time"}, Desc: true}).
 		Limit(limit).
@@ -151,8 +158,10 @@ func (kCandleRepository *KCandleRepository) FindLatest(
 
 // Delete removes the K candle named by trading symbol and open time, reporting not
 // found when it names no candle.
-func (kCandleRepository *KCandleRepository) Delete(symbol string, openTime time.Time) error {
-	result := kCandleRepository.database.
+func (kCandleRepository *KCandleRepository) Delete(
+	executionContext context.Context, symbol string, openTime time.Time,
+) error {
+	result := kCandleRepository.database.WithContext(executionContext).
 		Where(&entities.KCandle{Symbol: symbol, OpenTime: openTime}).
 		Delete(&entities.KCandle{})
 	if result.Error != nil {

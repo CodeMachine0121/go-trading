@@ -10,6 +10,7 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -41,75 +42,75 @@ func (m *MockIStrategyRepository) EXPECT() *MockIStrategyRepositoryMockRecorder 
 }
 
 // Delete mocks base method.
-func (m *MockIStrategyRepository) Delete(id uint) error {
+func (m *MockIStrategyRepository) Delete(executionContext context.Context, id uint) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", id)
+	ret := m.ctrl.Call(m, "Delete", executionContext, id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Delete indicates an expected call of Delete.
-func (mr *MockIStrategyRepositoryMockRecorder) Delete(id any) *gomock.Call {
+func (mr *MockIStrategyRepositoryMockRecorder) Delete(executionContext, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIStrategyRepository)(nil).Delete), id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIStrategyRepository)(nil).Delete), executionContext, id)
 }
 
 // FindAll mocks base method.
-func (m *MockIStrategyRepository) FindAll() ([]entities.Strategy, error) {
+func (m *MockIStrategyRepository) FindAll(executionContext context.Context) ([]entities.Strategy, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAll")
+	ret := m.ctrl.Call(m, "FindAll", executionContext)
 	ret0, _ := ret[0].([]entities.Strategy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindAll indicates an expected call of FindAll.
-func (mr *MockIStrategyRepositoryMockRecorder) FindAll() *gomock.Call {
+func (mr *MockIStrategyRepositoryMockRecorder) FindAll(executionContext any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockIStrategyRepository)(nil).FindAll))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockIStrategyRepository)(nil).FindAll), executionContext)
 }
 
 // FindOne mocks base method.
-func (m *MockIStrategyRepository) FindOne(id uint) (entities.Strategy, error) {
+func (m *MockIStrategyRepository) FindOne(executionContext context.Context, id uint) (entities.Strategy, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindOne", id)
+	ret := m.ctrl.Call(m, "FindOne", executionContext, id)
 	ret0, _ := ret[0].(entities.Strategy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindOne indicates an expected call of FindOne.
-func (mr *MockIStrategyRepositoryMockRecorder) FindOne(id any) *gomock.Call {
+func (mr *MockIStrategyRepositoryMockRecorder) FindOne(executionContext, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOne", reflect.TypeOf((*MockIStrategyRepository)(nil).FindOne), id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOne", reflect.TypeOf((*MockIStrategyRepository)(nil).FindOne), executionContext, id)
 }
 
 // Save mocks base method.
-func (m *MockIStrategyRepository) Save(strategy entities.Strategy) (entities.Strategy, error) {
+func (m *MockIStrategyRepository) Save(executionContext context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Save", strategy)
+	ret := m.ctrl.Call(m, "Save", executionContext, strategy)
 	ret0, _ := ret[0].(entities.Strategy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Save indicates an expected call of Save.
-func (mr *MockIStrategyRepositoryMockRecorder) Save(strategy any) *gomock.Call {
+func (mr *MockIStrategyRepositoryMockRecorder) Save(executionContext, strategy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIStrategyRepository)(nil).Save), strategy)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIStrategyRepository)(nil).Save), executionContext, strategy)
 }
 
 // Update mocks base method.
-func (m *MockIStrategyRepository) Update(strategy entities.Strategy) (entities.Strategy, error) {
+func (m *MockIStrategyRepository) Update(executionContext context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", strategy)
+	ret := m.ctrl.Call(m, "Update", executionContext, strategy)
 	ret0, _ := ret[0].(entities.Strategy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Update indicates an expected call of Update.
-func (mr *MockIStrategyRepositoryMockRecorder) Update(strategy any) *gomock.Call {
+func (mr *MockIStrategyRepositoryMockRecorder) Update(executionContext, strategy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockIStrategyRepository)(nil).Update), strategy)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockIStrategyRepository)(nil).Update), executionContext, strategy)
 }

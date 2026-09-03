@@ -85,11 +85,11 @@ func TestListTradingSymbols(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newTradingSymbolServiceUnderTest(t)
 			fixture.tradingSymbolRepository.EXPECT().
-				FindAll().Return(registered(testCase.registeredSymbols...), nil)
+				FindAll(gomock.Any()).Return(registered(testCase.registeredSymbols...), nil)
 			fixture.kCandleRepository.EXPECT().
-				FindDistinctSymbols().Return(testCase.heldSymbols, nil)
+				FindDistinctSymbols(gomock.Any()).Return(testCase.heldSymbols, nil)
 
-			tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols()
+			tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
 
 			assert.NoError(t, err)
 			expectedDtos := make([]dto.TradingSymbolDto, 0, len(testCase.expectedSymbols))
@@ -104,9 +104,9 @@ func TestListTradingSymbols(t *testing.T) {
 	t.Run("reports a failure reading the registered markets", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return(nil, storageFailure)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(nil, storageFailure)
 
-		_, err := fixture.tradingSymbolService.ListTradingSymbols()
+		_, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
 
 		assert.ErrorIs(t, err, storageFailure)
 	})
@@ -114,10 +114,10 @@ func TestListTradingSymbols(t *testing.T) {
 	t.Run("reports a failure reading the markets that have candles", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return(registered("BTCUSDT"), nil)
-		fixture.kCandleRepository.EXPECT().FindDistinctSymbols().Return(nil, storageFailure)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(registered("BTCUSDT"), nil)
+		fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return(nil, storageFailure)
 
-		_, err := fixture.tradingSymbolService.ListTradingSymbols()
+		_, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
 
 		assert.ErrorIs(t, err, storageFailure)
 	})
@@ -126,11 +126,11 @@ func TestListTradingSymbols(t *testing.T) {
 func TestRegisterDefaultTradingSymbols(t *testing.T) {
 	t.Run("registers both defaults on a database that has none", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return(registered(), nil)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(registered(), nil)
 		fixture.tradingSymbolRepository.EXPECT().
-			RegisterAll(registered("BTCUSDT", "ETHUSDT")).Return(nil)
+			RegisterAll(gomock.Any(), registered("BTCUSDT", "ETHUSDT")).Return(nil)
 
-		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols()
+		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"BTCUSDT", "ETHUSDT"}, registeredNames)
@@ -139,10 +139,10 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 	t.Run("registers nothing and says so when both are already there", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().
-			FindAll().Return(registered("BTCUSDT", "ETHUSDT"), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(registered()).Return(nil)
+			FindAll(gomock.Any()).Return(registered("BTCUSDT", "ETHUSDT"), nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), registered()).Return(nil)
 
-		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols()
+		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
 		assert.Empty(t, registeredNames)
@@ -150,10 +150,10 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 
 	t.Run("registers only the one that is missing", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return(registered("BTCUSDT"), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(registered("ETHUSDT")).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(registered("BTCUSDT"), nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), registered("ETHUSDT")).Return(nil)
 
-		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols()
+		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"ETHUSDT"}, registeredNames)
@@ -162,10 +162,10 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 	t.Run("leaves markets nobody asked about alone", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().
-			FindAll().Return(registered("BTCUSDT", "ETHUSDT", "XRPUSDT"), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(registered()).Return(nil)
+			FindAll(gomock.Any()).Return(registered("BTCUSDT", "ETHUSDT", "XRPUSDT"), nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), registered()).Return(nil)
 
-		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols()
+		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
 		assert.Empty(t, registeredNames)
@@ -174,9 +174,9 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 	t.Run("never writes when it cannot read what is already registered", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return(nil, storageFailure)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(nil, storageFailure)
 
-		_, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols()
+		_, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.ErrorIs(t, err, storageFailure)
 	})
@@ -184,10 +184,10 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 	t.Run("reports a failure while registering", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
-		fixture.tradingSymbolRepository.EXPECT().FindAll().Return(registered(), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any()).Return(storageFailure)
+		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(registered(), nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), gomock.Any()).Return(storageFailure)
 
-		_, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols()
+		_, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
 		assert.ErrorIs(t, err, storageFailure)
 	})

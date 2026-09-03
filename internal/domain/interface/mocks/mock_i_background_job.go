@@ -10,6 +10,7 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -40,13 +41,25 @@ func (m *MockIBackgroundJob) EXPECT() *MockIBackgroundJobMockRecorder {
 }
 
 // Start mocks base method.
-func (m *MockIBackgroundJob) Start() {
+func (m *MockIBackgroundJob) Start(executionContext context.Context) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Start")
+	m.ctrl.Call(m, "Start", executionContext)
 }
 
 // Start indicates an expected call of Start.
-func (mr *MockIBackgroundJobMockRecorder) Start() *gomock.Call {
+func (mr *MockIBackgroundJobMockRecorder) Start(executionContext any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockIBackgroundJob)(nil).Start))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockIBackgroundJob)(nil).Start), executionContext)
+}
+
+// Stop mocks base method.
+func (m *MockIBackgroundJob) Stop() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Stop")
+}
+
+// Stop indicates an expected call of Stop.
+func (mr *MockIBackgroundJobMockRecorder) Stop() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockIBackgroundJob)(nil).Stop))
 }

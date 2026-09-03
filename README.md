@@ -44,6 +44,21 @@ curl localhost:8080/health
 # {"status":"Healthy"}
 ```
 
+### 關機
+
+`Ctrl+C`（或 `SIGTERM`）是有序關機，不是砍掉：
+
+1. 背景工作被要求**不再開新一輪**。
+2. server 停止收新請求，並等**已經收下的請求**回答完，上限 15 秒。
+3. 排空結束後（沒有請求要排空時，就是立刻），背景工作手上那一輪被中止。
+
+那 15 秒**只管請求**。手上那一輪不會被等——job 目前還無法回報自己跑完了，
+要等就得無條件等滿 15 秒才關得掉。切掉不會壞資料：K 線是一根一根存的，
+缺的那幾根由下次啟動的 backfill 補回來，那正是 backfill 先跑的理由。
+
+每一層都吃 `context.Context`，所以第 3 步是真的中止，不是等它自己想起來。
+同理，呼叫端斷線時，那個請求觸發的算式與查詢也會跟著收掉。
+
 ## Commands
 
 | 指令 | 用途 |
@@ -141,7 +156,7 @@ cmd/
 internal/
 ├── config/              環境變數讀取與 PostgreSQL DSN 組裝
 ├── controller/          Gin handler + Request struct
-├── job/                 背景工作：一工作一檔，統一由 BackgroundJobManager 啟動
+├── job/                 背景工作：一工作一檔，統一由 BackgroundJobManager 啟動與停止
 │   └── tests/
 ├── application/         用例編排，呼叫 Domain Service
 │   └── tests/

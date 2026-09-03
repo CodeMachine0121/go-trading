@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -18,10 +19,12 @@ func NewTradingSymbolRepository(database *gorm.DB) *TradingSymbolRepository {
 }
 
 // FindAll returns every registered trading symbol, ordered by name.
-func (tradingSymbolRepository *TradingSymbolRepository) FindAll() ([]entities.TradingSymbol, error) {
+func (tradingSymbolRepository *TradingSymbolRepository) FindAll(
+	executionContext context.Context,
+) ([]entities.TradingSymbol, error) {
 	tradingSymbols := make([]entities.TradingSymbol, 0)
 
-	result := tradingSymbolRepository.database.
+	result := tradingSymbolRepository.database.WithContext(executionContext).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "symbol"}}).
 		Find(&tradingSymbols)
 	if result.Error != nil {
@@ -38,13 +41,13 @@ func (tradingSymbolRepository *TradingSymbolRepository) FindAll() ([]entities.Tr
 // is not a substitute for that check but a guard against two migrations racing each
 // other, where neither should fail over which got there first.
 func (tradingSymbolRepository *TradingSymbolRepository) RegisterAll(
-	tradingSymbols []entities.TradingSymbol,
+	executionContext context.Context, tradingSymbols []entities.TradingSymbol,
 ) error {
 	if len(tradingSymbols) == 0 {
 		return nil
 	}
 
-	result := tradingSymbolRepository.database.
+	result := tradingSymbolRepository.database.WithContext(executionContext).
 		Clauses(clause.OnConflict{DoNothing: true}).
 		Create(&tradingSymbols)
 	if result.Error != nil {

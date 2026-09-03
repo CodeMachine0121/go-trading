@@ -66,15 +66,15 @@ func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTes
 
 func TestKCandleIngestionApplicationRunsAScheduledRound(t *testing.T) {
 	underTest := newIngestionApplicationUnderTest(t)
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).Return([]vo.MarketKCandleVo{
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return([]vo.MarketKCandleVo{
 		reportedKCandleAt(ingestionAt(8, 50)),
 		reportedKCandleAt(ingestionAt(8, 55)),
 		reportedKCandleAt(ingestionAt(9, 0)),
 	}, nil)
-	underTest.kCandleRepository.EXPECT().Save(gomock.Any()).
+	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(entities.KCandle{}, nil).Times(3)
 
-	report, runError := underTest.application.RunScheduledRound([]string{"BTCUSDT"})
+	report, runError := underTest.application.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
 
 	require.NoError(t, runError)
 	require.Len(t, report.SymbolReports, 1)
@@ -84,18 +84,18 @@ func TestKCandleIngestionApplicationRunsAScheduledRound(t *testing.T) {
 
 func TestKCandleIngestionApplicationRunsTheBackfill(t *testing.T) {
 	underTest := newIngestionApplicationUnderTest(t)
-	underTest.kCandleRepository.EXPECT().FindLatest("BTCUSDT", 1).
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: ingestionAt(8, 30)}}, nil)
-	underTest.marketDataProxy.EXPECT().FetchKCandles(vo.NewKCandleFetchWindowVo(
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
 		"BTCUSDT", ingestionAt(8, 35), ingestionAt(9, 0))).
 		Return([]vo.MarketKCandleVo{
 			reportedKCandleAt(ingestionAt(8, 35)),
 			reportedKCandleAt(ingestionAt(8, 40)),
 		}, nil)
-	underTest.kCandleRepository.EXPECT().Save(gomock.Any()).
+	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(entities.KCandle{}, nil).Times(2)
 
-	report, runError := underTest.application.RunBackfill([]string{"BTCUSDT"})
+	report, runError := underTest.application.RunBackfill(t.Context(), []string{"BTCUSDT"})
 
 	require.NoError(t, runError)
 	require.Len(t, report.SymbolReports, 1)

@@ -10,6 +10,7 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -41,30 +42,30 @@ func (m *MockITradingSymbolRepository) EXPECT() *MockITradingSymbolRepositoryMoc
 }
 
 // FindAll mocks base method.
-func (m *MockITradingSymbolRepository) FindAll() ([]entities.TradingSymbol, error) {
+func (m *MockITradingSymbolRepository) FindAll(executionContext context.Context) ([]entities.TradingSymbol, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAll")
+	ret := m.ctrl.Call(m, "FindAll", executionContext)
 	ret0, _ := ret[0].([]entities.TradingSymbol)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindAll indicates an expected call of FindAll.
-func (mr *MockITradingSymbolRepositoryMockRecorder) FindAll() *gomock.Call {
+func (mr *MockITradingSymbolRepositoryMockRecorder) FindAll(executionContext any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockITradingSymbolRepository)(nil).FindAll))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockITradingSymbolRepository)(nil).FindAll), executionContext)
 }
 
 // RegisterAll mocks base method.
-func (m *MockITradingSymbolRepository) RegisterAll(tradingSymbols []entities.TradingSymbol) error {
+func (m *MockITradingSymbolRepository) RegisterAll(executionContext context.Context, tradingSymbols []entities.TradingSymbol) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RegisterAll", tradingSymbols)
+	ret := m.ctrl.Call(m, "RegisterAll", executionContext, tradingSymbols)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RegisterAll indicates an expected call of RegisterAll.
-func (mr *MockITradingSymbolRepositoryMockRecorder) RegisterAll(tradingSymbols any) *gomock.Call {
+func (mr *MockITradingSymbolRepositoryMockRecorder) RegisterAll(executionContext, tradingSymbols any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAll", reflect.TypeOf((*MockITradingSymbolRepository)(nil).RegisterAll), tradingSymbols)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAll", reflect.TypeOf((*MockITradingSymbolRepository)(nil).RegisterAll), executionContext, tradingSymbols)
 }

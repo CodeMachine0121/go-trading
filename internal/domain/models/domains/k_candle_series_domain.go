@@ -1,7 +1,7 @@
 package domains
 
 import (
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -43,8 +43,8 @@ func (kCandleSeriesDomain KCandleSeriesDomain) ToDto() dto.KCandleSeriesDto {
 		kCandlesByBucketStart[bucketStart] = append(kCandlesByBucketStart[bucketStart], kCandle)
 	}
 
-	sort.Slice(bucketStarts, func(former int, latter int) bool {
-		return bucketStarts[former].Before(bucketStarts[latter])
+	slices.SortFunc(bucketStarts, func(former time.Time, latter time.Time) int {
+		return former.Compare(latter)
 	})
 
 	aggregatedKCandles := make([]dto.KCandleDto, 0, len(bucketStarts))

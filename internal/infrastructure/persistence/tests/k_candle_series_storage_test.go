@@ -22,9 +22,9 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 		t.Helper()
 
 		kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-		_, saveError := kCandleRepository.Save(kCandleAt("BTCUSDT", at(9, 55), "150"))
+		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 55), "150"))
 		require.NoError(t, saveError)
-		_, saveError = kCandleRepository.Save(kCandleAt("BTCUSDT", at(10, 0), "250"))
+		_, saveError = kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(10, 0), "250"))
 		require.NoError(t, saveError)
 
 		clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
@@ -34,7 +34,7 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 	}
 
 	t.Run("a range covering both candles gives each its own hour", func(t *testing.T) {
-		seriesDto, err := newSeriesService(t).GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := newSeriesService(t).GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 50), EndTime: at(10, 30), Interval: "1h",
 		})
 
@@ -47,7 +47,7 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 	})
 
 	t.Run("a range starting after a candle leaves that candle out of its bucket", func(t *testing.T) {
-		seriesDto, err := newSeriesService(t).GetKCandleSeries(dto.KCandleSeriesQueryDto{
+		seriesDto, err := newSeriesService(t).GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol: "BTCUSDT", StartTime: at(9, 58), EndTime: at(10, 30), Interval: "1h",
 		})
 

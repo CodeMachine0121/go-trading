@@ -10,6 +10,7 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 	time "time"
 
@@ -43,105 +44,105 @@ func (m *MockIKCandleRepository) EXPECT() *MockIKCandleRepositoryMockRecorder {
 }
 
 // Delete mocks base method.
-func (m *MockIKCandleRepository) Delete(symbol string, openTime time.Time) error {
+func (m *MockIKCandleRepository) Delete(executionContext context.Context, symbol string, openTime time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", symbol, openTime)
+	ret := m.ctrl.Call(m, "Delete", executionContext, symbol, openTime)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Delete indicates an expected call of Delete.
-func (mr *MockIKCandleRepositoryMockRecorder) Delete(symbol, openTime any) *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) Delete(executionContext, symbol, openTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIKCandleRepository)(nil).Delete), symbol, openTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIKCandleRepository)(nil).Delete), executionContext, symbol, openTime)
 }
 
 // FindDistinctSymbols mocks base method.
-func (m *MockIKCandleRepository) FindDistinctSymbols() ([]string, error) {
+func (m *MockIKCandleRepository) FindDistinctSymbols(executionContext context.Context) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindDistinctSymbols")
+	ret := m.ctrl.Call(m, "FindDistinctSymbols", executionContext)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindDistinctSymbols indicates an expected call of FindDistinctSymbols.
-func (mr *MockIKCandleRepositoryMockRecorder) FindDistinctSymbols() *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) FindDistinctSymbols(executionContext any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDistinctSymbols", reflect.TypeOf((*MockIKCandleRepository)(nil).FindDistinctSymbols))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDistinctSymbols", reflect.TypeOf((*MockIKCandleRepository)(nil).FindDistinctSymbols), executionContext)
 }
 
 // FindInRange mocks base method.
-func (m *MockIKCandleRepository) FindInRange(query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
+func (m *MockIKCandleRepository) FindInRange(executionContext context.Context, query domains.KCandleQueryDomain, limit int) ([]entities.KCandle, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindInRange", query, limit)
+	ret := m.ctrl.Call(m, "FindInRange", executionContext, query, limit)
 	ret0, _ := ret[0].([]entities.KCandle)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindInRange indicates an expected call of FindInRange.
-func (mr *MockIKCandleRepositoryMockRecorder) FindInRange(query, limit any) *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) FindInRange(executionContext, query, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindInRange", reflect.TypeOf((*MockIKCandleRepository)(nil).FindInRange), query, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindInRange", reflect.TypeOf((*MockIKCandleRepository)(nil).FindInRange), executionContext, query, limit)
 }
 
 // FindLatest mocks base method.
-func (m *MockIKCandleRepository) FindLatest(symbol string, limit int) ([]entities.KCandle, error) {
+func (m *MockIKCandleRepository) FindLatest(executionContext context.Context, symbol string, limit int) ([]entities.KCandle, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindLatest", symbol, limit)
+	ret := m.ctrl.Call(m, "FindLatest", executionContext, symbol, limit)
 	ret0, _ := ret[0].([]entities.KCandle)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindLatest indicates an expected call of FindLatest.
-func (mr *MockIKCandleRepositoryMockRecorder) FindLatest(symbol, limit any) *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) FindLatest(executionContext, symbol, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatest", reflect.TypeOf((*MockIKCandleRepository)(nil).FindLatest), symbol, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatest", reflect.TypeOf((*MockIKCandleRepository)(nil).FindLatest), executionContext, symbol, limit)
 }
 
 // FindOne mocks base method.
-func (m *MockIKCandleRepository) FindOne(symbol string, openTime time.Time) (entities.KCandle, error) {
+func (m *MockIKCandleRepository) FindOne(executionContext context.Context, symbol string, openTime time.Time) (entities.KCandle, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindOne", symbol, openTime)
+	ret := m.ctrl.Call(m, "FindOne", executionContext, symbol, openTime)
 	ret0, _ := ret[0].(entities.KCandle)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindOne indicates an expected call of FindOne.
-func (mr *MockIKCandleRepositoryMockRecorder) FindOne(symbol, openTime any) *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) FindOne(executionContext, symbol, openTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOne", reflect.TypeOf((*MockIKCandleRepository)(nil).FindOne), symbol, openTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOne", reflect.TypeOf((*MockIKCandleRepository)(nil).FindOne), executionContext, symbol, openTime)
 }
 
 // Save mocks base method.
-func (m *MockIKCandleRepository) Save(kCandle entities.KCandle) (entities.KCandle, error) {
+func (m *MockIKCandleRepository) Save(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Save", kCandle)
+	ret := m.ctrl.Call(m, "Save", executionContext, kCandle)
 	ret0, _ := ret[0].(entities.KCandle)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Save indicates an expected call of Save.
-func (mr *MockIKCandleRepositoryMockRecorder) Save(kCandle any) *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) Save(executionContext, kCandle any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIKCandleRepository)(nil).Save), kCandle)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIKCandleRepository)(nil).Save), executionContext, kCandle)
 }
 
 // Update mocks base method.
-func (m *MockIKCandleRepository) Update(kCandle entities.KCandle) (entities.KCandle, error) {
+func (m *MockIKCandleRepository) Update(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", kCandle)
+	ret := m.ctrl.Call(m, "Update", executionContext, kCandle)
 	ret0, _ := ret[0].(entities.KCandle)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Update indicates an expected call of Update.
-func (mr *MockIKCandleRepositoryMockRecorder) Update(kCandle any) *gomock.Call {
+func (mr *MockIKCandleRepositoryMockRecorder) Update(executionContext, kCandle any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockIKCandleRepository)(nil).Update), kCandle)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockIKCandleRepository)(nil).Update), executionContext, kCandle)
 }

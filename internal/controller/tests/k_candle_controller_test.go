@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +78,7 @@ func (fixture routerUnderTest) call(method string, target string, body string) *
 func TestCreateKCandleResponses(t *testing.T) {
 	t.Run("reports success and echoes the stored candle", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Save(gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
+		fixture.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
 
 		recorder := fixture.call(http.MethodPost, "/k-candles", validBody)
 
@@ -107,7 +108,7 @@ func TestCreateKCandleResponses(t *testing.T) {
 	t.Run("reports a storage failure as a bad gateway", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Save(gomock.Any()).
+			Save(gomock.Any(), gomock.Any()).
 			Return(entities.KCandle{}, errors.New("storage unreachable"))
 
 		recorder := fixture.call(http.MethodPost, "/k-candles", validBody)
@@ -120,7 +121,7 @@ func TestGetKCandlesInRangeResponses(t *testing.T) {
 	t.Run("returns the candles found in the range", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
 
 		recorder := fixture.call(http.MethodGet,
@@ -133,7 +134,7 @@ func TestGetKCandlesInRangeResponses(t *testing.T) {
 	t.Run("returns an empty list when the range holds nothing", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), queryMaxResults+1).
+			FindInRange(gomock.Any(), gomock.Any(), queryMaxResults+1).
 			Return([]entities.KCandle{}, nil)
 
 		recorder := fixture.call(http.MethodGet,
@@ -177,7 +178,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 	t.Run("returns the merged series and names the interval it was cut at", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100"), kCandleAt(at(9, 55), "150")}, nil)
 
 		recorder := fixture.call(http.MethodGet,
@@ -193,7 +194,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 	t.Run("returns an empty series when the range holds nothing", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{}, nil)
 
 		recorder := fixture.call(http.MethodGet,
@@ -207,7 +208,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 	t.Run("naming no interval falls back to five minutes", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
 
 		recorder := fixture.call(http.MethodGet,
@@ -271,7 +272,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 	t.Run("reports a storage failure as a bad gateway", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any()).
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, errors.New("storage unreachable"))
 
 		recorder := fixture.call(http.MethodGet,
@@ -285,7 +286,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 func TestNamedKCandleResponses(t *testing.T) {
 	t.Run("returns the named candle", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindOne("BTCUSDT", at(9, 0)).Return(kCandleAt(at(9, 0), "110"), nil)
+		fixture.kCandleRepository.EXPECT().FindOne(gomock.Any(), "BTCUSDT", at(9, 0)).Return(kCandleAt(at(9, 0), "110"), nil)
 
 		recorder := fixture.call(http.MethodGet, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", "")
 
@@ -296,7 +297,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 	t.Run("reports a candle that does not exist as not found", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindOne("BTCUSDT", at(9, 0)).
+			FindOne(gomock.Any(), "BTCUSDT", at(9, 0)).
 			Return(entities.KCandle{}, domains.ErrKCandleNotFound)
 
 		recorder := fixture.call(http.MethodGet, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", "")
@@ -315,7 +316,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 
 	t.Run("updates the named candle", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Update(gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
+		fixture.kCandleRepository.EXPECT().Update(gomock.Any(), gomock.Any()).Return(kCandleAt(at(9, 0), "120"), nil)
 
 		recorder := fixture.call(http.MethodPut, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", validBody)
 
@@ -328,8 +329,8 @@ func TestNamedKCandleResponses(t *testing.T) {
 		bodyWithoutIdentity := `{"open":"100","high":"120","low":"90","close":"120",
 "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600"}`
 		fixture.kCandleRepository.EXPECT().
-			Update(gomock.Any()).
-			DoAndReturn(func(kCandle entities.KCandle) (entities.KCandle, error) {
+			Update(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, kCandle entities.KCandle) (entities.KCandle, error) {
 				assert.Equal(t, "BTCUSDT", kCandle.Symbol)
 				assert.Equal(t, at(9, 0), kCandle.OpenTime)
 				return kCandleAt(at(9, 0), "120"), nil
@@ -343,7 +344,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 	t.Run("reports updating a candle that does not exist as not found", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Update(gomock.Any()).
+			Update(gomock.Any(), gomock.Any()).
 			Return(entities.KCandle{}, domains.ErrKCandleNotFound)
 
 		recorder := fixture.call(http.MethodPut, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", validBody)
@@ -389,7 +390,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 
 	t.Run("removes the named candle and returns no content", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
-		fixture.kCandleRepository.EXPECT().Delete("BTCUSDT", at(9, 0)).Return(nil)
+		fixture.kCandleRepository.EXPECT().Delete(gomock.Any(), "BTCUSDT", at(9, 0)).Return(nil)
 
 		recorder := fixture.call(http.MethodDelete, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", "")
 
@@ -399,7 +400,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 	t.Run("reports deleting a candle that does not exist as not found", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			Delete("BTCUSDT", at(9, 0)).
+			Delete(gomock.Any(), "BTCUSDT", at(9, 0)).
 			Return(domains.ErrKCandleNotFound)
 
 		recorder := fixture.call(http.MethodDelete, "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", "")
@@ -414,4 +415,68 @@ func TestNamedKCandleResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
+}
+
+// The same refusal a strategy's name gets, for the same reason: carried through to
+// the database this is a storage failure, and a storage failure is reported as the
+// system having broken rather than as an answer about what was asked for.
+func TestKCandleRouterRefusesATradingSymbolThatCannotBeStored(t *testing.T) {
+	// No expectation is set on the repository: nothing may reach storage.
+	fixture := newRouterUnderTest(t)
+
+	recorder := fixture.call(http.MethodPost, "/k-candles",
+		`{"symbol":"BTC\u0000USDT","openTime":"2026-08-30T09:00:00Z","open":"100","high":"120",`+
+			`"low":"90","close":"110","volume":"11","quoteVolume":"1200",`+
+			`"takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600"}`)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "NUL")
+}
+
+// Refusing a NUL on the way in is only half a fix if every other way in still hands
+// it to PostgreSQL, which refuses it as a broken encoding that no sentinel matches —
+// so the caller is told the server failed. Reads and deletes name a symbol too.
+func TestKCandleRouterRefusesAnUnstorableSymbolOnEveryWayIn(t *testing.T) {
+	const nulSymbol = "%00"
+
+	testCases := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{
+			name:   "reading a range",
+			method: http.MethodGet,
+			target: "/k-candles?symbol=" + nulSymbol +
+				"&startTime=2026-08-30T09:00:00Z&endTime=2026-08-30T10:00:00Z",
+		},
+		{
+			name:   "reading an aggregated series",
+			method: http.MethodGet,
+			target: "/k-candles/series?symbol=" + nulSymbol +
+				"&startTime=2026-08-30T09:00:00Z&endTime=2026-08-30T10:00:00Z&interval=1h",
+		},
+		{
+			name:   "reading one candle",
+			method: http.MethodGet,
+			target: "/k-candles/" + nulSymbol + "/2026-08-30T09:00:00Z",
+		},
+		{
+			name:   "deleting one candle",
+			method: http.MethodDelete,
+			target: "/k-candles/" + nulSymbol + "/2026-08-30T09:00:00Z",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// No expectation is set on the repository: nothing may reach storage.
+			fixture := newRouterUnderTest(t)
+
+			recorder := fixture.call(testCase.method, testCase.target, "")
+
+			assert.Equal(t, http.StatusBadRequest, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "NUL")
+		})
+	}
 }

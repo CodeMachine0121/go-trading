@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"strconv"
@@ -97,11 +98,7 @@ func positiveIntWithDefault(key string, defaultValue int) int {
 }
 
 func stringWithDefault(key string, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
+	return cmp.Or(os.Getenv(key), defaultValue)
 }
 
 // boolWithDefault reads a true or false, falling back to the default when the

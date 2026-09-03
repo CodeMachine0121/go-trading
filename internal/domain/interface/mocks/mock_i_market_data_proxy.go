@@ -10,6 +10,7 @@
 package mocks
 
 import (
+	context "context"
 	reflect "reflect"
 
 	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -41,16 +42,16 @@ func (m *MockIMarketDataProxy) EXPECT() *MockIMarketDataProxyMockRecorder {
 }
 
 // FetchKCandles mocks base method.
-func (m *MockIMarketDataProxy) FetchKCandles(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+func (m *MockIMarketDataProxy) FetchKCandles(executionContext context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FetchKCandles", window)
+	ret := m.ctrl.Call(m, "FetchKCandles", executionContext, window)
 	ret0, _ := ret[0].([]vo.MarketKCandleVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FetchKCandles indicates an expected call of FetchKCandles.
-func (mr *MockIMarketDataProxyMockRecorder) FetchKCandles(window any) *gomock.Call {
+func (mr *MockIMarketDataProxyMockRecorder) FetchKCandles(executionContext, window any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchKCandles", reflect.TypeOf((*MockIMarketDataProxy)(nil).FetchKCandles), window)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchKCandles", reflect.TypeOf((*MockIMarketDataProxy)(nil).FetchKCandles), executionContext, window)
 }

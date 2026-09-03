@@ -14,13 +14,29 @@ func TestStartAllStartsEveryJobItHolds(t *testing.T) {
 	backgroundJobs := make([]domaininterface.IBackgroundJob, 0, 3)
 	for range 3 {
 		backgroundJob := mocks.NewMockIBackgroundJob(mockController)
-		backgroundJob.EXPECT().Start().Times(1)
+		backgroundJob.EXPECT().Start(gomock.Any()).Times(1)
 		backgroundJobs = append(backgroundJobs, backgroundJob)
 	}
 
-	job.NewBackgroundJobManager(backgroundJobs).StartAll()
+	job.NewBackgroundJobManager(backgroundJobs).StartAll(t.Context())
 }
 
 func TestStartAllWithNoJobsDoesNothing(t *testing.T) {
-	job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}).StartAll()
+	job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}).StartAll(t.Context())
+}
+
+func TestStopAllStopsEveryJobItHolds(t *testing.T) {
+	mockController := gomock.NewController(t)
+	backgroundJobs := make([]domaininterface.IBackgroundJob, 0, 3)
+	for range 3 {
+		backgroundJob := mocks.NewMockIBackgroundJob(mockController)
+		backgroundJob.EXPECT().Stop().Times(1)
+		backgroundJobs = append(backgroundJobs, backgroundJob)
+	}
+
+	job.NewBackgroundJobManager(backgroundJobs).StopAll()
+}
+
+func TestStopAllWithNoJobsDoesNothing(t *testing.T) {
+	job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}).StopAll()
 }

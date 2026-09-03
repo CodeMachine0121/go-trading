@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -31,13 +32,15 @@ func NewKCandleService(
 
 // SaveKCandle stores one K candle, replacing any candle already held for the
 // same trading symbol and open time.
-func (kCandleService *KCandleService) SaveKCandle(writeDto dto.KCandleWriteDto) (dto.KCandleDto, error) {
+func (kCandleService *KCandleService) SaveKCandle(
+	executionContext context.Context, writeDto dto.KCandleWriteDto,
+) (dto.KCandleDto, error) {
 	kCandleDomain, validationError := domains.NewKCandleDomain(writeDto, kCandleService.clockProxy.Now())
 	if validationError != nil {
 		return dto.KCandleDto{}, validationError
 	}
 
-	savedKCandle, saveError := kCandleService.kCandleRepository.Save(kCandleDomain.ToEntity())
+	savedKCandle, saveError := kCandleService.kCandleRepository.Save(executionContext, kCandleDomain.ToEntity())
 	if saveError != nil {
 		return dto.KCandleDto{}, saveError
 	}
@@ -47,14 +50,16 @@ func (kCandleService *KCandleService) SaveKCandle(writeDto dto.KCandleWriteDto) 
 
 // GetKCandlesInRange returns the K candles whose open time falls inside the range,
 // earliest first. A range holding more than the configured maximum is refused.
-func (kCandleService *KCandleService) GetKCandlesInRange(queryDto dto.KCandleQueryDto) ([]dto.KCandleDto, error) {
+func (kCandleService *KCandleService) GetKCandlesInRange(
+	executionContext context.Context, queryDto dto.KCandleQueryDto,
+) ([]dto.KCandleDto, error) {
 	queryDomain, validationError := domains.NewKCandleQueryDomain(queryDto)
 	if validationError != nil {
 		return nil, validationError
 	}
 
 	kCandles, findError := kCandleService.kCandleRepository.FindInRange(
-		queryDomain, kCandleService.queryMaxResults+1)
+		executionContext, queryDomain, kCandleService.queryMaxResults+1)
 	if findError != nil {
 		return nil, findError
 	}
@@ -77,7 +82,7 @@ func (kCandleService *KCandleService) GetKCandlesInRange(queryDto dto.KCandleQue
 // bucket of the requested aggregation interval, earliest first. A range cut into more
 // buckets than the configured maximum is refused before anything is read.
 func (kCandleService *KCandleService) GetKCandleSeries(
-	seriesQueryDto dto.KCandleSeriesQueryDto,
+	executionContext context.Context, seriesQueryDto dto.KCandleSeriesQueryDto,
 ) (dto.KCandleSeriesDto, error) {
 	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
 		seriesQueryDto, kCandleService.queryMaxResults)
@@ -86,7 +91,7 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 	}
 
 	kCandles, findError := kCandleService.kCandleRepository.FindInRange(
-		seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
+		executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
 	if findError != nil {
 		return dto.KCandleSeriesDto{}, findError
 	}
@@ -95,8 +100,20 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 }
 
 // GetKCandle returns the single K candle named by trading symbol and open time.
-func (kCandleService *KCandleService) GetKCandle(symbol string, openTime time.Time) (dto.KCandleDto, error) {
-	kCandle, findError := kCandleService.kCandleRepository.FindOne(symbol, openTime.UTC())
+func (kCandleService *KCandleService) GetKCandle(
+	executionContext context.Context, symbol string, openTime time.Time,
+) (dto.KCandleDto, error) {
+	// A symbol and an open time name one candle, and no model is built for the pair,
+	// so the symbol is checked here — every other path that reaches storage with one
+	// has a model doing it, and the two that did not were the two that answered a bad
+	// request with a broken server.
+	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
+	if symbolError != nil {
+		return dto.KCandleDto{}, fmt.Errorf("%w: %w", domains.ErrKCandleValidation, symbolError)
+	}
+
+	kCandle, findError := kCandleService.kCandleRepository.FindOne(
+		executionContext, tradingSymbol.Value(), openTime.UTC())
 	if findError != nil {
 		return dto.KCandleDto{}, findError
 	}
@@ -106,13 +123,15 @@ func (kCandleService *KCandleService) GetKCandle(symbol string, openTime time.Ti
 
 // UpdateKCandle replaces the figures of an existing K candle. The candle it acts on
 // is the one named by the trading symbol and open time carried in the input.
-func (kCandleService *KCandleService) UpdateKCandle(writeDto dto.KCandleWriteDto) (dto.KCandleDto, error) {
+func (kCandleService *KCandleService) UpdateKCandle(
+	executionContext context.Context, writeDto dto.KCandleWriteDto,
+) (dto.KCandleDto, error) {
 	kCandleDomain, validationError := domains.NewKCandleDomain(writeDto, kCandleService.clockProxy.Now())
 	if validationError != nil {
 		return dto.KCandleDto{}, validationError
 	}
 
-	updatedKCandle, updateError := kCandleService.kCandleRepository.Update(kCandleDomain.ToEntity())
+	updatedKCandle, updateError := kCandleService.kCandleRepository.Update(executionContext, kCandleDomain.ToEntity())
 	if updateError != nil {
 		return dto.KCandleDto{}, updateError
 	}
@@ -121,6 +140,14 @@ func (kCandleService *KCandleService) UpdateKCandle(writeDto dto.KCandleWriteDto
 }
 
 // DeleteKCandle removes the single K candle named by trading symbol and open time.
-func (kCandleService *KCandleService) DeleteKCandle(symbol string, openTime time.Time) error {
-	return kCandleService.kCandleRepository.Delete(symbol, openTime.UTC())
+func (kCandleService *KCandleService) DeleteKCandle(
+	executionContext context.Context, symbol string, openTime time.Time,
+) error {
+	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
+	if symbolError != nil {
+		return fmt.Errorf("%w: %w", domains.ErrKCandleValidation, symbolError)
+	}
+
+	return kCandleService.kCandleRepository.Delete(
+		executionContext, tradingSymbol.Value(), openTime.UTC())
 }

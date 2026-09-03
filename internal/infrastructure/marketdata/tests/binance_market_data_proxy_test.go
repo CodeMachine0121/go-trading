@@ -47,7 +47,7 @@ func TestFetchKCandlesMapsEveryPositionOfTheSourceArray(t *testing.T) {
 
 	reportedOpenTime := time.Unix(1788019500, 0).UTC()
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", reportedOpenTime, reportedOpenTime))
 
 	require.NoError(t, fetchError)
@@ -79,7 +79,7 @@ func TestFetchKCandlesAsksTheSourceForTheWindow(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	_, fetchError := proxy.FetchKCandles(vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
+	_, fetchError := proxy.FetchKCandles(t.Context(), vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
 	query := <-requestedQuery
@@ -110,7 +110,7 @@ func TestFetchKCandlesKeepsAskingUntilTheWindowIsCovered(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
@@ -131,7 +131,7 @@ func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
@@ -141,7 +141,7 @@ func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
 func TestFetchKCandlesTreatsNothingAvailableAsAnEmptyResult(t *testing.T) {
 	proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, `[]`), requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)
@@ -179,13 +179,27 @@ func TestFetchKCandlesReportsAnUnusableAnswer(t *testing.T) {
 			body:           `[[1788019500000,"abc","2","0.5","1.5","10",1788019799999,"2000",7007,"4","800","0"]]`,
 			expectedReason: "read figure at position 1",
 		},
+		{
+			// A proxy appending its own error page to a good answer. Read only as far
+			// as the first value, this is a successful page of candles.
+			name:           "candles with something appended after them",
+			body:           `[[1788019500000,"1","2","0.5","1.5","10",1788019799999,"2000",7007,"4","800","0"]]<html>oops</html>`,
+			expectedReason: "trailing content after the answer",
+		},
+		{
+			// The same, but the answer it was appended to is empty — which read as a
+			// success is the worse of the two: a window recorded as having no candles.
+			name:           "nothing, with something appended after it",
+			body:           `[]{"error":"rate limited"}`,
+			expectedReason: "trailing content after the answer",
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, testCase.body), requestTimeout)
 
-			marketKCandles, fetchError := proxy.FetchKCandles(
+			marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 				vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 			require.Error(t, fetchError)
@@ -202,7 +216,7 @@ func TestFetchKCandlesReportsASourceThatWillNotServe(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 	require.Error(t, fetchError)
@@ -216,7 +230,7 @@ func TestFetchKCandlesReportsASourceItCannotReach(t *testing.T) {
 	server.Close()
 	proxy := marketdata.NewBinanceMarketDataProxy(unreachableUrl, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 	require.Error(t, fetchError)
@@ -232,7 +246,7 @@ func TestFetchKCandlesReportsAnAnswerItCannotFinishReading(t *testing.T) {
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(9, 0), at(9, 0)))
 
 	require.Error(t, fetchError)
@@ -258,7 +272,7 @@ func TestFetchKCandlesDiscardsCandlesOutsideTheWindowAndStopsAsking(t *testing.T
 	t.Cleanup(server.Close)
 	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
 
-	marketKCandles, fetchError := proxy.FetchKCandles(
+	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", at(8, 40), at(9, 0)))
 
 	require.NoError(t, fetchError)

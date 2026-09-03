@@ -1,6 +1,8 @@
 package _interface
 
 import (
+	"context"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
@@ -13,6 +15,7 @@ import (
 // its shape is checked, how failures are caught — lives behind this contract.
 type IIndicatorScriptProxy interface {
 	Execute(
+		executionContext context.Context,
 		script string,
 		resultType domains.IndicatorResultTypeDomain,
 		kCandles []vo.KCandleVo,

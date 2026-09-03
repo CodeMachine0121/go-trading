@@ -19,12 +19,12 @@ func NewTradingSymbolController(
 }
 
 // ListTradingSymbols handles GET /trading-symbols.
-func (tradingSymbolController *TradingSymbolController) ListTradingSymbols(context *gin.Context) {
-	tradingSymbolDtos, err := tradingSymbolController.tradingSymbolApplication.ListTradingSymbols()
+func (tradingSymbolController *TradingSymbolController) ListTradingSymbols(ginContext *gin.Context) {
+	tradingSymbolDtos, err := tradingSymbolController.tradingSymbolApplication.ListTradingSymbols(ginContext.Request.Context())
 	if err != nil {
-		context.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+		ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
 		return
 	}
 
-	context.JSON(http.StatusOK, tradingSymbolDtos)
+	ginContext.JSON(http.StatusOK, tradingSymbolDtos)
 }

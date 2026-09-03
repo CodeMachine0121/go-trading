@@ -1,6 +1,10 @@
 package _interface
 
-import "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+import (
+	"context"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+)
 
 //go:generate go tool mockgen -source=i_market_data_proxy.go -destination=mocks/mock_i_market_data_proxy.go -package=mocks
 
@@ -12,5 +16,7 @@ import "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 // backfill are windows, so everything a source needs to hide — the address, the
 // symbol spelling, the wire format, paging, timeouts — stays behind this method.
 type IMarketDataProxy interface {
-	FetchKCandles(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error)
+	FetchKCandles(
+		executionContext context.Context, window vo.KCandleFetchWindowVo,
+	) ([]vo.MarketKCandleVo, error)
 }

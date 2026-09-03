@@ -1,6 +1,8 @@
 package application
 
 import (
+	"context"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -17,7 +19,8 @@ func NewIndicatorCalculationApplication(
 }
 
 func (indicatorCalculationApplication *IndicatorCalculationApplication) CalculateIndicator(
-	requestDto dto.IndicatorCalculationRequestDto,
+	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	return indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(requestDto)
+	return indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(
+		executionContext, requestDto)
 }

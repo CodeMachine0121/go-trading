@@ -56,7 +56,7 @@ func (fixture indicatorRouterUnderTest) post(body string) *httptest.ResponseReco
 
 func (fixture indicatorRouterUnderTest) expectTwoUsableCandles() {
 	fixture.kCandleRepository.EXPECT().
-		FindLatest("BTCUSDT", 3).
+		FindLatest(gomock.Any(), "BTCUSDT", 3).
 		Return([]entities.KCandle{
 			kCandleAt(at(9, 10), "100"), kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100"),
 		}, nil)
@@ -67,7 +67,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute("the script", gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -82,7 +82,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -103,7 +103,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	t.Run("reports too few candles as a bad request naming what is usable", func(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatest("BTCUSDT", 3).
+			FindLatest(gomock.Any(), "BTCUSDT", 3).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -116,7 +116,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
 		recorder := fixture.post(indicatorBody)
@@ -127,7 +127,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	t.Run("reports a storage failure as a bad gateway", func(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatest("BTCUSDT", 3).
+			FindLatest(gomock.Any(), "BTCUSDT", 3).
 			Return(nil, errors.New("storage unreachable"))
 
 		recorder := fixture.post(indicatorBody)
@@ -149,7 +149,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
 				"line": {IsList: true, Numbers: []float64{100, 105}},
 			}, nil)
@@ -166,7 +166,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"crossed": {Booleans: []bool{false}}}, nil)
 
 		recorder := fixture.post(
@@ -181,7 +181,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -200,4 +200,18 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "指標值種類只能是")
 	})
+}
+
+// Calculating an indicator names a trading symbol, so it is the fifth way in that
+// used to hand PostgreSQL a byte it will not hold and report the refusal as a
+// broken server.
+func TestIndicatorCalculationRouterRefusesAnUnstorableSymbol(t *testing.T) {
+	// No expectation is set on the repository: nothing may reach storage.
+	fixture := newIndicatorRouterUnderTest(t)
+
+	recorder := fixture.post(
+		`{"symbol":"BTC\u0000USDT","candleCount":3,"script":"package main","resultType":"float"}`)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "NUL")
 }

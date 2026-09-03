@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -46,14 +47,14 @@ func NewKCandleIngestionService(
 // happened rather than failing: one symbol the source would not answer for must not
 // take the others down with it.
 func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
-	symbols []string,
+	executionContext context.Context, symbols []string,
 ) (dto.KCandleIngestionReportDto, error) {
 	ingestionDomain, buildError := kCandleIngestionService.newIngestionDomain()
 	if buildError != nil {
 		return dto.KCandleIngestionReportDto{}, buildError
 	}
 
-	return kCandleIngestionService.ingestSymbols(ingestionDomain, symbols,
+	return kCandleIngestionService.ingestSymbols(executionContext, ingestionDomain, symbols,
 		func(symbol string) (vo.KCandleFetchWindowVo, error) {
 			return ingestionDomain.ScheduledWindow(symbol), nil
 		}), nil
@@ -63,16 +64,17 @@ func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
 // lookback allows. A symbol already up to date is left alone and its source is never
 // called.
 func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
-	symbols []string,
+	executionContext context.Context, symbols []string,
 ) (dto.KCandleIngestionReportDto, error) {
 	ingestionDomain, buildError := kCandleIngestionService.newIngestionDomain()
 	if buildError != nil {
 		return dto.KCandleIngestionReportDto{}, buildError
 	}
 
-	return kCandleIngestionService.ingestSymbols(ingestionDomain, symbols,
+	return kCandleIngestionService.ingestSymbols(executionContext, ingestionDomain, symbols,
 		func(symbol string) (vo.KCandleFetchWindowVo, error) {
-			latestStored, findError := kCandleIngestionService.kCandleRepository.FindLatest(symbol, 1)
+			latestStored, findError := kCandleIngestionService.kCandleRepository.FindLatest(
+				executionContext, symbol, 1)
 			if findError != nil {
 				return vo.KCandleFetchWindowVo{}, findError
 			}
@@ -100,6 +102,7 @@ func (kCandleIngestionService *KCandleIngestionService) newIngestionDomain() (do
 // the opposite of what independence per symbol means here. Each goroutine owns one
 // slot of the result, so nothing is shared and nothing needs locking.
 func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
+	executionContext context.Context,
 	ingestionDomain domains.KCandleIngestionDomain,
 	symbols []string,
 	windowOf func(symbol string) (vo.KCandleFetchWindowVo, error),
@@ -108,11 +111,10 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
 
 	var waitGroup sync.WaitGroup
 	for index, symbol := range symbols {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
-			symbolReports[index] = kCandleIngestionService.ingestSymbol(ingestionDomain, symbol, windowOf)
-		}()
+		waitGroup.Go(func() {
+			symbolReports[index] = kCandleIngestionService.ingestSymbol(
+				executionContext, ingestionDomain, symbol, windowOf)
+		})
 	}
 	waitGroup.Wait()
 
@@ -123,6 +125,7 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
 // source that will not answer ends this symbol; a single candle that breaks a rule
 // only ends itself.
 func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
+	executionContext context.Context,
 	ingestionDomain domains.KCandleIngestionDomain,
 	symbol string,
 	windowOf func(symbol string) (vo.KCandleFetchWindowVo, error),
@@ -136,7 +139,7 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 		return dto.KCandleSymbolIngestionReportDto{Symbol: symbol}
 	}
 
-	reportedKCandles, fetchError := kCandleIngestionService.marketDataProxy.FetchKCandles(window)
+	reportedKCandles, fetchError := kCandleIngestionService.marketDataProxy.FetchKCandles(executionContext, window)
 	if fetchError != nil {
 		return dto.KCandleSymbolIngestionReportDto{Symbol: symbol, FetchFailureReason: fetchError.Error()}
 	}
@@ -156,7 +159,7 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 			continue
 		}
 
-		if _, saveError := kCandleIngestionService.kCandleRepository.Save(kCandleDomain.ToEntity()); saveError != nil {
+		if _, saveError := kCandleIngestionService.kCandleRepository.Save(executionContext, kCandleDomain.ToEntity()); saveError != nil {
 			symbolReport.SkippedKCandles = append(symbolReport.SkippedKCandles, dto.SkippedKCandleDto{
 				OpenTime: reportedKCandle.OpenTime.UTC(),
 				Reason:   saveError.Error(),

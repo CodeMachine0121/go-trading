@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -30,7 +32,7 @@ func NewStrategyService(
 // CreateStrategy saves a new strategy and hands it back as stored. A strategy that
 // breaks a rule is refused before anything is written.
 func (strategyService *StrategyService) CreateStrategy(
-	writeDto dto.StrategyWriteDto,
+	executionContext context.Context, writeDto dto.StrategyWriteDto,
 ) (dto.StrategyDto, error) {
 	strategyDomain, validationError := domains.NewStrategyDomain(
 		writeDto, strategyService.maxCandleCount)
@@ -38,7 +40,7 @@ func (strategyService *StrategyService) CreateStrategy(
 		return dto.StrategyDto{}, validationError
 	}
 
-	savedStrategy, saveError := strategyService.strategyRepository.Save(strategyDomain.ToEntity())
+	savedStrategy, saveError := strategyService.strategyRepository.Save(executionContext, strategyDomain.ToEntity())
 	if saveError != nil {
 		return dto.StrategyDto{}, saveError
 	}
@@ -47,8 +49,10 @@ func (strategyService *StrategyService) CreateStrategy(
 }
 
 // GetStrategy returns the strategy carrying this identifier.
-func (strategyService *StrategyService) GetStrategy(id uint) (dto.StrategyDto, error) {
-	strategy, findError := strategyService.strategyRepository.FindOne(id)
+func (strategyService *StrategyService) GetStrategy(
+	executionContext context.Context, id uint,
+) (dto.StrategyDto, error) {
+	strategy, findError := strategyService.strategyRepository.FindOne(executionContext, id)
 	if findError != nil {
 		return dto.StrategyDto{}, findError
 	}
@@ -58,8 +62,8 @@ func (strategyService *StrategyService) GetStrategy(id uint) (dto.StrategyDto, e
 
 // ListStrategies returns every saved strategy, ordered by name. Holding none is an
 // answer rather than a failure.
-func (strategyService *StrategyService) ListStrategies() ([]dto.StrategyDto, error) {
-	strategies, findError := strategyService.strategyRepository.FindAll()
+func (strategyService *StrategyService) ListStrategies(executionContext context.Context) ([]dto.StrategyDto, error) {
+	strategies, findError := strategyService.strategyRepository.FindAll(executionContext)
 	if findError != nil {
 		return nil, findError
 	}
@@ -76,7 +80,7 @@ func (strategyService *StrategyService) ListStrategies() ([]dto.StrategyDto, err
 // stands. Every rule that governs a new strategy governs a rewritten one, because
 // both arrive here as the same shape and are judged by the same model.
 func (strategyService *StrategyService) UpdateStrategy(
-	writeDto dto.StrategyWriteDto,
+	executionContext context.Context, writeDto dto.StrategyWriteDto,
 ) (dto.StrategyDto, error) {
 	// No strategy carries no identifier, so there is nothing here to rewrite. Saying
 	// so here rather than letting the write go out is the difference between a
@@ -84,7 +88,7 @@ func (strategyService *StrategyService) UpdateStrategy(
 	// names no row, and what an ORM does with a write that names no row is its own
 	// decision to change.
 	if writeDto.ID == 0 {
-		return dto.StrategyDto{}, domains.ErrStrategyNotFound
+		return dto.StrategyDto{}, domains.StrategyNotFound(writeDto.ID)
 	}
 
 	// Whether the strategy is there is settled before its content is judged. The
@@ -92,7 +96,8 @@ func (strategyService *StrategyService) UpdateStrategy(
 	// also wrong answers "the candle count must be above zero" — and correcting the
 	// count still leaves nothing to rewrite. The two refusals are different problems
 	// and must not be handed over as one.
-	if _, findError := strategyService.strategyRepository.FindOne(writeDto.ID); findError != nil {
+	if _, findError := strategyService.strategyRepository.FindOne(
+		executionContext, writeDto.ID); findError != nil {
 		return dto.StrategyDto{}, findError
 	}
 
@@ -103,7 +108,7 @@ func (strategyService *StrategyService) UpdateStrategy(
 	}
 
 	updatedStrategy, updateError := strategyService.strategyRepository.Update(
-		strategyDomain.ToEntity())
+		executionContext, strategyDomain.ToEntity())
 	if updateError != nil {
 		return dto.StrategyDto{}, updateError
 	}
@@ -112,6 +117,8 @@ func (strategyService *StrategyService) UpdateStrategy(
 }
 
 // DeleteStrategy removes the strategy carrying this identifier for good.
-func (strategyService *StrategyService) DeleteStrategy(id uint) error {
-	return strategyService.strategyRepository.Delete(id)
+func (strategyService *StrategyService) DeleteStrategy(
+	executionContext context.Context, id uint,
+) error {
+	return strategyService.strategyRepository.Delete(executionContext, id)
 }

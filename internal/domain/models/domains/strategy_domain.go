@@ -46,6 +46,11 @@ func NewStrategyDomain(
 		return StrategyDomain{}, fmt.Errorf("%w: 必須給策略取一個名稱", ErrStrategyValidation)
 	}
 
+	if strings.ContainsRune(name, nulCharacter) {
+		return StrategyDomain{}, fmt.Errorf(
+			"%w: 策略名稱不得包含空字元（NUL）", ErrStrategyValidation)
+	}
+
 	if len([]rune(name)) > strategyNameMaxLength {
 		return StrategyDomain{}, fmt.Errorf(
 			"%w: 策略名稱長度上限為 %d 個字", ErrStrategyValidation, strategyNameMaxLength)
@@ -53,6 +58,11 @@ func NewStrategyDomain(
 
 	if strings.TrimSpace(writeDto.Script) == "" {
 		return StrategyDomain{}, fmt.Errorf("%w: 策略必須帶一段指標算式", ErrStrategyValidation)
+	}
+
+	if strings.ContainsRune(writeDto.Script, nulCharacter) {
+		return StrategyDomain{}, fmt.Errorf(
+			"%w: 策略算式不得包含空字元（NUL）", ErrStrategyValidation)
 	}
 
 	aggregationInterval, intervalError := NewAggregationIntervalDomain(writeDto.AggregationInterval)

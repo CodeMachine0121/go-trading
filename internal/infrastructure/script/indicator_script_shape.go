@@ -68,7 +68,7 @@ func (indicatorScriptShape indicatorScriptShape) valueOf(
 	elements := []reflect.Value{calculatedValue}
 	if indicatorScriptShape.resultType.IsList() {
 		elements = make([]reflect.Value, 0, calculatedValue.Len())
-		for elementIndex := 0; elementIndex < calculatedValue.Len(); elementIndex++ {
+		for elementIndex := range calculatedValue.Len() {
 			elements = append(elements, calculatedValue.Index(elementIndex))
 		}
 	}

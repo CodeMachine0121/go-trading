@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -30,7 +32,7 @@ func NewIndicatorCalculationService(
 // trading symbol, leaving out the newest candle, and reports one value per indicator
 // name in the kind the request declared. An empty set of names is a valid result.
 func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicator(
-	requestDto dto.IndicatorCalculationRequestDto,
+	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
 		requestDto, indicatorCalculationService.maxCandleCount)
@@ -39,7 +41,7 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	}
 
 	newestFirstKCandles, findError := indicatorCalculationService.kCandleRepository.FindLatest(
-		calculationDomain.Symbol(), calculationDomain.CandleFetchCount())
+		executionContext, calculationDomain.Symbol(), calculationDomain.CandleFetchCount())
 	if findError != nil {
 		return dto.IndicatorCalculationResultDto{}, findError
 	}
@@ -50,7 +52,7 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	}
 
 	indicatorValues, executionError := indicatorCalculationService.indicatorScriptProxy.Execute(
-		requestDto.Script, calculationDomain.ResultType(), inputKCandleVos)
+		executionContext, requestDto.Script, calculationDomain.ResultType(), inputKCandleVos)
 	if executionError != nil {
 		return dto.IndicatorCalculationResultDto{}, executionError
 	}

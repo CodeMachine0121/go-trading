@@ -1,6 +1,7 @@
 package job_test
 
 import (
+	"context"
 	"errors"
 	"log"
 	"strings"
@@ -78,7 +79,7 @@ func brokenKCandle(openTime time.Time) vo.MarketKCandleVo {
 func startJobWith(
 	t *testing.T,
 	roundCandleCount int,
-	fetch func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error),
+	fetch func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error),
 ) {
 	t.Helper()
 
@@ -90,7 +91,7 @@ func startJobEvery(
 	t *testing.T,
 	interval time.Duration,
 	roundCandleCount int,
-	fetch func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error),
+	fetch func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error),
 ) {
 	t.Helper()
 
@@ -99,10 +100,10 @@ func startJobEvery(
 	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
-	kCandleRepository.EXPECT().FindLatest(gomock.Any(), 1).
+	kCandleRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any(), 1).
 		Return([]entities.KCandle{}, nil).AnyTimes()
-	kCandleRepository.EXPECT().Save(gomock.Any()).Return(entities.KCandle{}, nil).AnyTimes()
-	marketDataProxy.EXPECT().FetchKCandles(gomock.Any()).DoAndReturn(fetch).AnyTimes()
+	kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(entities.KCandle{}, nil).AnyTimes()
+	marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).DoAndReturn(fetch).AnyTimes()
 
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
@@ -110,14 +111,14 @@ func startJobEvery(
 				kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback)),
 		[]string{"BTCUSDT"}, interval)
 	t.Cleanup(ingestionJob.Stop)
-	ingestionJob.Start()
+	ingestionJob.Start(t.Context())
 }
 
 func TestTheJobRecordsWhichSymbolTheSourceWouldNotAnswerFor(t *testing.T) {
 	recorded := captureRecords(t)
 
 	startJobWith(t, roundCandleCount,
-		func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+		func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			return nil, errors.New("market source unreachable")
 		})
 
@@ -130,7 +131,7 @@ func TestTheJobRecordsWhichCandleBrokeWhichRule(t *testing.T) {
 	recorded := captureRecords(t)
 
 	startJobWith(t, roundCandleCount,
-		func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+		func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			return []vo.MarketKCandleVo{brokenKCandle(scheduledWindowStart)}, nil
 		})
 
@@ -143,7 +144,7 @@ func TestTheJobRecordsWhichCandleBrokeWhichRule(t *testing.T) {
 func TestTheJobRecordsARunThatCouldNotHappenAtAll(t *testing.T) {
 	recorded := captureRecords(t)
 
-	startJobWith(t, 0, func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+	startJobWith(t, 0, func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 		return []vo.MarketKCandleVo{}, nil
 	})
 
@@ -154,7 +155,7 @@ func TestRoundsKeepComingAfterAWholeRoundFails(t *testing.T) {
 	recorded := captureRecords(t)
 
 	startJobEvery(t, 20*time.Millisecond, roundCandleCount,
-		func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+		func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			return nil, errors.New("market source unreachable")
 		})
 
@@ -178,7 +179,7 @@ func TestARoundWithNothingWrongRecordsNothing(t *testing.T) {
 	fetched := make(chan struct{}, 64)
 
 	startJobEvery(t, 20*time.Millisecond, roundCandleCount,
-		func(window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+		func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
 			fetched <- struct{}{}
 			return []vo.MarketKCandleVo{soundKCandle(scheduledWindowStart)}, nil
 		})
