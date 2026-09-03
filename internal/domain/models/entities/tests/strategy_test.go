@@ -13,14 +13,12 @@ func TestStrategyToDto(t *testing.T) {
 	updatedAt := time.Date(2026, 9, 3, 9, 30, 0, 0, time.UTC)
 
 	strategy := entities.Strategy{
-		ID:                  7,
-		Name:                "二十根均線",
-		Script:              "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
-		ResultType:          "floatList",
-		AggregationInterval: "1h",
-		CandleCount:         20,
-		CreatedAt:           createdAt,
-		UpdatedAt:           updatedAt,
+		ID:         7,
+		Name:       "二十根均線",
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
+		ResultType: "floatList",
+		CreatedAt:  createdAt,
+		UpdatedAt:  updatedAt,
 	}
 
 	strategyDto := strategy.ToDto()
@@ -29,8 +27,6 @@ func TestStrategyToDto(t *testing.T) {
 	assert.Equal(t, "二十根均線", strategyDto.Name)
 	assert.Equal(t, strategy.Script, strategyDto.Script)
 	assert.Equal(t, "floatList", strategyDto.ResultType)
-	assert.Equal(t, "1h", strategyDto.AggregationInterval)
-	assert.Equal(t, 20, strategyDto.CandleCount)
 	assert.Equal(t, createdAt, strategyDto.CreatedAt)
 	assert.Equal(t, updatedAt, strategyDto.UpdatedAt)
 }

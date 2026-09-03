@@ -6,7 +6,9 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// Strategy is one saved strategy: an algorithm, plus what data it needs to run.
+// Strategy is one saved strategy: an algorithm and nothing else. How coarse the K
+// candles are, how many of them, and up to when are all decided by whoever runs it,
+// so the same algorithm can be run at any coarseness over any stretch of market.
 // It is a plain data model: fields, persistence mapping and shape conversion only,
 // no business rules.
 //
@@ -20,8 +22,6 @@ type Strategy struct {
 	Name                string    `gorm:"size:128;not null;uniqueIndex:idx_strategies_name"`
 	Script              string    `gorm:"type:text;not null"`
 	ResultType          string    `gorm:"size:32;not null"`
-	AggregationInterval string    `gorm:"size:8;not null"`
-	CandleCount         int       `gorm:"not null"`
 	CreatedAt           time.Time `gorm:"type:timestamptz;not null"`
 	UpdatedAt           time.Time `gorm:"type:timestamptz;not null"`
 }
@@ -39,8 +39,6 @@ func (strategy Strategy) ToDto() dto.StrategyDto {
 		Name:                strategy.Name,
 		Script:              strategy.Script,
 		ResultType:          strategy.ResultType,
-		AggregationInterval: strategy.AggregationInterval,
-		CandleCount:         strategy.CandleCount,
 		CreatedAt:           strategy.CreatedAt.UTC(),
 		UpdatedAt:           strategy.UpdatedAt.UTC(),
 	}

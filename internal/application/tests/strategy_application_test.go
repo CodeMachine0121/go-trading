@@ -17,9 +17,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// strategyMaxCandleCount is the ceiling these tests judge a candle count against.
-const strategyMaxCandleCount = 1000
-
 type strategyApplicationUnderTest struct {
 	strategyApplication *application.StrategyApplication
 	strategyRepository  *mocks.MockIStrategyRepository
@@ -33,31 +30,27 @@ func newStrategyApplicationUnderTest(t *testing.T) strategyApplicationUnderTest 
 
 	return strategyApplicationUnderTest{
 		strategyApplication: application.NewStrategyApplication(
-			service.NewStrategyService(strategyRepository, strategyMaxCandleCount)),
+			service.NewStrategyService(strategyRepository)),
 		strategyRepository: strategyRepository,
 	}
 }
 
 func aStrategyWrite() dto.StrategyWriteDto {
 	return dto.StrategyWriteDto{
-		Name:                "二十根均線",
-		Script:              "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
-		ResultType:          "floatList",
-		AggregationInterval: "1h",
-		CandleCount:         20,
+		Name:       "二十根均線",
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
+		ResultType: "floatList",
 	}
 }
 
 func aStoredStrategy(id uint, name string) entities.Strategy {
 	return entities.Strategy{
-		ID:                  id,
-		Name:                name,
-		Script:              aStrategyWrite().Script,
-		ResultType:          "floatList",
-		AggregationInterval: "1h",
-		CandleCount:         20,
-		CreatedAt:           time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
-		UpdatedAt:           time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		ID:         id,
+		Name:       name,
+		Script:     aStrategyWrite().Script,
+		ResultType: "floatList",
+		CreatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -70,9 +63,7 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 				// A strategy that does not exist yet carries no identifier of its own.
 				assert.Equal(t, uint(0), strategy.ID)
 				assert.Equal(t, "二十根均線", strategy.Name)
-				assert.Equal(t, "1h", strategy.AggregationInterval)
 				assert.Equal(t, "floatList", strategy.ResultType)
-				assert.Equal(t, 20, strategy.CandleCount)
 
 				return aStoredStrategy(7, strategy.Name), nil
 			})
@@ -82,7 +73,6 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint(7), strategyDto.ID)
 		assert.Equal(t, "二十根均線", strategyDto.Name)
-		assert.Equal(t, "1h", strategyDto.AggregationInterval)
 	})
 
 	t.Run("saves a name without the blanks around it", func(t *testing.T) {
@@ -130,19 +120,17 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		assert.Equal(t, []string{"二十根均線", "二十根均線"}, storedNames)
 	})
 
-	t.Run("falls back on the same defaults the rest of the system uses", func(t *testing.T) {
+	t.Run("falls back on the same default the rest of the system uses", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
-				assert.Equal(t, "5m", strategy.AggregationInterval)
 				assert.Equal(t, "float", strategy.ResultType)
 
 				return aStoredStrategy(7, strategy.Name), nil
 			})
 
 		writeDto := aStrategyWrite()
-		writeDto.AggregationInterval = ""
 		writeDto.ResultType = ""
 
 		_, err := fixture.strategyApplication.CreateStrategy(t.Context(), writeDto)
@@ -204,24 +192,9 @@ func TestStrategyApplicationRefusesContentBeforeAnythingIsWritten(t *testing.T) 
 			expectedMessage: "策略必須帶一段指標算式",
 		},
 		{
-			name:            "an aggregation interval nobody offers",
-			breakIt:         func(writeDto *dto.StrategyWriteDto) { writeDto.AggregationInterval = "7m" },
-			expectedMessage: "彙總刻度只能是 5m、15m、1h、4h、1d 其中之一",
-		},
-		{
 			name:            "a result type nobody offers",
 			breakIt:         func(writeDto *dto.StrategyWriteDto) { writeDto.ResultType = "string" },
 			expectedMessage: "指標值種類只能是 float、floatList、bool、boolList 其中之一",
-		},
-		{
-			name:            "a candle count of zero",
-			breakIt:         func(writeDto *dto.StrategyWriteDto) { writeDto.CandleCount = 0 },
-			expectedMessage: "計算根數必須大於零",
-		},
-		{
-			name:            "a candle count over the ceiling",
-			breakIt:         func(writeDto *dto.StrategyWriteDto) { writeDto.CandleCount = 1001 },
-			expectedMessage: "超過單次可用的最大根數",
 		},
 	}
 
@@ -268,8 +241,6 @@ func TestStrategyApplicationGetStrategy(t *testing.T) {
 		assert.Equal(t, "二十根均線", strategyDto.Name)
 		assert.Equal(t, aStrategyWrite().Script, strategyDto.Script)
 		assert.Equal(t, "floatList", strategyDto.ResultType)
-		assert.Equal(t, "1h", strategyDto.AggregationInterval)
-		assert.Equal(t, 20, strategyDto.CandleCount)
 		assert.False(t, strategyDto.CreatedAt.IsZero())
 		assert.False(t, strategyDto.UpdatedAt.IsZero())
 	})
@@ -308,8 +279,6 @@ func TestStrategyApplicationListStrategies(t *testing.T) {
 			assert.NotEmpty(t, strategyDto.Name)
 			assert.Equal(t, aStrategyWrite().Script, strategyDto.Script)
 			assert.Equal(t, "floatList", strategyDto.ResultType)
-			assert.Equal(t, "1h", strategyDto.AggregationInterval)
-			assert.Equal(t, 20, strategyDto.CandleCount)
 			assert.False(t, strategyDto.CreatedAt.IsZero())
 			assert.False(t, strategyDto.UpdatedAt.IsZero())
 		}
@@ -347,7 +316,7 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 			DoAndReturn(func(_ context.Context, strategy entities.Strategy) (entities.Strategy, error) {
 				assert.Equal(t, uint(7), strategy.ID)
 				assert.Equal(t, "六十根均線", strategy.Name)
-				assert.Equal(t, 60, strategy.CandleCount)
+				assert.Equal(t, "boolList", strategy.ResultType)
 
 				return aStoredStrategy(7, strategy.Name), nil
 			})
@@ -355,7 +324,7 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 		writeDto := aStrategyWrite()
 		writeDto.ID = 7
 		writeDto.Name = "六十根均線"
-		writeDto.CandleCount = 60
+		writeDto.ResultType = "boolList"
 
 		strategyDto, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 
@@ -378,16 +347,16 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 	})
 
 	t.Run("a strategy that is not there is reported as such, not as bad content", func(t *testing.T) {
-		// Both are wrong: no strategy carries this identifier, and the candle count
-		// is impossible. Answering about the count would send the caller off to fix
-		// it, after which there is still nothing to rewrite.
+		// Both are wrong: no strategy carries this identifier, and the content has
+		// no name. Answering about the name would send the caller off to fix it,
+		// after which there is still nothing to rewrite.
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
 			FindOne(gomock.Any(), uint(999999)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		writeDto := aStrategyWrite()
 		writeDto.ID = 999999
-		writeDto.CandleCount = 0
+		writeDto.Name = ""
 
 		_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
 

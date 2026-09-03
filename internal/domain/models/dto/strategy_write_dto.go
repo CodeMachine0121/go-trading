@@ -12,6 +12,4 @@ type StrategyWriteDto struct {
 	Name                string
 	Script              string
 	ResultType          string
-	AggregationInterval string
-	CandleCount         int
 }

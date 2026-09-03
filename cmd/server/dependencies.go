@@ -73,10 +73,7 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 	// it is given no K candle repository.
 	strategyController := controller.NewStrategyController(
 		application.NewStrategyApplication(
-			service.NewStrategyService(
-				persistence.NewStrategyRepository(database),
-				applicationConfig.KCandleQueryMaxResults,
-			),
+			service.NewStrategyService(persistence.NewStrategyRepository(database)),
 		),
 	)
 
