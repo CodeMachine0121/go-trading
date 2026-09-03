@@ -64,7 +64,7 @@
 | `dto.StrategyDto` | DTO（輸出） | 策略離開 domain 的唯一形狀，七個欄位 | — | （全部讀取情境） |
 | `interface.IStrategyRepository` | Interface | 策略的存取契約：`Save`／`Update`／`FindOne`／`FindAll`／`Delete`。**唯一性與存在性由它負責回答**——`Save`/`Update` 回 `ErrStrategyNameConflict`，`Update`/`FindOne`/`Delete` 回 `ErrStrategyNotFound` | `entities.Strategy` | 名稱重複／找不到的全部情境 |
 | `persistence.StrategyRepository` | Repository | GORM 實作。只把**名稱索引**的唯一約束違反翻成 `ErrStrategyNameConflict`（見 §4）、把 `ErrRecordNotFound` 翻成 `ErrStrategyNotFound`；`Update` **只寫五個欄位**，識別碼與建立時間因此不可能被換掉，且**改寫與回讀共用同一個交易**，回傳的必定是這一次寫進去的值 | `entities.Strategy` | 名稱重複／同時撞名／建立時間不因修改而變 |
-| `service.StrategyService` | Domain Service | application 的唯一入口，五個**互不呼叫**的 use case：`CreateStrategy`／`GetStrategy`／`ListStrategies`／`UpdateStrategy`／`DeleteStrategy`。持有計算根數上限 | `IStrategyRepository`、`StrategyDomain` | （全部） |
+| `service.StrategyService` | Domain Service | application 的唯一入口，五個**互不呼叫**的 use case：`CreateStrategy`／`GetStrategy`／`ListStrategies`／`UpdateStrategy`／`DeleteStrategy`。持有計算根數上限。`UpdateStrategy` **先確認策略在不在、再判內容**，依 PRD 的業務流程順序——反過來會對一支不存在的策略回報內容哪裡錯，把人帶往錯的方向 | `IStrategyRepository`、`StrategyDomain` | （全部） |
 | `application.StrategyApplication` | Application | 五行轉呼叫，全程不碰 entity 與 domain model | `StrategyService` | （全部） |
 | `controller.StrategyController` | Controller | HTTP 轉換：body binding、路徑上的識別碼解析、狀態碼對映 | `StrategyApplication` | （全部） |
 | `models.StrategyRequest` | Request | 建立與修改共用的 body 形狀，`ToWriteDto(id)` 由呼叫端決定指的是哪一支 | `dto.StrategyWriteDto` | （全部建立與修改情境） |

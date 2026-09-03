@@ -1,7 +1,7 @@
 package persistence_test
 
 import (
-	"strings"
+	"fmt"
 	"testing"
 	"time"
 
@@ -49,19 +49,6 @@ func TestStrategyRepositorySaveRefusesANameAlreadyHeld(t *testing.T) {
 	strategies, findError := strategyRepository.FindAll()
 	require.NoError(t, findError)
 	assert.Len(t, strategies, 1, "拒絕的那一次不得留下任何東西，既有那一支也不得被動到")
-}
-
-func TestStrategyRepositorySaveCountsANameTheSameWithoutItsBlanks(t *testing.T) {
-	// The blanks are dropped before a name is judged, so what reaches the index is
-	// already the name itself — which is why these two collide.
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
-	trimmedName := strings.TrimSpace("　二十根均線　")
-	_, saveError := strategyRepository.Save(strategyNamed("二十根均線"))
-	require.NoError(t, saveError)
-
-	_, conflictError := strategyRepository.Save(strategyNamed(trimmedName))
-
-	require.ErrorIs(t, conflictError, domains.ErrStrategyNameConflict)
 }
 
 func TestStrategyRepositorySaveTellsNamesApartByCase(t *testing.T) {
@@ -145,9 +132,15 @@ func TestStrategyRepositoryFindOne(t *testing.T) {
 	})
 
 	t.Run("reports not found when no strategy carries it", func(t *testing.T) {
-		_, findError := strategyRepository.FindOne(savedStrategy.ID + 999)
+		missingID := savedStrategy.ID + 999
+
+		_, findError := strategyRepository.FindOne(missingID)
 
 		require.ErrorIs(t, findError, domains.ErrStrategyNotFound)
+		// Worded the way every other refusal is worded, and naming the identifier
+		// nobody has. A reader meeting one refusal in their own language and the
+		// next in the system's internal wording has to work out both came from here.
+		assert.Contains(t, findError.Error(), fmt.Sprintf("找不到識別碼為 %d 的策略", missingID))
 	})
 }
 
@@ -274,6 +267,7 @@ func TestStrategyRepositoryUpdateReportsNotFound(t *testing.T) {
 	_, updateError := strategyRepository.Update(rewritten)
 
 	require.ErrorIs(t, updateError, domains.ErrStrategyNotFound)
+	assert.Contains(t, updateError.Error(), "找不到識別碼為 999999 的策略")
 
 	strategies, findError := strategyRepository.FindAll()
 	require.NoError(t, findError)
@@ -316,6 +310,7 @@ func TestStrategyRepositoryDeleteReportsNotFound(t *testing.T) {
 	deleteError := strategyRepository.Delete(999999)
 
 	require.ErrorIs(t, deleteError, domains.ErrStrategyNotFound)
+	assert.Contains(t, deleteError.Error(), "找不到識別碼為 999999 的策略")
 }
 
 func TestStrategyRepositorySaysSoWhenItCannotReachTheDatabase(t *testing.T) {

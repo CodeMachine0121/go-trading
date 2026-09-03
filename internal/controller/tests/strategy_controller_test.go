@@ -229,7 +229,12 @@ func TestStrategyRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 	// would fail the test rather than quietly answer.
 	// The last one is larger than an identifier can hold. Read too wide and then
 	// narrowed, it would wrap onto a real strategy and answer for that one instead.
-	for _, id := range []string{"abc", "0", "-1", "1.5", "%20", "18446744073709551616"} {
+	// The last two are larger than an identifier can hold: one overflows the parse,
+	// the other parses cleanly and would otherwise reach the database and come back
+	// as a storage failure rather than as "no strategy has that identifier".
+	for _, id := range []string{
+		"abc", "0", "-1", "1.5", "%20", "18446744073709551616", "9223372036854775808",
+	} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 			t.Run(method+" /strategies/"+id, func(t *testing.T) {
 				fixture := newStrategyRouterUnderTest(t)
@@ -246,6 +251,8 @@ func TestStrategyRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 func TestStrategyRouterUpdateStrategy(t *testing.T) {
 	t.Run("answers with the strategy as it now stands", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
 			Update(gomock.Any()).
 			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
@@ -283,6 +290,8 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 
 	t.Run("answers bad request when the content breaks a rule", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 
 		response := fixture.send(http.MethodPut, "/strategies/7",
 			`{"name": "", "script": "x", "aggregationInterval": "1h", "candleCount": 20}`)
@@ -293,7 +302,7 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 	t.Run("answers not found when no strategy carries that identifier", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Update(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		response := fixture.send(http.MethodPut, "/strategies/7", aStrategyBody)
 
@@ -302,6 +311,8 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 
 	t.Run("answers conflict when the new name is already held", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
 			Update(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
 

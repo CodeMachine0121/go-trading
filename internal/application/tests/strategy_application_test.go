@@ -102,6 +102,33 @@ func TestStrategyApplicationCreateStrategy(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("a name differing only by its blanks reaches storage as the same name", func(t *testing.T) {
+		// This is the half of "只差前後空白的名稱視為重複" that lives above storage:
+		// two spellings arrive, one name is stored. The other half — one name twice
+		// is a conflict — is asserted against the real index in the repository tests.
+		fixture := newStrategyApplicationUnderTest(t)
+		storedNames := make([]string, 0, 2)
+		fixture.strategyRepository.EXPECT().
+			Save(gomock.Any()).
+			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
+				storedNames = append(storedNames, strategy.Name)
+
+				return aStoredStrategy(uint(len(storedNames)), strategy.Name), nil
+			}).Times(2)
+
+		plainly := aStrategyWrite()
+		plainly.Name = "二十根均線"
+		padded := aStrategyWrite()
+		padded.Name = "　二十根均線　"
+
+		_, plainError := fixture.strategyApplication.CreateStrategy(plainly)
+		_, paddedError := fixture.strategyApplication.CreateStrategy(padded)
+
+		require.NoError(t, plainError)
+		require.NoError(t, paddedError)
+		assert.Equal(t, []string{"二十根均線", "二十根均線"}, storedNames)
+	})
+
 	t.Run("falls back on the same defaults the rest of the system uses", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
@@ -210,7 +237,11 @@ func TestStrategyApplicationRefusesContentBeforeAnythingIsWritten(t *testing.T) 
 		})
 
 		t.Run("rewriting with "+testCase.name, func(t *testing.T) {
+			// The strategy is there; only its new content is wrong. Update is left
+			// unstubbed, so a write that went out anyway fails the test.
 			fixture := newStrategyApplicationUnderTest(t)
+			fixture.strategyRepository.EXPECT().
+				FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 			writeDto := aStrategyWrite()
 			writeDto.ID = 7
 			testCase.breakIt(&writeDto)
@@ -309,6 +340,8 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 	t.Run("rewrites the strategy the write names", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
+			FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
+		fixture.strategyRepository.EXPECT().
 			Update(gomock.Any()).
 			DoAndReturn(func(strategy entities.Strategy) (entities.Strategy, error) {
 				assert.Equal(t, uint(7), strategy.ID)
@@ -333,7 +366,7 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 	t.Run("reports a strategy that is not there", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Update(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+			FindOne(uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		writeDto := aStrategyWrite()
 		writeDto.ID = 7
@@ -343,8 +376,28 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
 
+	t.Run("a strategy that is not there is reported as such, not as bad content", func(t *testing.T) {
+		// Both are wrong: no strategy carries this identifier, and the candle count
+		// is impossible. Answering about the count would send the caller off to fix
+		// it, after which there is still nothing to rewrite.
+		fixture := newStrategyApplicationUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(uint(999999)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
+
+		writeDto := aStrategyWrite()
+		writeDto.ID = 999999
+		writeDto.CandleCount = 0
+
+		_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
+		assert.NotErrorIs(t, err, domains.ErrStrategyValidation)
+	})
+
 	t.Run("reports a name another strategy already holds", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
 			Update(gomock.Any()).Return(entities.Strategy{}, domains.ErrStrategyNameConflict)
 

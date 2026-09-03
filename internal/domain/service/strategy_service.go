@@ -87,6 +87,15 @@ func (strategyService *StrategyService) UpdateStrategy(
 		return dto.StrategyDto{}, domains.ErrStrategyNotFound
 	}
 
+	// Whether the strategy is there is settled before its content is judged. The
+	// other way round, rewriting a strategy that does not exist with content that is
+	// also wrong answers "the candle count must be above zero" — and correcting the
+	// count still leaves nothing to rewrite. The two refusals are different problems
+	// and must not be handed over as one.
+	if _, findError := strategyService.strategyRepository.FindOne(writeDto.ID); findError != nil {
+		return dto.StrategyDto{}, findError
+	}
+
 	strategyDomain, validationError := domains.NewStrategyDomain(
 		writeDto, strategyService.maxCandleCount)
 	if validationError != nil {

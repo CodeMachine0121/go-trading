@@ -87,7 +87,7 @@ func (strategyRepository *StrategyRepository) Update(
 			// written first would ask the same question twice.
 			readBack := transaction.First(&updatedStrategy, strategy.ID)
 			if errors.Is(readBack.Error, gorm.ErrRecordNotFound) {
-				return domains.ErrStrategyNotFound
+				return strategyRepository.notFound(strategy.ID)
 			}
 			if readBack.Error != nil {
 				return fmt.Errorf("find strategy: %w", readBack.Error)
@@ -141,7 +141,7 @@ func (strategyRepository *StrategyRepository) FindOne(id uint) (entities.Strateg
 
 	result := strategyRepository.database.First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return entities.Strategy{}, domains.ErrStrategyNotFound
+		return entities.Strategy{}, strategyRepository.notFound(id)
 	}
 	if result.Error != nil {
 		return entities.Strategy{}, fmt.Errorf("find strategy: %w", result.Error)
@@ -173,8 +173,15 @@ func (strategyRepository *StrategyRepository) Delete(id uint) error {
 		return fmt.Errorf("delete strategy: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return domains.ErrStrategyNotFound
+		return strategyRepository.notFound(id)
 	}
 
 	return nil
+}
+
+// notFound names the strategy nobody has. It is worded the way every other refusal
+// is worded, because a reader meeting one refusal in their own language and the
+// next in the system's internal wording has to work out that both came from here.
+func (strategyRepository *StrategyRepository) notFound(id uint) error {
+	return fmt.Errorf("%w: 找不到識別碼為 %d 的策略", domains.ErrStrategyNotFound, id)
 }

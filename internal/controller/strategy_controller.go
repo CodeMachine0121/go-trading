@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -113,12 +114,15 @@ func (strategyController *StrategyController) DeleteStrategy(context *gin.Contex
 // the very value that means "a strategy that does not exist yet" further in, so
 // letting it through would ask the storage layer to rewrite nothing in particular.
 //
-// It is read at the width an identifier is actually held in. Reading it wider and
-// narrowing afterwards would wrap a number too large to hold into a small one, and
-// answer for whichever strategy that landed on.
+// It is read at the width an identifier is actually held in, and refused above what
+// the column can hold. Reading it wider would wrap a number too large to hold into a
+// small one and answer for whichever strategy that landed on; letting an oversized
+// one through instead reaches the database and comes back as a storage failure,
+// which reads as "something broke" when the truth is that no strategy has that
+// identifier.
 func (strategyController *StrategyController) readID(context *gin.Context) (uint, bool) {
 	id, parseError := strconv.ParseUint(context.Param("id"), 10, strconv.IntSize)
-	if parseError != nil || id == 0 {
+	if parseError != nil || id == 0 || id > math.MaxInt64 {
 		context.JSON(http.StatusBadRequest, gin.H{"message": "策略識別碼必須是正整數"})
 		return 0, false
 	}
