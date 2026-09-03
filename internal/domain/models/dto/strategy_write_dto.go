@@ -8,8 +8,8 @@ package dto
 // no strategy yet, so it is a create; anything else names the strategy being
 // rewritten. Every rule is then written once and applies to both by construction.
 type StrategyWriteDto struct {
-	ID                  uint
-	Name                string
-	Script              string
-	ResultType          string
+	ID         uint
+	Name       string
+	Script     string
+	ResultType string
 }

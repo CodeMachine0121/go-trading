@@ -1,10 +1,10 @@
 package models
 
 import (
+	"time"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
-
-import "time"
 
 // IndicatorCalculationRequest is the body a caller sends to run an indicator script.
 //
