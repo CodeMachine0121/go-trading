@@ -268,7 +268,19 @@ func TestStrategyApplicationListStrategies(t *testing.T) {
 		require.Len(t, strategyDtos, 2)
 		assert.Equal(t, "二十根均線", strategyDtos[0].Name)
 		assert.Equal(t, "六十根均線", strategyDtos[1].Name)
-		assert.Equal(t, 20, strategyDtos[0].CandleCount)
+
+		// Every one of them carries everything it remembers, not just its name —
+		// a collection of names would send the reader back for each strategy again.
+		for _, strategyDto := range strategyDtos {
+			assert.NotZero(t, strategyDto.ID)
+			assert.NotEmpty(t, strategyDto.Name)
+			assert.Equal(t, aStrategyWrite().Script, strategyDto.Script)
+			assert.Equal(t, "floatList", strategyDto.ResultType)
+			assert.Equal(t, "1h", strategyDto.AggregationInterval)
+			assert.Equal(t, 20, strategyDto.CandleCount)
+			assert.False(t, strategyDto.CreatedAt.IsZero())
+			assert.False(t, strategyDto.UpdatedAt.IsZero())
+		}
 	})
 
 	t.Run("holding none is an answer, not a failure", func(t *testing.T) {

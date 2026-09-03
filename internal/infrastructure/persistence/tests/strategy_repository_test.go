@@ -1,6 +1,7 @@
 package persistence_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,23 @@ func TestStrategyRepositorySaveRefusesANameAlreadyHeld(t *testing.T) {
 
 	require.ErrorIs(t, conflictError, domains.ErrStrategyNameConflict)
 	assert.Contains(t, conflictError.Error(), "二十根均線")
+
+	strategies, findError := strategyRepository.FindAll()
+	require.NoError(t, findError)
+	assert.Len(t, strategies, 1, "拒絕的那一次不得留下任何東西，既有那一支也不得被動到")
+}
+
+func TestStrategyRepositorySaveCountsANameTheSameWithoutItsBlanks(t *testing.T) {
+	// The blanks are dropped before a name is judged, so what reaches the index is
+	// already the name itself — which is why these two collide.
+	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	trimmedName := strings.TrimSpace("　二十根均線　")
+	_, saveError := strategyRepository.Save(strategyNamed("二十根均線"))
+	require.NoError(t, saveError)
+
+	_, conflictError := strategyRepository.Save(strategyNamed(trimmedName))
+
+	require.ErrorIs(t, conflictError, domains.ErrStrategyNameConflict)
 }
 
 func TestStrategyRepositorySaveTellsNamesApartByCase(t *testing.T) {
@@ -160,7 +178,8 @@ func TestStrategyRepositoryUpdateLeavesTheIdentifierAndTheFirstSavedTimeAlone(t 
 	require.NoError(t, updateError)
 	assert.Equal(t, savedStrategy.ID, updatedStrategy.ID)
 	assert.WithinDuration(t, savedStrategy.CreatedAt, updatedStrategy.CreatedAt, time.Millisecond)
-	assert.False(t, updatedStrategy.UpdatedAt.Before(updatedStrategy.CreatedAt))
+	assert.True(t, updatedStrategy.UpdatedAt.After(savedStrategy.UpdatedAt),
+		"最後修改時間必須往前走，否則看不出這一支被動過")
 }
 
 func TestStrategyRepositoryUpdateToItsOwnNameIsNotAConflict(t *testing.T) {
@@ -191,6 +210,15 @@ func TestStrategyRepositoryUpdateRefusesAnotherStrategysName(t *testing.T) {
 	_, conflictError := strategyRepository.Update(rewritten)
 
 	require.ErrorIs(t, conflictError, domains.ErrStrategyNameConflict)
+
+	strategies, findError := strategyRepository.FindAll()
+	require.NoError(t, findError)
+	foundNames := make([]string, 0, len(strategies))
+	for _, strategy := range strategies {
+		foundNames = append(foundNames, strategy.Name)
+	}
+	assert.ElementsMatch(t, []string{"二十根均線", "六十根均線"}, foundNames,
+		"拒絕的改名不得動到任何一支")
 }
 
 func TestStrategyRepositoryUpdateReportsNotFound(t *testing.T) {
@@ -202,6 +230,10 @@ func TestStrategyRepositoryUpdateReportsNotFound(t *testing.T) {
 	_, updateError := strategyRepository.Update(rewritten)
 
 	require.ErrorIs(t, updateError, domains.ErrStrategyNotFound)
+
+	strategies, findError := strategyRepository.FindAll()
+	require.NoError(t, findError)
+	assert.Empty(t, strategies, "改一支不存在的策略不得因此建出一支新的")
 }
 
 func TestStrategyRepositoryDelete(t *testing.T) {

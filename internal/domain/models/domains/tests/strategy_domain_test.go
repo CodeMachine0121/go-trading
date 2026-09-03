@@ -120,6 +120,21 @@ func TestNewStrategyDomainNamesAreJudgedWithoutTheBlanksAroundThem(t *testing.T)
 	}
 }
 
+func TestNewStrategyDomainAcceptsEveryIntervalOnOffer(t *testing.T) {
+	for _, declaredInterval := range []string{"5m", "15m", "1h", "4h", "1d"} {
+		t.Run(declaredInterval, func(t *testing.T) {
+			writeDto := aStrategyWriteDto()
+			writeDto.AggregationInterval = declaredInterval
+
+			strategyDomain, validationError := domains.NewStrategyDomain(
+				writeDto, strategyMaxCandleCount)
+
+			require.NoError(t, validationError)
+			assert.Equal(t, declaredInterval, strategyDomain.ToEntity().AggregationInterval)
+		})
+	}
+}
+
 func TestNewStrategyDomainRefusesContentThatBreaksARule(t *testing.T) {
 	testCases := []struct {
 		name            string
@@ -246,6 +261,22 @@ func TestNewStrategyDomainSavesAScriptItCannotVouchFor(t *testing.T) {
 		writeDto, strategyMaxCandleCount)
 
 	require.NoError(t, validationError)
+	assert.Equal(t, writeDto.Script, strategyDomain.ToEntity().Script)
+}
+
+func TestNewStrategyDomainSavesAScriptThatContradictsItsDeclaredKind(t *testing.T) {
+	// Whether a script's shape matches the kind it was declared under is decided
+	// when the script runs, against the candles it was handed. Saving cannot know it
+	// and does not pretend to.
+	writeDto := aStrategyWriteDto()
+	writeDto.ResultType = "bool"
+	writeDto.Script = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }"
+
+	strategyDomain, validationError := domains.NewStrategyDomain(
+		writeDto, strategyMaxCandleCount)
+
+	require.NoError(t, validationError)
+	assert.Equal(t, "bool", strategyDomain.ToEntity().ResultType)
 	assert.Equal(t, writeDto.Script, strategyDomain.ToEntity().Script)
 }
 
