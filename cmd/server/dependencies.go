@@ -67,6 +67,24 @@ func registerRoutes(engine *gin.Engine, database *gorm.DB, applicationConfig con
 	)
 
 	engine.POST("/indicator-calculations", indicatorCalculationController.CalculateIndicator)
+
+	// A saved strategy is its own resource: it holds an algorithm and the data that
+	// algorithm needs, and it is not any one calculation. It reads no K candles, so
+	// it is given no K candle repository.
+	strategyController := controller.NewStrategyController(
+		application.NewStrategyApplication(
+			service.NewStrategyService(
+				persistence.NewStrategyRepository(database),
+				applicationConfig.KCandleQueryMaxResults,
+			),
+		),
+	)
+
+	engine.POST("/strategies", strategyController.CreateStrategy)
+	engine.GET("/strategies", strategyController.ListStrategies)
+	engine.GET("/strategies/:id", strategyController.GetStrategy)
+	engine.PUT("/strategies/:id", strategyController.UpdateStrategy)
+	engine.DELETE("/strategies/:id", strategyController.DeleteStrategy)
 }
 
 // backgroundJobsFor assembles the work the system does on its own. Switching
