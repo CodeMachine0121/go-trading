@@ -118,7 +118,7 @@ curl localhost:8080/health
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
 | `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大 |
-| `POST` | `/indicator-calculations` | 用自訂算式計算指標 |
+| `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、根數與算到哪個時間為止 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
 **修改的對象由網址決定**：內文若帶了與網址不同的交易標的或起始時間，會被拒絕。
@@ -220,17 +220,37 @@ stockProxy.EXPECT().Fetch("2330").Return(quote, nil)
 
 ## 自訂指標計算
 
-送出交易標的、要用幾根 K 線、算式產出的**指標值種類**，以及一段算式：
+送出交易標的、要吃**多粗**的 K 線、要**幾根**、算到**哪個時間為止**，
+算式產出的**指標值種類**，以及一段算式：
 
 ```bash
 curl -X POST localhost:8080/indicator-calculations -H 'Content-Type: application/json' -d '{
   "symbol": "BTCUSDT",
+  "aggregationInterval": "1h",
   "candleCount": 4,
+  "endTime": "2026-08-29T09:00:00Z",
   "resultType": "float",
   "script": "package main\nimport \"indicator\"\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\n sum := 0.0\n for _, c := range data { sum += c.Close }\n return map[string]float64{\"ma\": sum / float64(len(data))}\n}"
 }'
-# {"symbol":"BTCUSDT","usedCandleCount":4,"resultType":"float","values":{"ma":115}}
+# {"symbol":"BTCUSDT","interval":"1h","usedCandleCount":4,
+#  "openTimes":["2026-08-29T05:00:00Z","2026-08-29T06:00:00Z","2026-08-29T07:00:00Z","2026-08-29T08:00:00Z"],
+#  "resultType":"float","values":{"ma":115}}
 ```
+
+**這三樣都不記在策略身上。** 一支策略只記著名稱、算式與指標值種類——
+要多粗、要幾根、算到什麼時候，是**這一次執行**的事。所以同一支「二十根均線」
+可以在一小時的刻度上看一次、再在五分鐘的刻度上看一次，不必存成兩支。
+
+| 欄位 | 省略時 | 說明 |
+| :--- | :--- | :--- |
+| `aggregationInterval` | `5m` | 五選一：`5m`／`15m`／`1h`／`4h`／`1d`，與彙總查詢共用同一組刻度 |
+| `candleCount` | 必填 | 要幾根**彙總後**的 K 線；一小時 × 24 與五分鐘 × 288 都是回看一天 |
+| `endTime` | 現在 | 算到哪個時間為止；**指向未來時視同現在**，不拒絕 |
+
+回覆多帶三樣：`interval`（這次實際用的刻度）、`usedCandleCount`、
+以及 `openTimes`——**這次餵給算式的每一根從哪裡開始**，由早到晚。
+`floatList` / `boolList` 的第 n 個值就對應 `openTimes` 的第 n 個，
+所以要把一條線畫回圖上，不必自己從刻度與根數反推是哪幾根。
 
 **指標值種類**（`resultType`）決定算式要回傳什麼形狀，四選一，**省略等同 `float`**：
 
@@ -263,11 +283,17 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 **幾條規則**
 
-- **一律排除最新那一根** K 線，因為它涵蓋的五分鐘還沒走完。要 4 根就會撈 5 根丟掉最新的。
-- `data` 依起始時間**由早到晚**排列。
+- **只採用走完的刻度區間。** 還在走的那一格不會被讀進來——它裝了一半，
+  算出來的值會隨著時間自己變。`endTime` 剛好落在格子邊界上時，前一格已經走完，**要用**。
+  這條**不分現在與過去**：`endTime` 指向去年某個時刻時，它落入的那一格同樣還沒走完。
+  五分鐘刻度下，這剛好就是舊的「排除最新一根」；一小時刻度下，它排掉的是一個只走了 35 分鐘的小時。
+- `data` 依起始時間**由早到晚**排列，每一格一根，起始時間是**那一格的起點**（不是格子裡任何一根 K 線的）。
+- **沒有資料的刻度區間不產出那一根**，也不補洞、不沿用前一格；有一根 K 線就算數，不要求裝滿。
 - 回傳是**一組「名稱 → 值」**，值的形狀由 `resultType` 決定，放幾個由你決定；回空的也算成功，`floatList` / `boolList` 下某個名稱給空的一串也算成功。
-- 單次最多用 `KCANDLE_QUERY_MAX_RESULTS` 根，且不得為零或負數。
-- 排除最新一根後不夠用，會拒絕並告訴你**實際可用幾根**。
+- 單次最多用 `KCANDLE_QUERY_MAX_RESULTS` 根**彙總後**的 K 線，且不得為零或負數；與一根多粗無關。
+- 走完的格子湊不滿要求的根數，會拒絕並告訴你**實際湊得出幾根**——
+  十二根的二十根均線一樣算得出一個數字，而那個數字錯得看不出來。
+- **「這支算法至少需要幾根」由算式自己把關**（`len(data)` 不夠就讓它失敗）。系統不替算式猜。
 
 **算式能用什麼**
 
@@ -305,7 +331,7 @@ K 線。取多於一根有兩個用處：吸收行情來源事後修正的數字
 
 幾條刻意的行為：
 
-- **進行中那一根不存。** 它的數字還會變，而且指標計算本來就排除最新一根。
+- **進行中那一根不存。** 它的數字還會變，而且指標計算本來就不採用還在走的那一格。
 - **各交易標的彼此獨立。** 一個取不到資料不影響其他，也不用人管——五分鐘後下一輪自然重試。
 - **違反 K 線規則的逐根跳過。** 同一批其他合規的照常存入，並留下紀錄指出是哪一根、哪條規則。
 - **只在出事時留紀錄。** 正常的輪次不寫任何東西。
