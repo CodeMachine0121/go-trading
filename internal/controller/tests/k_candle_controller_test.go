@@ -416,3 +416,19 @@ func TestNamedKCandleResponses(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 }
+
+// The same refusal a strategy's name gets, for the same reason: carried through to
+// the database this is a storage failure, and a storage failure is reported as the
+// system having broken rather than as an answer about what was asked for.
+func TestKCandleRouterRefusesATradingSymbolThatCannotBeStored(t *testing.T) {
+	// No expectation is set on the repository: nothing may reach storage.
+	fixture := newRouterUnderTest(t)
+
+	recorder := fixture.call(http.MethodPost, "/k-candles",
+		`{"symbol":"BTC\u0000USDT","openTime":"2026-08-30T09:00:00Z","open":"100","high":"120",`+
+			`"low":"90","close":"110","volume":"11","quoteVolume":"1200",`+
+			`"takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600"}`)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "NUL")
+}

@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// strategyNameIndex is the unique index on a strategy's name, and
+// StrategyNameIndex is the unique index on a strategy's name, and
 // uniqueViolationCode is what PostgreSQL calls a broken unique constraint. Together
 // they are how a name clash is told apart from any other constraint on the table —
 // the primary key included, which breaks when a restored dump leaves the identifier
@@ -20,11 +20,13 @@ import (
 //
 // The index name is repeated from the entity's tag because a struct tag cannot hold
 // a constant. If the two ever drift, storing a duplicate name stops being reported
-// as a conflict, which is exactly what the name conflict test asserts.
-const (
-	strategyNameIndex   = "idx_strategies_name"
-	uniqueViolationCode = "23505"
-)
+// as a conflict and starts being reported as a storage failure. It is exported so
+// that the agreement between the two spellings is asserted by a test needing no
+// database, rather than only by one that skips when there is none.
+const StrategyNameIndex = "idx_strategies_name"
+
+// uniqueViolationCode is what PostgreSQL calls a broken unique constraint.
+const uniqueViolationCode = "23505"
 
 // strategyWritableColumns are the only columns a rewrite may touch. Naming them is
 // what makes "the identifier and the time it was first saved never change" true:
@@ -88,7 +90,7 @@ func (strategyRepository *StrategyRepository) Update(
 			// written first would ask the same question twice.
 			readBack := transaction.First(&updatedStrategy, strategy.ID)
 			if errors.Is(readBack.Error, gorm.ErrRecordNotFound) {
-				return strategyRepository.notFound(strategy.ID)
+				return domains.StrategyNotFound(strategy.ID)
 			}
 			if readBack.Error != nil {
 				return fmt.Errorf("find strategy: %w", readBack.Error)
@@ -133,7 +135,7 @@ func (strategyRepository *StrategyRepository) isNameAlreadyHeld(writeError error
 	}
 
 	return postgresError.Code == uniqueViolationCode &&
-		postgresError.ConstraintName == strategyNameIndex
+		postgresError.ConstraintName == StrategyNameIndex
 }
 
 // FindOne returns the strategy carrying this identifier.
@@ -142,7 +144,7 @@ func (strategyRepository *StrategyRepository) FindOne(executionContext context.C
 
 	result := strategyRepository.database.WithContext(executionContext).First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return entities.Strategy{}, strategyRepository.notFound(id)
+		return entities.Strategy{}, domains.StrategyNotFound(id)
 	}
 	if result.Error != nil {
 		return entities.Strategy{}, fmt.Errorf("find strategy: %w", result.Error)
@@ -174,15 +176,8 @@ func (strategyRepository *StrategyRepository) Delete(executionContext context.Co
 		return fmt.Errorf("delete strategy: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return strategyRepository.notFound(id)
+		return domains.StrategyNotFound(id)
 	}
 
 	return nil
-}
-
-// notFound names the strategy nobody has. It is worded the way every other refusal
-// is worded, because a reader meeting one refusal in their own language and the
-// next in the system's internal wording has to work out that both came from here.
-func (strategyRepository *StrategyRepository) notFound(id uint) error {
-	return fmt.Errorf("%w: 找不到識別碼為 %d 的策略", domains.ErrStrategyNotFound, id)
 }

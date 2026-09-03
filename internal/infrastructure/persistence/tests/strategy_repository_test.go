@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -327,4 +328,16 @@ func TestStrategyRepositorySaysSoWhenItCannotReachTheDatabase(t *testing.T) {
 	require.Error(t, findAllError)
 	require.Error(t, updateError)
 	require.Error(t, deleteError)
+}
+
+// The repository names the index it blames in Go; the entity spells it in a struct
+// tag, which cannot hold a constant. Nothing but this stops the two drifting, and if
+// they drift a duplicate name stops being answered as a conflict and starts being
+// answered as a storage failure. This test needs no database, so unlike the conflict
+// tests above it cannot skip.
+func TestTheNameIndexTheRepositoryBlamesIsTheOneTheEntityDeclares(t *testing.T) {
+	nameField, found := reflect.TypeFor[entities.Strategy]().FieldByName("Name")
+	require.True(t, found, "the entity has no Name field to carry the index")
+
+	assert.Contains(t, nameField.Tag.Get("gorm"), "uniqueIndex:"+persistence.StrategyNameIndex)
 }

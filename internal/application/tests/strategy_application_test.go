@@ -442,3 +442,21 @@ func TestStrategyApplicationDeleteStrategy(t *testing.T) {
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
 }
+
+// A rewrite naming no strategy is refused without looking — the case above keeps
+// that promise — but it used to be refused with the sentinel's own English wording
+// while every other refusal spoke to the reader. The sentence is now written in one
+// place, so the refusal a caller meets here and the one the store gives are the
+// same sentence.
+func TestStrategyApplicationUpdateWithNoIdentifierSpeaksTheLanguageEveryOtherRefusalSpeaks(t *testing.T) {
+	// Nothing is stubbed on the repository: nothing may reach storage.
+	fixture := newStrategyApplicationUnderTest(t)
+	writeDto := aStrategyWrite()
+	writeDto.ID = 0
+
+	_, err := fixture.strategyApplication.UpdateStrategy(t.Context(), writeDto)
+
+	require.ErrorIs(t, err, domains.ErrStrategyNotFound)
+	assert.Equal(t, "strategy not found: 找不到識別碼為 0 的策略", err.Error())
+	assert.NotEqual(t, domains.ErrStrategyNotFound.Error(), err.Error())
+}

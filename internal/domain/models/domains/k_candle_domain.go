@@ -2,6 +2,7 @@ package domains
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -33,6 +34,14 @@ type KCandleDomain struct {
 func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCandleDomain, error) {
 	if writeDto.Symbol == "" {
 		return KCandleDomain{}, fmt.Errorf("%w: 必須指定交易標的", ErrKCandleValidation)
+	}
+
+	// Refused here for the reason a strategy's name is: carried through to the
+	// database, this same text is a storage failure rather than an answer about what
+	// was asked for.
+	if strings.ContainsRune(writeDto.Symbol, nulCharacter) {
+		return KCandleDomain{}, fmt.Errorf(
+			"%w: 交易標的不得包含空字元（NUL）", ErrKCandleValidation)
 	}
 
 	openTime := writeDto.OpenTime.UTC()

@@ -88,7 +88,7 @@ func (strategyService *StrategyService) UpdateStrategy(
 	// names no row, and what an ORM does with a write that names no row is its own
 	// decision to change.
 	if writeDto.ID == 0 {
-		return dto.StrategyDto{}, domains.ErrStrategyNotFound
+		return dto.StrategyDto{}, domains.StrategyNotFound(writeDto.ID)
 	}
 
 	// Whether the strategy is there is settled before its content is judged. The

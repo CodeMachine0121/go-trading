@@ -354,3 +354,37 @@ func TestStrategyRouterDeleteStrategy(t *testing.T) {
 		assert.Equal(t, http.StatusBadGateway, response.Code)
 	})
 }
+
+// A NUL byte is legal JSON and decodes into a real character, so it reaches the
+// rules like any other text. Left to the database it comes back as a broken
+// encoding, which the error mapping cannot recognise and reports as 502 — telling
+// the caller the system failed when what failed was what they sent.
+func TestStrategyRouterRefusesTextThatCannotBeStored(t *testing.T) {
+	testCases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "a name carrying a NUL",
+			body: `{"name":"a\u0000b","script":"package main","resultType":"float",` +
+				`"aggregationInterval":"5m","candleCount":20}`,
+		},
+		{
+			name: "a script carrying a NUL",
+			body: `{"name":"二十根均線","script":"package \u0000main","resultType":"float",` +
+				`"aggregationInterval":"5m","candleCount":20}`,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// No expectation is set on the repository: nothing may reach storage.
+			fixture := newStrategyRouterUnderTest(t)
+
+			recorder := fixture.send(http.MethodPost, "/strategies", testCase.body)
+
+			assert.Equal(t, http.StatusBadRequest, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "NUL")
+		})
+	}
+}
