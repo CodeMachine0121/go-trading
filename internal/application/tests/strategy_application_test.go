@@ -355,6 +355,19 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrStrategyNameConflict)
 	})
+
+	t.Run("refuses a rewrite that names no strategy without writing anything", func(t *testing.T) {
+		// No strategy carries no identifier. Nothing is stubbed on the repository, so
+		// a write that went out anyway — which names no row, and whose blast radius
+		// is then the storage layer's decision — fails the test.
+		fixture := newStrategyApplicationUnderTest(t)
+		writeDto := aStrategyWrite()
+		writeDto.ID = 0
+
+		_, err := fixture.strategyApplication.UpdateStrategy(writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
+	})
 }
 
 func TestStrategyApplicationDeleteStrategy(t *testing.T) {

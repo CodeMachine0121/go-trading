@@ -43,7 +43,7 @@
 | `controller/models/strategy_request.go` | **Add** | `StrategyRequest`（建立與修改共用同一個 body 形狀）+ `ToWriteDto(id)` |
 | `infrastructure/persistence/strategy_repository.go` | **Add** | `StrategyRepository`——GORM 實作，並把唯一索引違反翻成名稱衝突 |
 | `infrastructure/persistence/schema_migrator.go` | **Modify** | `migratedEntities` 多一列 `&entities.Strategy{}` |
-| `infrastructure/persistence/database.go` | **Modify** | `gorm.Config{TranslateError: true}`——沒有它就拿不到 `gorm.ErrDuplicatedKey`，只能去比對驅動的錯誤字串 |
+| `infrastructure/persistence/database.go` | **Not touched** | 一度打算開 `TranslateError: true`，後來拿掉——見 §4 |
 | `cmd/server/dependencies.go` | **Modify** | 組裝 `StrategyController` 並掛五條路由 |
 | `domains.AggregationIntervalDomain` | **Refactor（見 §4）** | 建構子改回傳**不帶哨兵**的原因錯誤，由呼叫端各自冠上自己的哨兵 |
 | `domains.IndicatorResultTypeDomain` | **Refactor（見 §4）** | 同上 |
@@ -63,7 +63,7 @@
 | `dto.StrategyWriteDto` | DTO（輸入） | application 交給 domain 的形狀。含 `ID`——`0` 是建立、非 `0` 是修改，於是建立與修改共用同一份驗證，「規則一字不差地相同」由型別保證而不是靠自律 | — | （全部建立與修改情境） |
 | `dto.StrategyDto` | DTO（輸出） | 策略離開 domain 的唯一形狀，七個欄位 | — | （全部讀取情境） |
 | `interface.IStrategyRepository` | Interface | 策略的存取契約：`Save`／`Update`／`FindOne`／`FindAll`／`Delete`。**唯一性與存在性由它負責回答**——`Save`/`Update` 回 `ErrStrategyNameConflict`，`Update`/`FindOne`/`Delete` 回 `ErrStrategyNotFound` | `entities.Strategy` | 名稱重複／找不到的全部情境 |
-| `persistence.StrategyRepository` | Repository | GORM 實作。把 `gorm.ErrDuplicatedKey` 翻成 `ErrStrategyNameConflict`、把「零列受影響」與 `ErrRecordNotFound` 翻成 `ErrStrategyNotFound`；`Update` **只寫五個欄位**，識別碼與建立時間因此不可能被換掉 | `entities.Strategy` | 名稱重複／同時撞名／建立時間不因修改而變 |
+| `persistence.StrategyRepository` | Repository | GORM 實作。只把**名稱索引**的唯一約束違反翻成 `ErrStrategyNameConflict`（見 §4）、把 `ErrRecordNotFound` 翻成 `ErrStrategyNotFound`；`Update` **只寫五個欄位**，識別碼與建立時間因此不可能被換掉，且**改寫與回讀共用同一個交易**，回傳的必定是這一次寫進去的值 | `entities.Strategy` | 名稱重複／同時撞名／建立時間不因修改而變 |
 | `service.StrategyService` | Domain Service | application 的唯一入口，五個**互不呼叫**的 use case：`CreateStrategy`／`GetStrategy`／`ListStrategies`／`UpdateStrategy`／`DeleteStrategy`。持有計算根數上限 | `IStrategyRepository`、`StrategyDomain` | （全部） |
 | `application.StrategyApplication` | Application | 五行轉呼叫，全程不碰 entity 與 domain model | `StrategyService` | （全部） |
 | `controller.StrategyController` | Controller | HTTP 轉換：body binding、路徑上的識別碼解析、狀態碼對映 | `StrategyApplication` | （全部） |
@@ -83,9 +83,27 @@
 | `domains.AggregationIntervalDomain` | 彙總刻度的行為；建構子失敗時回 `fmt.Errorf("%w: 彙總刻度只能是…", ErrKCandleValidation)` | 建構子改回**不帶哨兵**的原因錯誤（`fmt.Errorf("彙總刻度只能是…")`）。唯一的既有呼叫端 `KCandleSeriesQueryDomain` 改為 `fmt.Errorf("%w: %w", ErrKCandleValidation, intervalError)`——**在 service 邊界看到的哨兵與訊息字面一模一樣**，行為零變化 |
 | `domains.IndicatorResultTypeDomain` | 指標值種類的行為；建構子失敗時冠上 `ErrIndicatorCalculationValidation` | 同上。唯一的既有呼叫端 `IndicatorCalculationDomain` 改為自己冠哨兵，邊界行為零變化 |
 | `persistence.SchemaMigrator` | 由 entity 產生資料表 | `migratedEntities` 多一列 `&entities.Strategy{}` |
-| `persistence.NewDatabase` | 開連線，不碰 schema | `gorm.Config{}` → `gorm.Config{TranslateError: true}`。既有的 `errors.Is(err, gorm.ErrRecordNotFound)` 判斷不受影響 |
+| `persistence.NewDatabase` | 開連線，不碰 schema | **不動**。詳見下方〈為什麼不用 GORM 的錯誤轉譯〉 |
 | `cmd/server/dependencies.go` | 組裝根 | 組 `StrategyController`，掛 `POST /strategies`、`GET /strategies`、`GET /strategies/:id`、`PUT /strategies/:id`、`DELETE /strategies/:id`。`GET /strategies` 與 `GET /strategies/:id` 一靜一動、不同層，路由樹不衝突 |
 | `postman/` | 手動測試集 | 新增五個請求 |
+
+### 為什麼不用 GORM 的錯誤轉譯
+
+初版打算開 `gorm.Config{TranslateError: true}`，用 `gorm.ErrDuplicatedKey` 判斷名稱衝突。
+讀了 driver 的實作後放棄：`postgres.Dialector.Translate` 把 `*pgconn.PgError` **換成**光禿禿的哨兵，
+**constraint 名稱在那一步就丟了**。於是它只答得出「某個唯一約束壞了」，
+分不出壞的是名稱索引還是主鍵——而主鍵撞車（例如還原備份後識別碼序列落後）
+與任何人取的名字都無關，卻會被回成 `409 策略名稱「X」已被使用`，
+讓讀到的人去找一支根本不存在的同名策略。
+
+改為 `StrategyRepository` 自己以 `errors.As` 取出 `*pgconn.PgError`，
+比對 `Code == "23505"` 且 `ConstraintName == "idx_strategies_name"`。
+只有名稱索引算名稱衝突，其餘一律維持儲存失敗。
+順帶好處：不必動 `NewDatabase`，也就沒有一個影響所有 repository 的全域開關。
+
+代價是索引名稱在 entity 的 tag 與 repository 各寫了一次（struct tag 放不了常數）。
+兩者一旦漂掉，「存重複名稱」就不會被回報成衝突——而那正是
+`TestStrategyRepositorySaveRefusesANameAlreadyHeld` 斷言的事，所以漂掉會被測試抓到。
 
 ### 為什麼要動那兩個既有的領域物件
 
@@ -237,9 +255,11 @@ StrategyController.CreateStrategy
 ## 9. Risks & Open Decisions
 
 - **Risks / trade-offs:**
-  - **`TranslateError: true` 是全域設定。** 開啟後 GORM 會把驅動錯誤翻成自己的錯誤型別。
-    既有程式碼只依賴 `gorm.ErrRecordNotFound`（本來就是 GORM 自己的錯誤），不受影響；
-    但這是一個影響所有 repository 的開關，寫進本文件以免日後有人以為它只服務策略。
+  - **索引名稱寫在兩個地方**（entity 的 tag 與 repository 的常數），因為 struct tag 放不了常數。
+    漂掉會被名稱衝突的測試抓到，但仍是一處需要留意的重複。
+  - **`readID` 以 `strconv.IntSize` 解析識別碼。** 在 64 位元的目標上與寫死 64 完全等價，
+    因此**沒有測試能在本機證明這件事**；它保護的是 32 位元編譯下「數字太大被截斷、
+    答到別支策略身上」的情形。列在這裡以免日後有人以為它是多餘的。
   - **名稱唯一是區分大小寫的。** PRD 明確要「MA20 與 ma20 是兩支」，
     因此用一般的唯一索引而非不分大小寫的索引。日後若改主意，要動的是索引定義與一則測試。
   - **兩個既有領域物件的錯誤包裝方式改了。** 邊界行為（哨兵與訊息字面）完全相同，

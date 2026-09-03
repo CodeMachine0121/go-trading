@@ -78,6 +78,15 @@ func (strategyService *StrategyService) ListStrategies() ([]dto.StrategyDto, err
 func (strategyService *StrategyService) UpdateStrategy(
 	writeDto dto.StrategyWriteDto,
 ) (dto.StrategyDto, error) {
+	// No strategy carries no identifier, so there is nothing here to rewrite. Saying
+	// so here rather than letting the write go out is the difference between a
+	// guarantee this code makes and one it borrows: a rewrite with no identifier
+	// names no row, and what an ORM does with a write that names no row is its own
+	// decision to change.
+	if writeDto.ID == 0 {
+		return dto.StrategyDto{}, domains.ErrStrategyNotFound
+	}
+
 	strategyDomain, validationError := domains.NewStrategyDomain(
 		writeDto, strategyService.maxCandleCount)
 	if validationError != nil {

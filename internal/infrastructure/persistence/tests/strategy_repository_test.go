@@ -87,6 +87,50 @@ func TestStrategyRepositorySaveFreesANameThatWasDeleted(t *testing.T) {
 	require.NoError(t, reuseError)
 }
 
+func TestStrategyRepositorySaveDoesNotBlameTheNameForOtherClashes(t *testing.T) {
+	// A restored dump can leave the identifier sequence behind the rows it restored,
+	// so the next save collides on the primary key. Answering "that name is taken"
+	// there would send whoever reads it hunting for a strategy that does not exist.
+	database := newTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	occupying := strategyNamed("二十根均線")
+	occupying.ID = 5000
+	_, saveError := strategyRepository.Save(occupying)
+	require.NoError(t, saveError)
+
+	colliding := strategyNamed("六十根均線")
+	colliding.ID = 5000
+
+	_, clashError := strategyRepository.Save(colliding)
+
+	require.Error(t, clashError)
+	assert.NotErrorIs(t, clashError, domains.ErrStrategyNameConflict,
+		"撞到的是識別碼不是名稱，不該說名稱被佔用")
+	assert.NotContains(t, clashError.Error(), "六十根均線")
+}
+
+func TestStrategyRepositoryUpdateHandsBackWhatThisCallStored(t *testing.T) {
+	// The rewrite and the read-back share one transaction, so the values coming back
+	// are this call's own rather than whatever the row happened to hold afterwards.
+	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	savedStrategy, saveError := strategyRepository.Save(strategyNamed("二十根均線"))
+	require.NoError(t, saveError)
+
+	rewritten := strategyNamed("二十根均線")
+	rewritten.ID = savedStrategy.ID
+	rewritten.CandleCount = 60
+
+	updatedStrategy, updateError := strategyRepository.Update(rewritten)
+
+	require.NoError(t, updateError)
+	assert.Equal(t, 60, updatedStrategy.CandleCount)
+
+	readBack, findError := strategyRepository.FindOne(savedStrategy.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, readBack.CandleCount, updatedStrategy.CandleCount)
+	assert.Equal(t, readBack.UpdatedAt.UTC(), updatedStrategy.UpdatedAt.UTC())
+}
+
 func TestStrategyRepositoryFindOne(t *testing.T) {
 	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(strategyNamed("二十根均線"))

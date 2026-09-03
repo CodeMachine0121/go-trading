@@ -227,7 +227,9 @@ func TestStrategyRouterGetStrategy(t *testing.T) {
 func TestStrategyRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 	// Nothing is stubbed on the repository, so a request that got as far as storage
 	// would fail the test rather than quietly answer.
-	for _, id := range []string{"abc", "0", "-1", "1.5", "%20"} {
+	// The last one is larger than an identifier can hold. Read too wide and then
+	// narrowed, it would wrap onto a real strategy and answer for that one instead.
+	for _, id := range []string{"abc", "0", "-1", "1.5", "%20", "18446744073709551616"} {
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 			t.Run(method+" /strategies/"+id, func(t *testing.T) {
 				fixture := newStrategyRouterUnderTest(t)
