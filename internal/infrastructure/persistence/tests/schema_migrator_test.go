@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
@@ -56,4 +57,34 @@ func TestSchemaMigratorRunsTwiceWithTheSameResult(t *testing.T) {
 	require.NoError(t, secondError)
 	assert.Equal(t, firstTables, secondTables)
 	assert.Contains(t, secondTables, "Strategies")
+}
+
+func TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan(t *testing.T) {
+	// Dropping is aimed at two named columns and nothing else. What a strategy
+	// actually is — its name, its script, the kind of value it produces and when it
+	// was first saved — has to come through untouched, or the migration would be
+	// quietly destroying the thing it was meant to leave alone.
+	database := newTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	savedStrategy, saveError := strategyRepository.Save(t.Context(), entities.Strategy{
+		Name:       "二十根均線",
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
+		ResultType: "floatList",
+	})
+	require.NoError(t, saveError)
+
+	for _, retiredColumn := range retiredStrategyColumns {
+		require.NoError(t, database.Exec(
+			`ALTER TABLE "Strategies" ADD COLUMN IF NOT EXISTS "`+retiredColumn+`" text`).Error)
+	}
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	readBack, findError := strategyRepository.FindOne(t.Context(), savedStrategy.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, savedStrategy.Name, readBack.Name)
+	assert.Equal(t, savedStrategy.Script, readBack.Script)
+	assert.Equal(t, savedStrategy.ResultType, readBack.ResultType)
+	assert.WithinDuration(t, savedStrategy.CreatedAt, readBack.CreatedAt, time.Millisecond)
 }

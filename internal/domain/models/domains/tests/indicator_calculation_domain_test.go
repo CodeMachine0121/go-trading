@@ -512,3 +512,26 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredResultType(t *testing.T) {
 		assert.Contains(t, validationError.Error(), "計算根數必須大於零")
 	})
 }
+
+func TestSelectInputCandlesHandsOverExactlyWhatWasAskedForAndNeverGuessesAMinimum(t *testing.T) {
+	// A strategy no longer records how many candles its algorithm needs, and nothing
+	// took that job over: an algorithm that needs fifty to be worth anything is
+	// handed ten if ten is what was asked for. The calculation never sees the script,
+	// so it has nothing to work a minimum out from — this test pins that absence,
+	// because the tempting "helpful" fix is to invent one here.
+	for _, candleCount := range []int{1, 3, 10} {
+		calculationDomain := calculationFor(t, "1h", candleCount)
+		storedOpenTimes := make([]string, 0, 20)
+		for hour := 20; hour > 0; hour-- {
+			storedOpenTimes = append(storedOpenTimes,
+				momentAt("2026-09-02T00:00:00Z").Add(time.Duration(hour)*time.Hour).Format(time.RFC3339))
+		}
+
+		kCandleVos, selectionError := calculationDomain.SelectInputCandles(
+			storedCandlesNewestFirst(storedOpenTimes...))
+
+		require.NoError(t, selectionError)
+		assert.Len(t, kCandleVos, candleCount,
+			"要幾根就給幾根——系統不替算式猜它至少需要幾根")
+	}
+}
