@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -186,6 +187,23 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
+}
+
+// 每一種失敗要被分開回答，判準是「使用者得去改哪裡」。
+// 名字對不上要去改參數那一列或算式那一行——那是他自己的請求，不是這個系統壞了。
+func TestCalculateIndicatorTellsAMismatchedParameterNameApartFromEverythingElse(t *testing.T) {
+	fixture := newIndicatorRouterUnderTest(t)
+	fixture.expectTwoUsableCandles()
+	fixture.indicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("%w: 算式取用了參數 %q，但這一次沒有宣告這個名字",
+			domains.ErrIndicatorParameterNotDeclared, "期數"))
+
+	recorder := fixture.post(indicatorBody)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code,
+		"這是呼叫端填錯了，不是這個系統壞了")
+	assert.Contains(t, recorder.Body.String(), "期數", "它必須指名是哪一個")
 }
 
 func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {

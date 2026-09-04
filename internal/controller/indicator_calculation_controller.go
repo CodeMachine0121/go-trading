@@ -44,12 +44,21 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
-// respondWithError separates "your request was wrong" from "your script cannot run",
-// so a caller can tell the two apart without reading the message.
+// respondWithError separates what went wrong by what the caller has to go and change,
+// so the answer can be told apart without reading the message: the request itself, a
+// knob's name, the script, or this system.
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
 	if errors.Is(err, domains.ErrIndicatorCalculationValidation) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	// A knob the script reached for that nobody declared is the caller's mistake, not
+	// the script's and not this system's. Left to fall through it would be answered
+	// as a gateway failure — telling somebody the backend broke when what happened is
+	// that they renamed a knob and forgot the line that reads it.
+	if errors.Is(err, domains.ErrIndicatorParameterNotDeclared) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
