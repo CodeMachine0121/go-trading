@@ -28,6 +28,21 @@ type binanceLiveKLine struct {
 	TakerBuyBaseVolume   string `json:"V"`
 	TakerBuyQuoteVolume  string `json:"Q"`
 	Closed               bool   `json:"x"`
+
+	// The two below are never read. They are declared because decoding matches a key
+	// case-insensitively once no field claims it exactly, and this source names two
+	// pairs of different things with the same letter in different cases:
+	//
+	//   "L" is the last trade's number — without this field it lands in "l", the low,
+	//       and a number will not go into a price, so the whole message is refused.
+	//   "T" is when the candle closes — without this field it lands in "t", the open,
+	//       and nothing complains: every candle is simply stamped one interval late
+	//       and merges into the wrong one.
+	//
+	// Claiming the keys exactly is what keeps them apart. The second one is the more
+	// dangerous of the two precisely because it never says anything.
+	CloseTimeMilliseconds int64 `json:"T"`
+	LastTradeNumber       int64 `json:"L"`
 }
 
 // toLiveKCandleVo turns one live message into the shape the domain accepts.
