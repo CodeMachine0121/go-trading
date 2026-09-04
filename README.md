@@ -125,7 +125,7 @@ curl localhost:8080/health
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
 | `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大 |
-| `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、根數與算到哪個時間為止 |
+| `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
@@ -459,3 +459,60 @@ data: {"symbol":"BTCUSDT","status":"stalled","kCandle":{...}}
   並吸收行情來源事後對已收完 K 線的修正——兩件跟盤做不到的事。
 - **即時完全不能用時，其他功能一律照常**：查詢、新增、修改、刪除、指標計算與自動抓取
   都不受影響，畫面退回原本的樣子（新資料五分鐘內出現）。
+
+## 策略自己的旋鈕
+
+一支策略除了名稱、算式與指標值種類之外，還記著**它自己的參數**——
+算式裡那些可以調的數字，例如均線的期數、布林通道的倍數。
+
+```jsonc
+{
+  "name": "布林通道",
+  "resultType": "floatList",
+  "script": "...",
+  "parameters": [
+    { "name": "期數", "kind": "lookbackCount", "defaultValue": 20 },
+    { "name": "倍數", "kind": "number",        "defaultValue": 2 }
+  ]
+}
+```
+
+種類只有兩種，而分成兩種**只有一個理由**——系統必須知道要拿多少 K 線：
+
+| `kind` | 是什麼 | 系統怎麼用它 |
+| :--- | :--- | :--- |
+| `lookbackCount` | 大於零的**整數**，這條線要看過去多少根 | **拿所有這一種的最大值**去算要讀幾根 |
+| `number` | 任何數字，含負數與小數 | 不解讀，原樣交給算式 |
+
+算式以名字取用它們，拿到的就是那一種該有的樣子——沒有型別斷言：
+
+```go
+func Calculate(data []indicator.KCandle) map[string][]float64 {
+    period := indicator.LookbackCount("期數")   // int，可以直接拿去切片
+    factor := indicator.Number("倍數")          // float64
+    ...
+}
+```
+
+**取用一個沒有宣告的名字，這一次計算就失敗**，並指出是哪一個名字對不上。
+它不會被說成「算式執行失敗」——把參數改了名卻忘了改算式，是很容易犯而且看不出來的錯，
+說成算式壞了會讓人去讀錯的地方。
+
+執行計算時：
+
+```jsonc
+{
+  "symbol": "BTCUSDT",
+  "candleCount": 12,          // 我要幾格有值，不是要拿幾根
+  "parameters":      [ { "name": "期數", "kind": "lookbackCount", "defaultValue": 20 } ],
+  "parameterValues": [ { "name": "期數", "value": 50 } ]   // 這一次改成 50
+}
+```
+
+**要拿幾根不必也不能填**——它是算出來的：`要看的格數 + 最大回看根數 − 1`。
+上面這個例子會去拿 61 根，算出 12 個值。沒有任何回看根數參數時就是 12 根，不多不少。
+
+沒給值的參數用它宣告的預設值；給了一個沒有宣告的名字則整次拒絕——
+安靜忽略會讓人以為調的那一格有作用，而它什麼都沒做。
+
+> **部署提醒**：本功能新增一張資料表，部署前請執行 `make migrate`。
