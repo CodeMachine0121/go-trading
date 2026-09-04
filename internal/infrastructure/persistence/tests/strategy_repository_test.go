@@ -340,3 +340,102 @@ func TestTheNameIndexTheRepositoryBlamesIsTheOneTheEntityDeclares(t *testing.T) 
 
 	assert.Contains(t, nameField.Tag.Get("gorm"), "uniqueIndex:"+persistence.StrategyNameIndex)
 }
+
+// withParameters is a strategy carrying knobs. A knob has no identity anybody names
+// — it is its name inside its strategy — so these tests read them back by name.
+func withParameters(
+	strategy entities.Strategy, parameters ...entities.StrategyParameter,
+) entities.Strategy {
+	strategy.Parameters = parameters
+
+	return strategy
+}
+
+func lookbackCountKnob(name string, defaultValue float64) entities.StrategyParameter {
+	return entities.StrategyParameter{Name: name, Kind: "lookbackCount", DefaultValue: defaultValue}
+}
+
+func numberKnob(name string, defaultValue float64) entities.StrategyParameter {
+	return entities.StrategyParameter{Name: name, Kind: "number", DefaultValue: defaultValue}
+}
+
+func knobsByName(strategy entities.Strategy) map[string]entities.StrategyParameter {
+	byName := make(map[string]entities.StrategyParameter, len(strategy.Parameters))
+	for _, parameter := range strategy.Parameters {
+		byName[parameter.Name] = parameter
+	}
+
+	return byName
+}
+
+// A strategy read back without its knobs looks like a strategy that has none, and
+// every knob it declared would silently stop existing.
+func TestStrategyRepositoryKeepsTheKnobsAStrategyCarries(t *testing.T) {
+	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+
+	savedStrategy, saveError := strategyRepository.Save(t.Context(), withParameters(
+		strategyNamed("布林通道"),
+		lookbackCountKnob("期數", 20),
+		numberKnob("倍數", 2.5)))
+	require.NoError(t, saveError)
+
+	readBack, findError := strategyRepository.FindOne(t.Context(), savedStrategy.ID)
+
+	require.NoError(t, findError)
+	knobs := knobsByName(readBack)
+	require.Len(t, knobs, 2)
+	assert.Equal(t, "lookbackCount", knobs["期數"].Kind)
+	assert.InDelta(t, 20.0, knobs["期數"].DefaultValue, 0)
+	assert.Equal(t, "number", knobs["倍數"].Kind)
+	assert.InDelta(t, 2.5, knobs["倍數"].DefaultValue, 0)
+}
+
+func TestStrategyRepositoryListsEveryStrategyWithItsKnobs(t *testing.T) {
+	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	_, saveError := strategyRepository.Save(t.Context(), withParameters(
+		strategyNamed("布林通道"), lookbackCountKnob("期數", 20)))
+	require.NoError(t, saveError)
+
+	strategies, findError := strategyRepository.FindAll(t.Context())
+
+	require.NoError(t, findError)
+	require.Len(t, strategies, 1)
+	require.Len(t, strategies[0].Parameters, 1)
+	assert.Equal(t, "期數", strategies[0].Parameters[0].Name)
+}
+
+// Rewriting replaces the whole set. Leaving the old rows behind would give a
+// strategy knobs it no longer declares, and the largest look-back — which decides
+// how many candles get read — would be computed from a knob nobody can see.
+func TestStrategyRepositoryReplacesTheWholeSetOfKnobsOnRewrite(t *testing.T) {
+	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	savedStrategy, saveError := strategyRepository.Save(t.Context(), withParameters(
+		strategyNamed("布林通道"), lookbackCountKnob("期數", 20), numberKnob("倍數", 2)))
+	require.NoError(t, saveError)
+
+	rewritten := withParameters(
+		strategyNamed("布林通道"), lookbackCountKnob("週期", 50))
+	rewritten.ID = savedStrategy.ID
+
+	updatedStrategy, updateError := strategyRepository.Update(t.Context(), rewritten)
+
+	require.NoError(t, updateError)
+	knobs := knobsByName(updatedStrategy)
+	require.Len(t, knobs, 1, "舊的兩個必須整份消失，不是被留下來")
+	assert.InDelta(t, 50.0, knobs["週期"].DefaultValue, 0)
+}
+
+func TestStrategyRepositoryLetsAStrategyDropEveryKnobItHad(t *testing.T) {
+	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	savedStrategy, saveError := strategyRepository.Save(t.Context(), withParameters(
+		strategyNamed("布林通道"), lookbackCountKnob("期數", 20)))
+	require.NoError(t, saveError)
+
+	rewritten := strategyNamed("布林通道")
+	rewritten.ID = savedStrategy.ID
+
+	updatedStrategy, updateError := strategyRepository.Update(t.Context(), rewritten)
+
+	require.NoError(t, updateError)
+	assert.Empty(t, updatedStrategy.Parameters)
+}
