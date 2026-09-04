@@ -9,6 +9,42 @@ import (
 // the candle count, or not enough candles to satisfy it.
 var ErrIndicatorCalculationValidation = errors.New("indicator calculation validation failed")
 
+// ErrIndicatorCalculationCandleCountExceeded marks the one validation failure a
+// caller can act on by changing two specific inputs: the span asked for, together
+// with the look-back the algorithm declares, needs more candles than one call may
+// read.
+//
+// It is told apart from the other validation failures for the same reason the
+// mismatched-knob failure is told apart from a broken script: the caller has two
+// concrete ways out — ask for a shorter span, or aggregate more coarsely — and a
+// caller can only offer them if it knows this is the failure it got. Reading that
+// out of the sentence would be matching on prose written for a person.
+var ErrIndicatorCalculationCandleCountExceeded = errors.New("indicator calculation candle count exceeded")
+
+// CandleCountExceeded builds that failure. It answers to both sentinels: it is still
+// a validation failure to everything that only cares about that, and it is the
+// candle-count one to whoever can offer the two ways out.
+func CandleCountExceeded(neededCandleCount int, maxCandleCount int) error {
+	return &candleCountExceededError{
+		neededCandleCount: neededCandleCount,
+		maxCandleCount:    maxCandleCount,
+	}
+}
+
+type candleCountExceededError struct {
+	neededCandleCount int
+	maxCandleCount    int
+}
+
+func (exceeded *candleCountExceededError) Error() string {
+	return fmt.Sprintf("%v: 這一段配上回看根數要用到 %d 根，超過單次可用的最大根數（最多 %d 根）",
+		ErrIndicatorCalculationValidation, exceeded.neededCandleCount, exceeded.maxCandleCount)
+}
+
+func (exceeded *candleCountExceededError) Unwrap() []error {
+	return []error{ErrIndicatorCalculationValidation, ErrIndicatorCalculationCandleCountExceeded}
+}
+
 // ErrIndicatorScriptFailed marks a well-formed request whose script could not run:
 // unreadable, failed while running, or reaching for something it may not use.
 var ErrIndicatorScriptFailed = errors.New("indicator script failed")

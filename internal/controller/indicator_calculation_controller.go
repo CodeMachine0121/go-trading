@@ -50,6 +50,16 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
+	// Naming the input at fault is what lets a caller put the sentence where the
+	// person can act on it. Only this one validation failure has a specific input to
+	// name — the rest are answered as they were.
+	if errors.Is(err, domains.ErrIndicatorCalculationCandleCountExceeded) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message": err.Error(),
+			"field":   "candleCount",
+		})
+		return
+	}
 	if errors.Is(err, domains.ErrIndicatorCalculationValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return

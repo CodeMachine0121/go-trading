@@ -89,9 +89,7 @@ func NewIndicatorCalculationDomain(
 	// long look-back can exceed it, and refusing only on the asked-for number would
 	// let that through and fail further in.
 	if inputCandleCount > maxCandleCount {
-		return IndicatorCalculationDomain{}, fmt.Errorf(
-			"%w: 這一段配上回看根數要用到 %d 根，超過單次可用的最大根數（最多 %d 根）",
-			ErrIndicatorCalculationValidation, inputCandleCount, maxCandleCount)
+		return IndicatorCalculationDomain{}, CandleCountExceeded(inputCandleCount, maxCandleCount)
 	}
 
 	interval, intervalError := NewAggregationIntervalDomain(requestDto.AggregationInterval)
