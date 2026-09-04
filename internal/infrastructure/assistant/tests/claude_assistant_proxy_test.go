@@ -180,15 +180,19 @@ func TestClaudeAssistantProxyGivesEveryLookupItsResult(t *testing.T) {
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	request := aTurnRequest()
-	request.Exchanges = []vo.AssistantQueryExchangeVo{
+	request.Rounds = []vo.AssistantQueryRoundVo{
 		{
-			Call:    vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_trading_symbols", Arguments: `{"symbol":"BTCUSDT"}`},
-			Outcome: `{"symbols":["BTCUSDT"]}`,
+			Exchanges: []vo.AssistantQueryExchangeVo{{
+				Call:    vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_trading_symbols", Arguments: `{"symbol":"BTCUSDT"}`},
+				Outcome: `{"symbols":["BTCUSDT"]}`,
+			}},
 		},
 		{
-			Call:     vo.AssistantQueryCallVo{CallID: "call_2", Name: "list_trading_symbols", Arguments: `{}`},
-			Outcome:  "彙總刻度只接受 5m、15m、1h、4h、1d",
-			Rejected: true,
+			Exchanges: []vo.AssistantQueryExchangeVo{{
+				Call:     vo.AssistantQueryCallVo{CallID: "call_2", Name: "list_trading_symbols", Arguments: `{}`},
+				Outcome:  "彙總刻度只接受 5m、15m、1h、4h、1d",
+				Rejected: true,
+			}},
 		},
 	}
 
@@ -285,4 +289,61 @@ func TestClaudeAssistantProxyRefusesToOfferACapabilityItCannotDescribe(t *testin
 
 	require.Error(t, replyError)
 	assert.Contains(t, replyError.Error(), "broken")
+}
+
+func TestClaudeAssistantProxyReplaysOneRoundAsOneTurn(t *testing.T) {
+	// 一輪裡問了三件事，就要以**一則助手訊息帶三個請求**、**一則回覆帶三個結果**送回去。
+	// 拆成三輪，助手會學到「一次問幾件事沒有用」，從此每件事都多花一次往返。
+	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
+
+	request := aTurnRequest()
+	request.Rounds = []vo.AssistantQueryRoundVo{{
+		Narration: "我先看一下系統裡既有策略的算式寫法。",
+		Exchanges: []vo.AssistantQueryExchangeVo{
+			{Call: vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_strategies", Arguments: `{}`}, Outcome: "{}"},
+			{Call: vo.AssistantQueryCallVo{CallID: "call_2", Name: "list_trading_symbols", Arguments: `{}`}, Outcome: "{}"},
+			{Call: vo.AssistantQueryCallVo{CallID: "call_3", Name: "get_k_candles", Arguments: `{}`}, Outcome: "{}"},
+		},
+	}}
+
+	_, replyError := fixture.assistantProxy.Reply(t.Context(), request)
+
+	require.NoError(t, replyError)
+	// 三則近期訊息，加上這一輪的助手訊息與回覆——一共五則，不是八則。
+	require.Len(t, fixture.sentRequest.Messages, 5)
+
+	assistantTurn := fixture.sentRequest.Messages[3]
+	assert.Equal(t, "assistant", assistantTurn.Role)
+	// 那句旁白在最前面，三個請求接在後面：助手下一輪才看得到自己剛才在想什麼。
+	require.Len(t, assistantTurn.Content, 4)
+	assert.Equal(t, "text", assistantTurn.Content[0].Type)
+	assert.Equal(t, "我先看一下系統裡既有策略的算式寫法。", assistantTurn.Content[0].Text)
+	assert.Equal(t, "tool_use", assistantTurn.Content[1].Type)
+	assert.Equal(t, "tool_use", assistantTurn.Content[3].Type)
+
+	resultTurn := fixture.sentRequest.Messages[4]
+	assert.Equal(t, "user", resultTurn.Role)
+	require.Len(t, resultTurn.Content, 3)
+	assert.Equal(t, "call_1", resultTurn.Content[0].ToolUseID)
+	assert.Equal(t, "call_3", resultTurn.Content[2].ToolUseID)
+}
+
+func TestClaudeAssistantProxyLeavesOutANarrationThatWasNotThere(t *testing.T) {
+	// 助手什麼都沒說就直接要查的時候，不要替它插一則空白的文字區塊——
+	// 那是它自己的 API 會拒絕的形狀。
+	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
+
+	request := aTurnRequest()
+	request.Rounds = []vo.AssistantQueryRoundVo{{
+		Exchanges: []vo.AssistantQueryExchangeVo{
+			{Call: vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_strategies", Arguments: `{}`}, Outcome: "{}"},
+		},
+	}}
+
+	_, replyError := fixture.assistantProxy.Reply(t.Context(), request)
+
+	require.NoError(t, replyError)
+	assistantTurn := fixture.sentRequest.Messages[3]
+	require.Len(t, assistantTurn.Content, 1)
+	assert.Equal(t, "tool_use", assistantTurn.Content[0].Type)
 }

@@ -183,6 +183,14 @@ func (assistantConversationService *AssistantConversationService) recentMessages
 
 // writeAnswer drives the round trips until the assistant has written an answer.
 //
+// **A reply that asks for lookups is not an answer, even when it also says
+// something.** The assistant routinely does both in one breath — "let me check the
+// existing scripts first" alongside the lookup it wants — and reading that sentence
+// as the answer ends the turn before a single lookup has run. What the reader then
+// gets is a promise, and the only way forward is to ask "well?", which is not a
+// conversation. So the lookups are checked first and the sentence travels with them
+// as narration.
+//
 // It ends because the queries are counted: once they are spent no further one runs,
 // so the next round trip is the assistant's last chance to speak, and it is told so.
 // An assistant that still says nothing then is treated as one that did not answer at
@@ -200,23 +208,45 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 
 		exchange = exchange.RecordUsage(reply.Usage)
 
+		// 先問「有沒有要查、還准不准查」，再問「有沒有說話」。順序反過來就是上面那個
+		// 「我先看一下…」然後結束的問題。
+		allowedCalls := exchange.AllowedCalls(reply.QueryCalls)
+		if len(allowedCalls) > 0 {
+			exchange = exchange.RecordRound(
+				reply.Answer,
+				assistantConversationService.runAssistantQueries(executionContext, allowedCalls))
+
+			continue
+		}
+
 		if reply.Answer != "" {
 			return exchange, reply.Answer, nil
 		}
 
-		if len(reply.QueryCalls) == 0 || !exchange.AllowsQuery() {
-			return exchange, "", domains.AssistantAnsweredNothing()
-		}
-
-		for _, call := range reply.QueryCalls {
-			if !exchange.AllowsQuery() {
-				break
-			}
-
-			outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, call)
-			exchange = exchange.RecordQuery(call, outcome, rejected)
-		}
+		return exchange, "", domains.AssistantAnsweredNothing()
 	}
+}
+
+// runAssistantQueries carries out this round's lookups and hands back what the
+// assistant should read for each.
+//
+// They run in the order they were asked for, and every one of them produces a
+// result — including the refused ones. A request left without a result is the one
+// shape the assistant's own interface refuses outright.
+func (assistantConversationService *AssistantConversationService) runAssistantQueries(
+	executionContext context.Context, calls []vo.AssistantQueryCallVo,
+) []vo.AssistantQueryExchangeVo {
+	exchanges := make([]vo.AssistantQueryExchangeVo, 0, len(calls))
+	for _, call := range calls {
+		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, call)
+		exchanges = append(exchanges, vo.AssistantQueryExchangeVo{
+			Call:     call,
+			Outcome:  outcome,
+			Rejected: rejected,
+		})
+	}
+
+	return exchanges
 }
 
 // runAssistantQuery carries out what the assistant asked for and hands back what it

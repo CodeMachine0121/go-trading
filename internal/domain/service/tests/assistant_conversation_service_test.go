@@ -273,9 +273,10 @@ func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 			DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
 				// What it looked at comes back to it on the next round trip, which is
 				// how it knows what it has already learned.
-				require.Len(t, request.Exchanges, 1)
-				assert.Equal(t, `{"symbols":["BTCUSDT"]}`, request.Exchanges[0].Outcome)
-				assert.False(t, request.Exchanges[0].Rejected)
+				require.Len(t, request.Rounds, 1)
+				require.Len(t, request.Rounds[0].Exchanges, 1)
+				assert.Equal(t, `{"symbols":["BTCUSDT"]}`, request.Rounds[0].Exchanges[0].Outcome)
+				assert.False(t, request.Rounds[0].Exchanges[0].Rejected)
 
 				return answeredReply("有 BTCUSDT", 200), nil
 			}),
@@ -300,6 +301,84 @@ func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 	assert.Equal(t, 300, answerDto.Usage)
 	require.Len(t, storedTurn.Queries, 1)
 	assert.Equal(t, theQueryName, storedTurn.Queries[0].QueryName)
+}
+
+func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) {
+	// 這是回報進來的症狀：問「給我一份布林通道的腳本」，回來的是
+	// 「我先看一下系統裡既有策略的算式寫法」然後就結束了，工具一次都沒跑，
+	// 使用者只好自己再問一次「好了沒」。
+	//
+	// 助手很常在**同一則回覆裡**同時說一句話與要求一次查詢。那句話是旁白不是答案，
+	// 所以要先問「有沒有要查」再問「有沒有說話」。
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.expectUsageToday(0)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).
+		Return(`{"strategies":[]}`, nil)
+
+	gomock.InOrder(
+		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+			Return(vo.AssistantReplyVo{
+				Answer:     "我先看一下系統裡既有策略的算式寫法。",
+				QueryCalls: []vo.AssistantQueryCallVo{{CallID: "call_1", Name: theQueryName, Arguments: `{}`}},
+				Usage:      100,
+			}, nil),
+		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
+				// 那句旁白要跟著它的查詢請求一起回去，否則助手是從一個它看不到的
+				// 想法往下接，答案會從半句話開始。
+				require.Len(t, request.Rounds, 1)
+				assert.Equal(t, "我先看一下系統裡既有策略的算式寫法。", request.Rounds[0].Narration)
+
+				return answeredReply("這是一份布林通道的算式：…", 200), nil
+			}),
+	)
+
+	storedTurn := entities.AssistantTurn{}
+	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, conversation entities.Conversation) (entities.Conversation, error) {
+			storedTurn = conversation.Turns[0]
+			conversation.ID = 1
+
+			return conversation, nil
+		})
+
+	answerDto, askError := fixture.assistantConversationService.Ask(
+		t.Context(), dto.AssistantAskDto{Question: "請給我一份布林通道的腳本"})
+
+	require.NoError(t, askError)
+	assert.Equal(t, "這是一份布林通道的算式：…", answerDto.Answer)
+	assert.NotContains(t, answerDto.Answer, "我先看一下")
+	assert.Equal(t, 1, answerDto.QueryCount)
+	assert.Len(t, storedTurn.Queries, 1)
+}
+
+func TestAskAnswersWithWhatItSaidWhenItsQueriesAreSpent(t *testing.T) {
+	// 查詢次數用完之後，助手又只給了一句話與一個要不到的查詢請求。
+	// 那句話就是它手上僅有的東西——連同「已達上限」的標記一起留下，
+	// 比回一句「助手沒有回應」誠實。
+	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
+	fixture.expectUsageToday(0)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).Return("{}", nil)
+
+	gomock.InOrder(
+		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+			Return(queryingReply(theQueryName, 100), nil),
+		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+			Return(vo.AssistantReplyVo{
+				Answer:     "只查到這些，還缺歷史資料。",
+				QueryCalls: []vo.AssistantQueryCallVo{{CallID: "call_2", Name: theQueryName, Arguments: `{}`}},
+				Usage:      100,
+			}, nil),
+	)
+	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		Return(entities.Conversation{ID: 1}, nil)
+
+	answerDto, askError := fixture.assistantConversationService.Ask(
+		t.Context(), dto.AssistantAskDto{Question: "查到底"})
+
+	require.NoError(t, askError)
+	assert.Equal(t, "只查到這些，還缺歷史資料。", answerDto.Answer)
+	assert.True(t, answerDto.StoppedAtQueryLimit)
 }
 
 func TestAskRunsEveryCapabilityAskedForAtOnce(t *testing.T) {
@@ -369,9 +448,10 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 					Return(queryingReply(testCase.requestedName, 100), nil),
 				fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
-						require.Len(t, request.Exchanges, 1)
-						assert.Contains(t, request.Exchanges[0].Outcome, testCase.expectedOutcome)
-						assert.True(t, request.Exchanges[0].Rejected)
+						require.Len(t, request.Rounds, 1)
+						require.Len(t, request.Rounds[0].Exchanges, 1)
+						assert.Contains(t, request.Rounds[0].Exchanges[0].Outcome, testCase.expectedOutcome)
+						assert.True(t, request.Rounds[0].Exchanges[0].Rejected)
 
 						return answeredReply("這件事辦不到", 100), nil
 					}),

@@ -14,9 +14,9 @@ type AssistantTurnRequestVo struct {
 	// this list and nothing more, which is why a capability that is not offered
 	// cannot be reached by mistake.
 	Declarations []AssistantQueryDeclarationVo
-	// Exchanges are what this exchange has already looked at, in the order it
-	// happened.
-	Exchanges []AssistantQueryExchangeVo
+	// Rounds are the round trips this exchange has already spent looking things up,
+	// in the order they happened — each with what the assistant said on the way.
+	Rounds []AssistantQueryRoundVo
 	// QueryLimitReached says no further query will be run, so the assistant is being
 	// asked to answer with what it already has.
 	QueryLimitReached bool

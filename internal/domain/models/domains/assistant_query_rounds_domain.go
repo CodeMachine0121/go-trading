@@ -31,16 +31,30 @@ func (assistantQueryRoundsDomain AssistantQueryRoundsDomain) ReachedLimit() bool
 	return assistantQueryRoundsDomain.used >= assistantQueryRoundsDomain.limit
 }
 
+// Remaining is how many more assistant queries this answer may spend.
+//
+// It exists because the assistant may ask for several lookups in one breath, and
+// the honest reply to "may I run these five?" is "you may run the first two" —
+// not a yes or a no.
+func (assistantQueryRoundsDomain AssistantQueryRoundsDomain) Remaining() int {
+	remaining := assistantQueryRoundsDomain.limit - assistantQueryRoundsDomain.used
+	if remaining < 0 {
+		return 0
+	}
+
+	return remaining
+}
+
 // Used is how many assistant queries this answer has spent.
 func (assistantQueryRoundsDomain AssistantQueryRoundsDomain) Used() int {
 	return assistantQueryRoundsDomain.used
 }
 
-// Record counts one assistant query as spent, handing back the count as it now
-// stands.
-func (assistantQueryRoundsDomain AssistantQueryRoundsDomain) Record() AssistantQueryRoundsDomain {
+// Record counts this many assistant queries as spent, handing back the count as it
+// now stands.
+func (assistantQueryRoundsDomain AssistantQueryRoundsDomain) Record(count int) AssistantQueryRoundsDomain {
 	return AssistantQueryRoundsDomain{
 		limit: assistantQueryRoundsDomain.limit,
-		used:  assistantQueryRoundsDomain.used + 1,
+		used:  assistantQueryRoundsDomain.used + count,
 	}
 }

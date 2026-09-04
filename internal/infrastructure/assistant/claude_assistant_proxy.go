@@ -152,16 +152,19 @@ func (claudeAssistantProxy *ClaudeAssistantProxy) toolsFor(
 }
 
 // messagesFor lays out the conversation as the assistant sees it: the recent messages
-// with the question last, then each lookup of this exchange as a request and its
-// result.
+// with the question last, then each round of lookups as the assistant's turn and the
+// reply carrying its results.
 //
-// Each lookup is replayed as its own request-and-result pair even when several were
-// asked for at once. What the assistant needs is that every request it made has a
-// result attached; the grouping it originally used carries no meaning it can act on.
+// **A round is replayed whole.** Whatever the assistant said on the way goes back in
+// the same turn as the requests it made, and all of that round's results come back in
+// a single reply. Both halves matter: without the sentence, the assistant's next turn
+// continues from a thought it can no longer see; and results split one per reply
+// teach it that asking for several lookups at once does not work, which costs a round
+// trip per lookup from then on.
 func (claudeAssistantProxy *ClaudeAssistantProxy) messagesFor(
 	request vo.AssistantTurnRequestVo,
 ) []anthropic.MessageParam {
-	messages := make([]anthropic.MessageParam, 0, len(request.Messages)+len(request.Exchanges)*2)
+	messages := make([]anthropic.MessageParam, 0, len(request.Messages)+len(request.Rounds)*2)
 
 	for _, message := range request.Messages {
 		if message.Role == vo.AssistantMessageRoleAnswer {
@@ -172,16 +175,28 @@ func (claudeAssistantProxy *ClaudeAssistantProxy) messagesFor(
 		messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock(message.Content)))
 	}
 
-	for _, exchange := range request.Exchanges {
-		messages = append(messages,
-			anthropic.NewAssistantMessage(anthropic.NewToolUseBlock(
+	for _, round := range request.Rounds {
+		assistantBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(round.Exchanges)+1)
+		if round.Narration != "" {
+			assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(round.Narration))
+		}
+
+		resultBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(round.Exchanges))
+
+		for _, exchange := range round.Exchanges {
+			assistantBlocks = append(assistantBlocks, anthropic.NewToolUseBlock(
 				exchange.Call.CallID,
 				json.RawMessage(exchange.Call.Arguments),
 				exchange.Call.Name,
-			)),
-			anthropic.NewUserMessage(anthropic.NewToolResultBlock(
+			))
+			resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(
 				exchange.Call.CallID, exchange.Outcome, exchange.Rejected,
-			)))
+			))
+		}
+
+		messages = append(messages,
+			anthropic.NewAssistantMessage(assistantBlocks...),
+			anthropic.NewUserMessage(resultBlocks...))
 	}
 
 	if request.QueryLimitReached && len(messages) > 0 {
