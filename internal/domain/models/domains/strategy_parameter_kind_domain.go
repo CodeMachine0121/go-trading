@@ -10,13 +10,18 @@ import (
 // declarableStrategyParameterKinds is the entire set a caller may declare, in the
 // order it is offered back when a declaration is not recognised.
 //
-// Adding another **numeric** kind means adding it here and answering the predicate
-// below. Adding a kind that is not a number — a yes-or-no, say — needs more than
-// this list: the value is one number, and widening it to hold anything would put the
-// kind back at reading time, which is the one thing this design refuses.
+// Adding a kind means adding it here, and — if the system is to read any meaning
+// into it — saying so where that meaning is read.
+//
+// A yes-or-no was once noted here as needing more than this list, on the reasoning
+// that the value is one number. It does not: zero is no and anything else is yes, so
+// the value stays one number and the kind still only says how to read it. What the
+// note was right to refuse is widening the stored value to hold anything, because
+// that is what would put the kind back at reading time.
 var declarableStrategyParameterKinds = []vo.StrategyParameterKindVo{
 	vo.StrategyParameterKindLookbackCount,
 	vo.StrategyParameterKindNumber,
+	vo.StrategyParameterKindBoolean,
 }
 
 // StrategyParameterKindDomain is a declared parameter kind. It answers the one

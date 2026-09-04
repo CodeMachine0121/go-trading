@@ -18,6 +18,10 @@ func numberParameter(name string, defaultValue float64) dto.StrategyParameterWri
 	return dto.StrategyParameterWriteDto{Name: name, Kind: "number", DefaultValue: defaultValue}
 }
 
+func booleanParameter(name string, defaultValue float64) dto.StrategyParameterWriteDto {
+	return dto.StrategyParameterWriteDto{Name: name, Kind: "boolean", DefaultValue: defaultValue}
+}
+
 func parametersOf(t *testing.T, declared ...dto.StrategyParameterWriteDto) domains.StrategyParametersDomain {
 	t.Helper()
 
@@ -209,5 +213,60 @@ func TestReadingAParameterSaysWhetherItWasDeclared(t *testing.T) {
 
 		_, isNumberDeclared := parameters.NumberOf("週期")
 		assert.False(t, isNumberDeclared)
+	})
+}
+
+// 是非仍然是一個數字，種類只說怎麼讀它——這是分種類的整個意義，
+// 也是為什麼多一種讀法不必動到值是怎麼存、怎麼送的。
+func TestABooleanIsOneNumberReadAsYesOrNo(t *testing.T) {
+	t.Run("零是否，非零是是", func(t *testing.T) {
+		parameters := parametersOf(t,
+			booleanParameter("要濾掉假突破", 1), booleanParameter("只看多方", 0))
+
+		isTrue, isDeclared := parameters.BooleanOf("要濾掉假突破")
+		assert.True(t, isDeclared)
+		assert.True(t, isTrue)
+
+		isFalse, isFalseDeclared := parameters.BooleanOf("只看多方")
+		assert.True(t, isFalseDeclared)
+		assert.False(t, isFalse)
+	})
+
+	t.Run("沒宣告過的說得出它沒宣告", func(t *testing.T) {
+		parameters := parametersOf(t, booleanParameter("要濾掉假突破", 1))
+
+		_, isDeclared := parameters.BooleanOf("只看多方")
+		assert.False(t, isDeclared)
+	})
+
+	t.Run("宣告時就把值收成剛好零或一", func(t *testing.T) {
+		// 存下來的東西要自己說得出它是哪一個，而不是留一個 0.7 給下一個讀的人解讀。
+		parameters := parametersOf(t, booleanParameter("要濾掉假突破", 0.7))
+
+		assert.InDelta(t, 1.0, parameters.ToDtos()[0].DefaultValue, 0)
+	})
+
+	t.Run("這一次改成別的數字，收回來的仍然是零或一", func(t *testing.T) {
+		parameters := parametersOf(t, booleanParameter("要濾掉假突破", 1))
+
+		applied, applyError := parameters.Applying(
+			[]dto.StrategyParameterValueDto{{Name: "要濾掉假突破", Value: 2}})
+
+		require.NoError(t, applyError)
+		assert.InDelta(t, 1.0, applied.ToDtos()[0].DefaultValue, 0)
+	})
+
+	t.Run("它不是回看根數，所以不影響要拿幾根", func(t *testing.T) {
+		// 回看根數是系統唯一會解讀的那一種。多一種讀法不該讓它多讀一根 K 線。
+		parameters := parametersOf(t, booleanParameter("要濾掉假突破", 1))
+
+		assert.Equal(t, 0, parameters.MaximumLookbackCount())
+	})
+
+	t.Run("零不會被當成不合法——是非沒有大於零這回事", func(t *testing.T) {
+		_, buildError := domains.NewStrategyParametersDomain(
+			[]dto.StrategyParameterWriteDto{booleanParameter("只看多方", 0)})
+
+		assert.NoError(t, buildError)
 	})
 }

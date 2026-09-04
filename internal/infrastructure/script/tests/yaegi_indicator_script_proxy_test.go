@@ -715,6 +715,22 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
+const booleanSwitchScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	useOldest := indicator.Boolean("看最舊那一根")
+
+	if useOldest {
+		return map[string]float64{"價": data[0].Close}
+	}
+
+	return map[string]float64{"價": data[len(data)-1].Close}
+}
+`
+
 func parametersOf(t *testing.T, declared ...dto.StrategyParameterWriteDto) domains.StrategyParametersDomain {
 	t.Helper()
 
@@ -738,6 +754,47 @@ func TestAScriptReadsItsParametersByName(t *testing.T) {
 	require.NoError(t, err)
 	// 最後兩根（110、120）的均價 115，乘上 2.5。
 	assert.InDelta(t, 287.5, numberOf(indicatorValues, "ma"), 0.0001)
+}
+
+// 是非讀出來必須是 bool，才能直接寫進 if。給它一個數字，算式就得自己判斷「幾算是」，
+// 而那個判斷會在每一支算式裡各寫一次、各寫得不一樣。
+func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
+	candles := candlesWithClosePrices(100, 110, 120)
+
+	t.Run("是的時候走這一邊", func(t *testing.T) {
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
+			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
+			parametersOf(t, dto.StrategyParameterWriteDto{
+				Name: "看最舊那一根", Kind: "boolean", DefaultValue: 1,
+			}))
+
+		require.NoError(t, err)
+		assert.InDelta(t, 100.0, numberOf(indicatorValues, "價"), 0.0001)
+	})
+
+	t.Run("否的時候走另一邊", func(t *testing.T) {
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
+			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
+			parametersOf(t, dto.StrategyParameterWriteDto{
+				Name: "看最舊那一根", Kind: "boolean", DefaultValue: 0,
+			}))
+
+		require.NoError(t, err)
+		assert.InDelta(t, 120.0, numberOf(indicatorValues, "價"), 0.0001)
+	})
+
+	t.Run("名字對不上時一樣被指名，不會安靜地拿到否", func(t *testing.T) {
+		// 否是一個合法的答案，所以「拿不到」絕不能長得跟「答案是否」一樣。
+		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
+			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
+			parametersOf(t, dto.StrategyParameterWriteDto{
+				Name: "看最舊", Kind: "boolean", DefaultValue: 1,
+			}))
+
+		missingName, isUndeclared := domains.UndeclaredParameterName(err)
+		require.True(t, isUndeclared)
+		assert.Equal(t, "看最舊那一根", missingName)
+	})
 }
 
 // 這一條是整個切片最容易做錯的地方：把參數改了名卻忘了改算式，

@@ -76,6 +76,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 			"Data":          reflect.ValueOf(&inputKCandles).Elem(),
 			"LookbackCount": reflect.ValueOf(parameterReader.lookbackCount),
 			"Number":        reflect.ValueOf(parameterReader.number),
+			"Boolean":       reflect.ValueOf(parameterReader.boolean),
 		},
 	}
 	for packagePath, packageSymbols := range allowedPackages {
@@ -172,6 +173,15 @@ func (reader *strategyParameterReader) number(name string) float64 {
 	}
 
 	return number
+}
+
+func (reader *strategyParameterReader) boolean(name string) bool {
+	isTrue, isDeclared := reader.parameters.BooleanOf(name)
+	if !isDeclared {
+		reader.recordMissing(name)
+	}
+
+	return isTrue
 }
 
 // recordMissing keeps the first name that did not match. The first is the one worth

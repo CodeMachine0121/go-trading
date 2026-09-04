@@ -97,7 +97,7 @@ func (strategyParametersDomain StrategyParametersDomain) Applying(
 			return StrategyParametersDomain{}, valueError
 		}
 
-		appliedParameters = append(appliedParameters, appliedParameter)
+		appliedParameters = append(appliedParameters, settleStrategyParameterValue(appliedParameter))
 	}
 
 	return StrategyParametersDomain{parameters: appliedParameters}, nil
@@ -128,6 +128,18 @@ func (strategyParametersDomain StrategyParametersDomain) LookbackCountOf(name st
 	}
 
 	return int(parameter.DefaultValue), true
+}
+
+// BooleanOf hands a script the yes-or-no behind a name, saying whether the name was
+// declared at all. Zero is no and anything else is yes — but a declared boolean has
+// already been settled to exactly zero or one, so this reads what was settled.
+func (strategyParametersDomain StrategyParametersDomain) BooleanOf(name string) (bool, bool) {
+	parameter, isDeclared := strategyParametersDomain.find(name)
+	if !isDeclared {
+		return false, false
+	}
+
+	return parameter.IsTrue(), true
 }
 
 // NumberOf hands a script the number behind a name, saying whether the name was
@@ -204,6 +216,7 @@ func settleStrategyParameter(
 		DefaultValue: declaredParameter.DefaultValue,
 	}
 
+	settledParameter = settleStrategyParameterValue(settledParameter)
 	if valueError := validateStrategyParameterValue(settledParameter); valueError != nil {
 		return entities.StrategyParameter{}, valueError
 	}
@@ -227,4 +240,26 @@ func validateStrategyParameterValue(parameter entities.StrategyParameter) error 
 	}
 
 	return nil
+}
+
+// settleStrategyParameterValue pins a yes-or-no to exactly zero or one.
+//
+// It is settled rather than refused because there is nothing to refuse: every number
+// is either zero or not. Settling it means what is stored says plainly which of the
+// two it is, instead of leaving a 0.7 for whoever reads it next to interpret — and
+// it makes a value that went in as 2 come back out as 1, rather than as 2.
+func settleStrategyParameterValue(
+	parameter entities.StrategyParameter,
+) entities.StrategyParameter {
+	if !parameter.IsBoolean() {
+		return parameter
+	}
+
+	settledParameter := parameter
+	settledParameter.DefaultValue = 0
+	if parameter.IsTrue() {
+		settledParameter.DefaultValue = 1
+	}
+
+	return settledParameter
 }

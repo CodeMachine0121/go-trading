@@ -40,9 +40,20 @@ func (strategyParameter StrategyParameter) ToDto() dto.StrategyParameterDto {
 	}
 }
 
-// IsLookbackCount says whether this knob is one the system reads meaning into. It is
-// the only question anything asks about a kind, which is why nothing branches per
-// kind anywhere else.
+// IsLookbackCount says whether this knob is one the system reads meaning into — how
+// many candles to read is derived from these, and nothing else about a kind changes
+// what the system does.
 func (strategyParameter StrategyParameter) IsLookbackCount() bool {
 	return vo.StrategyParameterKindVo(strategyParameter.Kind) == vo.StrategyParameterKindLookbackCount
+}
+
+// IsBoolean says whether this knob is a yes-or-no. Only two things ask: settling the
+// value to exactly zero or one, and handing it to a script as a bool.
+func (strategyParameter StrategyParameter) IsBoolean() bool {
+	return vo.StrategyParameterKindVo(strategyParameter.Kind) == vo.StrategyParameterKindBoolean
+}
+
+// IsTrue reads this knob as a yes-or-no: zero is no, anything else is yes.
+func (strategyParameter StrategyParameter) IsTrue() bool {
+	return strategyParameter.DefaultValue != 0
 }
