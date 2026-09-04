@@ -24,6 +24,10 @@ type Strategy struct {
 	ResultType string    `gorm:"size:32;not null"`
 	CreatedAt  time.Time `gorm:"type:timestamptz;not null"`
 	UpdatedAt  time.Time `gorm:"type:timestamptz;not null"`
+	// Parameters belong to this strategy and to nothing else: they are never read,
+	// created or deleted on their own, which is why they have no repository of their
+	// own and travel with the strategy that owns them.
+	Parameters []StrategyParameter `gorm:"foreignKey:StrategyID;constraint:OnDelete:CASCADE"`
 }
 
 // TableName pins the table to Strategies instead of GORM's default strategies.
@@ -41,5 +45,17 @@ func (strategy Strategy) ToDto() dto.StrategyDto {
 		ResultType: strategy.ResultType,
 		CreatedAt:  strategy.CreatedAt.UTC(),
 		UpdatedAt:  strategy.UpdatedAt.UTC(),
+		Parameters: strategy.parameterDtos(),
 	}
+}
+
+// parameterDtos hands out this strategy's knobs, always as a list rather than
+// sometimes nothing: a strategy with no knobs has an empty list, not an absence.
+func (strategy Strategy) parameterDtos() []dto.StrategyParameterDto {
+	parameterDtos := make([]dto.StrategyParameterDto, 0, len(strategy.Parameters))
+	for _, parameter := range strategy.Parameters {
+		parameterDtos = append(parameterDtos, parameter.ToDto())
+	}
+
+	return parameterDtos
 }

@@ -62,12 +62,20 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
 	kCandles []vo.KCandleVo,
+	parameters domains.StrategyParametersDomain,
 ) (map[string]vo.IndicatorValueVo, error) {
 	inputKCandles := kCandles
+	// The reader records the first knob a script reaches for that nobody declared.
+	// It is consulted before the error the script came back with, so the answer does
+	// not depend on how the interpreter happens to word a panic — that is somebody
+	// else's implementation detail and it changes between versions.
+	parameterReader := &strategyParameterReader{parameters: parameters}
 	scriptSymbols := interp.Exports{
 		scriptDataPackage: {
-			"KCandle": reflect.ValueOf((*vo.KCandleVo)(nil)),
-			"Data":    reflect.ValueOf(&inputKCandles).Elem(),
+			"KCandle":       reflect.ValueOf((*vo.KCandleVo)(nil)),
+			"Data":          reflect.ValueOf(&inputKCandles).Elem(),
+			"LookbackCount": reflect.ValueOf(parameterReader.lookbackCount),
+			"Number":        reflect.ValueOf(parameterReader.number),
 		},
 	}
 	for packagePath, packageSymbols := range allowedPackages {
@@ -107,6 +115,16 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	defer stopWaiting()
 
 	calculated, callError := interpreter.EvalWithContext(allowanceContext, scriptCall)
+
+	// Asked before anything else, because a script that reached for a knob nobody
+	// declared did not fail on its own terms — it failed because a name does not
+	// match, and every other answer here would send the reader to the wrong place.
+	if missingName, isMissing := parameterReader.missingName(); isMissing {
+		return nil, fmt.Errorf(
+			"%w: 算式取用了參數 %q，但這一次沒有宣告這個名字",
+			domains.ErrIndicatorParameterNotDeclared, missingName)
+	}
+
 	if errors.Is(context.Cause(allowanceContext), errScriptAllowanceSpent) {
 		return nil, fmt.Errorf(
 			"%w: 算式在 %s 內未能算完，已中止",
@@ -123,3 +141,58 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 
 	return scriptShape.readValues(calculated), nil
 }
+
+// strategyParameterReader is what a script reaches a knob through.
+//
+// A name nobody declared is recorded and then panicked on rather than answered with
+// a zero. A zero looks like an answer: a loop reaching back zero candles still
+// produces a list of numbers, and somebody would act on it. Worse, a zero can turn
+// a bounded loop into one that runs until the whole allowance is spent, so the
+// failure arrives late as well as wrong.
+//
+// The panic is caught by the interpreter and comes back as an ordinary error; what
+// makes the report correct is the recorded name, not the panic.
+type strategyParameterReader struct {
+	parameters domains.StrategyParametersDomain
+	missing    string
+	hasMissing bool
+}
+
+func (reader *strategyParameterReader) lookbackCount(name string) int {
+	lookbackCount, isDeclared := reader.parameters.LookbackCountOf(name)
+	if !isDeclared {
+		reader.recordMissing(name)
+	}
+
+	return lookbackCount
+}
+
+func (reader *strategyParameterReader) number(name string) float64 {
+	number, isDeclared := reader.parameters.NumberOf(name)
+	if !isDeclared {
+		reader.recordMissing(name)
+	}
+
+	return number
+}
+
+// recordMissing keeps the first name that did not match. The first is the one worth
+// reporting: the ones after it are usually the same mistake spreading, and a list of
+// them would bury the one line the reader has to go and fix.
+func (reader *strategyParameterReader) recordMissing(name string) {
+	if !reader.hasMissing {
+		reader.missing = name
+		reader.hasMissing = true
+	}
+
+	panic(errParameterNotDeclared)
+}
+
+func (reader *strategyParameterReader) missingName() (string, bool) {
+	return reader.missing, reader.hasMissing
+}
+
+// errParameterNotDeclared is what the reader panics with. Nothing matches on it —
+// the recorded name is what the report is built from — but panicking with a value of
+// its own keeps this apart from a panic the script itself caused.
+var errParameterNotDeclared = errors.New("indicator parameter not declared")

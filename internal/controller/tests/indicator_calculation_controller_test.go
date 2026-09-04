@@ -74,7 +74,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -100,7 +100,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 				kCandleAt(time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC), "100"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(`{"symbol":"BTCUSDT","aggregationInterval":"1h","candleCount":2,` +
@@ -126,7 +126,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -160,7 +160,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
 		recorder := fixture.post(indicatorBody)
@@ -193,7 +193,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
 				"line": {IsList: true, Numbers: []float64{100, 105}},
 			}, nil)
@@ -210,7 +210,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"crossed": {Booleans: []bool{false}}}, nil)
 
 		recorder := fixture.post(
@@ -225,7 +225,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)

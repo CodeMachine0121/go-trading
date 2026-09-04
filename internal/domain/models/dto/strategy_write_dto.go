@@ -12,4 +12,7 @@ type StrategyWriteDto struct {
 	Name       string
 	Script     string
 	ResultType string
+	// Parameters are the algorithm's own knobs. Absent means an algorithm with no
+	// knobs, which is what every algorithm written before knobs existed is.
+	Parameters []StrategyParameterWriteDto
 }

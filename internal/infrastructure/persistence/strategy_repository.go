@@ -85,10 +85,21 @@ func (strategyRepository *StrategyRepository) Update(
 				return writeError
 			}
 
+			// The knobs are replaced outright rather than reconciled one by one.
+			// They have no identity a caller ever names — a knob is its name inside
+			// its strategy — so "which of these is the same knob as before" is a
+			// question nobody asks and this one does not answer.
+			if parametersError := strategyRepository.replaceParameters(
+				transaction, strategy); parametersError != nil {
+				return parametersError
+			}
+
 			// Reading it back is also what reports a strategy that is not there:
 			// nothing was rewritten, so nothing can be found. Checking the rows
 			// written first would ask the same question twice.
-			readBack := transaction.First(&updatedStrategy, strategy.ID)
+			readBack := transaction.
+				Preload(strategyParametersAssociation).
+				First(&updatedStrategy, strategy.ID)
 			if errors.Is(readBack.Error, gorm.ErrRecordNotFound) {
 				return domains.StrategyNotFound(strategy.ID)
 			}
@@ -104,6 +115,45 @@ func (strategyRepository *StrategyRepository) Update(
 	}
 
 	return updatedStrategy, nil
+}
+
+// strategyParametersAssociation is how GORM is asked for a strategy's knobs. It is
+// written once here so that every read fetches them the same way — a strategy read
+// back without them looks like a strategy that has none.
+const strategyParametersAssociation = "Parameters"
+
+// replaceParameters swaps a strategy's whole set of knobs for the ones handed in.
+//
+// Deleting then inserting, rather than working out which rows changed, is the honest
+// shape here: a knob has no identity of its own, so there is nothing to match old
+// rows against. Both statements share the caller's transaction, so a reader never
+// sees a strategy midway between two sets.
+func (strategyRepository *StrategyRepository) replaceParameters(
+	transaction *gorm.DB, strategy entities.Strategy,
+) error {
+	deleted := transaction.
+		Where(clause.Eq{Column: "strategy_id", Value: strategy.ID}).
+		Delete(&entities.StrategyParameter{})
+	if deleted.Error != nil {
+		return fmt.Errorf("replace strategy parameters: %w", deleted.Error)
+	}
+
+	if len(strategy.Parameters) == 0 {
+		return nil
+	}
+
+	storedParameters := make([]entities.StrategyParameter, 0, len(strategy.Parameters))
+	for _, parameter := range strategy.Parameters {
+		parameter.StrategyID = strategy.ID
+		storedParameters = append(storedParameters, parameter)
+	}
+
+	created := transaction.Create(&storedParameters)
+	if created.Error != nil {
+		return fmt.Errorf("replace strategy parameters: %w", created.Error)
+	}
+
+	return nil
 }
 
 // writeFailureOf says what went wrong with a write, in the terms the domain uses. A
@@ -142,7 +192,9 @@ func (strategyRepository *StrategyRepository) isNameAlreadyHeld(writeError error
 func (strategyRepository *StrategyRepository) FindOne(executionContext context.Context, id uint) (entities.Strategy, error) {
 	strategy := entities.Strategy{}
 
-	result := strategyRepository.database.WithContext(executionContext).First(&strategy, id)
+	result := strategyRepository.database.WithContext(executionContext).
+		Preload(strategyParametersAssociation).
+		First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Strategy{}, domains.StrategyNotFound(id)
 	}
@@ -158,6 +210,7 @@ func (strategyRepository *StrategyRepository) FindAll(executionContext context.C
 	strategies := make([]entities.Strategy, 0)
 
 	result := strategyRepository.database.WithContext(executionContext).
+		Preload(strategyParametersAssociation).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "name"}}).
 		Find(&strategies)
 	if result.Error != nil {

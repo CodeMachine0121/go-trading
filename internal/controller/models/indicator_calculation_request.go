@@ -18,6 +18,11 @@ type IndicatorCalculationRequest struct {
 	EndTime             time.Time `json:"endTime"`
 	Script              string    `json:"script"`
 	ResultType          string    `json:"resultType"`
+	// Parameters are the algorithm's knobs as declared, and ParameterValues what
+	// they are worth this time. Both arrive with the run rather than being looked
+	// up, because what runs here is a script — it may never have been saved.
+	Parameters      []StrategyParameterRequest      `json:"parameters"`
+	ParameterValues []StrategyParameterValueRequest `json:"parameterValues"`
 }
 
 // ToRequestDto turns the request into the shape the domain accepts.
@@ -29,5 +34,25 @@ func (indicatorCalculationRequest IndicatorCalculationRequest) ToRequestDto() dt
 		EndTime:             indicatorCalculationRequest.EndTime,
 		Script:              indicatorCalculationRequest.Script,
 		ResultType:          indicatorCalculationRequest.ResultType,
+		Parameters:          indicatorCalculationRequest.parameterWriteDtos(),
+		ParameterValues:     indicatorCalculationRequest.parameterValueDtos(),
 	}
+}
+
+func (indicatorCalculationRequest IndicatorCalculationRequest) parameterWriteDtos() []dto.StrategyParameterWriteDto {
+	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(indicatorCalculationRequest.Parameters))
+	for _, parameterRequest := range indicatorCalculationRequest.Parameters {
+		parameterWriteDtos = append(parameterWriteDtos, parameterRequest.ToWriteDto())
+	}
+
+	return parameterWriteDtos
+}
+
+func (indicatorCalculationRequest IndicatorCalculationRequest) parameterValueDtos() []dto.StrategyParameterValueDto {
+	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(indicatorCalculationRequest.ParameterValues))
+	for _, valueRequest := range indicatorCalculationRequest.ParameterValues {
+		parameterValueDtos = append(parameterValueDtos, valueRequest.ToValueDto())
+	}
+
+	return parameterValueDtos
 }

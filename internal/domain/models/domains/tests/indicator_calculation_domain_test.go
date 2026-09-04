@@ -535,3 +535,92 @@ func TestSelectInputCandlesHandsOverExactlyWhatWasAskedForAndNeverGuessesAMinimu
 			"要幾根就給幾根——系統不替算式猜它至少需要幾根")
 	}
 }
+
+// 這條式子就是使用者不必再回答「要幾根」的原因，而它錯過一次：
+// `N + L − 1` 只在真的有東西要回看時才成立，沒有回看根數時它會少拿一根。
+func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
+	testCases := []struct {
+		name          string
+		requestedSpan int
+		parameters    []dto.StrategyParameterWriteDto
+		expectedInput int
+	}{
+		{
+			name:          "要看 12 格、最大回看 20 → 拿 31 根",
+			requestedSpan: 12,
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
+			expectedInput: 31,
+		},
+		{
+			name:          "一個回看根數都沒有 → 就是要看的那幾格，不多不少",
+			requestedSpan: 12,
+			parameters:    nil,
+			expectedInput: 12,
+		},
+		{
+			name:          "只有數值也一樣——數值跟拿幾根無關",
+			requestedSpan: 12,
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "倍數", Kind: "number", DefaultValue: 2}},
+			expectedInput: 12,
+		},
+		{
+			name:          "好幾個回看根數只看最大的",
+			requestedSpan: 12,
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "快線", Kind: "lookbackCount", DefaultValue: 20},
+				{Name: "中線", Kind: "lookbackCount", DefaultValue: 50},
+				{Name: "慢線", Kind: "lookbackCount", DefaultValue: 100}},
+			expectedInput: 111,
+		},
+		{
+			name:          "只看一格也拿滿回看所需",
+			requestedSpan: 1,
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "期數", Kind: "lookbackCount", DefaultValue: 100}},
+			expectedInput: 100,
+		},
+		{
+			name:          "回看一根不多花任何一根",
+			requestedSpan: 12,
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "期數", Kind: "lookbackCount", DefaultValue: 1}},
+			expectedInput: 12,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				dto.IndicatorCalculationRequestDto{
+					Symbol:              "BTCUSDT",
+					CandleCount:         testCase.requestedSpan,
+					AggregationInterval: "5m",
+					ResultType:          "float",
+					Parameters:          testCase.parameters,
+				}, 1000, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
+
+			require.NoError(t, buildError)
+			// 讀取上限是「要餵給算式的根數」加上多讀的那一格，所以反推得回來。
+			assert.Equal(t, testCase.expectedInput+1, calculationDomain.SourceCandleLimit())
+		})
+	}
+}
+
+// 上限判斷的對象是**真的要餵進去的根數**，不是呼叫端問的那個數字：
+// 一段不長的區間配上很長的回看，加起來一樣會超過。
+func TestTheCeilingIsJudgedAgainstWhatWillActuallyBeFed(t *testing.T) {
+	_, buildError := domains.NewIndicatorCalculationDomain(
+		dto.IndicatorCalculationRequestDto{
+			Symbol:              "BTCUSDT",
+			CandleCount:         10,
+			AggregationInterval: "5m",
+			ResultType:          "float",
+			Parameters: []dto.StrategyParameterWriteDto{
+				{Name: "期數", Kind: "lookbackCount", DefaultValue: 100}},
+		}, 50, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
+
+	require.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
+	assert.Contains(t, buildError.Error(), "109")
+}

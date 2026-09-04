@@ -81,7 +81,8 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	}
 
 	indicatorValues, executionError := indicatorCalculationService.indicatorScriptProxy.Execute(
-		executionContext, requestDto.Script, calculationDomain.ResultType(), inputKCandleVos)
+		executionContext, requestDto.Script, calculationDomain.ResultType(), inputKCandleVos,
+		calculationDomain.Parameters())
 	if executionError != nil {
 		return dto.IndicatorCalculationResultDto{}, executionError
 	}

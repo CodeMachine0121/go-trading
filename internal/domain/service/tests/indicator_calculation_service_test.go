@@ -87,7 +87,7 @@ func TestCalculateIndicator(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), calculationRequest("BTCUSDT", 3))
@@ -99,12 +99,13 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
 				_ context.Context,
 				script string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
+				_ domains.StrategyParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Len(t, kCandleVos, 3)
 				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
@@ -122,7 +123,7 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
 				"high": {Numbers: []float64{120}}, "low": {Numbers: []float64{100}},
 			}, nil)
@@ -141,7 +142,7 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 2).Return(newestFirst(5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
@@ -201,7 +202,7 @@ func TestCalculateIndicator(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
@@ -218,12 +219,13 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
 				_ context.Context,
 				script string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
+				_ domains.StrategyParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Equal(t, vo.IndicatorResultTypeFloatList, resultType.Value())
 				return map[string]vo.IndicatorValueVo{}, nil
@@ -239,7 +241,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
 				"red": {IsList: true, Booleans: []bool{true, false}},
 			}, nil)
@@ -257,7 +259,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 2).Return(newestFirst(5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
@@ -306,12 +308,13 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
 				_ context.Context,
 				script string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
+				_ domains.StrategyParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Len(t, kCandleVos, 3)
 				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
@@ -371,7 +374,7 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		requestDto := calculationRequest("BTCUSDT", 3)
@@ -393,7 +396,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
 				"ma": {IsList: true, Numbers: []float64{101, 102, 103}},
 			}, nil)
@@ -417,7 +420,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
@@ -433,7 +436,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
@@ -462,7 +465,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 					FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
 					Return(newestFirst(15, 10, 5, 0), nil)
 				fixture.indicatorScriptProxy.EXPECT().
-					Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(map[string]vo.IndicatorValueVo{}, nil)
 
 				requestDto := calculationRequest("BTCUSDT", 1)
