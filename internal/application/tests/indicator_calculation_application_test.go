@@ -61,7 +61,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorCutoff, 3).
 			Return([]entities.KCandle{kCandleAt(at(9, 10), "100"), kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(2))
@@ -86,7 +86,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 				kCandleAt(at(7, 0), "100"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		requestDto := indicatorRequest(2)
@@ -128,7 +128,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorCutoff, 2).
 			Return([]entities.KCandle{kCandleAt(at(9, 5), "100"), kCandleAt(at(9, 0), "100")}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, fmt.Errorf("%w: 算式無法解讀", domains.ErrIndicatorScriptFailed))
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(1))

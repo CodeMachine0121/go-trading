@@ -35,6 +35,7 @@ type StrategyDomain struct {
 	name       string
 	script     string
 	resultType IndicatorResultTypeDomain
+	parameters StrategyParametersDomain
 }
 
 // NewStrategyDomain validates the strategy against every rule that applies to it.
@@ -70,11 +71,19 @@ func NewStrategyDomain(writeDto dto.StrategyWriteDto) (StrategyDomain, error) {
 		return StrategyDomain{}, fmt.Errorf("%w: %w", ErrStrategyValidation, resultTypeError)
 	}
 
+	// The knobs already have a model that knows every rule about them; this one
+	// borrows it rather than restating those rules a second time.
+	parameters, parametersError := NewStrategyParametersDomain(writeDto.Parameters)
+	if parametersError != nil {
+		return StrategyDomain{}, fmt.Errorf("%w: %w", ErrStrategyValidation, parametersError)
+	}
+
 	return StrategyDomain{
 		id:         writeDto.ID,
 		name:       name,
 		script:     writeDto.Script,
 		resultType: resultType,
+		parameters: parameters,
 	}, nil
 }
 
@@ -94,5 +103,6 @@ func (strategyDomain StrategyDomain) ToEntity() entities.Strategy {
 		Name:       strategyDomain.name,
 		Script:     strategyDomain.script,
 		ResultType: string(strategyDomain.resultType.Value()),
+		Parameters: strategyDomain.parameters.ToEntities(),
 	}
 }

@@ -32,6 +32,7 @@ const spareBucketCount = 1
 type IndicatorCalculationDomain struct {
 	symbol      string
 	candleCount int
+	parameters  StrategyParametersDomain
 	resultType  IndicatorResultTypeDomain
 	interval    AggregationIntervalDomain
 	// endTime is the moment this calculation reaches up to, already settled: never
@@ -58,13 +59,37 @@ func NewIndicatorCalculationDomain(
 			fmt.Errorf("%w: 計算根數必須大於零", ErrIndicatorCalculationValidation)
 	}
 
+	declaredParameters, parametersError := NewStrategyParametersDomain(requestDto.Parameters)
+	if parametersError != nil {
+		return IndicatorCalculationDomain{}, fmt.Errorf(
+			"%w: %w", ErrIndicatorCalculationValidation, parametersError)
+	}
+
+	parameters, applyError := declaredParameters.Applying(requestDto.ParameterValues)
+	if applyError != nil {
+		return IndicatorCalculationDomain{}, fmt.Errorf(
+			"%w: %w", ErrIndicatorCalculationValidation, applyError)
+	}
+
+	// The caller asks for however many candles it wants a value for; the algorithm
+	// needs that many plus whatever its hungriest knob reaches back over, less the
+	// one they share.
+	//
+	// The "less one" only applies once there is something to reach back over: a
+	// look-back of twenty produces its first value on the twentieth candle, so it
+	// costs nineteen extra. An algorithm that declares no look-back at all costs
+	// nothing extra — not one candle less, which is what subtracting unconditionally
+	// would quietly do.
+	inputCandleCount := requestDto.CandleCount + max(0, parameters.MaximumLookbackCount()-1)
+
 	// The ceiling counts aggregated candles, not the stored ones behind them: asking
 	// for a day at one-hour buckets asks for 24 candles however many five-minute
-	// candles were read to build them.
-	if requestDto.CandleCount > maxCandleCount {
-		return IndicatorCalculationDomain{}, fmt.Errorf(
-			"%w: 超過單次可用的最大根數（最多 %d 根）",
-			ErrIndicatorCalculationValidation, maxCandleCount)
+	// candles were read to build them. It is judged against what will actually be
+	// fed to the algorithm, not against what was asked for — a modest span with a
+	// long look-back can exceed it, and refusing only on the asked-for number would
+	// let that through and fail further in.
+	if inputCandleCount > maxCandleCount {
+		return IndicatorCalculationDomain{}, CandleCountExceeded(inputCandleCount, maxCandleCount)
 	}
 
 	interval, intervalError := NewAggregationIntervalDomain(requestDto.AggregationInterval)
@@ -81,7 +106,8 @@ func NewIndicatorCalculationDomain(
 
 	return IndicatorCalculationDomain{
 		symbol:      tradingSymbol.Value(),
-		candleCount: requestDto.CandleCount,
+		candleCount: inputCandleCount,
+		parameters:  parameters,
 		resultType:  resultType,
 		interval:    interval,
 		endTime:     effectiveEndTime(requestDto.EndTime, now),
@@ -175,4 +201,10 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	}
 
 	return oldestFirstKCandleVos, nil
+}
+
+// Parameters are this run's knobs, already settled: every declared one carries the
+// value it will be read with, whether that came from the run or from the declaration.
+func (indicatorCalculationDomain IndicatorCalculationDomain) Parameters() StrategyParametersDomain {
+	return indicatorCalculationDomain.parameters
 }

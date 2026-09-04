@@ -15,4 +15,7 @@ type StrategyDto struct {
 	ResultType string    `json:"resultType"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+	// Parameters are the algorithm's own knobs — the numbers it is made of, as
+	// opposed to how coarse or how long, which still belong to one run.
+	Parameters []StrategyParameterDto `json:"parameters"`
 }

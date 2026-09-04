@@ -15,6 +15,9 @@ type StrategyRequest struct {
 	Name       string `json:"name"`
 	Script     string `json:"script"`
 	ResultType string `json:"resultType"`
+	// Parameters are the algorithm's own knobs. Leaving them out declares an
+	// algorithm with no knobs, which is what every algorithm was before knobs.
+	Parameters []StrategyParameterRequest `json:"parameters"`
 }
 
 // ToWriteDto turns the request into the shape the domain accepts, taking the
@@ -26,5 +29,17 @@ func (strategyRequest StrategyRequest) ToWriteDto(id uint) dto.StrategyWriteDto 
 		Name:       strategyRequest.Name,
 		Script:     strategyRequest.Script,
 		ResultType: strategyRequest.ResultType,
+		Parameters: strategyRequest.parameterWriteDtos(),
 	}
+}
+
+// parameterWriteDtos hands the declarations on untouched, always as a list rather
+// than sometimes nothing: declaring no knobs is an empty list, not an absence.
+func (strategyRequest StrategyRequest) parameterWriteDtos() []dto.StrategyParameterWriteDto {
+	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(strategyRequest.Parameters))
+	for _, parameterRequest := range strategyRequest.Parameters {
+		parameterWriteDtos = append(parameterWriteDtos, parameterRequest.ToWriteDto())
+	}
+
+	return parameterWriteDtos
 }

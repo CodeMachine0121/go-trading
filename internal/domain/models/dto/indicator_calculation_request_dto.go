@@ -25,4 +25,11 @@ type IndicatorCalculationRequestDto struct {
 	// which the domain reads as now — a pointer would only add a dereference, since
 	// the zero value is not a moment anybody could have meant.
 	EndTime time.Time
+	// Parameters are the algorithm's knobs as the caller declared them. They arrive
+	// with the run rather than being looked up, because what runs here is a script,
+	// not a saved strategy — the script may never have been saved at all.
+	Parameters []StrategyParameterWriteDto
+	// ParameterValues are what those knobs are worth this time. Anything left out
+	// keeps the value it was declared with.
+	ParameterValues []StrategyParameterValueDto
 }

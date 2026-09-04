@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,7 +75,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -100,7 +101,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 				kCandleAt(time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC), "100"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(`{"symbol":"BTCUSDT","aggregationInterval":"1h","candleCount":2,` +
@@ -126,7 +127,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		recorder := fixture.post(indicatorBody)
@@ -160,7 +161,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
 		recorder := fixture.post(indicatorBody)
@@ -188,12 +189,46 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 }
 
+// 每一種失敗要被分開回答，判準是「使用者得去改哪裡」。
+// 名字對不上要去改參數那一列或算式那一行——那是他自己的請求，不是這個系統壞了。
+func TestCalculateIndicatorTellsAMismatchedParameterNameApartFromEverythingElse(t *testing.T) {
+	fixture := newIndicatorRouterUnderTest(t)
+	fixture.expectTwoUsableCandles()
+	fixture.indicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, domains.UndeclaredParameter("期數"))
+
+	recorder := fixture.post(indicatorBody)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code,
+		"這是呼叫端填錯了，不是這個系統壞了")
+	assert.Contains(t, recorder.Body.String(), `"parameterName":"期數"`,
+		"名字要以一個欄位交出去——靠讀訊息比對，等於讓呼叫端依賴給人看的文字")
+}
+
+// 這一種失敗有兩條具體的出路——縮短要看的區間，或換粗一點的刻度。
+// 呼叫端只有在知道自己收到的是「這一種」時才提得出它們，而從句子裡讀出來，
+// 等於讓它依賴一段寫給人看的文字。
+func TestCalculateIndicatorNamesTheInputWhenTheSpanNeedsMoreCandlesThanOneCallMayRead(t *testing.T) {
+	fixture := newIndicatorRouterUnderTest(t)
+
+	recorder := fixture.post(
+		`{"symbol":"BTCUSDT","candleCount":` + strconv.Itoa(queryMaxResults+1) + `,"script":"the script"}`)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code,
+		"這是呼叫端要的太多了，不是這個系統壞了")
+	assert.Contains(t, recorder.Body.String(), `"field":"candleCount"`,
+		"是哪一格出的問題要以一個欄位交出去，呼叫端才擺得到那一格旁邊")
+	assert.Contains(t, recorder.Body.String(), "超過單次可用的最大根數",
+		"人讀的那一句仍然說得出用到幾根與上限是多少")
+}
+
 func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 	t.Run("writes a series out as a series", func(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
 				"line": {IsList: true, Numbers: []float64{100, 105}},
 			}, nil)
@@ -210,7 +245,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"crossed": {Booleans: []bool{false}}}, nil)
 
 		recorder := fixture.post(
@@ -225,7 +260,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.expectTwoUsableCandles()
 		fixture.indicatorScriptProxy.EXPECT().
-			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 		recorder := fixture.post(indicatorBody)

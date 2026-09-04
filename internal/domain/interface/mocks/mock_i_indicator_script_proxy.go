@@ -43,16 +43,16 @@ func (m *MockIIndicatorScriptProxy) EXPECT() *MockIIndicatorScriptProxyMockRecor
 }
 
 // Execute mocks base method.
-func (m *MockIIndicatorScriptProxy) Execute(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo) (map[string]vo.IndicatorValueVo, error) {
+func (m *MockIIndicatorScriptProxy) Execute(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo, parameters domains.StrategyParametersDomain) (map[string]vo.IndicatorValueVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Execute", executionContext, script, resultType, kCandles)
+	ret := m.ctrl.Call(m, "Execute", executionContext, script, resultType, kCandles, parameters)
 	ret0, _ := ret[0].(map[string]vo.IndicatorValueVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Execute indicates an expected call of Execute.
-func (mr *MockIIndicatorScriptProxyMockRecorder) Execute(executionContext, script, resultType, kCandles any) *gomock.Call {
+func (mr *MockIIndicatorScriptProxyMockRecorder) Execute(executionContext, script, resultType, kCandles, parameters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockIIndicatorScriptProxy)(nil).Execute), executionContext, script, resultType, kCandles)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockIIndicatorScriptProxy)(nil).Execute), executionContext, script, resultType, kCandles, parameters)
 }

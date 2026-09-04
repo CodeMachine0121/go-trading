@@ -44,13 +44,38 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
-// respondWithError separates "your request was wrong" from "your script cannot run",
-// so a caller can tell the two apart without reading the message.
+// respondWithError separates what went wrong by what the caller has to go and change,
+// so the answer can be told apart without reading the message: the request itself, a
+// knob's name, the script, or this system.
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
+	// Naming the input at fault is what lets a caller put the sentence where the
+	// person can act on it. Only this one validation failure has a specific input to
+	// name — the rest are answered as they were.
+	if errors.Is(err, domains.ErrIndicatorCalculationCandleCountExceeded) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message": err.Error(),
+			"field":   "candleCount",
+		})
+		return
+	}
 	if errors.Is(err, domains.ErrIndicatorCalculationValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	// A knob the script reached for that nobody declared is the caller's mistake, not
+	// the script's and not this system's. Left to fall through it would be answered
+	// as a gateway failure — telling somebody the backend broke when what happened is
+	// that they renamed a knob and forgot the line that reads it.
+	if parameterName, isUndeclared := domains.UndeclaredParameterName(err); isUndeclared {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message": err.Error(),
+			// The name travels as a value, not only inside the sentence: a caller
+			// telling this failure apart by reading prose would be matching on words
+			// written for a person, which change whenever the wording improves.
+			"parameterName": parameterName,
+		})
 		return
 	}
 	if errors.Is(err, domains.ErrIndicatorScriptFailed) {

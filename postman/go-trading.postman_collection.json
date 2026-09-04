@@ -2941,6 +2941,252 @@
           ]
         }
       ]
+    },
+    {
+      "name": "策略參數",
+      "description": "一支策略記著它自己的旋鈕。種類只有兩種，而分成兩種只有一個理由——系統必須知道要拿多少 K 線：`lookbackCount` 是大於零的整數，系統取所有這一種的**最大值**去算要讀幾根；`number` 是任何數字，系統不解讀。\n\n**「要拿幾根」不必也不能填**：它是 `要看的格數 + 最大回看根數 − 1` 算出來的。",
+      "item": [
+        {
+          "name": "建立一支帶旋鈕的策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "參數宣告跟著策略一起存，與指標值種類同一個層級。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"布林通道 {{$timestamp}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\t_ = indicator.Number(\\\"倍數\\\")\\n\\tmiddle := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tmiddle = append(middle, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\"中線\": middle}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 20 },\n    { \"name\": \"倍數\", \"kind\": \"number\", \"defaultValue\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"兩個旋鈕連同種類與預設值都被記住\", function () {",
+                  "    const parameters = pm.response.json().parameters;",
+                  "    pm.expect(parameters).to.have.lengthOf(2);",
+                  "    const lookback = parameters.find(p => p.name === \"期數\");",
+                  "    pm.expect(lookback.kind).to.eql(\"lookbackCount\");",
+                  "    pm.expect(lookback.defaultValue).to.eql(20);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：兩個旋鈕同名",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "同一支策略內名稱不得重複——算式是以名字取用它們的。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重複的旋鈕 {{$timestamp}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 20 },\n    { \"name\": \"期數\", \"kind\": \"number\", \"defaultValue\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明名稱不得重複\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"重複\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：回看根數不是大於零的整數",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "回看根數是要拿去數 K 線的，半根 K 線不是一件東西。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"壞掉的旋鈕 {{$timestamp}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 0 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明必須是大於零的整數\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"大於零的整數\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "計算：這一次把期數改成 2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "`candleCount` 是「我要幾格有值」；實際要拿幾根由系統算：2 格 + 回看 2 根 − 1 = 3 根。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 2,\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\tout := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tout = append(out, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\"ma\": out}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 5 }\n  ],\n  \"parameterValues\": [\n    { \"name\": \"期數\", \"value\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200 或說明根數不足\", function () {",
+                  "    pm.expect([200, 400]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test(\"成功時，要看幾格就有幾個值\", function () {",
+                  "    if (pm.response.code !== 200) { return; }",
+                  "    pm.expect(pm.response.json().indicators.ma.values).to.have.lengthOf(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：給了一個沒有宣告的旋鈕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "description": "安靜忽略會讓人以為他調的那一格有作用，而它什麼都沒做。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 1,\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 1 }\n  ],\n  \"parameterValues\": [\n    { \"name\": \"週期\", \"value\": 5 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"指名是哪一個不是這支策略的參數\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"週期\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
