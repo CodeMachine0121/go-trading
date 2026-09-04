@@ -2,7 +2,6 @@ package controller_test
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
