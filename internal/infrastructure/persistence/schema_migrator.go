@@ -47,6 +47,9 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.TradingSymbol{},
 		&entities.Strategy{},
 		&entities.StrategyParameter{},
+		&entities.Conversation{},
+		&entities.AssistantTurn{},
+		&entities.AssistantQueryRecord{},
 	}
 
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)

@@ -54,6 +54,45 @@ type LiveFollowConfig struct {
 	MarketDataStreamUrl   string
 }
 
+// AssistantConfig holds what the market chat assistant runs under: which assistant to
+// ask, how hard it may think, and the five ceilings that decide what it may cost.
+//
+// Every ceiling is a setting rather than a constant because every one of them is a
+// number the requirements name — and because what an answer is worth changes with what
+// the assistant charges, which is not something this system gets to decide.
+//
+// They are read through the same reader every other count uses, which refuses zero and
+// negatives and falls back to the default. A ceiling of zero would mean an assistant
+// that may remember nothing, look at nothing, or spend nothing, and none of those is a
+// working system — so refusing the value and carrying on is the honest reading of it.
+type AssistantConfig struct {
+	ApiKey string
+	Model  string
+	Effort string
+	// BaseUrl is where the assistant is reached. Empty means the assistant's own
+	// address, which is what it is in normal use; naming one is how the calls are
+	// pointed at a gateway, a recording proxy, or a stand-in during a test.
+	BaseUrl string
+	// RecentMessageLimit is how many of a conversation's messages the assistant is
+	// shown. It is what keeps the cost of an exchange from growing with the length of
+	// the conversation.
+	RecentMessageLimit int
+	// QueryLimit is how many assistant queries one answer may spend.
+	QueryLimit int
+	// CandleLimit is how many K candles one assistant query may hand over. It is
+	// deliberately far below KCandleQueryMaxResults: that one is about what a
+	// response can carry, this one about what an answer costs.
+	CandleLimit int
+	// DailyUsageAllowance is the absolute ceiling on a day's assistant usage. It is
+	// the one setting that makes the bill impossible rather than merely unlikely.
+	DailyUsageAllowance int
+	// AnswerLengthLimit is how long one answer may be.
+	AnswerLengthLimit int
+	// ResponseTimeout is how long one round trip may take. An assistant that is too
+	// slow and one that is unreachable leave the same nothing behind.
+	ResponseTimeout time.Duration
+}
+
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
@@ -63,6 +102,7 @@ type ApplicationConfig struct {
 	BackgroundJobsEnabled  bool
 	Ingestion              IngestionConfig
 	LiveFollow             LiveFollowConfig
+	Assistant              AssistantConfig
 	Database               DatabaseConfig
 }
 
@@ -95,6 +135,24 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("LIVE_FEED_MAX_RETRY_DELAY_SECONDS", 30)) * time.Second,
 			MarketDataStreamUrl: stringWithDefault(
 				"MARKET_DATA_STREAM_URL", "wss://stream.binance.com:9443/ws"),
+		},
+		Assistant: AssistantConfig{
+			ApiKey: stringWithDefault("ANTHROPIC_API_KEY", ""),
+			Model:  stringWithDefault("ASSISTANT_MODEL", "claude-opus-5"),
+			// Low effort is the right default for a conversation: the thinking that
+			// higher effort buys pays off on hard problems, and "how has BTCUSDT
+			// moved" is not one. The model itself is left at the capable one, because
+			// picking the wrong capability costs more round trips than thinking
+			// harder ever saves.
+			Effort:              stringWithDefault("ASSISTANT_EFFORT", "low"),
+			BaseUrl:             stringWithDefault("ASSISTANT_BASE_URL", ""),
+			RecentMessageLimit:  positiveIntWithDefault("ASSISTANT_RECENT_MESSAGE_LIMIT", 20),
+			QueryLimit:          positiveIntWithDefault("ASSISTANT_QUERY_LIMIT", 8),
+			CandleLimit:         positiveIntWithDefault("ASSISTANT_CANDLE_LIMIT", 200),
+			DailyUsageAllowance: positiveIntWithDefault("ASSISTANT_DAILY_USAGE_ALLOWANCE", 300000),
+			AnswerLengthLimit:   positiveIntWithDefault("ASSISTANT_ANSWER_LENGTH_LIMIT", 2000),
+			ResponseTimeout: time.Duration(
+				positiveIntWithDefault("ASSISTANT_RESPONSE_TIMEOUT_SECONDS", 120)) * time.Second,
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

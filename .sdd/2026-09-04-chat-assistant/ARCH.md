@@ -1,6 +1,6 @@
 # 行情對話助手 — Architecture Design
 
-**Status:** Draft
+**Status:** Confirmed（實作完成，下方 §9 記錄實作時與本設計的差異）
 **Source PRD:** `.sdd/2026-09-04-chat-assistant/PRD.md`
 **Tech context:** Go 1.26 · Gin · GORM / PostgreSQL · Clean / Onion Architecture · uber-go/mock
 
@@ -60,7 +60,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `Conversation` | Entity | 一段對話的身分與**最後有動靜的時刻**；持有它底下的每一次問答 | `AssistantTurn` | US-01 開新對話、US-10 排序 |
 | `AssistantTurn` | Entity | **一次問答**：提問、回答、這次的用量、發動幾次查詢、是否因達上限提早收尾 | `AssistantQueryRecord` | US-05、US-06、US-08 結算 |
-| `AssistantQueryRecord` | Entity | 這次問答裡**某一次助手查詢**做了什麼：第幾次、哪個能力、什麼參數、結果如何、是否截斷 | — | US-03、US-05「紀錄裡仍看得到」 |
+| `AssistantQueryRecord` | Entity | 這次問答裡**某一次助手查詢**做了什麼：第幾次、哪個能力、什麼參數、結果如何、是否被拒 | — | US-03、US-05「紀錄裡仍看得到」 |
 
 `AssistantTurn` 與 `AssistantQueryRecord` **沒有自己的 repository**——它們從不被單獨讀寫，
 一律隨所屬的 `Conversation` 一起進出，比照既有 `StrategyParameter` 的作法。
@@ -386,3 +386,60 @@ sequenceDiagram
   以「省份量」為原則。
 - 「達上限請就目前所得作答」這句話**寫在哪一層**（系統指示或訊息）—— 實作時定。
 - 訊息內容欄位的長度是否設上限 —— 目前只限助手的回答長度；提問長度是否要限，等真的遇到再說。
+
+---
+
+## 9. 實作與本設計的差異（實作後補記）
+
+實作時發現六處值得記下來的落差。前三處是設計原本想錯了，後三處是設計沒想到。
+
+### 9.1 `AssistantCapabilitiesDomain` 不存在——因為它做不出來
+
+原設計要把「助手能做什麼 + 執行它」包成一個 domain model。**做不到**：
+`internal/domain/interface` 已經 import `models/domains`（`i_indicator_script_proxy.go` 用它的錯誤），
+所以 domain model 不能 import 介面，也就不能持有 `[]IAssistantQuery`。
+
+改成：能力宣告在 `AssistantConversationService` 的建構子算一次並存成欄位，
+查找與執行是它的私有 method `runAssistantQuery`。那個 method 特意留著名字沒有 inline，
+因為「拒絕在此從失敗變成資料」這件事是它存在的全部理由——埋進兩層迴圈裡就看不見了。
+
+### 9.2 助手能力會建構 domain model（`AssistantCandleLimitDomain`）
+
+規範說 application 全程不碰 domain model。兩個 K 線能力破了這條：它們自己解析參數，
+所以只有它們知道助手要幾根。
+
+替代方案都更糟：把根數上限的規則複製到兩個能力裡（規則兩份），
+或搬進 infrastructure（規則離開 domain）。**選擇讓規則留在 domain 一份，並在此記下這個例外。**
+理由是這些能力實作的是 **domain 的介面**，是通往 domain 的轉接頭，不是普通的 application 用例。
+
+### 9.3 `AssistantQueryRecord` 沒有「是否截斷」欄位
+
+原設計有。實作時發現沒有東西能填它：能力只回文字，截斷與否已寫在交給助手的文字裡。
+**被告知才是重點**，一個只有這張表看得到的旗標什麼都告訴不了助手，所以刪掉。
+
+### 9.4 指標計算能力接受 `strategyId`
+
+原設計要助手先讀策略、再把算式送回來算。實作時改成能力自己收 `strategyId` 並代讀，
+因為「用我的二十根均線看 BTCUSDT」指的是**一支策略**而不是一段算式：
+少一次往返，也不必把整段算式在對話裡走兩趟。兩者都給時以 `strategyId` 為準，
+它們不能悄悄不一致。
+
+### 9.5 多了 `ASSISTANT_BASE_URL`
+
+為了讓 `ClaudeAssistantProxy` 能對著一個替身跑起來——那是唯一能驗證
+「一次往返到底送出什麼」的方式，而那正是本切片最容易寫錯的地方。
+順帶也能指向閘道或錄製代理。
+
+### 9.6 `AppendTurn` 的錯誤包裝挪到交易外面
+
+原本每個 statement 各自包。但**交易本身開不起來**時（例如連線已關），錯誤根本不經過那些
+statement，會以資料庫驅動的原句直達呼叫端。改成：找不到對話由裡面回報，
+其餘一律在外面包一次。這是寫 storage-failure 測試時才發現的。
+
+### 未做到的兩件事
+
+- **伺服器端 refusal fallback**（`claude-opus-5` 建議預設開啟）**沒有做**。它走 beta endpoint，
+  且無法在不付費的情況下驗證，本切片選擇不加沒被測到的路徑。行情問答被政策拒絕的機率極低；
+  真的要加，位置在 `ClaudeAssistantProxy.Reply`。
+- **`AppendTurn` 交易內兩個失敗分支未被測到**（`moved.Error`、`readBackError`）。
+  兩者都需要在交易已開啟後再讓語句失敗，沒有不引入故障注入的乾淨作法。

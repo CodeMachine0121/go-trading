@@ -29,6 +29,11 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 	assert.Equal(t, []string{
 		"DELETE /k-candles/:symbol/:openTime",
 		"DELETE /strategies/:id",
+		// The assistant reads and writes only through the very use cases a caller
+		// already has; it is given no capability that touches the watchlist, so these
+		// three do not widen what a caller can reach either.
+		"GET /chat/conversations",
+		"GET /chat/conversations/:id",
 		"GET /health",
 		"GET /k-candles",
 		"GET /k-candles/:symbol/:openTime",
@@ -39,6 +44,7 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		"GET /strategies",
 		"GET /strategies/:id",
 		"GET /trading-symbols",
+		"POST /chat",
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"POST /strategies",
