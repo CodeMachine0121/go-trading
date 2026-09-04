@@ -44,6 +44,9 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.KCandle{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.TradingSymbol{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.Strategy{}).Error)
+	// Deleting the conversations takes their exchanges and lookups with them, so the
+	// two child tables need no line of their own here.
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.Conversation{}).Error)
 
 	return database
 }
