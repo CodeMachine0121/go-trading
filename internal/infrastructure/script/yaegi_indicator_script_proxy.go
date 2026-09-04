@@ -120,9 +120,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	// declared did not fail on its own terms — it failed because a name does not
 	// match, and every other answer here would send the reader to the wrong place.
 	if missingName, isMissing := parameterReader.missingName(); isMissing {
-		return nil, fmt.Errorf(
-			"%w: 算式取用了參數 %q，但這一次沒有宣告這個名字",
-			domains.ErrIndicatorParameterNotDeclared, missingName)
+		return nil, domains.UndeclaredParameter(missingName)
 	}
 
 	if errors.Is(context.Cause(allowanceContext), errScriptAllowanceSpent) {

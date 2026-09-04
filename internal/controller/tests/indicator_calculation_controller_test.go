@@ -196,14 +196,14 @@ func TestCalculateIndicatorTellsAMismatchedParameterNameApartFromEverythingElse(
 	fixture.expectTwoUsableCandles()
 	fixture.indicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(nil, fmt.Errorf("%w: 算式取用了參數 %q，但這一次沒有宣告這個名字",
-			domains.ErrIndicatorParameterNotDeclared, "期數"))
+		Return(nil, domains.UndeclaredParameter("期數"))
 
 	recorder := fixture.post(indicatorBody)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code,
 		"這是呼叫端填錯了，不是這個系統壞了")
-	assert.Contains(t, recorder.Body.String(), "期數", "它必須指名是哪一個")
+	assert.Contains(t, recorder.Body.String(), `"parameterName":"期數"`,
+		"名字要以一個欄位交出去——靠讀訊息比對，等於讓呼叫端依賴給人看的文字")
 }
 
 func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {

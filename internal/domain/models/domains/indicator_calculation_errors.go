@@ -1,6 +1,9 @@
 package domains
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrIndicatorCalculationValidation marks a request the caller got wrong:
 // the candle count, or not enough candles to satisfy it.
@@ -19,3 +22,37 @@ var ErrIndicatorScriptFailed = errors.New("indicator script failed")
 // sends the person to read the wrong thing. What went wrong is that a name does not
 // match — so that is what it says.
 var ErrIndicatorParameterNotDeclared = errors.New("indicator parameter not declared")
+
+// UndeclaredParameterName digs the name out of a mismatched-knob failure, so that
+// whoever answers the caller can hand it over as a field of its own.
+//
+// A caller telling this failure apart by reading the message would be matching on
+// prose written for a person — it changes whenever the wording improves. The name
+// travels as a value instead.
+func UndeclaredParameterName(err error) (string, bool) {
+	var undeclared *undeclaredParameterError
+	if !errors.As(err, &undeclared) {
+		return "", false
+	}
+
+	return undeclared.name, true
+}
+
+// UndeclaredParameter builds the failure for a knob nobody declared, carrying both
+// the sentence a person reads and the name a caller acts on.
+func UndeclaredParameter(name string) error {
+	return &undeclaredParameterError{name: name}
+}
+
+type undeclaredParameterError struct {
+	name string
+}
+
+func (undeclared *undeclaredParameterError) Error() string {
+	return fmt.Sprintf("%v: 算式取用了參數 %q，但這一次沒有宣告這個名字",
+		ErrIndicatorParameterNotDeclared, undeclared.name)
+}
+
+func (undeclared *undeclaredParameterError) Unwrap() error {
+	return ErrIndicatorParameterNotDeclared
+}

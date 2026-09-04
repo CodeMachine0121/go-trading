@@ -58,8 +58,14 @@ func (indicatorCalculationController *IndicatorCalculationController) respondWit
 	// the script's and not this system's. Left to fall through it would be answered
 	// as a gateway failure — telling somebody the backend broke when what happened is
 	// that they renamed a knob and forgot the line that reads it.
-	if errors.Is(err, domains.ErrIndicatorParameterNotDeclared) {
-		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+	if parameterName, isUndeclared := domains.UndeclaredParameterName(err); isUndeclared {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message": err.Error(),
+			// The name travels as a value, not only inside the sentence: a caller
+			// telling this failure apart by reading prose would be matching on words
+			// written for a person, which change whenever the wording improves.
+			"parameterName": parameterName,
+		})
 		return
 	}
 	if errors.Is(err, domains.ErrIndicatorScriptFailed) {
