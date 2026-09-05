@@ -148,17 +148,13 @@ func (userService *UserService) SignIn(
 func (userService *UserService) RenewSession(
 	executionContext context.Context, renewalDto dto.SessionRenewalDto,
 ) (dto.SessionTokensDto, error) {
-	if renewalDto.RefreshToken == "" {
-		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
-	}
-
-	storedSession, findError := userService.sessionRepository.FindOneByDigest(
-		executionContext, userService.refreshTokenProxy.DigestOf(renewalDto.RefreshToken))
-	if errors.Is(findError, domains.ErrSessionNotFound) {
-		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
-	}
+	storedSession, sessionExists, findError := userService.sessionHolding(
+		executionContext, renewalDto.RefreshToken)
 	if findError != nil {
 		return dto.SessionTokensDto{}, findError
+	}
+	if !sessionExists {
+		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
 	}
 
 	session := domains.NewSessionDomain(storedSession)
@@ -225,22 +221,47 @@ func (userService *UserService) RenewSession(
 func (userService *UserService) RevokeSession(
 	executionContext context.Context, renewalDto dto.SessionRenewalDto,
 ) error {
-	if renewalDto.RefreshToken == "" {
-		return nil
-	}
-
-	storedSession, findError := userService.sessionRepository.FindOneByDigest(
-		executionContext, userService.refreshTokenProxy.DigestOf(renewalDto.RefreshToken))
-	if errors.Is(findError, domains.ErrSessionNotFound) {
-		return nil
-	}
+	storedSession, sessionExists, findError := userService.sessionHolding(
+		executionContext, renewalDto.RefreshToken)
 	if findError != nil {
 		return findError
+	}
+	if !sessionExists {
+		return nil
 	}
 
 	// The whole chain goes, not just this session. A chain is one device's one
 	// sign-in, and signing out means that device, not that proof.
 	return userService.sessionRepository.RevokeChain(executionContext, storedSession.ChainID)
+}
+
+// sessionHolding finds the session a renewal proof belongs to.
+//
+// The second return value says whether there was one, and it says only that — the
+// two public methods that ask react to "there was not" in opposite ways. Renewing
+// refuses; signing out succeeds, because a sign-in that is not there already does
+// not work. A helper that decided for them would have to be told which of the two
+// was calling, which is the same thing as not being a helper.
+//
+// A proof of nothing at all never reaches storage: there is nothing to look up, and
+// asking would be a query whose answer is already known.
+func (userService *UserService) sessionHolding(
+	executionContext context.Context, refreshToken string,
+) (entities.Session, bool, error) {
+	if refreshToken == "" {
+		return entities.Session{}, false, nil
+	}
+
+	storedSession, findError := userService.sessionRepository.FindOneByDigest(
+		executionContext, userService.refreshTokenProxy.DigestOf(refreshToken))
+	if errors.Is(findError, domains.ErrSessionNotFound) {
+		return entities.Session{}, false, nil
+	}
+	if findError != nil {
+		return entities.Session{}, false, findError
+	}
+
+	return storedSession, true, nil
 }
 
 // newSessionMaterial produces the two things opening a session needs, before

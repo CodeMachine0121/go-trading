@@ -76,11 +76,12 @@ Session
 
 | Name | Responsibility | Satisfies |
 | :--- | :--- | :--- |
-| `SessionDomain` | 一段登入階段現在算不算數：`Revoked()`、`Expired(now)`、`Usable(now)`。並產出下一段（`Renewed(...)`，沿用同一條鏈、到期時刻從當下重算） | US-02、US-03、US-04 |
+| `SessionDomain` | 一段登入階段現在算不算數：`Revoked()` 與 `Expired(now)`。並產出下一段（`Renewed(...)`，沿用同一條鏈、到期時刻從當下重算） | US-02、US-03、US-04 |
 
-- **`Revoked()` 與 `Expired()` 分開問，而不是只留一個 `Usable()`**：
+- **`Revoked()` 與 `Expired()` 分開問，而且刻意**沒有**一個把兩者合起來的 `Usable()`**：
   它們導向**不同的動作**。過期就只是拒絕；已作廢是**盜用**，要撤掉整條鏈。
-  合成一個布林，那個分別就消失了，而它正是這個切片最重要的一條規則。
+  合成一個布林，那個分別就消失了，而它正是這個切片最重要的一條規則——
+  所以那個布林連存在都不該存在，免得下一個人順手用了它。
 
 ### 3.3 Domain — DTO / VO
 
@@ -119,8 +120,14 @@ Session
 | `RenewSession` | **新** | 查留存樣 → 判作廢／過期／使用者還在不在 → 輪替 → 一對新的 |
 | `RevokeSession` | **新** | 查留存樣 → 撤整條鏈。**查不到也算成功** |
 
-私有 helper `openSessionFor(ctx, user, now)` 被 `SignIn` 與 `RenewSession` 兩個公開方法共用
-（產續用憑證、算兩個到期時刻、簽登入憑證），符合「被 2 個以上公開方法用到才留成 private」的門檻。
+兩個私有 helper，各自被兩個公開方法共用，都過得了「被 2 個以上公開方法用到才留成 private」的門檻：
+
+- `newSessionMaterial(userID, now)` —— 產續用憑證並簽登入憑證，**在任何寫入之前**。
+  被 `SignIn` 與 `RenewSession` 共用。
+- `sessionHolding(ctx, refreshToken)` —— 從一份續用憑證找出它所屬的那一段。
+  被 `RenewSession` 與 `RevokeSession` 共用。它的第二個回傳值**只說「有沒有」**，
+  不替呼叫端決定：續用時「沒有」是拒絕，登出時「沒有」是成功。
+  替他們決定的話，這個 helper 就得知道是誰在呼叫它——那等於它不是 helper。
 
 ### 3.6 Infrastructure
 

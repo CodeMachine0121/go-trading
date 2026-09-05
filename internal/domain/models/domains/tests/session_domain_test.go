@@ -30,12 +30,10 @@ func TestSessionDomainTellsRevokedAndExpiredApart(t *testing.T) {
 		session         entities.Session
 		expectedRevoked bool
 		expectedExpired bool
-		expectedUsable  bool
 	}{
 		{
-			name:           "still good",
-			session:        aSession(sessionNow.Add(24*time.Hour), nil),
-			expectedUsable: true,
+			name:    "still good",
+			session: aSession(sessionNow.Add(24*time.Hour), nil),
 		},
 		{
 			name:            "ended, but its moment has not passed",
@@ -55,9 +53,8 @@ func TestSessionDomainTellsRevokedAndExpiredApart(t *testing.T) {
 			expectedExpired: true,
 		},
 		{
-			name:           "one second of life left",
-			session:        aSession(sessionNow.Add(time.Second), nil),
-			expectedUsable: true,
+			name:    "one second of life left",
+			session: aSession(sessionNow.Add(time.Second), nil),
 		},
 		{
 			name: "both ended and expired",
@@ -76,7 +73,6 @@ func TestSessionDomainTellsRevokedAndExpiredApart(t *testing.T) {
 
 			assert.Equal(t, testCase.expectedRevoked, sessionDomain.Revoked())
 			assert.Equal(t, testCase.expectedExpired, sessionDomain.Expired(sessionNow))
-			assert.Equal(t, testCase.expectedUsable, sessionDomain.Usable(sessionNow))
 		})
 	}
 }

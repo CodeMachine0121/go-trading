@@ -36,11 +36,6 @@ func (sessionDomain SessionDomain) Expired(now time.Time) bool {
 	return !now.Before(sessionDomain.session.ExpiresAt)
 }
 
-// Usable is the two of them together, for the caller that only needs the conclusion.
-func (sessionDomain SessionDomain) Usable(now time.Time) bool {
-	return !sessionDomain.Revoked() && !sessionDomain.Expired(now)
-}
-
 // ID is which stored session this is, for the rotation that has to end it.
 func (sessionDomain SessionDomain) ID() uint {
 	return sessionDomain.session.ID
