@@ -93,6 +93,22 @@ type AssistantConfig struct {
 	ResponseTimeout time.Duration
 }
 
+// AuthenticationConfig holds what recognising a person runs under: the key proofs of
+// identity are signed with, and how long one of them lasts.
+//
+// The key has no default and cannot have one. A default key is a key everybody
+// running this code knows, and a proof signed with a key everybody knows is a proof
+// anybody can write. Leaving it unset means nobody can sign in — which is the
+// correct thing for a system with no key to do, and is why the sign-in path says so
+// out loud instead of quietly working in a way that guards nothing.
+type AuthenticationConfig struct {
+	AccessTokenSigningKey string
+	// AccessTokenLifetime is how long a proof of identity lasts. It is the only
+	// bound on a proof that has been handed to the wrong person: none of them is
+	// stored, so none of them can be taken back before it expires.
+	AccessTokenLifetime time.Duration
+}
+
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
@@ -103,6 +119,7 @@ type ApplicationConfig struct {
 	Ingestion              IngestionConfig
 	LiveFollow             LiveFollowConfig
 	Assistant              AssistantConfig
+	Authentication         AuthenticationConfig
 	Database               DatabaseConfig
 }
 
@@ -153,6 +170,11 @@ func Load() ApplicationConfig {
 			AnswerLengthLimit:   positiveIntWithDefault("ASSISTANT_ANSWER_LENGTH_LIMIT", 2000),
 			ResponseTimeout: time.Duration(
 				positiveIntWithDefault("ASSISTANT_RESPONSE_TIMEOUT_SECONDS", 120)) * time.Second,
+		},
+		Authentication: AuthenticationConfig{
+			AccessTokenSigningKey: stringWithDefault("AUTH_ACCESS_TOKEN_SIGNING_KEY", ""),
+			AccessTokenLifetime: time.Duration(
+				positiveIntWithDefault("AUTH_ACCESS_TOKEN_LIFETIME_HOURS", 24)) * time.Hour,
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

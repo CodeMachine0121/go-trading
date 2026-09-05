@@ -44,10 +44,15 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		"GET /strategies",
 		"GET /strategies/:id",
 		"GET /trading-symbols",
+		// Recognising a person reads and writes only users. None of these three can
+		// name a symbol, so the boundary this test holds is intact.
+		"GET /users/me",
 		"POST /chat",
 		"POST /indicator-calculations",
 		"POST /k-candles",
+		"POST /sessions",
 		"POST /strategies",
+		"POST /users",
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategies/:id",
 	}, mountedRoutes)

@@ -13,6 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/security"
 	"github.com/CodeMachine0121/go-trading/internal/job"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -118,6 +119,36 @@ func registerRoutes(
 	engine.POST("/chat", assistantConversationController.Ask)
 	engine.GET("/chat/conversations", assistantConversationController.ListConversations)
 	engine.GET("/chat/conversations/:id", assistantConversationController.GetConversation)
+
+	// Recognising a person is the one thing here that has nothing to do with the
+	// market, and it is wired from two capabilities that are pure cryptography:
+	// turning a password into something storable, and turning an identity into
+	// something signed. Both are behind interfaces, so replacing either — bcrypt for
+	// something newer, one shared key for a key pair — is a new implementation and
+	// one changed line here.
+	//
+	// Two of these routes are open to anybody who can reach this address, and that is
+	// deliberate rather than overlooked: a system holding no users has nobody who
+	// could be allowed to create the first one. Only "who am I" needs a proof, and it
+	// is where this door is proved to actually shut. The market routes below are
+	// still open to anyone — see the sign-in design notes for why they are a slice of
+	// their own.
+	userController := controller.NewUserController(
+		application.NewUserApplication(
+			service.NewUserService(
+				persistence.NewUserRepository(database),
+				security.NewBcryptPasswordProofProxy(),
+				security.NewJwtAccessTokenProxy(
+					applicationConfig.Authentication.AccessTokenSigningKey),
+				clock.NewSystemClockProxy(),
+				applicationConfig.Authentication.AccessTokenLifetime,
+			),
+		),
+	)
+
+	engine.POST("/users", userController.RegisterUser)
+	engine.POST("/sessions", userController.SignIn)
+	engine.GET("/users/me", userController.GetCurrentUser)
 
 	// Following a market live is an addition, not a replacement: the five-minute
 	// round keeps running, and it is what fills in every candle that closed while

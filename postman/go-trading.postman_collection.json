@@ -36,6 +36,22 @@
 		{
 			"key": "conversationId",
 			"value": "0"
+		},
+		{
+			"key": "userEmail",
+			"value": ""
+		},
+		{
+			"key": "userPassword",
+			"value": "postman-only-password"
+		},
+		{
+			"key": "userId",
+			"value": ""
+		},
+		{
+			"key": "accessToken",
+			"value": ""
 		}
 	],
 	"event": [
@@ -44,6 +60,12 @@
 			"script": {
 				"type": "text/javascript",
 				"exec": [
+					"// 每次執行都用一個當下產生的電子郵件，整包才重複跑得起來——",
+					"// 固定一個的話，第二次執行的「建立使用者」永遠是 409。",
+					"if (!pm.collectionVariables.get('userEmail')) {",
+					"    pm.collectionVariables.set('userEmail', `postman-${Date.now()}@example.com`);",
+					"}",
+					"",
 					"// 所有時間都在執行當下算出來：對齊五分鐘刻度，且一定落在過去。",
 					"const FIVE_MINUTES = 5 * 60 * 1000;",
 					"const asRfc3339 = (date) => date.toISOString().replace(/\\.\\d{3}Z$/, 'Z');",
@@ -100,6 +122,412 @@
 									"});",
 									"pm.test(\"回報 Healthy\", function () {",
 									"    pm.expect(pm.response.json().status).to.eql(\"Healthy\");",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "使用者登入",
+			"description": "建立使用者 → 登入拿憑證 → 帶著憑證問「我是誰」。\n\n每次執行都用一個當下產生的電子郵件（見 collection 的 pre-request script），所以整包可以重複跑而不會撞到「這個電子郵件已經有人用了」。\n\n**`POST /sessions` 需要伺服器設定 `AUTH_ACCESS_TOKEN_SIGNING_KEY`。**沒設定時它回 503，而且那是對的——沒有鑰匙就簽不出任何人偽造不了的憑證。",
+			"item": [
+				{
+					"name": "建立使用者",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"pm.test(\"回覆識別碼與電子郵件\", function () {",
+									"    const user = pm.response.json();",
+									"    pm.expect(user.id).to.be.above(0);",
+									"    pm.expect(user.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+									"    pm.collectionVariables.set(\"userId\", String(user.id));",
+									"});",
+									"pm.test(\"回覆不含密碼，也不含由它算出來的任何東西\", function () {",
+									"    const body = pm.response.text();",
+									"    pm.expect(body).to.not.include(pm.collectionVariables.get(\"userPassword\"));",
+									"    pm.expect(pm.response.json()).to.not.have.property(\"passwordProof\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "建立使用者 — 同一個電子郵件第二次",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 409：這個電子郵件已經有人用了\", function () {",
+									"    pm.response.to.have.status(409);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "建立使用者 — 密碼太短",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"too-short@example.com\",\n    \"password\": \"1234567\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"說明密碼至少要 8 個字元\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"8\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登入",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"回覆憑證與它的到期時刻\", function () {",
+									"    const session = pm.response.json();",
+									"    pm.expect(session.accessToken).to.be.a(\"string\").and.not.empty;",
+									"    pm.expect(new Date(session.expiresAt).getTime()).to.be.above(Date.now());",
+									"    pm.collectionVariables.set(\"accessToken\", session.accessToken);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登入 — 大小寫與前後空白都是同一個帳號",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"  {{userEmail}}  \",\n    \"password\": \"{{userPassword}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登入 — 密碼錯",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"definitely-wrong\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"pm.test(\"只說「電子郵件或密碼不正確」\", function () {",
+									"    pm.expect(pm.response.json().message).to.eql(\"電子郵件或密碼不正確\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登入 — 查無這個電子郵件",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"nobody-at-all@example.com\",\n    \"password\": \"{{userPassword}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"pm.test(\"與密碼錯的說法一字不差——分開講等於奉送一份已註冊名單\", function () {",
+									"    pm.expect(pm.response.json().message).to.eql(\"電子郵件或密碼不正確\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "我是誰",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"me"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"認得出剛剛登入的那一位\", function () {",
+									"    const user = pm.response.json();",
+									"    pm.expect(String(user.id)).to.eql(pm.collectionVariables.get(\"userId\"));",
+									"    pm.expect(user.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "我是誰 — 沒帶憑證",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/users/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"me"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"pm.test(\"說明要重新登入\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"重新登入\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "我是誰 — 憑證被改過一個字",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}x"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/users/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"me"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401\", function () {",
+									"    pm.response.to.have.status(401);",
 									"});"
 								]
 							}

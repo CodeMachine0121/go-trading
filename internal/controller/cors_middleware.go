@@ -48,7 +48,10 @@ var (
 		http.MethodDelete,
 		http.MethodOptions,
 	}
-	allowedCorsHeaders = []string{"Content-Type"}
+	// Authorization is on the list because a browser will not send a proof of
+	// identity it was not given permission to send — and a front end that cannot
+	// send one can only ever reach the two endpoints that need none.
+	allowedCorsHeaders = []string{"Content-Type", "Authorization"}
 )
 
 const corsPreflightMaxAgeSeconds = "600"
