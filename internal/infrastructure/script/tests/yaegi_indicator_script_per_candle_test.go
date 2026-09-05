@@ -80,6 +80,35 @@ func TestExecuteForEachCandle(t *testing.T) {
 		assert.Empty(t, perCandleIndicatorValues)
 	})
 
+	t.Run("the script is read once and then run, not read again per candle", func(t *testing.T) {
+		// A count kept beside the algorithm survives from one run to the next only
+		// while the same reading of the script is still standing. Were the script read
+		// afresh for every candle, every run would report one.
+		const countsItsOwnRunsScript = `
+package main
+
+import "indicator"
+
+var runCount = 0
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	runCount++
+	return map[string]float64{"runs": float64(runCount)}
+}
+`
+
+		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), countsItsOwnRunsScript, resultTypeOf(t, "float"),
+				candlesWithClosePrices(100, 110, 120), noStrategyParameters(t))
+
+		require.NoError(t, err)
+		require.Len(t, perCandleIndicatorValues, 3)
+		assert.Equal(t, 1.0, numberOf(perCandleIndicatorValues[0], "runs"))
+		assert.Equal(t, 2.0, numberOf(perCandleIndicatorValues[1], "runs"))
+		assert.Equal(t, 3.0, numberOf(perCandleIndicatorValues[2], "runs"))
+	})
+
 	t.Run("a script that cannot be read fails before any candle is looked at", func(t *testing.T) {
 		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
