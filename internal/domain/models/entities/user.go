@@ -28,6 +28,10 @@ type User struct {
 	PasswordProof string    `gorm:"size:255;not null"`
 	CreatedAt     time.Time `gorm:"type:timestamptz;not null"`
 	UpdatedAt     time.Time `gorm:"type:timestamptz;not null"`
+	// Sessions belong to this user and to nobody else. They are declared here so
+	// that "a user who is gone has no sessions" is something the schema enforces
+	// rather than something a piece of code has to remember to do.
+	Sessions []Session `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 // TableName pins the table to Users instead of GORM's default users.
