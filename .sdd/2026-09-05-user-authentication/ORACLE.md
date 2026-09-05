@@ -57,7 +57,7 @@
 | S3 | `""` / `"correct horse"` | 拒絕，`ErrCredentialsRejected`，訊息 = `"電子郵件或密碼不正確"` |
 | S4 | `"not-an-email"` / `"correct horse"` | 拒絕，`ErrCredentialsRejected`——**不是** `ErrUserValidation`；連格式都不透露 |
 | S5 | `"james@example.com"` / `""` | 拒絕，`ErrCredentialsRejected` |
-| S6 | `"james@example.com"` / `"1234567"`（比下限短） | 拒絕，`ErrCredentialsRejected`——**不套用建立時的長度規則**，短密碼只是「對不上」 |
+| S6 | `"james@example.com"` / `"1234567"`（比下限短） | **通過**——建立時的長度規則在這裡刻意不套用。短密碼不是格式問題，它只是不對，所以由後面的比對回絕（見 `UserService.SignIn` 的 I11），而不是在這裡 |
 | S7 | S3 與 S4 的錯誤訊息 | **一字不差**相同 |
 
 ## User entity — 對外的形狀（US-01、US-05）
@@ -94,6 +94,7 @@
 | I8 | `Issue` 失敗 | 原樣回傳 |
 | I9 | 全程 | **沒有任何寫入**：`Save` 一次都不被呼叫 |
 | I10 | 有效期限 1 小時 | `expiresAt` = `2026-09-05T09:00:00Z` |
+| I11 | 密碼比建立時的下限還短、但確實對得上留存的證明 | 登入**成功**——長度規則管的是密碼設得成什麼，不是它現在對不對 |
 
 ## UserService.IdentifyUser — 我是誰（US-05）
 
