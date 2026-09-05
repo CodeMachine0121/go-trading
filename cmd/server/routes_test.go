@@ -47,6 +47,9 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		// Recognising a person reads and writes only users. None of these three can
 		// name a symbol, so the boundary this test holds is intact.
 		"GET /users/me",
+		// Replaying a strategy reads the market and stores nothing at all, so it
+		// cannot reach the watchlist either.
+		"POST /backtests",
 		"POST /chat",
 		"POST /indicator-calculations",
 		"POST /k-candles",

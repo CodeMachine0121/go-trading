@@ -74,6 +74,23 @@ func registerRoutes(
 	engine.POST("/indicator-calculations", controller.NewIndicatorCalculationController(
 		indicatorCalculationApplication).CalculateIndicator)
 
+	// Replaying a strategy is its own use case rather than a mode of calculating an
+	// indicator: it asks a different question of the same script, and it stores
+	// nothing — which is why it is given no repository beyond the one it reads from.
+	//
+	// It shares the read ceiling with every other read, deliberately: a replay is
+	// still one look at the market, and giving it a ceiling of its own would leave two
+	// numbers to keep in step.
+	engine.POST("/backtests", controller.NewBacktestController(
+		application.NewBacktestApplication(
+			service.NewBacktestService(
+				kCandleRepository,
+				script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+				clock.NewSystemClockProxy(),
+				applicationConfig.KCandleQueryMaxResults,
+			),
+		)).RunBacktest)
+
 	// A saved strategy is its own resource: it holds an algorithm and nothing else —
 	// how coarse the K candles are, how many of them and up to when describe one run
 	// and travel with the calculation instead. It reads no K candles, so it is given
