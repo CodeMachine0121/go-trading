@@ -76,30 +76,6 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		equityCurve.Record(candleTime, account.EquityAt(fillPrice))
 	}
 
-	closedTradeDtos := make([]dto.ClosedTradeDto, 0, len(account.ClosedTrades()))
-	for _, closedTrade := range account.ClosedTrades() {
-		closedTradeDtos = append(closedTradeDtos, closedTrade.ToDto())
-	}
-
-	equityPointDtos := make([]dto.EquityPointDto, 0, len(equityCurve.Points()))
-	for _, equityPoint := range equityCurve.Points() {
-		equityPointDtos = append(equityPointDtos, equityPoint.ToDto())
-	}
-
-	return dto.BacktestResultDto{
-		UsedCandleCount: len(backtestSimulationDomain.inputKCandles),
-		Summary:         backtestSimulationDomain.summaryOf(account, equityCurve),
-		ClosedTrades:    closedTradeDtos,
-		EquityCurve:     equityPointDtos,
-	}
-}
-
-// summaryOf reads the report card off the two things the walk built. The win rate is
-// carried as an absent value when nothing was ever closed, which is what keeps "no
-// trades" from being reported as "every trade lost".
-func (backtestSimulationDomain BacktestSimulationDomain) summaryOf(
-	account *BacktestAccountDomain, equityCurve *BacktestEquityCurveDomain,
-) dto.BacktestSummaryDto {
 	backtestSummaryDto := dto.BacktestSummaryDto{
 		InitialCapital:    backtestSimulationDomain.initialCapital,
 		FinalEquity:       equityCurve.FinalEquity(),
@@ -107,10 +83,16 @@ func (backtestSimulationDomain BacktestSimulationDomain) summaryOf(
 		MaximumDrawdown:   equityCurve.MaximumDrawdown(),
 		PositionOpenCount: account.PositionOpenCount(),
 	}
-
+	// The win rate stays absent when nothing was ever closed, which is what keeps "no
+	// trades" from being reported as "every trade lost".
 	if winRate, isApplicable := account.WinRate(); isApplicable {
 		backtestSummaryDto.WinRate = &winRate
 	}
 
-	return backtestSummaryDto
+	return dto.BacktestResultDto{
+		UsedCandleCount: len(backtestSimulationDomain.inputKCandles),
+		Summary:         backtestSummaryDto,
+		ClosedTrades:    account.ClosedTradeDtos(),
+		EquityCurve:     equityCurve.PointDtos(),
+	}
 }

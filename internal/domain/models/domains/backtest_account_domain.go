@@ -3,6 +3,7 @@ package domains
 import (
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
@@ -95,10 +96,16 @@ func (backtestAccountDomain *BacktestAccountDomain) EquityAt(
 		backtestAccountDomain.openPosition.ValueAt(price))
 }
 
-// ClosedTrades are the round trips that finished, earliest first. A position still
-// open is not among them: it has no exit to report.
-func (backtestAccountDomain *BacktestAccountDomain) ClosedTrades() []vo.ClosedTradeVo {
-	return backtestAccountDomain.closedTrades
+// ClosedTradeDtos are the round trips that finished, earliest first, in the shape they
+// leave the domain in. A position still open is not among them: it has no exit to
+// report.
+func (backtestAccountDomain *BacktestAccountDomain) ClosedTradeDtos() []dto.ClosedTradeDto {
+	closedTradeDtos := make([]dto.ClosedTradeDto, 0, len(backtestAccountDomain.closedTrades))
+	for _, closedTrade := range backtestAccountDomain.closedTrades {
+		closedTradeDtos = append(closedTradeDtos, closedTrade.ToDto())
+	}
+
+	return closedTradeDtos
 }
 
 // PositionOpenCount is how many openings actually happened. One that was skipped for

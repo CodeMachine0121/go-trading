@@ -17,10 +17,6 @@ import (
 // a decision has a consequence.
 const minimumBacktestKCandleCount = 2
 
-// spareBacktestBucketCount is the one bucket beyond the stretch asked for that the
-// read reaches over, so a limit can never cut the answer short.
-const spareBacktestBucketCount = 1
-
 // BacktestDomain is one replay's conditions, and every rule about what may be
 // replayed: which market, how coarse, which stretch, which algorithm with which knobs,
 // how much capital, and how much each opening stakes.
@@ -155,7 +151,7 @@ func (backtestDomain BacktestDomain) KCandleQuery() KCandleQueryDomain {
 func (backtestDomain BacktestDomain) SourceCandleLimit() int {
 	return backtestDomain.interval.SourceCandleCount(
 		backtestDomain.interval.BucketCount(backtestDomain.startTime, backtestDomain.readCutoff) +
-			spareBacktestBucketCount)
+			spareBucketCount)
 }
 
 // SelectInputCandles takes the K candles as read — earliest first — and hands back
@@ -183,15 +179,29 @@ func (backtestDomain BacktestDomain) SelectInputCandles(
 	return inputKCandleVos, nil
 }
 
-// Simulation hands the conditions over to the walk, so that the capital and the sizing
-// mode travel with them instead of being carried separately by a caller that would
-// then be free to pair the wrong ones.
-func (backtestDomain BacktestDomain) Simulation(
+// ReplayOver walks the candles and hands back the whole result, conditions and all.
+//
+// It is one call rather than "build a walk, run it, then say which market and which
+// coarseness it was" because those last four answers are this model's, not the walk's —
+// and a caller left to fill them in is a caller free to fill them in wrongly, or to
+// forget. The capital and the sizing mode travel the same way, so nothing pairs a set
+// of conditions with somebody else's candles.
+func (backtestDomain BacktestDomain) ReplayOver(
 	inputKCandles []vo.KCandleVo, perCandleIndicatorValues []map[string]vo.IndicatorValueVo,
-) BacktestSimulationDomain {
-	return NewBacktestSimulationDomain(
+) dto.BacktestResultDto {
+	backtestResultDto := NewBacktestSimulationDomain(
 		backtestDomain.initialCapital,
 		backtestDomain.positionSizing,
 		inputKCandles,
-		perCandleIndicatorValues)
+		perCandleIndicatorValues).ToDto()
+
+	backtestResultDto.Symbol = backtestDomain.symbol
+	backtestResultDto.Interval = string(backtestDomain.interval.Value())
+	// Where the replay actually ran, which is not always where it was asked to: the
+	// stretch requested may reach into an interval that has not finished.
+	backtestResultDto.StartTime = backtestResultDto.EquityCurve[0].OpenTime
+	backtestResultDto.EndTime =
+		backtestResultDto.EquityCurve[len(backtestResultDto.EquityCurve)-1].OpenTime
+
+	return backtestResultDto
 }

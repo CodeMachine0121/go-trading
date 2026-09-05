@@ -89,7 +89,7 @@ func TestBacktestEquityCurveDomainReadings(t *testing.T) {
 	t.Run("every recorded point is kept, in the order it was recorded", func(t *testing.T) {
 		equityCurve := recordedCurveOf(10000, 10000, 11000, 9000)
 
-		points := equityCurve.Points()
+		points := equityCurve.PointDtos()
 		require.Len(t, points, 3)
 		assert.Equal(t, replayStart, points[0].OpenTime)
 		assert.True(t, decimal.NewFromInt(11000).Equal(points[1].Equity))

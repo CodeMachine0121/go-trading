@@ -3,6 +3,7 @@ package domains
 import (
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
@@ -59,8 +60,15 @@ func (backtestEquityCurveDomain *BacktestEquityCurveDomain) Record(
 		backtestEquityCurveDomain.maximumDrawdown, drawdown)
 }
 
-func (backtestEquityCurveDomain *BacktestEquityCurveDomain) Points() []vo.EquityPointVo {
-	return backtestEquityCurveDomain.points
+// PointDtos are every point recorded, in the order they were recorded, in the shape
+// they leave the domain in.
+func (backtestEquityCurveDomain *BacktestEquityCurveDomain) PointDtos() []dto.EquityPointDto {
+	equityPointDtos := make([]dto.EquityPointDto, 0, len(backtestEquityCurveDomain.points))
+	for _, equityPoint := range backtestEquityCurveDomain.points {
+		equityPointDtos = append(equityPointDtos, equityPoint.ToDto())
+	}
+
+	return equityPointDtos
 }
 
 func (backtestEquityCurveDomain *BacktestEquityCurveDomain) MaximumDrawdown() float64 {

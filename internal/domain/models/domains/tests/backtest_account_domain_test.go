@@ -31,7 +31,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 
 		assert.True(t, decimal.NewFromInt(10000).Equal(account.EquityAt(decimal.NewFromInt(999))))
 		assert.Equal(t, 0, account.PositionOpenCount())
-		assert.Empty(t, account.ClosedTrades())
+		assert.Empty(t, account.ClosedTradeDtos())
 	})
 
 	t.Run("a flat opinion moves nothing", func(t *testing.T) {
@@ -50,7 +50,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 		account.Apply(signalOf(1), positionExitTime, decimal.NewFromInt(200))
 
 		assert.Equal(t, 1, account.PositionOpenCount())
-		assert.Empty(t, account.ClosedTrades())
+		assert.Empty(t, account.ClosedTradeDtos())
 		// Still the 100 units bought at 100, now worth 20,000.
 		assert.True(t, decimal.NewFromInt(20000).Equal(account.EquityAt(decimal.NewFromInt(200))))
 	})
@@ -61,9 +61,9 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 		account.Apply(signalOf(1), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(-1), positionExitTime, decimal.NewFromInt(110))
 
-		require.Len(t, account.ClosedTrades(), 1)
-		assert.Equal(t, vo.PositionDirectionLong, account.ClosedTrades()[0].Direction)
-		assert.True(t, decimal.NewFromInt(110).Equal(account.ClosedTrades()[0].ExitPrice))
+		require.Len(t, account.ClosedTradeDtos(), 1)
+		assert.Equal(t, string(vo.PositionDirectionLong), account.ClosedTradeDtos()[0].Direction)
+		assert.True(t, decimal.NewFromInt(110).Equal(account.ClosedTradeDtos()[0].ExitPrice))
 		assert.Equal(t, 2, account.PositionOpenCount())
 		// The whole 11,000 went back out as a short at that very same 110.
 		assert.True(t, decimal.NewFromInt(11000).Equal(account.EquityAt(decimal.NewFromInt(110))))
@@ -112,7 +112,7 @@ func TestBacktestAccountDomainWinRate(t *testing.T) {
 		winRate, isApplicable := account.WinRate()
 
 		require.True(t, isApplicable)
-		assert.Len(t, account.ClosedTrades(), 2)
+		assert.Len(t, account.ClosedTradeDtos(), 2)
 		assert.InDelta(t, 0.5, winRate, 1e-9)
 	})
 }

@@ -276,12 +276,27 @@ func TestBacktestDomainSimulation(t *testing.T) {
 			requestDto, backtestMaxCandleCount, backtestNow)
 		require.NoError(t, err)
 
-		result := backtestDomain.Simulation(
+		result := backtestDomain.ReplayOver(
 			[]vo.KCandleVo{replayedCandleAt(0, 100), replayedCandleAt(1, 110)},
-			[]map[string]vo.IndicatorValueVo{signalResultOf(1), signalResultOf(0)}).ToDto()
+			[]map[string]vo.IndicatorValueVo{signalResultOf(1), signalResultOf(0)})
 
 		assert.True(t, decimal.NewFromInt(20000).Equal(result.Summary.InitialCapital))
 		assert.True(t, decimal.NewFromInt(22000).Equal(result.Summary.FinalEquity),
 			"final equity was %s", result.Summary.FinalEquity)
+	})
+
+	t.Run("the result says which market and stretch it actually replayed", func(t *testing.T) {
+		backtestDomain, err := domains.NewBacktestDomain(
+			backtestRequest(), backtestMaxCandleCount, backtestNow)
+		require.NoError(t, err)
+
+		result := backtestDomain.ReplayOver(
+			[]vo.KCandleVo{replayedCandleAt(0, 100), replayedCandleAt(1, 110)},
+			[]map[string]vo.IndicatorValueVo{signalResultOf(0), signalResultOf(0)})
+
+		assert.Equal(t, "BTCUSDT", result.Symbol)
+		assert.Equal(t, "1h", result.Interval)
+		assert.Equal(t, replayStart, result.StartTime)
+		assert.Equal(t, replayStart.Add(time.Hour), result.EndTime)
 	})
 }

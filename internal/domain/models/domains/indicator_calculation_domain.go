@@ -10,7 +10,7 @@ import (
 )
 
 // spareBucketCount is the one bucket beyond what was asked for that every read
-// reaches back over.
+// reaches over, whether it reaches backwards from a moment or across a stretch.
 //
 // A read stops at a fixed number of stored candles, and that number does not land on
 // a bucket edge — so the earliest bucket it reached may hold only its later half, and

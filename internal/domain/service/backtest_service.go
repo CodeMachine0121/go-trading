@@ -74,11 +74,5 @@ func (backtestService *BacktestService) RunBacktest(
 		return dto.BacktestResultDto{}, executionError
 	}
 
-	backtestResultDto := backtestDomain.Simulation(inputKCandles, perCandleIndicatorValues).ToDto()
-	backtestResultDto.Symbol = backtestDomain.Symbol()
-	backtestResultDto.Interval = string(backtestDomain.Interval().Value())
-	backtestResultDto.StartTime = backtestResultDto.EquityCurve[0].OpenTime
-	backtestResultDto.EndTime = backtestResultDto.EquityCurve[len(backtestResultDto.EquityCurve)-1].OpenTime
-
-	return backtestResultDto, nil
+	return backtestDomain.ReplayOver(inputKCandles, perCandleIndicatorValues), nil
 }
