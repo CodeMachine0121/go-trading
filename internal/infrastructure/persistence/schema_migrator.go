@@ -50,6 +50,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.Conversation{},
 		&entities.AssistantTurn{},
 		&entities.AssistantQueryRecord{},
+		&entities.User{},
 	}
 
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)
