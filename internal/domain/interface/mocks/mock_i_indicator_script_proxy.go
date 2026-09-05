@@ -56,3 +56,18 @@ func (mr *MockIIndicatorScriptProxyMockRecorder) Execute(executionContext, scrip
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockIIndicatorScriptProxy)(nil).Execute), executionContext, script, resultType, kCandles, parameters)
 }
+
+// ExecuteForEachCandle mocks base method.
+func (m *MockIIndicatorScriptProxy) ExecuteForEachCandle(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo, parameters domains.StrategyParametersDomain) ([]map[string]vo.IndicatorValueVo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteForEachCandle", executionContext, script, resultType, kCandles, parameters)
+	ret0, _ := ret[0].([]map[string]vo.IndicatorValueVo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExecuteForEachCandle indicates an expected call of ExecuteForEachCandle.
+func (mr *MockIIndicatorScriptProxyMockRecorder) ExecuteForEachCandle(executionContext, script, resultType, kCandles, parameters any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteForEachCandle", reflect.TypeOf((*MockIIndicatorScriptProxy)(nil).ExecuteForEachCandle), executionContext, script, resultType, kCandles, parameters)
+}
