@@ -76,13 +76,13 @@ func newPositionSizingDomain(
 ) (PositionSizingDomain, error) {
 	if mode == vo.PositionSizingModePercentage &&
 		(!value.IsPositive() || value.GreaterThan(oneHundredPercent)) {
-		return PositionSizingDomain{}, fmt.Errorf(
-			"%w: 百分比必須大於零且不超過一百", ErrBacktestValidation)
+		return PositionSizingDomain{}, BacktestValidationFailure(
+			BacktestPositionSizingValueField, "百分比必須大於零且不超過一百")
 	}
 
 	if mode == vo.PositionSizingModeFixedAmount && !value.IsPositive() {
-		return PositionSizingDomain{}, fmt.Errorf(
-			"%w: 固定金額必須大於零", ErrBacktestValidation)
+		return PositionSizingDomain{}, BacktestValidationFailure(
+			BacktestPositionSizingValueField, "固定金額必須大於零")
 	}
 
 	return PositionSizingDomain{mode: mode, value: value}, nil

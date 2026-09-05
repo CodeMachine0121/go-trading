@@ -46,6 +46,16 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 // it to run, and a screen showing both should not have to tell two stories about one
 // broken line.
 func (backtestController *BacktestController) respondWithError(ginContext *gin.Context, err error) {
+	// Naming the input at fault is what lets a caller put the sentence where the
+	// person can act on it, rather than at the top of a page away from the box they
+	// have to change. The name travels as a value, not inside the sentence.
+	if fieldName, namesField := domains.BacktestFieldName(err); namesField {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message": err.Error(),
+			"field":   fieldName,
+		})
+		return
+	}
 	if errors.Is(err, domains.ErrBacktestValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return

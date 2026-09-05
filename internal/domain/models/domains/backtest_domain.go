@@ -55,8 +55,8 @@ func NewBacktestDomain(
 	}
 
 	if !requestDto.InitialCapital.IsPositive() {
-		return BacktestDomain{}, fmt.Errorf(
-			"%w: 初始資金必須大於零", ErrBacktestValidation)
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestInitialCapitalField, "初始資金必須大於零")
 	}
 
 	positionSizing, positionSizingError := NewPositionSizingDomain(
@@ -92,9 +92,10 @@ func NewBacktestDomain(
 
 	bucketCount := interval.BucketCount(startTime, readCutoff)
 	if bucketCount > maxCandleCount {
-		return BacktestDomain{}, fmt.Errorf(
-			"%w: 這一段以這個彙總刻度要用到 %d 根，超過單次可用的最大根數（最多 %d 根）",
-			ErrBacktestValidation, bucketCount, maxCandleCount)
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestTimeRangeField,
+			fmt.Sprintf("這一段以這個彙總刻度要用到 %d 根，超過單次可用的最大根數（最多 %d 根）",
+				bucketCount, maxCandleCount))
 	}
 
 	return BacktestDomain{

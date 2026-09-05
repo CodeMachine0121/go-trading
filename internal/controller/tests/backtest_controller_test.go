@@ -168,6 +168,38 @@ func TestRunBacktestEndpoint(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, response.Code)
 		assert.Contains(t, response.Body.String(), "初始資金")
+		// The input at fault travels as a value, so the sentence can be put beside the
+		// box the person has to change rather than at the top of the page.
+		assert.Contains(t, response.Body.String(), `"field":"initialCapital"`)
+	})
+
+	t.Run("a stretch that cannot be replayed names the time range", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{backtestRouterCandle(0, "100")}, nil)
+
+		response := fixture.post(backtestBody)
+
+		assert.Equal(t, http.StatusBadRequest, response.Code)
+		assert.Contains(t, response.Body.String(), `"field":"timeRange"`)
+	})
+
+	t.Run("a sizing figure out of range names that figure", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"script":"the script",
+			"initialCapital":"10000",
+			"positionSizingMode":"percentage",
+			"positionSizingValue":"0"
+		}`)
+
+		assert.Equal(t, http.StatusBadRequest, response.Code)
+		assert.Contains(t, response.Body.String(), `"field":"positionSizingValue"`)
 	})
 
 	t.Run("a stretch with too few candles is the caller's to fix", func(t *testing.T) {
