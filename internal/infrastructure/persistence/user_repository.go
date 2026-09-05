@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // UserEmailIndex is the unique index on a user's email address. It is how an address
@@ -58,8 +59,13 @@ func (userRepository *UserRepository) FindOneByEmail(
 ) (entities.User, error) {
 	user := entities.User{}
 
+	// The condition is spelled out rather than given as a struct, because GORM drops
+	// zero-valued struct fields — so an empty address would become no condition at
+	// all, and this would hand back whichever user happens to be first in the table
+	// for their password to be checked against. Nothing reaches here with an empty
+	// address today; this is so that nothing can start to.
 	result := userRepository.database.WithContext(executionContext).
-		Where(&entities.User{Email: email}).
+		Where(clause.Eq{Column: "email", Value: email}).
 		First(&user)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.User{}, domains.ErrUserNotFound

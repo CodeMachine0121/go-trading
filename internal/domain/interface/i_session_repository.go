@@ -24,12 +24,21 @@ type ISessionRepository interface {
 	// possible because that derivation is the same every time. A password proof
 	// could not be looked up this way, and does not need to be.
 	FindOneByDigest(executionContext context.Context, refreshTokenDigest string) (entities.Session, error)
-	// Rotate ends one session and opens its successor, both at once.
+	// Rotate ends one session and opens its successor, both at once, and only if
+	// that session had not already ended.
 	//
-	// Both at once is the whole method. Ending and opening as two calls leaves a
+	// Both at once is half the method. Ending and opening as two calls leaves a
 	// window where the old proof is dead and the new one was never written — and the
 	// person holding them has two proofs, neither of which works, with nothing
 	// anywhere to explain why.
+	//
+	// The other half is "only if". Whoever calls this has already read the session
+	// and found it good, but reading and writing are two moments: a second renewal
+	// carrying the same proof reads the same thing, and a sign-out can land in
+	// between. So the condition belongs to the write, and a rotation that finds the
+	// session already ended is refused with ErrSessionAlreadyRotated. That refusal is
+	// what makes "a renewal proof works once" a fact rather than something two
+	// readers each believe separately.
 	Rotate(
 		executionContext context.Context, previousSessionID uint, next entities.Session,
 	) (entities.Session, error)

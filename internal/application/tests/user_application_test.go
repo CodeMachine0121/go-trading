@@ -729,7 +729,61 @@ func TestUserApplicationRenewSession(t *testing.T) {
 		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
 	})
 
-	t.Run("a rotation that fails leaves the caller's existing proof alone", func(t *testing.T) {
+	t.Run("a rotation the store refuses tears the chain down", func(t *testing.T) {
+		// Reading that the session was good and writing to it are two moments. A
+		// second renewal carrying the same proof, or a sign-out, can land between
+		// them — and the store saying "this had already ended" means exactly what
+		// finding an already-ended session means: the proof was used twice.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.expectDigestLookup()
+		fixture.sessionRepository.EXPECT().
+			FindOneByDigest(gomock.Any(), gomock.Any()).
+			Return(aStoredSession(), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), gomock.Any()).
+			Return(aStoredUser(7, "james@example.com"), nil)
+		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
+		fixture.accessTokenProxy.EXPECT().
+			Issue(gomock.Any(), gomock.Any()).
+			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token"}, nil)
+		fixture.sessionRepository.EXPECT().
+			Rotate(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.Session{}, domains.ErrSessionAlreadyRotated)
+		fixture.sessionRepository.EXPECT().RevokeChain(gomock.Any(), "a-chain").Return(nil)
+
+		_, err := fixture.userApplication.RenewSession(t.Context(), aRenewal())
+
+		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	t.Run("failing to tear the chain down after a refused rotation is reported", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		revokeFailure := errors.New("revoke session chain: connection closed")
+		fixture.expectDigestLookup()
+		fixture.sessionRepository.EXPECT().
+			FindOneByDigest(gomock.Any(), gomock.Any()).
+			Return(aStoredSession(), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), gomock.Any()).
+			Return(aStoredUser(7, "james@example.com"), nil)
+		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
+		fixture.accessTokenProxy.EXPECT().
+			Issue(gomock.Any(), gomock.Any()).
+			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token"}, nil)
+		fixture.sessionRepository.EXPECT().
+			Rotate(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.Session{}, domains.ErrSessionAlreadyRotated)
+		fixture.sessionRepository.EXPECT().
+			RevokeChain(gomock.Any(), gomock.Any()).
+			Return(revokeFailure)
+
+		_, err := fixture.userApplication.RenewSession(t.Context(), aRenewal())
+
+		require.ErrorIs(t, err, revokeFailure)
+		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	t.Run("a rotation that fails for any other reason leaves the chain alone", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		rotateFailure := errors.New("save renewed session: connection closed")
 		fixture.expectDigestLookup()

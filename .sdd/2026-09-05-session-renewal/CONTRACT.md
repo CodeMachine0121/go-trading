@@ -72,7 +72,8 @@ Oracle: Acceptance Criteria（US-01…US-06，共 26 個 scenario）
 | BR-6 | 每一種續用失敗說同一句 | 見 AC-14 | 同一個 error 值 | 同上 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-7 | 續用時資料庫壞掉 ≠ 請重新登入 | 原樣回傳 | `RenewSession` | 「storage being broken is not a reason to sign in again」、「storage failing on the owner lookup…」 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-8 | 沒有簽章鑰匙時續用也簽不出來 | 503 | `newSessionMaterial` → controller | 「a renewal that cannot be signed for rotates nothing」＋controller「answers service unavailable」 | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-9 | 兩個續用同時到達 → 其中一個被判盜用 | 可接受的誤判 | `RefreshTokenDigest` 的唯一索引 + `Revoked()` 分支 | `session_repository_test.go`「refuses two sessions holding the same digest」 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-9 | 兩個續用同時到達 → 其中一個被判盜用 | 慢的那一個換發不成，並撤掉整條鏈 | `Rotate` 的條件式作廢（`revoked_at IS NULL` + `RowsAffected == 0`）＋ `RenewSession` 對 `ErrSessionAlreadyRotated` 的處理 | `session_repository_test.go`「refuses a session that has already ended」＋`user_application_test.go`「a rotation the store refuses tears the chain down」 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-10 | 登出不會被同時發生的續用悄悄還原 | 換發被拒絕，不會有新的一列進到已撤掉的鏈裡 | 同上 | `session_repository_test.go`「cannot undo a sign-out」 | asserts-oracle | produces-oracle | ✅ conforms |
 
 ## Orphans（有程式碼、沒有條款）
 

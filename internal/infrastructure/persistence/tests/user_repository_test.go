@@ -129,3 +129,18 @@ func TestUserRepositorySaveBlamesTheAddressOnlyWhenTheAddressIsWhatClashed(t *te
 	assert.NotErrorIs(t, clashError, domains.ErrEmailAlreadyRegistered,
 		"撞到的是識別碼，不是電子郵件——說錯了會害人去找一個根本不存在的帳號")
 }
+
+func TestUserRepositoryFindOneByEmailRefusesToGuessWhenGivenNothing(t *testing.T) {
+	// GORM drops zero-valued struct fields, so a struct-form condition on an empty
+	// address becomes no condition at all — and this would hand back whichever user
+	// is first in the table, whose stored proof would then be checked against
+	// somebody's typed password. Nothing reaches here with an empty address today;
+	// this is so that nothing can start to.
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+	_, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	_, findError := userRepository.FindOneByEmail(t.Context(), "")
+
+	require.ErrorIs(t, findError, domains.ErrUserNotFound)
+}

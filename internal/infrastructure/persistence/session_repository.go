@@ -49,8 +49,11 @@ func (sessionRepository *SessionRepository) FindOneByDigest(
 ) (entities.Session, error) {
 	session := entities.Session{}
 
+	// Spelled out rather than given as a struct for the same reason as the user
+	// lookup: GORM drops zero-valued struct fields, and an empty digest would
+	// become no condition at all.
 	result := sessionRepository.database.WithContext(executionContext).
-		Where(&entities.Session{RefreshTokenDigest: refreshTokenDigest}).
+		Where(clause.Eq{Column: "refresh_token_digest", Value: refreshTokenDigest}).
 		First(&session)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Session{}, domains.ErrSessionNotFound
@@ -78,12 +81,27 @@ func (sessionRepository *SessionRepository) Rotate(
 			// this code holds, because it has to sit on the same timeline as the
 			// row's own timestamps — and because two clocks is one more than the
 			// question "when was this ended" can have.
+			//
+			// Only a session that has not already ended may be rotated, and that
+			// condition is on the write rather than checked beforehand. Checking
+			// beforehand cannot work: two renewals carrying the same proof both read
+			// a session that is still good, and both would then write. Here the
+			// second one updates no rows, because the first one's row no longer
+			// matches — which is how "a proof works once" becomes a fact the database
+			// enforces instead of a fact two readers each believe separately.
+			//
+			// It is also what stops a rotation from quietly undoing a sign-out: a
+			// chain that was revoked a moment ago has no row left for this to match.
 			revoked := transaction.
 				Model(&entities.Session{}).
 				Where(clause.Eq{Column: "id", Value: previousSessionID}).
+				Where(clause.Eq{Column: "revoked_at", Value: nil}).
 				Update("revoked_at", gorm.Expr("now()"))
 			if revoked.Error != nil {
 				return fmt.Errorf("revoke previous session: %w", revoked.Error)
+			}
+			if revoked.RowsAffected == 0 {
+				return domains.ErrSessionAlreadyRotated
 			}
 
 			if created := transaction.Create(&next); created.Error != nil {

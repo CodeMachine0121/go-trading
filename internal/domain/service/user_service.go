@@ -161,15 +161,7 @@ func (userService *UserService) RenewSession(
 	now := userService.clockProxy.Now()
 
 	if session.Revoked() {
-		// Tearing the chain down is the answer here, so failing to tear it down is a
-		// failure of this request. Reporting "sign in again" while the thief's proof
-		// quietly still works would be the worst of both.
-		if revokeError := userService.sessionRepository.RevokeChain(
-			executionContext, session.ChainID()); revokeError != nil {
-			return dto.SessionTokensDto{}, revokeError
-		}
-
-		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+		return dto.SessionTokensDto{}, userService.tornDownChain(executionContext, session.ChainID())
 	}
 
 	if session.Expired(now) {
@@ -197,6 +189,17 @@ func (userService *UserService) RenewSession(
 		session.ID(),
 		session.Renewed(refreshToken.Digest, now, userService.sessionLifetimes.RefreshToken),
 	)
+	// Reading that the session was still good and writing to it are two moments, and
+	// something can happen in between: a second renewal carrying the same proof, or a
+	// sign-out. The store says so by refusing to rotate, and it means the same thing
+	// the earlier check means — this proof has been used twice, so the chain goes.
+	//
+	// Without this, the second of two simultaneous renewals would quietly succeed and
+	// leave two live sessions on one chain, and a rotation landing just after a
+	// sign-out would put a working proof back into a chain somebody had just ended.
+	if errors.Is(rotateError, domains.ErrSessionAlreadyRotated) {
+		return dto.SessionTokensDto{}, userService.tornDownChain(executionContext, session.ChainID())
+	}
 	if rotateError != nil {
 		return dto.SessionTokensDto{}, rotateError
 	}
@@ -233,6 +236,24 @@ func (userService *UserService) RevokeSession(
 	// The whole chain goes, not just this session. A chain is one device's one
 	// sign-in, and signing out means that device, not that proof.
 	return userService.sessionRepository.RevokeChain(executionContext, storedSession.ChainID)
+}
+
+// tornDownChain ends every session of one sign-in and reports the refusal that goes
+// with it, for the two places that discover a proof has been used twice — one by
+// reading, one by failing to write.
+//
+// Tearing the chain down is the answer, so failing to tear it down is a failure of
+// the request. Reporting "sign in again" while the second copy of the proof quietly
+// still works would be the worst of both.
+func (userService *UserService) tornDownChain(
+	executionContext context.Context, chainID string,
+) error {
+	if revokeError := userService.sessionRepository.RevokeChain(
+		executionContext, chainID); revokeError != nil {
+		return revokeError
+	}
+
+	return domains.ErrAuthenticationRequired
 }
 
 // sessionHolding finds the session a renewal proof belongs to.

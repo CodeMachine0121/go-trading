@@ -235,3 +235,64 @@ func TestTheDigestIndexTheRepositoryReliesOnIsTheOneTheEntityDeclares(t *testing
 	assert.Contains(t, digestField.Tag.Get("gorm"),
 		"uniqueIndex:"+persistence.SessionRefreshTokenDigestIndex)
 }
+
+func TestSessionRepositoryRotateRefusesASessionThatHasAlreadyEnded(t *testing.T) {
+	// This is what makes "a renewal proof works once" true. Two renewals carrying the
+	// same proof both read a session that is still good and both go on to write, so
+	// the guarantee cannot come from the reading — only the write can establish it.
+	// Without this, the second one succeeds and one chain ends up with two live
+	// sessions, while the reuse detection that was supposed to catch it never fires.
+	database := newTestDatabase(t)
+	owner := aSessionOwner(t, database, "james@example.com")
+	sessionRepository := persistence.NewSessionRepository(database)
+	previousSession, saveError := sessionRepository.Save(
+		t.Context(), sessionOf(owner.ID, "a-chain", "a-digest"))
+	require.NoError(t, saveError)
+	_, firstRotateError := sessionRepository.Rotate(
+		t.Context(), previousSession.ID, sessionOf(owner.ID, "a-chain", "a-second-digest"))
+	require.NoError(t, firstRotateError)
+
+	_, secondRotateError := sessionRepository.Rotate(
+		t.Context(), previousSession.ID, sessionOf(owner.ID, "a-chain", "a-third-digest"))
+
+	require.ErrorIs(t, secondRotateError, domains.ErrSessionAlreadyRotated)
+	_, findError := sessionRepository.FindOneByDigest(t.Context(), "a-third-digest")
+	assert.ErrorIs(t, findError, domains.ErrSessionNotFound,
+		"被拒絕的那一次不得留下任何東西——留下的話，一份用過的憑證就換出了第二段有效的登入階段")
+}
+
+func TestSessionRepositoryRotateCannotUndoASignOut(t *testing.T) {
+	// A renewal that read its session just before somebody signed out would otherwise
+	// insert a brand-new working proof into a chain that had just been ended: the
+	// person pressed sign out, was told it worked, and that device keeps going.
+	database := newTestDatabase(t)
+	owner := aSessionOwner(t, database, "james@example.com")
+	sessionRepository := persistence.NewSessionRepository(database)
+	previousSession, saveError := sessionRepository.Save(
+		t.Context(), sessionOf(owner.ID, "a-chain", "a-digest"))
+	require.NoError(t, saveError)
+	require.NoError(t, sessionRepository.RevokeChain(t.Context(), "a-chain"))
+
+	_, rotateError := sessionRepository.Rotate(
+		t.Context(), previousSession.ID, sessionOf(owner.ID, "a-chain", "a-newer-digest"))
+
+	require.ErrorIs(t, rotateError, domains.ErrSessionAlreadyRotated)
+	_, findError := sessionRepository.FindOneByDigest(t.Context(), "a-newer-digest")
+	assert.ErrorIs(t, findError, domains.ErrSessionNotFound,
+		"登出之後不得有任何東西再被放進這條鏈裡")
+}
+
+func TestSessionRepositoryFindOneByDigestRefusesToGuessWhenGivenNothing(t *testing.T) {
+	// The condition is spelled out rather than given as a struct because GORM drops
+	// zero-valued struct fields — and a lookup with no condition hands back whichever
+	// row happens to be first, which here would be somebody else's session.
+	database := newTestDatabase(t)
+	owner := aSessionOwner(t, database, "james@example.com")
+	sessionRepository := persistence.NewSessionRepository(database)
+	_, saveError := sessionRepository.Save(t.Context(), sessionOf(owner.ID, "a-chain", "a-digest"))
+	require.NoError(t, saveError)
+
+	_, findError := sessionRepository.FindOneByDigest(t.Context(), "")
+
+	require.ErrorIs(t, findError, domains.ErrSessionNotFound)
+}
