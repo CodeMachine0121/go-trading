@@ -39,20 +39,6 @@ func (m *MockIPasswordProofProxy) EXPECT() *MockIPasswordProofProxyMockRecorder 
 	return m.recorder
 }
 
-// DecoyProof mocks base method.
-func (m *MockIPasswordProofProxy) DecoyProof() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DecoyProof")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// DecoyProof indicates an expected call of DecoyProof.
-func (mr *MockIPasswordProofProxyMockRecorder) DecoyProof() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecoyProof", reflect.TypeOf((*MockIPasswordProofProxy)(nil).DecoyProof))
-}
-
 // Matches mocks base method.
 func (m *MockIPasswordProofProxy) Matches(password, passwordProof string) bool {
 	m.ctrl.T.Helper()

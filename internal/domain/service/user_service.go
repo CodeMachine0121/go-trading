@@ -80,20 +80,17 @@ func (userService *UserService) SignIn(
 		return dto.AccessTokenDto{}, credentialsError
 	}
 
+	// Nobody holding this address is not a failure to look, so it is deliberately
+	// not returned here. The check below runs either way and refuses either way —
+	// with no account there is no proof, and a password checked against no proof is
+	// as slow to refuse as one checked against the wrong proof. Turning back early
+	// is exactly how "that address is not registered" gets answered in a timing
+	// difference nobody wrote down.
+	//
+	// Storage being broken, on the other hand, is not a wrong password at all.
+	// Dressing it up as one would have somebody retyping a password that was right.
 	user, findError := userService.userRepository.FindOneByEmail(executionContext, signIn.Email())
-	if errors.Is(findError, domains.ErrUserNotFound) {
-		// The password is checked against a decoy rather than skipped, so that
-		// "nobody holds this address" takes as long to refuse as "wrong password"
-		// does. Returning here directly would answer noticeably sooner, and how long
-		// an answer took is information nobody meant to hand over.
-		userService.passwordProofProxy.Matches(
-			signIn.Password(), userService.passwordProofProxy.DecoyProof())
-
-		return dto.AccessTokenDto{}, domains.ErrCredentialsRejected
-	}
-	if findError != nil {
-		// Storage being broken is not a wrong password. Dressing it up as one would
-		// have somebody retyping a password that was right all along.
+	if findError != nil && !errors.Is(findError, domains.ErrUserNotFound) {
 		return dto.AccessTokenDto{}, findError
 	}
 

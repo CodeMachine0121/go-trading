@@ -70,17 +70,18 @@ func (bcryptPasswordProofProxy *BcryptPasswordProofProxy) Prove(password string)
 // A proof it cannot read at all comes back as "no", not as an error: it is not
 // something the person signing in did, and there is nothing they could do about it.
 // What they need to be told is the same thing a wrong password tells them.
+//
+// Being handed no proof means there was no account, and the decoy is what makes that
+// cost the same as a wrong password rather than arriving instantly. Substituting it
+// here is what makes the guarantee unconditional — a caller cannot forget to ask for
+// it, because there is nothing to ask for.
 func (bcryptPasswordProofProxy *BcryptPasswordProofProxy) Matches(
 	password string, passwordProof string,
 ) bool {
-	return bcrypt.CompareHashAndPassword([]byte(passwordProof), []byte(password)) == nil
-}
-
-// DecoyProof is a proof no password matches, for the case where there is no account
-// to check against. See IPasswordProofProxy for why checking against it beats
-// returning early.
-func (bcryptPasswordProofProxy *BcryptPasswordProofProxy) DecoyProof() string {
-	return bcryptPasswordProofProxy.decoyProof
+	return bcrypt.CompareHashAndPassword(
+		[]byte(cmp.Or(passwordProof, bcryptPasswordProofProxy.decoyProof)),
+		[]byte(password),
+	) == nil
 }
 
 // newDecoyProof derives a proof of a password generated at random and immediately

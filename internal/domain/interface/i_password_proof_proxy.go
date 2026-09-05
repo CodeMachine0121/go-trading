@@ -20,17 +20,18 @@ type IPasswordProofProxy interface {
 	// Matches says whether this password is the one the proof was derived from. A
 	// proof it cannot even read is not a match — it is not an error either, because
 	// there is nothing the person signing in could do about it.
+	//
+	// **No proof at all is also a no, and it costs exactly as much as a real one.**
+	// That is the one part of this interface that is not obvious, and it is here
+	// rather than in the caller on purpose. Somebody signing in with an address
+	// nobody holds has no proof to be checked against; answering that straight away
+	// makes the refusal arrive measurably sooner than a wrong password does, and
+	// "this one came back faster" is the same information as "no such account",
+	// handed over without anybody deciding to.
+	//
+	// A caller could spend that effort itself, given something to spend it on — and
+	// then every caller would have to remember to, and the one that forgot would
+	// leak the account list without changing a single visible answer. Spending it
+	// here means there is nothing to remember and nothing to get wrong.
 	Matches(password string, passwordProof string) bool
-	// DecoyProof is a proof no password matches, for the case where there is no
-	// account to check against.
-	//
-	// It exists because of what the alternative sounds like. Returning straight away
-	// when nobody holds an address makes that answer arrive measurably sooner than a
-	// wrong password does — and "this one came back faster" is the same information
-	// as "no such account", handed over without anybody deciding to. Checking
-	// against a decoy spends the same effort, so the two failures cost the same.
-	//
-	// It belongs here rather than in the domain because only the side that knows the
-	// algorithm can produce something the algorithm will actually work through.
-	DecoyProof() string
 }

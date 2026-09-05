@@ -3,6 +3,7 @@ package security_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/security"
 	"github.com/stretchr/testify/assert"
@@ -63,7 +64,7 @@ func TestBcryptPasswordProofProxyMatches(t *testing.T) {
 			expectedMatches: false,
 		},
 		{
-			name:            "no proof at all",
+			name:            "no proof at all, which is what having no account looks like",
 			password:        "correct horse",
 			passwordProof:   "",
 			expectedMatches: false,
@@ -86,19 +87,23 @@ func TestBcryptPasswordProofProxyProveRefusesAPasswordItCouldOnlyReadTheFrontOf(
 	require.Error(t, err, "只讀得完前面一段的密碼，存成證明就是在騙它的主人")
 }
 
-func TestBcryptPasswordProofProxyDecoyProofIsAProofNoPasswordMatches(t *testing.T) {
+// minimumRefusalEffort is well under what one derivation costs and enormously more
+// than returning early costs, so this reads as "it did the work" without pinning the
+// test to any particular machine's speed.
+const minimumRefusalEffort = 10 * time.Millisecond
+
+func TestBcryptPasswordProofProxyRefusingNoProofCostsWhatRefusingAWrongOneCosts(t *testing.T) {
+	// This is the whole reason a decoy exists. Somebody signing in with an address
+	// nobody holds has no proof to be checked against, and refusing that instantly
+	// answers "not registered" in the one thing nobody thought to hide: how long it
+	// took.
 	passwordProofProxy := security.NewBcryptPasswordProofProxy()
 
-	decoyProof := passwordProofProxy.DecoyProof()
+	startedAt := time.Now()
+	matches := passwordProofProxy.Matches("correct horse", "")
+	refusalEffort := time.Since(startedAt)
 
-	assert.NotEmpty(t, decoyProof)
-	assert.False(t, passwordProofProxy.Matches("correct horse", decoyProof))
-	assert.False(t, passwordProofProxy.Matches("", decoyProof))
-}
-
-func TestBcryptPasswordProofProxyDecoyProofIsDerivedOnceAndKept(t *testing.T) {
-	passwordProofProxy := security.NewBcryptPasswordProofProxy()
-
-	assert.Equal(t, passwordProofProxy.DecoyProof(), passwordProofProxy.DecoyProof(),
-		"每次重算等於在最慢的那條路上把成本再付一次")
+	assert.False(t, matches)
+	assert.Greater(t, refusalEffort, minimumRefusalEffort,
+		"沒有證明可比對時直接回絕，會比密碼打錯快上好幾個數量級——那個時間差就是答案")
 }

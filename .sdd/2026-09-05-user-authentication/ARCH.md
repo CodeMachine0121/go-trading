@@ -87,13 +87,17 @@
 | Name | Responsibility | 為什麼是介面 |
 | :--- | :--- | :--- |
 | `IUserRepository` | 存一位使用者、以電子郵件找一位、以識別碼找一位 | 儲存是最外層邊界 |
-| `IPasswordProofProxy` | `Prove` 把密碼算成證明、`Matches` 驗一組密碼對不對得上、`DecoyProof` 給一份誘餌證明 | **算法會被換掉**，而且 domain 不得認識任何 SDK |
+| `IPasswordProofProxy` | `Prove` 把密碼算成證明、`Matches` 驗一組密碼對不對得上（**沒有證明也算一次，且花掉一樣的時間**） | **算法會被換掉**，而且 domain 不得認識任何 SDK |
 | `IAccessTokenProxy` | `Issue` 簽一份到某時刻為止的憑證、`UserIdentifiedBy` 從憑證認出是誰 | 同上；簽章方式會被換掉 |
 
-- **`DecoyProof` 是 US-04 的另一半。** 查無使用者時若直接回絕，這條路會回得比密碼錯還快，
-  而「回得特別快」本身就是在說「這個電子郵件不存在」。
-  拿誘餌證明去比對一次，花掉同樣的時間，兩種失敗才真的分不出來。
-  它放在 proxy 而不是 domain，因為只有知道算法的那一側算得出一份合格的誘餌。
+- **「沒有證明也要花掉一樣的時間」是 US-04 的另一半，而且它住在 proxy 裡。**
+  查無使用者時若直接回絕，這條路會回得比密碼錯還快，而「回得特別快」本身就是在說
+  「這個電子郵件不存在」。所以查無使用者＝沒有證明＝仍然拿一份誘餌證明比對一次。
+
+  誘餌**不出現在介面上**。它一度是第三個方法（`DecoyProof()`），由 service 在查無使用者時
+  自己取出來、自己比一次——那等於把「記得要花掉這段時間」變成每個呼叫端的責任，
+  而忘記的那一個會在完全不改變任何可見答案的情況下洩漏帳號名單。
+  收進 `Matches` 之後，這件事沒有東西要記得，也沒有東西能忘記。
 - **`Issue` 收的是到期時刻，不是有效期限。** 「多久過期」是業務規則，留在 domain；
   proxy 只負責把時刻簽進去。倒過來的話，改期限得改 infrastructure。
 
@@ -184,20 +188,14 @@ sequenceDiagram
     participant T as IAccessTokenProxy
     S->>S: SignInDomain 正規化電子郵件
     S->>R: FindOneByEmail
-    alt 找不到
-        R-->>S: ErrUserNotFound
-        S->>P: Matches(密碼, DecoyProof())
-        Note over S,P: 花掉同樣的時間，讓兩種失敗分不出來
-        S-->>S: ErrCredentialsRejected
-    else 找到了
-        R-->>S: User
-        S->>P: Matches(密碼, user.PasswordProof)
-        alt 對不上
-            S-->>S: ErrCredentialsRejected（一字不差）
-        else 對上了
-            S->>T: Issue(識別碼, 現在 + 有效期限)
-            T-->>S: AccessTokenVo
-        end
+    Note over S,R: 找不到不提早折返——沒有使用者就是沒有證明，下一步照走
+    S->>P: Matches(密碼, user.PasswordProof)
+    Note over P: 沒有證明時內部換成誘餌，花掉同樣的時間
+    alt 對不上（含查無此人）
+        S-->>S: ErrCredentialsRejected（一字不差）
+    else 對上了
+        S->>T: Issue(識別碼, 現在 + 有效期限)
+        T-->>S: AccessTokenVo
     end
 ```
 

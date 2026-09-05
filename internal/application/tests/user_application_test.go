@@ -200,18 +200,16 @@ func TestUserApplicationSignIn(t *testing.T) {
 		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
 	})
 
-	t.Run("an address nobody holds still costs a check against a decoy", func(t *testing.T) {
+	t.Run("an address nobody holds is still put through the check", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, accessTokenLifetime)
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
 			Return(entities.User{}, domains.ErrUserNotFound)
-		fixture.passwordProofProxy.EXPECT().DecoyProof().Return("a-decoy-proof")
-		// Returning without this check would answer measurably sooner than a wrong
+		// There is no account, so there is no proof — and the check still has to
+		// happen. Turning back before it would answer measurably sooner than a wrong
 		// password does, and how long the answer took is the same information as
 		// whether the address is registered.
-		fixture.passwordProofProxy.EXPECT().
-			Matches("correct horse", "a-decoy-proof").
-			Return(false)
+		fixture.passwordProofProxy.EXPECT().Matches("correct horse", "").Return(false)
 
 		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
 
@@ -230,7 +228,6 @@ func TestUserApplicationSignIn(t *testing.T) {
 		noSuchAccount.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
 			Return(entities.User{}, domains.ErrUserNotFound)
-		noSuchAccount.passwordProofProxy.EXPECT().DecoyProof().Return("a-decoy-proof")
 		noSuchAccount.passwordProofProxy.EXPECT().
 			Matches(gomock.Any(), gomock.Any()).Return(false)
 

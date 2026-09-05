@@ -87,7 +87,7 @@
 | I1 | 電子郵件與密碼都對 | `Issue` 收到 `userID` = 該使用者、`expiresAt` = `2026-09-06T08:00:00Z`；回覆 `AccessTokenDto{Token, ExpiresAt}` |
 | I2 | `FindOneByEmail` 收到的參數 | 是**去空白轉小寫後**的電子郵件 |
 | I3 | 密碼對不上 | 回 `ErrCredentialsRejected`，訊息 = `"電子郵件或密碼不正確"`；**`Issue` 不被呼叫** |
-| I4 | `FindOneByEmail` 回 `ErrUserNotFound` | 回 `ErrCredentialsRejected`（同一句）；**`Matches` 仍被呼叫一次，且第二個參數是 `DecoyProof()` 的回傳**；`Issue` 不被呼叫 |
+| I4 | `FindOneByEmail` 回 `ErrUserNotFound` | 回 `ErrCredentialsRejected`（同一句）；**`Matches` 仍被呼叫一次，第二個參數是空字串**（沒有使用者就是沒有證明，等時比對由 proxy 內部負責）；`Issue` 不被呼叫 |
 | I5 | I3 與 I4 的錯誤訊息 | **一字不差**相同 |
 | I6 | 登入內容空白 / 格式不對 | 回 `ErrCredentialsRejected`；儲存層**完全不被觸碰** |
 | I7 | `FindOneByEmail` 回其他儲存失敗 | 原樣回傳（**不**偽裝成 `ErrCredentialsRejected`——那是系統壞了，不是密碼錯） |
@@ -116,8 +116,7 @@
 | B4 | `Matches("wrong horse", 正確證明)` | false |
 | B5 | `Matches("correct horse", "not-a-proof")` | false（壞掉的證明不算對上，也不 panic） |
 | B6 | `Prove` 73 個位元組的密碼 | 回錯誤——**寧可失敗也不悄悄只算前 72 個** |
-| B7 | `DecoyProof()` | 回一段非空字串，且 `Matches(任意密碼, 它)` 為 false |
-| B8 | `DecoyProof()` 呼叫兩次 | 兩次相同（建構時算一次記著，不是每次重算） |
+| B7 | `Matches("correct horse", "")` | false，**且花掉的時間明顯大於零**（> 10ms）——沒有證明可比對時直接回絕，會比密碼打錯快上好幾個數量級，那個時間差就是答案 |
 
 ## JwtAccessTokenProxy — 登入憑證（US-03、US-05）
 
