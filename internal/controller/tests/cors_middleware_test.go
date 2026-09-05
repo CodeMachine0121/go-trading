@@ -71,6 +71,9 @@ func TestCorsMiddlewareAnswersThePreflightWithoutReachingARoute(t *testing.T) {
 	assert.Equal(t, "http://localhost:3000", recorder.Header().Get("Access-Control-Allow-Origin"))
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Methods"), http.MethodPost)
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Content-Type")
+	// Without this, a browser silently drops the proof of identity on every call and
+	// a signed-in front end looks exactly like a signed-out one.
+	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Authorization")
 }
 
 func corsEngine(allowedOrigins []string) *gin.Engine {

@@ -47,6 +47,8 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	// Deleting the conversations takes their exchanges and lookups with them, so the
 	// two child tables need no line of their own here.
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.Conversation{}).Error)
+	// 刪掉使用者會連帶帶走他的登入階段，所以那張表不需要自己一行。
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.User{}).Error)
 
 	return database
 }
