@@ -8,6 +8,8 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // UserService is the application layer's only entry point for the people this system
@@ -19,26 +21,32 @@ import (
 // notion of an account, and no change to either would ever touch only one of them —
 // which is a single module written down twice.
 type UserService struct {
-	userRepository      domaininterface.IUserRepository
-	passwordProofProxy  domaininterface.IPasswordProofProxy
-	accessTokenProxy    domaininterface.IAccessTokenProxy
-	clockProxy          domaininterface.IClockProxy
-	accessTokenLifetime time.Duration
+	userRepository     domaininterface.IUserRepository
+	sessionRepository  domaininterface.ISessionRepository
+	passwordProofProxy domaininterface.IPasswordProofProxy
+	accessTokenProxy   domaininterface.IAccessTokenProxy
+	refreshTokenProxy  domaininterface.IRefreshTokenProxy
+	clockProxy         domaininterface.IClockProxy
+	sessionLifetimes   vo.SessionLifetimesVo
 }
 
 func NewUserService(
 	userRepository domaininterface.IUserRepository,
+	sessionRepository domaininterface.ISessionRepository,
 	passwordProofProxy domaininterface.IPasswordProofProxy,
 	accessTokenProxy domaininterface.IAccessTokenProxy,
+	refreshTokenProxy domaininterface.IRefreshTokenProxy,
 	clockProxy domaininterface.IClockProxy,
-	accessTokenLifetime time.Duration,
+	sessionLifetimes vo.SessionLifetimesVo,
 ) *UserService {
 	return &UserService{
-		userRepository:      userRepository,
-		passwordProofProxy:  passwordProofProxy,
-		accessTokenProxy:    accessTokenProxy,
-		clockProxy:          clockProxy,
-		accessTokenLifetime: accessTokenLifetime,
+		userRepository:     userRepository,
+		sessionRepository:  sessionRepository,
+		passwordProofProxy: passwordProofProxy,
+		accessTokenProxy:   accessTokenProxy,
+		refreshTokenProxy:  refreshTokenProxy,
+		clockProxy:         clockProxy,
+		sessionLifetimes:   sessionLifetimes,
 	}
 }
 
@@ -69,15 +77,18 @@ func (userService *UserService) RegisterUser(
 	return savedUser.ToDto(), nil
 }
 
-// SignIn checks a pair and hands back a proof of identity good for as long as this
-// system says a session lasts. It writes nothing: signing in is a question, and the
-// answer to it is the token the caller walks away with.
+// SignIn checks a pair and opens a session, handing back the two proofs that session
+// is made of.
+//
+// It writes now, where the previous version wrote nothing. That is the whole point of
+// this slice: something has to be stored for a sign-in to be endable, and the thing
+// stored is deliberately the half nobody carries on ordinary requests.
 func (userService *UserService) SignIn(
 	executionContext context.Context, signInDto dto.SignInDto,
-) (dto.AccessTokenDto, error) {
+) (dto.SessionTokensDto, error) {
 	signIn, credentialsError := domains.NewSignInDomain(signInDto)
 	if credentialsError != nil {
-		return dto.AccessTokenDto{}, credentialsError
+		return dto.SessionTokensDto{}, credentialsError
 	}
 
 	// Nobody holding this address is not a failure to look, so it is deliberately
@@ -91,20 +102,172 @@ func (userService *UserService) SignIn(
 	// Dressing it up as one would have somebody retyping a password that was right.
 	user, findError := userService.userRepository.FindOneByEmail(executionContext, signIn.Email())
 	if findError != nil && !errors.Is(findError, domains.ErrUserNotFound) {
-		return dto.AccessTokenDto{}, findError
+		return dto.SessionTokensDto{}, findError
 	}
 
 	if !userService.passwordProofProxy.Matches(signIn.Password(), user.PasswordProof) {
-		return dto.AccessTokenDto{}, domains.ErrCredentialsRejected
+		return dto.SessionTokensDto{}, domains.ErrCredentialsRejected
+	}
+
+	now := userService.clockProxy.Now()
+
+	refreshToken, accessToken, materialError := userService.newSessionMaterial(user.ID, now)
+	if materialError != nil {
+		return dto.SessionTokensDto{}, materialError
+	}
+
+	// A brand-new sign-in starts a chain, and the chain is known by the digest of the
+	// proof that started it. That value is already unique (the column says so) and
+	// already random, so minting a second random value here would be two sources of
+	// randomness for one fact — and two things that have to agree.
+	savedSession, saveError := userService.sessionRepository.Save(executionContext, entities.Session{
+		UserID:             user.ID,
+		ChainID:            refreshToken.Digest,
+		RefreshTokenDigest: refreshToken.Digest,
+		ExpiresAt:          now.Add(userService.sessionLifetimes.RefreshToken).UTC(),
+	})
+	if saveError != nil {
+		return dto.SessionTokensDto{}, saveError
+	}
+
+	return vo.SessionTokensVo{
+		AccessToken:           accessToken,
+		RefreshToken:          refreshToken,
+		RefreshTokenExpiresAt: savedSession.ExpiresAt,
+	}.ToDto(), nil
+}
+
+// RenewSession trades a renewal proof for a fresh pair, and ends the proof it was
+// given in the same breath.
+//
+// A renewal proof works exactly once. So a proof that has already been used turning
+// up again is not a mistake somebody made — it is two copies of it existing, which
+// means one of them was taken. There is no way to tell which of the two holders is
+// the real one, so the only safe answer is to end the whole chain and make the real
+// one sign in again. Refusing just this proof would leave the thief's copy working.
+func (userService *UserService) RenewSession(
+	executionContext context.Context, renewalDto dto.SessionRenewalDto,
+) (dto.SessionTokensDto, error) {
+	if renewalDto.RefreshToken == "" {
+		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+	}
+
+	storedSession, findError := userService.sessionRepository.FindOneByDigest(
+		executionContext, userService.refreshTokenProxy.DigestOf(renewalDto.RefreshToken))
+	if errors.Is(findError, domains.ErrSessionNotFound) {
+		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+	}
+	if findError != nil {
+		return dto.SessionTokensDto{}, findError
+	}
+
+	session := domains.NewSessionDomain(storedSession)
+	now := userService.clockProxy.Now()
+
+	if session.Revoked() {
+		// Tearing the chain down is the answer here, so failing to tear it down is a
+		// failure of this request. Reporting "sign in again" while the thief's proof
+		// quietly still works would be the worst of both.
+		if revokeError := userService.sessionRepository.RevokeChain(
+			executionContext, session.ChainID()); revokeError != nil {
+			return dto.SessionTokensDto{}, revokeError
+		}
+
+		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+	}
+
+	if session.Expired(now) {
+		// Expiry is not theft. The chain stays as it is: there is nothing to
+		// tear down, and tearing it down would sign out a second device for no reason.
+		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+	}
+
+	if _, userError := userService.userRepository.FindOne(
+		executionContext, session.UserID()); userError != nil {
+		if errors.Is(userError, domains.ErrUserNotFound) {
+			return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+		}
+
+		return dto.SessionTokensDto{}, userError
+	}
+
+	refreshToken, accessToken, materialError := userService.newSessionMaterial(session.UserID(), now)
+	if materialError != nil {
+		return dto.SessionTokensDto{}, materialError
+	}
+
+	rotatedSession, rotateError := userService.sessionRepository.Rotate(
+		executionContext,
+		session.ID(),
+		session.Renewed(refreshToken.Digest, now, userService.sessionLifetimes.RefreshToken),
+	)
+	if rotateError != nil {
+		return dto.SessionTokensDto{}, rotateError
+	}
+
+	return vo.SessionTokensVo{
+		AccessToken:           accessToken,
+		RefreshToken:          refreshToken,
+		RefreshTokenExpiresAt: rotatedSession.ExpiresAt,
+	}.ToDto(), nil
+}
+
+// RevokeSession ends the sign-in a renewal proof belongs to.
+//
+// Being handed a proof that matches nothing is success, not failure. What was asked
+// for is that this sign-in stop working, and a sign-in that was never there already
+// does not work. Reporting an error would have the caller retrying to reach a state
+// it is already in.
+//
+// The access token issued for that session is untouched, because it is not stored
+// and cannot be. It keeps working until it expires — which is exactly what its
+// lifetime is for, and why it is measured in minutes.
+func (userService *UserService) RevokeSession(
+	executionContext context.Context, renewalDto dto.SessionRenewalDto,
+) error {
+	if renewalDto.RefreshToken == "" {
+		return nil
+	}
+
+	storedSession, findError := userService.sessionRepository.FindOneByDigest(
+		executionContext, userService.refreshTokenProxy.DigestOf(renewalDto.RefreshToken))
+	if errors.Is(findError, domains.ErrSessionNotFound) {
+		return nil
+	}
+	if findError != nil {
+		return findError
+	}
+
+	// The whole chain goes, not just this session. A chain is one device's one
+	// sign-in, and signing out means that device, not that proof.
+	return userService.sessionRepository.RevokeChain(executionContext, storedSession.ChainID)
+}
+
+// newSessionMaterial produces the two things opening a session needs, before
+// anything at all is written.
+//
+// The order matters and is the reason this is one helper rather than two calls at
+// the call sites. Minting and signing can both fail, and both failing before the
+// write means a failed sign-in leaves no session behind, while a failed renewal
+// leaves the caller's existing proof still working. Signing after the write would
+// end somebody's session and then hand them nothing to replace it with.
+//
+// It is private and shared by exactly the two public methods that open a session.
+func (userService *UserService) newSessionMaterial(
+	userID uint, now time.Time,
+) (vo.RefreshTokenVo, vo.AccessTokenVo, error) {
+	refreshToken, mintError := userService.refreshTokenProxy.Mint()
+	if mintError != nil {
+		return vo.RefreshTokenVo{}, vo.AccessTokenVo{}, mintError
 	}
 
 	accessToken, issueError := userService.accessTokenProxy.Issue(
-		user.ID, userService.clockProxy.Now().Add(userService.accessTokenLifetime))
+		userID, now.Add(userService.sessionLifetimes.AccessToken))
 	if issueError != nil {
-		return dto.AccessTokenDto{}, issueError
+		return vo.RefreshTokenVo{}, vo.AccessTokenVo{}, issueError
 	}
 
-	return accessToken.ToDto(), nil
+	return refreshToken, accessToken, nil
 }
 
 // IdentifyUser says who a proof of identity belongs to.

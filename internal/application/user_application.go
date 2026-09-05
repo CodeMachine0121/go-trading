@@ -24,8 +24,20 @@ func (userApplication *UserApplication) RegisterUser(
 
 func (userApplication *UserApplication) SignIn(
 	executionContext context.Context, signInDto dto.SignInDto,
-) (dto.AccessTokenDto, error) {
+) (dto.SessionTokensDto, error) {
 	return userApplication.userService.SignIn(executionContext, signInDto)
+}
+
+func (userApplication *UserApplication) RenewSession(
+	executionContext context.Context, renewalDto dto.SessionRenewalDto,
+) (dto.SessionTokensDto, error) {
+	return userApplication.userService.RenewSession(executionContext, renewalDto)
+}
+
+func (userApplication *UserApplication) RevokeSession(
+	executionContext context.Context, renewalDto dto.SessionRenewalDto,
+) error {
+	return userApplication.userService.RevokeSession(executionContext, renewalDto)
 }
 
 func (userApplication *UserApplication) IdentifyUser(
