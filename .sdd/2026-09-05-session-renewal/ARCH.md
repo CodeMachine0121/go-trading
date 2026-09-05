@@ -86,7 +86,7 @@ Session
 
 | Name | Kind | Responsibility |
 | :--- | :--- | :--- |
-| `dto.AccessTokenDto` | DTO（**改**） | 登入與續用共同的產出：**一對**憑證與**兩個**到期時刻 |
+| `dto.SessionTokensDto` | DTO（**取代 `AccessTokenDto`**） | 登入與續用共同的產出：**一對**憑證與**兩個**到期時刻。改名而不是擴充舊名，因為它裝的已經不是「一份登入憑證」了——沿用舊名會讓每個讀到它的人先誤會一次 |
 | `dto.SessionRenewalDto` | DTO | 呼叫端交給 domain 的續用／登出輸入：一份續用憑證 |
 | `vo.RefreshTokenVo` | VO | 剛產生的一份續用憑證：**交給持有者的原文**與**要留存的留存樣**。兩者一起產出，因為原文只有這一刻存在 |
 
@@ -163,7 +163,7 @@ Session
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
 | `entities.User` | 使用者那一列 | 多一條 `Sessions []Session`，讓 CASCADE 由 schema 表達出來 |
-| `dto.AccessTokenDto` | 登入的產出 | 從一份憑證擴成一對 |
+| `dto.AccessTokenDto` | 登入的產出 | **改名為 `SessionTokensDto`** 並從一份憑證擴成一對 |
 | `UserService.SignIn` | 只簽一份憑證 | 改成開一段登入階段 |
 | `persistence.SchemaMigrator` | 建每一張表 | 名單多一個 `&entities.Session{}` |
 | `config.AuthenticationConfig` | 鑰匙＋一個期限 | 期限改分鐘計、預設 15；多一個續用憑證期限（天，預設 30） |
