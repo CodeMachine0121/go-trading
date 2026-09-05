@@ -52,6 +52,14 @@
 		{
 			"key": "accessToken",
 			"value": ""
+		},
+		{
+			"key": "refreshToken",
+			"value": ""
+		},
+		{
+			"key": "usedRefreshToken",
+			"value": ""
 		}
 	],
 	"event": [
@@ -295,11 +303,17 @@
 									"pm.test(\"回應 200\", function () {",
 									"    pm.response.to.have.status(200);",
 									"});",
-									"pm.test(\"回覆憑證與它的到期時刻\", function () {",
+									"pm.test(\"回覆一對憑證，各自帶著到期時刻\", function () {",
 									"    const session = pm.response.json();",
 									"    pm.expect(session.accessToken).to.be.a(\"string\").and.not.empty;",
+									"    pm.expect(session.refreshToken).to.be.a(\"string\").and.not.empty;",
+									"    pm.expect(session.accessToken).to.not.eql(session.refreshToken);",
 									"    pm.expect(new Date(session.expiresAt).getTime()).to.be.above(Date.now());",
+									"    pm.expect(new Date(session.refreshTokenExpiresAt).getTime())",
+									"        .to.be.above(new Date(session.expiresAt).getTime(),",
+									"            \"續用憑證活得比登入憑證久，否則它就沒有存在的理由\");",
 									"    pm.collectionVariables.set(\"accessToken\", session.accessToken);",
+									"    pm.collectionVariables.set(\"refreshToken\", session.refreshToken);",
 									"});"
 								]
 							}
@@ -528,6 +542,298 @@
 								"exec": [
 									"pm.test(\"回應 401\", function () {",
 									"    pm.response.to.have.status(401);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "續用 — 換一對新的",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions/renewal",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions",
+								"renewal"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"換回來的是全新的一對，不是原本那一份\", function () {",
+									"    const session = pm.response.json();",
+									"    const previous = pm.collectionVariables.get(\"refreshToken\");",
+									"    pm.expect(session.refreshToken).to.not.eql(previous);",
+									"    // 舊的那一份留著，下一則要用它證明「只能用一次」。",
+									"    pm.collectionVariables.set(\"usedRefreshToken\", previous);",
+									"    pm.collectionVariables.set(\"refreshToken\", session.refreshToken);",
+									"    pm.collectionVariables.set(\"accessToken\", session.accessToken);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "續用 — 用過的那一份再用一次（盜用偵測）",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions/renewal",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions",
+								"renewal"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{usedRefreshToken}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"pm.test(\"只說「請重新登入」\", function () {",
+									"    pm.expect(pm.response.json().message).to.eql(\"請重新登入\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "續用 — 目前那一份也被連坐撤掉",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions/renewal",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions",
+								"renewal"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401：整條換發鏈都被撤了\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});",
+									"pm.test(\"真正的持有者也被登出——此刻分不出誰是真的\", function () {",
+									"    pm.expect(pm.response.json().message).to.eql(\"請重新登入\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "重新登入（上一則把整條鏈撤掉了）",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"拿到一條全新的換發鏈\", function () {",
+									"    const session = pm.response.json();",
+									"    pm.collectionVariables.set(\"accessToken\", session.accessToken);",
+									"    pm.collectionVariables.set(\"refreshToken\", session.refreshToken);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登出",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions/revocation",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions",
+								"revocation"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 204，而且什麼都不說\", function () {",
+									"    pm.response.to.have.status(204);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登出後 — 那份續用憑證換不到東西了",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions/renewal",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions",
+								"renewal"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 401：登出是真的登出\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "登出 — 對一份從未存在的續用憑證",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/sessions/revocation",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"sessions",
+								"revocation"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"a-refresh-token-nobody-ever-had\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 204：目的已經達成，沒有東西需要被撤掉\", function () {",
+									"    pm.response.to.have.status(204);",
 									"});"
 								]
 							}

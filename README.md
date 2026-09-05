@@ -107,7 +107,8 @@ curl localhost:8080/health
 | `LIVE_FEED_QUIET_TIMEOUT_SECONDS` | `30` | 多久沒收到任何東西就當成跟不動。寧可誤判：白重連一次的代價，遠低於讓人盯著停格的圖 |
 | `LIVE_FEED_MAX_RETRY_DELAY_SECONDS` | `30` | 重連間隔逐次加倍的上限；系統不放棄重試 |
 | `AUTH_ACCESS_TOKEN_SIGNING_KEY` | 空 | 簽發登入憑證的鑰匙。**沒有預設值也不該有**——有預設值就是所有人共用一把，那樣的憑證誰都能自己偽造。沒設時只有 `POST /sessions` 不能用（回 `503`），其餘功能照常。產生一把：`openssl rand -base64 48` |
-| `AUTH_ACCESS_TOKEN_LIFETIME_HOURS` | `24` | 一份登入憑證能用多久。**憑證不留存，所以無法提前撤銷**——這個數字就是那個風險的上限 |
+| `AUTH_ACCESS_TOKEN_LIFETIME_MINUTES` | `15` | 一份**登入憑證**能用多久（分鐘）。它仍然不留存、撤不掉，所以這個數字就等於「登出之後那一張還通得過多久」。**舊的 `AUTH_ACCESS_TOKEN_LIFETIME_HOURS` 已不再讀取**——單位換了，沿用舊名會讓寫著 `24` 的設定安靜地從一天變成 24 分鐘 |
+| `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
 | `ANTHROPIC_API_KEY` | 空 | 行情對話助手的憑證。沒設就只有 `/chat` 不能用，其餘功能照常 |
 | `ASSISTANT_MODEL` | `claude-opus-5` | 要問哪一個助手 |
 | `ASSISTANT_EFFORT` | `low` | 助手能想多久。對話不需要想太久；挑錯工具的代價比想得淺重得多，所以模型維持能幹的那個、只把力度調低 |
@@ -143,8 +144,10 @@ curl localhost:8080/health
 | `GET` | `/chat/conversations` | 列出每一段對話，最近有動靜的排前面 |
 | `GET` | `/chat/conversations/{id}` | 讀一段對話的每一則訊息，依時間由早到晚 |
 | `POST` | `/users` | 用電子郵件與密碼建立一位使用者；回覆識別碼與電子郵件，**永遠不含密碼或由它算出來的任何東西** |
-| `POST` | `/sessions` | 登入；對得上就回覆**登入憑證**與它的到期時刻 |
-| `GET` | `/users/me` | 帶著 `Authorization: Bearer <憑證>` 問「我是誰」 |
+| `POST` | `/sessions` | 登入；對得上就開一段**登入階段**，回覆**一對憑證**（登入憑證＋續用憑證）與各自的到期時刻 |
+| `POST` | `/sessions/renewal` | 帶著**續用憑證**換一對全新的憑證；舊的那一份當場作廢 |
+| `POST` | `/sessions/revocation` | 登出：帶著續用憑證，把整條換發鏈作廢。恆回 `204` |
+| `GET` | `/users/me` | 帶著 `Authorization: Bearer <登入憑證>` 問「我是誰」 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
 **修改的對象由網址決定**：內文若帶了與網址不同的交易標的或起始時間，會被拒絕。
@@ -188,11 +191,53 @@ application / service 層——它檢查的是行程活著與否，不是業務�
 curl -X POST localhost:8080/users -H 'Content-Type: application/json' \
   -d '{"email":"james@example.com","password":"correct horse"}'
 
-TOKEN=$(curl -s -X POST localhost:8080/sessions -H 'Content-Type: application/json' \
-  -d '{"email":"james@example.com","password":"correct horse"}' | jq -r .accessToken)
+SESSION=$(curl -s -X POST localhost:8080/sessions -H 'Content-Type: application/json' \
+  -d '{"email":"james@example.com","password":"correct horse"}')
+TOKEN=$(echo "$SESSION" | jq -r .accessToken)
+REFRESH=$(echo "$SESSION" | jq -r .refreshToken)
 
 curl localhost:8080/users/me -H "Authorization: Bearer $TOKEN"
+
+# 十五分鐘後：不必重打密碼，換一對新的
+curl -X POST localhost:8080/sessions/renewal -H 'Content-Type: application/json' \
+  -d "{\"refreshToken\":\"$REFRESH\"}"
+
+# 登出（真的撤得掉）
+curl -i -X POST localhost:8080/sessions/revocation -H 'Content-Type: application/json' \
+  -d "{\"refreshToken\":\"$REFRESH\"}"
 ```
+
+### 一次登入拿到的是一對憑證，不是一張
+
+| | 活多久 | 留存嗎 | 幹嘛用的 |
+| :--- | :--- | :--- | :--- |
+| **登入憑證** | 15 分鐘 | **不留存** | 每一次請求帶的就是它。驗它只看簽章，**一次資料庫都不讀** |
+| **續用憑證** | 30 天 | **留存**（存的是算不回去的留存樣） | 只做一件事：換一對新的。因為留存，所以**撤得掉** |
+
+這兩件事本來是互斥的：撤得掉就得每次查資料庫，不查資料庫就撤不掉。
+拆成一對之後，把狀態放在**只有低頻操作會碰到的那一半**，兩邊各取所需。
+
+### 續用憑證只能用一次
+
+每次換發，舊的那一份**當場作廢**，新的那一份接在同一條**換發鏈**上。
+
+所以一份**已經作廢**的續用憑證又被拿來換發，只有兩種可能：被複製，或被偷。
+這時系統**把整條換發鏈全部作廢**——包含目前那一份還沒用過的。
+
+真正的持有者會因此被登出。這是刻意的：此刻**沒有辦法分辨誰是真的**，
+只撤其中一邊等於什麼都沒做。
+
+代價是會誤傷（例如兩個分頁同時續用），而誤傷的代價是重登一次。
+
+### 登出是真的登出，但有一個 15 分鐘的尾巴
+
+`POST /sessions/revocation` 撤的是**整條換發鏈**，所以那台裝置之後換不到任何東西。
+
+但**登入憑證撤不掉**——它不留存。所以最長還有 `AUTH_ACCESS_TOKEN_LIFETIME_MINUTES`
+那麼久，它仍然通得過。**那個設定值就是這個尾巴的長度**，這是無狀態換來的，寫出來而不是假裝沒有。
+
+登出一段不存在或已經作廢的登入階段**不算失敗**——目的已經達成了。
+而且**登出的是這一台，不是這個人**：同一位使用者在別台的登入階段照常有效。
 
 ### 密碼從來沒有被存下來過
 
@@ -214,14 +259,10 @@ curl localhost:8080/users/me -H "Authorization: Bearer $TOKEN"
 連花掉的時間都一樣：查無此人時系統**仍然**拿一份誘餌證明去比對一次。
 少了這一步，這條路會回得比密碼錯明顯更快，而「這次特別快」跟直接講出來沒有兩樣。
 
-### 憑證不留存，所以撤不回來
+### 換掉鑰匙仍然是唯一的「一次登出所有人」
 
-憑證帶著「這是誰」與「到期時刻」，外加系統的簽章：改動其中任何一個字，簽章就對不上。
-但系統這一側**不留任何紀錄**，因此**沒有辦法讓某一份已簽發的憑證提前失效**。
-登出就是持有者把它丟掉。
-
-`AUTH_ACCESS_TOKEN_LIFETIME_HOURS`（預設 24）就是這個風險的上限。
-真的需要讓所有人立刻重新登入時，唯一的辦法是換掉 `AUTH_ACCESS_TOKEN_SIGNING_KEY`。
+要讓**每一個人、每一台裝置**立刻重新登入，換掉 `AUTH_ACCESS_TOKEN_SIGNING_KEY` 即可——
+所有已簽發的登入憑證同時對不上簽章。
 
 ### 建立使用者目前是開放的，而其餘端點目前不需要憑證
 

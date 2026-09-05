@@ -103,10 +103,16 @@ type AssistantConfig struct {
 // out loud instead of quietly working in a way that guards nothing.
 type AuthenticationConfig struct {
 	AccessTokenSigningKey string
-	// AccessTokenLifetime is how long a proof of identity lasts. It is the only
-	// bound on a proof that has been handed to the wrong person: none of them is
-	// stored, so none of them can be taken back before it expires.
+	// AccessTokenLifetime is how long the proof every request carries lasts.
+	//
+	// It is still not stored and so still cannot be taken back — which is why it is
+	// now measured in minutes rather than a day. Since sessions became endable, this
+	// number is exactly one thing: how long a signed-out access token keeps working.
 	AccessTokenLifetime time.Duration
+	// RefreshTokenLifetime is how long a renewal proof lasts, counted afresh at every
+	// renewal. It is how long somebody may leave the console alone before having to
+	// type a password again.
+	RefreshTokenLifetime time.Duration
 }
 
 // ApplicationConfig holds every setting the binaries read from the environment.
@@ -173,8 +179,15 @@ func Load() ApplicationConfig {
 		},
 		Authentication: AuthenticationConfig{
 			AccessTokenSigningKey: stringWithDefault("AUTH_ACCESS_TOKEN_SIGNING_KEY", ""),
+			// The name says minutes rather than the hours it used to, and the rename
+			// is deliberate: the unit changed, and reusing the name would have let an
+			// existing setting of 24 mean twenty-four minutes without anybody
+			// noticing. An ignored old setting falls back to fifteen minutes, which
+			// errs on the strict side.
 			AccessTokenLifetime: time.Duration(
-				positiveIntWithDefault("AUTH_ACCESS_TOKEN_LIFETIME_HOURS", 24)) * time.Hour,
+				positiveIntWithDefault("AUTH_ACCESS_TOKEN_LIFETIME_MINUTES", 15)) * time.Minute,
+			RefreshTokenLifetime: time.Duration(
+				positiveIntWithDefault("AUTH_REFRESH_TOKEN_LIFETIME_DAYS", 30)) * 24 * time.Hour,
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

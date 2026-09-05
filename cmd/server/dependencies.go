@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
@@ -137,17 +138,27 @@ func registerRoutes(
 		application.NewUserApplication(
 			service.NewUserService(
 				persistence.NewUserRepository(database),
+				persistence.NewSessionRepository(database),
 				security.NewBcryptPasswordProofProxy(),
 				security.NewJwtAccessTokenProxy(
 					applicationConfig.Authentication.AccessTokenSigningKey),
+				security.NewRandomRefreshTokenProxy(),
 				clock.NewSystemClockProxy(),
-				applicationConfig.Authentication.AccessTokenLifetime,
+				vo.SessionLifetimesVo{
+					AccessToken:  applicationConfig.Authentication.AccessTokenLifetime,
+					RefreshToken: applicationConfig.Authentication.RefreshTokenLifetime,
+				},
 			),
 		),
 	)
 
 	engine.POST("/users", userController.RegisterUser)
 	engine.POST("/sessions", userController.SignIn)
+	// Renewing and ending are POSTs rather than one body-carrying DELETE: which
+	// session is meant is named by the renewal proof, and a proof can only travel in
+	// a body.
+	engine.POST("/sessions/renewal", userController.RenewSession)
+	engine.POST("/sessions/revocation", userController.RevokeSession)
 	engine.GET("/users/me", userController.GetCurrentUser)
 
 	// Following a market live is an addition, not a replacement: the five-minute

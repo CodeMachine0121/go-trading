@@ -51,6 +51,8 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"POST /sessions",
+		"POST /sessions/renewal",
+		"POST /sessions/revocation",
 		"POST /strategies",
 		"POST /users",
 		"PUT /k-candles/:symbol/:openTime",
