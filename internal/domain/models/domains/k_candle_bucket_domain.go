@@ -25,6 +25,13 @@ func NewKCandleBucketDomain(bucketStart time.Time, kCandles []entities.KCandle) 
 	return KCandleBucketDomain{bucketStart: bucketStart, kCandles: kCandles}
 }
 
+// OpenTime is where this bucket of the grid begins. It is the bucket's own start
+// rather than any candle's, so two readings of the same stretch of market line up even
+// when the market did not trade at the very start of a bucket.
+func (kCandleBucketDomain KCandleBucketDomain) OpenTime() time.Time {
+	return kCandleBucketDomain.bucketStart
+}
+
 // ToDto merges the bucket into the one candle that stands for it. The open time it
 // carries is the bucket's own start, not any candle's — that is what makes two
 // queries over the same stretch of market line up.
