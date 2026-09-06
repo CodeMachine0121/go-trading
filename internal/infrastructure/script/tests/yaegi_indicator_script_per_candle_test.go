@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -202,5 +203,59 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		for _, indicatorValues := range perCandleIndicatorValues {
 			assert.Equal(t, 7.0, numberOf(indicatorValues, "period"))
 		}
+	})
+}
+
+func TestExecuteForEachCandleUnderTheSignalKind(t *testing.T) {
+	// One buy on the candle standing above the first price, hold everywhere else.
+	const signalPerCandleScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) indicator.Signal {
+	if data[len(data)-1].Close > data[0].Close {
+		return indicator.Buy
+	}
+	return indicator.Hold
+}
+`
+
+	t.Run("hands back one signal per candle, in order", func(t *testing.T) {
+		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), signalPerCandleScript, resultTypeOf(t, "signal"),
+				candlesWithClosePrices(100, 90, 120), noStrategyParameters(t))
+
+		require.NoError(t, err)
+		require.Len(t, perCandleIndicatorValues, 3)
+		assert.Equal(t, vo.SignalHold, perCandleIndicatorValues[0][vo.SignalIndicatorKey].Signal)
+		assert.Equal(t, vo.SignalHold, perCandleIndicatorValues[1][vo.SignalIndicatorKey].Signal)
+		assert.Equal(t, vo.SignalBuy, perCandleIndicatorValues[2][vo.SignalIndicatorKey].Signal)
+	})
+
+	t.Run("a signal left unset on one candle brings the whole run down", func(t *testing.T) {
+		const unsetsOnceScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) indicator.Signal {
+	if len(data) == 1 {
+		var unset indicator.Signal
+		return unset
+	}
+	return indicator.Hold
+}
+`
+
+		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), unsetsOnceScript, resultTypeOf(t, "signal"),
+				candlesWithClosePrices(100, 110, 120), noStrategyParameters(t))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+		assert.Contains(t, err.Error(), "沒有設定方向")
+		assert.Nil(t, perCandleIndicatorValues)
 	})
 }

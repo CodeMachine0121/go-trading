@@ -142,6 +142,14 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) prepare(
 			"LookbackCount": reflect.ValueOf(preparedScript.parameterReader.lookbackCount),
 			"Number":        reflect.ValueOf(preparedScript.parameterReader.number),
 			"Boolean":       reflect.ValueOf(preparedScript.parameterReader.boolean),
+			// The only way a signal-kind script may state a signal: pick one of these
+			// three. It cannot build its own — Signal is exported as a bare type with
+			// no constructor — and it cannot name a fourth. These sit in scope for
+			// every script; a script of another kind simply never returns one.
+			"Signal": reflect.ValueOf((*vo.SignalVo)(nil)),
+			"Buy":    reflect.ValueOf(vo.SignalBuy),
+			"Sell":   reflect.ValueOf(vo.SignalSell),
+			"Hold":   reflect.ValueOf(vo.SignalHold),
 		},
 	}
 	for packagePath, packageSymbols := range allowedPackages {
@@ -227,7 +235,7 @@ func (preparedScript *preparedScript) runOver(
 			"%w: 算式執行失敗：%v", domains.ErrIndicatorScriptFailed, callError)
 	}
 
-	return preparedScript.shape.readValues(calculated), nil
+	return preparedScript.shape.readValues(calculated)
 }
 
 // strategyParameterReader is what a script reaches a knob through.

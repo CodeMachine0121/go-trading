@@ -255,6 +255,31 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 		assert.Equal(t, []bool{true, false}, resultDto.Values["red"].Booleans)
 	})
 
+	t.Run("reports the signal itself, with no indicator name, under the signal kind", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				_ context.Context,
+				_ string,
+				resultType domains.IndicatorResultTypeDomain,
+				_ []vo.KCandleVo,
+				_ domains.StrategyParametersDomain,
+			) (map[string]vo.IndicatorValueVo, error) {
+				assert.True(t, resultType.IsSignal())
+				return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil
+			})
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
+			calculationRequestOf("BTCUSDT", 3, "signal"))
+
+		assert.NoError(t, err)
+		assert.Equal(t, "signal", resultDto.ResultType)
+		assert.Equal(t, "buy", resultDto.Signal)
+		assert.Empty(t, resultDto.Values)
+	})
+
 	t.Run("reports one number per indicator when nothing was declared", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 2).Return(newestFirst(5, 0), nil)

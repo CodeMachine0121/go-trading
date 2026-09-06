@@ -270,6 +270,21 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), `"ma":110`)
 	})
 
+	t.Run("writes a signal out as the result itself", func(t *testing.T) {
+		fixture := newIndicatorRouterUnderTest(t)
+		fixture.expectTwoUsableCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil)
+
+		recorder := fixture.post(
+			`{"symbol":"BTCUSDT","candleCount":2,"script":"the script","resultType":"signal"}`)
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"resultType":"signal"`)
+		assert.Contains(t, recorder.Body.String(), `"signal":"buy"`)
+	})
+
 	t.Run("reports a kind that is not on offer as a bad request", func(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 
@@ -278,6 +293,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "指標值種類只能是")
+		assert.Contains(t, recorder.Body.String(), "signal")
 	})
 }
 

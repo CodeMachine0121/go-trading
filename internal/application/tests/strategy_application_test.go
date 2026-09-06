@@ -194,7 +194,7 @@ func TestStrategyApplicationRefusesContentBeforeAnythingIsWritten(t *testing.T) 
 		{
 			name:            "a result type nobody offers",
 			breakIt:         func(writeDto *dto.StrategyWriteDto) { writeDto.ResultType = "string" },
-			expectedMessage: "指標值種類只能是 float、floatList、bool、boolList 其中之一",
+			expectedMessage: "指標值種類只能是 float、floatList、bool、boolList、signal 其中之一",
 		},
 	}
 

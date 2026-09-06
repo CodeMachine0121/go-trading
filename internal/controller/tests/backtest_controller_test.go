@@ -102,8 +102,8 @@ func TestRunBacktestEndpoint(t *testing.T) {
 		fixture.indicatorScriptProxy.EXPECT().
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]map[string]vo.IndicatorValueVo{
-				{domains.SignalIndicatorName: {Numbers: []float64{1}}},
-				{domains.SignalIndicatorName: {Numbers: []float64{0}}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
 			}, nil)
 
 		response := fixture.post(backtestBody)

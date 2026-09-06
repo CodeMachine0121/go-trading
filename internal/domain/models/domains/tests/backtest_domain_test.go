@@ -184,12 +184,13 @@ func TestBacktestDomainReadPlan(t *testing.T) {
 		assert.Equal(t, 7*12, backtestDomain.SourceCandleLimit())
 	})
 
-	t.Run("a replayed script always produces one number per indicator", func(t *testing.T) {
+	t.Run("a replayed script always runs under the signal kind", func(t *testing.T) {
 		backtestDomain, err := domains.NewBacktestDomain(
 			backtestRequest(), backtestMaxCandleCount, backtestNow)
 		require.NoError(t, err)
 
-		assert.Equal(t, vo.IndicatorResultTypeFloat, backtestDomain.ResultType().Value())
+		assert.Equal(t, vo.IndicatorResultTypeSignal, backtestDomain.ResultType().Value())
+		assert.True(t, backtestDomain.ResultType().IsSignal())
 	})
 }
 
@@ -278,7 +279,7 @@ func TestBacktestDomainSimulation(t *testing.T) {
 
 		result := backtestDomain.ReplayOver(
 			[]vo.KCandleVo{replayedCandleAt(0, 100), replayedCandleAt(1, 110)},
-			[]map[string]vo.IndicatorValueVo{signalResultOf(1), signalResultOf(0)})
+			signalDomainsSaying(vo.SignalBuy, vo.SignalHold))
 
 		assert.True(t, decimal.NewFromInt(20000).Equal(result.Summary.InitialCapital))
 		assert.True(t, decimal.NewFromInt(22000).Equal(result.Summary.FinalEquity),
@@ -292,7 +293,7 @@ func TestBacktestDomainSimulation(t *testing.T) {
 
 		result := backtestDomain.ReplayOver(
 			[]vo.KCandleVo{replayedCandleAt(0, 100), replayedCandleAt(1, 110)},
-			[]map[string]vo.IndicatorValueVo{signalResultOf(0), signalResultOf(0)})
+			signalDomainsSaying(vo.SignalHold, vo.SignalHold))
 
 		assert.Equal(t, "BTCUSDT", result.Symbol)
 		assert.Equal(t, "1h", result.Interval)

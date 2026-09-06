@@ -581,6 +581,132 @@ func Calculate(data []indicator.KCandle) map[string][]bool {
 	})
 }
 
+func TestExecuteReadsASignalUnderTheSignalKind(t *testing.T) {
+	signalScript := func(pick string) string {
+		return `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) indicator.Signal {
+	return indicator.` + pick + `
+}
+`
+	}
+
+	testCases := []struct {
+		pick           string
+		expectedSignal vo.SignalVo
+	}{
+		{pick: "Buy", expectedSignal: vo.SignalBuy},
+		{pick: "Sell", expectedSignal: vo.SignalSell},
+		{pick: "Hold", expectedSignal: vo.SignalHold},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.pick, func(t *testing.T) {
+			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+				Execute(t.Context(), signalScript(testCase.pick), resultTypeOf(t, "signal"),
+					candlesWithClosePrices(100, 110), noStrategyParameters(t))
+
+			require.NoError(t, err)
+			require.Len(t, indicatorValues, 1)
+			assert.Equal(t, testCase.expectedSignal, indicatorValues[vo.SignalIndicatorKey].Signal)
+		})
+	}
+
+	t.Run("the script may choose the signal from the candles it was given", func(t *testing.T) {
+		choosingScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) indicator.Signal {
+	if data[len(data)-1].Close > data[0].Close {
+		return indicator.Buy
+	}
+	return indicator.Sell
+}
+`
+		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(t.Context(), choosingScript, resultTypeOf(t, "signal"),
+				candlesWithClosePrices(100, 90), noStrategyParameters(t))
+
+		require.NoError(t, err)
+		assert.Equal(t, vo.SignalSell, indicatorValues[vo.SignalIndicatorKey].Signal)
+	})
+}
+
+func TestExecuteRefusesABadSignal(t *testing.T) {
+	testCases := []struct {
+		name           string
+		script         string
+		expectedReason string
+	}{
+		{
+			name:           "a signal script that hands back a set of numbers instead",
+			expectedReason: "Calculate 的形式必須是",
+			script: `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	return map[string]float64{"signal": 1}
+}
+`,
+		},
+		{
+			name:           "a signal built but never given a direction",
+			expectedReason: "沒有設定方向",
+			script: `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) indicator.Signal {
+	var unset indicator.Signal
+	return unset
+}
+`,
+		},
+		{
+			name:           "a signal set to something that is not buy, sell or hold",
+			expectedReason: "認不得的信號",
+			script: `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) indicator.Signal {
+	return indicator.Signal("long")
+}
+`,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+				Execute(t.Context(), testCase.script, resultTypeOf(t, "signal"),
+					candlesWithClosePrices(100, 110), noStrategyParameters(t))
+
+			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+			assert.Contains(t, err.Error(), testCase.expectedReason)
+			assert.Nil(t, indicatorValues)
+		})
+	}
+
+	t.Run("the shape message names the signal form when a number script is declared as signal", func(t *testing.T) {
+		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			Execute(t.Context(), averageCloseScript, resultTypeOf(t, "signal"),
+				candlesWithClosePrices(100, 110), noStrategyParameters(t))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+		assert.Contains(t, err.Error(), "indicator.Signal")
+	})
+}
+
 func TestExecuteRefusesAScriptWhoseShapeIsNotTheDeclaredKind(t *testing.T) {
 	numberScript := `
 package main

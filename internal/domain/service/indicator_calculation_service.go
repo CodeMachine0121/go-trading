@@ -7,6 +7,7 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // IndicatorCalculationService is the application layer's only entry point for
@@ -87,11 +88,6 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		return dto.IndicatorCalculationResultDto{}, executionError
 	}
 
-	indicatorValueDtos := make(map[string]dto.IndicatorValueDto, len(indicatorValues))
-	for indicatorName, indicatorValue := range indicatorValues {
-		indicatorValueDtos[indicatorName] = indicatorValue.ToDto()
-	}
-
 	// Where each candle the script saw begins, in the same order the script saw
 	// them, so that a caller can put a list of values back where they belong
 	// instead of cutting the same grid a second time to find out.
@@ -100,12 +96,26 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		openTimes = append(openTimes, time.Unix(inputKCandleVo.OpenTimeUnixSeconds, 0).UTC())
 	}
 
-	return dto.IndicatorCalculationResultDto{
+	resultDto := dto.IndicatorCalculationResultDto{
 		Symbol:          calculationDomain.Symbol(),
 		Interval:        string(calculationDomain.Interval().Value()),
 		UsedCandleCount: len(inputKCandleVos),
 		OpenTimes:       openTimes,
 		ResultType:      string(calculationDomain.ResultType().Value()),
-		Values:          indicatorValueDtos,
-	}, nil
+	}
+
+	// A signal has no indicator name, so it leaves as the result itself rather than
+	// as an entry in a set keyed by name.
+	if calculationDomain.ResultType().IsSignal() {
+		resultDto.Signal = string(indicatorValues[vo.SignalIndicatorKey].Signal)
+		return resultDto, nil
+	}
+
+	indicatorValueDtos := make(map[string]dto.IndicatorValueDto, len(indicatorValues))
+	for indicatorName, indicatorValue := range indicatorValues {
+		indicatorValueDtos[indicatorName] = indicatorValue.ToDto()
+	}
+	resultDto.Values = indicatorValueDtos
+
+	return resultDto, nil
 }

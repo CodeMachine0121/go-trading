@@ -16,6 +16,7 @@ func TestNewIndicatorResultTypeDomainReadsWhatWasDeclared(t *testing.T) {
 		expectedValue        vo.IndicatorResultTypeVo
 		expectedIsList       bool
 		expectedHoldsNumbers bool
+		expectedIsSignal     bool
 	}{
 		{
 			name: "one number", declared: "float", expectedValue: vo.IndicatorResultTypeFloat,
@@ -34,12 +35,21 @@ func TestNewIndicatorResultTypeDomainReadsWhatWasDeclared(t *testing.T) {
 			expectedIsList: true, expectedHoldsNumbers: false,
 		},
 		{
+			name: "one signal", declared: "signal", expectedValue: vo.IndicatorResultTypeSignal,
+			expectedIsList: false, expectedHoldsNumbers: false, expectedIsSignal: true,
+		},
+		{
 			name: "nothing declared falls back to one number", declared: "",
 			expectedValue: vo.IndicatorResultTypeFloat, expectedIsList: false, expectedHoldsNumbers: true,
 		},
 		{
 			name: "surrounding blanks and letter case are forgiven", declared: "  FloatList ",
 			expectedValue: vo.IndicatorResultTypeFloatList, expectedIsList: true, expectedHoldsNumbers: true,
+		},
+		{
+			name:          "surrounding blanks and letter case are forgiven for the signal kind too",
+			declared:      "  SIGNAL ",
+			expectedValue: vo.IndicatorResultTypeSignal, expectedIsSignal: true,
 		},
 	}
 
@@ -51,6 +61,7 @@ func TestNewIndicatorResultTypeDomainReadsWhatWasDeclared(t *testing.T) {
 			assert.Equal(t, testCase.expectedValue, resultType.Value())
 			assert.Equal(t, testCase.expectedIsList, resultType.IsList())
 			assert.Equal(t, testCase.expectedHoldsNumbers, resultType.HoldsNumbers())
+			assert.Equal(t, testCase.expectedIsSignal, resultType.IsSignal())
 		})
 	}
 }
@@ -64,7 +75,7 @@ func TestNewIndicatorResultTypeDomainRefusesAnythingElse(t *testing.T) {
 			// wrapping happens — see the indicator calculation and the strategy.
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "指標值種類只能是")
-			assert.Contains(t, err.Error(), "float、floatList、bool、boolList")
+			assert.Contains(t, err.Error(), "float、floatList、bool、boolList、signal")
 		})
 	}
 }
@@ -78,6 +89,7 @@ func TestScriptResultShapeSpellsOutWhatAScriptMustHandBack(t *testing.T) {
 		{declared: "floatList", expectedShape: "map[string][]float64"},
 		{declared: "bool", expectedShape: "map[string]bool"},
 		{declared: "boolList", expectedShape: "map[string][]bool"},
+		{declared: "signal", expectedShape: "indicator.Signal"},
 	}
 
 	for _, testCase := range testCases {
