@@ -1,4 +1,4 @@
-package application_test
+package assistantqueries_test
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -20,8 +21,8 @@ import (
 const assistantCandleLimit = 3
 
 type kCandleAssistantQueriesUnderTest struct {
-	seriesAssistantQuery *application.KCandleSeriesAssistantQuery
-	rangeAssistantQuery  *application.KCandleRangeAssistantQuery
+	seriesAssistantQuery *assistantqueries.KCandleSeriesAssistantQuery
+	rangeAssistantQuery  *assistantqueries.KCandleRangeAssistantQuery
 	kCandleRepository    *mocks.MockIKCandleRepository
 }
 
@@ -38,9 +39,9 @@ func newKCandleAssistantQueriesUnderTest(t *testing.T) kCandleAssistantQueriesUn
 		service.NewKCandleService(kCandleRepository, clockProxy, queryMaxResults))
 
 	return kCandleAssistantQueriesUnderTest{
-		seriesAssistantQuery: application.NewKCandleSeriesAssistantQuery(
+		seriesAssistantQuery: assistantqueries.NewKCandleSeriesAssistantQuery(
 			kCandleApplication, assistantCandleLimit),
-		rangeAssistantQuery: application.NewKCandleRangeAssistantQuery(
+		rangeAssistantQuery: assistantqueries.NewKCandleRangeAssistantQuery(
 			kCandleApplication, assistantCandleLimit),
 		kCandleRepository: kCandleRepository,
 	}

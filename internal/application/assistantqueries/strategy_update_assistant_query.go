@@ -1,10 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
@@ -16,10 +17,10 @@ import (
 // hiding it by merging silently would make "change the lookback to thirty" quietly
 // throw away the algorithm.
 type StrategyUpdateAssistantQuery struct {
-	strategyApplication *StrategyApplication
+	strategyApplication *application.StrategyApplication
 }
 
-func NewStrategyUpdateAssistantQuery(strategyApplication *StrategyApplication) *StrategyUpdateAssistantQuery {
+func NewStrategyUpdateAssistantQuery(strategyApplication *application.StrategyApplication) *StrategyUpdateAssistantQuery {
 	return &StrategyUpdateAssistantQuery{strategyApplication: strategyApplication}
 }
 
@@ -28,8 +29,9 @@ func (strategyUpdateAssistantQuery *StrategyUpdateAssistantQuery) Name() string 
 }
 
 func (strategyUpdateAssistantQuery *StrategyUpdateAssistantQuery) Description() string {
-	return "改寫一支既有策略。這是整包覆蓋：沒送的欄位會被清掉，" +
-		"所以請先用 get_strategy 讀回來，改你要改的，其餘原樣送回。改回自己原本的名稱不算重複。"
+	return "改寫一支既有策略，包含它的參數——新增、改名、改種類、改預設值、移除某個參數都在這裡做。" +
+		"這是整包覆蓋：沒送的欄位與沒列進 parameters 的參數都會被清掉，" +
+		"所以請先用 get_strategy 讀回來，改你要改的，其餘（含每個要保留的參數）原樣送回。改回自己原本的名稱不算重複。"
 }
 
 func (strategyUpdateAssistantQuery *StrategyUpdateAssistantQuery) ArgumentSchema() string {

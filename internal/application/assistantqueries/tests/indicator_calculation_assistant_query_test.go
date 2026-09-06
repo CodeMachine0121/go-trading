@@ -1,9 +1,10 @@
-package application_test
+package assistantqueries_test
 
 import (
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -15,7 +16,7 @@ import (
 )
 
 type indicatorCalculationAssistantQueryUnderTest struct {
-	assistantQuery       *application.IndicatorCalculationAssistantQuery
+	assistantQuery       *assistantqueries.IndicatorCalculationAssistantQuery
 	kCandleRepository    *mocks.MockIKCandleRepository
 	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
 	strategyRepository   *mocks.MockIStrategyRepository
@@ -32,7 +33,7 @@ func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalcu
 	clockProxy.EXPECT().Now().Return(indicatorNow).AnyTimes()
 
 	return indicatorCalculationAssistantQueryUnderTest{
-		assistantQuery: application.NewIndicatorCalculationAssistantQuery(
+		assistantQuery: assistantqueries.NewIndicatorCalculationAssistantQuery(
 			application.NewIndicatorCalculationApplication(
 				service.NewIndicatorCalculationService(
 					kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)),

@@ -1,10 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
@@ -21,10 +22,10 @@ type strategyGetAssistantArguments struct {
 // everything a strategy remembers, so an assistant asked to change one knob has to
 // know the rest before it can send them back unchanged.
 type StrategyGetAssistantQuery struct {
-	strategyApplication *StrategyApplication
+	strategyApplication *application.StrategyApplication
 }
 
-func NewStrategyGetAssistantQuery(strategyApplication *StrategyApplication) *StrategyGetAssistantQuery {
+func NewStrategyGetAssistantQuery(strategyApplication *application.StrategyApplication) *StrategyGetAssistantQuery {
 	return &StrategyGetAssistantQuery{strategyApplication: strategyApplication}
 }
 
@@ -33,8 +34,8 @@ func (strategyGetAssistantQuery *StrategyGetAssistantQuery) Name() string {
 }
 
 func (strategyGetAssistantQuery *StrategyGetAssistantQuery) Description() string {
-	return "以識別碼讀一支策略的完整內容，含指標算式與每個參數。" +
-		"要修改一支策略前一定要先讀，因為修改是整包覆蓋。"
+	return "以識別碼讀一支策略的完整內容，含指標算式與每個參數（名稱、種類、預設值）。" +
+		"要修改一支策略——含新增／修改／移除它的參數——前一定要先讀，因為 update_strategy 是整包覆蓋。"
 }
 
 func (strategyGetAssistantQuery *StrategyGetAssistantQuery) ArgumentSchema() string {
