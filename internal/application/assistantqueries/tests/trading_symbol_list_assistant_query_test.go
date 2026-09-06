@@ -1,10 +1,11 @@
-package application_test
+package assistantqueries_test
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -14,7 +15,7 @@ import (
 )
 
 type tradingSymbolListAssistantQueryUnderTest struct {
-	assistantQuery          *application.TradingSymbolListAssistantQuery
+	assistantQuery          *assistantqueries.TradingSymbolListAssistantQuery
 	tradingSymbolRepository *mocks.MockITradingSymbolRepository
 	kCandleRepository       *mocks.MockIKCandleRepository
 }
@@ -28,7 +29,7 @@ func newTradingSymbolListAssistantQueryUnderTest(t *testing.T) tradingSymbolList
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 
 	return tradingSymbolListAssistantQueryUnderTest{
-		assistantQuery: application.NewTradingSymbolListAssistantQuery(
+		assistantQuery: assistantqueries.NewTradingSymbolListAssistantQuery(
 			application.NewTradingSymbolApplication(
 				service.NewTradingSymbolService(tradingSymbolRepository, kCandleRepository))),
 		tradingSymbolRepository: tradingSymbolRepository,

@@ -1,10 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
@@ -28,12 +29,12 @@ type kCandleSeriesAssistantArguments struct {
 // shown less than it asked for — an assistant shown two hundred of five hundred
 // candles without being told will describe a trend that is not there.
 type KCandleSeriesAssistantQuery struct {
-	kCandleApplication *KCandleApplication
+	kCandleApplication *application.KCandleApplication
 	candleLimit        int
 }
 
 func NewKCandleSeriesAssistantQuery(
-	kCandleApplication *KCandleApplication, candleLimit int,
+	kCandleApplication *application.KCandleApplication, candleLimit int,
 ) *KCandleSeriesAssistantQuery {
 	return &KCandleSeriesAssistantQuery{
 		kCandleApplication: kCandleApplication,

@@ -1,4 +1,4 @@
-package application
+package assistantqueries
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 

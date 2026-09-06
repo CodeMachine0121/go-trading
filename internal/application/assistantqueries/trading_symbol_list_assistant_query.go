@@ -1,9 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
 // TradingSymbolListAssistantQuery lets the assistant find out which markets the
@@ -13,11 +15,11 @@ import (
 // a market named. Without it the assistant would have to guess at names, and a guessed
 // name comes back empty in a way that looks exactly like a market with no data.
 type TradingSymbolListAssistantQuery struct {
-	tradingSymbolApplication *TradingSymbolApplication
+	tradingSymbolApplication *application.TradingSymbolApplication
 }
 
 func NewTradingSymbolListAssistantQuery(
-	tradingSymbolApplication *TradingSymbolApplication,
+	tradingSymbolApplication *application.TradingSymbolApplication,
 ) *TradingSymbolListAssistantQuery {
 	return &TradingSymbolListAssistantQuery{tradingSymbolApplication: tradingSymbolApplication}
 }

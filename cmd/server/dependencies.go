@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
@@ -214,14 +215,14 @@ func assistantQueriesFor(
 	candleLimit int,
 ) []domaininterface.IAssistantQuery {
 	return []domaininterface.IAssistantQuery{
-		application.NewTradingSymbolListAssistantQuery(tradingSymbolApplication),
-		application.NewKCandleSeriesAssistantQuery(kCandleApplication, candleLimit),
-		application.NewKCandleRangeAssistantQuery(kCandleApplication, candleLimit),
-		application.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication, strategyApplication),
-		application.NewStrategyListAssistantQuery(strategyApplication),
-		application.NewStrategyGetAssistantQuery(strategyApplication),
-		application.NewStrategyCreateAssistantQuery(strategyApplication),
-		application.NewStrategyUpdateAssistantQuery(strategyApplication),
+		assistantqueries.NewTradingSymbolListAssistantQuery(tradingSymbolApplication),
+		assistantqueries.NewKCandleSeriesAssistantQuery(kCandleApplication, candleLimit),
+		assistantqueries.NewKCandleRangeAssistantQuery(kCandleApplication, candleLimit),
+		assistantqueries.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication, strategyApplication),
+		assistantqueries.NewStrategyListAssistantQuery(strategyApplication),
+		assistantqueries.NewStrategyGetAssistantQuery(strategyApplication),
+		assistantqueries.NewStrategyCreateAssistantQuery(strategyApplication),
+		assistantqueries.NewStrategyUpdateAssistantQuery(strategyApplication),
 	}
 }
 

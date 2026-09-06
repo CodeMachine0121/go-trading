@@ -1,11 +1,13 @@
-package application_test
+package assistantqueries_test
 
 import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -16,10 +18,10 @@ import (
 )
 
 type strategyAssistantQueriesUnderTest struct {
-	listAssistantQuery   *application.StrategyListAssistantQuery
-	getAssistantQuery    *application.StrategyGetAssistantQuery
-	createAssistantQuery *application.StrategyCreateAssistantQuery
-	updateAssistantQuery *application.StrategyUpdateAssistantQuery
+	listAssistantQuery   *assistantqueries.StrategyListAssistantQuery
+	getAssistantQuery    *assistantqueries.StrategyGetAssistantQuery
+	createAssistantQuery *assistantqueries.StrategyCreateAssistantQuery
+	updateAssistantQuery *assistantqueries.StrategyUpdateAssistantQuery
 	strategyRepository   *mocks.MockIStrategyRepository
 }
 
@@ -33,10 +35,10 @@ func newStrategyAssistantQueriesUnderTest(t *testing.T) strategyAssistantQueries
 		service.NewStrategyService(strategyRepository))
 
 	return strategyAssistantQueriesUnderTest{
-		listAssistantQuery:   application.NewStrategyListAssistantQuery(strategyApplication),
-		getAssistantQuery:    application.NewStrategyGetAssistantQuery(strategyApplication),
-		createAssistantQuery: application.NewStrategyCreateAssistantQuery(strategyApplication),
-		updateAssistantQuery: application.NewStrategyUpdateAssistantQuery(strategyApplication),
+		listAssistantQuery:   assistantqueries.NewStrategyListAssistantQuery(strategyApplication),
+		getAssistantQuery:    assistantqueries.NewStrategyGetAssistantQuery(strategyApplication),
+		createAssistantQuery: assistantqueries.NewStrategyCreateAssistantQuery(strategyApplication),
+		updateAssistantQuery: assistantqueries.NewStrategyUpdateAssistantQuery(strategyApplication),
 		strategyRepository:   strategyRepository,
 	}
 }
@@ -45,13 +47,17 @@ func newStrategyAssistantQueriesUnderTest(t *testing.T) strategyAssistantQueries
 // all. The knobs matter here because what a list may leave out and what a read must
 // include is exactly what these tests are about.
 func aStoredStrategyWithKnobs(id uint, name string) entities.Strategy {
-	strategy := aStoredStrategy(id, name)
-	strategy.Script = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }"
-	strategy.Parameters = []entities.StrategyParameter{
-		{Name: "lookback", Kind: "lookbackCount", DefaultValue: 20},
+	return entities.Strategy{
+		ID:         id,
+		Name:       name,
+		Script:     "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }",
+		ResultType: "floatList",
+		CreatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		Parameters: []entities.StrategyParameter{
+			{Name: "lookback", Kind: "lookbackCount", DefaultValue: 20},
+		},
 	}
-
-	return strategy
 }
 
 func TestStrategyListAssistantQueryNamesEachStrategyWithoutSendingItsAlgorithm(t *testing.T) {

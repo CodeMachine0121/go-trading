@@ -1,10 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
@@ -26,12 +27,12 @@ type kCandleRangeAssistantArguments struct {
 // the description points the assistant at the series first: raw candles are the
 // expensive way to look at anything longer than a few hours.
 type KCandleRangeAssistantQuery struct {
-	kCandleApplication *KCandleApplication
+	kCandleApplication *application.KCandleApplication
 	candleLimit        int
 }
 
 func NewKCandleRangeAssistantQuery(
-	kCandleApplication *KCandleApplication, candleLimit int,
+	kCandleApplication *application.KCandleApplication, candleLimit int,
 ) *KCandleRangeAssistantQuery {
 	return &KCandleRangeAssistantQuery{
 		kCandleApplication: kCandleApplication,

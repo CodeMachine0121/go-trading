@@ -1,4 +1,4 @@
-package application
+package assistantqueries
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
@@ -43,13 +44,13 @@ type strategyParameterValueAssistantArgument struct {
 // A strategy that is named wins over an algorithm that is sent, so that the two can
 // never quietly disagree about which one ran.
 type IndicatorCalculationAssistantQuery struct {
-	indicatorCalculationApplication *IndicatorCalculationApplication
-	strategyApplication             *StrategyApplication
+	indicatorCalculationApplication *application.IndicatorCalculationApplication
+	strategyApplication             *application.StrategyApplication
 }
 
 func NewIndicatorCalculationAssistantQuery(
-	indicatorCalculationApplication *IndicatorCalculationApplication,
-	strategyApplication *StrategyApplication,
+	indicatorCalculationApplication *application.IndicatorCalculationApplication,
+	strategyApplication *application.StrategyApplication,
 ) *IndicatorCalculationAssistantQuery {
 	return &IndicatorCalculationAssistantQuery{
 		indicatorCalculationApplication: indicatorCalculationApplication,

@@ -1,10 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
@@ -18,10 +19,10 @@ import (
 // short enough and be free — because they arrive at the same model. A refusal is
 // handed back to the assistant as the reason, which it relays.
 type StrategyCreateAssistantQuery struct {
-	strategyApplication *StrategyApplication
+	strategyApplication *application.StrategyApplication
 }
 
-func NewStrategyCreateAssistantQuery(strategyApplication *StrategyApplication) *StrategyCreateAssistantQuery {
+func NewStrategyCreateAssistantQuery(strategyApplication *application.StrategyApplication) *StrategyCreateAssistantQuery {
 	return &StrategyCreateAssistantQuery{strategyApplication: strategyApplication}
 }
 

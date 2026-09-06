@@ -1,9 +1,11 @@
-package application
+package assistantqueries
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
 // StrategyListAssistantQuery lets the assistant see which algorithms are already
@@ -14,10 +16,10 @@ import (
 // longest thing a strategy holds — sending every script every time the assistant
 // wants to know what exists would be the single most expensive habit it could form.
 type StrategyListAssistantQuery struct {
-	strategyApplication *StrategyApplication
+	strategyApplication *application.StrategyApplication
 }
 
-func NewStrategyListAssistantQuery(strategyApplication *StrategyApplication) *StrategyListAssistantQuery {
+func NewStrategyListAssistantQuery(strategyApplication *application.StrategyApplication) *StrategyListAssistantQuery {
 	return &StrategyListAssistantQuery{strategyApplication: strategyApplication}
 }
 
