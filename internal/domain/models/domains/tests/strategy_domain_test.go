@@ -184,14 +184,28 @@ func TestNewStrategyDomainCarriesTheIdentifierItWasNamedBy(t *testing.T) {
 }
 
 func TestNewStrategyDomainAcceptsTheSignalKind(t *testing.T) {
-	writeDto := aStrategyWriteDto()
-	writeDto.ResultType = "signal"
+	t.Run("creating a strategy that emits signals", func(t *testing.T) {
+		writeDto := aStrategyWriteDto()
+		writeDto.ResultType = "signal"
 
-	strategyDomain, validationError := domains.NewStrategyDomain(writeDto)
+		strategyDomain, validationError := domains.NewStrategyDomain(writeDto)
 
-	require.NoError(t, validationError)
-	assert.Equal(t, "signal", strategyDomain.ToEntity().ResultType)
-	assert.True(t, strategyDomain.ResultType().IsSignal())
+		require.NoError(t, validationError)
+		assert.Equal(t, "signal", strategyDomain.ToEntity().ResultType)
+		assert.True(t, strategyDomain.ResultType().IsSignal())
+	})
+
+	t.Run("rewriting an existing strategy to emit signals", func(t *testing.T) {
+		writeDto := aStrategyWriteDto()
+		writeDto.ID = 7
+		writeDto.ResultType = "signal"
+
+		strategyDomain, validationError := domains.NewStrategyDomain(writeDto)
+
+		require.NoError(t, validationError)
+		assert.Equal(t, uint(7), strategyDomain.ToEntity().ID)
+		assert.True(t, strategyDomain.ResultType().IsSignal())
+	})
 }
 
 func TestNewStrategyDomainHandsOutTheKindAlreadyRead(t *testing.T) {

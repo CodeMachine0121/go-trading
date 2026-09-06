@@ -234,6 +234,27 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 		assert.Equal(t, vo.SignalBuy, perCandleIndicatorValues[2][vo.SignalIndicatorKey].Signal)
 	})
 
+	t.Run("a number-emitting script is refused under the signal kind", func(t *testing.T) {
+		const numberScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	return map[string]float64{"signal": 1}
+}
+`
+
+		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), numberScript, resultTypeOf(t, "signal"),
+				candlesWithClosePrices(100, 110), noStrategyParameters(t))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+		assert.Contains(t, err.Error(), "indicator.Signal")
+		assert.Nil(t, perCandleIndicatorValues)
+	})
+
 	t.Run("a signal left unset on one candle brings the whole run down", func(t *testing.T) {
 		const unsetsOnceScript = `
 package main
