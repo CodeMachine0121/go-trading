@@ -22,7 +22,7 @@ func accountStakingEverything(t *testing.T, initialCapital int64) *domains.Backt
 
 // signalOf is one candle's opinion.
 func signalOf(signal vo.SignalVo) domains.SignalDomain {
-	return domains.NewSignalDomain(signal)
+	return domains.NewSignalDomain(signalResultOf(signal))
 }
 
 func TestBacktestAccountDomainApply(t *testing.T) {

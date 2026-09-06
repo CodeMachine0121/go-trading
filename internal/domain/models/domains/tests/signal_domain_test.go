@@ -8,12 +8,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// signalResultOf packs one signal into a script result the way the runner does under
+// the signal kind: one value, filed under the well-known key.
+func signalResultOf(signal vo.SignalVo) map[string]vo.IndicatorValueVo {
+	return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: signal}}
+}
+
 // signalDomainsSaying builds one opinion per signal, in order — the shape a replay
 // works in once the script runner has read each candle's signal.
 func signalDomainsSaying(signals ...vo.SignalVo) []domains.SignalDomain {
 	signalDomains := make([]domains.SignalDomain, 0, len(signals))
 	for _, signal := range signals {
-		signalDomains = append(signalDomains, domains.NewSignalDomain(signal))
+		signalDomains = append(signalDomains, domains.NewSignalDomain(signalResultOf(signal)))
 	}
 
 	return signalDomains
@@ -22,7 +28,7 @@ func signalDomainsSaying(signals ...vo.SignalVo) []domains.SignalDomain {
 func TestNewSignalDomainCarriesTheSignalItWasGiven(t *testing.T) {
 	for _, signal := range []vo.SignalVo{vo.SignalBuy, vo.SignalSell, vo.SignalHold} {
 		t.Run(string(signal), func(t *testing.T) {
-			assert.Equal(t, signal, domains.NewSignalDomain(signal).Value())
+			assert.Equal(t, signal, domains.NewSignalDomain(signalResultOf(signal)).Value())
 		})
 	}
 }
@@ -51,7 +57,8 @@ func TestSignalDomainWantedDirection(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			wantedDirection, wantsPosition := domains.NewSignalDomain(testCase.signal).WantedDirection()
+			wantedDirection, wantsPosition :=
+				domains.NewSignalDomain(signalResultOf(testCase.signal)).WantedDirection()
 
 			assert.Equal(t, testCase.expectsAnyDirection, wantsPosition)
 			if testCase.expectsAnyDirection {

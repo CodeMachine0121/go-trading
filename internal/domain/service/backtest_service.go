@@ -6,7 +6,6 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // BacktestService is the application layer's only entry point for replaying a
@@ -75,12 +74,12 @@ func (backtestService *BacktestService) RunBacktest(
 		return dto.BacktestResultDto{}, executionError
 	}
 
-	// The script ran under the signal kind, so each candle's result is one signal
-	// filed under the well-known key. Lifting it out here keeps the simulation
-	// working in opinions rather than in raw script output.
+	// The script ran under the signal kind, so each candle's result carries one
+	// opinion. Reading them into signals here keeps the simulation working in
+	// opinions rather than in raw script output.
 	signals := make([]domains.SignalDomain, 0, len(perCandleIndicatorValues))
 	for _, indicatorValues := range perCandleIndicatorValues {
-		signals = append(signals, domains.NewSignalDomain(indicatorValues[vo.SignalIndicatorKey].Signal))
+		signals = append(signals, domains.NewSignalDomain(indicatorValues))
 	}
 
 	return backtestDomain.ReplayOver(inputKCandles, signals), nil

@@ -7,7 +7,6 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // IndicatorCalculationService is the application layer's only entry point for
@@ -107,7 +106,7 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	// A signal has no indicator name, so it leaves as the result itself rather than
 	// as an entry in a set keyed by name.
 	if calculationDomain.ResultType().IsSignal() {
-		resultDto.Signal = string(indicatorValues[vo.SignalIndicatorKey].Signal)
+		resultDto.Signal = string(domains.NewSignalDomain(indicatorValues).Value())
 		return resultDto, nil
 	}
 
