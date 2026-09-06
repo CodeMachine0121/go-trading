@@ -95,7 +95,15 @@
 					"for (let index = 1; index <= 5; index += 1) {",
 					"    const seeded = new Date(latestClosed.getTime() - (5 - index) * FIVE_MINUTES);",
 					"    pm.collectionVariables.set('seedTime' + index, asRfc3339(seeded));",
-					"}"
+					"}",
+					"",
+					"// 回測重演那五根：起點是第一根，終點再往後一格，好讓第五根所在的刻度區間也算走完。",
+					"pm.collectionVariables.set('backtestStart', asRfc3339(new Date(latestClosed.getTime() - 4 * FIVE_MINUTES)));",
+					"pm.collectionVariables.set('backtestEnd', asRfc3339(new Date(latestClosed.getTime() + FIVE_MINUTES)));",
+					"",
+					"// 一段從來沒有 K 線的遠古區間，用來驗證湊不出足夠根數時的拒絕。",
+					"pm.collectionVariables.set('emptyRangeStart', asRfc3339(new Date(latestClosed.getTime() - 400 * 24 * 60 * 60 * 1000)));",
+					"pm.collectionVariables.set('emptyRangeEnd', asRfc3339(new Date(latestClosed.getTime() - 399 * 24 * 60 * 60 * 1000)));"
 				]
 			}
 		}
@@ -3667,6 +3675,512 @@
 								"exec": [
 									"pm.test(\"回應 404\", function () {",
 									"    pm.response.to.have.status(404);",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "策略回測",
+			"item": [
+				{
+					"name": "重演：買進之後一路抱著",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "算式在指標結果裡多放一個叫 `signal` 的名稱，重演就照它逐根決定買賣：**大於零買入、小於零賣出、等於零持平**，沒有這個名字等同持平——所以既有的算式一個字都不必改。\n\n這一發的算式在第一根說持平、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**重演不留存**：每次問、每次算、算完就走。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"重演了五根，一根一個資金曲線點\", function () {",
+									"    pm.expect(pm.response.json().usedCandleCount).to.eql(5);",
+									"    pm.expect(pm.response.json().equityCurve).to.have.lengthOf(5);",
+									"});",
+									"pm.test(\"開了一次倉，而且到最後都還開著\", function () {",
+									"    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(1);",
+									"    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(0);",
+									"});",
+									"pm.test(\"最後剩多少含未平倉，總報酬率 25%\", function () {",
+									"    // 12,000 在收盤 120 那根全押得到 100 單位，收盤 150 時值 15,000。",
+									"    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"15000\");",
+									"    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(0.25);",
+									"});",
+									"pm.test(\"一筆都沒平倉時，勝率是不適用而不是 0\", function () {",
+									"    pm.expect(pm.response.json().summary.winRate).to.eql(null);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "重演：聽到反向信號就在同一棒反手",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "手上同一時間只有一個倉位。聽到反向的信號時，**先以該棒收盤價平掉舊的，再以同一個價格開新的**——所以一次反手會留下一筆已平倉交易，並且算兩次開倉。\n\n這一發在收盤 110 開多倉，收盤 140 那根翻空：多倉賺 3,000 入袋，同一個 140 轉開空倉，最後一根收盤 150 讓空倉浮虧 1,000。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tlast := data[len(data)-1].Close\\n\\tif last < 135 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 1}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": -1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"反手算兩次開倉，留下一筆已平倉交易\", function () {",
+									"    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(2);",
+									"    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+									"});",
+									"pm.test(\"那一筆交易交代了方向、兩端價格與賺賠\", function () {",
+									"    const trade = pm.response.json().closedTrades[0];",
+									"    pm.expect(trade.direction).to.eql(\"long\");",
+									"    pm.expect(trade.entryPrice).to.eql(\"110\");",
+									"    pm.expect(trade.exitPrice).to.eql(\"140\");",
+									"    pm.expect(trade.profit).to.eql(\"3000\");",
+									"});",
+									"pm.test(\"勝率只看已平倉的那一筆\", function () {",
+									"    pm.expect(pm.response.json().summary.winRate).to.eql(1);",
+									"});",
+									"pm.test(\"最後剩多少含還開著的空倉\", function () {",
+									"    // 平多倉後有 14,000，全押開空拿 100 單位；收盤由 140 漲到 150 浮虧 1,000。",
+									"    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"13000\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "重演：每次只押可用資金的一半",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "每次開倉押多少三選一：**全押**、**百分比**、**固定金額**。選百分比時押下當時可用資金的那個百分比，其餘不動。\n\n這一發押 50%：12,000 的一半在收盤 120 買到 50 單位，收盤 150 時值 7,500，加上沒動的 6,000。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"只有押下去的那一半在動\", function () {",
+									"    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"13500\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "重演：固定金額押不下去就跳過，不算失敗",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "固定金額大於當時可用資金時，**這一次開倉被跳過**——不算失敗、不中斷重演、也不計為一次開倉。所以固定金額填得比初始資金還大是合法的，行為就是每一次開倉都被跳過。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200——跳過開倉不是失敗\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"一次倉都沒開成，錢原封不動\", function () {",
+									"    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(0);",
+									"    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"12000\");",
+									"});",
+									"pm.test(\"資金曲線仍然一根一個點\", function () {",
+									"    pm.expect(pm.response.json().equityCurve).to.have.lengthOf(5);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "重演：從來沒放過信號的算式，全程不動作",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "算式沒有放 `signal` 這個名稱時，每一棒都等同持平——這正是既有算式一個字都不必改的原因。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"零交易的成績單\", function () {",
+									"    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(0);",
+									"    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(0);",
+									"    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(0);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：初始資金不大於零",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "沒有本金就沒有東西可以押。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"說明初始資金必須大於零\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"初始資金\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：百分比不在零到一百之間",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "百分比填 0 的行為會是「每次開倉都被跳過」，跑出來是一張全空的成績單，看起來像壞了——當場拒絕比事後困惑好。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"說明百分比的範圍\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"百分比\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：這段期間湊不出足夠的 K 線",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "一根 K 線重演不出任何東西，所以不足兩根即整次拒絕。起訖顛倒、或市場那段時間根本沒有資料，對提問的人來說是同一件事，因此**共用同一句說明**。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"說明湊不出足夠的 K 線\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"湊不出足夠的 K 線\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：算式取用了沒有宣告的參數名稱",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "錯的是名字對不上，不是算式本身寫壞——所以回的是 400 並指名那個參數，而不是把它報成算式失敗。重演與單純算指標在這裡的說法一字不差。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"signal\\\": float64(indicator.LookbackCount(\\\"period\\\"))}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"指名是哪一個參數對不上\", function () {",
+									"    pm.expect(pm.response.json().parameterName).to.eql(\"period\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：算式無法解讀",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/backtests",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"backtests"
+							]
+						},
+						"description": "算式壞掉時的呈現方式與單純算指標一致：422。同一頁上的兩個去處，錯誤不該長成兩種樣子。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"這不是 Go\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 422\", function () {",
+									"    pm.response.to.have.status(422);",
 									"});"
 								]
 							}

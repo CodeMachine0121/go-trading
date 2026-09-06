@@ -21,4 +21,22 @@ type IIndicatorScriptProxy interface {
 		kCandles []vo.KCandleVo,
 		parameters domains.StrategyParametersDomain,
 	) (map[string]vo.IndicatorValueVo, error)
+	// ExecuteForEachCandle runs one script once per K candle: the nth run sees the
+	// candles from the first up to and including the nth, and the results come back
+	// in that same order, one set per candle.
+	//
+	// It is not a loop the caller could have written. Reading a script and running it
+	// are two different costs, and only the side that owns the running can pay the
+	// first one once and the second one many times — which is the difference between
+	// a replay that finishes and one that reads the same script a thousand times.
+	//
+	// The first failure ends everything with no partial result: half a replay is not
+	// a shorter replay, it is a wrong one.
+	ExecuteForEachCandle(
+		executionContext context.Context,
+		script string,
+		resultType domains.IndicatorResultTypeDomain,
+		kCandles []vo.KCandleVo,
+		parameters domains.StrategyParametersDomain,
+	) ([]map[string]vo.IndicatorValueVo, error)
 }
