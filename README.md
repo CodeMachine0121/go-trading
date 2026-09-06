@@ -461,7 +461,7 @@ curl -X POST localhost:8080/indicator-calculations -H 'Content-Type: application
 `floatList` / `boolList` 的第 n 個值就對應 `openTimes` 的第 n 個，
 所以要把一條線畫回圖上，不必自己從刻度與根數反推是哪幾根。
 
-**指標值種類**（`resultType`）決定算式要回傳什麼形狀，四選一，**省略等同 `float`**：
+**指標值種類**（`resultType`）決定算式要回傳什麼形狀，五選一，**省略等同 `float`**：
 
 | `resultType` | 算式要回傳 | 回應中的值長這樣 | 適合 |
 | :--- | :--- | :--- | :--- |
@@ -469,6 +469,11 @@ curl -X POST localhost:8080/indicator-calculations -H 'Content-Type: application
 | `floatList` | `map[string][]float64` | `{"line":[110,112,115]}` | 一整條線，如逐根均線 |
 | `bool` | `map[string]bool` | `{"crossed":true}` | 是非題，如黃金交叉發生了嗎 |
 | `boolList` | `map[string][]bool` | `{"red":[true,false,true]}` | 逐根的是非，如每根是否收紅 |
+| `signal` | `indicator.Signal` | `"signal":"buy"`（頂層，`values` 為空） | 一個買賣信號，回測用；`回測一律以這種種類執行` |
+
+`signal` 種類的算式回傳 `indicator.Signal`，值只能是 `indicator.Buy` / `indicator.Sell` /
+`indicator.Hold`——沒有第四種、也不能自己組一個。信號沒有指標名稱，直接以頂層 `signal` 欄位回傳。
+方向沒設定、或設成三者以外，都是**算式的問題**（`422`）。
 
 **一次計算只有一種**：同一次算出的所有指標都是同一種。要不同種類就分兩次算。
 
