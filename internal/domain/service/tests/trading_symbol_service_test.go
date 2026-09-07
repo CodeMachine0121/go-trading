@@ -505,6 +505,27 @@ func TestEveryListedSymbolSaysWhetherItsMarketIsTradingRightNow(t *testing.T) {
 	assert.True(t, listed(t, tradingSymbolDtos, "BTCUSDT").IsWithinTradingSession)
 }
 
+func TestAListingSaysWhichMarketsKeepHoursAndThereforeShut(t *testing.T) {
+	// "Trading right now" and "keeps hours at all" are different facts that happen to
+	// agree during a session. Only the second one says whether waiting will ever
+	// collect anything — a console told just the first cannot tell a market that
+	// closed from one that is merely quiet.
+	fixture := newTradingSymbolServiceUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "2330", Market: string(vo.MarketTaiwanStock)},
+		{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto)},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	assert.True(t, listed(t, tradingSymbolDtos, "2330").HasTradingSession)
+	assert.False(t, listed(t, tradingSymbolDtos, "BTCUSDT").HasTradingSession)
+}
+
 func TestALimitedMarketOnlyPromisesLiveUpdatesToSymbolsHoldingAPlace(t *testing.T) {
 	// Five places, six watched symbols. Promising the sixth one live updates would
 	// hand somebody a chart that never moves and never says why.

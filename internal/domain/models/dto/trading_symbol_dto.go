@@ -16,6 +16,14 @@ type TradingSymbolDto struct {
 	// because a console cannot know which days a market takes off. Working it out
 	// from the clock alone would call a public holiday an outage.
 	IsWithinTradingSession bool `json:"isWithinTradingSession"`
+	// HasTradingSession says this symbol's market keeps hours, and therefore shuts.
+	//
+	// It travels with the symbol because it is what makes catching up by hand worth
+	// offering: a market that never closes is always within a tick of being current,
+	// while one that shuts has stretches where no amount of waiting will collect
+	// anything. A console cannot tell the two apart — every market looks quiet at
+	// three in the morning.
+	HasTradingSession bool `json:"hasTradingSession"`
 	// HasLiveUpdates says this symbol can be followed live right now.
 	//
 	// It also travels with the symbol, and for the same reason: which symbols hold a

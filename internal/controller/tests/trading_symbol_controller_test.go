@@ -77,7 +77,7 @@ func TestListTradingSymbolsResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Equal(t,
-			`[{"symbol":"BTCUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasLiveUpdates":true},{"symbol":"ETHUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasLiveUpdates":true},{"symbol":"XRPUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasLiveUpdates":true}]`,
+			`[{"symbol":"BTCUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasTradingSession":false,"hasLiveUpdates":true},{"symbol":"ETHUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasTradingSession":false,"hasLiveUpdates":true},{"symbol":"XRPUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasTradingSession":false,"hasLiveUpdates":true}]`,
 			recorder.Body.String())
 	})
 

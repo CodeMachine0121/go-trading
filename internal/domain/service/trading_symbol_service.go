@@ -108,6 +108,7 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols(
 			Market:                 string(marketDomain.Value()),
 			IsWatched:              registration.IsWatched,
 			IsWithinTradingSession: marketDomain.IsOpen(currentTime),
+			HasTradingSession:      !marketDomain.NeverCloses(),
 			HasLiveUpdates:         rosterDomain.HasLiveUpdates(name, marketDomain),
 		})
 	}
