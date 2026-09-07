@@ -137,15 +137,17 @@ func TestListTradingSymbols(t *testing.T) {
 				FindAll(gomock.Any()).Return(registered(testCase.registeredSymbols...), nil)
 			fixture.kCandleRepository.EXPECT().
 				FindDistinctSymbols(gomock.Any()).Return(testCase.heldSymbols, nil)
+			// Nothing is watched in these cases, so no market's live places are held.
+			fixture.tradingSymbolRepository.EXPECT().
+				FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
 
 			tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
 
 			assert.NoError(t, err)
-			expectedDtos := make([]dto.TradingSymbolDto, 0, len(testCase.expectedSymbols))
-			for _, expectedSymbol := range testCase.expectedSymbols {
-				expectedDtos = append(expectedDtos, dto.TradingSymbolDto{Symbol: expectedSymbol})
-			}
-			assert.Equal(t, expectedDtos, tradingSymbolDtos)
+			// These cases are about which markets appear and in what order. What each
+			// one says about itself is pinned separately, so that a change to those
+			// fields does not have to be re-stated six times here.
+			assert.Equal(t, testCase.expectedSymbols, namesOfListed(tradingSymbolDtos))
 			assert.NotNil(t, tradingSymbolDtos)
 		})
 	}
@@ -439,4 +441,149 @@ func TestRemoveFromWatchlist(t *testing.T) {
 
 		assert.ErrorIs(t, removeError, storageFailure)
 	})
+}
+
+// namesOfListed is which markets a listing named, in the order it named them.
+func namesOfListed(tradingSymbolDtos []dto.TradingSymbolDto) []string {
+	names := make([]string, 0, len(tradingSymbolDtos))
+	for _, tradingSymbolDto := range tradingSymbolDtos {
+		names = append(names, tradingSymbolDto.Symbol)
+	}
+
+	return names
+}
+
+func TestEveryListedSymbolSaysWhichMarketItBelongsTo(t *testing.T) {
+	fixture := newTradingSymbolServiceUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "2330", Market: "taiwanStock", IsWatched: true, RegisteredAt: registrationTime},
+		{Symbol: "BTCUSDT", Market: "crypto", IsWatched: true, RegisteredAt: registrationTime},
+		// Registered before markets were ever recorded, so it names none.
+		{Symbol: "XRPUSDT"},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	assert.Equal(t, "taiwanStock", listed(t, tradingSymbolDtos, "2330").Market)
+	assert.Equal(t, "crypto", listed(t, tradingSymbolDtos, "BTCUSDT").Market)
+	// Reading an old row as the market this system had when it was written is the
+	// only reading that keeps it behaving as it did.
+	assert.Equal(t, "crypto", listed(t, tradingSymbolDtos, "XRPUSDT").Market)
+}
+
+func TestEveryListedSymbolSaysWhetherItsMarketIsTradingRightNow(t *testing.T) {
+	// The console cannot work this out from the clock — it does not know which days a
+	// market takes off, and would call a public holiday an outage.
+	fixture := newTradingSymbolServiceUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "2330", Market: "taiwanStock"},
+		{Symbol: "BTCUSDT", Market: "crypto"},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	// registrationTime is 01:00 universal, which is 09:00 in Taipei on a Monday.
+	assert.True(t, listed(t, tradingSymbolDtos, "2330").IsWithinTradingSession)
+	assert.True(t, listed(t, tradingSymbolDtos, "BTCUSDT").IsWithinTradingSession)
+}
+
+func TestALimitedMarketOnlyPromisesLiveUpdatesToSymbolsHoldingAPlace(t *testing.T) {
+	// Five places, six watched symbols. Promising the sixth one live updates would
+	// hand somebody a chart that never moves and never says why.
+	fixture := newTradingSymbolServiceUnderTest(t)
+	watchlist := make([]entities.TradingSymbol, 0, 6)
+	for index, symbol := range []string{"2330", "2454", "2603", "2317", "2412", "1301"} {
+		watchlist = append(watchlist, entities.TradingSymbol{
+			Symbol:       symbol,
+			Market:       "taiwanStock",
+			IsWatched:    true,
+			RegisteredAt: registrationTime.Add(time.Duration(index) * time.Hour),
+		})
+	}
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(watchlist, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(watchlist, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	for _, holdingAPlace := range []string{"2330", "2454", "2603", "2317", "2412"} {
+		assert.True(t, listed(t, tradingSymbolDtos, holdingAPlace).HasLiveUpdates, holdingAPlace)
+	}
+	assert.False(t, listed(t, tradingSymbolDtos, "1301").HasLiveUpdates)
+}
+
+func TestAMarketWithNoCeilingAlwaysPromisesLiveUpdates(t *testing.T) {
+	// Nothing is following it until somebody looks, but looking is all it takes — so
+	// there is nothing to warn anybody about.
+	fixture := newTradingSymbolServiceUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "BTCUSDT", Market: "crypto"},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	assert.True(t, listed(t, tradingSymbolDtos, "BTCUSDT").HasLiveUpdates)
+}
+
+func TestASymbolTakenOffTheWatchlistIsStillListed(t *testing.T) {
+	// Not watching it any more is not forgetting it. Its candles are still there to
+	// query and replay, so it has to stay pickable.
+	fixture := newTradingSymbolServiceUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "2330", Market: "taiwanStock", IsWatched: false, RegisteredAt: registrationTime},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{"2330"}, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"2330"}, namesOfListed(tradingSymbolDtos))
+	assert.False(t, listed(t, tradingSymbolDtos, "2330").IsWatched)
+	assert.False(t, listed(t, tradingSymbolDtos, "2330").HasLiveUpdates)
+}
+
+func TestListingReportsAFailureReadingTheWatchlist(t *testing.T) {
+	fixture := newTradingSymbolServiceUnderTest(t)
+	storageFailure := errors.New("storage unreachable")
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).
+		Return([]entities.TradingSymbol{}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(nil, storageFailure)
+
+	_, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.ErrorIs(t, err, storageFailure)
+}
+
+// listed picks one market out of a listing, failing rather than panicking when it is
+// not there at all.
+func listed(
+	t *testing.T, tradingSymbolDtos []dto.TradingSymbolDto, symbol string,
+) dto.TradingSymbolDto {
+	t.Helper()
+
+	for _, tradingSymbolDto := range tradingSymbolDtos {
+		if tradingSymbolDto.Symbol == symbol {
+			return tradingSymbolDto
+		}
+	}
+
+	t.Fatalf("%s was not listed at all", symbol)
+
+	return dto.TradingSymbolDto{}
 }

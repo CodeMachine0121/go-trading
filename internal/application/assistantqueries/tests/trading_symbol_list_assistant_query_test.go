@@ -31,6 +31,11 @@ func newTradingSymbolListAssistantQueryUnderTest(t *testing.T) tradingSymbolList
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 
+	// Nothing is watched unless a test says so, so a listing that also asks what
+	// holds a market's live places finds none held.
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return([]entities.TradingSymbol{}, nil).AnyTimes()
+
 	return tradingSymbolListAssistantQueryUnderTest{
 		assistantQuery: assistantqueries.NewTradingSymbolListAssistantQuery(
 			application.NewTradingSymbolApplication(

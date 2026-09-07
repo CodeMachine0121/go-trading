@@ -32,6 +32,11 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 
+	// Nothing is watched unless a test says so, so a listing that also asks what
+	// holds a market's live places finds none held.
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return([]entities.TradingSymbol{}, nil).AnyTimes()
+
 	tradingSymbolController := controller.NewTradingSymbolController(
 		application.NewTradingSymbolApplication(
 			service.NewTradingSymbolService(
@@ -68,7 +73,7 @@ func TestListTradingSymbolsResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Equal(t,
-			`[{"symbol":"BTCUSDT"},{"symbol":"ETHUSDT"},{"symbol":"XRPUSDT"}]`,
+			`[{"symbol":"BTCUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasLiveUpdates":true},{"symbol":"ETHUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasLiveUpdates":true},{"symbol":"XRPUSDT","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasLiveUpdates":true}]`,
 			recorder.Body.String())
 	})
 

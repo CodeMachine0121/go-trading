@@ -79,10 +79,21 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 }
 
 // SimultaneousFollowCeiling is how many of this market's symbols may be followed
-// live at the same time. Zero means the market data plan sets no ceiling, which is
-// how a market whose follows are driven by viewers rather than by a roster says so.
+// live at the same time. Zero means the market data plan sets no ceiling.
 func (marketDomain MarketDomain) SimultaneousFollowCeiling() int {
 	return marketDomain.rules.SimultaneousFollowCeiling
+}
+
+// HasFollowCeiling reports a market that limits how many of its symbols may be
+// followed live at once, and therefore hands its places out from a roster rather
+// than to whoever looks first.
+//
+// It is asked separately from whether the market closes, because the two are
+// different facts that happen to coincide today. A venue could publish round the
+// clock and still cap how many feeds one plan may open, and reading one as the other
+// would then hand out places nobody was allowed to take.
+func (marketDomain MarketDomain) HasFollowCeiling() bool {
+	return marketDomain.rules.SimultaneousFollowCeiling > 0
 }
 
 // TradingDateOf is the market's own calendar day a moment falls on — midnight local,

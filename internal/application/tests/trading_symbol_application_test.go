@@ -28,6 +28,11 @@ func newTradingSymbolApplicationUnderTest(t *testing.T) tradingSymbolApplication
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 
+	// Nothing is watched unless a test says so, so a listing that also asks what
+	// holds a market's live places finds none held.
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return([]entities.TradingSymbol{}, nil).AnyTimes()
+
 	return tradingSymbolApplicationUnderTest{
 		tradingSymbolApplication: application.NewTradingSymbolApplication(
 			service.NewTradingSymbolService(
@@ -49,8 +54,13 @@ func TestTradingSymbolApplicationListTradingSymbols(t *testing.T) {
 		tradingSymbolDtos, err := fixture.tradingSymbolApplication.ListTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
+		// Both sides merged, ordered by name. What each one says about its own market
+		// is pinned where those rules live, not restated here.
 		assert.Equal(t,
-			[]dto.TradingSymbolDto{{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"}},
+			[]dto.TradingSymbolDto{
+				{Symbol: "BTCUSDT", Market: "crypto", HasLiveUpdates: true, IsWithinTradingSession: true},
+				{Symbol: "ETHUSDT", Market: "crypto", HasLiveUpdates: true, IsWithinTradingSession: true},
+			},
 			tradingSymbolDtos)
 	})
 }

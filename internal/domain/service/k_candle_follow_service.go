@@ -11,7 +11,6 @@ import (
 	_interface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
@@ -112,11 +111,11 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 
 	follow, isFollowing := kCandleFollowService.follows[symbol]
 	if !isFollowing {
-		if !marketDomain.NeverCloses() {
-			// This market hands its live places out itself. A viewer arriving for a
-			// symbol that has none is told so rather than left watching a picture that
-			// looks live and is not — and rather than being given a place that would
-			// put the market over what its source allows.
+		if marketDomain.HasFollowCeiling() {
+			// This market hands its live places out from a roster. A viewer arriving
+			// for a symbol that holds none is told so rather than left watching a
+			// picture that looks live and is not — and rather than being given a place
+			// that would put the market over what its source allows.
 			kCandleFollowService.mutex.Unlock()
 
 			return kCandleFollowService.unavailableUpdates(executionContext, symbol), nil
@@ -163,57 +162,29 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 		return findError
 	}
 
-	rosteredSymbols := kCandleFollowService.rosteredSymbols(watchedSymbols)
+	// The very same roster the console reads when it says which symbols can be
+	// followed, so what it promises and what this does cannot drift apart.
+	rosterDomain := domains.NewLiveFollowRosterDomain(
+		watchedSymbols,
+		kCandleFollowService.marketCatalogDomain,
+		kCandleFollowService.clockProxy.Now(),
+	)
 
-	departing := kCandleFollowService.takeDepartedFollows(rosteredSymbols)
+	departing := kCandleFollowService.takeDepartedFollows(rosterDomain)
 	for _, follow := range departing {
 		follow.publishUnavailable()
 		follow.end()
 	}
 
-	kCandleFollowService.startMissingFollows(executionContext, rosteredSymbols)
+	kCandleFollowService.startMissingFollows(executionContext, rosterDomain)
 
 	return nil
-}
-
-// rosteredSymbols is which symbols hold each limited market's live places right now.
-// A market that is shut holds none: there is nothing to follow, and holding places
-// open through the night would spend a limit that another market's morning may need.
-func (kCandleFollowService *KCandleFollowService) rosteredSymbols(
-	watchedSymbols []entities.TradingSymbol,
-) map[string]bool {
-	currentTime := kCandleFollowService.clockProxy.Now()
-
-	placesLeft := make(map[vo.MarketVo]int)
-	rosteredSymbols := make(map[string]bool)
-	for _, watchedSymbol := range watchedSymbols {
-		marketDomain := kCandleFollowService.marketCatalogDomain.MarketOf(watchedSymbol.Market)
-		if marketDomain.NeverCloses() || !marketDomain.IsOpen(currentTime) {
-			continue
-		}
-
-		remaining, hasCounted := placesLeft[marketDomain.Value()]
-		if !hasCounted {
-			remaining = marketDomain.SimultaneousFollowCeiling()
-		}
-
-		if remaining <= 0 {
-			placesLeft[marketDomain.Value()] = 0
-
-			continue
-		}
-
-		rosteredSymbols[watchedSymbol.Symbol] = true
-		placesLeft[marketDomain.Value()] = remaining - 1
-	}
-
-	return rosteredSymbols
 }
 
 // takeDepartedFollows removes every rostered follow that no longer holds a place and
 // hands them back to be ended outside the lock.
 func (kCandleFollowService *KCandleFollowService) takeDepartedFollows(
-	rosteredSymbols map[string]bool,
+	rosterDomain domains.LiveFollowRosterDomain,
 ) []*symbolFollow {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
@@ -224,7 +195,7 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedFollows(
 
 	departing := make([]*symbolFollow, 0)
 	for symbol, follow := range kCandleFollowService.follows {
-		if !follow.isOnARoster || rosteredSymbols[symbol] {
+		if !follow.isOnARoster || rosterDomain.Holds(symbol) {
 			continue
 		}
 
@@ -238,7 +209,7 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedFollows(
 // startMissingFollows begins following every symbol that holds a place and is not
 // already being followed.
 func (kCandleFollowService *KCandleFollowService) startMissingFollows(
-	executionContext context.Context, rosteredSymbols map[string]bool,
+	executionContext context.Context, rosterDomain domains.LiveFollowRosterDomain,
 ) {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
@@ -247,7 +218,7 @@ func (kCandleFollowService *KCandleFollowService) startMissingFollows(
 		return
 	}
 
-	for symbol := range rosteredSymbols {
+	for _, symbol := range rosterDomain.Symbols() {
 		if _, isFollowing := kCandleFollowService.follows[symbol]; isFollowing {
 			continue
 		}

@@ -68,16 +68,48 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols(
 		return nil, findHeldError
 	}
 
-	listedSymbols := tradingSymbolService.namesOf(registeredSymbols)
+	registrationsByName := make(map[string]entities.TradingSymbol, len(registeredSymbols))
+	for _, registeredSymbol := range registeredSymbols {
+		registrationsByName[registeredSymbol.Symbol] = registeredSymbol
+	}
 	for _, heldSymbol := range heldSymbols {
-		listedSymbols[heldSymbol] = true
+		if _, isRegistered := registrationsByName[heldSymbol]; !isRegistered {
+			// Holding candles for a market nobody registered is how a symbol created
+			// by hand behaves. It stays findable, and reads as belonging to the market
+			// this system had before markets were recorded.
+			registrationsByName[heldSymbol] = entities.TradingSymbol{Symbol: heldSymbol}
+		}
 	}
 
-	names := slices.Sorted(maps.Keys(listedSymbols))
+	// Asked for again rather than sifted out of what was already read, because the
+	// order the places are handed out in is a rule storage owns. Working it out a
+	// second time here would be a second copy of that rule, free to drift.
+	watchedSymbols, findWatchedError := tradingSymbolService.tradingSymbolRepository.FindWatched(
+		executionContext)
+	if findWatchedError != nil {
+		return nil, findWatchedError
+	}
+
+	currentTime := tradingSymbolService.clockProxy.Now()
+	// The same roster the follows are actually handed out from, so what this list
+	// promises and what the system does cannot drift apart.
+	rosterDomain := domains.NewLiveFollowRosterDomain(
+		watchedSymbols, tradingSymbolService.marketCatalogDomain, currentTime)
+
+	names := slices.Sorted(maps.Keys(registrationsByName))
 
 	tradingSymbolDtos := make([]dto.TradingSymbolDto, 0, len(names))
 	for _, name := range names {
-		tradingSymbolDtos = append(tradingSymbolDtos, dto.TradingSymbolDto{Symbol: name})
+		registration := registrationsByName[name]
+		marketDomain := tradingSymbolService.marketCatalogDomain.MarketOf(registration.Market)
+
+		tradingSymbolDtos = append(tradingSymbolDtos, dto.TradingSymbolDto{
+			Symbol:                 name,
+			Market:                 string(marketDomain.Value()),
+			IsWatched:              registration.IsWatched,
+			IsWithinTradingSession: marketDomain.IsOpen(currentTime),
+			HasLiveUpdates:         rosterDomain.HasLiveUpdates(name, marketDomain),
+		})
 	}
 
 	return tradingSymbolDtos, nil
