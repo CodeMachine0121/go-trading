@@ -6,6 +6,13 @@ package dto
 // and adding a field is a compatible change while turning names into objects is not.
 type TradingSymbolDto struct {
 	Symbol string `json:"symbol"`
+	// DisplayName is what the venue calls this symbol — 台積電 for 2330. Empty for a
+	// market that names nothing, and for a symbol registered before anybody asked.
+	//
+	// It is a separate field rather than folded into the symbol, because the code is
+	// what everything else is keyed by: a console shows both, and only ever sends the
+	// code back.
+	DisplayName string `json:"displayName"`
 	// Market is which market this symbol belongs to.
 	Market string `json:"market"`
 	// IsWatched says the system is keeping this symbol's candles up to date.

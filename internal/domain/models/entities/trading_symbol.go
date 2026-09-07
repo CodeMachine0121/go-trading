@@ -19,6 +19,15 @@ type TradingSymbol struct {
 	// market" and "the system is following it" are two facts about one thing, and
 	// keeping them apart gave them two chances to disagree.
 	IsWatched bool `gorm:"not null;default:false"`
+	// DisplayName is what the venue calls this symbol — 台積電 for 2330. Empty for a
+	// market that names nothing: a crypto pair is already its own name, and a
+	// translated one would be a label the venue has never used.
+	//
+	// It is stored rather than looked up when needed, because it comes from the same
+	// answer that proves the code real, and because a watchlist has to read the same
+	// out of hours as it does at ten in the morning — a name fetched on demand would
+	// vanish whenever the source did.
+	DisplayName string `gorm:"size:128"`
 	// RegisteredAt is when this symbol was first registered. It is what decides the
 	// order symbols are considered in when a market can only follow a few of them at
 	// once — earliest registered, first served.

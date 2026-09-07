@@ -128,7 +128,7 @@ func TestTradingSymbolApplicationAddToWatchlist(t *testing.T) {
 		// round — and after a market's close, until the next start-up.
 		fixture := newTradingSymbolApplicationUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(true, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(vo.SymbolListingVo{IsListed: true}, nil)
 		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
 			Return(entities.TradingSymbol{}, false, nil)
 		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
@@ -159,7 +159,7 @@ func TestTradingSymbolApplicationAddToWatchlist(t *testing.T) {
 		// failure about something that fixes itself, and lose something that worked.
 		fixture := newTradingSymbolApplicationUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(true, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(vo.SymbolListingVo{IsListed: true}, nil)
 		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
 			Return(entities.TradingSymbol{}, false, nil)
 		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
@@ -175,7 +175,7 @@ func TestTradingSymbolApplicationAddToWatchlist(t *testing.T) {
 	t.Run("nothing is caught up when the add itself was refused", func(t *testing.T) {
 		fixture := newTradingSymbolApplicationUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "9999").Return(false, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "9999").Return(vo.SymbolListingVo{}, nil)
 
 		addError := fixture.tradingSymbolApplication.AddToWatchlist(
 			t.Context(), dto.WatchlistEntryDto{Symbol: "9999", Market: string(vo.MarketTaiwanStock)})

@@ -21,18 +21,19 @@ func NewMarketRoutedSymbolLookupProxy(
 	return &MarketRoutedSymbolLookupProxy{symbolLookupProxies: maps.Clone(symbolLookupProxies)}
 }
 
-// SymbolExists asks the market itself.
+// LookUpSymbol asks the market itself.
 //
 // A market with nothing wired up is a failure rather than "no such symbol". The two
 // mean opposite things to whoever asked — fix what you typed, versus this system is
 // not finished — and answering the wrong one sends them looking in the wrong place.
-func (marketRoutedSymbolLookupProxy *MarketRoutedSymbolLookupProxy) SymbolExists(
+func (marketRoutedSymbolLookupProxy *MarketRoutedSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
-) (bool, error) {
+) (vo.SymbolListingVo, error) {
 	symbolLookupProxy, isServed := marketRoutedSymbolLookupProxy.symbolLookupProxies[market]
 	if !isServed {
-		return false, fmt.Errorf("no market data source is wired up for %s", market)
+		return vo.SymbolListingVo{}, fmt.Errorf(
+			"no market data source is wired up for %s", market)
 	}
 
-	return symbolLookupProxy.SymbolExists(executionContext, market, symbol)
+	return symbolLookupProxy.LookUpSymbol(executionContext, market, symbol)
 }

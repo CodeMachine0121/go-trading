@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -258,7 +259,7 @@ func TestAddToWatchlist(t *testing.T) {
 	t.Run("checks with the market, then starts watching", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(true, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(vo.SymbolListingVo{IsListed: true}, nil)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindBySymbol(gomock.Any(), "2330").Return(entities.TradingSymbol{}, false, nil)
 		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), entities.TradingSymbol{
@@ -274,10 +275,79 @@ func TestAddToWatchlist(t *testing.T) {
 		assert.NoError(t, addError)
 	})
 
+	t.Run("stores what the venue calls it, alongside the code", func(t *testing.T) {
+		// A watchlist of four-digit codes is a watchlist nobody can read at a glance.
+		fixture := newTradingSymbolServiceUnderTest(t)
+		fixture.symbolLookupProxy.EXPECT().
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
+			Return(vo.SymbolListingVo{IsListed: true, DisplayName: "台積電"}, nil)
+		fixture.tradingSymbolRepository.EXPECT().
+			FindBySymbol(gomock.Any(), "2330").Return(entities.TradingSymbol{}, false, nil)
+		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), entities.TradingSymbol{
+			Symbol:       "2330",
+			Market:       "taiwanStock",
+			DisplayName:  "台積電",
+			IsWatched:    true,
+			RegisteredAt: registrationTime,
+		}).Return(nil)
+
+		addError := fixture.tradingSymbolService.AddToWatchlist(
+			t.Context(), dto.WatchlistEntryDto{Symbol: "2330", Market: "taiwanStock"})
+
+		assert.NoError(t, addError)
+	})
+
+	t.Run("writes the venue's name every time, so adding back is how a rename lands", func(t *testing.T) {
+		// Nobody should have to know that. Adding a symbol back is the one moment the
+		// venue is asked again, so it is the moment its current name wins.
+		fixture := newTradingSymbolServiceUnderTest(t)
+		fixture.symbolLookupProxy.EXPECT().
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
+			Return(vo.SymbolListingVo{IsListed: true, DisplayName: "台積電控股"}, nil)
+		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+			entities.TradingSymbol{
+				Symbol: "2330", Market: "taiwanStock", DisplayName: "台積電",
+				RegisteredAt: registrationTime,
+			}, true, nil)
+		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, saved entities.TradingSymbol) error {
+				assert.Equal(t, "台積電控股", saved.DisplayName)
+
+				return nil
+			})
+
+		addError := fixture.tradingSymbolService.AddToWatchlist(
+			t.Context(), dto.WatchlistEntryDto{Symbol: "2330", Market: "taiwanStock"})
+
+		assert.NoError(t, addError)
+	})
+
+	t.Run("a market that names nothing leaves the name empty rather than repeating the code", func(t *testing.T) {
+		// A crypto pair is already its own name. Copying the code in would put a
+		// second copy of it on screen next to the first.
+		fixture := newTradingSymbolServiceUnderTest(t)
+		fixture.symbolLookupProxy.EXPECT().
+			LookUpSymbol(gomock.Any(), vo.MarketCrypto, "BTCUSDT").
+			Return(vo.SymbolListingVo{IsListed: true}, nil)
+		fixture.tradingSymbolRepository.EXPECT().
+			FindBySymbol(gomock.Any(), "BTCUSDT").Return(entities.TradingSymbol{}, false, nil)
+		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, saved entities.TradingSymbol) error {
+				assert.Empty(t, saved.DisplayName)
+
+				return nil
+			})
+
+		addError := fixture.tradingSymbolService.AddToWatchlist(
+			t.Context(), dto.WatchlistEntryDto{Symbol: "BTCUSDT", Market: "crypto"})
+
+		assert.NoError(t, addError)
+	})
+
 	t.Run("refuses a code the market has never heard of, and writes nothing", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "9999").Return(false, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "9999").Return(vo.SymbolListingVo{}, nil)
 
 		addError := fixture.tradingSymbolService.AddToWatchlist(
 			t.Context(), dto.WatchlistEntryDto{Symbol: "9999", Market: "taiwanStock"})
@@ -290,8 +360,8 @@ func TestAddToWatchlist(t *testing.T) {
 		// request, so the advice is to try again rather than to fix what was typed.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "2330").
-			Return(false, errors.New("market source unreachable"))
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
+			Return(vo.SymbolListingVo{}, errors.New("market source unreachable"))
 
 		addError := fixture.tradingSymbolService.AddToWatchlist(
 			t.Context(), dto.WatchlistEntryDto{Symbol: "2330", Market: "taiwanStock"})
@@ -324,7 +394,7 @@ func TestAddToWatchlist(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		alreadyRegisteredAt := time.Date(2026, 9, 1, 1, 0, 0, 0, time.UTC)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(true, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(vo.SymbolListingVo{IsListed: true}, nil)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindBySymbol(gomock.Any(), "2330").
 			Return(entities.TradingSymbol{
@@ -352,7 +422,7 @@ func TestAddToWatchlist(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		originallyRegisteredAt := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(true, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(vo.SymbolListingVo{IsListed: true}, nil)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindBySymbol(gomock.Any(), "2330").
 			Return(entities.TradingSymbol{
@@ -376,7 +446,7 @@ func TestAddToWatchlist(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
 		fixture.symbolLookupProxy.EXPECT().
-			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(true, nil)
+			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").Return(vo.SymbolListingVo{IsListed: true}, nil)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindBySymbol(gomock.Any(), "2330").Return(entities.TradingSymbol{}, false, storageFailure)
 
@@ -503,6 +573,26 @@ func TestEveryListedSymbolSaysWhetherItsMarketIsTradingRightNow(t *testing.T) {
 	// registrationTime is 01:00 universal, which is 09:00 in Taipei on a Monday.
 	assert.True(t, listed(t, tradingSymbolDtos, "2330").IsWithinTradingSession)
 	assert.True(t, listed(t, tradingSymbolDtos, "BTCUSDT").IsWithinTradingSession)
+}
+
+func TestAListingCarriesWhatEachVenueCallsItsSymbols(t *testing.T) {
+	// The code is what everything else is keyed by, so both travel: a console shows
+	// the pair and only ever sends the code back.
+	fixture := newTradingSymbolServiceUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "2330", Market: string(vo.MarketTaiwanStock), DisplayName: "台積電"},
+		{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto)},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	assert.Equal(t, "台積電", listed(t, tradingSymbolDtos, "2330").DisplayName)
+	// A venue that names nothing leaves it empty rather than repeating the code.
+	assert.Empty(t, listed(t, tradingSymbolDtos, "BTCUSDT").DisplayName)
 }
 
 func TestAListingSaysWhichMarketsKeepHoursAndThereforeShut(t *testing.T) {

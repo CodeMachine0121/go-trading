@@ -107,6 +107,7 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols(
 			Symbol:                 name,
 			Market:                 string(marketDomain.Value()),
 			IsWatched:              registration.IsWatched,
+			DisplayName:            registration.DisplayName,
 			IsWithinTradingSession: marketDomain.IsOpen(currentTime),
 			HasTradingSession:      !marketDomain.NeverCloses(),
 			HasLiveUpdates:         rosterDomain.HasLiveUpdates(name, marketDomain),
@@ -176,13 +177,13 @@ func (tradingSymbolService *TradingSymbolService) AddToWatchlist(
 		return validationError
 	}
 
-	symbolExists, lookupError := tradingSymbolService.symbolLookupProxy.SymbolExists(
+	listing, lookupError := tradingSymbolService.symbolLookupProxy.LookUpSymbol(
 		executionContext, watchlistEntryDomain.Market(), watchlistEntryDomain.Symbol())
 	if lookupError != nil {
 		return fmt.Errorf("%w: %w", domains.ErrMarketDataSourceUnavailable, lookupError)
 	}
 
-	if !symbolExists {
+	if !listing.IsListed {
 		return fmt.Errorf("%w: %s 在 %s 找不到這個代號",
 			domains.ErrTradingSymbolNotInMarket,
 			watchlistEntryDomain.Symbol(), watchlistEntryDomain.Market())
@@ -194,10 +195,13 @@ func (tradingSymbolService *TradingSymbolService) AddToWatchlist(
 		return findError
 	}
 
+	// The name is written every time, so whatever the venue says now is what the
+	// watchlist reads — adding a symbol back is also how a renamed company gets its
+	// new name, and nobody has to know that.
 	return tradingSymbolService.tradingSymbolRepository.Save(
 		executionContext,
 		watchlistEntryDomain.ToEntity(
-			previouslyRegistered.RegisteredAt, tradingSymbolService.clockProxy.Now()))
+			listing, previouslyRegistered.RegisteredAt, tradingSymbolService.clockProxy.Now()))
 }
 
 // RemoveFromWatchlist stops keeping one market's candles up to date.

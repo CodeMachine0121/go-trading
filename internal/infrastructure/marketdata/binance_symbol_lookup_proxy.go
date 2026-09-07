@@ -37,49 +37,55 @@ func NewBinanceSymbolLookupProxy(baseUrl string, requestTimeout time.Duration) *
 	}
 }
 
-// SymbolExists reports whether this source lists the symbol.
+// LookUpSymbol reports whether this source lists the symbol.
+//
+// It never carries a display name. A pair on this venue is already its own name, and
+// putting a translated one on screen would label it with something the venue has
+// never used.
 //
 // The market is accepted and ignored: this proxy is only ever reached for the one
 // market it serves, and taking the argument is what lets it satisfy the same contract
 // every other source does.
-func (binanceSymbolLookupProxy *BinanceSymbolLookupProxy) SymbolExists(
+func (binanceSymbolLookupProxy *BinanceSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
-) (bool, error) {
+) (vo.SymbolListingVo, error) {
 	queryValues := url.Values{}
 	queryValues.Set("symbol", symbol)
 
 	request, buildError := http.NewRequestWithContext(executionContext, http.MethodGet,
 		binanceSymbolLookupProxy.baseUrl+"?"+queryValues.Encode(), nil)
 	if buildError != nil {
-		return false, fmt.Errorf("reach market source for %s: %w", symbol, buildError)
+		return vo.SymbolListingVo{}, fmt.Errorf("reach market source for %s: %w", symbol, buildError)
 	}
 
 	response, requestError := binanceSymbolLookupProxy.httpClient.Do(request)
 	if requestError != nil {
-		return false, fmt.Errorf("reach market source for %s: %w", symbol, requestError)
+		return vo.SymbolListingVo{}, fmt.Errorf("reach market source for %s: %w", symbol, requestError)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	// This source refuses an unknown pair rather than answering with an empty
 	// catalogue, so a refusal is the answer "no such symbol" and not a failure.
 	if response.StatusCode == http.StatusBadRequest {
-		return false, nil
+		return vo.SymbolListingVo{}, nil
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("market source answered %d for %s", response.StatusCode, symbol)
+		return vo.SymbolListingVo{}, fmt.Errorf(
+			"market source answered %d for %s", response.StatusCode, symbol)
 	}
 
 	var exchangeInfo binanceExchangeInfo
 	if decodeError := json.NewDecoder(response.Body).Decode(&exchangeInfo); decodeError != nil {
-		return false, fmt.Errorf("read market source answer for %s: %w", symbol, decodeError)
+		return vo.SymbolListingVo{}, fmt.Errorf(
+			"read market source answer for %s: %w", symbol, decodeError)
 	}
 
 	for _, listedSymbol := range exchangeInfo.Symbols {
 		if listedSymbol.Symbol == symbol {
-			return true, nil
+			return vo.SymbolListingVo{IsListed: true}, nil
 		}
 	}
 
-	return false, nil
+	return vo.SymbolListingVo{}, nil
 }

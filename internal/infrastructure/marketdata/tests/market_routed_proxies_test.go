@@ -80,28 +80,31 @@ func TestALookupIsSentToTheSourceThatServesThatMarket(t *testing.T) {
 	mockController := gomock.NewController(t)
 	taiwanSource := mocks.NewMockISymbolLookupProxy(mockController)
 	cryptoSource := mocks.NewMockISymbolLookupProxy(mockController)
-	taiwanSource.EXPECT().SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "2330").
-		Return(true, nil)
+	taiwanSource.EXPECT().LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
+		Return(vo.SymbolListingVo{IsListed: true, DisplayName: "台積電"}, nil)
 
-	symbolExists, lookupError := marketdata.NewMarketRoutedSymbolLookupProxy(
+	listing, lookupError := marketdata.NewMarketRoutedSymbolLookupProxy(
 		map[vo.MarketVo]_interface.ISymbolLookupProxy{
 			vo.MarketTaiwanStock: taiwanSource,
 			vo.MarketCrypto:      cryptoSource,
-		}).SymbolExists(t.Context(), vo.MarketTaiwanStock, "2330")
+		}).LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.NoError(t, lookupError)
-	assert.True(t, symbolExists)
+	assert.True(t, listing.IsListed)
+	// What the source said it is called comes back untouched: routing decides who
+	// answers, never what the answer says.
+	assert.Equal(t, "台積電", listing.DisplayName)
 }
 
 func TestALookupForAMarketWithNoSourceIsAFailureRatherThanANo(t *testing.T) {
 	// "No such symbol" and "this system is not finished" mean opposite things to
 	// whoever asked, and answering the wrong one sends them looking in the wrong place.
-	symbolExists, lookupError := marketdata.NewMarketRoutedSymbolLookupProxy(
+	listing, lookupError := marketdata.NewMarketRoutedSymbolLookupProxy(
 		map[vo.MarketVo]_interface.ISymbolLookupProxy{}).
-		SymbolExists(t.Context(), vo.MarketTaiwanStock, "2330")
+		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.Error(t, lookupError)
-	assert.False(t, symbolExists)
+	assert.False(t, listing.IsListed)
 }
 
 func TestRoutingWorksFromItsOwnCopyOfTheSources(t *testing.T) {

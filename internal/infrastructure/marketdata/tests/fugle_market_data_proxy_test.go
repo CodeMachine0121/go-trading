@@ -328,9 +328,9 @@ func TestFugleAnswersWhetherASymbolExists(t *testing.T) {
 				}))
 			t.Cleanup(server.Close)
 
-			symbolExists, lookupError := marketdata.NewFugleSymbolLookupProxy(
+			listing, lookupError := marketdata.NewFugleSymbolLookupProxy(
 				server.URL+"/ticker", "a-key", requestTimeout).
-				SymbolExists(t.Context(), vo.MarketTaiwanStock, "2330")
+				LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 			if testCase.expectedError {
 				require.Error(t, lookupError)
@@ -339,17 +339,53 @@ func TestFugleAnswersWhetherASymbolExists(t *testing.T) {
 			}
 
 			require.NoError(t, lookupError)
-			assert.Equal(t, testCase.expectedExists, symbolExists)
+			assert.Equal(t, testCase.expectedExists, listing.IsListed)
 			assert.Equal(t, "/ticker/2330", seenRequest.URL.Path)
 			assert.Equal(t, "a-key", seenRequest.Header.Get("X-API-KEY"))
 		})
 	}
 }
 
+func TestFugleCarriesTheCompanyNameOutOfTheSameAnswer(t *testing.T) {
+	// The name is in the answer that proves the code real. Asking again for it would
+	// be a second trip for something already on the desk.
+	server := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, _ *http.Request) {
+			_, _ = writer.Write([]byte(`{"symbol":"2330","name":"台積電","industry":"24"}`))
+		}))
+	t.Cleanup(server.Close)
+
+	listing, lookupError := marketdata.NewFugleSymbolLookupProxy(
+		server.URL+"/ticker", "a-key", requestTimeout).
+		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
+
+	require.NoError(t, lookupError)
+	assert.True(t, listing.IsListed)
+	assert.Equal(t, "台積電", listing.DisplayName)
+}
+
+func TestFugleStillWatchesASymbolWhoseNameItCouldNotRead(t *testing.T) {
+	// The source said the code exists, and that is the question that decides whether
+	// somebody may watch it. A name is worth having and worth going without.
+	server := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, _ *http.Request) {
+			_, _ = writer.Write([]byte(`not json at all`))
+		}))
+	t.Cleanup(server.Close)
+
+	listing, lookupError := marketdata.NewFugleSymbolLookupProxy(
+		server.URL+"/ticker", "a-key", requestTimeout).
+		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
+
+	require.NoError(t, lookupError)
+	assert.True(t, listing.IsListed)
+	assert.Empty(t, listing.DisplayName)
+}
+
 func TestFugleReportsALookupItCannotReach(t *testing.T) {
 	_, lookupError := marketdata.NewFugleSymbolLookupProxy(
 		"http://127.0.0.1:1/ticker", "a-key", 50*time.Millisecond).
-		SymbolExists(t.Context(), vo.MarketTaiwanStock, "2330")
+		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.Error(t, lookupError)
 }
@@ -371,7 +407,7 @@ func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
 
 func TestFugleReportsALookupAddressItCannotEvenAskAt(t *testing.T) {
 	_, lookupError := marketdata.NewFugleSymbolLookupProxy("http://\x7f/ticker", "a-key", requestTimeout).
-		SymbolExists(t.Context(), vo.MarketTaiwanStock, "2330")
+		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.Error(t, lookupError)
 }

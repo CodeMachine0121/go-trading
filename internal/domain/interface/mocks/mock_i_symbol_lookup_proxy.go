@@ -41,17 +41,17 @@ func (m *MockISymbolLookupProxy) EXPECT() *MockISymbolLookupProxyMockRecorder {
 	return m.recorder
 }
 
-// SymbolExists mocks base method.
-func (m *MockISymbolLookupProxy) SymbolExists(executionContext context.Context, market vo.MarketVo, symbol string) (bool, error) {
+// LookUpSymbol mocks base method.
+func (m *MockISymbolLookupProxy) LookUpSymbol(executionContext context.Context, market vo.MarketVo, symbol string) (vo.SymbolListingVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SymbolExists", executionContext, market, symbol)
-	ret0, _ := ret[0].(bool)
+	ret := m.ctrl.Call(m, "LookUpSymbol", executionContext, market, symbol)
+	ret0, _ := ret[0].(vo.SymbolListingVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// SymbolExists indicates an expected call of SymbolExists.
-func (mr *MockISymbolLookupProxyMockRecorder) SymbolExists(executionContext, market, symbol any) *gomock.Call {
+// LookUpSymbol indicates an expected call of LookUpSymbol.
+func (mr *MockISymbolLookupProxyMockRecorder) LookUpSymbol(executionContext, market, symbol any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SymbolExists", reflect.TypeOf((*MockISymbolLookupProxy)(nil).SymbolExists), executionContext, market, symbol)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookUpSymbol", reflect.TypeOf((*MockISymbolLookupProxy)(nil).LookUpSymbol), executionContext, market, symbol)
 }

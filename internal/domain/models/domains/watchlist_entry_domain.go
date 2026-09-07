@@ -60,13 +60,18 @@ func (watchlistEntryDomain WatchlistEntryDomain) Market() vo.MarketVo {
 	return watchlistEntryDomain.market
 }
 
-// ToEntity is this entry as a registered, watched market.
+// ToEntity is this entry as a registered, watched market, named as the venue named it.
 //
 // It keeps the registration time it was first given, so that adding back a market
 // somebody removed does not send it to the back of the queue for a market's follow
 // places. A symbol nobody registered before is stamped with now.
+//
+// The name comes in from the listing rather than out of the entry, because it is not
+// something the person asking gets to decide: they name a code, and the venue names
+// the company. A venue that gave no name leaves it empty rather than falling back to
+// the code — the code is already on screen next to it.
 func (watchlistEntryDomain WatchlistEntryDomain) ToEntity(
-	previouslyRegisteredAt time.Time, currentTime time.Time,
+	listing vo.SymbolListingVo, previouslyRegisteredAt time.Time, currentTime time.Time,
 ) entities.TradingSymbol {
 	registeredAt := previouslyRegisteredAt.UTC()
 	if registeredAt.IsZero() {
@@ -76,6 +81,7 @@ func (watchlistEntryDomain WatchlistEntryDomain) ToEntity(
 	return entities.TradingSymbol{
 		Symbol:       watchlistEntryDomain.symbol,
 		Market:       string(watchlistEntryDomain.market),
+		DisplayName:  strings.TrimSpace(listing.DisplayName),
 		IsWatched:    true,
 		RegisteredAt: registeredAt,
 	}
