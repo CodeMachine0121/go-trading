@@ -1017,6 +1017,68 @@ func TestCatchingOneSymbolUpNeverDecidesItsWholeMarketIsShut(t *testing.T) {
 	assert.True(t, reportFor(t, report, "2454").WasAsked)
 }
 
+func TestCatchingOneSymbolUpAsksEvenWhenItsMarketWasDecidedShut(t *testing.T) {
+	// Deciding a market shut is an inference, and an inference can be wrong — a source
+	// that publishes late empties every symbol at once, which is the same shape as a
+	// holiday. Somebody asking by hand is somebody saying they want the source asked,
+	// so their request has to be the way out. Obeying the decision instead would hand
+	// them a report saying nothing was collected, which reads exactly like a market
+	// that genuinely had nothing.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T12:00:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+	_, roundError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, roundError)
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "2330", 1).
+		Return([]entities.KCandle{}, nil)
+	askedAgain := make(chan struct{}, 1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedAgain <- struct{}{}
+
+			return []vo.MarketKCandleVo{}, nil
+		})
+
+	_, catchUpError := underTest.service.RunBackfillFor(t.Context(), "2330")
+
+	require.NoError(t, catchUpError)
+	assert.Len(t, askedAgain, 1, "手動補齊要真的去問，不能被今日推定休市擋下來")
+}
+
+func TestAMarketIsNotDecidedShutBeforeItsSilenceMeansAnything(t *testing.T) {
+	// Two minutes after the bell a round asks about one candle, and a source that
+	// publishes it a moment late empties every symbol at once. Latching a holiday on
+	// that costs the market the rest of its day, so silence has to be worth something
+	// first: at least as much of the session behind us as the round asked about.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T09:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+	_, roundError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, roundError)
+
+	// Later the same morning the source has caught up. A market decided shut at 09:07
+	// would never be asked again today.
+	underTest.clock.moveTo(taipeiIngestionAt(t, "2026-09-08T09:12:00+08:00"))
+	askedAgain := make(chan struct{}, 1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedAgain <- struct{}{}
+
+			return []vo.MarketKCandleVo{}, nil
+		})
+
+	_, laterRoundError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, laterRoundError)
+
+	assert.Len(t, askedAgain, 1, "開盤沒多久的一次空手，不足以判定整天休市")
+}
+
 func TestARoundInFlightWorksFromTheListItStartedWith(t *testing.T) {
 	// The watchlist is read once, at the top of the round. A change arriving while
 	// symbols are still being fetched belongs to the next round — a round that picked

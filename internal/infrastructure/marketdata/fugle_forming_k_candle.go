@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"slices"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -69,6 +70,13 @@ func (fugleFormingKCandle *fugleFormingKCandle) absorb(
 	fugleFormingKCandle.slotOpenTime = slotOpenTime
 	if _, hasContributed := fugleFormingKCandle.contributions[reportedKCandle.OpenTime]; !hasContributed {
 		fugleFormingKCandle.order = append(fugleFormingKCandle.order, reportedKCandle.OpenTime)
+		// Kept in the order the contributions cover, not the order they turned up in.
+		// Which one opened the slot and which one closed it are facts about the market,
+		// and a source is free to hand two pushes over in either order — sorting on
+		// arrival would give a slot the open of whichever arrived first.
+		slices.SortFunc(fugleFormingKCandle.order, func(earlier, later time.Time) int {
+			return earlier.Compare(later)
+		})
 	}
 	fugleFormingKCandle.contributions[reportedKCandle.OpenTime] = reportedKCandle
 
@@ -78,6 +86,9 @@ func (fugleFormingKCandle *fugleFormingKCandle) absorb(
 // folded is the slot as it now stands: it opened where its earliest contribution
 // opened, closed where its latest one closed, reached as high and as low as any of
 // them, and traded everything they all traded.
+//
+// "Earliest" and "latest" are by the time each contribution covers, which is why the
+// order is kept sorted rather than as it arrived.
 func (fugleFormingKCandle *fugleFormingKCandle) folded() vo.LiveKCandleVo {
 	foldedKCandle := vo.LiveKCandleVo{
 		Symbol:   fugleFormingKCandle.symbol,

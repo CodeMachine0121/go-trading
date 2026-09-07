@@ -39,6 +39,21 @@ func (marketClosureLedger *marketClosureLedger) presumeClosed(
 	marketClosureLedger.closedOnDate[market] = tradingDate
 }
 
+// reconsider forgets whatever was decided about this market, so the next thing that
+// asks about it asks the source instead of the memory.
+//
+// It exists because the decision is an inference, and an inference can be wrong: a
+// source that publishes late empties every symbol at once, which is the same shape as
+// a holiday. Somebody asking for a symbol by hand is somebody saying they want it
+// asked — so their request clears the decision rather than being turned away by it,
+// and a market that really is shut simply gets decided shut again.
+func (marketClosureLedger *marketClosureLedger) reconsider(market vo.MarketVo) {
+	marketClosureLedger.mutex.Lock()
+	defer marketClosureLedger.mutex.Unlock()
+
+	delete(marketClosureLedger.closedOnDate, market)
+}
+
 // isPresumedClosed reports a market already decided shut for the trading day given.
 // Any other day is a fresh judgement — a holiday is one day off, not a verdict.
 func (marketClosureLedger *marketClosureLedger) isPresumedClosed(

@@ -142,6 +142,57 @@ func (marketDomain MarketDomain) tradesOn(weekday time.Weekday) bool {
 	return false
 }
 
+// SessionElapsedAt is how much of this market's session is already behind it at this
+// moment: nothing before the bell, the whole session once it has rung.
+//
+// It answers "has this market had a chance to say anything yet". A market with no
+// hours always has: it has been trading all along.
+//
+// It reads the clock fields rather than subtracting from midnight, for the same
+// reason IsOpen does — a day is not always twenty-four hours long.
+func (marketDomain MarketDomain) SessionElapsedAt(moment time.Time) time.Duration {
+	if marketDomain.neverCloses() {
+		return marketDomain.sinceLocalMidnight(moment.UTC())
+	}
+
+	session := marketDomain.rules.TradingSession
+	localMoment := moment.In(session.Location)
+	if !marketDomain.tradesOn(localMoment.Weekday()) {
+		return 0
+	}
+
+	elapsed := marketDomain.sinceLocalMidnight(localMoment) - session.DailyStart
+	if elapsed < 0 {
+		return 0
+	}
+
+	if fullSession := session.DailyEnd - session.DailyStart; elapsed > fullSession {
+		return fullSession
+	}
+
+	return elapsed
+}
+
+// sessionMomentOn is the moment a given point of a market's session falls on, on a
+// given local day.
+//
+// It builds the clock reading rather than adding a stretch of time to midnight, for
+// the same reason IsOpen reads clock fields: on a day that gains or loses an hour,
+// "nine in the morning" and "nine hours after midnight" are different moments — and
+// this file would then answer "when does this market trade today" two ways.
+//
+// Nothing in Taipei turns on it. But the zone is a setting, and the next market's
+// might.
+func (marketDomain MarketDomain) sessionMomentOn(
+	localDay time.Time, sinceMidnight time.Duration,
+) time.Time {
+	return time.Date(
+		localDay.Year(), localDay.Month(), localDay.Day(),
+		int(sinceMidnight/time.Hour), int((sinceMidnight%time.Hour)/time.Minute), 0, 0,
+		marketDomain.rules.TradingSession.Location,
+	).UTC()
+}
+
 // sinceLocalMidnight is how far into its own day a moment is. Reading the clock
 // fields rather than subtracting midnight keeps it right on days that are not
 // twenty-four hours long.
@@ -170,9 +221,10 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 			continue
 		}
 
-		sessionStart := localDay.Add(marketDomain.rules.TradingSession.DailyStart).UTC()
-		sessionLastOpenTime := localDay.
-			Add(marketDomain.rules.TradingSession.DailyEnd - kCandleInterval).UTC()
+		sessionStart := marketDomain.sessionMomentOn(
+			localDay, marketDomain.rules.TradingSession.DailyStart)
+		sessionLastOpenTime := marketDomain.sessionMomentOn(
+			localDay, marketDomain.rules.TradingSession.DailyEnd-kCandleInterval)
 
 		if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
 			continue

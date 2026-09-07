@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // taipeiLocation is fixed rather than loaded so that these rules are checked against
@@ -298,4 +299,41 @@ func TestACatalogAlwaysRecognisesTheMarketItFallsBackTo(t *testing.T) {
 	assert.Equal(t, vo.MarketCrypto, fallbackMarket.Value())
 	assert.True(t, fallbackMarket.IsOpen(mustParseTime(t, "2026-09-13T21:00:00+08:00")))
 	assert.True(t, catalogWithoutCrypto.IsRecognised("crypto"))
+}
+
+func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
+	// A market whose zone observes daylight saving still opens at nine on the morning
+	// the clocks go forward — nine in the morning and nine hours after midnight are
+	// different moments that day. Nothing in Taipei turns on this; the zone is a
+	// setting, and the next market's might.
+	//
+	// London goes forward at 01:00 on 2026-03-29, so that day is twenty-three hours
+	// long: adding nine hours to midnight lands at 10:00, not 09:00.
+	london, loadError := time.LoadLocation("Europe/London")
+	require.NoError(t, loadError)
+	marketDomain := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   london,
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   17 * time.Hour,
+				Weekdays: []time.Weekday{
+					time.Sunday, time.Monday, time.Tuesday, time.Wednesday,
+					time.Thursday, time.Friday, time.Saturday,
+				},
+			},
+		},
+	}).MarketOf(string(vo.MarketTaiwanStock))
+
+	// A window covering that whole local day, asked about in universal time.
+	clamped := marketDomain.ClampToTradingSession(vo.NewKCandleFetchWindowVo(
+		"2330", vo.MarketTaiwanStock,
+		time.Date(2026, 3, 29, 0, 0, 0, 0, london).UTC(),
+		time.Date(2026, 3, 30, 0, 0, 0, 0, london).UTC(),
+	))
+
+	require.False(t, clamped.IsEmpty())
+	assert.Equal(t,
+		time.Date(2026, 3, 29, 9, 0, 0, 0, london).UTC(), clamped.StartTime,
+		"開盤是「早上九點」，不是「午夜之後九小時」")
 }

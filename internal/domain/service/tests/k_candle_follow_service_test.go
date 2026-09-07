@@ -883,6 +883,57 @@ func TestAFollowEndedByTheCloseSaysTheMarketShutRatherThanThatItsPlaceIsGone(t *
 	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
 }
 
+func TestALeavingViewerNeverClosesAReplacementFollowsStream(t *testing.T) {
+	// Viewer ids start again at zero for every follow. A rostered follow can be retired
+	// and a replacement started while a viewer of the old one is still writing to a
+	// wedged client — so leaving by symbol alone would close whoever now holds id
+	// zero, with no status update and no reason.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+	watched := []entities.TradingSymbol{
+		{Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true},
+	}
+	gomock.InOrder(
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(watched, nil),
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+			Return([]entities.TradingSymbol{}, nil),
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(watched, nil),
+	)
+
+	// The first viewer joins the first follow, then that follow is retired by a roster
+	// refresh — without their own context ending.
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	departingViewer, cancelDepartingViewer := context.WithCancel(context.Background())
+	_, watchError := testBed.service.WatchKCandles(departingViewer, "2330")
+	require.NoError(t, watchError)
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	// A replacement follow, and a second viewer who is handed the same id.
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	stayingViewer, cancelStayingViewer := context.WithCancel(context.Background())
+	defer cancelStayingViewer()
+	updates, watchError := testBed.service.WatchKCandles(stayingViewer, "2330")
+	require.NoError(t, watchError)
+
+	cancelDepartingViewer()
+
+	assert.Never(t, func() bool {
+		select {
+		case _, isDelivering := <-updates:
+			return !isDelivering
+		default:
+			return false
+		}
+	}, 200*time.Millisecond, 10*time.Millisecond,
+		"還在看的那個人的通道被上一個人的離開收掉了")
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
+}
+
 func TestARoundTheClockMarketIsStillOnlyFollowedWhileSomebodyWatches(t *testing.T) {
 	// The rule this feature started with is untouched: a market with no ceiling hands
 	// no places out, so nothing follows it until a viewer asks.

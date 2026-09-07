@@ -134,9 +134,14 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 	viewerId, updates := follow.join()
 	kCandleFollowService.mutex.Unlock()
 
+	// The follow this viewer actually joined is carried, not just its name. Viewer ids
+	// start again at zero for every follow, and a rostered follow can be retired and a
+	// replacement started while a viewer of the old one is still writing to a wedged
+	// client — so by the time this fires, that id may belong to somebody else's stream.
+	joinedFollow := follow
 	go func() {
 		<-executionContext.Done()
-		kCandleFollowService.leave(symbol, viewerId)
+		kCandleFollowService.leave(symbol, joinedFollow, viewerId)
 	}()
 
 	return updates, nil
@@ -307,11 +312,17 @@ func (kCandleFollowService *KCandleFollowService) FollowedSymbolCount() int {
 }
 
 // leave removes one viewer and, when they were the last, ends the follow itself.
-func (kCandleFollowService *KCandleFollowService) leave(symbol string, viewerId int) {
+func (kCandleFollowService *KCandleFollowService) leave(
+	symbol string, joinedFollow *symbolFollow, viewerId int,
+) {
 	kCandleFollowService.mutex.Lock()
 
 	follow, isFollowing := kCandleFollowService.follows[symbol]
-	if !isFollowing {
+	// Not merely "is anything following this symbol", but "is it still the one this
+	// viewer joined". A replacement follow hands out the same ids from zero, so
+	// leaving by name alone would close a stream belonging to whoever now holds this
+	// id — with no status update and no reason.
+	if !isFollowing || follow != joinedFollow {
 		kCandleFollowService.mutex.Unlock()
 
 		return

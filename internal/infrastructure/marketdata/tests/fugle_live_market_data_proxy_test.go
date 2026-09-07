@@ -105,8 +105,14 @@ func (stream *fugleStreamUnderTest) follow(t *testing.T) <-chan vo.LiveKCandleVo
 
 // fugleCandlePush spells one pushed candle the way the source does.
 func fugleCandlePush(localTime string, close string, volume string) string {
+	return fugleCandlePushOpening(localTime, "574", close, volume)
+}
+
+// fugleCandlePushOpening is the same, with the open spelled out — for the cases that
+// are about which contribution's open the slot ends up with.
+func fugleCandlePushOpening(localTime string, open string, close string, volume string) string {
 	return `{"event":"data","channel":"candles","data":{"symbol":"2330","date":"` + localTime +
-		`","open":574,"high":576,"low":572,"close":` + close + `,"volume":` + volume + `}}`
+		`","open":` + open + `,"high":576,"low":572,"close":` + close + `,"volume":` + volume + `}}`
 }
 
 func nextLiveKCandle(t *testing.T, liveKCandles <-chan vo.LiveKCandleVo) vo.LiveKCandleVo {
@@ -187,10 +193,12 @@ func TestPushesInsideOneSlotAreFoldedIntoOneCandle(t *testing.T) {
 	stream := newFugleStreamUnderTest(t)
 	liveKCandles := stream.follow(t)
 
-	stream.push(fugleCandlePush("2026-09-08T10:00:00.000+08:00", "575", "100"))
+	stream.push(fugleCandlePushOpening("2026-09-08T10:00:00.000+08:00", "574", "575", "100"))
 	require.Equal(t, "100", nextLiveKCandle(t, liveKCandles).Volume.String())
 
-	stream.push(fugleCandlePush("2026-09-08T10:01:00.000+08:00", "590", "50"))
+	// A different open on the later part, so that "opens where its earliest part
+	// opened" is a claim this test could actually catch being broken.
+	stream.push(fugleCandlePushOpening("2026-09-08T10:01:00.000+08:00", "581", "590", "50"))
 
 	folded := nextLiveKCandle(t, liveKCandles)
 	assert.Equal(t, taipeiAt(t, "2026-09-08T10:00:00+08:00").UTC(), folded.OpenTime)
@@ -198,6 +206,25 @@ func TestPushesInsideOneSlotAreFoldedIntoOneCandle(t *testing.T) {
 	assert.Equal(t, "590", folded.Close.String(), "the slot closes where its latest part closed")
 	assert.Equal(t, "574", folded.Open.String(), "the slot opens where its earliest part opened")
 	assert.False(t, folded.Closed)
+}
+
+func TestASlotIsOpenedAndClosedByTimeRatherThanByArrivalOrder(t *testing.T) {
+	// A source is free to hand two pushes of the same slot over in either order.
+	// Reading them in arrival order gives the slot the open of whichever turned up
+	// first and the close of whichever turned up last — and the slot is then stored
+	// with both wrong, while its high, low and volume stay right and hide it.
+	stream := newFugleStreamUnderTest(t)
+	liveKCandles := stream.follow(t)
+
+	stream.push(fugleCandlePushOpening("2026-09-08T10:01:00.000+08:00", "581", "590", "50"))
+	require.Equal(t, "50", nextLiveKCandle(t, liveKCandles).Volume.String())
+
+	stream.push(fugleCandlePushOpening("2026-09-08T10:00:00.000+08:00", "574", "575", "100"))
+
+	folded := nextLiveKCandle(t, liveKCandles)
+	assert.Equal(t, "574", folded.Open.String(), "the slot opens where its earliest part opened")
+	assert.Equal(t, "590", folded.Close.String(), "the slot closes where its latest part closed")
+	assert.Equal(t, "150", folded.Volume.String())
 }
 
 func TestARepeatOfTheSamePushDoesNotCountTwice(t *testing.T) {

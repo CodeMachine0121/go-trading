@@ -79,7 +79,8 @@ func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
 		func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error) {
 			return ingestionDomain.ScheduledWindow(watchedSymbol.Symbol, market), nil
 		})
-	kCandleIngestionService.presumeClosedMarkets(report.SymbolReports, ingestionDomain.CurrentTime())
+	kCandleIngestionService.presumeClosedMarkets(
+		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage())
 
 	return report, nil
 }
@@ -97,7 +98,8 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 
 	report := kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
 		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain))
-	kCandleIngestionService.presumeClosedMarkets(report.SymbolReports, ingestionDomain.CurrentTime())
+	kCandleIngestionService.presumeClosedMarkets(
+		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage())
 
 	return report, nil
 }
@@ -146,6 +148,15 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
 		return dto.KCandleIngestionReportDto{}, fmt.Errorf("%w: %s",
 			domains.ErrTradingSymbolNotRegistered, tradingSymbolDomain.Value())
 	}
+
+	// Somebody asking by hand is somebody saying they want the source asked. Obeying a
+	// presumed holiday here would answer them with a report saying nothing was
+	// collected — indistinguishable from a market that genuinely had nothing — and
+	// leave them no way to correct a decision that may have been wrong in the first
+	// place. So the decision is dropped rather than obeyed; if the market really is
+	// shut, the window narrows to nothing and the next round decides it shut again.
+	kCandleIngestionService.marketClosureLedger.reconsider(
+		kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market).Value())
 
 	return kCandleIngestionService.ingestSymbols(
 		executionContext,
@@ -331,7 +342,9 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 // nothing versus did-not-answer is the only reliable distinction available here, and
 // it is what leaves a broken source reported as broken.
 func (kCandleIngestionService *KCandleIngestionService) presumeClosedMarkets(
-	symbolReports []dto.KCandleSymbolIngestionReportDto, currentTime time.Time,
+	symbolReports []dto.KCandleSymbolIngestionReportDto,
+	currentTime time.Time,
+	roundCoverage time.Duration,
 ) {
 	askedMarkets := make(map[vo.MarketVo]bool)
 	marketsThatProduced := make(map[vo.MarketVo]bool)
@@ -356,6 +369,16 @@ func (kCandleIngestionService *KCandleIngestionService) presumeClosedMarkets(
 		// A market with no hours has no days off either. Reading a quiet stretch as a
 		// holiday would stop it being fetched until a tomorrow it does not have.
 		if marketDomain.NeverCloses() {
+			continue
+		}
+
+		// An empty answer only means something once the market has had at least as
+		// long to speak as the round asked about. Two minutes after the opening bell a
+		// round asks about one candle, and a source that publishes it a moment late
+		// empties every symbol at once — which is exactly the shape of a holiday. Given
+		// that latching one costs the market the rest of its day, it has to wait until
+		// silence is actually evidence.
+		if marketDomain.SessionElapsedAt(currentTime) < roundCoverage {
 			continue
 		}
 
