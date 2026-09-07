@@ -244,3 +244,34 @@ func TestASourceThatRefusesStillOpensTheStream(t *testing.T) {
 	endTheRequest()
 	<-served
 }
+
+func TestWatchingASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
+	// Naming a market the system has never been told about is the caller's to fix.
+	// Answering it the way a system on its way down answers would have them waiting
+	// for something that is never coming.
+	gin.SetMode(gin.TestMode)
+	mockController := gomock.NewController(t)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2454").
+		Return(entities.TradingSymbol{}, false, nil)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
+
+	kCandleFollowService := service.NewKCandleFollowService(
+		mocks.NewMockILiveMarketDataProxy(mockController),
+		mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy,
+		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+		time.Nanosecond, time.Hour, 10*time.Millisecond,
+	)
+	t.Cleanup(kCandleFollowService.Stop)
+
+	engine := gin.New()
+	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
+		application.NewKCandleFollowApplication(kCandleFollowService)).WatchKCandles)
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/k-candles/live?symbol=2454", nil))
+
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
+}

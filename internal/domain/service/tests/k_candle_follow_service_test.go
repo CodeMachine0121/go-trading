@@ -682,6 +682,7 @@ func TestStoppingEndsEveryFollowAndEveryViewer(t *testing.T) {
 type taiwanFollowTestBed struct {
 	service                 *service.KCandleFollowService
 	tradingSymbolRepository *mocks.MockITradingSymbolRepository
+	clock                   *movingClock
 	feedsRequested          chan string
 }
 
@@ -692,11 +693,13 @@ func newTaiwanFollowTestBed(t *testing.T, currentTime time.Time) *taiwanFollowTe
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	movingClock := &movingClock{currentTime: currentTime}
 	clockProxy := mocks.NewMockIClockProxy(mockController)
-	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+	clockProxy.EXPECT().Now().DoAndReturn(movingClock.now).AnyTimes()
 
 	testBed := &taiwanFollowTestBed{
 		tradingSymbolRepository: tradingSymbolRepository,
+		clock:                   movingClock,
 		feedsRequested:          make(chan string, 16),
 	}
 
@@ -1155,4 +1158,19 @@ func TestASecondPassWithTheSamePlacesChangesNothing(t *testing.T) {
 	// Two feeds opened in total, not four: the follows already running were left
 	// running rather than replaced by new ones.
 	assert.Len(t, drainFeeds(testBed.feedsRequested, 3), 2)
+}
+
+func TestALimitedMarketIsFollowedAgainOnceItOpens(t *testing.T) {
+	// Closing gives every place back. Opening has to take them again by itself, or
+	// the first pass of the morning would find nothing to do and the market would
+	// stay unfollowed all day.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T21:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.Equal(t, 0, testBed.service.FollowedSymbolCount())
+
+	testBed.clock.moveTo(taipeiFollowAt(t, "2026-09-09T09:00:00+08:00"))
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
 }

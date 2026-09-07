@@ -2,10 +2,12 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,10 +40,17 @@ func (kCandleFollowController *KCandleFollowController) WatchKCandles(ginContext
 
 	updates, watchError := kCandleFollowController.kCandleFollowApplication.
 		WatchKCandles(ginContext.Request.Context(), symbol)
-	// Starting to watch fails for exactly one reason today — the system is shutting
-	// down — so there is one answer. A second reason will need a second answer, and
-	// writing that answer now would only be a guess at what it should be.
 	if watchError != nil {
+		// Naming a market the system has never been told about is the caller's to
+		// fix, and it must not be answered the same way as a system on its way down —
+		// one says "check what you asked for", the other says "come back later", and
+		// a viewer given the wrong one waits for something that will not happen.
+		if errors.Is(watchError, domains.ErrTradingSymbolNotRegistered) {
+			ginContext.JSON(http.StatusNotFound, gin.H{"message": watchError.Error()})
+
+			return
+		}
+
 		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"message": watchError.Error()})
 
 		return

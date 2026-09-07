@@ -920,3 +920,33 @@ func TestBackfillAsksForNothingWhenNothingInReachCouldTrade(t *testing.T) {
 	assert.Empty(t, reportFor(t, report, "2330").FetchFailureReason)
 	assert.Equal(t, 0, reportFor(t, report, "2330").StoredCount)
 }
+
+func TestARoundInFlightWorksFromTheListItStartedWith(t *testing.T) {
+	// The watchlist is read once, at the top of the round. A change arriving while
+	// symbols are still being fetched belongs to the next round — a round that picked
+	// up new symbols halfway through would fetch some of them with the previous
+	// round's idea of "now".
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
+	underTest.acceptEverySave()
+	changedMidRound := make(chan struct{})
+	underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]entities.TradingSymbol, error) {
+			return []entities.TradingSymbol{
+				{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+			}, nil
+		}).Times(1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			// The watchlist "changes" while this round is still fetching. No second
+			// read is expected above, so a round that looked again would fail here.
+			close(changedMidRound)
+
+			return []vo.MarketKCandleVo{}, nil
+		})
+
+	report, runError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, runError)
+	<-changedMidRound
+	assert.Len(t, report.SymbolReports, 1)
+}

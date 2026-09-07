@@ -27,13 +27,23 @@ type tradingSymbolServiceUnderTest struct {
 	symbolLookupProxy       *mocks.MockISymbolLookupProxy
 }
 
+// closedMarketTime is an evening in Taipei — the Taiwan market is shut, and the
+// round-the-clock one is not.
+var closedMarketTime = time.Date(2026, 9, 7, 13, 0, 0, 0, time.UTC)
+
 func newTradingSymbolServiceUnderTest(t *testing.T) tradingSymbolServiceUnderTest {
+	return newTradingSymbolServiceUnderTestAt(t, registrationTime)
+}
+
+func newTradingSymbolServiceUnderTestAt(
+	t *testing.T, currentTime time.Time,
+) tradingSymbolServiceUnderTest {
 	controller := gomock.NewController(t)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	symbolLookupProxy := mocks.NewMockISymbolLookupProxy(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
-	clockProxy.EXPECT().Now().Return(registrationTime).AnyTimes()
+	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
 
 	return tradingSymbolServiceUnderTest{
 		tradingSymbolService: service.NewTradingSymbolService(
@@ -586,4 +596,28 @@ func listed(
 	t.Fatalf("%s was not listed at all", symbol)
 
 	return dto.TradingSymbolDto{}
+}
+
+func TestAClosedMarketSaysSoOnEveryOneOfItsSymbols(t *testing.T) {
+	// The console cannot work this out: it does not know which days a market takes
+	// off, so it would call a public holiday an outage. Saying it here is the only
+	// place it can be said truthfully.
+	fixture := newTradingSymbolServiceUnderTestAt(t, closedMarketTime)
+	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "2330", Market: "taiwanStock", IsWatched: true, RegisteredAt: registrationTime},
+		{Symbol: "BTCUSDT", Market: "crypto", IsWatched: true, RegisteredAt: registrationTime},
+	}, nil)
+	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
+	fixture.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return([]entities.TradingSymbol{}, nil)
+
+	tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
+
+	assert.NoError(t, err)
+	assert.False(t, listed(t, tradingSymbolDtos, "2330").IsWithinTradingSession)
+	// A market shut for the evening also has no live places to give.
+	assert.False(t, listed(t, tradingSymbolDtos, "2330").HasLiveUpdates)
+	// The round-the-clock market is untouched by any of it.
+	assert.True(t, listed(t, tradingSymbolDtos, "BTCUSDT").IsWithinTradingSession)
+	assert.True(t, listed(t, tradingSymbolDtos, "BTCUSDT").HasLiveUpdates)
 }
