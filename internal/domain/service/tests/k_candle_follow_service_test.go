@@ -142,7 +142,8 @@ func newFollowTestBedWith(
 	}
 
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, symbol string) (<-chan vo.LiveKCandleVo, error) {
+		func(_ context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+			symbol := target.Symbol
 			// Dropped rather than blocked: a retry loop that outruns the test must not
 			// be able to wedge the follow it is being watched through.
 			select {
@@ -700,7 +701,8 @@ func newTaiwanFollowTestBed(t *testing.T, currentTime time.Time) *taiwanFollowTe
 	}
 
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, symbol string) (<-chan vo.LiveKCandleVo, error) {
+		func(_ context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+			symbol := target.Symbol
 			select {
 			case testBed.feedsRequested <- symbol:
 			default:
@@ -973,7 +975,7 @@ func TestPlacesAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
 	concurrentFeeds := &feedCounter{}
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(followContext context.Context, _ string) (<-chan vo.LiveKCandleVo, error) {
+		func(followContext context.Context, _ vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
 			concurrentFeeds.opened()
 			go func() {
 				<-followContext.Done()

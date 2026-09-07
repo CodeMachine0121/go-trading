@@ -99,7 +99,7 @@ func newFollowRouterUnderTest(t *testing.T, followError error) followRouterUnder
 
 	liveKCandles := make(chan vo.LiveKCandleVo, 4)
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(context.Context, string) (<-chan vo.LiveKCandleVo, error) {
+		func(context.Context, vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
 			if followError != nil {
 				return nil, followError
 			}

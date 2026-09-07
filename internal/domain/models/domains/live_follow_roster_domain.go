@@ -22,7 +22,10 @@ import (
 // place for you" and "nobody has asked yet", and it is why the two are asked about
 // separately.
 type LiveFollowRosterDomain struct {
-	rosteredSymbols map[string]bool
+	// The market each holder belongs to is kept alongside, because whoever acts on a
+	// place needs to know which venue to open a feed against — and looking it up
+	// again is a second chance to get a different answer.
+	marketsBySymbol map[string]vo.MarketVo
 }
 
 // NewLiveFollowRosterDomain hands each limited market's places to its
@@ -36,7 +39,7 @@ func NewLiveFollowRosterDomain(
 	currentTime time.Time,
 ) LiveFollowRosterDomain {
 	placesLeft := make(map[vo.MarketVo]int)
-	rosteredSymbols := make(map[string]bool)
+	marketsBySymbol := make(map[string]vo.MarketVo)
 
 	for _, watchedSymbol := range watchedSymbols {
 		marketDomain := marketCatalogDomain.MarketOf(watchedSymbol.Market)
@@ -59,24 +62,32 @@ func NewLiveFollowRosterDomain(
 			continue
 		}
 
-		rosteredSymbols[watchedSymbol.Symbol] = true
+		marketsBySymbol[watchedSymbol.Symbol] = marketDomain.Value()
 		placesLeft[marketDomain.Value()] = remaining - 1
 	}
 
-	return LiveFollowRosterDomain{rosteredSymbols: rosteredSymbols}
+	return LiveFollowRosterDomain{marketsBySymbol: marketsBySymbol}
 }
 
 // Holds reports whether this symbol is one the system should be following because it
 // was given one of its market's places.
 func (liveFollowRosterDomain LiveFollowRosterDomain) Holds(symbol string) bool {
-	return liveFollowRosterDomain.rosteredSymbols[symbol]
+	_, holdsAPlace := liveFollowRosterDomain.marketsBySymbol[symbol]
+
+	return holdsAPlace
+}
+
+// MarketOf is the market a place holder belongs to, so that opening its feed needs
+// nothing looked up again.
+func (liveFollowRosterDomain LiveFollowRosterDomain) MarketOf(symbol string) vo.MarketVo {
+	return liveFollowRosterDomain.marketsBySymbol[symbol]
 }
 
 // Symbols is every symbol holding a place, in no particular order — the places are
 // held at the same time, so which of them came first buys nobody anything.
 func (liveFollowRosterDomain LiveFollowRosterDomain) Symbols() []string {
-	symbols := make([]string, 0, len(liveFollowRosterDomain.rosteredSymbols))
-	for symbol := range liveFollowRosterDomain.rosteredSymbols {
+	symbols := make([]string, 0, len(liveFollowRosterDomain.marketsBySymbol))
+	for symbol := range liveFollowRosterDomain.marketsBySymbol {
 		symbols = append(symbols, symbol)
 	}
 

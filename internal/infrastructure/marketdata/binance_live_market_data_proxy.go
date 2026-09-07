@@ -35,8 +35,10 @@ func NewBinanceLiveMarketDataProxy(baseUrl string) *BinanceLiveMarketDataProxy {
 // until the feed ends, the context is done, or the source sends something
 // unreadable. Closing the returned channel is the only way it says so.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
-	executionContext context.Context, symbol string,
+	executionContext context.Context, target vo.FollowTargetVo,
 ) (<-chan vo.LiveKCandleVo, error) {
+	symbol := target.Symbol
+
 	streamUrl, urlError := binanceLiveMarketDataProxy.streamUrl(symbol)
 	if urlError != nil {
 		return nil, urlError

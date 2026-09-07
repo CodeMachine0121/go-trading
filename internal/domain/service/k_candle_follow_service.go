@@ -124,7 +124,7 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 		// The follow outlives the viewer who started it, so it must not inherit their
 		// context — the next viewer would be following a market on a cancelled one.
 		followContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
-		follow = newSymbolFollow(symbol, false, cancel)
+		follow = newSymbolFollow(symbol, marketDomain.Value(), false, cancel)
 		kCandleFollowService.follows[symbol] = follow
 
 		go kCandleFollowService.run(followContext, follow)
@@ -224,7 +224,7 @@ func (kCandleFollowService *KCandleFollowService) startMissingFollows(
 		}
 
 		followContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
-		follow := newSymbolFollow(symbol, true, cancel)
+		follow := newSymbolFollow(symbol, rosterDomain.MarketOf(symbol), true, cancel)
 		kCandleFollowService.follows[symbol] = follow
 
 		go kCandleFollowService.run(followContext, follow)
@@ -327,7 +327,9 @@ func (kCandleFollowService *KCandleFollowService) run(
 
 	for {
 		liveKCandles, followError := kCandleFollowService.liveMarketDataProxy.
-			FollowKCandles(executionContext, follow.symbol)
+			FollowKCandles(executionContext, vo.FollowTargetVo{
+				Symbol: follow.symbol, Market: follow.market,
+			})
 		if followError == nil {
 			followDomain.MarkFollowing(kCandleFollowService.clockProxy.Now())
 			kCandleFollowService.consume(executionContext, follow, followDomain, liveKCandles)

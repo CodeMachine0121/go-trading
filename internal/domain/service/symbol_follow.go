@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // viewerBufferSize is how many updates a viewer may fall behind by before one is
@@ -24,6 +25,9 @@ const viewerBufferSize = 8
 // rather than an empty chart until the market next moves.
 type symbolFollow struct {
 	symbol string
+	// market is which venue this symbol trades on, carried so that opening its feed
+	// needs nothing looked up again — the follow already knows.
+	market vo.MarketVo
 	cancel context.CancelFunc
 	// isOnARoster marks a follow the system keeps up because a market's places were
 	// handed to this symbol, not because anybody is looking at it. Such a follow
@@ -41,9 +45,12 @@ type symbolFollow struct {
 	isStalled    bool
 }
 
-func newSymbolFollow(symbol string, isOnARoster bool, cancel context.CancelFunc) *symbolFollow {
+func newSymbolFollow(
+	symbol string, market vo.MarketVo, isOnARoster bool, cancel context.CancelFunc,
+) *symbolFollow {
 	return &symbolFollow{
 		symbol:      symbol,
+		market:      market,
 		isOnARoster: isOnARoster,
 		cancel:      cancel,
 		finished:    make(chan struct{}),
