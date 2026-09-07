@@ -37,6 +37,7 @@
 | `domain/interface/i_trading_symbol_repository.go` | **Modify** | 多 `FindWatched`、`FindBySymbol`、`Save`。讀寫仍在同一個 repository（一 entity 一 repository） |
 | `domain/interface/i_symbol_lookup_proxy.go` | **Add** | 「這個代號在這個市場存不存在」——加入觀察清單前的確認（BR-4）。以能力命名，不綁供應商 |
 | `domain/service/trading_symbol_service.go` | **Modify** | 多兩個 use case：加入／移出觀察清單。兩者互不呼叫 |
+| `domain/models/vo/symbol_listing_vo.go` | **Add** | 向市場問一個代號得到的答案：**列不列它**，以及**它叫什麼**。兩件事同一個答案給的，拆成兩問就是同一支端點打兩次 |
 | `controller/k_candle_backfill_controller.go` | **Add** | 手動補齊一檔的入口（`POST /k-candles/backfill`）。它暴露的不是一根 K 線而是「去把 K 線抓回來」，所以自成一個 controller |
 | `domain/service/k_candle_ingestion_service.go` | **Modify** | **改為自己讀觀察清單**（不再由 job 傳入），並在取數前問 `MarketDomain` 該不該跳過 |
 | `domain/service/k_candle_follow_service.go` | **Modify** | 多一種跟盤來源：**固定名單**（台股）與既有的**觀看者驅動**（加密貨幣）並存 |
@@ -84,11 +85,12 @@
 | :--- | :--- | :--- |
 | `vo.KCandleFetchWindowVo` | 取數視窗（代號＋起訖） | 多 `Market`。建構子一併收下 |
 | `vo.MarketKCandleVo` | 來源回報的一根 K 線 | 三個成交數字改 `decimal.NullDecimal` |
-| `entities.TradingSymbol` | 只有 `Symbol` 一欄 | 多 `Market`（預設 `crypto`）、`IsWatched`、`RegisteredAt`。`Symbol` 維持唯一 |
+| `entities.TradingSymbol` | 只有 `Symbol` 一欄 | 多 `Market`（預設 `crypto`）、`DisplayName`、`IsWatched`、`RegisteredAt`。`Symbol` 維持唯一 |
 | `entities.KCandle` | K 線資料列 | 三個成交數字改 `decimal.NullDecimal`，欄位放寬為可空 |
 | `dto.KCandleDto` / `dto.KCandleWriteDto` | K 線進出的形狀 | 同上。`NullDecimal` 在 JSON 上就是 `null` |
-| `dto.TradingSymbolDto` | 只有 `symbol` | 多 `market`、`isWithinTradingSession`、`hasTradingSession`、`hasLiveUpdates`、`isWatched` |
+| `dto.TradingSymbolDto` | 只有 `symbol` | 多 `displayName`、`market`、`isWithinTradingSession`、`hasTradingSession`、`hasLiveUpdates`、`isWatched` |
 | `ITradingSymbolRepository` | `FindAll` / `RegisterAll` | 多 `FindWatched`、`FindBySymbol`、`Save`（upsert） |
+| `ISymbolLookupProxy` | `SymbolExists` 回是非 | 改為 `LookUpSymbol` 回一個 `SymbolListingVo`——同一個答案裡就有名稱，分兩次問是同一支端點打兩次，還多一個兩次答案會不一致的窗口 |
 | `TradingSymbolService` | 列出、登錄預設 | 多 `AddToWatchlist`、`RemoveFromWatchlist`；`ListTradingSymbols` 改為帶出四個欄位（需 `MarketDomain` 與跟盤名單） |
 | `KCandleIngestionService` | 由呼叫端給 `symbols []string` | **自己讀觀察清單**；每個標的依所屬市場組視窗；`MarketDomain.IsOpen` 為否就跳過（不算失敗）；記住「今日推定休市」。多 `RunBackfillFor(symbol)`——**只補一檔、依名稱找而不經觀察清單、永不推定休市** |
 | `TradingSymbolApplication` | 每個方法一次 domain 呼叫 | `AddToWatchlist` 改為**編排兩個 domain service**：加完立刻補齊那一檔。補齊失敗只留紀錄，不讓加入失敗 |
@@ -220,6 +222,9 @@ flowchart TD
 | US-08 加密貨幣回補維持現狀 | 同上（加密貨幣不收窄） |
 | US-09 帶出市場／交易時段／即時更新／是否追蹤 | `TradingSymbolService.ListTradingSymbols` + `TradingSymbolDto` |
 | US-09 不追蹤的仍然查得到 | `ListTradingSymbols` 讀的是整張表，不是只讀追蹤中的 |
+| US-09 帶出行情來源給的名稱／不取名字的留空 | `TradingSymbolDto.DisplayName` ← `entities.TradingSymbol.DisplayName` |
+| US-03 加進來時記下名稱／重新加入即改名生效 | `ISymbolLookupProxy.LookUpSymbol` → `WatchlistEntryDomain.ToEntity`（每次都寫） |
+| US-03 來源沒給名稱一樣加得進去 | `FugleSymbolLookupProxy`（讀不到 body 仍回 `IsListed: true`） |
 | US-09 帶出「這個市場會不會收盤」 | `TradingSymbolDto.HasTradingSession` ← `MarketDomain.NeverCloses` |
 | US-10 收盤後加一檔馬上就有今天的資料 | `TradingSymbolApplication.AddToWatchlist` 編排 `RunBackfillFor` |
 | US-10 補齊失敗不把加入退回 | 同上（只留紀錄，不回傳錯誤） |

@@ -147,9 +147,9 @@ curl localhost:8080/health
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
-| `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、現在是不是交易時段、這個市場會不會收盤、有沒有即時更新、是不是追蹤中 |
+| `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、行情來源給的名稱、現在是不是交易時段、這個市場會不會收盤、有沒有即時更新、是不是追蹤中 |
 | `POST` | `/k-candles/backfill` | 手動補齊一個交易標的的歷史（body 給 `symbol`），補到回補上限為止。給還沒登錄過的代號回 `404` |
-| `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在，**加完立刻補齊那一檔的歷史** |
+| `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在並記下它給的名稱，**加完立刻補齊那一檔的歷史** |
 | `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
@@ -180,12 +180,17 @@ curl localhost:8080/health
 兩邊都空時回 `200` 與空陣列。**它不等於觀察清單**——觀察清單是這張表裡「標記為追蹤中」的那個子集，
 「打算抓什麼」與「系統認得什麼」仍然是兩件事，所以拿掉追蹤的標的照樣挑得到。
 
-每一檔還帶著五件事：
+每一檔還帶著六件事：
 
 ```json
-{"symbol":"2330","market":"taiwanStock","isWatched":true,
+{"symbol":"2330","displayName":"台積電","market":"taiwanStock","isWatched":true,
  "isWithinTradingSession":true,"hasTradingSession":true,"hasLiveUpdates":true}
 ```
+
+`displayName` 是**行情來源怎麼稱呼這一檔**，加進觀察清單時從同一個答案裡一併記下來——
+那支 API 本來就是拿來確認代號存在的，名字就在裡面。使用者說的是代號，公司叫什麼是市場的事。
+**不取名字的市場（加密貨幣）留空**，不拿代號充當名字：代號本來就在旁邊了。
+名稱每次加入都以來源當下說的為準，所以公司改名時，把它重新加一次就跟著改。
 
 後三件只有系統答得出來。畫面推算不出休市日——它會把國定假日說成故障；
 不知道跟盤名額給了誰——它會替一張永遠不會動的圖保證即時更新；

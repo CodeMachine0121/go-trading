@@ -109,8 +109,18 @@
 | AC-09.6 | 加密貨幣一律帶著有即時更新 | 恆為真，即使沒有人在看 | `live_follow_roster_domain.go:104`（無上限即為真） | `TestAMarketWithNoCeilingAlwaysPromisesLiveUpdates` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-09.7 | 不追蹤的交易標的仍然查得到 | 仍出現在清單上，且標為未追蹤 | `trading_symbol_service.go:56`（讀整張表） | `TestASymbolTakenOffTheWatchlistIsStillListed` | asserts-oracle | produces-oracle | ✅ conforms |
 
+| AC-09.10 | 台股帶著行情來源給的公司名稱 | 2330 帶「台積電」 | `trading_symbol_service.go`（`registration.DisplayName`） | `TestAListingCarriesWhatEachVenueCallsItsSymbols` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-09.11 | 不取名字的市場名稱留空，不拿代號充數 | BTCUSDT 的名稱是空的 | 同上 | 同上 | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-09.8 | 台股帶著「這個市場會收盤」 | 為真 | `trading_symbol_service.go`（`!marketDomain.NeverCloses()`） | `TestAListingSaysWhichMarketsKeepHoursAndThereforeShut` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-09.9 | 加密貨幣帶著「這個市場不收盤」 | 為假 | 同上 | 同上 | asserts-oracle | produces-oracle | ✅ conforms |
+
+> **US-03 追加三條**（加進來時記下名稱）：
+>
+> | ID | 條款 | Oracle | 實作位置 | 測試 | 測試稽核 | 程式碼稽核 | 狀態 |
+> |---|---|---|---|---|---|---|---|
+> | AC-03.7 | 加進來時記下行情來源給的名稱 | 觀察清單上的 2330 帶「台積電」 | `LookUpSymbol` → `WatchlistEntryDomain.ToEntity` | `TestAddToWatchlist/stores what the venue calls it`、`TestFugleCarriesTheCompanyNameOutOfTheSameAnswer` | asserts-oracle | produces-oracle | ✅ conforms |
+> | AC-03.8 | 重新加入即改名生效 | 名稱換成「台積電控股」 | 同上（每次都寫） | `TestAddToWatchlist/writes the venue's name every time` | asserts-oracle | produces-oracle | ✅ conforms |
+> | AC-03.9 | 來源沒給名稱一樣加得進去 | 加進來了，名稱是空的 | `FugleSymbolLookupProxy`（讀不到 body 仍 `IsListed: true`）＋crypto 一律無名 | `TestFugleStillWatchesASymbolWhoseNameItCouldNotRead`、`TestAddToWatchlist/a market that names nothing…` | asserts-oracle | produces-oracle | ✅ conforms |
 
 ## 10. Clauses — US-10 加進觀察清單就馬上看得到
 
@@ -176,7 +186,7 @@
 
 **稽核當下：** 62 / 66 條 conforms（94%）——1 🔴、3 🟠／🟡。**全部已處理**，重新判定如下。
 
-- **Conforms:** 74 / 75 條 ✅（99%）
+- **Conforms:** 79 / 80 條 ✅（99%）
 - **Violations:** 無（`AC-01.3` 已修）
 - **Mis-asserted:** 無（`AC-02.3`／`BR-3`、`AC-09.2` 已補測試）
 - **Partial:** `NFR-1`（每輪多讀一次清單的成本，是效能特性，沒有以測試釘住）
@@ -184,6 +194,11 @@
 - **Unclear:** 無
 - **Orphans:** 2（`isWatched` 那一項已隨 US-09 補進 PRD）
 
+> **第三次追加：** `US-09` 再多兩條、`US-03` 多三條——交易標的記著行情來源給的公司名稱。
+> 五條全部 conforms，三個 mutation 逐一驗過。這一次順帶把 `ISymbolLookupProxy` 從
+> 「這檔存在嗎」改成「查到了什麼」：名稱本來就在證明代號為真的那同一個答案裡，
+> 分兩次問是同一支端點打兩次，而且多開一個兩次答案會不一致的窗口。
+>
 > **本次追加：** `US-09` 多兩條（市場會不會收盤），`US-10` 七條全新——
 > 加入觀察清單時立刻回補、以及手動回補。九條全部 conforms，
 > 每一條都有一個會因為對應實作被打壞而變紅的測試（四個 mutation 已逐一驗過）。
