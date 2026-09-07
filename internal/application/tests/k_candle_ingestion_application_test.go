@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -40,9 +41,10 @@ func reportedKCandleAt(openTime time.Time) vo.MarketKCandleVo {
 }
 
 type ingestionApplicationUnderTest struct {
-	application       *application.KCandleIngestionApplication
-	kCandleRepository *mocks.MockIKCandleRepository
-	marketDataProxy   *mocks.MockIMarketDataProxy
+	application             *application.KCandleIngestionApplication
+	kCandleRepository       *mocks.MockIKCandleRepository
+	tradingSymbolRepository *mocks.MockITradingSymbolRepository
+	marketDataProxy         *mocks.MockIMarketDataProxy
 }
 
 func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTest {
@@ -50,6 +52,7 @@ func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTes
 
 	mockController := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7)).AnyTimes()
@@ -57,11 +60,34 @@ func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTes
 	return ingestionApplicationUnderTest{
 		application: application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, marketDataProxy, clockProxy,
-				ingestionRoundCandleCount, ingestionLookback)),
-		kCandleRepository: kCandleRepository,
-		marketDataProxy:   marketDataProxy,
+				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				ingestionMarketCatalog(), ingestionRoundCandleCount, ingestionLookback)),
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		marketDataProxy:         marketDataProxy,
 	}
+}
+
+// ingestionMarketCatalog is the markets these tests are written against.
+func ingestionMarketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+	})
+}
+
+// watchingCrypto is the watchlist a run reads at its top.
+func watchingCrypto(
+	tradingSymbolRepository *mocks.MockITradingSymbolRepository, symbols ...string,
+) {
+	watchedSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		watchedSymbols = append(watchedSymbols, entities.TradingSymbol{
+			Symbol: symbol, Market: string(vo.MarketCrypto), IsWatched: true,
+		})
+	}
+
+	tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
 }
 
 func TestKCandleIngestionApplicationRunsAScheduledRound(t *testing.T) {
@@ -74,7 +100,9 @@ func TestKCandleIngestionApplicationRunsAScheduledRound(t *testing.T) {
 	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(entities.KCandle{}, nil).Times(3)
 
-	report, runError := underTest.application.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+	watchingCrypto(underTest.tradingSymbolRepository, "BTCUSDT")
+
+	report, runError := underTest.application.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 	require.Len(t, report.SymbolReports, 1)
@@ -94,7 +122,9 @@ func TestKCandleIngestionApplicationRunsTheBackfill(t *testing.T) {
 	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(entities.KCandle{}, nil).Times(2)
 
-	report, runError := underTest.application.RunBackfill(t.Context(), []string{"BTCUSDT"})
+	watchingCrypto(underTest.tradingSymbolRepository, "BTCUSDT")
+
+	report, runError := underTest.application.RunBackfill(t.Context())
 
 	require.NoError(t, runError)
 	require.Len(t, report.SymbolReports, 1)

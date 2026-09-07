@@ -151,7 +151,6 @@ func Load() ApplicationConfig {
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		MarketRules:           marketRules(),
 		Ingestion: IngestionConfig{
-			Symbols:          commaSeparatedList("KCANDLE_INGESTION_SYMBOLS"),
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 5),
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,

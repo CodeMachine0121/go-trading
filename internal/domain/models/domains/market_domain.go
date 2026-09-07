@@ -105,6 +105,16 @@ func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 	).UTC()
 }
 
+// NeverCloses reports a market that trades round the clock.
+//
+// It is asked out loud because a market with no hours also has no days off: deciding
+// that such a market is "shut for the day" is not a conclusion about the world but a
+// misreading of a quiet stretch, and one quiet stretch would then stop it being
+// fetched until tomorrow.
+func (marketDomain MarketDomain) NeverCloses() bool {
+	return marketDomain.neverCloses()
+}
+
 // neverCloses reads the one shape a session takes when there is no session: a market
 // with no zone to say its hours in has no hours.
 func (marketDomain MarketDomain) neverCloses() bool {

@@ -239,8 +239,8 @@ func assistantQueriesFor(
 }
 
 // backgroundJobsFor assembles the work the system does on its own. Switching
-// background jobs off leaves nothing to start; the ingestion job itself decides what
-// an empty watchlist means, which is nothing to fetch.
+// background jobs off leaves nothing to start; an empty watchlist means every round
+// has nothing to fetch, which is a state rather than a failure.
 func backgroundJobsFor(
 	database *gorm.DB,
 	applicationConfig config.ApplicationConfig,
@@ -253,16 +253,17 @@ func backgroundJobsFor(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
 				persistence.NewKCandleRepository(database),
+				persistence.NewTradingSymbolRepository(database),
 				marketdata.NewBinanceMarketDataProxy(
 					applicationConfig.Ingestion.MarketDataBaseUrl,
 					applicationConfig.Ingestion.MarketDataRequestTimeout,
 				),
 				clock.NewSystemClockProxy(),
+				domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 				applicationConfig.Ingestion.RoundCandleCount,
 				applicationConfig.Ingestion.BackfillLookback,
 			),
 		),
-		applicationConfig.Ingestion.Symbols,
 		job.KCandleIngestionInterval,
 	)
 

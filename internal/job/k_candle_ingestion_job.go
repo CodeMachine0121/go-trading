@@ -3,7 +3,6 @@ package job
 import (
 	"context"
 	"log"
-	"slices"
 	"sync"
 	"time"
 
@@ -23,24 +22,22 @@ const KCandleIngestionInterval = 5 * time.Minute
 // sequence rather than by two jobs having to agree on who goes first.
 type KCandleIngestionJob struct {
 	kCandleIngestionApplication *application.KCandleIngestionApplication
-	symbols                     []string
 	interval                    time.Duration
 	done                        chan struct{}
 	stopOnce                    func()
 }
 
-// NewKCandleIngestionJob takes its own copy of the watchlist, so the list this job
-// works from is settled here and cannot change underneath it afterwards.
+// NewKCandleIngestionJob knows nothing about which markets are watched. That list
+// belongs to the system rather than to this job, and each round reads it afresh — so
+// changing it is a change to the system, not a reason to restart it.
 func NewKCandleIngestionJob(
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
-	symbols []string,
 	interval time.Duration,
 ) *KCandleIngestionJob {
 	done := make(chan struct{})
 
 	return &KCandleIngestionJob{
 		kCandleIngestionApplication: kCandleIngestionApplication,
-		symbols:                     slices.Clone(symbols),
 		interval:                    interval,
 		done:                        done,
 		stopOnce:                    sync.OnceFunc(func() { close(done) }),
@@ -67,7 +64,7 @@ func (kCandleIngestionJob *KCandleIngestionJob) Stop() {
 // halves writing the same candle.
 func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Context) {
 	backfillReport, backfillError := kCandleIngestionJob.kCandleIngestionApplication.
-		RunBackfill(executionContext, kCandleIngestionJob.symbols)
+		RunBackfill(executionContext)
 	kCandleIngestionJob.report("startup backfill", backfillReport, backfillError)
 
 	ticker := time.NewTicker(kCandleIngestionJob.interval)
@@ -98,7 +95,7 @@ func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Con
 			}
 
 			roundReport, roundError := kCandleIngestionJob.kCandleIngestionApplication.
-				RunScheduledRound(executionContext, kCandleIngestionJob.symbols)
+				RunScheduledRound(executionContext)
 			kCandleIngestionJob.report("scheduled round", roundReport, roundError)
 		}
 	}

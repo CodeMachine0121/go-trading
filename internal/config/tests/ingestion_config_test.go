@@ -12,50 +12,10 @@ func TestLoadAppliesIngestionDefaultsWhenNothingIsSet(t *testing.T) {
 	applicationConfig := config.Load()
 
 	assert.True(t, applicationConfig.BackgroundJobsEnabled)
-	assert.Empty(t, applicationConfig.Ingestion.Symbols)
 	assert.Equal(t, 5, applicationConfig.Ingestion.RoundCandleCount)
 	assert.Equal(t, 24*time.Hour, applicationConfig.Ingestion.BackfillLookback)
 	assert.Equal(t, 10*time.Second, applicationConfig.Ingestion.MarketDataRequestTimeout)
 	assert.NotEmpty(t, applicationConfig.Ingestion.MarketDataBaseUrl)
-}
-
-func TestLoadReadsTheWatchlist(t *testing.T) {
-	testCases := []struct {
-		name            string
-		watchlistValue  string
-		expectedSymbols []string
-	}{
-		{
-			name:            "one symbol per comma",
-			watchlistValue:  "BTCUSDT,ETHUSDT",
-			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
-		},
-		{
-			name:            "spaces around a symbol are ignored",
-			watchlistValue:  " BTCUSDT , ETHUSDT ",
-			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
-		},
-		{
-			name:            "empty entries are dropped",
-			watchlistValue:  "BTCUSDT,,ETHUSDT,",
-			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
-		},
-		{
-			name:            "a watchlist of nothing but separators is empty",
-			watchlistValue:  ",,",
-			expectedSymbols: []string{},
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv("KCANDLE_INGESTION_SYMBOLS", testCase.watchlistValue)
-
-			applicationConfig := config.Load()
-
-			assert.Equal(t, testCase.expectedSymbols, applicationConfig.Ingestion.Symbols)
-		})
-	}
 }
 
 func TestLoadReadsTheBackgroundJobSwitch(t *testing.T) {

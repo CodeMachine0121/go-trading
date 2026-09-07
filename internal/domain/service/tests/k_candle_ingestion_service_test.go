@@ -59,10 +59,32 @@ func reportedFor(symbol string, openTime time.Time) vo.MarketKCandleVo {
 	return marketKCandle
 }
 
+// movingClock lets a test walk the same service into another day, which is the only
+// way to check that a market presumed shut is judged afresh tomorrow.
+type movingClock struct {
+	mutex       sync.Mutex
+	currentTime time.Time
+}
+
+func (clock *movingClock) now() time.Time {
+	clock.mutex.Lock()
+	defer clock.mutex.Unlock()
+
+	return clock.currentTime
+}
+
+func (clock *movingClock) moveTo(currentTime time.Time) {
+	clock.mutex.Lock()
+	defer clock.mutex.Unlock()
+	clock.currentTime = currentTime
+}
+
 type ingestionUnderTest struct {
-	service           *service.KCandleIngestionService
-	kCandleRepository *mocks.MockIKCandleRepository
-	marketDataProxy   *mocks.MockIMarketDataProxy
+	clock                   *movingClock
+	service                 *service.KCandleIngestionService
+	kCandleRepository       *mocks.MockIKCandleRepository
+	tradingSymbolRepository *mocks.MockITradingSymbolRepository
+	marketDataProxy         *mocks.MockIMarketDataProxy
 }
 
 func newIngestionUnderTest(t *testing.T, currentTime time.Time) ingestionUnderTest {
@@ -70,16 +92,59 @@ func newIngestionUnderTest(t *testing.T, currentTime time.Time) ingestionUnderTe
 
 	mockController := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
+	movingClock := &movingClock{currentTime: currentTime}
 	clockProxy := mocks.NewMockIClockProxy(mockController)
-	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+	clockProxy.EXPECT().Now().DoAndReturn(movingClock.now).AnyTimes()
 
 	return ingestionUnderTest{
+		clock: movingClock,
 		service: service.NewKCandleIngestionService(
-			kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback),
-		kCandleRepository: kCandleRepository,
-		marketDataProxy:   marketDataProxy,
+			kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+			ingestionMarketCatalog(), roundCandleCount, lookback),
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		marketDataProxy:         marketDataProxy,
 	}
+}
+
+// ingestionMarketCatalog is the two markets these tests are written against: the
+// round-the-clock one, and a Taiwan session that closes at half past one.
+func ingestionMarketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   time.FixedZone("Asia/Taipei", 8*60*60),
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			SimultaneousFollowCeiling: 5,
+		},
+	})
+}
+
+// watching is the watchlist this run reads at its top. The symbols belong to the
+// round-the-clock market unless a test says otherwise, which is what keeps every
+// existing rule about rounds and backfills readable without a market in sight.
+func (underTest ingestionUnderTest) watching(symbols ...string) {
+	underTest.watchingInMarket(vo.MarketCrypto, symbols...)
+}
+
+func (underTest ingestionUnderTest) watchingInMarket(market vo.MarketVo, symbols ...string) {
+	watchedSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		watchedSymbols = append(watchedSymbols, entities.TradingSymbol{
+			Symbol: symbol, Market: string(market), IsWatched: true,
+		})
+	}
+
+	underTest.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
 }
 
 // savedOpenTimes records what actually reached storage, safely across the
@@ -176,7 +241,8 @@ func TestScheduledRoundStoresTheNewestClosedCandles(t *testing.T) {
 			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(testCase.reported, nil)
 			saved := underTest.acceptEverySave()
 
-			report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+			underTest.watching("BTCUSDT")
+			report, runError := underTest.service.RunScheduledRound(t.Context())
 
 			require.NoError(t, runError)
 			assert.Equal(t, testCase.expectedOpenTimes, saved.all())
@@ -190,7 +256,8 @@ func TestScheduledRoundAsksForTheNewestClosedCandlesBackwards(t *testing.T) {
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
 		Return([]vo.MarketKCandleVo{}, nil)
 
-	_, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+	underTest.watching("BTCUSDT")
+	_, runError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 }
@@ -203,7 +270,8 @@ func TestScheduledRoundCoversEveryWatchedSymbol(t *testing.T) {
 		}).Times(2)
 	saved := underTest.acceptEverySave()
 
-	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
+	underTest.watching("BTCUSDT", "ETHUSDT")
+	report, runError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 	assert.Len(t, saved.all(), 2)
@@ -214,7 +282,8 @@ func TestScheduledRoundCoversEveryWatchedSymbol(t *testing.T) {
 func TestScheduledRoundOnAnEmptyWatchlistDoesNothing(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
 
-	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{})
+	underTest.watching()
+	report, runError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 	assert.Empty(t, report.SymbolReports)
@@ -230,7 +299,8 @@ func TestOneSymbolFailingLeavesTheOthersAlone(t *testing.T) {
 		Return([]vo.MarketKCandleVo{reportedFor("ETHUSDT", ingestionAt(9, 0, 0))}, nil)
 	saved := underTest.acceptEverySave()
 
-	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
+	underTest.watching("BTCUSDT", "ETHUSDT")
+	report, runError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 	assert.Len(t, saved.all(), 1)
@@ -245,7 +315,8 @@ func TestEverySymbolFailingStillReportsRatherThanErroring(t *testing.T) {
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return(nil, sourceUnreachable).Times(2)
 
-	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
+	underTest.watching("BTCUSDT", "ETHUSDT")
+	report, runError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 	assert.Contains(t, reportFor(t, report, "BTCUSDT").FetchFailureReason, "market source unreachable")
@@ -312,7 +383,8 @@ func TestACandleBreakingARuleIsSkippedOnItsOwn(t *testing.T) {
 			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(testCase.reported, nil)
 			underTest.acceptEverySave()
 
-			report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+			underTest.watching("BTCUSDT")
+			report, runError := underTest.service.RunScheduledRound(t.Context())
 
 			require.NoError(t, runError)
 			symbolReport := reportFor(t, report, "BTCUSDT")
@@ -340,7 +412,8 @@ func TestACandleThatCannotBeStoredIsSkippedRatherThanFailingTheSymbol(t *testing
 		Save(gomock.Any(), gomock.Cond(func(kCandle entities.KCandle) bool { return kCandle.OpenTime.Equal(ingestionAt(9, 0, 0)) })).
 		Return(entities.KCandle{}, nil)
 
-	report, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+	underTest.watching("BTCUSDT")
+	report, runError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, runError)
 	symbolReport := reportFor(t, report, "BTCUSDT")
@@ -381,7 +454,8 @@ func TestBackfillAsksOnlyForTheGap(t *testing.T) {
 			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, testCase.expectedStartTime, ingestionAt(9, 0, 0))).
 				Return([]vo.MarketKCandleVo{}, nil)
 
-			_, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT"})
+			underTest.watching("BTCUSDT")
+			_, runError := underTest.service.RunBackfill(t.Context())
 
 			require.NoError(t, runError)
 		})
@@ -393,7 +467,8 @@ func TestBackfillNeverCallsTheSourceWhenThereIsNoGap(t *testing.T) {
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: ingestionAt(9, 0, 0)}}, nil)
 
-	report, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT"})
+	underTest.watching("BTCUSDT")
+	report, runError := underTest.service.RunBackfill(t.Context())
 
 	require.NoError(t, runError)
 	symbolReport := reportFor(t, report, "BTCUSDT")
@@ -434,7 +509,8 @@ func TestBackfillKeepsSymbolsIndependent(t *testing.T) {
 				Return([]vo.MarketKCandleVo{reportedFor("ETHUSDT", ingestionAt(9, 0, 0))}, nil)
 			saved := underTest.acceptEverySave()
 
-			report, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
+			underTest.watching("BTCUSDT", "ETHUSDT")
+			report, runError := underTest.service.RunBackfill(t.Context())
 
 			require.NoError(t, runError)
 			assert.Len(t, saved.all(), 1)
@@ -452,13 +528,13 @@ func TestBothUseCasesRefuseToRunOnAnUnusableCandleCount(t *testing.T) {
 		{
 			name: "a scheduled round",
 			run: func(ingestionService *service.KCandleIngestionService) (dto.KCandleIngestionReportDto, error) {
-				return ingestionService.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+				return ingestionService.RunScheduledRound(t.Context())
 			},
 		},
 		{
 			name: "the backfill",
 			run: func(ingestionService *service.KCandleIngestionService) (dto.KCandleIngestionReportDto, error) {
-				return ingestionService.RunBackfill(t.Context(), []string{"BTCUSDT"})
+				return ingestionService.RunBackfill(t.Context())
 			},
 		},
 	}
@@ -468,10 +544,14 @@ func TestBothUseCasesRefuseToRunOnAnUnusableCandleCount(t *testing.T) {
 			mockController := gomock.NewController(t)
 			clockProxy := mocks.NewMockIClockProxy(mockController)
 			clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 0)).AnyTimes()
+			// No expectation is set on the watchlist, so reaching storage at all
+			// would fail this test: a run that cannot work whatever it is pointed at
+			// has no business reading a list it is about to throw away.
 			ingestionService := service.NewKCandleIngestionService(
 				mocks.NewMockIKCandleRepository(mockController),
+				mocks.NewMockITradingSymbolRepository(mockController),
 				mocks.NewMockIMarketDataProxy(mockController),
-				clockProxy, 0, lookback)
+				clockProxy, ingestionMarketCatalog(), 0, lookback)
 
 			report, runError := testCase.run(ingestionService)
 
@@ -506,16 +586,20 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 			validReportedKCandle(ingestionAt(9, 5, 0)),
 		}, nil)
 
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	underTest := ingestionUnderTest{
 		service: service.NewKCandleIngestionService(
-			kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback),
-		kCandleRepository: kCandleRepository,
-		marketDataProxy:   marketDataProxy,
+			kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+			ingestionMarketCatalog(), roundCandleCount, lookback),
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		marketDataProxy:         marketDataProxy,
 	}
 	saved := underTest.acceptEverySave()
+	underTest.watching("BTCUSDT")
 
-	failedReport, failedError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
-	recoveredReport, recoveredError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
+	failedReport, failedError := underTest.service.RunScheduledRound(t.Context())
+	recoveredReport, recoveredError := underTest.service.RunScheduledRound(t.Context())
 
 	require.NoError(t, failedError)
 	require.NoError(t, recoveredError)
@@ -548,7 +632,8 @@ func TestEveryWatchedSymbolIsUnderwayAtOnce(t *testing.T) {
 
 	finished := make(chan dto.KCandleIngestionReportDto, 1)
 	go func() {
-		report, _ := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT", "ETHUSDT"})
+		underTest.watching("BTCUSDT", "ETHUSDT")
+		report, _ := underTest.service.RunScheduledRound(t.Context())
 		finished <- report
 	}()
 
@@ -603,7 +688,235 @@ func TestTheContextARoundIsGivenIsTheOneItsSourceIsCalledUnder(t *testing.T) {
 			return []vo.MarketKCandleVo{}, nil
 		})
 
-	_, err := underTest.service.RunScheduledRound(callerWentAway, []string{"BTCUSDT"})
+	underTest.watching("BTCUSDT")
+	_, err := underTest.service.RunScheduledRound(callerWentAway)
 
 	assert.NoError(t, err)
+}
+
+// taipeiIngestionAt is a moment said in Taipei time, which is the clock the Taiwan
+// trading session is written in.
+func taipeiIngestionAt(t *testing.T, moment string) time.Time {
+	t.Helper()
+
+	parsedTime, parseError := time.Parse(time.RFC3339, moment)
+	require.NoError(t, parseError)
+
+	return parsedTime
+}
+
+func TestARoundSkipsAMarketThatCouldHoldNothing(t *testing.T) {
+	testCases := []struct {
+		name           string
+		currentTime    string
+		expectedAsking bool
+	}{
+		{
+			name:        "mid session, so it is asked",
+			currentTime: "2026-09-08T10:07:00+08:00", expectedAsking: true,
+		},
+		{
+			// The day's last candle finished at half past one; a round three minutes
+			// later still has it to collect.
+			name:        "just after the close, the day's last candle is still collected",
+			currentTime: "2026-09-08T13:33:00+08:00", expectedAsking: true,
+		},
+		{
+			name:        "the evening",
+			currentTime: "2026-09-08T21:00:00+08:00", expectedAsking: false,
+		},
+		{
+			name:        "sunday",
+			currentTime: "2026-09-13T10:07:00+08:00", expectedAsking: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, testCase.currentTime))
+			underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+			if testCase.expectedAsking {
+				underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+					Return([]vo.MarketKCandleVo{}, nil)
+			}
+
+			report, runError := underTest.service.RunScheduledRound(t.Context())
+
+			require.NoError(t, runError)
+			// Either way this is not a failure: a market that is shut has nothing to
+			// say, and saying so once every round would bury the rounds that matter.
+			assert.Empty(t, reportFor(t, report, "2330").FetchFailureReason)
+		})
+	}
+}
+
+func TestAClosedMarketDoesNotStopAnotherOneBeingFetched(t *testing.T) {
+	// The round-the-clock market trades through the Taiwan evening, and must not be
+	// held back by a market that does not.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T21:00:00+08:00"))
+	underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+		[]entities.TradingSymbol{
+			{Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true},
+			{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+		}, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().
+		FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool {
+			return window.Symbol == "BTCUSDT"
+		})).Return([]vo.MarketKCandleVo{}, nil)
+
+	report, runError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, runError)
+	assert.Empty(t, reportFor(t, report, "2330").FetchFailureReason)
+	assert.Empty(t, reportFor(t, report, "BTCUSDT").FetchFailureReason)
+}
+
+func TestAMarketThatAnswersWithNothingIsPresumedShutForItsOwnDay(t *testing.T) {
+	// A holiday looks exactly like this from here: the source answers perfectly well
+	// and has not one candle for anything in that market. Reading it off the answers
+	// is what saves anybody maintaining a calendar that is wrong on the days it counts.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T10:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	// Asked exactly once. The rounds after the first must not reach the source again.
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+
+	_, firstError := underTest.service.RunScheduledRound(t.Context())
+	_, secondError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, firstError)
+	require.NoError(t, secondError)
+}
+
+func TestAMarketPresumedShutIsAskedAgainTheFollowingDay(t *testing.T) {
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T10:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+	_, firstError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, firstError)
+
+	// The next day is a fresh judgement — a holiday is one day off, not a verdict.
+	underTest.clock.moveTo(taipeiIngestionAt(t, "2026-09-09T10:07:00+08:00"))
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+
+	_, secondError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, secondError)
+}
+
+func TestASourceThatWillNotAnswerIsNeverReadAsAHoliday(t *testing.T) {
+	// Answered-with-nothing and did-not-answer are the only reliable distinction
+	// available here, and conflating them would leave a broken source quietly
+	// unfetched for the rest of the day instead of reported.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T10:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return(nil, sourceUnreachable).Times(2)
+
+	firstReport, firstError := underTest.service.RunScheduledRound(t.Context())
+	secondReport, secondError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, firstError)
+	require.NoError(t, secondError)
+	assert.NotEmpty(t, reportFor(t, firstReport, "2330").FetchFailureReason)
+	assert.NotEmpty(t, reportFor(t, secondReport, "2330").FetchFailureReason)
+}
+
+func TestOneQuietSymbolDoesNotShutTheWholeMarket(t *testing.T) {
+	// A single stock nobody traded for five minutes is not a holiday. Requiring every
+	// symbol of the market to come back empty is what keeps that true.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-08T10:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330", "2454")
+	underTest.acceptEverySave()
+	underTest.marketDataProxy.EXPECT().
+		FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool {
+			return window.Symbol == "2330"
+		})).Return([]vo.MarketKCandleVo{}, nil).Times(2)
+	underTest.marketDataProxy.EXPECT().
+		FetchKCandles(gomock.Any(), gomock.Cond(func(window vo.KCandleFetchWindowVo) bool {
+			return window.Symbol == "2454"
+		})).Return([]vo.MarketKCandleVo{
+		reportedFor("2454", taipeiIngestionAt(t, "2026-09-08T10:00:00+08:00")),
+	}, nil).Times(2)
+
+	_, firstError := underTest.service.RunScheduledRound(t.Context())
+	_, secondError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, firstError)
+	require.NoError(t, secondError)
+}
+
+func TestARoundReadsTheWatchlistAfresh(t *testing.T) {
+	// This is the whole reason the watchlist moved out of startup settings: a symbol
+	// added while the system runs is fetched by the very next round.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
+	underTest.acceptEverySave()
+	gomock.InOrder(
+		underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+			[]entities.TradingSymbol{
+				{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+			}, nil),
+		underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+			[]entities.TradingSymbol{
+				{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+				{Symbol: "ETHUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+			}, nil),
+	)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
+
+	firstReport, firstError := underTest.service.RunScheduledRound(t.Context())
+	secondReport, secondError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, firstError)
+	require.NoError(t, secondError)
+	assert.Len(t, firstReport.SymbolReports, 1)
+	assert.Len(t, secondReport.SymbolReports, 2)
+}
+
+func TestARunReportsAFailureReadingTheWatchlist(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
+	storageFailure := errors.New("storage unreachable")
+	underTest.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return(nil, storageFailure)
+
+	_, runError := underTest.service.RunScheduledRound(t.Context())
+
+	assert.ErrorIs(t, runError, storageFailure)
+}
+
+func TestBackfillOnlyReachesBackIntoTradingSessions(t *testing.T) {
+	// Starting up on a Saturday: the whole weekend is in reach and none of it could
+	// hold a candle, so only Friday's session is asked for.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-12T09:00:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "2330", 1).
+		Return([]entities.KCandle{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
+		"2330", vo.MarketTaiwanStock,
+		taipeiIngestionAt(t, "2026-09-11T09:00:00+08:00"),
+		taipeiIngestionAt(t, "2026-09-11T13:25:00+08:00"),
+	)).Return([]vo.MarketKCandleVo{}, nil)
+
+	_, runError := underTest.service.RunBackfill(t.Context())
+
+	require.NoError(t, runError)
+}
+
+func TestBackfillAsksForNothingWhenNothingInReachCouldTrade(t *testing.T) {
+	// Sunday morning, with the lookback covering only the weekend. There is no gap
+	// here — the market was shut — so there is nothing to ask for and nothing to
+	// report as missing.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-13T09:00:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2330")
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "2330", 1).
+		Return([]entities.KCandle{}, nil)
+
+	report, runError := underTest.service.RunBackfill(t.Context())
+
+	require.NoError(t, runError)
+	assert.Empty(t, reportFor(t, report, "2330").FetchFailureReason)
+	assert.Equal(t, 0, reportFor(t, report, "2330").StoredCount)
 }

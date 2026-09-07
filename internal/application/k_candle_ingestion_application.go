@@ -21,14 +21,13 @@ func NewKCandleIngestionApplication(
 }
 
 func (kCandleIngestionApplication *KCandleIngestionApplication) RunBackfill(
-	executionContext context.Context, symbols []string,
+	executionContext context.Context,
 ) (dto.KCandleIngestionReportDto, error) {
-	return kCandleIngestionApplication.kCandleIngestionService.RunBackfill(executionContext, symbols)
+	return kCandleIngestionApplication.kCandleIngestionService.RunBackfill(executionContext)
 }
 
 func (kCandleIngestionApplication *KCandleIngestionApplication) RunScheduledRound(
-	executionContext context.Context, symbols []string,
+	executionContext context.Context,
 ) (dto.KCandleIngestionReportDto, error) {
-	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(
-		executionContext, symbols)
+	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(executionContext)
 }
