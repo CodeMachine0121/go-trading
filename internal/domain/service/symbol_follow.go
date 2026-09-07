@@ -23,9 +23,15 @@ const viewerBufferSize = 8
 // latestUpdate is kept so that somebody arriving mid-candle sees the shape now
 // rather than an empty chart until the market next moves.
 type symbolFollow struct {
-	symbol   string
-	cancel   context.CancelFunc
-	finished chan struct{}
+	symbol string
+	cancel context.CancelFunc
+	// isOnARoster marks a follow the system keeps up because a market's places were
+	// handed to this symbol, not because anybody is looking at it. Such a follow
+	// outlives its last viewer: the places are decided by the watchlist, and dropping
+	// one the moment nobody happened to be watching would leave it unfilled until
+	// somebody was.
+	isOnARoster bool
+	finished    chan struct{}
 
 	mutex        sync.Mutex
 	viewers      map[int]chan dto.KCandleFollowUpdateDto
@@ -35,12 +41,13 @@ type symbolFollow struct {
 	isStalled    bool
 }
 
-func newSymbolFollow(symbol string, cancel context.CancelFunc) *symbolFollow {
+func newSymbolFollow(symbol string, isOnARoster bool, cancel context.CancelFunc) *symbolFollow {
 	return &symbolFollow{
-		symbol:   symbol,
-		cancel:   cancel,
-		finished: make(chan struct{}),
-		viewers:  make(map[int]chan dto.KCandleFollowUpdateDto),
+		symbol:      symbol,
+		isOnARoster: isOnARoster,
+		cancel:      cancel,
+		finished:    make(chan struct{}),
+		viewers:     make(map[int]chan dto.KCandleFollowUpdateDto),
 	}
 }
 
@@ -72,8 +79,11 @@ func (symbolFollow *symbolFollow) join() (int, chan dto.KCandleFollowUpdateDto) 
 	return viewerId, updates
 }
 
-// leave removes one viewer, reporting whether they were the last — which is the one
-// thing the caller needs to know, because it is what ends the follow.
+// leave removes one viewer, reporting whether that ends the follow — which is the
+// one thing the caller needs to know.
+//
+// A follow held up by a market's roster is never ended by a viewer leaving. It was
+// not started by one either, so nobody watching is simply nobody watching.
 func (symbolFollow *symbolFollow) leave(viewerId int) bool {
 	symbolFollow.mutex.Lock()
 	defer symbolFollow.mutex.Unlock()
@@ -85,7 +95,7 @@ func (symbolFollow *symbolFollow) leave(viewerId int) bool {
 	delete(symbolFollow.viewers, viewerId)
 	close(updates)
 
-	return len(symbolFollow.viewers) == 0
+	return len(symbolFollow.viewers) == 0 && !symbolFollow.isOnARoster
 }
 
 // publish hands one update to everyone watching, and remembers it for whoever
@@ -99,9 +109,13 @@ func (symbolFollow *symbolFollow) publish(update dto.KCandleFollowUpdateDto) {
 
 	// Stalled carries no candle, so it must not become the shape handed to whoever
 	// arrives next — they would be drawn a candle of zeros. It is remembered as a
-	// state instead, and told to them separately.
+	// state instead, and told to them separately. Unavailable carries no candle
+	// either, and it is the last thing a follow ever says, so there is no next
+	// arrival for it to mislead.
 	symbolFollow.isStalled = update.Status == dto.KCandleFollowStatusStalled
-	if !symbolFollow.isStalled {
+	carriesACandle := update.Status != dto.KCandleFollowStatusStalled &&
+		update.Status != dto.KCandleFollowStatusUnavailable
+	if carriesACandle {
 		symbolFollow.latestUpdate = update
 		symbolFollow.hasLatest = true
 	}
@@ -126,6 +140,19 @@ func (symbolFollow *symbolFollow) stalledUpdate() dto.KCandleFollowUpdateDto {
 		Symbol: symbolFollow.symbol,
 		Status: dto.KCandleFollowStatusStalled,
 	}
+}
+
+// publishUnavailable tells every viewer that this market has no live updating left to
+// give — its place on the roster went to another symbol, or its market shut.
+//
+// It is said before the follow ends rather than left to the closing of their
+// channels, because a channel that simply stops carries no reason, and the reason is
+// the whole difference between waiting and not bothering to.
+func (symbolFollow *symbolFollow) publishUnavailable() {
+	symbolFollow.publish(dto.KCandleFollowUpdateDto{
+		Symbol: symbolFollow.symbol,
+		Status: dto.KCandleFollowStatusUnavailable,
+	})
 }
 
 // end stops this follow and closes every viewer's updates, waiting for the work to

@@ -23,11 +23,12 @@ import (
 )
 
 // registerRoutes is the composition root: it wires every concrete type and mounts
-// the routes. It hands back how to end the live follows, because they are the one
-// thing here that outlives the request that started it.
+// the routes. It hands back the live follows, because they are the one thing here
+// that outlives the request that started it — and the one thing a background job and
+// a route both reach for, so there must be exactly one of them.
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
-) func() {
+) *application.KCandleFollowApplication {
 	engine.Use(controller.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
 	engine.GET("/health", func(context *gin.Context) {
@@ -197,17 +198,20 @@ func registerRoutes(
 	kCandleFollowService := service.NewKCandleFollowService(
 		marketdata.NewBinanceLiveMarketDataProxy(applicationConfig.LiveFollow.MarketDataStreamUrl),
 		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.LiveFollow.UpdateIntervalCeiling,
 		applicationConfig.LiveFollow.QuietTimeout,
 		applicationConfig.LiveFollow.MaximumRetryDelay,
 	)
 
-	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
-		application.NewKCandleFollowApplication(kCandleFollowService),
-	).WatchKCandles)
+	kCandleFollowApplication := application.NewKCandleFollowApplication(kCandleFollowService)
 
-	return kCandleFollowService.Stop
+	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
+		kCandleFollowApplication).WatchKCandles)
+
+	return kCandleFollowApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -244,6 +248,7 @@ func assistantQueriesFor(
 func backgroundJobsFor(
 	database *gorm.DB,
 	applicationConfig config.ApplicationConfig,
+	kCandleFollowApplication *application.KCandleFollowApplication,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
 		return []domaininterface.IBackgroundJob{}
@@ -267,5 +272,11 @@ func backgroundJobsFor(
 		job.KCandleIngestionInterval,
 	)
 
-	return []domaininterface.IBackgroundJob{kCandleIngestionJob}
+	// Handing out a market's live places is its own job rather than another step of
+	// a round: a round held up by a source that will not answer would otherwise hold
+	// up a market that has just opened.
+	liveFollowRosterJob := job.NewLiveFollowRosterJob(
+		kCandleFollowApplication, job.LiveFollowRosterInterval)
+
+	return []domaininterface.IBackgroundJob{kCandleIngestionJob, liveFollowRosterJob}
 }

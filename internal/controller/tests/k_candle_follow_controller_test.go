@@ -13,6 +13,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
@@ -105,8 +107,17 @@ func newFollowRouterUnderTest(t *testing.T, followError error) followRouterUnder
 			return liveKCandles, nil
 		}).AnyTimes()
 
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketCrypto), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+
 	kCandleFollowService := service.NewKCandleFollowService(
-		liveMarketDataProxy, kCandleRepository, clockProxy,
+		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
+		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 		time.Nanosecond, time.Hour, 10*time.Millisecond,
 	)
 	t.Cleanup(kCandleFollowService.Stop)
