@@ -29,3 +29,18 @@ func (tradingSymbolApplication *TradingSymbolApplication) RegisterDefaultTrading
 ) ([]string, error) {
 	return tradingSymbolApplication.tradingSymbolService.RegisterDefaultTradingSymbols(executionContext)
 }
+
+// AddToWatchlist starts keeping one market's candles up to date.
+func (tradingSymbolApplication *TradingSymbolApplication) AddToWatchlist(
+	executionContext context.Context, entryDto dto.WatchlistEntryDto,
+) error {
+	return tradingSymbolApplication.tradingSymbolService.AddToWatchlist(executionContext, entryDto)
+}
+
+// RemoveFromWatchlist stops keeping one market's candles up to date, leaving every
+// candle it already holds exactly where it is.
+func (tradingSymbolApplication *TradingSymbolApplication) RemoveFromWatchlist(
+	executionContext context.Context, symbol string,
+) error {
+	return tradingSymbolApplication.tradingSymbolService.RemoveFromWatchlist(executionContext, symbol)
+}

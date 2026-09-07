@@ -11,7 +11,9 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -33,7 +35,9 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 	tradingSymbolController := controller.NewTradingSymbolController(
 		application.NewTradingSymbolApplication(
 			service.NewTradingSymbolService(
-				tradingSymbolRepository, kCandleRepository, tradingSymbolClockProxy(mockController))))
+				tradingSymbolRepository, kCandleRepository,
+				mocks.NewMockISymbolLookupProxy(mockController), tradingSymbolClockProxy(mockController),
+				tradingSymbolMarketCatalog())))
 
 	engine := gin.New()
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
@@ -116,4 +120,11 @@ func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockPro
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
 
 	return clockProxy
+}
+
+// tradingSymbolMarketCatalog is the markets these tests are written against.
+func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+	})
 }

@@ -9,13 +9,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAutomaticIngestionOpensNoWayIn holds the boundary that automatic ingestion is
-// something the system does to itself: it must never become something a caller can
-// reach, because the watchlist would then be changeable from outside.
-func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
+// TestMountedRoutesAreExactlyTheOnesIntended holds the whole reachable surface in
+// one list, so that widening it is a decision somebody makes rather than a side
+// effect somebody notices later.
+//
+// It used to hold a narrower boundary — that the watchlist could not be changed from
+// outside at all. That boundary was deliberately given up: a watchlist that costs a
+// restart to change is a watchlist nobody changes. What replaced it is narrower than
+// it sounds: exactly two routes touch the watchlist, and neither can start a round,
+// stop one, or reach the ingestion machinery itself.
+func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("BACKGROUND_JOBS_ENABLED", "true")
-	t.Setenv("KCANDLE_INGESTION_SYMBOLS", "BTCUSDT,ETHUSDT")
 	engine := gin.New()
 
 	registerRoutes(engine, nil, config.Load())
@@ -29,6 +34,9 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 	assert.Equal(t, []string{
 		"DELETE /k-candles/:symbol/:openTime",
 		"DELETE /strategies/:id",
+		// Stopping and starting the watching of one market. Neither reaches ingestion
+		// itself: a caller can say what to keep up to date, never when to do it.
+		"DELETE /watchlist/:symbol",
 		// The assistant reads and writes only through the very use cases a caller
 		// already has; it is given no capability that touches the watchlist, so these
 		// three do not widen what a caller can reach either.
@@ -58,6 +66,7 @@ func TestAutomaticIngestionOpensNoWayIn(t *testing.T) {
 		"POST /sessions/revocation",
 		"POST /strategies",
 		"POST /users",
+		"POST /watchlist",
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategies/:id",
 	}, mountedRoutes)

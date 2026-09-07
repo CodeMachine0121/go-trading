@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -21,18 +24,24 @@ var defaultTradingSymbols = []string{"BTCUSDT", "ETHUSDT"}
 type TradingSymbolService struct {
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
 	kCandleRepository       domaininterface.IKCandleRepository
+	symbolLookupProxy       domaininterface.ISymbolLookupProxy
 	clockProxy              domaininterface.IClockProxy
+	marketCatalogDomain     domains.MarketCatalogDomain
 }
 
 func NewTradingSymbolService(
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	kCandleRepository domaininterface.IKCandleRepository,
+	symbolLookupProxy domaininterface.ISymbolLookupProxy,
 	clockProxy domaininterface.IClockProxy,
+	marketCatalogDomain domains.MarketCatalogDomain,
 ) *TradingSymbolService {
 	return &TradingSymbolService{
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
+		symbolLookupProxy:       symbolLookupProxy,
 		clockProxy:              clockProxy,
+		marketCatalogDomain:     marketCatalogDomain,
 	}
 }
 
@@ -113,6 +122,81 @@ func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
 	}
 
 	return newcomerNames, nil
+}
+
+// AddToWatchlist starts keeping one market's candles up to date, after checking with
+// that market that the code exists.
+//
+// The check comes first and the write only happens if it passed. Writing first and
+// finding out later would turn one typo into a line that fails once every round for
+// as long as the system runs, in a log nobody reads — so the round trip is paid here,
+// where somebody is still looking at what they typed.
+//
+// Adding something already watched leaves one entry rather than failing: the caller
+// asked for it to be watched, and it is.
+func (tradingSymbolService *TradingSymbolService) AddToWatchlist(
+	executionContext context.Context, entryDto dto.WatchlistEntryDto,
+) error {
+	watchlistEntryDomain, validationError := domains.NewWatchlistEntryDomain(
+		entryDto, tradingSymbolService.marketCatalogDomain)
+	if validationError != nil {
+		return validationError
+	}
+
+	symbolExists, lookupError := tradingSymbolService.symbolLookupProxy.SymbolExists(
+		executionContext, watchlistEntryDomain.Market(), watchlistEntryDomain.Symbol())
+	if lookupError != nil {
+		return fmt.Errorf("%w: %w", domains.ErrMarketDataSourceUnavailable, lookupError)
+	}
+
+	if !symbolExists {
+		return fmt.Errorf("%w: %s 在 %s 找不到這個代號",
+			domains.ErrTradingSymbolNotInMarket,
+			watchlistEntryDomain.Symbol(), watchlistEntryDomain.Market())
+	}
+
+	previouslyRegistered, _, findError := tradingSymbolService.tradingSymbolRepository.FindBySymbol(
+		executionContext, watchlistEntryDomain.Symbol())
+	if findError != nil {
+		return findError
+	}
+
+	return tradingSymbolService.tradingSymbolRepository.Save(
+		executionContext,
+		watchlistEntryDomain.ToEntity(
+			previouslyRegistered.RegisteredAt, tradingSymbolService.clockProxy.Now()))
+}
+
+// RemoveFromWatchlist stops keeping one market's candles up to date.
+//
+// It removes nothing else. The system still knows the market, and every candle it
+// ever fetched is still there to query, chart and replay — because not wanting to
+// watch something any more and not wanting its history are different wishes, and
+// granting the second one when only the first was asked for is not recoverable.
+//
+// Removing something that was not being watched is not a failure: what was asked for
+// is already true.
+func (tradingSymbolService *TradingSymbolService) RemoveFromWatchlist(
+	executionContext context.Context, symbol string,
+) error {
+	tradingSymbolDomain, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(symbol))
+	if symbolError != nil {
+		return fmt.Errorf("%w: %w", domains.ErrWatchlistEntryValidation, symbolError)
+	}
+
+	registeredSymbol, isRegistered, findError := tradingSymbolService.tradingSymbolRepository.
+		FindBySymbol(executionContext, tradingSymbolDomain.Value())
+	if findError != nil {
+		return findError
+	}
+
+	if !isRegistered || !registeredSymbol.IsWatched {
+		return nil
+	}
+
+	registeredSymbol.IsWatched = false
+
+	return tradingSymbolService.tradingSymbolRepository.Save(executionContext, registeredSymbol)
 }
 
 // namesOf is the set of names those registered symbols carry. Both use cases start

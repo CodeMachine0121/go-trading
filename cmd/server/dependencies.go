@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
@@ -57,12 +58,22 @@ func registerRoutes(
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			kCandleRepository,
+			marketdata.NewBinanceSymbolLookupProxy(
+				applicationConfig.Ingestion.SymbolCatalogUrl,
+				applicationConfig.Ingestion.MarketDataRequestTimeout),
 			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
 	)
 
-	engine.GET("/trading-symbols", controller.NewTradingSymbolController(
-		tradingSymbolApplication).ListTradingSymbols)
+	tradingSymbolController := controller.NewTradingSymbolController(tradingSymbolApplication)
+
+	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
+
+	// 觀察清單是自己的資源（系統打算持續追蹤哪幾個市場），與「系統認得哪幾個」是兩件事，
+	// 所以有自己的路徑。
+	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
+	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
 
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 		service.NewIndicatorCalculationService(

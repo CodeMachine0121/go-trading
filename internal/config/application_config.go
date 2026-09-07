@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // DatabaseConfig holds the PostgreSQL connection settings.
@@ -37,10 +39,14 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 // candle covers, so the way to switch ingestion off is BackgroundJobsEnabled or an
 // empty watchlist.
 type IngestionConfig struct {
-	Symbols                  []string
-	RoundCandleCount         int
-	BackfillLookback         time.Duration
-	MarketDataBaseUrl        string
+	Symbols           []string
+	RoundCandleCount  int
+	BackfillLookback  time.Duration
+	MarketDataBaseUrl string
+	// SymbolCatalogUrl is where a source is asked whether it lists a symbol at all.
+	// It is separate from the candle address because they are separate questions, and
+	// a source is free to answer them at different places.
+	SymbolCatalogUrl         string
 	MarketDataRequestTimeout time.Duration
 }
 
@@ -124,9 +130,13 @@ type ApplicationConfig struct {
 	BackgroundJobsEnabled  bool
 	Ingestion              IngestionConfig
 	LiveFollow             LiveFollowConfig
-	Assistant              AssistantConfig
-	Authentication         AuthenticationConfig
-	Database               DatabaseConfig
+	// MarketRules is how every market the system recognises behaves. Recognising one
+	// more market is one more entry here and two more sources wired to it; nothing
+	// inside the system branches on which market it is looking at.
+	MarketRules    map[vo.MarketVo]vo.MarketRulesVo
+	Assistant      AssistantConfig
+	Authentication AuthenticationConfig
+	Database       DatabaseConfig
 }
 
 // Load reads the configuration from the process environment, applying defaults.
@@ -139,6 +149,7 @@ func Load() ApplicationConfig {
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
+		MarketRules:           marketRules(),
 		Ingestion: IngestionConfig{
 			Symbols:          commaSeparatedList("KCANDLE_INGESTION_SYMBOLS"),
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 5),
@@ -146,6 +157,8 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
+			SymbolCatalogUrl: stringWithDefault(
+				"MARKET_DATA_SYMBOL_CATALOG_URL", "https://api.binance.com/api/v3/exchangeInfo"),
 			MarketDataRequestTimeout: time.Duration(
 				positiveIntWithDefault("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
@@ -197,6 +210,17 @@ func Load() ApplicationConfig {
 			Database: stringWithDefault("POSTGRES_DATABASE", "go_trading"),
 			SslMode:  stringWithDefault("POSTGRES_SSL_MODE", "disable"),
 		},
+	}
+}
+
+// marketRules is every market the system recognises and how each one behaves.
+//
+// A market that never closes and has no follow ceiling is written as the zero value
+// rather than as a special case, so that the rules read it exactly as they read any
+// other market.
+func marketRules() map[vo.MarketVo]vo.MarketRulesVo {
+	return map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
 	}
 }
 

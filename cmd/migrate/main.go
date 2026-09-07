@@ -7,8 +7,10 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/config"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/joho/godotenv"
 )
@@ -46,10 +48,18 @@ func main() {
 
 	// 建好結構之後才登錄：登錄是業務動作，走 domain，不塞進只管結構的 migrator。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
+		// Registering the markets this system ships knowing about reaches no market
+		// source and consults no market rules, so the two collaborators that serve
+		// those are wired from the same settings as the server rather than being
+		// given stand-ins that only exist here.
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			persistence.NewKCandleRepository(database),
+			marketdata.NewBinanceSymbolLookupProxy(
+				applicationConfig.Ingestion.SymbolCatalogUrl,
+				applicationConfig.Ingestion.MarketDataRequestTimeout),
 			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
 	)
 
