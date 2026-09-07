@@ -20,9 +20,9 @@ func accountStakingEverything(t *testing.T, initialCapital int64) *domains.Backt
 	return domains.NewBacktestAccountDomain(decimal.NewFromInt(initialCapital), positionSizing)
 }
 
-// signalOf is one candle's opinion, built from the strength a script would have named.
-func signalOf(signalStrength float64) domains.SignalDomain {
-	return domains.NewSignalDomain(signalResultOf(signalStrength))
+// signalOf is one candle's opinion.
+func signalOf(signal vo.SignalVo) domains.SignalDomain {
+	return domains.NewSignalDomain(signalResultOf(signal))
 }
 
 func TestBacktestAccountDomainApply(t *testing.T) {
@@ -34,10 +34,10 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 		assert.Empty(t, account.ClosedTradeDtos())
 	})
 
-	t.Run("a flat opinion moves nothing", func(t *testing.T) {
+	t.Run("a hold opinion moves nothing", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
 
-		account.Apply(signalOf(0), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalHold), positionEntryTime, decimal.NewFromInt(100))
 
 		assert.Equal(t, 0, account.PositionOpenCount())
 		assert.True(t, decimal.NewFromInt(10000).Equal(account.EquityAt(decimal.NewFromInt(200))))
@@ -46,8 +46,8 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 	t.Run("a repeated opinion is heard once", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
 
-		account.Apply(signalOf(1), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(1), positionExitTime, decimal.NewFromInt(200))
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(200))
 
 		assert.Equal(t, 1, account.PositionOpenCount())
 		assert.Empty(t, account.ClosedTradeDtos())
@@ -58,8 +58,8 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 	t.Run("a reversal closes one bet and places the other at the same price", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
 
-		account.Apply(signalOf(1), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(-1), positionExitTime, decimal.NewFromInt(110))
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
 
 		require.Len(t, account.ClosedTradeDtos(), 1)
 		assert.Equal(t, string(vo.PositionDirectionLong), account.ClosedTradeDtos()[0].Direction)
@@ -75,7 +75,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 		require.NoError(t, err)
 		account := domains.NewBacktestAccountDomain(decimal.NewFromInt(2000), positionSizing)
 
-		account.Apply(signalOf(1), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 
 		assert.Equal(t, 0, account.PositionOpenCount())
 		assert.True(t, decimal.NewFromInt(2000).Equal(account.EquityAt(decimal.NewFromInt(999))))
@@ -84,7 +84,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 	t.Run("a market priced at nothing opens nothing", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
 
-		account.Apply(signalOf(1), positionEntryTime, decimal.Zero)
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.Zero)
 
 		assert.Equal(t, 0, account.PositionOpenCount())
 		assert.True(t, decimal.NewFromInt(10000).Equal(account.EquityAt(decimal.NewFromInt(100))))
@@ -94,7 +94,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 func TestBacktestAccountDomainWinRate(t *testing.T) {
 	t.Run("nothing closed leaves the rate unanswered", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
-		account.Apply(signalOf(1), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 
 		_, isApplicable := account.WinRate()
 
@@ -105,9 +105,9 @@ func TestBacktestAccountDomainWinRate(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
 		// Long 100 to 110 makes money; the short it reverses into goes out where it
 		// came in.
-		account.Apply(signalOf(1), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(-1), positionExitTime, decimal.NewFromInt(110))
-		account.Apply(signalOf(1), positionExitTime, decimal.NewFromInt(110))
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
+		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(110))
 
 		winRate, isApplicable := account.WinRate()
 

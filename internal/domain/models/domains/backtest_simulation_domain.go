@@ -21,32 +21,22 @@ type BacktestSimulationDomain struct {
 	initialCapital decimal.Decimal
 	positionSizing PositionSizingDomain
 	inputKCandles  []vo.KCandleVo
-	// signals holds exactly one opinion per candle, settled at construction. Pairing
-	// them there rather than while walking is what lets the walk index both lists
-	// without ever asking whether the second one is long enough.
+	// signals holds exactly one opinion per candle: the nth belongs to the nth
+	// candle. The script runner produces one signal per candle or fails the whole
+	// replay, so by here the two lists are always the same length.
 	signals []SignalDomain
 }
 
-// NewBacktestSimulationDomain pairs each candle with the indicator result the script
-// produced while standing on it: the nth result belongs to the nth candle. A candle
-// with no result of its own is read as flat, which is the same thing a script that
-// never named a signal says.
+// NewBacktestSimulationDomain takes the candles and the one signal read off each of
+// them, already paired: signals[n] is the opinion the script produced while standing
+// on inputKCandles[n]. A replay whose script did not produce a signal on some candle
+// never reaches here — that is a script failure, caught where the script is run.
 func NewBacktestSimulationDomain(
 	initialCapital decimal.Decimal,
 	positionSizing PositionSizingDomain,
 	inputKCandles []vo.KCandleVo,
-	perCandleIndicatorValues []map[string]vo.IndicatorValueVo,
+	signals []SignalDomain,
 ) BacktestSimulationDomain {
-	signals := make([]SignalDomain, 0, len(inputKCandles))
-	for candleIndex := range inputKCandles {
-		if candleIndex >= len(perCandleIndicatorValues) {
-			signals = append(signals, NewSignalDomain(nil))
-			continue
-		}
-
-		signals = append(signals, NewSignalDomain(perCandleIndicatorValues[candleIndex]))
-	}
-
 	return BacktestSimulationDomain{
 		initialCapital: initialCapital,
 		positionSizing: positionSizing,

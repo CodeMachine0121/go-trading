@@ -1,6 +1,7 @@
 package script
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -13,15 +14,25 @@ import (
 // kind that was declared, and the only place that needs the Go runtime's own view of
 // types — which is why the kind's own model, living in the domain, stays free of it.
 //
-// It never asks "which kind is this". Every kind is described by the same two
-// questions — is the value a series, and does it hold numbers — so supporting one
-// more kind adds nothing here.
+// It asks the kind three questions — is the value a series, does it hold numbers, is
+// it a signal — so supporting the four map-shaped kinds adds nothing here. The signal
+// kind is the one genuinely different content shape: no indicator name, one value,
+// and a value the script may only pick from a fixed set.
 type indicatorScriptShape struct {
 	resultType domains.IndicatorResultTypeDomain
 }
 
 // entryPointType is the exact form the entry point must have under this kind.
 func (indicatorScriptShape indicatorScriptShape) entryPointType() reflect.Type {
+	kCandleSliceType := reflect.TypeOf([]vo.KCandleVo(nil))
+
+	if indicatorScriptShape.resultType.IsSignal() {
+		return reflect.FuncOf(
+			[]reflect.Type{kCandleSliceType},
+			[]reflect.Type{reflect.TypeOf(vo.SignalVo(""))},
+			false)
+	}
+
 	elementType := reflect.TypeOf(false)
 	if indicatorScriptShape.resultType.HoldsNumbers() {
 		elementType = reflect.TypeOf(float64(0))
@@ -32,22 +43,26 @@ func (indicatorScriptShape indicatorScriptShape) entryPointType() reflect.Type {
 	}
 
 	return reflect.FuncOf(
-		[]reflect.Type{reflect.TypeOf([]vo.KCandleVo(nil))},
+		[]reflect.Type{kCandleSliceType},
 		[]reflect.Type{reflect.MapOf(reflect.TypeOf(""), elementType)},
 		false)
 }
 
 // readValues collects what the entry point handed back. The form check has already
-// guaranteed its shape, so one walk serves every kind. A script that named nothing
-// gives an empty set, which is a valid result rather than a failure.
+// guaranteed its shape, so one walk serves every map-shaped kind. A script that named
+// nothing gives an empty set, which is a valid result rather than a failure.
 func (indicatorScriptShape indicatorScriptShape) readValues(
 	calculated reflect.Value,
-) map[string]vo.IndicatorValueVo {
+) (map[string]vo.IndicatorValueVo, error) {
+	if indicatorScriptShape.resultType.IsSignal() {
+		return indicatorScriptShape.readSignal(calculated)
+	}
+
 	indicatorValues := map[string]vo.IndicatorValueVo{}
 
 	calculatedValues := reflect.ValueOf(calculated.Interface())
 	if calculatedValues.IsNil() {
-		return indicatorValues
+		return indicatorValues, nil
 	}
 
 	valueIterator := calculatedValues.MapRange()
@@ -56,7 +71,31 @@ func (indicatorScriptShape indicatorScriptShape) readValues(
 			indicatorScriptShape.valueOf(valueIterator.Value())
 	}
 
-	return indicatorValues
+	return indicatorValues, nil
+}
+
+// readSignal reads the one signal a signal-kind script handed back. The form check
+// has already guaranteed the return type is indicator.Signal; what is checked here is
+// that the script actually set it to one of buy, sell or hold. A signal left unset —
+// the zero value — is a script that built an opinion and never gave it a direction:
+// the script's mistake to fix, not an opinion to bet money on.
+func (indicatorScriptShape indicatorScriptShape) readSignal(
+	calculated reflect.Value,
+) (map[string]vo.IndicatorValueVo, error) {
+	signal := vo.SignalVo(reflect.ValueOf(calculated.Interface()).String())
+
+	switch signal {
+	case vo.SignalBuy, vo.SignalSell, vo.SignalHold:
+		return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: signal}}, nil
+	case "":
+		return nil, fmt.Errorf(
+			"%w: 算式產出了信號，但沒有設定方向——必須是 indicator.Buy、indicator.Sell 或 indicator.Hold 其中一個",
+			domains.ErrIndicatorScriptFailed)
+	default:
+		return nil, fmt.Errorf(
+			"%w: 認不得的信號 %q——必須是 indicator.Buy、indicator.Sell 或 indicator.Hold 其中一個",
+			domains.ErrIndicatorScriptFailed, string(signal))
+	}
 }
 
 // valueOf reads one named value. A lone value and a series are stored alike — a

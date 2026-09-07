@@ -1928,7 +1928,7 @@
 								"indicator-calculations"
 							]
 						},
-						"description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是五分鐘一格，而目前正在走的那五分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種；`float` 是預設值，省略不寫的行為完全相同。",
+						"description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是五分鐘一格，而目前正在走的那五分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種（`float`、`floatList`、`bool`、`boolList`、`signal`）；`float` 是預設值，省略不寫的行為完全相同。`signal` 種類回傳的是單一一個信號、沒有指標名稱。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
@@ -2228,7 +2228,7 @@
 					]
 				},
 				{
-					"name": "拒絕：指標值種類不在四種之內",
+					"name": "拒絕：指標值種類不在五種之內",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -2246,7 +2246,7 @@
 								"indicator-calculations"
 							]
 						},
-						"description": "`resultType` 只認得 `float`、`floatList`、`bool`、`boolList`；其他一律是**請求的問題**，連算式都不會跑。",
+						"description": "`resultType` 只認得 `float`、`floatList`、`bool`、`boolList`、`signal`；其他一律是**請求的問題**，連算式都不會跑。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"string\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}",
@@ -2266,7 +2266,7 @@
 									"pm.test(\"回應 400\", function () {",
 									"    pm.response.to.have.status(400);",
 									"});",
-									"pm.test(\"告知可以宣告哪四種\", function () {",
+									"pm.test(\"告知可以宣告哪五種\", function () {",
 									"    pm.expect(pm.response.json().message).to.include(\"指標值種類只能是\");",
 									"});"
 								]
@@ -2545,6 +2545,56 @@
 							}
 						}
 					]
+				},
+				{
+					"name": "算一個買賣信號（signal）",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/indicator-calculations",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"indicator-calculations"
+							]
+						},
+						"description": "宣告 `resultType` 為 `signal` 時，算式回傳 `indicator.Signal`——值只能是 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，沒有第四種、也不能自己組一個。信號沒有指標名稱，直接以 `signal` 欄位回傳，`values` 為空。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"signal\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close > data[0].Close {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"回報這次的種類是 signal，並直接給出信號\", function () {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.resultType).to.eql(\"signal\");",
+									"    pm.expect([\"buy\", \"sell\", \"hold\"]).to.include(body.signal);",
+									"});"
+								]
+							}
+						}
+					]
 				}
 			]
 		},
@@ -2747,7 +2797,7 @@
 					]
 				},
 				{
-					"name": "拒絕：指標值種類不在四種之內",
+					"name": "拒絕：指標值種類不在五種之內",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -2765,7 +2815,7 @@
 								"strategies"
 							]
 						},
-						"description": "可宣告的種類只有一個數字、一串數字、一個是非、一串是非。",
+						"description": "可宣告的種類只有一個數字、一串數字、一個是非、一串是非、信號。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"name\": \"{{strategyName}}-文字\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"string\"\n}",
@@ -3705,10 +3755,10 @@
 								"backtests"
 							]
 						},
-						"description": "算式在指標結果裡多放一個叫 `signal` 的名稱，重演就照它逐根決定買賣：**大於零買入、小於零賣出、等於零持平**，沒有這個名字等同持平——所以既有的算式一個字都不必改。\n\n這一發的算式在第一根說持平、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**重演不留存**：每次問、每次算、算完就走。",
+						"description": "回測一律以「信號」種類執行算式：算式回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，逐根決定進出場。\n\n這一發的算式在第一根說持有、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**重演不留存**：每次問、每次算、算完就走。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -3765,10 +3815,10 @@
 								"backtests"
 							]
 						},
-						"description": "手上同一時間只有一個倉位。聽到反向的信號時，**先以該棒收盤價平掉舊的，再以同一個價格開新的**——所以一次反手會留下一筆已平倉交易，並且算兩次開倉。\n\n這一發在收盤 110 開多倉，收盤 140 那根翻空：多倉賺 3,000 入袋，同一個 140 轉開空倉，最後一根收盤 150 讓空倉浮虧 1,000。",
+						"description": "手上同一時間只有一個倉位。聽到反向的信號時，**先以該棒收盤價平掉舊的，再以同一個價格開新的**——所以一次反手會留下一筆已平倉交易，並且算兩次開倉。\n\n這一發在收盤價低於 135 時買入、否則賣出：收盤 110 開多倉，收盤 140 那根翻空，多倉賺 3,000 入袋，同一個 140 轉開空倉，最後一根收盤 150 讓空倉浮虧 1,000。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tlast := data[len(data)-1].Close\\n\\tif last < 135 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 1}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": -1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close < 135 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Sell\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -3830,7 +3880,7 @@
 						"description": "每次開倉押多少三選一：**全押**、**百分比**、**固定金額**。選百分比時押下當時可用資金的那個百分比，其餘不動。\n\n這一發押 50%：12,000 的一半在收盤 120 買到 50 單位，收盤 150 時值 7,500，加上沒動的 6,000。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -3877,7 +3927,7 @@
 						"description": "固定金額大於當時可用資金時，**這一次開倉被跳過**——不算失敗、不中斷重演、也不計為一次開倉。所以固定金額填得比初始資金還大是合法的，行為就是每一次開倉都被跳過。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -3907,7 +3957,7 @@
 					]
 				},
 				{
-					"name": "重演：從來沒放過信號的算式，全程不動作",
+					"name": "拒絕：算式產出數字而不是信號",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -3925,10 +3975,10 @@
 								"backtests"
 							]
 						},
-						"description": "算式沒有放 `signal` 這個名稱時，每一棒都等同持平——這正是既有算式一個字都不必改的原因。",
+						"description": "回測一律以「信號」種類執行算式：算式要回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`。產出一組數字（舊寫法）會被回測擋下（`422`），訊息說出 `Calculate` 該長什麼樣。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -3942,13 +3992,11 @@
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"回應 200\", function () {",
-									"    pm.response.to.have.status(200);",
+									"pm.test(\"回應 422——算式的問題\", function () {",
+									"    pm.response.to.have.status(422);",
 									"});",
-									"pm.test(\"零交易的成績單\", function () {",
-									"    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(0);",
-									"    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(0);",
-									"    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(0);",
+									"pm.test(\"說出 Calculate 該回傳 indicator.Signal\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"indicator.Signal\");",
 									"});"
 								]
 							}
@@ -3977,7 +4025,7 @@
 						"description": "沒有本金就沒有東西可以押。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -4024,7 +4072,7 @@
 						"description": "百分比填 0 的行為會是「每次開倉都被跳過」，跑出來是一張全空的成績單，看起來像壞了——當場拒絕比事後困惑好。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -4071,7 +4119,7 @@
 						"description": "一根 K 線重演不出任何東西，所以不足兩根即整次拒絕。起訖顛倒、或市場那段時間根本沒有資料，對提問的人來說是同一件事，因此**共用同一句說明**。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tif len(data) < 2 {\\n\\t\\treturn map[string]float64{\\\"signal\\\": 0}\\n\\t}\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -4118,7 +4166,7 @@
 						"description": "錯的是名字對不上，不是算式本身寫壞——所以回的是 400 並指名那個參數，而不是把它報成算式失敗。重演與單純算指標在這裡的說法一字不差。",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"signal\\\": float64(indicator.LookbackCount(\\\"period\\\"))}\\n}\"\n}",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif indicator.LookbackCount(\\\"period\\\") > 0 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"

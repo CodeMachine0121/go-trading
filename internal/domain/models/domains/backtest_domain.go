@@ -123,11 +123,12 @@ func (backtestDomain BacktestDomain) Parameters() StrategyParametersDomain {
 	return backtestDomain.parameters
 }
 
-// ResultType is the kind of value a replayed script produces. It is always one number
-// per indicator, because a signal is one number — so unlike an indicator calculation
-// there is nothing here for a caller to declare, and nothing to get wrong.
+// ResultType is the kind of value a replayed script produces. It is always the
+// signal kind: a replay reads an opinion off every candle, so a script that produces
+// anything else — a number, an answer — is one a replay cannot act on and is refused.
+// There is nothing here for a caller to declare, and nothing to get wrong.
 func (backtestDomain BacktestDomain) ResultType() IndicatorResultTypeDomain {
-	return IndicatorResultTypeDomain{value: vo.IndicatorResultTypeFloat}
+	return IndicatorResultTypeDomain{value: vo.IndicatorResultTypeSignal}
 }
 
 // KCandleQuery is the stretch of storage to read: from the start asked for up to the
@@ -188,13 +189,13 @@ func (backtestDomain BacktestDomain) SelectInputCandles(
 // forget. The capital and the sizing mode travel the same way, so nothing pairs a set
 // of conditions with somebody else's candles.
 func (backtestDomain BacktestDomain) ReplayOver(
-	inputKCandles []vo.KCandleVo, perCandleIndicatorValues []map[string]vo.IndicatorValueVo,
+	inputKCandles []vo.KCandleVo, signals []SignalDomain,
 ) dto.BacktestResultDto {
 	backtestResultDto := NewBacktestSimulationDomain(
 		backtestDomain.initialCapital,
 		backtestDomain.positionSizing,
 		inputKCandles,
-		perCandleIndicatorValues).ToDto()
+		signals).ToDto()
 
 	backtestResultDto.Symbol = backtestDomain.symbol
 	backtestResultDto.Interval = string(backtestDomain.interval.Value())

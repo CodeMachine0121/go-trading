@@ -21,7 +21,13 @@ type IndicatorCalculationResultDto struct {
 	// OpenTimes is where each candle the script saw begins, earliest first. The nth
 	// value of a list-shaped indicator belongs to the nth of these. It is answered
 	// whatever the kind: it describes what was read, not what came out.
-	OpenTimes  []time.Time                  `json:"openTimes"`
-	ResultType string                       `json:"resultType"`
-	Values     map[string]IndicatorValueDto `json:"values"`
+	OpenTimes  []time.Time `json:"openTimes"`
+	ResultType string      `json:"resultType"`
+	// Values holds one value per indicator name for the four map-shaped kinds. Under
+	// the signal kind it is empty and Signal carries the result instead — a signal
+	// has no name, so there is nothing to key it by.
+	Values map[string]IndicatorValueDto `json:"values"`
+	// Signal is the whole result under the signal kind: buy, sell or hold. Empty for
+	// every other kind, and omitted from the response there.
+	Signal string `json:"signal,omitempty"`
 }

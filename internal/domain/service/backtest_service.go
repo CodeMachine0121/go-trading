@@ -74,5 +74,13 @@ func (backtestService *BacktestService) RunBacktest(
 		return dto.BacktestResultDto{}, executionError
 	}
 
-	return backtestDomain.ReplayOver(inputKCandles, perCandleIndicatorValues), nil
+	// The script ran under the signal kind, so each candle's result carries one
+	// opinion. Reading them into signals here keeps the simulation working in
+	// opinions rather than in raw script output.
+	signals := make([]domains.SignalDomain, 0, len(perCandleIndicatorValues))
+	for _, indicatorValues := range perCandleIndicatorValues {
+		signals = append(signals, domains.NewSignalDomain(indicatorValues))
+	}
+
+	return backtestDomain.ReplayOver(inputKCandles, signals), nil
 }

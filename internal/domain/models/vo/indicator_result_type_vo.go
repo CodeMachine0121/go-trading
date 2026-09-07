@@ -16,4 +16,8 @@ const (
 	IndicatorResultTypeBool IndicatorResultTypeVo = "bool"
 	// IndicatorResultTypeBoolList is a series of true/false answers per indicator.
 	IndicatorResultTypeBoolList IndicatorResultTypeVo = "boolList"
+	// IndicatorResultTypeSignal is one trading signal — buy, sell or hold — and
+	// nothing else. Unlike the other kinds it carries no indicator name: the whole
+	// result is that one signal.
+	IndicatorResultTypeSignal IndicatorResultTypeVo = "signal"
 )

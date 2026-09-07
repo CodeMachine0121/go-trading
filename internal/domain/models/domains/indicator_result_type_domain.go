@@ -16,6 +16,7 @@ var declarableIndicatorResultTypes = []vo.IndicatorResultTypeVo{
 	vo.IndicatorResultTypeFloatList,
 	vo.IndicatorResultTypeBool,
 	vo.IndicatorResultTypeBoolList,
+	vo.IndicatorResultTypeSignal,
 }
 
 // IndicatorResultTypeDomain is a declared indicator value kind and everything the
@@ -73,9 +74,20 @@ func (indicatorResultTypeDomain IndicatorResultTypeDomain) HoldsNumbers() bool {
 		indicatorResultTypeDomain.value == vo.IndicatorResultTypeFloatList
 }
 
+// IsSignal says whether the whole result is one trading signal rather than a set of
+// named numbers or answers. It is the third content shape a kind can have, alongside
+// the two the predicates above describe, and the only one with no indicator name.
+func (indicatorResultTypeDomain IndicatorResultTypeDomain) IsSignal() bool {
+	return indicatorResultTypeDomain.value == vo.IndicatorResultTypeSignal
+}
+
 // ScriptResultShape spells out what a script must hand back under this kind, so that a
 // script whose shape does not match can be told what was expected of it.
 func (indicatorResultTypeDomain IndicatorResultTypeDomain) ScriptResultShape() string {
+	if indicatorResultTypeDomain.IsSignal() {
+		return "indicator.Signal"
+	}
+
 	elementShape := "bool"
 	if indicatorResultTypeDomain.HoldsNumbers() {
 		elementShape = "float64"

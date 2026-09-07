@@ -73,13 +73,14 @@ func storedHourlyCandle(hour int, closePrice string) entities.KCandle {
 	}
 }
 
-// signalsSaying builds the per-candle results a script would have produced.
-func signalsSaying(signalStrengths ...float64) []map[string]vo.IndicatorValueVo {
-	perCandleIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(signalStrengths))
-	for _, signalStrength := range signalStrengths {
+// signalsSaying builds the per-candle results a signal-kind script would have
+// produced: one signal per candle, filed under the well-known key.
+func signalsSaying(signals ...vo.SignalVo) []map[string]vo.IndicatorValueVo {
+	perCandleIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(signals))
+	for _, signal := range signals {
 		perCandleIndicatorValues = append(perCandleIndicatorValues,
 			map[string]vo.IndicatorValueVo{
-				domains.SignalIndicatorName: {Numbers: []float64{signalStrength}},
+				vo.SignalIndicatorKey: {Signal: signal},
 			})
 	}
 
@@ -105,7 +106,7 @@ func TestRunBacktest(t *testing.T) {
 			})
 		fixture.indicatorScriptProxy.EXPECT().
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(signalsSaying(0, 0), nil)
+			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
 		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestRequestDto())
 
@@ -129,13 +130,13 @@ func TestRunBacktest(t *testing.T) {
 				kCandleVos []vo.KCandleVo,
 				_ domains.StrategyParametersDomain,
 			) ([]map[string]vo.IndicatorValueVo, error) {
-				// A replayed script always produces one number per indicator: the signal.
-				assert.Equal(t, vo.IndicatorResultTypeFloat, resultType.Value())
+				// A replay always runs the script under the signal kind.
+				assert.True(t, resultType.IsSignal())
 				require.Len(t, kCandleVos, 3)
 				assert.Equal(t, backtestStart.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
 				assert.Equal(t, 100.0, kCandleVos[0].Close)
 				assert.Equal(t, 120.0, kCandleVos[2].Close)
-				return signalsSaying(0, 0, 0), nil
+				return signalsSaying(vo.SignalHold, vo.SignalHold, vo.SignalHold), nil
 			})
 
 		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestRequestDto())
@@ -153,7 +154,7 @@ func TestRunBacktest(t *testing.T) {
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(signalsSaying(1, -1, 0), nil)
+			Return(signalsSaying(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
 		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestRequestDto())
 
@@ -171,7 +172,7 @@ func TestRunBacktest(t *testing.T) {
 		assert.Equal(t, 2, result.Summary.PositionOpenCount)
 	})
 
-	t.Run("a strategy that never speaks reports no trades rather than a failure", func(t *testing.T) {
+	t.Run("a strategy that only ever holds reports no trades rather than a failure", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{
@@ -179,9 +180,7 @@ func TestRunBacktest(t *testing.T) {
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{"ma": {Numbers: []float64{100}}}, {"ma": {Numbers: []float64{105}}},
-			}, nil)
+			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
 		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestRequestDto())
 
