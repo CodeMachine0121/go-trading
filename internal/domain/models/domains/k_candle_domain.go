@@ -13,6 +13,10 @@ import (
 // place this length is written down; widening the feature to other lengths starts here.
 const kCandleIntervalMinutes = 5
 
+// kCandleInterval is that same length as a span of time. It is derived rather than
+// written out again, so the length one candle covers stays said in exactly one place.
+const kCandleInterval = kCandleIntervalMinutes * time.Minute
+
 // KCandleDomain holds one K candle and guarantees its own invariants. An instance
 // only exists when every rule passed, so there is no half-valid K candle.
 type KCandleDomain struct {

@@ -86,8 +86,7 @@ func TestKCandleIngestionApplicationRunsTheBackfill(t *testing.T) {
 	underTest := newIngestionApplicationUnderTest(t)
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{{Symbol: "BTCUSDT", OpenTime: ingestionAt(8, 30)}}, nil)
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
-		"BTCUSDT", ingestionAt(8, 35), ingestionAt(9, 0))).
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, ingestionAt(8, 35), ingestionAt(9, 0))).
 		Return([]vo.MarketKCandleVo{
 			reportedKCandleAt(ingestionAt(8, 35)),
 			reportedKCandleAt(ingestionAt(8, 40)),

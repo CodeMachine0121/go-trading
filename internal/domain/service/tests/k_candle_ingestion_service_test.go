@@ -187,8 +187,7 @@ func TestScheduledRoundStoresTheNewestClosedCandles(t *testing.T) {
 
 func TestScheduledRoundAsksForTheNewestClosedCandlesBackwards(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
-		"BTCUSDT", ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
 		Return([]vo.MarketKCandleVo{}, nil)
 
 	_, runError := underTest.service.RunScheduledRound(t.Context(), []string{"BTCUSDT"})
@@ -379,8 +378,7 @@ func TestBackfillAsksOnlyForTheGap(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 0))
 			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).Return(testCase.stored, nil)
-			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
-				"BTCUSDT", testCase.expectedStartTime, ingestionAt(9, 0, 0))).
+			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, testCase.expectedStartTime, ingestionAt(9, 0, 0))).
 				Return([]vo.MarketKCandleVo{}, nil)
 
 			_, runError := underTest.service.RunBackfill(t.Context(), []string{"BTCUSDT"})
@@ -496,10 +494,10 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 		clockProxy.EXPECT().Now().Return(ingestionAt(9, 12, 0)),
 	)
 	marketDataProxy.EXPECT().
-		FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
+		FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, ingestionAt(8, 40, 0), ingestionAt(9, 0, 0))).
 		Return(nil, sourceUnreachable)
 	marketDataProxy.EXPECT().
-		FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", ingestionAt(8, 45, 0), ingestionAt(9, 5, 0))).
+		FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, ingestionAt(8, 45, 0), ingestionAt(9, 5, 0))).
 		Return([]vo.MarketKCandleVo{
 			validReportedKCandle(ingestionAt(8, 45, 0)),
 			validReportedKCandle(ingestionAt(8, 50, 0)),

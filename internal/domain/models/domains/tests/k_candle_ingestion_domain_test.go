@@ -83,7 +83,7 @@ func TestScheduledWindowCoversTheNewestClosedCandlesBackwards(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			window := ingestionDomain(t, at(9, 7, 0), testCase.roundCandleCount).
-				ScheduledWindow("BTCUSDT")
+				ScheduledWindow("BTCUSDT", vo.MarketCrypto)
 
 			assert.Equal(t, "BTCUSDT", window.Symbol)
 			assert.Equal(t, testCase.expectedStartTime, window.StartTime)
@@ -131,7 +131,7 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			window := ingestionDomain(t, at(9, 7, 0), 5).
-				BackfillWindow("BTCUSDT", testCase.latestStoredOpenTime)
+				BackfillWindow("BTCUSDT", vo.MarketCrypto, testCase.latestStoredOpenTime)
 
 			assert.Equal(t, "BTCUSDT", window.Symbol)
 			assert.Equal(t, testCase.expectedStartTime, window.StartTime)
@@ -194,7 +194,7 @@ func TestKCandleFetchWindowVoReportsWhetherItCoversAnything(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			window := vo.NewKCandleFetchWindowVo("BTCUSDT", testCase.startTime, testCase.endTime)
+			window := vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, testCase.startTime, testCase.endTime)
 
 			assert.Equal(t, testCase.expectedEmpty, window.IsEmpty())
 		})

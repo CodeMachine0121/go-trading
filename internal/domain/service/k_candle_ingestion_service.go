@@ -56,7 +56,7 @@ func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
 
 	return kCandleIngestionService.ingestSymbols(executionContext, ingestionDomain, symbols,
 		func(symbol string) (vo.KCandleFetchWindowVo, error) {
-			return ingestionDomain.ScheduledWindow(symbol), nil
+			return ingestionDomain.ScheduledWindow(symbol, vo.MarketCrypto), nil
 		}), nil
 }
 
@@ -80,10 +80,10 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 			}
 
 			if len(latestStored) == 0 {
-				return ingestionDomain.BackfillWindow(symbol, time.Time{}), nil
+				return ingestionDomain.BackfillWindow(symbol, vo.MarketCrypto, time.Time{}), nil
 			}
 
-			return ingestionDomain.BackfillWindow(symbol, latestStored[0].OpenTime), nil
+			return ingestionDomain.BackfillWindow(symbol, vo.MarketCrypto, latestStored[0].OpenTime), nil
 		}), nil
 }
 

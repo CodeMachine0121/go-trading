@@ -57,12 +57,19 @@ func (kCandleIngestionDomain KCandleIngestionDomain) LatestClosedOpenTime() time
 // ScheduledWindow covers the newest closed candle and the few before it. More than
 // one is deliberate: it absorbs figures the source corrects after the fact, and it
 // quietly refills whatever a failed round left behind.
-func (kCandleIngestionDomain KCandleIngestionDomain) ScheduledWindow(symbol string) vo.KCandleFetchWindowVo {
+//
+// It does not consider whether the market is trading: a round just after the close
+// still has that day's last candle to collect. Narrowing the window to what a market
+// could actually hold is the market's own job, and it is done to this window
+// afterwards.
+func (kCandleIngestionDomain KCandleIngestionDomain) ScheduledWindow(
+	symbol string, market vo.MarketVo,
+) vo.KCandleFetchWindowVo {
 	endTime := kCandleIngestionDomain.LatestClosedOpenTime()
 	candlesBefore := time.Duration(kCandleIngestionDomain.roundCandleCount-1) *
 		kCandleIngestionDomain.interval()
 
-	return vo.NewKCandleFetchWindowVo(symbol, endTime.Add(-candlesBefore), endTime)
+	return vo.NewKCandleFetchWindowVo(symbol, market, endTime.Add(-candlesBefore), endTime)
 }
 
 // BackfillWindow covers the gap left behind while nothing was running, reaching no
@@ -71,6 +78,7 @@ func (kCandleIngestionDomain KCandleIngestionDomain) ScheduledWindow(symbol stri
 // already closed the window comes back empty.
 func (kCandleIngestionDomain KCandleIngestionDomain) BackfillWindow(
 	symbol string,
+	market vo.MarketVo,
 	latestStoredOpenTime time.Time,
 ) vo.KCandleFetchWindowVo {
 	startTime := kCandleIngestionDomain.currentTime.Add(-kCandleIngestionDomain.backfillLookback)
@@ -82,7 +90,8 @@ func (kCandleIngestionDomain KCandleIngestionDomain) BackfillWindow(
 		}
 	}
 
-	return vo.NewKCandleFetchWindowVo(symbol, startTime, kCandleIngestionDomain.LatestClosedOpenTime())
+	return vo.NewKCandleFetchWindowVo(
+		symbol, market, startTime, kCandleIngestionDomain.LatestClosedOpenTime())
 }
 
 // SelectClosed drops any candle the source handed over whose interval has not
