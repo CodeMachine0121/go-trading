@@ -10,6 +10,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -67,9 +68,9 @@ func brokenKCandle(openTime time.Time) vo.MarketKCandleVo {
 		Low:                 decimal.RequireFromString("100"),
 		Close:               decimal.RequireFromString("110"),
 		Volume:              decimal.RequireFromString("11"),
-		QuoteVolume:         decimal.RequireFromString("1200"),
-		TakerBuyBaseVolume:  decimal.RequireFromString("5"),
-		TakerBuyQuoteVolume: decimal.RequireFromString("600"),
+		QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString("1200")),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString("5")),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString("600")),
 	}
 }
 
@@ -105,11 +106,18 @@ func startJobEvery(
 	kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(entities.KCandle{}, nil).AnyTimes()
 	marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).DoAndReturn(fetch).AnyTimes()
 
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+	}, nil).AnyTimes()
+
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback)),
-		[]string{"BTCUSDT"}, interval)
+				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				roundCandleCount, lookback)),
+		interval)
 	t.Cleanup(ingestionJob.Stop)
 	ingestionJob.Start(t.Context())
 }

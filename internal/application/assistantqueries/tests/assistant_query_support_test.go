@@ -29,9 +29,9 @@ func kCandleAt(openTime time.Time, closePrice string) entities.KCandle {
 		Low:                 decimal.RequireFromString("90"),
 		Close:               decimal.RequireFromString(closePrice),
 		Volume:              decimal.RequireFromString("11"),
-		QuoteVolume:         decimal.RequireFromString("1200"),
-		TakerBuyBaseVolume:  decimal.RequireFromString("5"),
-		TakerBuyQuoteVolume: decimal.RequireFromString("600"),
+		QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString("1200")),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString("5")),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString("600")),
 	}
 }
 

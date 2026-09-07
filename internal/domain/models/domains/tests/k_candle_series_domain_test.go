@@ -23,9 +23,9 @@ func buildSeriesKCandle(t *testing.T, openTime string, closePrice string) entiti
 		Low:                 decimal.NewFromInt(90),
 		Close:               decimal.RequireFromString(closePrice),
 		Volume:              decimal.NewFromInt(1),
-		QuoteVolume:         decimal.NewFromInt(1),
-		TakerBuyBaseVolume:  decimal.NewFromInt(1),
-		TakerBuyQuoteVolume: decimal.NewFromInt(1),
+		QuoteVolume:         decimal.NewNullDecimal(decimal.NewFromInt(1)),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.NewFromInt(1)),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.NewFromInt(1)),
 	}
 }
 

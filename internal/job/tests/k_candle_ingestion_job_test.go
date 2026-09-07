@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -66,11 +67,23 @@ func newJobUnderTest(t *testing.T, symbols []string) jobUnderTest {
 			return []vo.MarketKCandleVo{}, nil
 		}).AnyTimes()
 
+	watchedSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		watchedSymbols = append(watchedSymbols, entities.TradingSymbol{
+			Symbol: symbol, Market: string(vo.MarketCrypto), IsWatched: true,
+		})
+	}
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
+
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback)),
-		symbols, testInterval)
+				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				roundCandleCount, lookback)),
+		testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
 	return jobUnderTest{job: ingestionJob, stages: stages, backfillSymbols: backfillSymbols}
@@ -204,11 +217,18 @@ func newSlowJobUnderTest(t *testing.T) slowJobUnderTest {
 			return []vo.MarketKCandleVo{}, nil
 		}).AnyTimes()
 
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return([]entities.TradingSymbol{
+		{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+	}, nil).AnyTimes()
+
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, marketDataProxy, clockProxy, roundCandleCount, lookback)),
-		[]string{"BTCUSDT"}, testInterval)
+				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				roundCandleCount, lookback)),
+		testInterval)
 	// Released first whatever happens, so a test that fails partway cannot leave the
 	// round blocked and the job unable to notice it was stopped.
 	t.Cleanup(releaseTheRound)

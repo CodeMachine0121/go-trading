@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
@@ -22,11 +23,14 @@ import (
 )
 
 // registerRoutes is the composition root: it wires every concrete type and mounts
-// the routes. It hands back how to end the live follows, because they are the one
-// thing here that outlives the request that started it.
+// the routes. It hands back the two things a background job and a route both reach
+// for, so that there is exactly one of each: the live follows, which outlive the
+// request that started them, and the ingestion, which remembers which markets it has
+// decided are shut today — a memory that would be two different memories if the job
+// and the routes each built their own.
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
-) func() {
+) (*application.KCandleFollowApplication, *application.KCandleIngestionApplication) {
 	engine.Use(controller.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
 	engine.GET("/health", func(context *gin.Context) {
@@ -52,16 +56,43 @@ func registerRoutes(
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
 
+	// 抓取在這裡組起來而不是在背景工作那邊：加入觀察清單要立刻補齊那一檔，手動補齊也是
+	// 一條路由，兩者都不該等背景工作被打開才存在——而它們必須跟背景工作共用同一份，
+	// 否則「今天休市」會各記各的。
+	kCandleIngestionService := service.NewKCandleIngestionService(
+		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
+		marketDataProxyFor(applicationConfig),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.Ingestion.RoundCandleCount,
+		applicationConfig.Ingestion.BackfillLookback,
+	)
+	kCandleIngestionApplication := application.NewKCandleIngestionApplication(kCandleIngestionService)
+
+	engine.POST("/k-candles/backfill",
+		controller.NewKCandleBackfillController(kCandleIngestionApplication).CatchUpSymbol)
+
 	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			kCandleRepository,
+			symbolLookupProxyFor(applicationConfig),
+			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
+		kCandleIngestionService,
 	)
 
-	engine.GET("/trading-symbols", controller.NewTradingSymbolController(
-		tradingSymbolApplication).ListTradingSymbols)
+	tradingSymbolController := controller.NewTradingSymbolController(tradingSymbolApplication)
+
+	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
+
+	// 觀察清單是自己的資源（系統打算持續追蹤哪幾個市場），與「系統認得哪幾個」是兩件事，
+	// 所以有自己的路徑。
+	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
+	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
 
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 		service.NewIndicatorCalculationService(
@@ -183,19 +214,22 @@ func registerRoutes(
 	// round keeps running, and it is what fills in every candle that closed while
 	// nobody was looking. This path only shortens the wait for whoever is looking.
 	kCandleFollowService := service.NewKCandleFollowService(
-		marketdata.NewBinanceLiveMarketDataProxy(applicationConfig.LiveFollow.MarketDataStreamUrl),
+		liveMarketDataProxyFor(applicationConfig),
 		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.LiveFollow.UpdateIntervalCeiling,
 		applicationConfig.LiveFollow.QuietTimeout,
 		applicationConfig.LiveFollow.MaximumRetryDelay,
 	)
 
-	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
-		application.NewKCandleFollowApplication(kCandleFollowService),
-	).WatchKCandles)
+	kCandleFollowApplication := application.NewKCandleFollowApplication(kCandleFollowService)
 
-	return kCandleFollowService.Stop
+	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
+		kCandleFollowApplication).WatchKCandles)
+
+	return kCandleFollowApplication, kCandleIngestionApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -227,32 +261,81 @@ func assistantQueriesFor(
 }
 
 // backgroundJobsFor assembles the work the system does on its own. Switching
-// background jobs off leaves nothing to start; the ingestion job itself decides what
-// an empty watchlist means, which is nothing to fetch.
+// background jobs off leaves nothing to start; an empty watchlist means every round
+// has nothing to fetch, which is a state rather than a failure.
 func backgroundJobsFor(
-	database *gorm.DB,
 	applicationConfig config.ApplicationConfig,
+	kCandleFollowApplication *application.KCandleFollowApplication,
+	kCandleIngestionApplication *application.KCandleIngestionApplication,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
 		return []domaininterface.IBackgroundJob{}
 	}
 
 	kCandleIngestionJob := job.NewKCandleIngestionJob(
-		application.NewKCandleIngestionApplication(
-			service.NewKCandleIngestionService(
-				persistence.NewKCandleRepository(database),
-				marketdata.NewBinanceMarketDataProxy(
-					applicationConfig.Ingestion.MarketDataBaseUrl,
-					applicationConfig.Ingestion.MarketDataRequestTimeout,
-				),
-				clock.NewSystemClockProxy(),
-				applicationConfig.Ingestion.RoundCandleCount,
-				applicationConfig.Ingestion.BackfillLookback,
-			),
-		),
-		applicationConfig.Ingestion.Symbols,
-		job.KCandleIngestionInterval,
-	)
+		kCandleIngestionApplication, job.KCandleIngestionInterval)
 
-	return []domaininterface.IBackgroundJob{kCandleIngestionJob}
+	// Handing out a market's live places is its own job rather than another step of
+	// a round: a round held up by a source that will not answer would otherwise hold
+	// up a market that has just opened.
+	liveFollowRosterJob := job.NewLiveFollowRosterJob(
+		kCandleFollowApplication, job.LiveFollowRosterInterval)
+
+	return []domaininterface.IBackgroundJob{kCandleIngestionJob, liveFollowRosterJob}
+}
+
+// marketDataProxyFor is where every market's candle source is named, and the only
+// place they are all named together.
+//
+// Recognising a third market is one more entry in each of these three, plus its
+// rules in the settings. Nothing else in the system changes: everything above these
+// asks for a window of candles and never learns which venue answered.
+func marketDataProxyFor(
+	applicationConfig config.ApplicationConfig,
+) domaininterface.IMarketDataProxy {
+	return marketdata.NewMarketRoutedMarketDataProxy(
+		map[vo.MarketVo]domaininterface.IMarketDataProxy{
+			vo.MarketCrypto: marketdata.NewBinanceMarketDataProxy(
+				applicationConfig.Ingestion.MarketDataBaseUrl,
+				applicationConfig.Ingestion.MarketDataRequestTimeout,
+			),
+			vo.MarketTaiwanStock: marketdata.NewFugleMarketDataProxy(
+				applicationConfig.TaiwanStock.IntradayCandlesUrl,
+				applicationConfig.TaiwanStock.HistoricalCandlesUrl,
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.TimeZone,
+				clock.NewSystemClockProxy(),
+				applicationConfig.TaiwanStock.RequestTimeout,
+			),
+		})
+}
+
+// liveMarketDataProxyFor is where every market's live feed is named.
+func liveMarketDataProxyFor(
+	applicationConfig config.ApplicationConfig,
+) domaininterface.ILiveMarketDataProxy {
+	return marketdata.NewMarketRoutedLiveMarketDataProxy(
+		map[vo.MarketVo]domaininterface.ILiveMarketDataProxy{
+			vo.MarketCrypto: marketdata.NewBinanceLiveMarketDataProxy(
+				applicationConfig.LiveFollow.MarketDataStreamUrl),
+			vo.MarketTaiwanStock: marketdata.NewFugleLiveMarketDataProxy(
+				applicationConfig.TaiwanStock.StreamUrl,
+				applicationConfig.TaiwanStock.ApiKey),
+		})
+}
+
+// symbolLookupProxyFor is where every market is asked whether it has heard of a code.
+func symbolLookupProxyFor(
+	applicationConfig config.ApplicationConfig,
+) domaininterface.ISymbolLookupProxy {
+	return marketdata.NewMarketRoutedSymbolLookupProxy(
+		map[vo.MarketVo]domaininterface.ISymbolLookupProxy{
+			vo.MarketCrypto: marketdata.NewBinanceSymbolLookupProxy(
+				applicationConfig.Ingestion.SymbolCatalogUrl,
+				applicationConfig.Ingestion.MarketDataRequestTimeout),
+			vo.MarketTaiwanStock: marketdata.NewFugleSymbolLookupProxy(
+				applicationConfig.TaiwanStock.TickerUrl,
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.RequestTimeout),
+		})
 }

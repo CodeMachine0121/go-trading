@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -33,12 +34,14 @@ var ErrKCandleFollowStopped = errors.New("k candle follow stopped")
 // symbolFollow — leaving this file with the registry and the round trip to the
 // source.
 type KCandleFollowService struct {
-	liveMarketDataProxy   _interface.ILiveMarketDataProxy
-	kCandleRepository     _interface.IKCandleRepository
-	clockProxy            _interface.IClockProxy
-	updateIntervalCeiling time.Duration
-	quietTimeout          time.Duration
-	maximumRetryDelay     time.Duration
+	liveMarketDataProxy     _interface.ILiveMarketDataProxy
+	kCandleRepository       _interface.IKCandleRepository
+	tradingSymbolRepository _interface.ITradingSymbolRepository
+	clockProxy              _interface.IClockProxy
+	marketCatalogDomain     domains.MarketCatalogDomain
+	updateIntervalCeiling   time.Duration
+	quietTimeout            time.Duration
+	maximumRetryDelay       time.Duration
 
 	mutex   sync.Mutex
 	follows map[string]*symbolFollow
@@ -50,19 +53,23 @@ type KCandleFollowService struct {
 func NewKCandleFollowService(
 	liveMarketDataProxy _interface.ILiveMarketDataProxy,
 	kCandleRepository _interface.IKCandleRepository,
+	tradingSymbolRepository _interface.ITradingSymbolRepository,
 	clockProxy _interface.IClockProxy,
+	marketCatalogDomain domains.MarketCatalogDomain,
 	updateIntervalCeiling time.Duration,
 	quietTimeout time.Duration,
 	maximumRetryDelay time.Duration,
 ) *KCandleFollowService {
 	return &KCandleFollowService{
-		liveMarketDataProxy:   liveMarketDataProxy,
-		kCandleRepository:     kCandleRepository,
-		clockProxy:            clockProxy,
-		updateIntervalCeiling: updateIntervalCeiling,
-		quietTimeout:          quietTimeout,
-		maximumRetryDelay:     maximumRetryDelay,
-		follows:               make(map[string]*symbolFollow),
+		liveMarketDataProxy:     liveMarketDataProxy,
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		clockProxy:              clockProxy,
+		marketCatalogDomain:     marketCatalogDomain,
+		updateIntervalCeiling:   updateIntervalCeiling,
+		quietTimeout:            quietTimeout,
+		maximumRetryDelay:       maximumRetryDelay,
+		follows:                 make(map[string]*symbolFollow),
 	}
 }
 
@@ -79,6 +86,21 @@ func NewKCandleFollowService(
 func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 	executionContext context.Context, symbol string,
 ) (<-chan dto.KCandleFollowUpdateDto, error) {
+	registeredSymbol, isRegistered, findError := kCandleFollowService.tradingSymbolRepository.
+		FindBySymbol(executionContext, symbol)
+	if findError != nil {
+		return nil, findError
+	}
+
+	// Without a registration there is no market, and without a market there is no
+	// source to follow. Guessing one from the shape of the name is the rule this
+	// system deliberately does not have.
+	if !isRegistered {
+		return nil, fmt.Errorf("%w: %s", domains.ErrTradingSymbolNotRegistered, symbol)
+	}
+
+	marketDomain := kCandleFollowService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
+
 	kCandleFollowService.mutex.Lock()
 
 	if kCandleFollowService.stopped {
@@ -89,10 +111,21 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 
 	follow, isFollowing := kCandleFollowService.follows[symbol]
 	if !isFollowing {
+		if marketDomain.HasFollowCeiling() {
+			// This market hands its live places out from a roster. A viewer arriving
+			// for a symbol that holds none is told so rather than left watching a
+			// picture that looks live and is not — and rather than being given a place
+			// that would put the market over what its source allows.
+			kCandleFollowService.mutex.Unlock()
+
+			return kCandleFollowService.noLivePlaceUpdates(
+				executionContext, symbol, marketDomain), nil
+		}
+
 		// The follow outlives the viewer who started it, so it must not inherit their
 		// context — the next viewer would be following a market on a cancelled one.
 		followContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
-		follow = newSymbolFollow(symbol, cancel)
+		follow = newSymbolFollow(symbol, marketDomain.Value(), false, cancel)
 		kCandleFollowService.follows[symbol] = follow
 
 		go kCandleFollowService.run(followContext, follow)
@@ -101,12 +134,147 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 	viewerId, updates := follow.join()
 	kCandleFollowService.mutex.Unlock()
 
+	// The follow this viewer actually joined is carried, not just its name. Viewer ids
+	// start again at zero for every follow, and a rostered follow can be retired and a
+	// replacement started while a viewer of the old one is still writing to a wedged
+	// client — so by the time this fires, that id may belong to somebody else's stream.
+	joinedFollow := follow
 	go func() {
 		<-executionContext.Done()
-		kCandleFollowService.leave(symbol, viewerId)
+		kCandleFollowService.leave(symbol, joinedFollow, viewerId)
 	}()
 
 	return updates, nil
+}
+
+// RefreshFixedFollows works out which symbols each market with a live-place ceiling
+// should be following right now, and makes that true.
+//
+// Markets whose source limits how many symbols may be followed at once do not hand
+// their places out to whoever asks first. Places go to the earliest-registered
+// symbols on the watchlist, so which ones are live is a fact somebody can state and
+// change — rather than a race between viewers, where the losers get a chart that
+// looks live and is not.
+//
+// Places are given up before any are taken. Going over the source's limit for even a
+// moment costs every place at once, so the order here is not an optimisation but the
+// difference between a market being followed and none of it being.
+func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
+	executionContext context.Context,
+) error {
+	watchedSymbols, findError := kCandleFollowService.tradingSymbolRepository.FindWatched(
+		executionContext)
+	if findError != nil {
+		return findError
+	}
+
+	// One reading of the clock for the whole round. Asking twice would let the roster
+	// be decided in one trading day and the reason a follow ended in the next.
+	currentTime := kCandleFollowService.clockProxy.Now()
+
+	// The very same roster the console reads when it says which symbols can be
+	// followed, so what it promises and what this does cannot drift apart.
+	rosterDomain := domains.NewLiveFollowRosterDomain(
+		watchedSymbols, kCandleFollowService.marketCatalogDomain, currentTime)
+
+	// Why a follow is ending is decided here, where both answers are still in hand.
+	// Once it has ended, all that is left is a symbol that is no longer on a roster —
+	// and that looks identical whether the day is over or somebody else took its
+	// place.
+	departing := kCandleFollowService.takeDepartedFollows(rosterDomain)
+	for _, follow := range departing {
+		if kCandleFollowService.marketCatalogDomain.MarketOf(string(follow.market)).
+			IsOpen(currentTime) {
+			follow.publishUnavailable()
+		} else {
+			follow.publishMarketClosed()
+		}
+
+		follow.end()
+	}
+
+	kCandleFollowService.startMissingFollows(executionContext, rosterDomain)
+
+	return nil
+}
+
+// takeDepartedFollows removes every rostered follow that no longer holds a place and
+// hands them back to be ended outside the lock.
+func (kCandleFollowService *KCandleFollowService) takeDepartedFollows(
+	rosterDomain domains.LiveFollowRosterDomain,
+) []*symbolFollow {
+	kCandleFollowService.mutex.Lock()
+	defer kCandleFollowService.mutex.Unlock()
+
+	if kCandleFollowService.stopped {
+		return nil
+	}
+
+	departing := make([]*symbolFollow, 0)
+	for symbol, follow := range kCandleFollowService.follows {
+		if !follow.isOnARoster || rosterDomain.Holds(symbol) {
+			continue
+		}
+
+		departing = append(departing, follow)
+		delete(kCandleFollowService.follows, symbol)
+	}
+
+	return departing
+}
+
+// startMissingFollows begins following every symbol that holds a place and is not
+// already being followed.
+func (kCandleFollowService *KCandleFollowService) startMissingFollows(
+	executionContext context.Context, rosterDomain domains.LiveFollowRosterDomain,
+) {
+	kCandleFollowService.mutex.Lock()
+	defer kCandleFollowService.mutex.Unlock()
+
+	if kCandleFollowService.stopped {
+		return
+	}
+
+	for _, symbol := range rosterDomain.Symbols() {
+		if _, isFollowing := kCandleFollowService.follows[symbol]; isFollowing {
+			continue
+		}
+
+		followContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
+		follow := newSymbolFollow(symbol, rosterDomain.MarketOf(symbol), true, cancel)
+		kCandleFollowService.follows[symbol] = follow
+
+		go kCandleFollowService.run(followContext, follow)
+	}
+}
+
+// noLivePlaceUpdates is what a viewer of a market with no place for their symbol
+// receives: the news, once, and then nothing until they leave.
+//
+// The news says which of the two reasons it is, because a viewer arriving out of
+// hours is not looking at a system that has run out of places — they are looking at a
+// market that is shut, and it will let them in tomorrow without their doing a thing.
+//
+// The channel stays open rather than closing straight away because a closed channel
+// reads as "the feed ended" everywhere else in this feature, and a viewer who never
+// had a feed must not be told one ended.
+func (kCandleFollowService *KCandleFollowService) noLivePlaceUpdates(
+	executionContext context.Context, symbol string, marketDomain domains.MarketDomain,
+) <-chan dto.KCandleFollowUpdateDto {
+	status := dto.KCandleFollowStatusMarketClosed
+	if marketDomain.IsOpen(kCandleFollowService.clockProxy.Now()) {
+		status = dto.KCandleFollowStatusUnavailable
+	}
+
+	updates := make(chan dto.KCandleFollowUpdateDto, 1)
+	updates <- dto.KCandleFollowUpdateDto{Symbol: symbol, Status: status}
+
+	go func() {
+		<-executionContext.Done()
+		close(updates)
+	}()
+
+	return updates
 }
 
 // Stop ends every follow and closes every viewer's updates. A viewer arriving after
@@ -144,11 +312,17 @@ func (kCandleFollowService *KCandleFollowService) FollowedSymbolCount() int {
 }
 
 // leave removes one viewer and, when they were the last, ends the follow itself.
-func (kCandleFollowService *KCandleFollowService) leave(symbol string, viewerId int) {
+func (kCandleFollowService *KCandleFollowService) leave(
+	symbol string, joinedFollow *symbolFollow, viewerId int,
+) {
 	kCandleFollowService.mutex.Lock()
 
 	follow, isFollowing := kCandleFollowService.follows[symbol]
-	if !isFollowing {
+	// Not merely "is anything following this symbol", but "is it still the one this
+	// viewer joined". A replacement follow hands out the same ids from zero, so
+	// leaving by name alone would close a stream belonging to whoever now holds this
+	// id — with no status update and no reason.
+	if !isFollowing || follow != joinedFollow {
 		kCandleFollowService.mutex.Unlock()
 
 		return
@@ -182,13 +356,23 @@ func (kCandleFollowService *KCandleFollowService) run(
 
 	for {
 		liveKCandles, followError := kCandleFollowService.liveMarketDataProxy.
-			FollowKCandles(executionContext, follow.symbol)
+			FollowKCandles(executionContext, vo.FollowTargetVo{
+				Symbol: follow.symbol, Market: follow.market,
+			})
 		if followError == nil {
 			followDomain.MarkFollowing(kCandleFollowService.clockProxy.Now())
 			kCandleFollowService.consume(executionContext, follow, followDomain, liveKCandles)
 		} else {
 			log.Printf("live k candle follow: %s could not be followed: %v",
 				follow.symbol, followError)
+		}
+
+		// A follow whose context is already done was ended on purpose — the system is
+		// shutting down, or this symbol lost its place. Saying "stalled" then would
+		// leave a viewer waiting for a recovery nobody intends, and would overwrite
+		// the reason they were just given.
+		if executionContext.Err() != nil {
+			return
 		}
 
 		follow.publishStalled()

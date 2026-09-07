@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -29,9 +32,21 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 
+	// Nothing is watched unless a test says so, so a listing that also asks what
+	// holds a market's live places finds none held.
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return([]entities.TradingSymbol{}, nil).AnyTimes()
+
 	tradingSymbolController := controller.NewTradingSymbolController(
 		application.NewTradingSymbolApplication(
-			service.NewTradingSymbolService(tradingSymbolRepository, kCandleRepository)))
+			service.NewTradingSymbolService(
+				tradingSymbolRepository, kCandleRepository,
+				mocks.NewMockISymbolLookupProxy(mockController), tradingSymbolClockProxy(mockController),
+				tradingSymbolMarketCatalog()),
+			service.NewKCandleIngestionService(
+				kCandleRepository, tradingSymbolRepository,
+				mocks.NewMockIMarketDataProxy(mockController), tradingSymbolClockProxy(mockController),
+				tradingSymbolMarketCatalog(), 5, time.Hour)))
 
 	engine := gin.New()
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
@@ -62,7 +77,7 @@ func TestListTradingSymbolsResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Equal(t,
-			`[{"symbol":"BTCUSDT"},{"symbol":"ETHUSDT"},{"symbol":"XRPUSDT"}]`,
+			`[{"symbol":"BTCUSDT","displayName":"","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasTradingSession":false,"hasLiveUpdates":true},{"symbol":"ETHUSDT","displayName":"","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasTradingSession":false,"hasLiveUpdates":true},{"symbol":"XRPUSDT","displayName":"","market":"crypto","isWatched":false,"isWithinTradingSession":true,"hasTradingSession":false,"hasLiveUpdates":true}]`,
 			recorder.Body.String())
 	})
 
@@ -105,4 +120,20 @@ func TestTheRequestsOwnContextReachesStorage(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/trading-symbols", nil).WithContext(callerWentAway)
 
 	fixture.engine.ServeHTTP(httptest.NewRecorder(), request)
+}
+
+// tradingSymbolClockProxy stamps registrations with a moment the test states, rather
+// than with whatever the wall clock said while it ran.
+func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockProxy {
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
+
+	return clockProxy
+}
+
+// tradingSymbolMarketCatalog is the markets these tests are written against.
+func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+	})
 }

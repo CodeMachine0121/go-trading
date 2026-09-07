@@ -14,15 +14,20 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 		expectedJobCount int
 	}{
 		{name: "switched off leaves nothing to start", switchValue: "false", expectedJobCount: 0},
-		{name: "switched on assembles the ingestion job", switchValue: "true", expectedJobCount: 1},
+		{
+			// Keeping the stored candles current, and handing out the live places of
+			// markets that limit them. They are separate jobs so that a slow round
+			// cannot hold up a market that has just opened.
+			name:        "switched on assembles the work the system does on its own",
+			switchValue: "true", expectedJobCount: 2,
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv("BACKGROUND_JOBS_ENABLED", testCase.switchValue)
-			t.Setenv("KCANDLE_INGESTION_SYMBOLS", "BTCUSDT")
 
-			backgroundJobs := backgroundJobsFor(nil, config.Load())
+			backgroundJobs := backgroundJobsFor(config.Load(), nil, nil)
 
 			assert.Len(t, backgroundJobs, testCase.expectedJobCount)
 		})

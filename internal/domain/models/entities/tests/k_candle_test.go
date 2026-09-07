@@ -26,9 +26,9 @@ func TestKCandleToDto(t *testing.T) {
 				Low:                 decimal.RequireFromString("90.3"),
 				Close:               decimal.RequireFromString("110.4"),
 				Volume:              decimal.RequireFromString("11.5"),
-				QuoteVolume:         decimal.RequireFromString("1200.6"),
-				TakerBuyBaseVolume:  decimal.RequireFromString("5.7"),
-				TakerBuyQuoteVolume: decimal.RequireFromString("600.8"),
+				QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString("1200.6")),
+				TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString("5.7")),
+				TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString("600.8")),
 			},
 		},
 		{
@@ -41,9 +41,9 @@ func TestKCandleToDto(t *testing.T) {
 				Low:                 decimal.RequireFromString("0.000000000000000001"),
 				Close:               decimal.RequireFromString("0.000000000000000002"),
 				Volume:              decimal.RequireFromString("0.000000000000000003"),
-				QuoteVolume:         decimal.RequireFromString("0.000000000000000004"),
-				TakerBuyBaseVolume:  decimal.RequireFromString("0.000000000000000005"),
-				TakerBuyQuoteVolume: decimal.RequireFromString("0.000000000000000006"),
+				QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString("0.000000000000000004")),
+				TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString("0.000000000000000005")),
+				TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString("0.000000000000000006")),
 			},
 		},
 	}
@@ -59,9 +59,9 @@ func TestKCandleToDto(t *testing.T) {
 			assert.True(t, testCase.kCandle.Low.Equal(kCandleDto.Low))
 			assert.True(t, testCase.kCandle.Close.Equal(kCandleDto.Close))
 			assert.True(t, testCase.kCandle.Volume.Equal(kCandleDto.Volume))
-			assert.True(t, testCase.kCandle.QuoteVolume.Equal(kCandleDto.QuoteVolume))
-			assert.True(t, testCase.kCandle.TakerBuyBaseVolume.Equal(kCandleDto.TakerBuyBaseVolume))
-			assert.True(t, testCase.kCandle.TakerBuyQuoteVolume.Equal(kCandleDto.TakerBuyQuoteVolume))
+			assert.True(t, testCase.kCandle.QuoteVolume.Decimal.Equal(kCandleDto.QuoteVolume.Decimal))
+			assert.True(t, testCase.kCandle.TakerBuyBaseVolume.Decimal.Equal(kCandleDto.TakerBuyBaseVolume.Decimal))
+			assert.True(t, testCase.kCandle.TakerBuyQuoteVolume.Decimal.Equal(kCandleDto.TakerBuyQuoteVolume.Decimal))
 		})
 	}
 }
@@ -75,42 +75,4 @@ func TestKCandleToDtoHandsOutTheOpenTimeInUniversalTime(t *testing.T) {
 	assert.Equal(t, time.UTC, kCandleDto.OpenTime.Location())
 	assert.Equal(t, "2026-08-29T09:00:00Z", kCandleDto.OpenTime.Format(time.RFC3339))
 	assert.True(t, openTimeElsewhere.Equal(kCandleDto.OpenTime))
-}
-
-func TestKCandleToVo(t *testing.T) {
-	openTime := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
-
-	kCandleVo := entities.KCandle{
-		Symbol:              "BTCUSDT",
-		OpenTime:            openTime,
-		Open:                decimal.RequireFromString("100.5"),
-		High:                decimal.RequireFromString("120.25"),
-		Low:                 decimal.RequireFromString("90.75"),
-		Close:               decimal.RequireFromString("110.125"),
-		Volume:              decimal.RequireFromString("11.5"),
-		QuoteVolume:         decimal.RequireFromString("1200.5"),
-		TakerBuyBaseVolume:  decimal.RequireFromString("5.25"),
-		TakerBuyQuoteVolume: decimal.RequireFromString("600.75"),
-	}.ToVo()
-
-	assert.Equal(t, "BTCUSDT", kCandleVo.Symbol)
-	assert.Equal(t, openTime.Unix(), kCandleVo.OpenTimeUnixSeconds)
-	assert.Equal(t, 100.5, kCandleVo.Open)
-	assert.Equal(t, 120.25, kCandleVo.High)
-	assert.Equal(t, 90.75, kCandleVo.Low)
-	assert.Equal(t, 110.125, kCandleVo.Close)
-	assert.Equal(t, 11.5, kCandleVo.Volume)
-	assert.Equal(t, 1200.5, kCandleVo.QuoteVolume)
-	assert.Equal(t, 5.25, kCandleVo.TakerBuyBaseVolume)
-	assert.Equal(t, 600.75, kCandleVo.TakerBuyQuoteVolume)
-}
-
-func TestKCandleToVoCarriesTheOpenTimeAsUniversalSeconds(t *testing.T) {
-	elsewhere := time.FixedZone("UTC+8", 8*60*60)
-
-	kCandleVo := entities.KCandle{
-		OpenTime: time.Date(2026, 8, 29, 17, 0, 0, 0, elsewhere),
-	}.ToVo()
-
-	assert.Equal(t, time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC).Unix(), kCandleVo.OpenTimeUnixSeconds)
 }

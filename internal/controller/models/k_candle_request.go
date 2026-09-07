@@ -11,16 +11,16 @@ import (
 // On update the candle is named by the path, so a symbol or open time in the body
 // is only accepted when it matches.
 type KCandleRequest struct {
-	Symbol              string          `json:"symbol"`
-	OpenTime            time.Time       `json:"openTime"`
-	Open                decimal.Decimal `json:"open"`
-	High                decimal.Decimal `json:"high"`
-	Low                 decimal.Decimal `json:"low"`
-	Close               decimal.Decimal `json:"close"`
-	Volume              decimal.Decimal `json:"volume"`
-	QuoteVolume         decimal.Decimal `json:"quoteVolume"`
-	TakerBuyBaseVolume  decimal.Decimal `json:"takerBuyBaseVolume"`
-	TakerBuyQuoteVolume decimal.Decimal `json:"takerBuyQuoteVolume"`
+	Symbol              string              `json:"symbol"`
+	OpenTime            time.Time           `json:"openTime"`
+	Open                decimal.Decimal     `json:"open"`
+	High                decimal.Decimal     `json:"high"`
+	Low                 decimal.Decimal     `json:"low"`
+	Close               decimal.Decimal     `json:"close"`
+	Volume              decimal.Decimal     `json:"volume"`
+	QuoteVolume         decimal.NullDecimal `json:"quoteVolume"`
+	TakerBuyBaseVolume  decimal.NullDecimal `json:"takerBuyBaseVolume"`
+	TakerBuyQuoteVolume decimal.NullDecimal `json:"takerBuyQuoteVolume"`
 }
 
 // ToWriteDto turns the request into the shape the domain accepts, taking the

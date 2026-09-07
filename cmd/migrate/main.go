@@ -7,7 +7,10 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/config"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/joho/godotenv"
 )
@@ -45,10 +48,24 @@ func main() {
 
 	// 建好結構之後才登錄：登錄是業務動作，走 domain，不塞進只管結構的 migrator。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
+		// Registering the markets this system ships knowing about reaches no market
+		// source: the codes are written into this binary, so there is nothing to
+		// confirm with anybody. It is given a router serving no market rather than a
+		// stand-in that says yes — if that ever stops being true, this fails loudly
+		// instead of quietly registering something no venue has heard of.
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			persistence.NewKCandleRepository(database),
+			marketdata.NewMarketRoutedSymbolLookupProxy(nil),
+			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
+		// Registering the default markets never touches the watchlist, so nothing here
+		// ever asks for a symbol to be caught up. It is given nothing rather than a
+		// working ingestion for the same reason as the lookup above: if that ever stops
+		// being true, this fails loudly instead of quietly fetching candles from a
+		// migration.
+		nil,
 	)
 
 	// A migration is deliberately not interruptible: it is short, it is idempotent,

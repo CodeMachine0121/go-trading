@@ -7,6 +7,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// A market states its hours in its own zone, and a container built from scratch
+	// carries no zone database at all — so a system that reads "Asia/Taipei" perfectly
+	// well on a laptop would silently fall back to something else in production.
+	// Carrying the database inside the binary costs a few hundred kilobytes and
+	// removes the difference.
+	_ "time/tzdata"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // DatabaseConfig holds the PostgreSQL connection settings.
@@ -37,10 +45,14 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 // candle covers, so the way to switch ingestion off is BackgroundJobsEnabled or an
 // empty watchlist.
 type IngestionConfig struct {
-	Symbols                  []string
-	RoundCandleCount         int
-	BackfillLookback         time.Duration
-	MarketDataBaseUrl        string
+	Symbols           []string
+	RoundCandleCount  int
+	BackfillLookback  time.Duration
+	MarketDataBaseUrl string
+	// SymbolCatalogUrl is where a source is asked whether it lists a symbol at all.
+	// It is separate from the candle address because they are separate questions, and
+	// a source is free to answer them at different places.
+	SymbolCatalogUrl         string
 	MarketDataRequestTimeout time.Duration
 }
 
@@ -52,6 +64,36 @@ type LiveFollowConfig struct {
 	QuietTimeout          time.Duration
 	MaximumRetryDelay     time.Duration
 	MarketDataStreamUrl   string
+}
+
+// TaiwanStockConfig holds what reaching the Taiwan stock market runs on.
+//
+// Every one of these is a setting rather than a constant because every one of them
+// is a fact about a venue and a plan, settled outside this system: where it answers,
+// when it trades, and how many of its symbols one plan may follow at once. A venue
+// that shifts its hours, or a plan that buys more feeds, is a value change.
+type TaiwanStockConfig struct {
+	ApiKey string
+	// IntradayCandlesUrl answers about today; HistoricalCandlesUrl about any earlier
+	// day. They are separate because the source keeps them separate.
+	IntradayCandlesUrl   string
+	HistoricalCandlesUrl string
+	// TickerUrl is where a code is confirmed to exist before it is watched.
+	TickerUrl string
+	// StreamUrl is where the live feed is opened.
+	StreamUrl string
+	// TimeZone is the zone this market states its hours in. "Nine o'clock" is a fact
+	// about Taipei, and the moment it names universally is not the same one all year
+	// in markets that shift with daylight saving.
+	TimeZone *time.Location
+	// SessionStart and SessionEnd are how far into its local day trading begins and
+	// ends.
+	SessionStart time.Duration
+	SessionEnd   time.Duration
+	// SimultaneousFollowCeiling is how many of this market's symbols may be followed
+	// live at once, as the market data plan allows.
+	SimultaneousFollowCeiling int
+	RequestTimeout            time.Duration
 }
 
 // AssistantConfig holds what the market chat assistant runs under: which assistant to
@@ -124,13 +166,20 @@ type ApplicationConfig struct {
 	BackgroundJobsEnabled  bool
 	Ingestion              IngestionConfig
 	LiveFollow             LiveFollowConfig
-	Assistant              AssistantConfig
-	Authentication         AuthenticationConfig
-	Database               DatabaseConfig
+	TaiwanStock            TaiwanStockConfig
+	// MarketRules is how every market the system recognises behaves. Recognising one
+	// more market is one more entry here and two more sources wired to it; nothing
+	// inside the system branches on which market it is looking at.
+	MarketRules    map[vo.MarketVo]vo.MarketRulesVo
+	Assistant      AssistantConfig
+	Authentication AuthenticationConfig
+	Database       DatabaseConfig
 }
 
 // Load reads the configuration from the process environment, applying defaults.
 func Load() ApplicationConfig {
+	taiwanStockConfig := loadTaiwanStockConfig()
+
 	return ApplicationConfig{
 		ServerPort: stringWithDefault("SERVER_PORT", "8080"),
 		CorsAllowedOrigins: commaSeparatedListWithDefault(
@@ -139,13 +188,16 @@ func Load() ApplicationConfig {
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
+		TaiwanStock:           taiwanStockConfig,
+		MarketRules:           marketRules(taiwanStockConfig),
 		Ingestion: IngestionConfig{
-			Symbols:          commaSeparatedList("KCANDLE_INGESTION_SYMBOLS"),
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 5),
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
+			SymbolCatalogUrl: stringWithDefault(
+				"MARKET_DATA_SYMBOL_CATALOG_URL", "https://api.binance.com/api/v3/exchangeInfo"),
 			MarketDataRequestTimeout: time.Duration(
 				positiveIntWithDefault("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
@@ -198,6 +250,85 @@ func Load() ApplicationConfig {
 			SslMode:  stringWithDefault("POSTGRES_SSL_MODE", "disable"),
 		},
 	}
+}
+
+// marketRules is every market the system recognises and how each one behaves.
+//
+// A market that never closes and has no follow ceiling is written as the zero value
+// rather than as a special case, so that the rules read it exactly as they read any
+// other market.
+//
+// Recognising a third market is one more entry here and its sources wired up beside
+// the others; nothing inside the system branches on which market it is looking at.
+func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketRulesVo {
+	return map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   taiwanStockConfig.TimeZone,
+				DailyStart: taiwanStockConfig.SessionStart,
+				DailyEnd:   taiwanStockConfig.SessionEnd,
+				// Weekends are not a setting. Every stock exchange takes them off, and
+				// the days it additionally takes off are read from its own answers
+				// rather than kept in a list somebody has to maintain.
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			SimultaneousFollowCeiling: taiwanStockConfig.SimultaneousFollowCeiling,
+		},
+	}
+}
+
+func loadTaiwanStockConfig() TaiwanStockConfig {
+	return TaiwanStockConfig{
+		ApiKey: stringWithDefault("TAIWAN_STOCK_API_KEY", ""),
+		IntradayCandlesUrl: stringWithDefault("TAIWAN_STOCK_INTRADAY_CANDLES_URL",
+			"https://api.fugle.tw/marketdata/v1.0/stock/intraday/candles"),
+		HistoricalCandlesUrl: stringWithDefault("TAIWAN_STOCK_HISTORICAL_CANDLES_URL",
+			"https://api.fugle.tw/marketdata/v1.0/stock/historical/candles"),
+		TickerUrl: stringWithDefault("TAIWAN_STOCK_TICKER_URL",
+			"https://api.fugle.tw/marketdata/v1.0/stock/intraday/ticker"),
+		StreamUrl: stringWithDefault("TAIWAN_STOCK_STREAM_URL",
+			"wss://api.fugle.tw/marketdata/v1.0/stock/streaming"),
+		TimeZone:     timeZoneWithDefault("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipei"),
+		SessionStart: timeOfDayWithDefault("TAIWAN_STOCK_SESSION_START", 9*time.Hour),
+		SessionEnd:   timeOfDayWithDefault("TAIWAN_STOCK_SESSION_END", 13*time.Hour+30*time.Minute),
+		SimultaneousFollowCeiling: positiveIntWithDefault(
+			"TAIWAN_STOCK_SIMULTANEOUS_FOLLOW_CEILING", 5),
+		RequestTimeout: time.Duration(
+			positiveIntWithDefault("TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+	}
+}
+
+// timeZoneWithDefault reads a zone by name, falling back to the default when the
+// variable is missing or names a zone this machine has never heard of.
+//
+// A zone that cannot be loaded must not leave the market with none: a nil zone is how
+// a market says it never closes, so a typo here would quietly turn a market that
+// shuts every evening into one that never does.
+func timeZoneWithDefault(key string, defaultName string) *time.Location {
+	location, loadError := time.LoadLocation(stringWithDefault(key, defaultName))
+	if loadError != nil {
+		location, loadError = time.LoadLocation(defaultName)
+		if loadError != nil {
+			return time.UTC
+		}
+	}
+
+	return location
+}
+
+// timeOfDayWithDefault reads a time of day written as HH:MM and hands back how far
+// into the day it is, falling back to the default when the variable is missing or
+// says something that is not a time of day.
+func timeOfDayWithDefault(key string, defaultValue time.Duration) time.Duration {
+	timeOfDay, parseError := time.Parse("15:04", os.Getenv(key))
+	if parseError != nil {
+		return defaultValue
+	}
+
+	return time.Duration(timeOfDay.Hour())*time.Hour + time.Duration(timeOfDay.Minute())*time.Minute
 }
 
 // positiveIntWithDefault reads a whole number greater than zero, falling back to the

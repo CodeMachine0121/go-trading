@@ -21,6 +21,6 @@ import (
 // belong where a table test can reach them rather than behind a socket.
 type ILiveMarketDataProxy interface {
 	FollowKCandles(
-		executionContext context.Context, symbol string,
+		executionContext context.Context, target vo.FollowTargetVo,
 	) (<-chan vo.LiveKCandleVo, error)
 }

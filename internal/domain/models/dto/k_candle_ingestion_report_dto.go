@@ -12,7 +12,17 @@ type KCandleIngestionReportDto struct {
 // FetchFailureReason means the source answered; candles it answered with may still
 // have been skipped, which is a different thing from not answering at all.
 type KCandleSymbolIngestionReportDto struct {
-	Symbol             string
+	Symbol string
+	// Market is which market this symbol belongs to, so that a reader of the report
+	// can tell a market that was shut from one that would not answer.
+	Market string
+	// WasAsked says the source was actually reached for this symbol. It is false when
+	// the market could hold nothing in the window — a night, a weekend, a day already
+	// decided shut — which is a normal state and not a failure worth writing down.
+	//
+	// It exists because "asked and told nothing" and "never asked" look identical from
+	// the counts alone, and only the first of them says anything about the market.
+	WasAsked           bool
 	StoredCount        int
 	SkippedKCandles    []SkippedKCandleDto
 	FetchFailureReason string

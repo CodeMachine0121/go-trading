@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -12,50 +13,10 @@ func TestLoadAppliesIngestionDefaultsWhenNothingIsSet(t *testing.T) {
 	applicationConfig := config.Load()
 
 	assert.True(t, applicationConfig.BackgroundJobsEnabled)
-	assert.Empty(t, applicationConfig.Ingestion.Symbols)
 	assert.Equal(t, 5, applicationConfig.Ingestion.RoundCandleCount)
 	assert.Equal(t, 24*time.Hour, applicationConfig.Ingestion.BackfillLookback)
 	assert.Equal(t, 10*time.Second, applicationConfig.Ingestion.MarketDataRequestTimeout)
 	assert.NotEmpty(t, applicationConfig.Ingestion.MarketDataBaseUrl)
-}
-
-func TestLoadReadsTheWatchlist(t *testing.T) {
-	testCases := []struct {
-		name            string
-		watchlistValue  string
-		expectedSymbols []string
-	}{
-		{
-			name:            "one symbol per comma",
-			watchlistValue:  "BTCUSDT,ETHUSDT",
-			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
-		},
-		{
-			name:            "spaces around a symbol are ignored",
-			watchlistValue:  " BTCUSDT , ETHUSDT ",
-			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
-		},
-		{
-			name:            "empty entries are dropped",
-			watchlistValue:  "BTCUSDT,,ETHUSDT,",
-			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
-		},
-		{
-			name:            "a watchlist of nothing but separators is empty",
-			watchlistValue:  ",,",
-			expectedSymbols: []string{},
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv("KCANDLE_INGESTION_SYMBOLS", testCase.watchlistValue)
-
-			applicationConfig := config.Load()
-
-			assert.Equal(t, testCase.expectedSymbols, applicationConfig.Ingestion.Symbols)
-		})
-	}
 }
 
 func TestLoadReadsTheBackgroundJobSwitch(t *testing.T) {
@@ -140,4 +101,63 @@ func TestLoadReadsTheMarketSourceAddress(t *testing.T) {
 	applicationConfig := config.Load()
 
 	assert.Equal(t, "http://127.0.0.1:9999/klines", applicationConfig.Ingestion.MarketDataBaseUrl)
+}
+
+func TestLoadAppliesTaiwanStockDefaultsWhenNothingIsSet(t *testing.T) {
+	applicationConfig := config.Load()
+
+	assert.Equal(t, 9*time.Hour, applicationConfig.TaiwanStock.SessionStart)
+	assert.Equal(t, 13*time.Hour+30*time.Minute, applicationConfig.TaiwanStock.SessionEnd)
+	assert.Equal(t, 5, applicationConfig.TaiwanStock.SimultaneousFollowCeiling)
+	assert.Equal(t, "Asia/Taipei", applicationConfig.TaiwanStock.TimeZone.String())
+	assert.NotEmpty(t, applicationConfig.TaiwanStock.IntradayCandlesUrl)
+	assert.NotEmpty(t, applicationConfig.TaiwanStock.HistoricalCandlesUrl)
+	assert.NotEmpty(t, applicationConfig.TaiwanStock.TickerUrl)
+	assert.NotEmpty(t, applicationConfig.TaiwanStock.StreamUrl)
+}
+
+func TestLoadReadsTheTaiwanStockSessionAsATimeOfDay(t *testing.T) {
+	t.Setenv("TAIWAN_STOCK_SESSION_START", "08:45")
+	t.Setenv("TAIWAN_STOCK_SESSION_END", "14:30")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t, 8*time.Hour+45*time.Minute, applicationConfig.TaiwanStock.SessionStart)
+	assert.Equal(t, 14*time.Hour+30*time.Minute, applicationConfig.TaiwanStock.SessionEnd)
+}
+
+func TestLoadFallsBackWhenTheSessionIsNotATimeOfDay(t *testing.T) {
+	// A market left with no hours at all would read as one that never closes, which
+	// is the opposite of what a typo here was trying to say.
+	t.Setenv("TAIWAN_STOCK_SESSION_START", "quarter to nine")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t, 9*time.Hour, applicationConfig.TaiwanStock.SessionStart)
+}
+
+func TestLoadFallsBackWhenTheTimeZoneIsOneNobodyHasHeardOf(t *testing.T) {
+	// A zone that cannot be loaded must not leave the market with none: no zone is how
+	// a market says it never closes, so a typo would quietly turn a market that shuts
+	// every evening into one that never does.
+	t.Setenv("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipeh")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t, "Asia/Taipei", applicationConfig.TaiwanStock.TimeZone.String())
+	assert.NotNil(t, applicationConfig.MarketRules[vo.MarketTaiwanStock].TradingSession.Location)
+}
+
+func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
+	applicationConfig := config.Load()
+
+	// The round-the-clock market says it never closes by having no zone to state hours
+	// in, and no ceiling on how many of it may be followed at once.
+	assert.Nil(t, applicationConfig.MarketRules[vo.MarketCrypto].TradingSession.Location)
+	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SimultaneousFollowCeiling)
+
+	taiwanStockRules := applicationConfig.MarketRules[vo.MarketTaiwanStock]
+	assert.Equal(t, 5, taiwanStockRules.SimultaneousFollowCeiling)
+	assert.Equal(t, 9*time.Hour, taiwanStockRules.TradingSession.DailyStart)
+	assert.Len(t, taiwanStockRules.TradingSession.Weekdays, 5)
 }

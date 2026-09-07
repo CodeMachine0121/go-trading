@@ -83,7 +83,7 @@ func TestScheduledWindowCoversTheNewestClosedCandlesBackwards(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			window := ingestionDomain(t, at(9, 7, 0), testCase.roundCandleCount).
-				ScheduledWindow("BTCUSDT")
+				ScheduledWindow("BTCUSDT", vo.MarketCrypto)
 
 			assert.Equal(t, "BTCUSDT", window.Symbol)
 			assert.Equal(t, testCase.expectedStartTime, window.StartTime)
@@ -131,7 +131,7 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			window := ingestionDomain(t, at(9, 7, 0), 5).
-				BackfillWindow("BTCUSDT", testCase.latestStoredOpenTime)
+				BackfillWindow("BTCUSDT", vo.MarketCrypto, testCase.latestStoredOpenTime)
 
 			assert.Equal(t, "BTCUSDT", window.Symbol)
 			assert.Equal(t, testCase.expectedStartTime, window.StartTime)
@@ -194,7 +194,7 @@ func TestKCandleFetchWindowVoReportsWhetherItCoversAnything(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			window := vo.NewKCandleFetchWindowVo("BTCUSDT", testCase.startTime, testCase.endTime)
+			window := vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, testCase.startTime, testCase.endTime)
 
 			assert.Equal(t, testCase.expectedEmpty, window.IsEmpty())
 		})
@@ -210,9 +210,9 @@ func TestMarketKCandleVoCarriesEveryFigureIntoTheWriteShape(t *testing.T) {
 		Low:                 decimal.RequireFromString("90"),
 		Close:               decimal.RequireFromString("110"),
 		Volume:              decimal.RequireFromString("11"),
-		QuoteVolume:         decimal.RequireFromString("1200"),
-		TakerBuyBaseVolume:  decimal.RequireFromString("5"),
-		TakerBuyQuoteVolume: decimal.RequireFromString("600"),
+		QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString("1200")),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString("5")),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString("600")),
 	}
 
 	writeDto := marketKCandle.ToWriteDto()
@@ -224,9 +224,9 @@ func TestMarketKCandleVoCarriesEveryFigureIntoTheWriteShape(t *testing.T) {
 	assert.Equal(t, "90", writeDto.Low.String())
 	assert.Equal(t, "110", writeDto.Close.String())
 	assert.Equal(t, "11", writeDto.Volume.String())
-	assert.Equal(t, "1200", writeDto.QuoteVolume.String())
-	assert.Equal(t, "5", writeDto.TakerBuyBaseVolume.String())
-	assert.Equal(t, "600", writeDto.TakerBuyQuoteVolume.String())
+	assert.Equal(t, "1200", writeDto.QuoteVolume.Decimal.String())
+	assert.Equal(t, "5", writeDto.TakerBuyBaseVolume.Decimal.String())
+	assert.Equal(t, "600", writeDto.TakerBuyQuoteVolume.Decimal.String())
 }
 
 func openTimesOf(marketKCandles []vo.MarketKCandleVo) []time.Time {

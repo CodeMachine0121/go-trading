@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // viewerBufferSize is how many updates a viewer may fall behind by before one is
@@ -23,9 +24,18 @@ const viewerBufferSize = 8
 // latestUpdate is kept so that somebody arriving mid-candle sees the shape now
 // rather than an empty chart until the market next moves.
 type symbolFollow struct {
-	symbol   string
-	cancel   context.CancelFunc
-	finished chan struct{}
+	symbol string
+	// market is which venue this symbol trades on, carried so that opening its feed
+	// needs nothing looked up again — the follow already knows.
+	market vo.MarketVo
+	cancel context.CancelFunc
+	// isOnARoster marks a follow the system keeps up because a market's places were
+	// handed to this symbol, not because anybody is looking at it. Such a follow
+	// outlives its last viewer: the places are decided by the watchlist, and dropping
+	// one the moment nobody happened to be watching would leave it unfilled until
+	// somebody was.
+	isOnARoster bool
+	finished    chan struct{}
 
 	mutex        sync.Mutex
 	viewers      map[int]chan dto.KCandleFollowUpdateDto
@@ -35,12 +45,16 @@ type symbolFollow struct {
 	isStalled    bool
 }
 
-func newSymbolFollow(symbol string, cancel context.CancelFunc) *symbolFollow {
+func newSymbolFollow(
+	symbol string, market vo.MarketVo, isOnARoster bool, cancel context.CancelFunc,
+) *symbolFollow {
 	return &symbolFollow{
-		symbol:   symbol,
-		cancel:   cancel,
-		finished: make(chan struct{}),
-		viewers:  make(map[int]chan dto.KCandleFollowUpdateDto),
+		symbol:      symbol,
+		market:      market,
+		isOnARoster: isOnARoster,
+		cancel:      cancel,
+		finished:    make(chan struct{}),
+		viewers:     make(map[int]chan dto.KCandleFollowUpdateDto),
 	}
 }
 
@@ -72,8 +86,11 @@ func (symbolFollow *symbolFollow) join() (int, chan dto.KCandleFollowUpdateDto) 
 	return viewerId, updates
 }
 
-// leave removes one viewer, reporting whether they were the last — which is the one
-// thing the caller needs to know, because it is what ends the follow.
+// leave removes one viewer, reporting whether that ends the follow — which is the
+// one thing the caller needs to know.
+//
+// A follow held up by a market's roster is never ended by a viewer leaving. It was
+// not started by one either, so nobody watching is simply nobody watching.
 func (symbolFollow *symbolFollow) leave(viewerId int) bool {
 	symbolFollow.mutex.Lock()
 	defer symbolFollow.mutex.Unlock()
@@ -85,7 +102,7 @@ func (symbolFollow *symbolFollow) leave(viewerId int) bool {
 	delete(symbolFollow.viewers, viewerId)
 	close(updates)
 
-	return len(symbolFollow.viewers) == 0
+	return len(symbolFollow.viewers) == 0 && !symbolFollow.isOnARoster
 }
 
 // publish hands one update to everyone watching, and remembers it for whoever
@@ -99,9 +116,16 @@ func (symbolFollow *symbolFollow) publish(update dto.KCandleFollowUpdateDto) {
 
 	// Stalled carries no candle, so it must not become the shape handed to whoever
 	// arrives next — they would be drawn a candle of zeros. It is remembered as a
-	// state instead, and told to them separately.
+	// state instead, and told to them separately. Unavailable carries no candle
+	// either, and it is the last thing a follow ever says, so there is no next
+	// arrival for it to mislead.
 	symbolFollow.isStalled = update.Status == dto.KCandleFollowStatusStalled
-	if !symbolFollow.isStalled {
+	// Named the other way round — which states do carry one — so that a state added
+	// later is silently treated as carrying no candle rather than silently treated as
+	// carrying one it does not have.
+	carriesACandle := update.Status == dto.KCandleFollowStatusForming ||
+		update.Status == dto.KCandleFollowStatusClosed
+	if carriesACandle {
 		symbolFollow.latestUpdate = update
 		symbolFollow.hasLatest = true
 	}
@@ -126,6 +150,32 @@ func (symbolFollow *symbolFollow) stalledUpdate() dto.KCandleFollowUpdateDto {
 		Symbol: symbolFollow.symbol,
 		Status: dto.KCandleFollowStatusStalled,
 	}
+}
+
+// publishUnavailable tells every viewer that this symbol has no live updating left
+// to give: its place on the roster went to another symbol.
+//
+// It is said before the follow ends rather than left to the closing of their
+// channels, because a channel that simply stops carries no reason, and the reason is
+// the whole difference between waiting and not bothering to.
+func (symbolFollow *symbolFollow) publishUnavailable() {
+	symbolFollow.publish(dto.KCandleFollowUpdateDto{
+		Symbol: symbolFollow.symbol,
+		Status: dto.KCandleFollowStatusUnavailable,
+	})
+}
+
+// publishMarketClosed tells every viewer that the market itself has shut, which is
+// why nothing more is coming.
+//
+// The same silence follows as for unavailable, and that is exactly why it must be
+// said differently: silence explained as "this will not come back" leaves somebody
+// looking for a fault, when all that happened is that the day ended.
+func (symbolFollow *symbolFollow) publishMarketClosed() {
+	symbolFollow.publish(dto.KCandleFollowUpdateDto{
+		Symbol: symbolFollow.symbol,
+		Status: dto.KCandleFollowStatusMarketClosed,
+	})
 }
 
 // end stops this follow and closes every viewer's updates, waiting for the work to

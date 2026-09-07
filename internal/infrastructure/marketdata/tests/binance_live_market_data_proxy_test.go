@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
@@ -57,7 +58,7 @@ func TestTheFeedIsOpenedForFiveMinuteCandlesOfThatSymbol(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	_, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
-		FollowKCandles(t.Context(), "BTCUSDT")
+		FollowKCandles(t.Context(), vo.FollowTargetVo{Symbol: "BTCUSDT", Market: vo.MarketCrypto})
 	require.NoError(t, followError)
 
 	assert.Equal(t, "/btcusdt@kline_5m", <-askedFor)
@@ -84,7 +85,7 @@ func TestALiveMessageIsNormalizedIntoOneCandle(t *testing.T) {
 	server := oneMessageFeed(t, aLiveMessage(true, "90"))
 
 	liveKCandles, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
-		FollowKCandles(t.Context(), "BTCUSDT")
+		FollowKCandles(t.Context(), vo.FollowTargetVo{Symbol: "BTCUSDT", Market: vo.MarketCrypto})
 	require.NoError(t, followError)
 
 	liveKCandle := <-liveKCandles
@@ -96,9 +97,9 @@ func TestALiveMessageIsNormalizedIntoOneCandle(t *testing.T) {
 	assert.Equal(t, "90", liveKCandle.Low.String())
 	assert.Equal(t, "118.25", liveKCandle.Close.String())
 	assert.Equal(t, "12.5", liveKCandle.Volume.String())
-	assert.Equal(t, "1400.75", liveKCandle.QuoteVolume.String())
-	assert.Equal(t, "7.25", liveKCandle.TakerBuyBaseVolume.String())
-	assert.Equal(t, "800.5", liveKCandle.TakerBuyQuoteVolume.String())
+	assert.Equal(t, "1400.75", liveKCandle.QuoteVolume.Decimal.String())
+	assert.Equal(t, "7.25", liveKCandle.TakerBuyBaseVolume.Decimal.String())
+	assert.Equal(t, "800.5", liveKCandle.TakerBuyQuoteVolume.Decimal.String())
 	assert.True(t, liveKCandle.Closed, "來源說這一根走完了")
 }
 
@@ -113,7 +114,7 @@ func TestTheLookalikeFieldsDoNotLandInEachOther(t *testing.T) {
 	server := oneMessageFeed(t, aLiveMessage(false, "90"))
 
 	liveKCandles, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
-		FollowKCandles(t.Context(), "BTCUSDT")
+		FollowKCandles(t.Context(), vo.FollowTargetVo{Symbol: "BTCUSDT", Market: vo.MarketCrypto})
 	require.NoError(t, followError)
 
 	liveKCandle, isDelivering := <-liveKCandles
@@ -131,7 +132,7 @@ func TestACandleStillRunningIsReportedAsNotClosed(t *testing.T) {
 	server := oneMessageFeed(t, aLiveMessage(false, "90"))
 
 	liveKCandles, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
-		FollowKCandles(t.Context(), "BTCUSDT")
+		FollowKCandles(t.Context(), vo.FollowTargetVo{Symbol: "BTCUSDT", Market: vo.MarketCrypto})
 	require.NoError(t, followError)
 
 	assert.False(t, (<-liveKCandles).Closed)
@@ -153,7 +154,7 @@ func TestAnUnreadableMessageEndsTheFeed(t *testing.T) {
 			server := oneMessageFeed(t, testCase.message)
 
 			liveKCandles, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
-				FollowKCandles(t.Context(), "BTCUSDT")
+				FollowKCandles(t.Context(), vo.FollowTargetVo{Symbol: "BTCUSDT", Market: vo.MarketCrypto})
 			require.NoError(t, followError)
 
 			_, isDelivering := <-liveKCandles
@@ -181,7 +182,7 @@ func TestASourceThatCannotBeReachedIsReportedImmediately(t *testing.T) {
 			defer cancel()
 
 			liveKCandles, followError := marketdata.NewBinanceLiveMarketDataProxy(testCase.baseUrl).
-				FollowKCandles(executionContext, testCase.symbol)
+				FollowKCandles(executionContext, vo.FollowTargetVo{Symbol: testCase.symbol, Market: vo.MarketCrypto})
 
 			require.Error(t, followError)
 			assert.Nil(t, liveKCandles)

@@ -62,9 +62,9 @@ func (kLine binanceLiveKLine) toLiveKCandleVo() (vo.LiveKCandleVo, error) {
 		Low:                 figures[2],
 		Close:               figures[3],
 		Volume:              figures[4],
-		QuoteVolume:         figures[5],
-		TakerBuyBaseVolume:  figures[6],
-		TakerBuyQuoteVolume: figures[7],
+		QuoteVolume:         decimal.NewNullDecimal(figures[5]),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(figures[6]),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(figures[7]),
 		Closed:              kLine.Closed,
 	}, nil
 }

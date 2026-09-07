@@ -6,4 +6,35 @@ package dto
 // and adding a field is a compatible change while turning names into objects is not.
 type TradingSymbolDto struct {
 	Symbol string `json:"symbol"`
+	// DisplayName is what the venue calls this symbol — 台積電 for 2330. Empty for a
+	// market that names nothing, and for a symbol registered before anybody asked.
+	//
+	// It is a separate field rather than folded into the symbol, because the code is
+	// what everything else is keyed by: a console shows both, and only ever sends the
+	// code back.
+	DisplayName string `json:"displayName"`
+	// Market is which market this symbol belongs to.
+	Market string `json:"market"`
+	// IsWatched says the system is keeping this symbol's candles up to date.
+	IsWatched bool `json:"isWatched"`
+	// IsWithinTradingSession says its market is trading at this moment.
+	//
+	// It travels with the symbol rather than being worked out by whoever displays it,
+	// because a console cannot know which days a market takes off. Working it out
+	// from the clock alone would call a public holiday an outage.
+	IsWithinTradingSession bool `json:"isWithinTradingSession"`
+	// HasTradingSession says this symbol's market keeps hours, and therefore shuts.
+	//
+	// It travels with the symbol because it is what makes catching up by hand worth
+	// offering: a market that never closes is always within a tick of being current,
+	// while one that shuts has stretches where no amount of waiting will collect
+	// anything. A console cannot tell the two apart — every market looks quiet at
+	// three in the morning.
+	HasTradingSession bool `json:"hasTradingSession"`
+	// HasLiveUpdates says this symbol can be followed live right now.
+	//
+	// It also travels with the symbol, and for the same reason: which symbols hold a
+	// limited market's live places is decided here, so anywhere else it could only be
+	// guessed — and a guess shows somebody a chart that promises to move and does not.
+	HasLiveUpdates bool `json:"hasLiveUpdates"`
 }

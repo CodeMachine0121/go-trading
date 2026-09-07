@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -58,9 +60,30 @@ func liveKCandleAt(openTime time.Time, closePrice string, closed bool) vo.LiveKC
 // followTestBed wires a follow service whose every timing rule is small enough for a
 // test to outrun, and whose feed the test hands out itself.
 type followTestBed struct {
-	service        *service.KCandleFollowService
-	kCandleReposit *mocks.MockIKCandleRepository
-	feedsRequested chan string
+	service                 *service.KCandleFollowService
+	kCandleReposit          *mocks.MockIKCandleRepository
+	tradingSymbolRepository *mocks.MockITradingSymbolRepository
+	feedsRequested          chan string
+}
+
+// followMarketCatalog is the two markets these tests are written against: the
+// round-the-clock one, whose follows are driven by viewers, and a Taiwan session that
+// closes and hands out only so many live places at a time.
+func followMarketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   time.FixedZone("Asia/Taipei", 8*60*60),
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			SimultaneousFollowCeiling: 2,
+		},
+	})
 }
 
 func newFollowTestBed(t *testing.T, feedFor func(symbol string) (<-chan vo.LiveKCandleVo, error)) *followTestBed {
@@ -101,13 +124,26 @@ func newFollowTestBedWith(
 		return followStartedAt.Add(time.Duration(readings.Add(1)) * time.Second)
 	}).AnyTimes()
 
+	// Every symbol these tests watch belongs to the round-the-clock market unless a
+	// test says otherwise, which is what keeps the lifecycle rules readable without a
+	// market in sight.
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketCrypto), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+
 	testBed := &followTestBed{
-		kCandleReposit: kCandleRepository,
-		feedsRequested: make(chan string, 16),
+		kCandleReposit:          kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		feedsRequested:          make(chan string, 16),
 	}
 
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, symbol string) (<-chan vo.LiveKCandleVo, error) {
+		func(_ context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+			symbol := target.Symbol
 			// Dropped rather than blocked: a retry loop that outruns the test must not
 			// be able to wedge the follow it is being watched through.
 			select {
@@ -123,8 +159,8 @@ func newFollowTestBedWith(
 	// so that silence is never mistaken for death here — the one test that is about
 	// death sets its own.
 	testBed.service = service.NewKCandleFollowService(
-		liveMarketDataProxy, kCandleRepository, clockProxy,
-		updateIntervalCeiling, quietTimeout, 10*time.Millisecond,
+		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
+		followMarketCatalog(), updateIntervalCeiling, quietTimeout, 10*time.Millisecond,
 	)
 	t.Cleanup(testBed.service.Stop)
 
@@ -639,4 +675,587 @@ func TestStoppingEndsEveryFollowAndEveryViewer(t *testing.T) {
 	_, watchError := testBed.service.WatchKCandles(viewer, "BTCUSDT")
 	assert.ErrorIs(t, watchError, service.ErrKCandleFollowStopped,
 		"已經停止之後再來的觀看者應該被明白回絕，而不是掛在一個沒有人餵的通道上")
+}
+
+// taiwanFollowTestBed follows the same shape as the round-the-clock one, but its
+// symbols belong to a market that closes and hands out only two live places.
+type taiwanFollowTestBed struct {
+	service                 *service.KCandleFollowService
+	tradingSymbolRepository *mocks.MockITradingSymbolRepository
+	clock                   *movingClock
+	feedsRequested          chan string
+}
+
+func newTaiwanFollowTestBed(t *testing.T, currentTime time.Time) *taiwanFollowTestBed {
+	t.Helper()
+
+	mockController := gomock.NewController(t)
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	movingClock := &movingClock{currentTime: currentTime}
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().DoAndReturn(movingClock.now).AnyTimes()
+
+	testBed := &taiwanFollowTestBed{
+		tradingSymbolRepository: tradingSymbolRepository,
+		clock:                   movingClock,
+		feedsRequested:          make(chan string, 16),
+	}
+
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+			symbol := target.Symbol
+			select {
+			case testBed.feedsRequested <- symbol:
+			default:
+			}
+
+			// Never delivers and never ends, so a follow that was started stays
+			// started and can be counted.
+			return make(chan vo.LiveKCandleVo), nil
+		}).AnyTimes()
+
+	testBed.service = service.NewKCandleFollowService(
+		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
+		followMarketCatalog(), time.Nanosecond, time.Hour, time.Hour,
+	)
+	t.Cleanup(testBed.service.Stop)
+
+	return testBed
+}
+
+func (testBed *taiwanFollowTestBed) watching(symbols ...string) {
+	watchedSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		watchedSymbols = append(watchedSymbols, entities.TradingSymbol{
+			Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		})
+	}
+
+	testBed.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
+	testBed.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+}
+
+// taipeiFollowAt is a moment said in the clock the Taiwan session is written in.
+func taipeiFollowAt(t *testing.T, moment string) time.Time {
+	t.Helper()
+
+	parsedTime, parseError := time.Parse(time.RFC3339, moment)
+	require.NoError(t, parseError)
+
+	return parsedTime
+}
+
+func TestALimitedMarketFollowsItsEarliestRegisteredSymbolsAndNoMore(t *testing.T) {
+	// Two places, three symbols on the watchlist. Which two are live has to be a fact
+	// somebody can state, not a race — so it is the two that were registered first.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454", "2603")
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
+	assert.ElementsMatch(t, []string{"2330", "2454"}, drainFeeds(testBed.feedsRequested, 2))
+}
+
+func TestALimitedMarketFollowsFewerThanItsPlacesWhenThatIsAllThereIs(t *testing.T) {
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330")
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
+}
+
+func TestALimitedMarketIsFollowedWithNobodyWatching(t *testing.T) {
+	// Places are handed out by the watchlist, so nobody looking is simply nobody
+	// looking — the follow was never theirs to start or to end.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330")
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
+}
+
+func TestAClosedLimitedMarketHoldsNoPlaces(t *testing.T) {
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T21:00:00+08:00"))
+	testBed.watching("2330", "2454")
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
+func TestAViewerOfASymbolWithNoPlaceIsToldSoRatherThanShownAFrozenPicture(t *testing.T) {
+	// The two places are taken. A third symbol must not quietly get a chart that
+	// looks live and never moves — and must not be told the feed "stalled", which
+	// would have them waiting for a recovery that is not coming.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454", "2603")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2603")
+
+	require.NoError(t, watchError)
+	update := firstUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusUnavailable, update.Status)
+	assert.Equal(t, "2603", update.Symbol)
+	// Still two: watching a symbol with no place must not take one.
+	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
+}
+
+func TestAViewerOfASymbolWithAPlaceJoinsTheFollowAlreadyRunning(t *testing.T) {
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	_, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+
+	require.NoError(t, watchError)
+	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
+}
+
+func TestASymbolPushedOutOfItsPlaceIsToldItsUpdatesAreGone(t *testing.T) {
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+	gomock.InOrder(
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+			[]entities.TradingSymbol{
+				{Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true},
+			}, nil),
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+			[]entities.TradingSymbol{}, nil),
+	)
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+	require.NoError(t, watchError)
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, dto.KCandleFollowStatusUnavailable, lastStatusOf(t, updates))
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
+func TestAViewerArrivingOutOfHoursIsToldTheMarketIsShutRatherThanThatThereIsNoPlace(t *testing.T) {
+	// Out of hours the two answers look identical from here — nothing is being
+	// followed either way — and they ask opposite things of the viewer. "No place"
+	// sends them looking for a fault; "shut" tells them tomorrow will fix it by
+	// itself.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T21:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+
+	require.NoError(t, watchError)
+	update := firstUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusMarketClosed, update.Status)
+	assert.Equal(t, "2330", update.Symbol)
+}
+
+func TestAFollowEndedByTheCloseSaysTheMarketShutRatherThanThatItsPlaceIsGone(t *testing.T) {
+	// The very last thing a viewer hears before the picture stops has to be the
+	// reason it stopped. Hearing that its place is gone, in the second the market
+	// shut, is being told a fault where there is only the end of the day.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T13:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+	require.NoError(t, watchError)
+
+	testBed.clock.moveTo(taipeiFollowAt(t, "2026-09-08T14:00:00+08:00"))
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, dto.KCandleFollowStatusMarketClosed, lastStatusOf(t, updates))
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
+func TestALeavingViewerNeverClosesAReplacementFollowsStream(t *testing.T) {
+	// Viewer ids start again at zero for every follow. A rostered follow can be retired
+	// and a replacement started while a viewer of the old one is still writing to a
+	// wedged client — so leaving by symbol alone would close whoever now holds id
+	// zero, with no status update and no reason.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+	watched := []entities.TradingSymbol{
+		{Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true},
+	}
+	gomock.InOrder(
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(watched, nil),
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+			Return([]entities.TradingSymbol{}, nil),
+		testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(watched, nil),
+	)
+
+	// The first viewer joins the first follow, then that follow is retired by a roster
+	// refresh — without their own context ending.
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	departingViewer, cancelDepartingViewer := context.WithCancel(context.Background())
+	_, watchError := testBed.service.WatchKCandles(departingViewer, "2330")
+	require.NoError(t, watchError)
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	// A replacement follow, and a second viewer who is handed the same id.
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	stayingViewer, cancelStayingViewer := context.WithCancel(context.Background())
+	defer cancelStayingViewer()
+	updates, watchError := testBed.service.WatchKCandles(stayingViewer, "2330")
+	require.NoError(t, watchError)
+
+	cancelDepartingViewer()
+
+	assert.Never(t, func() bool {
+		select {
+		case _, isDelivering := <-updates:
+			return !isDelivering
+		default:
+			return false
+		}
+	}, 200*time.Millisecond, 10*time.Millisecond,
+		"還在看的那個人的通道被上一個人的離開收掉了")
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
+}
+
+func TestARoundTheClockMarketIsStillOnlyFollowedWhileSomebodyWatches(t *testing.T) {
+	// The rule this feature started with is untouched: a market with no ceiling hands
+	// no places out, so nothing follows it until a viewer asks.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+		[]entities.TradingSymbol{
+			{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true},
+		}, nil).AnyTimes()
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
+func TestWatchingASymbolNobodyRegisteredIsRefused(t *testing.T) {
+	// Without a registration there is no market, and without a market there is no
+	// source. Guessing one from the name is the rule this system deliberately lacks.
+	mockController := gomock.NewController(t)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2454").
+		Return(entities.TradingSymbol{}, false, nil)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(followStartedAt).AnyTimes()
+	followService := service.NewKCandleFollowService(
+		mocks.NewMockILiveMarketDataProxy(mockController),
+		mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, time.Hour, time.Hour,
+	)
+	t.Cleanup(followService.Stop)
+
+	_, watchError := followService.WatchKCandles(t.Context(), "2454")
+
+	assert.ErrorIs(t, watchError, domains.ErrTradingSymbolNotRegistered)
+}
+
+// firstUpdateFrom reads one update, failing rather than hanging when none arrives —
+// a viewer told nothing is a failure to report, not a reason to stop the suite.
+func firstUpdateFrom(
+	t *testing.T, updates <-chan dto.KCandleFollowUpdateDto,
+) dto.KCandleFollowUpdateDto {
+	t.Helper()
+
+	select {
+	case update := <-updates:
+		return update
+	case <-time.After(2 * time.Second):
+		t.Fatal("the viewer was told nothing in time")
+
+		return dto.KCandleFollowUpdateDto{}
+	}
+}
+
+// drainFeeds collects which symbols a feed was opened for.
+func drainFeeds(feedsRequested chan string, count int) []string {
+	symbols := make([]string, 0, count)
+	for range count {
+		select {
+		case symbol := <-feedsRequested:
+			symbols = append(symbols, symbol)
+		case <-time.After(2 * time.Second):
+			return symbols
+		}
+	}
+
+	return symbols
+}
+
+// lastStatusOf reads updates until they stop arriving and reports the final one,
+// which is what a viewer is left looking at.
+func lastStatusOf(t *testing.T, updates <-chan dto.KCandleFollowUpdateDto) string {
+	t.Helper()
+
+	lastStatus := ""
+	for {
+		select {
+		case update, isDelivering := <-updates:
+			if !isDelivering {
+				return lastStatus
+			}
+			lastStatus = update.Status
+		case <-time.After(2 * time.Second):
+			t.Fatal("the viewer was told nothing in time")
+
+			return lastStatus
+		}
+	}
+}
+
+func TestAFollowHeldUpByARosterOutlivesItsLastViewer(t *testing.T) {
+	// The place was handed out by the watchlist, not asked for by anybody. A viewer
+	// leaving is therefore nobody watching — not a reason to give the place back,
+	// which would leave it unfilled until somebody happened to look again.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	viewerLeft, viewerLeaves := context.WithCancel(t.Context())
+	_, watchError := testBed.service.WatchKCandles(viewerLeft, "2330")
+	require.NoError(t, watchError)
+
+	viewerLeaves()
+
+	// Never rather than eventually: the count starts at one, so waiting for it to
+	// reach one would be satisfied before the viewer had even finished leaving. What
+	// has to hold is that it never drops.
+	assert.Never(t, func() bool {
+		return testBed.service.FollowedSymbolCount() != 1
+	}, 500*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestPlacesAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
+	// Going over what the source allows costs every place at once, not just the extra
+	// one — so for the moment a roster is swapped wholesale, the count must never rise
+	// above the ceiling. Starting first and stopping after would double it.
+	mockController := gomock.NewController(t)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(taipeiFollowAt(t, "2026-09-08T10:00:00+08:00")).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	gomock.InOrder(
+		tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+			taiwanWatchlist("2330", "2454"), nil),
+		tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+			taiwanWatchlist("2603", "2609"), nil),
+	)
+
+	concurrentFeeds := &feedCounter{}
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(followContext context.Context, _ vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+			concurrentFeeds.opened()
+			go func() {
+				<-followContext.Done()
+				concurrentFeeds.closed()
+			}()
+
+			return make(chan vo.LiveKCandleVo), nil
+		}).AnyTimes()
+
+	followService := service.NewKCandleFollowService(
+		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, time.Hour, time.Hour,
+	)
+	t.Cleanup(followService.Stop)
+
+	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
+	// Both places have to be genuinely open before the swap, or a high water mark of
+	// two would only mean the first pair never got going.
+	require.Eventually(t, func() bool { return concurrentFeeds.currentlyOpen() == 2 },
+		2*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
+
+	require.Eventually(t, func() bool { return concurrentFeeds.currentlyOpen() == 2 },
+		2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, 2, concurrentFeeds.highWaterMark())
+	assert.Equal(t, 2, followService.FollowedSymbolCount())
+}
+
+func taiwanWatchlist(symbols ...string) []entities.TradingSymbol {
+	watchedSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		watchedSymbols = append(watchedSymbols, entities.TradingSymbol{
+			Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		})
+	}
+
+	return watchedSymbols
+}
+
+// feedCounter records how many feeds were open at once, which is the only way to see
+// an ordering that leaves no trace once it has finished.
+type feedCounter struct {
+	mutex   sync.Mutex
+	open    int
+	highest int
+}
+
+func (counter *feedCounter) opened() {
+	counter.mutex.Lock()
+	defer counter.mutex.Unlock()
+	counter.open++
+	if counter.open > counter.highest {
+		counter.highest = counter.open
+	}
+}
+
+func (counter *feedCounter) closed() {
+	counter.mutex.Lock()
+	defer counter.mutex.Unlock()
+	counter.open--
+}
+
+func (counter *feedCounter) currentlyOpen() int {
+	counter.mutex.Lock()
+	defer counter.mutex.Unlock()
+
+	return counter.open
+}
+
+func (counter *feedCounter) highWaterMark() int {
+	counter.mutex.Lock()
+	defer counter.mutex.Unlock()
+
+	return counter.highest
+}
+
+func TestWatchingFailsWhenTheRegistrationCannotBeRead(t *testing.T) {
+	// Which market a symbol belongs to decides where its feed comes from, so not
+	// being able to find out is not something to carry on past.
+	mockController := gomock.NewController(t)
+	storageFailure := errors.New("storage unreachable")
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").
+		Return(entities.TradingSymbol{}, false, storageFailure)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(followStartedAt).AnyTimes()
+	followService := service.NewKCandleFollowService(
+		mocks.NewMockILiveMarketDataProxy(mockController),
+		mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, time.Hour, time.Hour,
+	)
+	t.Cleanup(followService.Stop)
+
+	_, watchError := followService.WatchKCandles(t.Context(), "2330")
+
+	assert.ErrorIs(t, watchError, storageFailure)
+}
+
+func TestHandingOutPlacesFailsWhenTheWatchlistCannotBeRead(t *testing.T) {
+	mockController := gomock.NewController(t)
+	storageFailure := errors.New("storage unreachable")
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(nil, storageFailure)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(followStartedAt).AnyTimes()
+	followService := service.NewKCandleFollowService(
+		mocks.NewMockILiveMarketDataProxy(mockController),
+		mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, time.Hour, time.Hour,
+	)
+	t.Cleanup(followService.Stop)
+
+	refreshError := followService.RefreshFixedFollows(t.Context())
+
+	assert.ErrorIs(t, refreshError, storageFailure)
+}
+
+func TestHandingOutPlacesAfterShutdownStartsNothing(t *testing.T) {
+	// The roster pass and the shutdown can arrive at once. Starting follows into a
+	// service that has already let go of every one of them would leave feeds open
+	// with nothing left to close them.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454")
+	testBed.service.Stop()
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
+func TestHandingOutPlacesLeavesAViewerDrivenFollowAlone(t *testing.T) {
+	// A market with no ceiling hands out no places, so a roster pass has no business
+	// touching what somebody is watching there. Tearing it down would make every
+	// crypto chart go dark once every five minutes.
+	mockController := gomock.NewController(t)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(taipeiFollowAt(t, "2026-09-08T10:00:00+08:00")).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil).AnyTimes()
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+		taiwanWatchlist("2330"), nil).AnyTimes()
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).
+		Return(make(chan vo.LiveKCandleVo), nil).AnyTimes()
+	followService := service.NewKCandleFollowService(
+		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, time.Hour, time.Hour,
+	)
+	t.Cleanup(followService.Stop)
+	_, watchError := followService.WatchKCandles(t.Context(), "BTCUSDT")
+	require.NoError(t, watchError)
+
+	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
+
+	// The one somebody is watching, plus the one holding a Taiwan place.
+	assert.Equal(t, 2, followService.FollowedSymbolCount())
+}
+
+func TestASecondPassWithTheSamePlacesChangesNothing(t *testing.T) {
+	// Every five minutes this runs again. If it took the places back and gave them
+	// out afresh each time, a chart would break for a moment on every pass.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
+	// Two feeds opened in total, not four: the follows already running were left
+	// running rather than replaced by new ones.
+	assert.Len(t, drainFeeds(testBed.feedsRequested, 3), 2)
+}
+
+func TestALimitedMarketIsFollowedAgainOnceItOpens(t *testing.T) {
+	// Closing gives every place back. Opening has to take them again by itself, or
+	// the first pass of the morning would find nothing to do and the market would
+	// stay unfollowed all day.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T21:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.Equal(t, 0, testBed.service.FollowedSymbolCount())
+
+	testBed.clock.moveTo(taipeiFollowAt(t, "2026-09-09T09:00:00+08:00"))
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
 }

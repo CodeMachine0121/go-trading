@@ -18,9 +18,9 @@ type MarketKCandleVo struct {
 	Low                 decimal.Decimal
 	Close               decimal.Decimal
 	Volume              decimal.Decimal
-	QuoteVolume         decimal.Decimal
-	TakerBuyBaseVolume  decimal.Decimal
-	TakerBuyQuoteVolume decimal.Decimal
+	QuoteVolume         decimal.NullDecimal
+	TakerBuyBaseVolume  decimal.NullDecimal
+	TakerBuyQuoteVolume decimal.NullDecimal
 }
 
 // ToWriteDto converts this reported candle into the shape the domain validates and
