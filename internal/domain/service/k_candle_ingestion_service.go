@@ -25,10 +25,10 @@ import (
 // instead of within a restart, and it is also what keeps a run already under way
 // working from the list it started with — the read happens once, at the top.
 //
-// It remembers which markets it has decided are shut for the day. State in a domain
-// service is not new here; the live follow registry established the same thing for
-// the same reason. What it holds is a conclusion about the world rather than a
-// mechanism, and the rule for when the day rolls over stays on the market itself.
+// Which markets it has decided are shut for the day is remembered for it, by the
+// one thing that holds that memory and nothing else. So this service keeps no shared
+// state and locks nothing: what looks shut is read from what a round saw, when the
+// decision expires is the market's own calendar, and neither of those is here.
 type KCandleIngestionService struct {
 	kCandleRepository       domaininterface.IKCandleRepository
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
@@ -37,9 +37,7 @@ type KCandleIngestionService struct {
 	marketCatalogDomain     domains.MarketCatalogDomain
 	roundCandleCount        int
 	backfillLookback        time.Duration
-
-	mutex                      sync.Mutex
-	presumedClosedTradingDates map[vo.MarketVo]time.Time
+	marketClosureLedger     *marketClosureLedger
 }
 
 func NewKCandleIngestionService(
@@ -52,14 +50,14 @@ func NewKCandleIngestionService(
 	backfillLookback time.Duration,
 ) *KCandleIngestionService {
 	return &KCandleIngestionService{
-		kCandleRepository:          kCandleRepository,
-		tradingSymbolRepository:    tradingSymbolRepository,
-		marketDataProxy:            marketDataProxy,
-		clockProxy:                 clockProxy,
-		marketCatalogDomain:        marketCatalogDomain,
-		roundCandleCount:           roundCandleCount,
-		backfillLookback:           backfillLookback,
-		presumedClosedTradingDates: make(map[vo.MarketVo]time.Time),
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		marketDataProxy:         marketDataProxy,
+		clockProxy:              clockProxy,
+		marketCatalogDomain:     marketCatalogDomain,
+		roundCandleCount:        roundCandleCount,
+		backfillLookback:        backfillLookback,
+		marketClosureLedger:     newMarketClosureLedger(),
 	}
 }
 
@@ -184,7 +182,8 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 		Market: string(marketDomain.Value()),
 	}
 
-	if kCandleIngestionService.isPresumedClosed(marketDomain, ingestionDomain.CurrentTime()) {
+	if kCandleIngestionService.marketClosureLedger.isPresumedClosed(
+		marketDomain.Value(), marketDomain.TradingDateOf(ingestionDomain.CurrentTime())) {
 		return symbolReport
 	}
 
@@ -266,13 +265,6 @@ func (kCandleIngestionService *KCandleIngestionService) presumeClosedMarkets(
 		}
 	}
 
-	if len(askedMarkets) == 0 {
-		return
-	}
-
-	kCandleIngestionService.mutex.Lock()
-	defer kCandleIngestionService.mutex.Unlock()
-
 	for market := range askedMarkets {
 		if marketsThatProduced[market] {
 			continue
@@ -285,25 +277,7 @@ func (kCandleIngestionService *KCandleIngestionService) presumeClosedMarkets(
 			continue
 		}
 
-		kCandleIngestionService.presumedClosedTradingDates[market] =
-			marketDomain.TradingDateOf(currentTime)
+		kCandleIngestionService.marketClosureLedger.presumeClosed(
+			market, marketDomain.TradingDateOf(currentTime))
 	}
-}
-
-// isPresumedClosed reports a market already decided to be shut for the day it is
-// currently in. Asking the market which day that is, rather than reading a calendar
-// here, is what makes the decision last exactly until the market's own tomorrow.
-func (kCandleIngestionService *KCandleIngestionService) isPresumedClosed(
-	marketDomain domains.MarketDomain, currentTime time.Time,
-) bool {
-	kCandleIngestionService.mutex.Lock()
-	defer kCandleIngestionService.mutex.Unlock()
-
-	presumedClosedOn, wasPresumedClosed :=
-		kCandleIngestionService.presumedClosedTradingDates[marketDomain.Value()]
-	if !wasPresumedClosed {
-		return false
-	}
-
-	return presumedClosedOn.Equal(marketDomain.TradingDateOf(currentTime))
 }
