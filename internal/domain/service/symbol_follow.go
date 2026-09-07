@@ -120,8 +120,11 @@ func (symbolFollow *symbolFollow) publish(update dto.KCandleFollowUpdateDto) {
 	// either, and it is the last thing a follow ever says, so there is no next
 	// arrival for it to mislead.
 	symbolFollow.isStalled = update.Status == dto.KCandleFollowStatusStalled
-	carriesACandle := update.Status != dto.KCandleFollowStatusStalled &&
-		update.Status != dto.KCandleFollowStatusUnavailable
+	// Named the other way round — which states do carry one — so that a state added
+	// later is silently treated as carrying no candle rather than silently treated as
+	// carrying one it does not have.
+	carriesACandle := update.Status == dto.KCandleFollowStatusForming ||
+		update.Status == dto.KCandleFollowStatusClosed
 	if carriesACandle {
 		symbolFollow.latestUpdate = update
 		symbolFollow.hasLatest = true
@@ -149,8 +152,8 @@ func (symbolFollow *symbolFollow) stalledUpdate() dto.KCandleFollowUpdateDto {
 	}
 }
 
-// publishUnavailable tells every viewer that this market has no live updating left to
-// give — its place on the roster went to another symbol, or its market shut.
+// publishUnavailable tells every viewer that this symbol has no live updating left
+// to give: its place on the roster went to another symbol.
 //
 // It is said before the follow ends rather than left to the closing of their
 // channels, because a channel that simply stops carries no reason, and the reason is
@@ -159,6 +162,19 @@ func (symbolFollow *symbolFollow) publishUnavailable() {
 	symbolFollow.publish(dto.KCandleFollowUpdateDto{
 		Symbol: symbolFollow.symbol,
 		Status: dto.KCandleFollowStatusUnavailable,
+	})
+}
+
+// publishMarketClosed tells every viewer that the market itself has shut, which is
+// why nothing more is coming.
+//
+// The same silence follows as for unavailable, and that is exactly why it must be
+// said differently: silence explained as "this will not come back" leaves somebody
+// looking for a fault, when all that happened is that the day ended.
+func (symbolFollow *symbolFollow) publishMarketClosed() {
+	symbolFollow.publish(dto.KCandleFollowUpdateDto{
+		Symbol: symbolFollow.symbol,
+		Status: dto.KCandleFollowStatusMarketClosed,
 	})
 }
 

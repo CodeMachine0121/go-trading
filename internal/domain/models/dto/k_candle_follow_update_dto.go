@@ -1,6 +1,6 @@
 package dto
 
-// The four states a viewer can observe while following a market. They are the
+// The five states a viewer can observe while following a market. They are the
 // whole vocabulary of this feature's output: anything a viewer sees is one of
 // these, and nothing else is reported.
 const (
@@ -22,6 +22,16 @@ const (
 	// thing to do" — so a viewer told the wrong one of the two waits for something
 	// that will never arrive.
 	KCandleFollowStatusUnavailable = "unavailable"
+	// KCandleFollowStatusMarketClosed says this market is shut, so there is nothing
+	// to report until it opens again.
+	//
+	// It is its own word rather than a shade of unavailable, because the two ask
+	// opposite things of a viewer. Unavailable means the picture will not move until
+	// somebody changes something; this means it will not move until the market opens,
+	// which needs nobody to do anything at all. Told the wrong one, a viewer either
+	// goes looking for a fault that is not there, or waits for a morning that
+	// unavailable never promised.
+	KCandleFollowStatusMarketClosed = "marketClosed"
 )
 
 // KCandleFollowUpdateDto is the only shape a viewer receives while following a

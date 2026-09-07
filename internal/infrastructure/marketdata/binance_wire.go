@@ -49,13 +49,13 @@ func (kLine binanceKLine) toMarketKCandleVo(symbol string) (vo.MarketKCandleVo, 
 	}
 
 	return vo.MarketKCandleVo{
-		Symbol:              symbol,
-		OpenTime:            openTime,
-		Open:                figures[openIndex],
-		High:                figures[highIndex],
-		Low:                 figures[lowIndex],
-		Close:               figures[closeIndex],
-		Volume:              figures[volumeIndex],
+		Symbol:   symbol,
+		OpenTime: openTime,
+		Open:     figures[openIndex],
+		High:     figures[highIndex],
+		Low:      figures[lowIndex],
+		Close:    figures[closeIndex],
+		Volume:   figures[volumeIndex],
 		// This source reports all three, so they are present rather than absent.
 		// A source that reports none of them leaves them as they are.
 		QuoteVolume:         decimal.NewNullDecimal(figures[quoteVolumeIndex]),

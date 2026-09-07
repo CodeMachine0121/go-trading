@@ -118,7 +118,8 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 			// that would put the market over what its source allows.
 			kCandleFollowService.mutex.Unlock()
 
-			return kCandleFollowService.unavailableUpdates(executionContext, symbol), nil
+			return kCandleFollowService.noLivePlaceUpdates(
+				executionContext, symbol, marketDomain), nil
 		}
 
 		// The follow outlives the viewer who started it, so it must not inherit their
@@ -162,17 +163,28 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 		return findError
 	}
 
+	// One reading of the clock for the whole round. Asking twice would let the roster
+	// be decided in one trading day and the reason a follow ended in the next.
+	currentTime := kCandleFollowService.clockProxy.Now()
+
 	// The very same roster the console reads when it says which symbols can be
 	// followed, so what it promises and what this does cannot drift apart.
 	rosterDomain := domains.NewLiveFollowRosterDomain(
-		watchedSymbols,
-		kCandleFollowService.marketCatalogDomain,
-		kCandleFollowService.clockProxy.Now(),
-	)
+		watchedSymbols, kCandleFollowService.marketCatalogDomain, currentTime)
 
+	// Why a follow is ending is decided here, where both answers are still in hand.
+	// Once it has ended, all that is left is a symbol that is no longer on a roster —
+	// and that looks identical whether the day is over or somebody else took its
+	// place.
 	departing := kCandleFollowService.takeDepartedFollows(rosterDomain)
 	for _, follow := range departing {
-		follow.publishUnavailable()
+		if kCandleFollowService.marketCatalogDomain.MarketOf(string(follow.market)).
+			IsOpen(currentTime) {
+			follow.publishUnavailable()
+		} else {
+			follow.publishMarketClosed()
+		}
+
 		follow.end()
 	}
 
@@ -231,20 +243,26 @@ func (kCandleFollowService *KCandleFollowService) startMissingFollows(
 	}
 }
 
-// unavailableUpdates is what a viewer of a market with no place for their symbol
+// noLivePlaceUpdates is what a viewer of a market with no place for their symbol
 // receives: the news, once, and then nothing until they leave.
+//
+// The news says which of the two reasons it is, because a viewer arriving out of
+// hours is not looking at a system that has run out of places — they are looking at a
+// market that is shut, and it will let them in tomorrow without their doing a thing.
 //
 // The channel stays open rather than closing straight away because a closed channel
 // reads as "the feed ended" everywhere else in this feature, and a viewer who never
 // had a feed must not be told one ended.
-func (kCandleFollowService *KCandleFollowService) unavailableUpdates(
-	executionContext context.Context, symbol string,
+func (kCandleFollowService *KCandleFollowService) noLivePlaceUpdates(
+	executionContext context.Context, symbol string, marketDomain domains.MarketDomain,
 ) <-chan dto.KCandleFollowUpdateDto {
-	updates := make(chan dto.KCandleFollowUpdateDto, 1)
-	updates <- dto.KCandleFollowUpdateDto{
-		Symbol: symbol,
-		Status: dto.KCandleFollowStatusUnavailable,
+	status := dto.KCandleFollowStatusMarketClosed
+	if marketDomain.IsOpen(kCandleFollowService.clockProxy.Now()) {
+		status = dto.KCandleFollowStatusUnavailable
 	}
+
+	updates := make(chan dto.KCandleFollowUpdateDto, 1)
+	updates <- dto.KCandleFollowUpdateDto{Symbol: symbol, Status: status}
 
 	go func() {
 		<-executionContext.Done()

@@ -849,6 +849,40 @@ func TestASymbolPushedOutOfItsPlaceIsToldItsUpdatesAreGone(t *testing.T) {
 	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
 }
 
+func TestAViewerArrivingOutOfHoursIsToldTheMarketIsShutRatherThanThatThereIsNoPlace(t *testing.T) {
+	// Out of hours the two answers look identical from here — nothing is being
+	// followed either way — and they ask opposite things of the viewer. "No place"
+	// sends them looking for a fault; "shut" tells them tomorrow will fix it by
+	// itself.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T21:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+
+	require.NoError(t, watchError)
+	update := firstUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusMarketClosed, update.Status)
+	assert.Equal(t, "2330", update.Symbol)
+}
+
+func TestAFollowEndedByTheCloseSaysTheMarketShutRatherThanThatItsPlaceIsGone(t *testing.T) {
+	// The very last thing a viewer hears before the picture stops has to be the
+	// reason it stopped. Hearing that its place is gone, in the second the market
+	// shut, is being told a fault where there is only the end of the day.
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T13:00:00+08:00"))
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+	require.NoError(t, watchError)
+
+	testBed.clock.moveTo(taipeiFollowAt(t, "2026-09-08T14:00:00+08:00"))
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, dto.KCandleFollowStatusMarketClosed, lastStatusOf(t, updates))
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
 func TestARoundTheClockMarketIsStillOnlyFollowedWhileSomebodyWatches(t *testing.T) {
 	// The rule this feature started with is untouched: a market with no ceiling hands
 	// no places out, so nothing follows it until a viewer asks.
