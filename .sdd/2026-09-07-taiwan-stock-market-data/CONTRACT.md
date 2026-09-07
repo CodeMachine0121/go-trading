@@ -109,7 +109,22 @@
 | AC-09.6 | 加密貨幣一律帶著有即時更新 | 恆為真，即使沒有人在看 | `live_follow_roster_domain.go:104`（無上限即為真） | `TestAMarketWithNoCeilingAlwaysPromisesLiveUpdates` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-09.7 | 不追蹤的交易標的仍然查得到 | 仍出現在清單上，且標為未追蹤 | `trading_symbol_service.go:56`（讀整張表） | `TestASymbolTakenOffTheWatchlistIsStillListed` | asserts-oracle | produces-oracle | ✅ conforms |
 
-## 10. Clauses — 業務規則（第 4 節）
+| AC-09.8 | 台股帶著「這個市場會收盤」 | 為真 | `trading_symbol_service.go`（`!marketDomain.NeverCloses()`） | `TestAListingSaysWhichMarketsKeepHoursAndThereforeShut` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-09.9 | 加密貨幣帶著「這個市場不收盤」 | 為假 | 同上 | 同上 | asserts-oracle | produces-oracle | ✅ conforms |
+
+## 10. Clauses — US-10 加進觀察清單就馬上看得到
+
+| ID | 條款 | Oracle | 實作位置 | 測試 | 測試稽核 | 程式碼稽核 | 狀態 |
+|---|---|---|---|---|---|---|---|
+| AC-10.1 | 收盤後加一檔台股，補上今天交易時段內的每一根 | 加完立刻向來源要今天那一段 | `trading_symbol_application.go:AddToWatchlist` → `k_candle_ingestion_service.go:RunBackfillFor` | `TestTradingSymbolApplicationAddToWatchlist/catches the symbol up on the spot`、`TestCatchingOneSymbolUpAsksForItsOwnGapAfterTheCloseHasPassed` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10.2 | 補齊失敗不把加入退回去 | 仍在清單上，且未回報加入失敗 | 同上（只留紀錄） | `TestTradingSymbolApplicationAddToWatchlist/a catch-up that fails does not undo the add` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10.3 | 加入本身被拒絕時什麼都不補 | 未向來源要過任何 K 線 | 同上（加失敗即提早返回） | `TestTradingSymbolApplicationAddToWatchlist/nothing is caught up when the add itself was refused` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10.4 | 手動要求補齊，並回報收到幾根 | 回 200 與這一輪的報告 | `k_candle_backfill_controller.go` | `TestCatchingUpASymbolReportsWhatItCollected` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10.5 | 不在觀察清單上的一樣補得動 | 照樣向來源要 | `RunBackfillFor` 走 `FindBySymbol` | `TestCatchingOneSymbolUpReachesASymbolNobodyIsWatching` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10.6 | 沒登錄過的代號被拒絕，且不是「稍後再試」 | 404，不是 502 | `RunBackfillFor` + controller 對映 | `TestCatchingUpASymbolNobodyRegisteredIsRefused`、`TestCatchingUpASymbolNobodyRegisteredIsAnsweredAsNotFound` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10.7 | 只補一檔時不推定整個市場休市 | 同市場其他標的下一輪照常被抓 | `RunBackfillFor` 不呼叫 `presumeClosedMarkets` | `TestCatchingOneSymbolUpNeverDecidesItsWholeMarketIsShut` | asserts-oracle | produces-oracle | ✅ conforms |
+
+## 11. Clauses — 業務規則（第 4 節）
 
 | ID | 條款 | Oracle | 實作位置 | 測試 | 測試稽核 | 程式碼稽核 | 狀態 |
 |---|---|---|---|---|---|---|---|
@@ -134,7 +149,7 @@
 | BR-19 | 可查交易標的的三項附帶資訊 | 見 US-09 | `trading_symbol_service.go:56` | 見 US-09 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-20 | 預設交易標的登錄為加密貨幣且追蹤中 | 見 AC-01.5 | `trading_symbol_service.go:126` | 見 AC-01.5 | asserts-oracle | produces-oracle | ✅ conforms |
 
-## 11. Clauses — 非功能需求（第 6 節）
+## 12. Clauses — 非功能需求（第 6 節）
 
 | ID | 條款 | Oracle | 實作位置 | 測試 | 測試稽核 | 程式碼稽核 | 狀態 |
 |---|---|---|---|---|---|---|---|
@@ -161,13 +176,17 @@
 
 **稽核當下：** 62 / 66 條 conforms（94%）——1 🔴、3 🟠／🟡。**全部已處理**，重新判定如下。
 
-- **Conforms:** 65 / 66 條 ✅（98%）
+- **Conforms:** 74 / 75 條 ✅（99%）
 - **Violations:** 無（`AC-01.3` 已修）
 - **Mis-asserted:** 無（`AC-02.3`／`BR-3`、`AC-09.2` 已補測試）
 - **Partial:** `NFR-1`（每輪多讀一次清單的成本，是效能特性，沒有以測試釘住）
 - **Gaps:** 無
 - **Unclear:** 無
-- **Orphans:** 3（皆為 undocumented，非越界；建議回補進 PRD／ARCH）
+- **Orphans:** 2（`isWatched` 那一項已隨 US-09 補進 PRD）
+
+> **本次追加：** `US-09` 多兩條（市場會不會收盤），`US-10` 七條全新——
+> 加入觀察清單時立刻回補、以及手動回補。九條全部 conforms，
+> 每一條都有一個會因為對應實作被打壞而變紅的測試（四個 mutation 已逐一驗過）。
 
 ### 這次稽核抓到什麼
 

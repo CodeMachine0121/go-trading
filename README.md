@@ -147,8 +147,9 @@ curl localhost:8080/health
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
 | `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
-| `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、現在是不是交易時段、有沒有即時更新、是不是追蹤中 |
-| `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在 |
+| `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、現在是不是交易時段、這個市場會不會收盤、有沒有即時更新、是不是追蹤中 |
+| `POST` | `/k-candles/backfill` | 手動補齊一個交易標的的歷史（body 給 `symbol`），補到回補上限為止。給還沒登錄過的代號回 `404` |
+| `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在，**加完立刻補齊那一檔的歷史** |
 | `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
@@ -179,15 +180,40 @@ curl localhost:8080/health
 兩邊都空時回 `200` 與空陣列。**它不等於觀察清單**——觀察清單是這張表裡「標記為追蹤中」的那個子集，
 「打算抓什麼」與「系統認得什麼」仍然是兩件事，所以拿掉追蹤的標的照樣挑得到。
 
-每一檔還帶著四件事：
+每一檔還帶著五件事：
 
 ```json
 {"symbol":"2330","market":"taiwanStock","isWatched":true,
- "isWithinTradingSession":true,"hasLiveUpdates":true}
+ "isWithinTradingSession":true,"hasTradingSession":true,"hasLiveUpdates":true}
 ```
 
-後兩件只有系統答得出來。畫面推算不出休市日——它會把國定假日說成故障；
-也不知道跟盤名額給了誰——它會替一張永遠不會動的圖保證即時更新。
+後三件只有系統答得出來。畫面推算不出休市日——它會把國定假日說成故障；
+不知道跟盤名額給了誰——它會替一張永遠不會動的圖保證即時更新；
+也分不出「這個市場收盤了」與「這個市場只是很安靜」——凌晨三點兩者長得一模一樣。
+
+`hasTradingSession` 說的是**這個市場會不會收盤**（台股會，加密貨幣不會），
+與 `isWithinTradingSession`（**現在**是不是開著）是兩件事。前者決定「手動補齊」值不值得給，
+後者決定「圖不動是不是正常的」。
+
+### 手動補齊一檔的歷史
+
+```bash
+curl -X POST localhost:8080/k-candles/backfill \
+  -H 'Content-Type: application/json' -d '{"symbol":"2330"}'
+```
+
+補到哪裡由 `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` 決定，不是呼叫的人挑的——
+否則同一顆按鈕會因為誰按而做不同的事，行情來源的用量上限也會落在喊得最大聲的人手上。
+
+它**不會**推定市場休市：那是問過該市場**每一檔**觀察中的標的、全都沒回東西才有資格下的結論。
+一檔的沉默就只是那一檔的。
+
+沒登錄過的代號回 `404`（那是呼叫的人要改的），代號空白回 `400`，
+行情來源或儲存問不到回 `502`（那值得晚點再試一次）。
+
+**加進觀察清單時會自動補一次**，所以正常情況下不必按這顆按鈕：
+`POST /watchlist` 成功之後就會立刻補齊那一檔。補失敗不會讓加入失敗——
+標的已經加進去了，接下來每五分鐘一輪照樣會抓到它。
 
 ```bash
 curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
