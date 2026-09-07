@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/joho/godotenv"
 )
@@ -48,6 +49,7 @@ func main() {
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			persistence.NewKCandleRepository(database),
+			clock.NewSystemClockProxy(),
 		),
 	)
 

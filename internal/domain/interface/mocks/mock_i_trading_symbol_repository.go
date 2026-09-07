@@ -56,6 +56,37 @@ func (mr *MockITradingSymbolRepositoryMockRecorder) FindAll(executionContext any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockITradingSymbolRepository)(nil).FindAll), executionContext)
 }
 
+// FindBySymbol mocks base method.
+func (m *MockITradingSymbolRepository) FindBySymbol(executionContext context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindBySymbol", executionContext, symbol)
+	ret0, _ := ret[0].(entities.TradingSymbol)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// FindBySymbol indicates an expected call of FindBySymbol.
+func (mr *MockITradingSymbolRepositoryMockRecorder) FindBySymbol(executionContext, symbol any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindBySymbol", reflect.TypeOf((*MockITradingSymbolRepository)(nil).FindBySymbol), executionContext, symbol)
+}
+
+// FindWatched mocks base method.
+func (m *MockITradingSymbolRepository) FindWatched(executionContext context.Context) ([]entities.TradingSymbol, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindWatched", executionContext)
+	ret0, _ := ret[0].([]entities.TradingSymbol)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindWatched indicates an expected call of FindWatched.
+func (mr *MockITradingSymbolRepositoryMockRecorder) FindWatched(executionContext any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindWatched", reflect.TypeOf((*MockITradingSymbolRepository)(nil).FindWatched), executionContext)
+}
+
 // RegisterAll mocks base method.
 func (m *MockITradingSymbolRepository) RegisterAll(executionContext context.Context, tradingSymbols []entities.TradingSymbol) error {
 	m.ctrl.T.Helper()
@@ -68,4 +99,18 @@ func (m *MockITradingSymbolRepository) RegisterAll(executionContext context.Cont
 func (mr *MockITradingSymbolRepositoryMockRecorder) RegisterAll(executionContext, tradingSymbols any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAll", reflect.TypeOf((*MockITradingSymbolRepository)(nil).RegisterAll), executionContext, tradingSymbols)
+}
+
+// Save mocks base method.
+func (m *MockITradingSymbolRepository) Save(executionContext context.Context, tradingSymbol entities.TradingSymbol) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Save", executionContext, tradingSymbol)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Save indicates an expected call of Save.
+func (mr *MockITradingSymbolRepositoryMockRecorder) Save(executionContext, tradingSymbol any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockITradingSymbolRepository)(nil).Save), executionContext, tradingSymbol)
 }

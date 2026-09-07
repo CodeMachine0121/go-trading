@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
@@ -31,7 +32,8 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 
 	tradingSymbolController := controller.NewTradingSymbolController(
 		application.NewTradingSymbolApplication(
-			service.NewTradingSymbolService(tradingSymbolRepository, kCandleRepository)))
+			service.NewTradingSymbolService(
+				tradingSymbolRepository, kCandleRepository, tradingSymbolClockProxy(mockController))))
 
 	engine := gin.New()
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
@@ -105,4 +107,13 @@ func TestTheRequestsOwnContextReachesStorage(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/trading-symbols", nil).WithContext(callerWentAway)
 
 	fixture.engine.ServeHTTP(httptest.NewRecorder(), request)
+}
+
+// tradingSymbolClockProxy stamps registrations with a moment the test states, rather
+// than with whatever the wall clock said while it ran.
+func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockProxy {
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
+
+	return clockProxy
 }

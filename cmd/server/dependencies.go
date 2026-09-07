@@ -57,6 +57,7 @@ func registerRoutes(
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			kCandleRepository,
+			clock.NewSystemClockProxy(),
 		),
 	)
 

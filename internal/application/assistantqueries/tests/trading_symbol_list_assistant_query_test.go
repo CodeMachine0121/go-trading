@@ -3,6 +3,7 @@ package assistantqueries_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
@@ -31,7 +32,8 @@ func newTradingSymbolListAssistantQueryUnderTest(t *testing.T) tradingSymbolList
 	return tradingSymbolListAssistantQueryUnderTest{
 		assistantQuery: assistantqueries.NewTradingSymbolListAssistantQuery(
 			application.NewTradingSymbolApplication(
-				service.NewTradingSymbolService(tradingSymbolRepository, kCandleRepository))),
+				service.NewTradingSymbolService(
+					tradingSymbolRepository, kCandleRepository, tradingSymbolClockProxy(controller)))),
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
 	}
@@ -71,4 +73,13 @@ func TestTradingSymbolListAssistantQueryReportsAFailureToRead(t *testing.T) {
 	_, runError := fixture.assistantQuery.Run(t.Context(), "{}")
 
 	require.Error(t, runError)
+}
+
+// tradingSymbolClockProxy stamps registrations with a moment the test states, rather
+// than with whatever the wall clock said while it ran.
+func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockProxy {
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
+
+	return clockProxy
 }

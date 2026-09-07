@@ -8,6 +8,7 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // defaultTradingSymbols are the markets the system ships knowing about. They are
@@ -20,15 +21,18 @@ var defaultTradingSymbols = []string{"BTCUSDT", "ETHUSDT"}
 type TradingSymbolService struct {
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
 	kCandleRepository       domaininterface.IKCandleRepository
+	clockProxy              domaininterface.IClockProxy
 }
 
 func NewTradingSymbolService(
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	kCandleRepository domaininterface.IKCandleRepository,
+	clockProxy domaininterface.IClockProxy,
 ) *TradingSymbolService {
 	return &TradingSymbolService{
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
+		clockProxy:              clockProxy,
 	}
 }
 
@@ -73,6 +77,11 @@ func (tradingSymbolService *TradingSymbolService) ListTradingSymbols(
 // RegisterDefaultTradingSymbols registers the markets the system ships knowing about
 // and reports which of them were new. Already-registered ones are read first and
 // left alone, so running this again does nothing and says so.
+//
+// They are registered as watched. A fresh install whose watchlist was empty would
+// fetch nothing at all, and an install upgrading from a watchlist held in settings
+// would suddenly stop fetching what it had been fetching all along — so the state
+// that keeps both behaving as before is the one to start from.
 func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
 	executionContext context.Context,
 ) ([]string, error) {
@@ -82,12 +91,18 @@ func (tradingSymbolService *TradingSymbolService) RegisterDefaultTradingSymbols(
 	}
 
 	alreadyRegistered := tradingSymbolService.namesOf(registeredSymbols)
+	registeredAt := tradingSymbolService.clockProxy.Now().UTC()
 
 	newcomers := make([]entities.TradingSymbol, 0, len(defaultTradingSymbols))
 	newcomerNames := make([]string, 0, len(defaultTradingSymbols))
 	for _, defaultSymbol := range defaultTradingSymbols {
 		if !alreadyRegistered[defaultSymbol] {
-			newcomers = append(newcomers, entities.TradingSymbol{Symbol: defaultSymbol})
+			newcomers = append(newcomers, entities.TradingSymbol{
+				Symbol:       defaultSymbol,
+				Market:       string(vo.MarketCrypto),
+				IsWatched:    true,
+				RegisteredAt: registeredAt,
+			})
 			newcomerNames = append(newcomerNames, defaultSymbol)
 		}
 	}

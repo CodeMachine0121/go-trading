@@ -3,14 +3,21 @@ package service_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
+
+// registrationTime is the moment every registration in these tests is stamped with,
+// so that "when was this registered" is a value the tests state rather than whatever
+// the wall clock said while they ran.
+var registrationTime = time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
 
 type tradingSymbolServiceUnderTest struct {
 	tradingSymbolService    *service.TradingSymbolService
@@ -22,10 +29,12 @@ func newTradingSymbolServiceUnderTest(t *testing.T) tradingSymbolServiceUnderTes
 	controller := gomock.NewController(t)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(registrationTime).AnyTimes()
 
 	return tradingSymbolServiceUnderTest{
 		tradingSymbolService: service.NewTradingSymbolService(
-			tradingSymbolRepository, kCandleRepository),
+			tradingSymbolRepository, kCandleRepository, clockProxy),
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
 	}
@@ -35,6 +44,23 @@ func registered(symbols ...string) []entities.TradingSymbol {
 	tradingSymbols := make([]entities.TradingSymbol, 0, len(symbols))
 	for _, symbol := range symbols {
 		tradingSymbols = append(tradingSymbols, entities.TradingSymbol{Symbol: symbol})
+	}
+
+	return tradingSymbols
+}
+
+// newlyRegistered is the shape a market the system ships knowing about is written in:
+// the market this system started with, and already watched — otherwise a fresh
+// install would sit there fetching nothing.
+func newlyRegistered(symbols ...string) []entities.TradingSymbol {
+	tradingSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		tradingSymbols = append(tradingSymbols, entities.TradingSymbol{
+			Symbol:       symbol,
+			Market:       string(vo.MarketCrypto),
+			IsWatched:    true,
+			RegisteredAt: registrationTime,
+		})
 	}
 
 	return tradingSymbols
@@ -128,7 +154,7 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(registered(), nil)
 		fixture.tradingSymbolRepository.EXPECT().
-			RegisterAll(gomock.Any(), registered("BTCUSDT", "ETHUSDT")).Return(nil)
+			RegisterAll(gomock.Any(), newlyRegistered("BTCUSDT", "ETHUSDT")).Return(nil)
 
 		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
@@ -140,7 +166,7 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindAll(gomock.Any()).Return(registered("BTCUSDT", "ETHUSDT"), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), registered()).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), newlyRegistered()).Return(nil)
 
 		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
@@ -151,7 +177,7 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 	t.Run("registers only the one that is missing", func(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return(registered("BTCUSDT"), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), registered("ETHUSDT")).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), newlyRegistered("ETHUSDT")).Return(nil)
 
 		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
@@ -163,7 +189,7 @@ func TestRegisterDefaultTradingSymbols(t *testing.T) {
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindAll(gomock.Any()).Return(registered("BTCUSDT", "ETHUSDT", "XRPUSDT"), nil)
-		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), registered()).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().RegisterAll(gomock.Any(), newlyRegistered()).Return(nil)
 
 		registeredNames, err := fixture.tradingSymbolService.RegisterDefaultTradingSymbols(t.Context())
 
