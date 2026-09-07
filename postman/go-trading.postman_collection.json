@@ -4492,6 +4492,344 @@
 			]
 		},
 		{
+			"name": "觀察清單",
+			"description": "系統要持續追蹤哪些交易標的。改完最多等一輪（五分鐘）就生效，不必重開系統。\n\n加進來之前系統會先向該市場確認這個代號存在：打錯字當場被擋下，而不是換來一條每輪安靜失敗的線。「拿掉」只停止追蹤——已經抓回來的 K 線一根都不會少。",
+			"item": [
+				{
+					"name": "把一檔台股加進觀察清單",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist"
+							]
+						},
+						"description": "先向台股的行情來源確認 2330 存在，確認後才加進來。沒設定台股金鑰時這裡會回 502。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"2330\",\n  \"market\": \"taiwanStock\"\n}"
+						}
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('加成功了，沒有內容要回', function () {",
+									"    pm.response.to.have.status(204);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "再加一次同一檔，不會變兩筆",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist"
+							]
+						},
+						"description": "要的事情已經成立了，所以這不是失敗。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"2330\",\n  \"market\": \"taiwanStock\"\n}"
+						}
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('重複加不算錯', function () {",
+									"    pm.response.to.have.status(204);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "清單上看得到它，也看得出它屬於哪個市場",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/trading-symbols",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"trading-symbols"
+							]
+						},
+						"description": "每個交易標的都帶著：屬於哪個市場、市場現在是不是交易時段、有沒有即時更新、是不是追蹤中。後兩件事只有系統答得出來——畫面推算不出休市日，也不知道誰拿到了跟盤名額。"
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('回 200', function () { pm.response.to.have.status(200); });",
+									"pm.test('每一檔都說得出自己的市場與狀態', function () {",
+									"    const listed = pm.response.json();",
+									"    pm.expect(listed).to.be.an('array');",
+									"    listed.forEach(function (symbol) {",
+									"        pm.expect(symbol).to.have.property('market');",
+									"        pm.expect(symbol).to.have.property('isWatched');",
+									"        pm.expect(symbol).to.have.property('isWithinTradingSession');",
+									"        pm.expect(symbol).to.have.property('hasLiveUpdates');",
+									"    });",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：這個代號在那個市場找不到",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist"
+							]
+						},
+						"description": "打錯字是使用者能自己修好的事，所以說得跟「來源連不上」不一樣。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"9999\",\n  \"market\": \"taiwanStock\"\n}"
+						}
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('回 400 並說明找不到這個代號', function () {",
+									"    pm.response.to.have.status(400);",
+									"    pm.expect(pm.response.json().message).to.include('找不到');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：市場不在系統認得的那幾個裡",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist"
+							]
+						},
+						"description": "不會去問任何來源——沒有這個市場可以問。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"AAPL\",\n  \"market\": \"nasdaq\"\n}"
+						}
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('回 400 並列出認得哪幾個市場', function () {",
+									"    pm.response.to.have.status(400);",
+									"    pm.expect(pm.response.json().message).to.include('市場');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：代號空白",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist"
+							]
+						},
+						"description": "不會去問任何來源——付一趟往返來發現什麼都沒填是白付的。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"   \",\n  \"market\": \"taiwanStock\"\n}"
+						}
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('回 400', function () { pm.response.to.have.status(400); });"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "把它從觀察清單拿掉",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist/2330",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist",
+								"2330"
+							]
+						},
+						"description": "只停止追蹤。系統仍然認得這個市場，它既有的 K 線照樣查得到、回測照樣跑得動——不想再盯著它，跟不想要它的歷史，是兩件事。"
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('拿掉了，沒有內容要回', function () {",
+									"    pm.response.to.have.status(204);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "再拿掉一次，不算失敗",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/watchlist/2330",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"watchlist",
+								"2330"
+							]
+						},
+						"description": "要的事情已經成立了。"
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('重複拿掉不算錯', function () {",
+									"    pm.response.to.have.status(204);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拿掉之後它還在清單上，只是不再追蹤",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/trading-symbols",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"trading-symbols"
+							]
+						},
+						"description": "它的 K 線還在，所以它還挑得到。"
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('回 200', function () { pm.response.to.have.status(200); });"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
 			"name": "即時跟盤",
 			"description": "有人正在看某個交易標的時，系統就跟著那個市場。每則更新是一個事件，`status` 為 `forming`（還在走，**不存也不參與計算**）、`closed`（走完了，送出的同一刻就被存入）或 `stalled`（即時更新已停止，系統自己在重連）。\n\n**這是一條不會自己結束的連線**：Postman 會一直等下去，要自己按停止。命令列用 `curl -N` 看得更清楚。",
 			"item": [

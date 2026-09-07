@@ -59,9 +59,7 @@ func registerRoutes(
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			kCandleRepository,
-			marketdata.NewBinanceSymbolLookupProxy(
-				applicationConfig.Ingestion.SymbolCatalogUrl,
-				applicationConfig.Ingestion.MarketDataRequestTimeout),
+			symbolLookupProxyFor(applicationConfig),
 			clock.NewSystemClockProxy(),
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
@@ -196,7 +194,7 @@ func registerRoutes(
 	// round keeps running, and it is what fills in every candle that closed while
 	// nobody was looking. This path only shortens the wait for whoever is looking.
 	kCandleFollowService := service.NewKCandleFollowService(
-		marketdata.NewBinanceLiveMarketDataProxy(applicationConfig.LiveFollow.MarketDataStreamUrl),
+		liveMarketDataProxyFor(applicationConfig),
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
@@ -259,10 +257,7 @@ func backgroundJobsFor(
 			service.NewKCandleIngestionService(
 				persistence.NewKCandleRepository(database),
 				persistence.NewTradingSymbolRepository(database),
-				marketdata.NewBinanceMarketDataProxy(
-					applicationConfig.Ingestion.MarketDataBaseUrl,
-					applicationConfig.Ingestion.MarketDataRequestTimeout,
-				),
+				marketDataProxyFor(applicationConfig),
 				clock.NewSystemClockProxy(),
 				domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 				applicationConfig.Ingestion.RoundCandleCount,
@@ -279,4 +274,60 @@ func backgroundJobsFor(
 		kCandleFollowApplication, job.LiveFollowRosterInterval)
 
 	return []domaininterface.IBackgroundJob{kCandleIngestionJob, liveFollowRosterJob}
+}
+
+// marketDataProxyFor is where every market's candle source is named, and the only
+// place they are all named together.
+//
+// Recognising a third market is one more entry in each of these three, plus its
+// rules in the settings. Nothing else in the system changes: everything above these
+// asks for a window of candles and never learns which venue answered.
+func marketDataProxyFor(
+	applicationConfig config.ApplicationConfig,
+) domaininterface.IMarketDataProxy {
+	return marketdata.NewMarketRoutedMarketDataProxy(
+		map[vo.MarketVo]domaininterface.IMarketDataProxy{
+			vo.MarketCrypto: marketdata.NewBinanceMarketDataProxy(
+				applicationConfig.Ingestion.MarketDataBaseUrl,
+				applicationConfig.Ingestion.MarketDataRequestTimeout,
+			),
+			vo.MarketTaiwanStock: marketdata.NewFugleMarketDataProxy(
+				applicationConfig.TaiwanStock.IntradayCandlesUrl,
+				applicationConfig.TaiwanStock.HistoricalCandlesUrl,
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.TimeZone,
+				clock.NewSystemClockProxy(),
+				applicationConfig.TaiwanStock.RequestTimeout,
+			),
+		})
+}
+
+// liveMarketDataProxyFor is where every market's live feed is named.
+func liveMarketDataProxyFor(
+	applicationConfig config.ApplicationConfig,
+) domaininterface.ILiveMarketDataProxy {
+	return marketdata.NewMarketRoutedLiveMarketDataProxy(
+		map[vo.MarketVo]domaininterface.ILiveMarketDataProxy{
+			vo.MarketCrypto: marketdata.NewBinanceLiveMarketDataProxy(
+				applicationConfig.LiveFollow.MarketDataStreamUrl),
+			vo.MarketTaiwanStock: marketdata.NewFugleLiveMarketDataProxy(
+				applicationConfig.TaiwanStock.StreamUrl,
+				applicationConfig.TaiwanStock.ApiKey),
+		})
+}
+
+// symbolLookupProxyFor is where every market is asked whether it has heard of a code.
+func symbolLookupProxyFor(
+	applicationConfig config.ApplicationConfig,
+) domaininterface.ISymbolLookupProxy {
+	return marketdata.NewMarketRoutedSymbolLookupProxy(
+		map[vo.MarketVo]domaininterface.ISymbolLookupProxy{
+			vo.MarketCrypto: marketdata.NewBinanceSymbolLookupProxy(
+				applicationConfig.Ingestion.SymbolCatalogUrl,
+				applicationConfig.Ingestion.MarketDataRequestTimeout),
+			vo.MarketTaiwanStock: marketdata.NewFugleSymbolLookupProxy(
+				applicationConfig.TaiwanStock.TickerUrl,
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.RequestTimeout),
+		})
 }
