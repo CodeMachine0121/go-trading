@@ -26,6 +26,15 @@ func (kCandleIngestionApplication *KCandleIngestionApplication) RunBackfill(
 	return kCandleIngestionApplication.kCandleIngestionService.RunBackfill(executionContext)
 }
 
+// CatchUpSymbol closes one trading symbol's gap on demand, for somebody who wants
+// its history now rather than at the next start-up.
+func (kCandleIngestionApplication *KCandleIngestionApplication) CatchUpSymbol(
+	executionContext context.Context, symbol string,
+) (dto.KCandleIngestionReportDto, error) {
+	return kCandleIngestionApplication.kCandleIngestionService.RunBackfillFor(
+		executionContext, symbol)
+}
+
 func (kCandleIngestionApplication *KCandleIngestionApplication) RunScheduledRound(
 	executionContext context.Context,
 ) (dto.KCandleIngestionReportDto, error) {

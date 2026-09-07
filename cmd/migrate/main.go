@@ -60,6 +60,12 @@ func main() {
 			clock.NewSystemClockProxy(),
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
+		// Registering the default markets never touches the watchlist, so nothing here
+		// ever asks for a symbol to be caught up. It is given nothing rather than a
+		// working ingestion for the same reason as the lookup above: if that ever stops
+		// being true, this fails loudly instead of quietly fetching candles from a
+		// migration.
+		nil,
 	)
 
 	// A migration is deliberately not interruptible: it is short, it is idempotent,

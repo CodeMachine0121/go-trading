@@ -921,6 +921,102 @@ func TestBackfillAsksForNothingWhenNothingInReachCouldTrade(t *testing.T) {
 	assert.Equal(t, 0, reportFor(t, report, "2330").StoredCount)
 }
 
+func TestCatchingOneSymbolUpAsksForItsOwnGapAfterTheCloseHasPassed(t *testing.T) {
+	// The evening of a trading day. A scheduled round has nothing left to collect,
+	// which is exactly when somebody wants today's candles for a stock they just
+	// added — so the on-demand catch-up must still reach back into the session.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T20:00:00+08:00"))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "2330", 1).
+		Return([]entities.KCandle{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
+		"2330", vo.MarketTaiwanStock,
+		taipeiIngestionAt(t, "2026-09-11T09:00:00+08:00"),
+		taipeiIngestionAt(t, "2026-09-11T13:25:00+08:00"),
+	)).Return([]vo.MarketKCandleVo{}, nil)
+
+	_, catchUpError := underTest.service.RunBackfillFor(t.Context(), "2330")
+
+	require.NoError(t, catchUpError)
+}
+
+func TestCatchingOneSymbolUpReachesASymbolNobodyIsWatching(t *testing.T) {
+	// A chart can be opened for a symbol that is not on the watchlist, and catching
+	// that one up is precisely what somebody looking at it is asking for. Reaching it
+	// through the watchlist would refuse the request it exists to serve.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T20:00:00+08:00"))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: false,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "2330", 1).
+		Return([]entities.KCandle{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+
+	_, catchUpError := underTest.service.RunBackfillFor(t.Context(), "2330")
+
+	require.NoError(t, catchUpError)
+}
+
+func TestCatchingUpASymbolNobodyRegisteredIsRefused(t *testing.T) {
+	// Without a registration there is no market, and without a market there is no
+	// source to ask. Guessing one from the shape of the name is the rule this system
+	// deliberately lacks.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T20:00:00+08:00"))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "9999").
+		Return(entities.TradingSymbol{}, false, nil)
+
+	_, catchUpError := underTest.service.RunBackfillFor(t.Context(), "9999")
+
+	assert.ErrorIs(t, catchUpError, domains.ErrTradingSymbolNotRegistered)
+}
+
+func TestCatchingUpNothingIsRefusedAsAName(t *testing.T) {
+	// Blank is not a symbol nobody registered — it is not a symbol at all, and the
+	// two ask opposite things of whoever asked: register it, or retype it.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T20:00:00+08:00"))
+
+	_, catchUpError := underTest.service.RunBackfillFor(t.Context(), "   ")
+
+	assert.ErrorIs(t, catchUpError, domains.ErrTradingSymbolNamed)
+	assert.NotErrorIs(t, catchUpError, domains.ErrTradingSymbolNotRegistered)
+}
+
+func TestCatchingOneSymbolUpNeverDecidesItsWholeMarketIsShut(t *testing.T) {
+	// One symbol answering with nothing is one symbol's silence. Reading it as the
+	// market's would stop every other symbol of that market being fetched for the
+	// rest of the day — on the strength of a single button press.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T10:00:00+08:00"))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "2330", 1).
+		Return([]entities.KCandle{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+
+	_, catchUpError := underTest.service.RunBackfillFor(t.Context(), "2330")
+	require.NoError(t, catchUpError)
+
+	// The scheduled round that follows still asks the source, which it would not do
+	// for a market it had decided was shut for the day.
+	underTest.watchingInMarket(vo.MarketTaiwanStock, "2454")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+
+	report, roundError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.True(t, reportFor(t, report, "2454").WasAsked)
+}
+
 func TestARoundInFlightWorksFromTheListItStartedWith(t *testing.T) {
 	// The watchlist is read once, at the top of the round. A change arriving while
 	// symbols are still being fetched belongs to the next round — a round that picked

@@ -17,6 +17,12 @@ var ErrTradingSymbolNotInMarket = errors.New("trading symbol not found in market
 // opposite advice from the error above and so must not share it.
 var ErrMarketDataSourceUnavailable = errors.New("market data source unavailable")
 
+// ErrTradingSymbolNamed marks a symbol that cannot be read as a name at all — blank,
+// or carrying something no name may carry. It is separate from "not registered"
+// because that one is an answer about the system's records, and this one is an answer
+// about what was typed: the first invites you to register it, the second to retype it.
+var ErrTradingSymbolNamed = errors.New("trading symbol not named")
+
 // ErrTradingSymbolNotRegistered marks a symbol the system has never been told about,
 // and therefore cannot say which market it belongs to or where its candles come from.
 var ErrTradingSymbolNotRegistered = errors.New("trading symbol not registered")

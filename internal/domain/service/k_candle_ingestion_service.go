@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,10 +75,13 @@ func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
 		return dto.KCandleIngestionReportDto{}, prepareError
 	}
 
-	return kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
+	report := kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
 		func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error) {
 			return ingestionDomain.ScheduledWindow(watchedSymbol.Symbol, market), nil
-		}), nil
+		})
+	kCandleIngestionService.presumeClosedMarkets(report.SymbolReports, ingestionDomain.CurrentTime())
+
+	return report, nil
 }
 
 // RunBackfill closes each watched symbol's gap, reaching no further back than the
@@ -90,21 +95,91 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 		return dto.KCandleIngestionReportDto{}, prepareError
 	}
 
-	return kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
-		func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error) {
-			latestStored, findError := kCandleIngestionService.kCandleRepository.FindLatest(
-				executionContext, watchedSymbol.Symbol, 1)
-			if findError != nil {
-				return vo.KCandleFetchWindowVo{}, findError
-			}
+	report := kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
+		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain))
+	kCandleIngestionService.presumeClosedMarkets(report.SymbolReports, ingestionDomain.CurrentTime())
 
-			if len(latestStored) == 0 {
-				return ingestionDomain.BackfillWindow(watchedSymbol.Symbol, market, time.Time{}), nil
-			}
+	return report, nil
+}
 
-			return ingestionDomain.BackfillWindow(
-				watchedSymbol.Symbol, market, latestStored[0].OpenTime), nil
-		}), nil
+// RunBackfillFor closes one trading symbol's gap on demand, reaching no further back
+// than the lookback allows.
+//
+// It exists because the two automatic runs are both driven by time — one by the
+// clock at startup, one by a five-minute tick — and neither can answer "I want this
+// symbol's day now". A market that closes makes that gap visible: after the bell,
+// the scheduled round has nothing left to collect, so a symbol nobody had before the
+// close would have no candles at all until the next start-up.
+//
+// It reaches the symbol by name rather than through the watchlist, because a chart
+// can be opened for a symbol nobody is watching, and catching that one up is exactly
+// what somebody looking at it is asking for.
+//
+// It deliberately never presumes a market shut. That conclusion is only earned by
+// asking every one of a market's watched symbols and hearing nothing from any of
+// them; one symbol's silence is one symbol's, and treating it as the market's would
+// stop the whole market being fetched for the rest of the day.
+func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
+	executionContext context.Context, symbol string,
+) (dto.KCandleIngestionReportDto, error) {
+	tradingSymbolDomain, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(symbol))
+	if symbolError != nil {
+		return dto.KCandleIngestionReportDto{}, fmt.Errorf("%w: %w",
+			domains.ErrTradingSymbolNamed, symbolError)
+	}
+
+	ingestionDomain, buildError := kCandleIngestionService.buildIngestionDomain()
+	if buildError != nil {
+		return dto.KCandleIngestionReportDto{}, buildError
+	}
+
+	registeredSymbol, isRegistered, findError := kCandleIngestionService.tradingSymbolRepository.
+		FindBySymbol(executionContext, tradingSymbolDomain.Value())
+	if findError != nil {
+		return dto.KCandleIngestionReportDto{}, findError
+	}
+
+	// Without a registration there is no market, and without a market there is no
+	// source to ask. Guessing one from the shape of the name is the rule this system
+	// deliberately does not have.
+	if !isRegistered {
+		return dto.KCandleIngestionReportDto{}, fmt.Errorf("%w: %s",
+			domains.ErrTradingSymbolNotRegistered, tradingSymbolDomain.Value())
+	}
+
+	return kCandleIngestionService.ingestSymbols(
+		executionContext,
+		[]entities.TradingSymbol{registeredSymbol},
+		ingestionDomain,
+		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain),
+	), nil
+}
+
+// backfillWindowOf is how far back one symbol has to be asked about: from wherever
+// its own history left off, and no further back than the lookback allows.
+//
+// It is shared by the run over the whole watchlist and the run over a single symbol
+// because "how much of this symbol is missing" is the same question either way —
+// only the list of symbols differs.
+func (kCandleIngestionService *KCandleIngestionService) backfillWindowOf(
+	executionContext context.Context, ingestionDomain domains.KCandleIngestionDomain,
+) func(entities.TradingSymbol, vo.MarketVo) (vo.KCandleFetchWindowVo, error) {
+	return func(
+		watchedSymbol entities.TradingSymbol, market vo.MarketVo,
+	) (vo.KCandleFetchWindowVo, error) {
+		latestStored, findError := kCandleIngestionService.kCandleRepository.FindLatest(
+			executionContext, watchedSymbol.Symbol, 1)
+		if findError != nil {
+			return vo.KCandleFetchWindowVo{}, findError
+		}
+
+		if len(latestStored) == 0 {
+			return ingestionDomain.BackfillWindow(watchedSymbol.Symbol, market, time.Time{}), nil
+		}
+
+		return ingestionDomain.BackfillWindow(
+			watchedSymbol.Symbol, market, latestStored[0].OpenTime), nil
+	}
 }
 
 // prepareRun reads the clock and the watchlist once each, so that every window in one
@@ -116,11 +191,7 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 func (kCandleIngestionService *KCandleIngestionService) prepareRun(
 	executionContext context.Context,
 ) ([]entities.TradingSymbol, domains.KCandleIngestionDomain, error) {
-	ingestionDomain, buildError := domains.NewKCandleIngestionDomain(
-		kCandleIngestionService.clockProxy.Now(),
-		kCandleIngestionService.roundCandleCount,
-		kCandleIngestionService.backfillLookback,
-	)
+	ingestionDomain, buildError := kCandleIngestionService.buildIngestionDomain()
 	if buildError != nil {
 		return nil, domains.KCandleIngestionDomain{}, buildError
 	}
@@ -132,6 +203,19 @@ func (kCandleIngestionService *KCandleIngestionService) prepareRun(
 	}
 
 	return watchedSymbols, ingestionDomain, nil
+}
+
+// buildIngestionDomain settles the rules against one reading of the clock. Every run
+// starts here, so a run that cannot work whatever it is pointed at says so before it
+// has read a watchlist or touched a source.
+func (kCandleIngestionService *KCandleIngestionService) buildIngestionDomain() (
+	domains.KCandleIngestionDomain, error,
+) {
+	return domains.NewKCandleIngestionDomain(
+		kCandleIngestionService.clockProxy.Now(),
+		kCandleIngestionService.roundCandleCount,
+		kCandleIngestionService.backfillLookback,
+	)
 }
 
 // ingestSymbols runs every watched symbol at once. A plain wait group is deliberate:
@@ -154,8 +238,6 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
 		})
 	}
 	waitGroup.Wait()
-
-	kCandleIngestionService.presumeClosedMarkets(symbolReports, ingestionDomain.CurrentTime())
 
 	return dto.KCandleIngestionReportDto{SymbolReports: symbolReports}
 }

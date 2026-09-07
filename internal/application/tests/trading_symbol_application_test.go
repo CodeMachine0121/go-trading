@@ -1,6 +1,8 @@
 package application_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -19,6 +21,8 @@ type tradingSymbolApplicationUnderTest struct {
 	tradingSymbolApplication *application.TradingSymbolApplication
 	tradingSymbolRepository  *mocks.MockITradingSymbolRepository
 	kCandleRepository        *mocks.MockIKCandleRepository
+	symbolLookupProxy        *mocks.MockISymbolLookupProxy
+	marketDataProxy          *mocks.MockIMarketDataProxy
 }
 
 // newTradingSymbolApplicationUnderTest wires the real domain service, mocking only
@@ -33,14 +37,23 @@ func newTradingSymbolApplicationUnderTest(t *testing.T) tradingSymbolApplication
 	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
 		Return([]entities.TradingSymbol{}, nil).AnyTimes()
 
+	symbolLookupProxy := mocks.NewMockISymbolLookupProxy(controller)
+	marketDataProxy := mocks.NewMockIMarketDataProxy(controller)
+
 	return tradingSymbolApplicationUnderTest{
 		tradingSymbolApplication: application.NewTradingSymbolApplication(
 			service.NewTradingSymbolService(
 				tradingSymbolRepository, kCandleRepository,
-				mocks.NewMockISymbolLookupProxy(controller), tradingSymbolClockProxy(controller),
-				tradingSymbolMarketCatalog())),
+				symbolLookupProxy, tradingSymbolClockProxy(controller),
+				tradingSymbolMarketCatalog()),
+			service.NewKCandleIngestionService(
+				kCandleRepository, tradingSymbolRepository,
+				marketDataProxy, tradingSymbolClockProxy(controller),
+				tradingSymbolMarketCatalog(), 5, time.Hour)),
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
+		symbolLookupProxy:       symbolLookupProxy,
+		marketDataProxy:         marketDataProxy,
 	}
 }
 
@@ -91,5 +104,82 @@ func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockPro
 func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
+		// A market that closes is here so that adding to the watchlist can be tested
+		// as it behaves for the market that needs it: the one whose scheduled rounds
+		// have nothing left to collect after the bell.
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   time.FixedZone("Asia/Taipei", 8*60*60),
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			SimultaneousFollowCeiling: 5,
+		},
+	})
+}
+
+func TestTradingSymbolApplicationAddToWatchlist(t *testing.T) {
+	t.Run("catches the symbol up on the spot, without waiting for a round", func(t *testing.T) {
+		// Adding is only half of what somebody adding a symbol wants. Without the
+		// other half they are left looking at an empty chart until a round comes
+		// round — and after a market's close, until the next start-up.
+		fixture := newTradingSymbolApplicationUnderTest(t)
+		fixture.symbolLookupProxy.EXPECT().
+			SymbolExists(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(true, nil)
+		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
+			Return(entities.TradingSymbol{}, false, nil)
+		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+			entities.TradingSymbol{
+				Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+			}, true, nil)
+		fixture.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+			Return([]entities.KCandle{}, nil)
+		caughtUp := make(chan struct{}, 1)
+		fixture.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+				caughtUp <- struct{}{}
+
+				return []vo.MarketKCandleVo{}, nil
+			})
+
+		addError := fixture.tradingSymbolApplication.AddToWatchlist(
+			t.Context(), dto.WatchlistEntryDto{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto)})
+
+		assert.NoError(t, addError)
+		assert.Len(t, caughtUp, 1, "加進觀察清單之後應該立刻去補那一檔，而不是等下一輪")
+	})
+
+	t.Run("a catch-up that fails does not undo the add", func(t *testing.T) {
+		// The symbol is on the watchlist — that is what was asked for and it is true.
+		// The ordinary rounds will reach it anyway, so refusing here would report a
+		// failure about something that fixes itself, and lose something that worked.
+		fixture := newTradingSymbolApplicationUnderTest(t)
+		fixture.symbolLookupProxy.EXPECT().
+			SymbolExists(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(true, nil)
+		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
+			Return(entities.TradingSymbol{}, false, nil)
+		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+		fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
+			Return(entities.TradingSymbol{}, false, errors.New("storage unreachable"))
+
+		addError := fixture.tradingSymbolApplication.AddToWatchlist(
+			t.Context(), dto.WatchlistEntryDto{Symbol: "BTCUSDT", Market: string(vo.MarketCrypto)})
+
+		assert.NoError(t, addError)
+	})
+
+	t.Run("nothing is caught up when the add itself was refused", func(t *testing.T) {
+		fixture := newTradingSymbolApplicationUnderTest(t)
+		fixture.symbolLookupProxy.EXPECT().
+			SymbolExists(gomock.Any(), vo.MarketTaiwanStock, "9999").Return(false, nil)
+
+		addError := fixture.tradingSymbolApplication.AddToWatchlist(
+			t.Context(), dto.WatchlistEntryDto{Symbol: "9999", Market: string(vo.MarketTaiwanStock)})
+
+		assert.ErrorIs(t, addError, domains.ErrTradingSymbolNotInMarket)
 	})
 }

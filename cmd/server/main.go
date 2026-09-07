@@ -28,7 +28,8 @@ func main() {
 	}
 
 	engine := gin.Default()
-	kCandleFollowApplication := registerRoutes(engine, database, applicationConfig)
+	kCandleFollowApplication, kCandleIngestionApplication := registerRoutes(
+		engine, database, applicationConfig)
 
 	// The signals are listened for before anything is started, so an interrupt
 	// arriving during the startup backfill runs the shutdown path instead of falling
@@ -50,7 +51,8 @@ func main() {
 		shutdownSignalled,
 		server,
 		job.NewBackgroundJobManager(
-			backgroundJobsFor(database, applicationConfig, kCandleFollowApplication)),
+			backgroundJobsFor(
+				applicationConfig, kCandleFollowApplication, kCandleIngestionApplication)),
 		kCandleFollowApplication.Stop,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)

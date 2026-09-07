@@ -23,12 +23,14 @@ import (
 )
 
 // registerRoutes is the composition root: it wires every concrete type and mounts
-// the routes. It hands back the live follows, because they are the one thing here
-// that outlives the request that started it — and the one thing a background job and
-// a route both reach for, so there must be exactly one of them.
+// the routes. It hands back the two things a background job and a route both reach
+// for, so that there is exactly one of each: the live follows, which outlive the
+// request that started them, and the ingestion, which remembers which markets it has
+// decided are shut today — a memory that would be two different memories if the job
+// and the routes each built their own.
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
-) *application.KCandleFollowApplication {
+) (*application.KCandleFollowApplication, *application.KCandleIngestionApplication) {
 	engine.Use(controller.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
 	engine.GET("/health", func(context *gin.Context) {
@@ -54,6 +56,23 @@ func registerRoutes(
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
 
+	// 抓取在這裡組起來而不是在背景工作那邊：加入觀察清單要立刻補齊那一檔，手動補齊也是
+	// 一條路由，兩者都不該等背景工作被打開才存在——而它們必須跟背景工作共用同一份，
+	// 否則「今天休市」會各記各的。
+	kCandleIngestionService := service.NewKCandleIngestionService(
+		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
+		marketDataProxyFor(applicationConfig),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.Ingestion.RoundCandleCount,
+		applicationConfig.Ingestion.BackfillLookback,
+	)
+	kCandleIngestionApplication := application.NewKCandleIngestionApplication(kCandleIngestionService)
+
+	engine.POST("/k-candles/backfill",
+		controller.NewKCandleBackfillController(kCandleIngestionApplication).CatchUpSymbol)
+
 	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		service.NewTradingSymbolService(
@@ -63,6 +82,7 @@ func registerRoutes(
 			clock.NewSystemClockProxy(),
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
+		kCandleIngestionService,
 	)
 
 	tradingSymbolController := controller.NewTradingSymbolController(tradingSymbolApplication)
@@ -209,7 +229,7 @@ func registerRoutes(
 	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
 		kCandleFollowApplication).WatchKCandles)
 
-	return kCandleFollowApplication
+	return kCandleFollowApplication, kCandleIngestionApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -244,28 +264,16 @@ func assistantQueriesFor(
 // background jobs off leaves nothing to start; an empty watchlist means every round
 // has nothing to fetch, which is a state rather than a failure.
 func backgroundJobsFor(
-	database *gorm.DB,
 	applicationConfig config.ApplicationConfig,
 	kCandleFollowApplication *application.KCandleFollowApplication,
+	kCandleIngestionApplication *application.KCandleIngestionApplication,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
 		return []domaininterface.IBackgroundJob{}
 	}
 
 	kCandleIngestionJob := job.NewKCandleIngestionJob(
-		application.NewKCandleIngestionApplication(
-			service.NewKCandleIngestionService(
-				persistence.NewKCandleRepository(database),
-				persistence.NewTradingSymbolRepository(database),
-				marketDataProxyFor(applicationConfig),
-				clock.NewSystemClockProxy(),
-				domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
-				applicationConfig.Ingestion.RoundCandleCount,
-				applicationConfig.Ingestion.BackfillLookback,
-			),
-		),
-		job.KCandleIngestionInterval,
-	)
+		kCandleIngestionApplication, job.KCandleIngestionInterval)
 
 	// Handing out a market's live places is its own job rather than another step of
 	// a round: a round held up by a source that will not answer would otherwise hold

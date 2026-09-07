@@ -61,6 +61,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /chat",
 		"POST /indicator-calculations",
 		"POST /k-candles",
+		"POST /k-candles/backfill",
 		"POST /sessions",
 		"POST /sessions/renewal",
 		"POST /sessions/revocation",

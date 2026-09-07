@@ -42,7 +42,11 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 			service.NewTradingSymbolService(
 				tradingSymbolRepository, kCandleRepository,
 				mocks.NewMockISymbolLookupProxy(mockController), tradingSymbolClockProxy(mockController),
-				tradingSymbolMarketCatalog())))
+				tradingSymbolMarketCatalog()),
+			service.NewKCandleIngestionService(
+				kCandleRepository, tradingSymbolRepository,
+				mocks.NewMockIMarketDataProxy(mockController), tradingSymbolClockProxy(mockController),
+				tradingSymbolMarketCatalog(), 5, time.Hour)))
 
 	engine := gin.New()
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
