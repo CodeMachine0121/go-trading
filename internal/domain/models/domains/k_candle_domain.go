@@ -27,9 +27,9 @@ type KCandleDomain struct {
 	low                 decimal.Decimal
 	close               decimal.Decimal
 	volume              decimal.Decimal
-	quoteVolume         decimal.Decimal
-	takerBuyBaseVolume  decimal.Decimal
-	takerBuyQuoteVolume decimal.Decimal
+	quoteVolume         decimal.NullDecimal
+	takerBuyBaseVolume  decimal.NullDecimal
+	takerBuyQuoteVolume decimal.NullDecimal
 }
 
 // NewKCandleDomain validates the figures against every K candle rule, judging
@@ -57,10 +57,18 @@ func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCan
 		return KCandleDomain{}, fmt.Errorf("%w: 最高價不得低於最低價", ErrKCandleValidation)
 	}
 
-	figures := []decimal.Decimal{
-		writeDto.Open, writeDto.High, writeDto.Low, writeDto.Close,
-		writeDto.Volume, writeDto.QuoteVolume,
-		writeDto.TakerBuyBaseVolume, writeDto.TakerBuyQuoteVolume,
+	// Every figure is judged the same way whether or not the market reports it: a
+	// figure that was never reported breaks no rule, which is the one difference and
+	// it is stated once, in the figure itself.
+	figures := []OptionalFigureDomain{
+		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.Open)),
+		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.High)),
+		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.Low)),
+		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.Close)),
+		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.Volume)),
+		NewOptionalFigureDomain(writeDto.QuoteVolume),
+		NewOptionalFigureDomain(writeDto.TakerBuyBaseVolume),
+		NewOptionalFigureDomain(writeDto.TakerBuyQuoteVolume),
 	}
 	for _, figure := range figures {
 		if figure.IsNegative() {

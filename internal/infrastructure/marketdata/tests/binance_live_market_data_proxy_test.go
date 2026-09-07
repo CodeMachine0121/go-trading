@@ -96,9 +96,9 @@ func TestALiveMessageIsNormalizedIntoOneCandle(t *testing.T) {
 	assert.Equal(t, "90", liveKCandle.Low.String())
 	assert.Equal(t, "118.25", liveKCandle.Close.String())
 	assert.Equal(t, "12.5", liveKCandle.Volume.String())
-	assert.Equal(t, "1400.75", liveKCandle.QuoteVolume.String())
-	assert.Equal(t, "7.25", liveKCandle.TakerBuyBaseVolume.String())
-	assert.Equal(t, "800.5", liveKCandle.TakerBuyQuoteVolume.String())
+	assert.Equal(t, "1400.75", liveKCandle.QuoteVolume.Decimal.String())
+	assert.Equal(t, "7.25", liveKCandle.TakerBuyBaseVolume.Decimal.String())
+	assert.Equal(t, "800.5", liveKCandle.TakerBuyQuoteVolume.Decimal.String())
 	assert.True(t, liveKCandle.Closed, "來源說這一根走完了")
 }
 

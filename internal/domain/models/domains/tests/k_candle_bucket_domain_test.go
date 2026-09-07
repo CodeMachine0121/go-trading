@@ -24,9 +24,9 @@ func buildBucketKCandle(
 		Low:                 decimal.RequireFromString(low),
 		Close:               decimal.RequireFromString(closePrice),
 		Volume:              decimal.RequireFromString(volume),
-		QuoteVolume:         decimal.RequireFromString(volume).Mul(decimal.NewFromInt(10)),
-		TakerBuyBaseVolume:  decimal.RequireFromString(volume).Div(decimal.NewFromInt(2)),
-		TakerBuyQuoteVolume: decimal.RequireFromString(volume).Mul(decimal.NewFromInt(5)),
+		QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString(volume).Mul(decimal.NewFromInt(10))),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString(volume).Div(decimal.NewFromInt(2))),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString(volume).Mul(decimal.NewFromInt(5))),
 	}
 }
 
@@ -46,9 +46,38 @@ func TestKCandleBucketDomainMergesTheCandlesItHolds(t *testing.T) {
 	assert.True(t, decimal.RequireFromString("90").Equal(mergedKCandle.Low), "low is the lowest low")
 	assert.True(t, decimal.RequireFromString("110").Equal(mergedKCandle.Close), "close comes from the latest candle")
 	assert.True(t, decimal.RequireFromString("10").Equal(mergedKCandle.Volume), "volume is the sum")
-	assert.True(t, decimal.RequireFromString("100").Equal(mergedKCandle.QuoteVolume))
-	assert.True(t, decimal.RequireFromString("5").Equal(mergedKCandle.TakerBuyBaseVolume))
-	assert.True(t, decimal.RequireFromString("50").Equal(mergedKCandle.TakerBuyQuoteVolume))
+	assert.True(t, decimal.RequireFromString("100").Equal(mergedKCandle.QuoteVolume.Decimal))
+	assert.True(t, decimal.RequireFromString("5").Equal(mergedKCandle.TakerBuyBaseVolume.Decimal))
+	assert.True(t, decimal.RequireFromString("50").Equal(mergedKCandle.TakerBuyQuoteVolume.Decimal))
+}
+
+func TestKCandleBucketDomainKeepsUnreportedFiguresUnreported(t *testing.T) {
+	// A market that publishes no turnover publishes none at any coarseness. Merging
+	// its candles into an hourly one must not hand back a confident zero, because a
+	// zero there would be read as "an hour in which nothing was turned over".
+	unreportingKCandle := func(openTime string, volume string) entities.KCandle {
+		kCandle := buildBucketKCandle(t, openTime, "100", "130", "95", "120", volume)
+		kCandle.QuoteVolume = decimal.NullDecimal{}
+		kCandle.TakerBuyBaseVolume = decimal.NullDecimal{}
+		kCandle.TakerBuyQuoteVolume = decimal.NullDecimal{}
+
+		return kCandle
+	}
+
+	bucketDomain := domains.NewKCandleBucketDomain(
+		mustParseTime(t, "2026-09-02T10:00:00Z"),
+		[]entities.KCandle{
+			unreportingKCandle("2026-09-02T10:00:00Z", "3"),
+			unreportingKCandle("2026-09-02T10:05:00Z", "7"),
+		})
+
+	mergedKCandle := bucketDomain.ToDto()
+
+	assert.False(t, mergedKCandle.QuoteVolume.Valid)
+	assert.False(t, mergedKCandle.TakerBuyBaseVolume.Valid)
+	assert.False(t, mergedKCandle.TakerBuyQuoteVolume.Valid)
+	// The figures the market does report are merged exactly as before.
+	assert.True(t, decimal.RequireFromString("10").Equal(mergedKCandle.Volume))
 }
 
 func TestKCandleBucketDomainDecidesOpenAndCloseByOpenTimeNotByPosition(t *testing.T) {

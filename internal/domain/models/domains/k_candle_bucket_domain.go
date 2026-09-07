@@ -40,6 +40,12 @@ func (kCandleBucketDomain KCandleBucketDomain) ToDto() dto.KCandleDto {
 
 	earliestKCandle := entities.KCandle{}
 	latestKCandle := entities.KCandle{}
+	// The three figures a market may not report are accumulated as such, so that
+	// merging candles from a market that publishes none of them produces a coarser
+	// candle that publishes none of them either — rather than a confident zero.
+	quoteVolume := OptionalFigureDomain{}
+	takerBuyBaseVolume := OptionalFigureDomain{}
+	takerBuyQuoteVolume := OptionalFigureDomain{}
 
 	for index, kCandle := range kCandleBucketDomain.kCandles {
 		if index == 0 || kCandle.OpenTime.Before(earliestKCandle.OpenTime) {
@@ -56,14 +62,17 @@ func (kCandleBucketDomain KCandleBucketDomain) ToDto() dto.KCandleDto {
 		}
 
 		mergedKCandle.Volume = mergedKCandle.Volume.Add(kCandle.Volume)
-		mergedKCandle.QuoteVolume = mergedKCandle.QuoteVolume.Add(kCandle.QuoteVolume)
-		mergedKCandle.TakerBuyBaseVolume = mergedKCandle.TakerBuyBaseVolume.Add(kCandle.TakerBuyBaseVolume)
-		mergedKCandle.TakerBuyQuoteVolume = mergedKCandle.TakerBuyQuoteVolume.Add(kCandle.TakerBuyQuoteVolume)
+		quoteVolume = quoteVolume.Plus(kCandle.QuoteVolume)
+		takerBuyBaseVolume = takerBuyBaseVolume.Plus(kCandle.TakerBuyBaseVolume)
+		takerBuyQuoteVolume = takerBuyQuoteVolume.Plus(kCandle.TakerBuyQuoteVolume)
 	}
 
 	mergedKCandle.Symbol = earliestKCandle.Symbol
 	mergedKCandle.Open = earliestKCandle.Open
 	mergedKCandle.Close = latestKCandle.Close
+	mergedKCandle.QuoteVolume = quoteVolume.Value()
+	mergedKCandle.TakerBuyBaseVolume = takerBuyBaseVolume.Value()
+	mergedKCandle.TakerBuyQuoteVolume = takerBuyQuoteVolume.Value()
 
 	return mergedKCandle
 }
@@ -86,8 +95,8 @@ func (kCandleBucketDomain KCandleBucketDomain) ToVo() vo.KCandleVo {
 		Low:                 mergedKCandle.Low.InexactFloat64(),
 		Close:               mergedKCandle.Close.InexactFloat64(),
 		Volume:              mergedKCandle.Volume.InexactFloat64(),
-		QuoteVolume:         mergedKCandle.QuoteVolume.InexactFloat64(),
-		TakerBuyBaseVolume:  mergedKCandle.TakerBuyBaseVolume.InexactFloat64(),
-		TakerBuyQuoteVolume: mergedKCandle.TakerBuyQuoteVolume.InexactFloat64(),
+		QuoteVolume:         NewOptionalFigureDomain(mergedKCandle.QuoteVolume).AsScriptFigure(),
+		TakerBuyBaseVolume:  NewOptionalFigureDomain(mergedKCandle.TakerBuyBaseVolume).AsScriptFigure(),
+		TakerBuyQuoteVolume: NewOptionalFigureDomain(mergedKCandle.TakerBuyQuoteVolume).AsScriptFigure(),
 	}
 }

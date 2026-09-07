@@ -60,9 +60,9 @@ func TestFetchKCandlesMapsEveryPositionOfTheSourceArray(t *testing.T) {
 	assert.Equal(t, "0.5", marketKCandle.Low.String())
 	assert.Equal(t, "1.5", marketKCandle.Close.String())
 	assert.Equal(t, "10", marketKCandle.Volume.String())
-	assert.Equal(t, "2000", marketKCandle.QuoteVolume.String())
-	assert.Equal(t, "4", marketKCandle.TakerBuyBaseVolume.String())
-	assert.Equal(t, "800", marketKCandle.TakerBuyQuoteVolume.String())
+	assert.Equal(t, "2000", marketKCandle.QuoteVolume.Decimal.String())
+	assert.Equal(t, "4", marketKCandle.TakerBuyBaseVolume.Decimal.String())
+	assert.Equal(t, "800", marketKCandle.TakerBuyQuoteVolume.Decimal.String())
 }
 
 func TestFetchKCandlesAsksTheSourceForTheWindow(t *testing.T) {

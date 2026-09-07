@@ -19,10 +19,31 @@ func validWriteDto() dto.KCandleWriteDto {
 		Low:                 decimal.RequireFromString("90"),
 		Close:               decimal.RequireFromString("110"),
 		Volume:              decimal.RequireFromString("11"),
-		QuoteVolume:         decimal.RequireFromString("1200"),
-		TakerBuyBaseVolume:  decimal.RequireFromString("5"),
-		TakerBuyQuoteVolume: decimal.RequireFromString("600"),
+		QuoteVolume:         decimal.NewNullDecimal(decimal.RequireFromString("1200")),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(decimal.RequireFromString("5")),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(decimal.RequireFromString("600")),
 	}
+}
+
+func TestNewKCandleDomainAcceptsACandleFromAMarketThatReportsFewerFigures(t *testing.T) {
+	// A market that publishes no turnover is not a broken candle. The figures it does
+	// publish are judged exactly as before, and the ones it does not stay absent all
+	// the way into storage rather than becoming zeros.
+	writeDto := validWriteDto()
+	writeDto.QuoteVolume = decimal.NullDecimal{}
+	writeDto.TakerBuyBaseVolume = decimal.NullDecimal{}
+	writeDto.TakerBuyQuoteVolume = decimal.NullDecimal{}
+
+	kCandleDomain, validationError := domains.NewKCandleDomain(
+		writeDto, time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC))
+
+	assert.NoError(t, validationError)
+
+	storedKCandle := kCandleDomain.ToEntity()
+	assert.False(t, storedKCandle.QuoteVolume.Valid)
+	assert.False(t, storedKCandle.TakerBuyBaseVolume.Valid)
+	assert.False(t, storedKCandle.TakerBuyQuoteVolume.Valid)
+	assert.True(t, decimal.RequireFromString("11").Equal(storedKCandle.Volume))
 }
 
 func TestNewKCandleDomainRejectsBrokenRules(t *testing.T) {
@@ -80,7 +101,7 @@ func TestNewKCandleDomainRejectsBrokenRules(t *testing.T) {
 		{
 			name: "negative taker buy quote volume",
 			mutate: func(writeDto *dto.KCandleWriteDto) {
-				writeDto.TakerBuyQuoteVolume = decimal.RequireFromString("-1")
+				writeDto.TakerBuyQuoteVolume = decimal.NewNullDecimal(decimal.RequireFromString("-1"))
 			},
 			expectedReason: "價格與成交數字不得為負數",
 		},
@@ -132,7 +153,7 @@ func TestNewKCandleDomainAcceptsValidCandles(t *testing.T) {
 			assert.Equal(t, "BTCUSDT", kCandle.Symbol)
 			assert.Equal(t, testCase.openTime, kCandle.OpenTime)
 			assert.True(t, decimal.RequireFromString("110").Equal(kCandle.Close))
-			assert.True(t, decimal.RequireFromString("600").Equal(kCandle.TakerBuyQuoteVolume))
+			assert.True(t, decimal.RequireFromString("600").Equal(kCandle.TakerBuyQuoteVolume.Decimal))
 		})
 	}
 }

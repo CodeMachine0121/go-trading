@@ -56,9 +56,11 @@ func (kLine binanceKLine) toMarketKCandleVo(symbol string) (vo.MarketKCandleVo, 
 		Low:                 figures[lowIndex],
 		Close:               figures[closeIndex],
 		Volume:              figures[volumeIndex],
-		QuoteVolume:         figures[quoteVolumeIndex],
-		TakerBuyBaseVolume:  figures[takerBuyBaseVolumeIndex],
-		TakerBuyQuoteVolume: figures[takerBuyQuoteVolumeIndex],
+		// This source reports all three, so they are present rather than absent.
+		// A source that reports none of them leaves them as they are.
+		QuoteVolume:         decimal.NewNullDecimal(figures[quoteVolumeIndex]),
+		TakerBuyBaseVolume:  decimal.NewNullDecimal(figures[takerBuyBaseVolumeIndex]),
+		TakerBuyQuoteVolume: decimal.NewNullDecimal(figures[takerBuyQuoteVolumeIndex]),
 	}, nil
 }
 

@@ -15,7 +15,7 @@ type KCandleWriteDto struct {
 	Low                 decimal.Decimal
 	Close               decimal.Decimal
 	Volume              decimal.Decimal
-	QuoteVolume         decimal.Decimal
-	TakerBuyBaseVolume  decimal.Decimal
-	TakerBuyQuoteVolume decimal.Decimal
+	QuoteVolume         decimal.NullDecimal
+	TakerBuyBaseVolume  decimal.NullDecimal
+	TakerBuyQuoteVolume decimal.NullDecimal
 }

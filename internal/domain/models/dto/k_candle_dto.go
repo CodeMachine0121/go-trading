@@ -15,7 +15,7 @@ type KCandleDto struct {
 	Low                 decimal.Decimal `json:"low"`
 	Close               decimal.Decimal `json:"close"`
 	Volume              decimal.Decimal `json:"volume"`
-	QuoteVolume         decimal.Decimal `json:"quoteVolume"`
-	TakerBuyBaseVolume  decimal.Decimal `json:"takerBuyBaseVolume"`
-	TakerBuyQuoteVolume decimal.Decimal `json:"takerBuyQuoteVolume"`
+	QuoteVolume         decimal.NullDecimal `json:"quoteVolume"`
+	TakerBuyBaseVolume  decimal.NullDecimal `json:"takerBuyBaseVolume"`
+	TakerBuyQuoteVolume decimal.NullDecimal `json:"takerBuyQuoteVolume"`
 }
