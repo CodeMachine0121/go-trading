@@ -15,10 +15,9 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// The migrate command syncs the PostgreSQL schema with the entity definitions,
-// retires whatever stored data has stopped meaning what it used to, and registers the
-// markets the system ships knowing about — so that a freshly built database already
-// has something to offer and an existing one holds nothing that would be misread.
+// The migrate command syncs the PostgreSQL schema with the entity definitions and
+// registers the markets the system ships knowing about, so that a freshly built
+// database already has something to offer.
 func main() {
 	if loadError := godotenv.Load(); loadError != nil {
 		log.Println("no .env file loaded, falling back to process environment")
@@ -47,25 +46,6 @@ func main() {
 		strings.Join(migratedTables, ", "),
 	)
 
-	// 結構同步之後才輪到資料：退場的資料要寫進哪張表，得等那張表存在。
-	// A migration is deliberately not interruptible: it is short, it is idempotent,
-	// and a half-applied change is worse than one that insists on finishing.
-	retiredDataSets, retireError := persistence.
-		NewDataRetirementMigrator(database, persistence.NewKCandleRepository(database)).
-		Retire(context.Background())
-	if retireError != nil {
-		log.Fatalf("retiring data failed: %v", retireError)
-	}
-
-	if len(retiredDataSets) == 0 {
-		log.Print("data retirements: already applied, nothing to retire")
-	} else {
-		log.Printf("data retirements: applied %d (%s)",
-			len(retiredDataSets),
-			strings.Join(retiredDataSets, ", "),
-		)
-	}
-
 	// 建好結構之後才登錄：登錄是業務動作，走 domain，不塞進只管結構的 migrator。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		// Registering the markets this system ships knowing about reaches no market
@@ -88,6 +68,8 @@ func main() {
 		nil,
 	)
 
+	// A migration is deliberately not interruptible: it is short, it is idempotent,
+	// and a half-applied schema is worse than one that insists on finishing.
 	registeredSymbols, registerError := tradingSymbolApplication.RegisterDefaultTradingSymbols(
 		context.Background())
 	if registerError != nil {
