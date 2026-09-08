@@ -31,7 +31,7 @@
 | `domains.LiveChannelHealthDomain` | **Add** | 由 `KCandleFollowDomain` 拆出：一條通道的靜默判定與重試間隔 |
 | `domains.ViewerUpdateThrottleDomain` | **Add** | 由 `KCandleFollowDomain` 拆出：一檔交易標的多久可以更新一次畫面 |
 | `domains.KCandleFollowDomain` | **Remove** | 三條規則拆成上面兩個之後，它沒有剩下的東西。留著等於留一個各自只用一半欄位的物件 |
-| `vo.FollowTargetVo` | **Modify** | 由「一檔」改為「一組」：`Symbols []string` + `Market` |
+| `vo.FollowTargetVo` | **Remove** | 它與 `LiveFollowChannelVo` 攜帶的資料一模一樣、改變的理由也一模一樣。**實作時合併為後者**：兩個同形狀的型別會有兩個地方被改，而其中一個遲早不會被改到 |
 | `ILiveMarketDataProxy` | **Modify** | 契約不變形狀（仍是一次呼叫、一個 channel、關閉即結束），只是 target 現在是一組交易標的 |
 | `marketdata.FugleLiveMarketDataProxy` | **Modify** | 握手時對每一檔各送一次訂閱；折疊器由一個變成**每檔一個**，依推送裡的代號分流 |
 | `marketdata.BinanceLiveMarketDataProxy` | **Modify** | 跟它拿到的那一檔。拿到超過一檔時**明確拒絕**並說明原因——加密貨幣的規則設定為一條一檔，這條路走不到，但走到了要吵而不是安靜地少跟幾檔 |
@@ -50,7 +50,7 @@
 
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies (PRD scenario) |
 | :--- | :--- | :--- | :--- | :--- |
-| `vo.LiveFollowChannelVo` | VO | 一條通道要跟哪些交易標的，以及**它的識別鍵**——市場加上排序後的代號集合。不可變、無行為 | — | US-05 全部（重建與不重建） |
+| `vo.LiveFollowChannelVo` | VO | 一條通道要跟哪些交易標的，以及**它的識別鍵**——市場加上排序後的代號集合。不可變、無行為。**同時取代 `FollowTargetVo`**：行情來源被要求的東西，就是一條通道 | — | US-05 全部（重建與不重建）、US-02 |
 | `domains.LiveChannelHealthDomain` | Domain Model | 一條通道隨時間的健康：多久沒收到就算死了、下一次重試等多久、什麼才算恢復 | — | US-04 全部 |
 | `domains.ViewerUpdateThrottleDomain` | Domain Model | 一檔交易標的的畫面多久可以更新一次；走完的那一根一律放行 | — | US-03 happy path（節流不變） |
 | `service.followChannel` | 執行單位（service 內部） | 一條通道的生命：它的重試迴圈、它承載哪幾檔、被要求結束時怎麼收尾 | `LiveChannelHealthDomain`、`ILiveMarketDataProxy`、`symbolFollow` | US-02、US-04 |
@@ -200,4 +200,5 @@ flowchart TD
 
 - **通道識別鍵的拼法**：建議 `string(market) + "|" + strings.Join(sortedSymbols, ",")`。排序在 `LiveFollowChannelVo` 建立時做一次，之後不再排。
 - **`ILiveMarketDataProxy` 的 mock**：契約改變後需重新產生（`make mock`）。
+- **實作時與本文的差異**：`FollowTargetVo` 未如原案「改形狀」，而是**直接刪除、由 `LiveFollowChannelVo` 取代**（見 §2）。原案讓兩個同形狀的型別並存，違反「兩個型別共用一個改變理由就該合併」。
 - **既有 `TAIWAN_STOCK_SIMULTANEOUS_FOLLOW_CEILING`**：直接淘汰，不做相容轉換。README 的環境變數表要同步換掉，並說明它為何變成兩個。
