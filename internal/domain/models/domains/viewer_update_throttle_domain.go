@@ -32,8 +32,13 @@ type ViewerUpdateThrottleDomain struct {
 func NewViewerUpdateThrottleDomain(
 	updateIntervalCeiling time.Duration, startedAt time.Time,
 ) *ViewerUpdateThrottleDomain {
+	settledCeiling := defaultUpdateIntervalCeiling
+	if updateIntervalCeiling > 0 {
+		settledCeiling = updateIntervalCeiling
+	}
+
 	return &ViewerUpdateThrottleDomain{
-		updateIntervalCeiling: positiveOr(updateIntervalCeiling, defaultUpdateIntervalCeiling),
+		updateIntervalCeiling: settledCeiling,
 		lastAdmittedAt:        startedAt.UTC(),
 	}
 }

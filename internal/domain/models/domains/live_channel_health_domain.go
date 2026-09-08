@@ -41,13 +41,23 @@ func NewLiveChannelHealthDomain(
 	maximumRetryDelay time.Duration,
 	startedAt time.Time,
 ) *LiveChannelHealthDomain {
+	settledQuietTimeout := defaultQuietTimeout
+	if quietTimeout > 0 {
+		settledQuietTimeout = quietTimeout
+	}
+
+	settledMaximumRetryDelay := defaultMaximumRetryDelay
+	if maximumRetryDelay > 0 {
+		settledMaximumRetryDelay = maximumRetryDelay
+	}
+
 	return &LiveChannelHealthDomain{
-		quietTimeout:      positiveOr(quietTimeout, defaultQuietTimeout),
-		maximumRetryDelay: positiveOr(maximumRetryDelay, defaultMaximumRetryDelay),
+		quietTimeout:      settledQuietTimeout,
+		maximumRetryDelay: settledMaximumRetryDelay,
 		lastReceivedAt:    startedAt.UTC(),
 		// The ceiling binds every gap, the first one included. A caller who asked for
 		// gaps no longer than half a second did not mean "except the first".
-		retryDelay: min(initialRetryDelay, positiveOr(maximumRetryDelay, defaultMaximumRetryDelay)),
+		retryDelay: min(initialRetryDelay, settledMaximumRetryDelay),
 	}
 }
 
@@ -110,15 +120,4 @@ func (liveChannelHealthDomain *LiveChannelHealthDomain) NextRetryDelay() time.Du
 		delay*2, liveChannelHealthDomain.maximumRetryDelay)
 
 	return delay
-}
-
-// positiveOr keeps a duration that makes sense as a rule and replaces one that does
-// not. Zero or less would mean "no rule at all", which is never what a caller
-// leaving a setting unfilled meant.
-func positiveOr(duration time.Duration, fallback time.Duration) time.Duration {
-	if duration <= 0 {
-		return fallback
-	}
-
-	return duration
 }
