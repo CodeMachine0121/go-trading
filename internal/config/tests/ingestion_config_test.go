@@ -13,7 +13,7 @@ func TestLoadAppliesIngestionDefaultsWhenNothingIsSet(t *testing.T) {
 	applicationConfig := config.Load()
 
 	assert.True(t, applicationConfig.BackgroundJobsEnabled)
-	assert.Equal(t, 5, applicationConfig.Ingestion.RoundCandleCount)
+	assert.Equal(t, 25, applicationConfig.Ingestion.RoundCandleCount)
 	assert.Equal(t, 24*time.Hour, applicationConfig.Ingestion.BackfillLookback)
 	assert.Equal(t, 10*time.Second, applicationConfig.Ingestion.MarketDataRequestTimeout)
 	assert.NotEmpty(t, applicationConfig.Ingestion.MarketDataBaseUrl)
@@ -65,7 +65,7 @@ func TestLoadReadsTheIngestionAmounts(t *testing.T) {
 			roundCandleCountValue:    "0",
 			backfillLookbackValue:    "0",
 			requestTimeoutValue:      "0",
-			expectedRoundCandleCount: 5,
+			expectedRoundCandleCount: 25,
 			expectedBackfillLookback: 24 * time.Hour,
 			expectedRequestTimeout:   10 * time.Second,
 		},
@@ -74,7 +74,7 @@ func TestLoadReadsTheIngestionAmounts(t *testing.T) {
 			roundCandleCountValue:    "-3",
 			backfillLookbackValue:    "a day",
 			requestTimeoutValue:      "-1",
-			expectedRoundCandleCount: 5,
+			expectedRoundCandleCount: 25,
 			expectedBackfillLookback: 24 * time.Hour,
 			expectedRequestTimeout:   10 * time.Second,
 		},

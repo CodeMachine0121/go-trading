@@ -98,7 +98,7 @@ curl localhost:8080/health
 | `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值 |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
-| `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `5` | 每輪針對單一交易標的取回幾根已收完的 K 線 |
+| `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
 | `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 加密貨幣的行情來源位址 |
 | `MARKET_DATA_SYMBOL_CATALOG_URL` | Binance 公開交易對清單網址 | 加密貨幣確認「這個代號存不存在」的位址 |
@@ -114,8 +114,8 @@ curl localhost:8080/health
 | `TAIWAN_STOCK_STREAM_URL` | Fugle 即時行情網址 | 台股即時跟盤的位址 |
 | `TAIWAN_STOCK_TIME_ZONE` | `Asia/Taipei` | 台股交易時段說在哪個時區裡。「九點開盤」是一件關於台北的事；認不得的時區會退回預設值，**不會**讓這個市場變成永不收盤 |
 | `TAIWAN_STOCK_SESSION_START` | `09:00` | 台股開盤時間（市場當地時間，`HH:MM`） |
-| `TAIWAN_STOCK_SESSION_END` | `13:30` | 台股收盤時間。當天最後一根 K 線是剛好在此收完的那一根（`13:25`） |
-| `TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING` | `1` | 台股同時開得了幾條即時通道。行情方案的限制，換方案就改 |
+| `TAIWAN_STOCK_SESSION_END` | `13:30` | 台股收盤時間。當天最後一根 K 線是剛好在此收完的那一根（`13:29`） |
+| `TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING` | `1` | 台股同時開得了幾條即時通道。行情方案的限制，換方案就改。**舊的 `TAIWAN_STOCK_SIMULTANEOUS_FOLLOW_CEILING` 已不再讀取**——它被誤讀成「可以開幾條線」，而方案賣的是「幾條線」與「一條線幾檔」兩個數字；沿用舊名會讓寫著 `5` 的設定安靜地退回預設的 `1 × 5` |
 | `TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL` | `5` | 一條即時通道跟得動幾檔。**同時跟得動的檔數是這兩個數字相乘**，不另外設定 |
 | `TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向台股來源請求的逾時 |
 | `AUTH_ACCESS_TOKEN_SIGNING_KEY` | 空 | 簽發登入憑證的鑰匙。**沒有預設值也不該有**——有預設值就是所有人共用一把，那樣的憑證誰都能自己偽造。沒設時：`POST /sessions` 與 `POST /sessions/renewal` 回 `503`，`GET /users/me` 一律 `401`（沒有鑰匙就誰的憑證都認不得）；只有 `POST /users` 與 `POST /sessions/revocation` 照常。產生一把：`openssl rand -base64 48` |

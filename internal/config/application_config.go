@@ -196,7 +196,7 @@ func Load() ApplicationConfig {
 		TaiwanStock:           taiwanStockConfig,
 		MarketRules:           marketRules(taiwanStockConfig),
 		Ingestion: IngestionConfig{
-			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 5),
+			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			MarketDataBaseUrl: stringWithDefault(
