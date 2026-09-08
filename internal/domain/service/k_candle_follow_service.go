@@ -30,9 +30,9 @@ var ErrKCandleFollowStopped = errors.New("k candle follow stopped")
 // This is the first domain service in the project that holds state and outlives a
 // request. It is here rather than a layer out because what it holds is a rule, not
 // a mechanism. Everything that is a mechanism is delegated: the rules that carry a
-// number go to KCandleFollowDomain, and the viewers of one market go to
-// symbolFollow — leaving this file with the registry and the round trip to the
-// source.
+// number go to LiveChannelHealthDomain and ViewerUpdateThrottleDomain, the line to
+// followChannel, and the viewers of one market to symbolFollow — leaving this file
+// with the registry and the round trip to the source.
 type KCandleFollowService struct {
 	liveMarketDataProxy     _interface.ILiveMarketDataProxy
 	kCandleRepository       _interface.IKCandleRepository
@@ -538,6 +538,14 @@ func (kCandleFollowService *KCandleFollowService) consume(
 			// that decides whose it is. Two symbols sharing a line are two pictures.
 			follow, isCarried := openChannel.followOf(liveKCandle.Symbol)
 			if !isCarried {
+				// Said out loud because from every other angle this looks healthy:
+				// the line is alive, candles are arriving, and not one of them ever
+				// reaches a viewer. Silence here would make a name that does not
+				// match — a case difference, a suffix — indistinguishable from a
+				// market that simply has nothing to report.
+				log.Printf("live k candle follow: %s carries no %s, dropping its candle",
+					openChannel.channel.Key, liveKCandle.Symbol)
+
 				continue
 			}
 			kCandleFollowService.report(executionContext, follow, liveKCandle)
