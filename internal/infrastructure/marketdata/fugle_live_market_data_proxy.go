@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -26,10 +27,20 @@ const fugleCandleInterval = domains.KCandleInterval
 type FugleLiveMarketDataProxy struct {
 	streamUrl string
 	apiKey    string
+	// authenticationTimeout bounds the wait for the source to say it accepted us. A
+	// source that answers nothing would otherwise hold the attempt open for ever,
+	// and the caller's retry — the thing that recovers from a bad line — never runs.
+	authenticationTimeout time.Duration
 }
 
-func NewFugleLiveMarketDataProxy(streamUrl string, apiKey string) *FugleLiveMarketDataProxy {
-	return &FugleLiveMarketDataProxy{streamUrl: streamUrl, apiKey: apiKey}
+func NewFugleLiveMarketDataProxy(
+	streamUrl string, apiKey string, authenticationTimeout time.Duration,
+) *FugleLiveMarketDataProxy {
+	return &FugleLiveMarketDataProxy{
+		streamUrl:             streamUrl,
+		apiKey:                apiKey,
+		authenticationTimeout: authenticationTimeout,
+	}
 }
 
 // FollowKCandles opens the feed for one trading symbol and reports its candles until
@@ -60,11 +71,18 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) FollowKCandles(
 	return liveKCandles, nil
 }
 
-// handshake tells the source who is asking, once, and then which symbols are
-// wanted, one request each.
+// handshake tells the source who is asking, once, waits until it says it accepted
+// us, and only then asks for the symbols, one request each.
 //
 // Saying who is asking only once is the point of this whole feature: the plan limits
 // how many lines may be open at a time, not how many symbols may travel on one.
+//
+// Waiting in between is not politeness. This source answers each instruction in the
+// order it arrives, so a subscription sent in the same breath as the credentials is
+// read before they have been accepted and is refused as a forbidden resource. The
+// line then stays open and perfectly silent — which reads from the outside exactly
+// like a market with nothing to report, and is why this failed for a whole session
+// without saying why.
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
 	executionContext context.Context, connection *websocket.Conn, symbols []string,
 ) error {
@@ -75,6 +93,30 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
 	if writeError := fugleLiveMarketDataProxy.send(
 		executionContext, connection, authentication); writeError != nil {
 		return fmt.Errorf("follow k candles: %w", writeError)
+	}
+
+	authenticationContext, giveUpOnAuthentication := context.WithTimeout(
+		executionContext, fugleLiveMarketDataProxy.authenticationTimeout)
+	defer giveUpOnAuthentication()
+
+	for {
+		_, body, readError := connection.Read(authenticationContext)
+		if readError != nil {
+			return fmt.Errorf("authenticate with market source: %w", readError)
+		}
+
+		var acknowledgement fugleStreamAcknowledgement
+		if decodeError := json.Unmarshal(body, &acknowledgement); decodeError != nil {
+			return fmt.Errorf("read market source answer: %w", decodeError)
+		}
+
+		if acknowledgement.Event == fugleAuthenticatedEvent {
+			break
+		}
+		if acknowledgement.Event == fugleErrorEvent {
+			return fmt.Errorf(
+				"authenticate with market source: %s", acknowledgement.Data.Message)
+		}
 	}
 
 	for _, symbol := range symbols {

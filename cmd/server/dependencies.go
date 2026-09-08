@@ -320,7 +320,8 @@ func liveMarketDataProxyFor(
 				applicationConfig.LiveFollow.MarketDataStreamUrl),
 			vo.MarketTaiwanStock: marketdata.NewFugleLiveMarketDataProxy(
 				applicationConfig.TaiwanStock.StreamUrl,
-				applicationConfig.TaiwanStock.ApiKey),
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.RequestTimeout),
 		})
 }
 

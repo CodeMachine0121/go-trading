@@ -21,6 +21,12 @@ type fugleStreamUnderTest struct {
 	server       *httptest.Server
 	instructions chan map[string]any
 	pushes       chan string
+	// refusesAuthentication makes the stand-in reject the credentials, which is the
+	// one answer that must stop a feed from being handed over at all.
+	refusesAuthentication bool
+	// answersNothing makes the stand-in accept the connection and then say nothing,
+	// which is the failure a deadline exists for.
+	answersNothing bool
 }
 
 func newFugleStreamUnderTest(t *testing.T) *fugleStreamUnderTest {
@@ -48,8 +54,23 @@ func newFugleStreamUnderTest(t *testing.T) *fugleStreamUnderTest {
 				}
 
 				var instruction map[string]any
-				if json.Unmarshal(body, &instruction) == nil {
-					stream.instructions <- instruction
+				if json.Unmarshal(body, &instruction) != nil {
+					continue
+				}
+				stream.instructions <- instruction
+
+				// The real source answers the credentials before it will look at
+				// anything else, and the proxy waits for that answer. A stand-in that
+				// stayed silent would make every test here hang on a handshake the
+				// real one completes.
+				if stream.answersNothing {
+					continue
+				}
+				if instruction["event"] == "auth" && !stream.refusesAuthentication {
+					stream.push(`{"event":"authenticated","data":{"message":"Authenticated successfully"}}`)
+				}
+				if instruction["event"] == "auth" && stream.refusesAuthentication {
+					stream.push(`{"event":"error","code":1002,"data":{"message":"Forbidden resource"}}`)
 				}
 			}
 		}()
@@ -98,7 +119,7 @@ func (stream *fugleStreamUnderTest) followChannel(
 	t.Cleanup(stopFollowing)
 
 	liveKCandles, followError := marketdata.NewFugleLiveMarketDataProxy(
-		"ws"+stream.server.URL[len("http"):], "a-key").
+		"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
 		FollowKCandles(followContext,
 			vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, symbols))
 	require.NoError(t, followError)
@@ -113,7 +134,7 @@ func (stream *fugleStreamUnderTest) follow(t *testing.T) <-chan vo.LiveKCandleVo
 	t.Cleanup(stopFollowing)
 
 	liveKCandles, followError := marketdata.NewFugleLiveMarketDataProxy(
-		"ws"+stream.server.URL[len("http"):], "a-key").
+		"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
 		FollowKCandles(followContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 	require.NoError(t, followError)
 
@@ -155,6 +176,60 @@ func nextLiveKCandle(t *testing.T, liveKCandles <-chan vo.LiveKCandleVo) vo.Live
 	}
 }
 
+// The failure this ordering exists for: this source answers instructions in the
+// order they arrive, so a subscription sent in the same breath as the credentials is
+// read before they have been accepted and refused. The line then stays open and
+// silent, which reads exactly like a market with nothing to say.
+func TestNothingIsAskedForUntilTheCredentialsHaveBeenAccepted(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+
+	stream.followChannel(t, "2330")
+
+	authentication := stream.nextInstruction(t)
+	require.Equal(t, "auth", authentication["event"])
+	assert.Empty(t, stream.instructions,
+		"還沒收到 authenticated 之前，不該送出任何訂閱")
+
+	// The stand-in answers the credentials only now; the subscription must follow it.
+	subscription := stream.nextInstruction(t)
+	assert.Equal(t, "subscribe", subscription["event"])
+}
+
+// Credentials the source refuses are not a feed that ended — they are a feed that
+// never opened. A caller handed a channel is entitled to believe one was.
+func TestCredentialsTheSourceRefusesAreReportedRatherThanHandedBack(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+	stream.refusesAuthentication = true
+
+	followContext, stopFollowing := context.WithCancel(t.Context())
+	t.Cleanup(stopFollowing)
+	_, followError := marketdata.NewFugleLiveMarketDataProxy(
+		"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
+		FollowKCandles(followContext,
+			vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
+
+	require.Error(t, followError)
+	assert.Contains(t, followError.Error(), "Forbidden resource")
+}
+
+// A source that accepts the connection and then says nothing at all must not hold
+// the attempt open for ever — the retry that recovers from a bad line only runs once
+// this one has given up.
+func TestASourceThatNeverAnswersTheCredentialsGivesUp(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+	stream.answersNothing = true
+
+	followContext, stopFollowing := context.WithCancel(t.Context())
+	t.Cleanup(stopFollowing)
+	_, followError := marketdata.NewFugleLiveMarketDataProxy(
+		"ws"+stream.server.URL[len("http"):], "a-key", 50*time.Millisecond).
+		FollowKCandles(followContext,
+			vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
+
+	require.Error(t, followError)
+	assert.Contains(t, followError.Error(), "authenticate with market source")
+}
+
 // The plan limits how many lines may be open, not how many symbols travel on one.
 // Saying who is asking once and then naming each symbol is the whole feature.
 func TestOneLineCarriesEverySymbolOfTheChannel(t *testing.T) {
@@ -163,7 +238,7 @@ func TestOneLineCarriesEverySymbolOfTheChannel(t *testing.T) {
 	followContext, stopFollowing := context.WithCancel(t.Context())
 	t.Cleanup(stopFollowing)
 	_, followError := marketdata.NewFugleLiveMarketDataProxy(
-		"ws"+stream.server.URL[len("http"):], "a-key").
+		"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
 		FollowKCandles(followContext,
 			vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2454", "2330"}))
 	require.NoError(t, followError)
@@ -390,7 +465,7 @@ func TestAnUnreadableMessageDoesNotEndTheFeed(t *testing.T) {
 
 func TestAFeedThatCannotBeOpenedIsReportedRatherThanHandedBack(t *testing.T) {
 	_, followError := marketdata.NewFugleLiveMarketDataProxy(
-		"ws://127.0.0.1:1/streaming", "a-key").
+		"ws://127.0.0.1:1/streaming", "a-key", 2*time.Second).
 		FollowKCandles(t.Context(), vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 
 	require.Error(t, followError)
@@ -403,7 +478,7 @@ func TestTheChannelClosesWhenTheFollowEnds(t *testing.T) {
 	stream := newFugleStreamUnderTest(t)
 	followContext, stopFollowing := context.WithCancel(t.Context())
 	liveKCandles, followError := marketdata.NewFugleLiveMarketDataProxy(
-		"ws"+stream.server.URL[len("http"):], "a-key").
+		"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
 		FollowKCandles(followContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 	require.NoError(t, followError)
 
