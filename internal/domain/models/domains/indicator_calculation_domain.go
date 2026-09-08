@@ -187,8 +187,9 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SourceCandleLimit()
 // the honest answer; refusing hands back nothing and leaves the reader guessing which
 // coarseness would have worked.
 //
-// The one shortfall that cannot be answered is below MinimumComputableCandleCount:
-// not one value can come out, so there is nothing to hand over.
+// The one shortfall that cannot be answered is a stretch below what the declared
+// look-back reaches over: not one value can come out, so there is nothing to hand
+// over. That floor is worked out here, next to the comparison that uses it.
 //
 // Taking every bucket when short is safe against the truncation spareBucketCount
 // guards, and it is worth saying why, because this is the first read that keeps the
@@ -206,7 +207,17 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 		newestFirstKCandles,
 	).Buckets()
 
-	minimumCandleCount := indicatorCalculationDomain.MinimumComputableCandleCount()
+	// The fewest finished buckets this calculation can say anything at all from: the
+	// look-back its hungriest knob declares, because an algorithm reaching back over
+	// twenty candles produces its first value on the twentieth. One when nothing
+	// reaches back, never zero — a calculation over no market at all has no answer,
+	// and the alternative is handing an empty batch to a script to fail inside.
+	//
+	// It reads only what the strategy *declares*. What an algorithm actually reaches
+	// for stays the algorithm's own business to guard, which is why a script
+	// hard-coding a period it never declared comes back as a script failure rather
+	// than as a shortfall: the system does not guess how many an algorithm needs.
+	minimumCandleCount := max(1, indicatorCalculationDomain.parameters.MaximumLookbackCount())
 	if len(buckets) < minimumCandleCount {
 		return nil, CandleCoverageTooThin(len(buckets), minimumCandleCount)
 	}
@@ -222,20 +233,6 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	}
 
 	return oldestFirstKCandleVos, nil
-}
-
-// MinimumComputableCandleCount is the fewest finished buckets this calculation can
-// say anything at all from: the look-back its hungriest knob declares, because an
-// algorithm reaching back over twenty candles produces its first value on the
-// twentieth. An algorithm declaring no look-back needs one candle to produce one
-// value, so the floor is never zero — a calculation over nothing has no answer.
-//
-// It reads only what the strategy *declares*. What an algorithm actually reaches for
-// stays the algorithm's own business to guard, which is why a script hard-coding a
-// period it never declared comes back as a script failure rather than as a shortfall:
-// the system does not guess how many an algorithm needs.
-func (indicatorCalculationDomain IndicatorCalculationDomain) MinimumComputableCandleCount() int {
-	return max(1, indicatorCalculationDomain.parameters.MaximumLookbackCount())
 }
 
 // CandleCount is how many finished buckets this calculation would need to have a

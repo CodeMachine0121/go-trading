@@ -29,6 +29,7 @@
 | `internal/domain/models/dto/indicator_calculation_result_dto.go` | **Modify** | 多回報**計算根數**，與既有的實際採用根數並列 |
 | `internal/domain/service/indicator_calculation_service.go` | **Modify** | 把計算根數填進結果；其餘流程一字不動 |
 | `internal/controller/indicator_calculation_controller.go` | **Modify** | 新增一條分流：把「湊不出最少可算根數」答成帶兩個數字的拒絕 |
+| `internal/application/assistantqueries/indicator_calculation_assistant_query.go` | **Modify** | 只改敘述：它原樣轉交結果，所以新欄位自動到得了助手手上，但它對助手的說明與註解仍寫著「湊不滿會被拒絕」 |
 | `postman/go-trading.postman_collection.json` | **Modify** | 回應多一個欄位，範例同步 |
 | `SourceCandleLimit()` / `maxCandleCount` / `CandleCountExceeded` | **Not touched** | 「要太多」那條路是另一條界線（PRD US-05 明列為回歸守門）；動它會鬆掉一條原本擋得住的線 |
 | `BacktestDomain`（含它自己的 `SelectInputCandles` 與最少根數） | **Not touched** | 回測有自己的門檻與自己的切片。它是**下一個**要這條規則的地方，見第 6 節 |
@@ -54,8 +55,8 @@
 
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
-| `IndicatorCalculationDomain.SelectInputCandles` | 併出刻度區間，湊不滿即拒絕，否則取最後 `candleCount` 個 | 改為：可用根數低於**最少可算根數**時回 `CandleCoverageTooThin`；否則取最後 **`min(candleCount, 可用根數)`** 個 |
-| `IndicatorCalculationDomain` | 持有一次計算的請求與它的每一條規則 | 新增 `MinimumComputableCandleCount()`（= `max(1, MaximumLookbackCount())`）與 `CandleCount()`（計算根數的問法，供服務層轉述） |
+| `IndicatorCalculationDomain.SelectInputCandles` | 併出刻度區間，湊不滿即拒絕，否則取最後 `candleCount` 個 | 改為：可用根數低於**最少可算根數**（就地由最大回看根數推出）時回 `CandleCoverageTooThin`；否則取最後 **`min(candleCount, 可用根數)`** 個 |
+| `IndicatorCalculationDomain` | 持有一次計算的請求與它的每一條規則 | 新增 `CandleCount()`（計算根數的問法，供服務層轉述）。最少可算根數**不另立方法**：只有一個呼叫者，所以它是 `SelectInputCandles` 體內一個具名的區域變數（`max(1, MaximumLookbackCount())`），名字與說明都留著，公開介面不變寬 |
 | `IndicatorCalculationResultDto` | 一次計算離開 domain 的唯一形狀 | 新增 `CandleCount`（計算根數），與既有 `UsedCandleCount`（實際採用根數）並列 |
 | `IndicatorCalculationService.CalculateIndicator` | 編排：驗請求 → 讀 K 線 → 選輸入 → 執行算式 → 組結果 | 組結果時多填 `CandleCount`。**選輸入那一步的呼叫方式不變**——規則在 domain 體內，服務層不知道它改了 |
 | `IndicatorCalculationController.respondWithError` | 依「呼叫端要去改什麼」分流各種失敗 | 在既有「超過上限」那一條之後、通用驗證那一條**之前**，插入新的分流，帶 `availableCandleCount` 與 `minimumCandleCount` 兩個值 |
@@ -115,6 +116,11 @@ flowchart TD
   - **不得把「湊不出最少可算根數」與「超過上限」講成同一句話。** 兩者的出路正好相反。
   - 不得在服務層或控制器再數一次根數：那會讓同一條規則有兩個版本。
 
+- **抽方法的門檻（本次實際套用過一次）：**
+  最少可算根數一度是一個公開方法。它只有一個呼叫者，而這個 struct 上其他每一個公開方法都有外部呼叫者——
+  那個不對稱就是訊號，於是它回到 `SelectInputCandles` 體內成為一個具名區域變數。
+  它的三條規則（取最大、地板為一、只認宣告）改由**拒絕的結果**去驗，比問那個數字更貼近業務。
+
 - **Known debt / deferred:**
   沒有為「畫不滿」留下任何紀錄或指標（不記 log、不計次）。個人專案規模，需要時再加。
 
@@ -126,9 +132,9 @@ flowchart TD
 | :--- | :--- |
 | US-01 可用根數湊得滿 | `SelectInputCandles`（`min` 取到計算根數，行為與今日相同） |
 | US-01 可用根數湊不滿，以可用根數執行 | `SelectInputCandles` |
-| US-01 可用根數剛好等於最少可算根數 | `SelectInputCandles` + `MinimumComputableCandleCount()`（邊界取「含」） |
+| US-01 可用根數剛好等於最少可算根數 | `SelectInputCandles`（邊界取「含」） |
 | US-01 可用根數比最少可算根數少一根 | `SelectInputCandles` → `CandleCoverageTooThin` |
-| US-01 沒有宣告回看根數時，一根就算得出來 | `MinimumComputableCandleCount()` 的 `max(1, …)` |
+| US-01 沒有宣告回看根數時，一根就算得出來 | `SelectInputCandles` 內的 `max(1, …)` |
 | US-01 一根都湊不出來 | `SelectInputCandles` → `CandleCoverageTooThin` |
 | US-01 還在走的那一格照樣不算進可用根數 | `ReadCutoff()` + `KCandleSeriesDomain.Buckets()`（既有，不變） |
 | US-02 湊得滿／湊不滿時兩個根數相同或不同 | `IndicatorCalculationResultDto.CandleCount` + `UsedCandleCount`，由 `IndicatorCalculationService` 填 |
@@ -137,8 +143,8 @@ flowchart TD
 | US-03 湊不出最少可算根數是認得出來的拒絕 | `ErrIndicatorCalculationCandleCoverageTooThin` + `CandleCoverageShortfall` + 控制器分流 |
 | US-03 與超過上限那一種分得開 | 兩個各自獨立的哨兵；控制器兩條分流各答各的形狀 |
 | US-03 算式本身跑不動仍是算式的問題 | `ErrIndicatorScriptFailed` 分流（既有，不變） |
-| US-04 沒宣告卻在算式裡寫死期數 | `MinimumComputableCandleCount()` 只讀宣告出來的參數；算式失敗由 `IIndicatorScriptProxy` 回報 |
-| US-04 宣告與算式一致時最少可算根數就是對的 | `MinimumComputableCandleCount()` |
+| US-04 沒宣告卻在算式裡寫死期數 | `SelectInputCandles` 只讀宣告出來的參數；算式失敗由 `IIndicatorScriptProxy` 回報 |
+| US-04 宣告與算式一致時最少可算根數就是對的 | `SelectInputCandles` |
 | US-04 宣告了多個回看根數時取最大的那一個 | `StrategyParametersDomain.MaximumLookbackCount()`（既有，不變） |
 | US-05 超過上限的三個情境 | `NewIndicatorCalculationDomain` 的上限檢查 + `CandleCountExceeded`（既有，一字不動） |
 

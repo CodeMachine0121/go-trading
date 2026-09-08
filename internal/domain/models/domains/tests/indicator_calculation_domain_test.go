@@ -88,6 +88,21 @@ func calculationFor(
 	return calculationDomain
 }
 
+// hourlyOpenTimesEndingBefore lists that many whole hours, newest first, all of them
+// finished by the moment the tests ask at — so the count of buckets is exactly the
+// count asked for here.
+func hourlyOpenTimesEndingBefore(hourCount int) []string {
+	openTimes := make([]string, 0, hourCount)
+	for hoursBack := 1; hoursBack <= hourCount; hoursBack++ {
+		openTimes = append(openTimes, calculationNow.
+			Truncate(time.Hour).
+			Add(-time.Duration(hoursBack)*time.Hour).
+			Format(time.RFC3339))
+	}
+
+	return openTimes
+}
+
 // calculationWithLookback builds a calculation over the given span whose strategy
 // declares one look-back knob, which is the only thing that moves the floor. A
 // look-back of zero declares no knob at all.
@@ -555,34 +570,71 @@ func TestSelectInputCandlesAnswersAtExactlyTheFloor(t *testing.T) {
 	assert.Len(t, kCandleVos, 3)
 }
 
-func TestMinimumComputableCandleCountReadsOnlyWhatIsDeclared(t *testing.T) {
-	t.Run("nothing declared still needs one candle", func(t *testing.T) {
-		// Not zero: a calculation over no market at all has no answer, and the
-		// alternative is handing an empty batch to a script to fail inside.
-		calculationDomain := calculationFor(t, "1h", 100)
+func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
+	// The floor moves with what the strategy declares, and these cases pin it through
+	// the refusal rather than by asking for the number: what matters is which stretch
+	// gets turned away, and the count it names is how a caller says why.
+	testCases := []struct {
+		name            string
+		parameters      []dto.StrategyParameterWriteDto
+		availableHours  int
+		expectedMinimum int
+	}{
+		{
+			name: "several declared look-backs take the hungriest",
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "短期", Kind: "lookbackCount", DefaultValue: 5},
+				{Name: "長期", Kind: "lookbackCount", DefaultValue: 60},
+			},
+			availableHours: 59, expectedMinimum: 60,
+		},
+		{
+			name: "a plain number declares no reach at all, so one candle is enough",
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "倍數", Kind: "number", DefaultValue: 60},
+			},
+			availableHours: 0, expectedMinimum: 1,
+		},
+	}
 
-		assert.Equal(t, 1, calculationDomain.MinimumComputableCandleCount())
-	})
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestDto := calculationRequest("1h", 100, time.Time{})
+			requestDto.Parameters = testCase.parameters
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				requestDto, maxCandleCount, calculationNow)
+			require.NoError(t, buildError)
 
-	t.Run("one declared look-back is the floor", func(t *testing.T) {
-		calculationDomain := calculationWithLookback(t, 100, 20)
+			_, selectionError := calculationDomain.SelectInputCandles(
+				storedCandlesNewestFirst(hourlyOpenTimesEndingBefore(testCase.availableHours)...))
 
-		assert.Equal(t, 20, calculationDomain.MinimumComputableCandleCount())
-	})
+			require.ErrorIs(t, selectionError,
+				domains.ErrIndicatorCalculationCandleCoverageTooThin)
+			_, minimumCandleCount, _ := domains.CandleCoverageShortfall(selectionError)
+			assert.Equal(t, testCase.expectedMinimum, minimumCandleCount)
+		})
+	}
+}
 
-	t.Run("several declared look-backs take the hungriest", func(t *testing.T) {
-		requestDto := calculationRequest("1h", 100, time.Time{})
-		requestDto.Parameters = []dto.StrategyParameterWriteDto{
-			{Name: "短期", Kind: "lookbackCount", DefaultValue: 5},
-			{Name: "長期", Kind: "lookbackCount", DefaultValue: 60},
-		}
+func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
+	// Sixty hours of history but only fifty-nine of them traded: the empty hour is
+	// not a bucket, so a look-back of sixty still has nothing to say. Counting the
+	// gap would let a value out of fifty-nine candles and call it sixty.
+	requestDto := calculationRequest("1h", 100, time.Time{})
+	requestDto.Parameters = []dto.StrategyParameterWriteDto{
+		{Name: "期數", Kind: "lookbackCount", DefaultValue: 60}}
+	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+		requestDto, maxCandleCount, calculationNow)
+	require.NoError(t, buildError)
 
-		calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
-			requestDto, maxCandleCount, calculationNow)
+	_, selectionError := calculationDomain.SelectInputCandles(
+		storedCandlesNewestFirst(hourlyOpenTimesEndingBefore(59)...))
 
-		require.NoError(t, buildError)
-		assert.Equal(t, 60, calculationDomain.MinimumComputableCandleCount())
-	})
+	availableCandleCount, minimumCandleCount, isTooThin :=
+		domains.CandleCoverageShortfall(selectionError)
+	require.True(t, isTooThin)
+	assert.Equal(t, 59, availableCandleCount)
+	assert.Equal(t, 60, minimumCandleCount)
 }
 
 func TestCandleCountIsWhatAFullAnswerWouldHaveTaken(t *testing.T) {
