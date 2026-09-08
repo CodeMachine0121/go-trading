@@ -117,6 +117,15 @@ func (marketDomain MarketDomain) HasFollowCeiling() bool {
 	return marketDomain.rules.SimultaneousChannelCeiling > 0
 }
 
+// oneCalendarDay is the length of a market's own day, for a market that has no local
+// day of its own to speak of.
+//
+// It is named so that it is not mistaken for a bucket length. A daily aggregation
+// bucket happens to be the same duration, and asking for that one goes through
+// NewCoarsestAggregationIntervalDomain — see the note below on why these two must
+// not be folded together.
+const oneCalendarDay = 24 * time.Hour
+
 // TradingDateOf is the market's own calendar day a moment falls on — midnight local,
 // expressed universally.
 //
@@ -133,7 +142,7 @@ func (marketDomain MarketDomain) HasFollowCeiling() bool {
 // edge asks NewCoarsestAggregationIntervalDomain; do not fold these two together.
 func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 	if marketDomain.neverCloses() {
-		return moment.UTC().Truncate(24 * time.Hour)
+		return moment.UTC().Truncate(oneCalendarDay)
 	}
 
 	localMoment := moment.In(marketDomain.rules.TradingSession.Location)
