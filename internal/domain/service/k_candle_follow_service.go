@@ -188,24 +188,39 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 	rosterDomain := domains.NewLiveFollowRosterDomain(
 		watchedSymbols, kCandleFollowService.marketCatalogDomain, currentTime)
 
+	wantedChannels := rosterDomain.Channels()
+
+	// A line and the viewers travelling on it are retired separately, because a
+	// roster change usually retires the line without retiring anybody: gaining or
+	// losing one symbol makes a different line, and the symbols that were on the old
+	// one and are on the new one never left the roster at all. Telling them their
+	// symbol has no place — and closing their stream — for a line that is coming
+	// back in the same breath would be a lie about the one thing they asked.
+	departing, retired := kCandleFollowService.takeDepartedChannels(wantedChannels)
+
+	retiredSymbols := make(map[string]bool, len(retired))
+	for _, retiredFollow := range retired {
+		retiredSymbols[retiredFollow.symbol] = true
+	}
+
+	for _, departingChannel := range departing {
+		departingChannel.end()
+		departingChannel.publishStalled(retiredSymbols)
+	}
+
 	// Why a follow is ending is decided here, where both answers are still in hand.
 	// Once it has ended, all that is left is a symbol that is no longer on a roster —
 	// and that looks identical whether the day is over or somebody else took its
 	// place.
-	wantedChannels := rosterDomain.Channels()
-
-	departing := kCandleFollowService.takeDepartedChannels(wantedChannels)
-	for _, departingChannel := range departing {
-		for _, follow := range departingChannel.follows {
-			if kCandleFollowService.marketCatalogDomain.MarketOf(string(follow.market)).
-				IsOpen(currentTime) {
-				follow.publishUnavailable()
-			} else {
-				follow.publishMarketClosed()
-			}
+	for _, retiredFollow := range retired {
+		if kCandleFollowService.marketCatalogDomain.MarketOf(string(retiredFollow.market)).
+			IsOpen(currentTime) {
+			retiredFollow.publishUnavailable()
+		} else {
+			retiredFollow.publishMarketClosed()
 		}
 
-		departingChannel.end()
+		retiredFollow.end()
 	}
 
 	kCandleFollowService.startMissingChannels(executionContext, wantedChannels)
@@ -221,33 +236,48 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 // sets of symbols, because the key already is the set.
 func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 	wantedChannels []vo.LiveFollowChannelVo,
-) []*followChannel {
+) ([]*followChannel, []*symbolFollow) {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
 
 	if kCandleFollowService.stopped {
-		return nil
+		return nil, nil
 	}
 
-	isWanted := make(map[string]bool, len(wantedChannels))
+	isWantedChannel := make(map[string]bool, len(wantedChannels))
+	isWantedSymbol := make(map[string]bool)
 	for _, wantedChannel := range wantedChannels {
-		isWanted[wantedChannel.Key] = true
+		isWantedChannel[wantedChannel.Key] = true
+		for _, symbol := range wantedChannel.Symbols {
+			isWantedSymbol[symbol] = true
+		}
 	}
 
 	departing := make([]*followChannel, 0)
+	retired := make([]*symbolFollow, 0)
 	for key, openChannel := range kCandleFollowService.channels {
-		if isWanted[key] || !openChannel.isRostered() {
+		if isWantedChannel[key] || !openChannel.isRostered() {
 			continue
 		}
 
 		departing = append(departing, openChannel)
 		delete(kCandleFollowService.channels, key)
-		for symbol := range openChannel.follows {
+
+		// A symbol the new roster still wants keeps its viewers and its place in the
+		// registry — the line under it is being replaced, which is not something its
+		// viewers asked about and not something they should have to notice beyond a
+		// moment's pause. Only a symbol nobody asked for again is really retired.
+		for symbol, follow := range openChannel.follows {
+			if isWantedSymbol[symbol] {
+				continue
+			}
+
+			retired = append(retired, follow)
 			delete(kCandleFollowService.follows, symbol)
 		}
 	}
 
-	return departing
+	return departing, retired
 }
 
 // startMissingChannels opens every channel the roster asks for that is not open
@@ -270,11 +300,17 @@ func (kCandleFollowService *KCandleFollowService) startMissingChannels(
 
 		follows := make(map[string]*symbolFollow, len(wantedChannel.Symbols))
 		for _, symbol := range wantedChannel.Symbols {
-			follow := newSymbolFollow(symbol, wantedChannel.Market, true,
-				domains.NewViewerUpdateThrottleDomain(
-					kCandleFollowService.updateIntervalCeiling, now))
+			// A symbol whose registry survived a line being replaced keeps it, so the
+			// people watching it keep their stream and their place in the queue. A new
+			// one is only built for a symbol nobody was following a moment ago.
+			follow, isAlreadyRegistered := kCandleFollowService.follows[symbol]
+			if !isAlreadyRegistered {
+				follow = newSymbolFollow(symbol, wantedChannel.Market, true,
+					domains.NewViewerUpdateThrottleDomain(
+						kCandleFollowService.updateIntervalCeiling, now))
+				kCandleFollowService.follows[symbol] = follow
+			}
 			follows[symbol] = follow
-			kCandleFollowService.follows[symbol] = follow
 		}
 
 		kCandleFollowService.openChannel(executionContext, wantedChannel, follows)
@@ -341,11 +377,20 @@ func (kCandleFollowService *KCandleFollowService) Stop() {
 		stoppedChannels = append(stoppedChannels, openChannel)
 		delete(kCandleFollowService.channels, key)
 	}
+	stoppedFollows := make([]*symbolFollow, 0, len(kCandleFollowService.follows))
+	for _, follow := range kCandleFollowService.follows {
+		stoppedFollows = append(stoppedFollows, follow)
+	}
 	clear(kCandleFollowService.follows)
 	kCandleFollowService.mutex.Unlock()
 
+	// Shutting down is the one ending that really does finish with everybody, so the
+	// lines are stopped and then every viewer's updates are closed.
 	for _, openChannel := range stoppedChannels {
 		openChannel.end()
+	}
+	for _, follow := range stoppedFollows {
+		follow.end()
 	}
 }
 
@@ -442,8 +487,9 @@ func (kCandleFollowService *KCandleFollowService) run(
 			return
 		}
 
-		// One line went down, so every symbol on it hears the same news.
-		openChannel.publishStalled()
+		// One line went down, so every symbol on it hears the same news — nobody is
+		// being retired here, the line is simply being tried again.
+		openChannel.publishStalled(nil)
 
 		// Said out loud because the gap is the only evidence the growing back-off is
 		// working: a source that keeps accepting connections and dropping them is

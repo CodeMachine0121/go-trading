@@ -1609,6 +1609,61 @@ func TestAChannelThatFellSilentIsLetGoOfBeforeTheNextAttempt(t *testing.T) {
 		"安靜的那條線必須先放掉，才能撥下一條——方案只准一條")
 }
 
+// Losing one symbol replaces the line, and everyone else on it was never asked
+// about. Telling them their symbol has no place — the one answer that means "not
+// today either" — and cutting their stream would be a lie about the thing they came
+// for, told every time somebody edits the watchlist.
+func TestASymbolThatSurvivesARebuildKeepsItsViewers(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, watchError := testBed.service.WatchKCandles(viewer, "2330")
+	require.NoError(t, watchError)
+
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	// Stalled, not unavailable: the line is being replaced, not the symbol.
+	assert.Equal(t, dto.KCandleFollowStatusStalled, (<-updates).Status)
+
+	// And the stream is still theirs — the candle arriving down the new line reaches
+	// the viewer who was already watching, without their reconnecting.
+	_, rebuiltFeed := testBed.nextChannel(t)
+	rebuiltFeed <- sharedChannelKCandle(t, "2330", false)
+
+	select {
+	case update := <-updates:
+		assert.Equal(t, "2330", update.Symbol)
+		assert.Equal(t, dto.KCandleFollowStatusForming, update.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("換線之後，原本的觀看者沒有再收到任何更新")
+	}
+}
+
+// The symbol that really did lose its place hears the real reason, not the promise
+// that it will be back.
+func TestASymbolDroppedFromARebuildIsToldItsPlaceIsGone(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, watchError := testBed.service.WatchKCandles(viewer, "2454")
+	require.NoError(t, watchError)
+
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, dto.KCandleFollowStatusUnavailable, (<-updates).Status,
+		"被擠掉的那一檔不該先聽到「等一下就回來」")
+}
+
 // An emptied roster is not merely "asks for nothing" — the line that was open has to
 // actually stop, or the plan keeps being spent on a market nobody is following.
 func TestARosterThatEmptiesEndsTheOpenChannel(t *testing.T) {

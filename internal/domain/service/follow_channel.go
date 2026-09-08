@@ -64,22 +64,31 @@ func (followChannel *followChannel) isRostered() bool {
 	return false
 }
 
-// publishStalled tells every symbol on this channel that live updating has stopped.
+// publishStalled tells the symbols on this channel that live updating has stopped.
 // One line went down, so it is one piece of news — said to everyone it reaches.
-func (followChannel *followChannel) publishStalled() {
-	for _, follow := range followChannel.follows {
+//
+// Except those the caller names as retired. "Stalled" promises the picture is coming
+// back, and a symbol whose place has gone is owed the truer reason instead; hearing
+// the promise first and the truth a moment later is two answers to one question.
+// A caller with nobody to leave out passes nothing.
+func (followChannel *followChannel) publishStalled(retiredSymbols map[string]bool) {
+	for symbol, follow := range followChannel.follows {
+		if retiredSymbols[symbol] {
+			continue
+		}
+
 		follow.publishStalled()
 	}
 }
 
-// end stops this channel and closes every viewer's updates on every symbol it
-// carried, waiting for the work to finish first so that nothing is still publishing
-// into a channel about to close.
+// end stops this channel and waits for the work to finish, so that nothing is still
+// publishing by the time it returns.
+//
+// It stops the line and nothing else. Whether the symbols that travelled on it are
+// finished with is a separate question with a separate answer — a line replaced
+// because the roster changed carries symbols that are still very much being followed
+// — and it is answered by whoever asked for the line to end.
 func (followChannel *followChannel) end() {
 	followChannel.cancel()
 	<-followChannel.finished
-
-	for _, follow := range followChannel.follows {
-		follow.end()
-	}
 }
