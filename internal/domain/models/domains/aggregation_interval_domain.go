@@ -23,6 +23,13 @@ type selectableAggregationInterval struct {
 // from midnight in universal time, so a length that does not divide a day would drift
 // a little further every day.
 //
+// **Backfill leans on that invariant.** It rounds where it starts fetching down to the
+// coarsest interval's bucket edge, and that is enough for every interval only because
+// each length divides a day: midnight is a whole multiple of all of them. A length
+// that broke the invariant would not merely drift — it would leave the oldest bucket
+// of that coarseness beginning part way through itself again. Read
+// NewCoarsestAggregationIntervalDomain before adding a row.
+//
 // Supporting one more interval means adding a row here and a constant in vo — nothing
 // downstream branches per interval.
 var selectableAggregationIntervals = []selectableAggregationInterval{
@@ -74,6 +81,22 @@ func NewAggregationIntervalDomain(declared string) (AggregationIntervalDomain, e
 
 	return AggregationIntervalDomain{}, fmt.Errorf(
 		"彙總刻度只能是 %s 其中之一", strings.Join(selectableSpellings, "、"))
+}
+
+// NewCoarsestAggregationIntervalDomain is the longest interval on offer, and it is
+// what anything aligning to a bucket edge should ask for rather than naming a length
+// of its own.
+//
+// Aligning a moment to this one's edge aligns it for every interval at once, because
+// each declarable length divides a day and this one *is* a day: its edges are a subset
+// of every other interval's. So a caller wanting "a moment that no bucket begins after"
+// asks here, and keeps working the day a coarser interval is added.
+//
+// It cannot fail — the set is never empty — so unlike NewAggregationIntervalDomain
+// there is nothing to declare and nothing to refuse.
+func NewCoarsestAggregationIntervalDomain() AggregationIntervalDomain {
+	return newAggregationIntervalDomain(
+		selectableAggregationIntervals[len(selectableAggregationIntervals)-1])
 }
 
 // newAggregationIntervalDomain is the only way an instance is built, so an interval

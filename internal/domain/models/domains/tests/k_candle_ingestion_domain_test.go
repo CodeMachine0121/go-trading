@@ -93,7 +93,7 @@ func TestScheduledWindowCoversTheNewestClosedCandlesBackwards(t *testing.T) {
 	}
 }
 
-func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *testing.T) {
+func TestBackfillWindowStartsAfterTheStoredCandleOrAtTheEdgeTheLookbackReaches(t *testing.T) {
 	testCases := []struct {
 		name                 string
 		latestStoredOpenTime time.Time
@@ -106,14 +106,16 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 			expectedStartTime:    at(7, 1, 0),
 		},
 		{
-			name:                 "gap wider than the lookback starts at the lookback",
+			// Reaching back by the lookback lands at 08-29 09:07, which is mid-bucket at
+			// every coarseness above a minute. It starts at that day's edge instead.
+			name:                 "gap wider than the lookback starts at the edge of the day it reaches",
 			latestStoredOpenTime: time.Date(2026, 8, 27, 9, 0, 0, 0, time.UTC),
-			expectedStartTime:    time.Date(2026, 8, 29, 9, 7, 0, 0, time.UTC),
+			expectedStartTime:    time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
 		},
 		{
-			name:                 "never held a candle fills the whole lookback",
+			name:                 "never held a candle starts at the edge of the day the lookback reaches",
 			latestStoredOpenTime: time.Time{},
-			expectedStartTime:    time.Date(2026, 8, 29, 9, 7, 0, 0, time.UTC),
+			expectedStartTime:    time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:                 "a gap of exactly one candle",
@@ -139,6 +141,100 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 			assert.Equal(t, testCase.expectedEmpty, window.IsEmpty())
 		})
 	}
+}
+
+func TestBackfillReachesBackToABucketEdgeWhateverTimeItIsAsked(t *testing.T) {
+	// A stretch that begins mid-bucket makes the oldest bucket of every coarseness
+	// begin part way through itself, and it is still merged and handed over as a whole
+	// one — at one day, an afternoon's opening price and half a day's volume reported
+	// as the day's. Nothing downstream can tell that from a market that traded little,
+	// so the start has to be right.
+	//
+	// Every case reaches back 24 hours and then down to that day's edge, so they all
+	// land on the same moment however far into the day they were asked.
+	testCases := []struct {
+		name        string
+		currentTime time.Time
+	}{
+		{
+			name:        "asked part way through the day",
+			currentTime: time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC),
+		},
+		{
+			name:        "asked exactly on the edge, which moves nothing",
+			currentTime: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:        "asked in the last minute of the day, reaching back furthest",
+			currentTime: time.Date(2026, 8, 30, 23, 59, 0, 0, time.UTC),
+		},
+		{
+			name:        "asked in the first minute of the day, reaching back least",
+			currentTime: time.Date(2026, 8, 30, 0, 1, 0, 0, time.UTC),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			window := ingestionDomain(t, testCase.currentTime, 5).
+				BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+
+			assert.Equal(t,
+				time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC), window.StartTime)
+		})
+	}
+}
+
+func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T) {
+	// The lookback exists to stop the first round after a long silence from bolting.
+	// Reaching down to an edge loosens that, so how much it loosens it has to be
+	// bounded — and the bound is one bucket of the coarsest coarseness, never more.
+	testCases := []struct {
+		name              string
+		currentTime       time.Time
+		expectedExtraSpan time.Duration
+	}{
+		{
+			name:              "part way through the day",
+			currentTime:       time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC),
+			expectedExtraSpan: 14*time.Hour + 3*time.Minute,
+		},
+		{
+			name:              "the last minute of the day is the worst case",
+			currentTime:       time.Date(2026, 8, 30, 23, 59, 0, 0, time.UTC),
+			expectedExtraSpan: 23*time.Hour + 59*time.Minute,
+		},
+		{
+			name:              "on the edge nothing extra is fetched",
+			currentTime:       time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+			expectedExtraSpan: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			window := ingestionDomain(t, testCase.currentTime, 5).
+				BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+
+			unalignedStart := testCase.currentTime.Add(-backfillLookback)
+
+			assert.Equal(t, testCase.expectedExtraSpan, unalignedStart.Sub(window.StartTime))
+			assert.Less(t, unalignedStart.Sub(window.StartTime), 24*time.Hour,
+				"多抓的量不會達到一整格")
+		})
+	}
+}
+
+func TestBackfillLeavesAStartTakenFromStoredDataAlone(t *testing.T) {
+	// That start already sits on a minute edge and abuts the candles that are there.
+	// Reaching down to a bucket edge would step back over them and fetch what is
+	// already stored — so the rounding must not touch this one.
+	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
+		BackfillWindow("BTCUSDT", vo.MarketCrypto,
+			time.Date(2026, 8, 30, 12, 30, 0, 0, time.UTC))
+
+	assert.Equal(t, time.Date(2026, 8, 30, 12, 31, 0, 0, time.UTC), window.StartTime,
+		"接在已存那一根之後，沒有被拉回當天零點")
 }
 
 func TestSelectClosedDropsTheCandleStillRunning(t *testing.T) {
