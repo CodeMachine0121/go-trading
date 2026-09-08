@@ -124,6 +124,13 @@ func (marketDomain MarketDomain) HasFollowCeiling() bool {
 // the market's own tomorrow, not until midnight somewhere else. A round at 23:00 in
 // Taipei is the same trading day as one at 10:00; a round at 23:00 in universal time
 // is already the next one.
+//
+// **This is not a bucket edge**, however alike the two look for a market that never
+// closes. A daily aggregation bucket is cut from midnight in universal time for every
+// market; a trading date is midnight in the market's own zone, which for Taipei is
+// 16:00 the previous day in universal time — nowhere near a bucket edge. They agree
+// only for a round-the-clock market, and only by coincidence. Anything wanting the
+// edge asks NewCoarsestAggregationIntervalDomain; do not fold these two together.
 func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 	if marketDomain.neverCloses() {
 		return moment.UTC().Truncate(24 * time.Hour)

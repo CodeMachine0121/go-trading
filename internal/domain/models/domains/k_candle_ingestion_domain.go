@@ -8,7 +8,8 @@ import (
 )
 
 // KCandleIngestionDomain owns every "which candles" rule of automatic ingestion:
-// which candle counts as closed, and the two stretches of time worth fetching.
+// which candle counts as closed, where each of the two stretches worth fetching
+// begins, and that a backfill begins where a bucket does.
 //
 // The periodic round and the startup backfill differ only in the window they ask
 // for; everything after that is one shared path. Keeping both window rules on one
@@ -72,16 +73,34 @@ func (kCandleIngestionDomain KCandleIngestionDomain) ScheduledWindow(
 	return vo.NewKCandleFetchWindowVo(symbol, market, endTime.Add(-candlesBefore), endTime)
 }
 
-// BackfillWindow covers the gap left behind while nothing was running, reaching no
-// further back than the lookback allows. A zero latestStoredOpenTime means the
-// symbol has never held a K candle, which fills the whole lookback. When the gap is
-// already closed the window comes back empty.
+// BackfillWindow covers the gap left behind while nothing was running. A zero
+// latestStoredOpenTime means the symbol has never held a K candle, which fills the
+// whole lookback. When the gap is already closed the window comes back empty.
+//
+// **The lookback is how far back it reaches at least, not at most.** Reaching back by
+// it lands on an arbitrary minute, and a stretch that begins mid-bucket makes the
+// oldest bucket of every coarseness begin part way through itself — merged and handed
+// over as a whole one. At one day that is an afternoon's opening price and half a
+// day's volume reported as the day's, and nothing downstream can tell that apart from
+// a market that simply traded little. So the reach-back is rounded *down* to a bucket
+// edge, which costs at most one more bucket's worth of candles, once, on the first
+// fetch of a symbol.
+//
+// Down rather than up: rounding up would give away most of a day of the gap it was
+// asked to close, and would put the oldest bucket at today.
+//
+// **Only that start is rounded.** The one derived from stored data already sits on a
+// minute edge and abuts the candles that are there; rounding it down would step back
+// over them and fetch what is already stored. Which is also why the comparison below
+// needs no special case: rounding only moves a start earlier, so a stored-data start
+// that used to win still wins.
 func (kCandleIngestionDomain KCandleIngestionDomain) BackfillWindow(
 	symbol string,
 	market vo.MarketVo,
 	latestStoredOpenTime time.Time,
 ) vo.KCandleFetchWindowVo {
-	startTime := kCandleIngestionDomain.currentTime.Add(-kCandleIngestionDomain.backfillLookback)
+	startTime := NewCoarsestAggregationIntervalDomain().BucketStart(
+		kCandleIngestionDomain.currentTime.Add(-kCandleIngestionDomain.backfillLookback))
 
 	if !latestStoredOpenTime.IsZero() {
 		nextAfterStored := latestStoredOpenTime.UTC().Add(kCandleIngestionDomain.interval())

@@ -437,14 +437,16 @@ func TestBackfillAsksOnlyForTheGap(t *testing.T) {
 			expectedStartTime: ingestionAt(7, 1, 0),
 		},
 		{
-			name:              "a gap wider than the lookback starts at the lookback",
+			// Reaching back by the lookback lands mid-day, so the fetch begins at that
+			// day's edge — otherwise the oldest bucket it produces is half a bucket.
+			name:              "a gap wider than the lookback starts at the edge of the day it reaches",
 			stored:            []entities.KCandle{{Symbol: "BTCUSDT", OpenTime: time.Date(2026, 8, 27, 9, 0, 0, 0, time.UTC)}},
-			expectedStartTime: time.Date(2026, 8, 29, 9, 7, 0, 0, time.UTC),
+			expectedStartTime: time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
 		},
 		{
-			name:              "a symbol that never held a candle fills the whole lookback",
+			name:              "a symbol that never held a candle starts at the edge of the day the lookback reaches",
 			stored:            []entities.KCandle{},
-			expectedStartTime: time.Date(2026, 8, 29, 9, 7, 0, 0, time.UTC),
+			expectedStartTime: time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -926,6 +928,13 @@ func TestCatchingOneSymbolUpAsksForItsOwnGapAfterTheCloseHasPassed(t *testing.T)
 	// The evening of a trading day. A scheduled round has nothing left to collect,
 	// which is exactly when somebody wants today's candles for a stock they just
 	// added — so the on-demand catch-up must still reach back into the session.
+	//
+	// It reaches into the *previous* session too, and that follows from where a
+	// backfill starts: reaching back a day from 20:00 lands mid-day, so it starts at
+	// that day's edge instead — which puts the whole of the previous trading session
+	// inside the window rather than just past its close. Asking for a stretch and
+	// then skipping a session that falls inside it would leave a hole the next round
+	// never comes back for.
 	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T20:00:00+08:00"))
 	underTest.acceptEverySave()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
@@ -936,7 +945,7 @@ func TestCatchingOneSymbolUpAsksForItsOwnGapAfterTheCloseHasPassed(t *testing.T)
 		Return([]entities.KCandle{}, nil)
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
 		"2330", vo.MarketTaiwanStock,
-		taipeiIngestionAt(t, "2026-09-11T09:00:00+08:00"),
+		taipeiIngestionAt(t, "2026-09-10T09:00:00+08:00"),
 		taipeiIngestionAt(t, "2026-09-11T13:29:00+08:00"),
 	)).Return([]vo.MarketKCandleVo{}, nil)
 

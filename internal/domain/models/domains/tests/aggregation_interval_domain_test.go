@@ -124,6 +124,45 @@ func TestAggregationIntervalDomainBucketStartCutsFromMidnight(t *testing.T) {
 	}
 }
 
+func TestTheCoarsestIntervalIsADayAndItsEdgesServeEveryOtherInterval(t *testing.T) {
+	// Anything aligning to a bucket edge asks for this one rather than naming a length
+	// of its own. That is only sound because its edges are a subset of every other
+	// interval's — which holds because each declarable length divides a day.
+	t.Run("it is a day", func(t *testing.T) {
+		assert.Equal(t, vo.AggregationIntervalOneDay,
+			domains.NewCoarsestAggregationIntervalDomain().Value())
+	})
+
+	t.Run("it rounds a moment down to that day's start", func(t *testing.T) {
+		bucketStart := domains.NewCoarsestAggregationIntervalDomain().BucketStart(
+			time.Date(2026, 9, 7, 14, 3, 0, 0, time.UTC))
+
+		assert.Equal(t, time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC), bucketStart)
+	})
+
+	t.Run("a moment already on its edge is left alone", func(t *testing.T) {
+		alignedMoment := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
+
+		assert.Equal(t, alignedMoment,
+			domains.NewCoarsestAggregationIntervalDomain().BucketStart(alignedMoment))
+	})
+
+	t.Run("its edge is also an edge for every declarable interval", func(t *testing.T) {
+		// This is the whole reason one alignment covers all six. If a length were ever
+		// added that did not divide a day, this is where it would show up.
+		coarsestEdge := domains.NewCoarsestAggregationIntervalDomain().BucketStart(
+			time.Date(2026, 9, 7, 14, 3, 0, 0, time.UTC))
+
+		for _, declared := range []string{"1m", "5m", "15m", "1h", "4h", "1d"} {
+			intervalDomain, buildError := domains.NewAggregationIntervalDomain(declared)
+			require.NoError(t, buildError)
+
+			assert.Equal(t, coarsestEdge, intervalDomain.BucketStart(coarsestEdge),
+				"最粗那一種的邊界必須也是 %s 的邊界", declared)
+		}
+	})
+}
+
 func TestAggregationIntervalDomainBucketCountIncludesBothEnds(t *testing.T) {
 	testCases := []struct {
 		name                string

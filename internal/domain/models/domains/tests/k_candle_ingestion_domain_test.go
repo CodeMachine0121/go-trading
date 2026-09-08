@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -93,7 +94,7 @@ func TestScheduledWindowCoversTheNewestClosedCandlesBackwards(t *testing.T) {
 	}
 }
 
-func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *testing.T) {
+func TestBackfillWindowStartsAfterTheStoredCandleOrAtTheEdgeTheLookbackReaches(t *testing.T) {
 	testCases := []struct {
 		name                 string
 		latestStoredOpenTime time.Time
@@ -106,14 +107,16 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 			expectedStartTime:    at(7, 1, 0),
 		},
 		{
-			name:                 "gap wider than the lookback starts at the lookback",
+			// Reaching back by the lookback lands at 08-29 09:07, which is mid-bucket at
+			// every coarseness above a minute. It starts at that day's edge instead.
+			name:                 "gap wider than the lookback starts at the edge of the day it reaches",
 			latestStoredOpenTime: time.Date(2026, 8, 27, 9, 0, 0, 0, time.UTC),
-			expectedStartTime:    time.Date(2026, 8, 29, 9, 7, 0, 0, time.UTC),
+			expectedStartTime:    time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
 		},
 		{
-			name:                 "never held a candle fills the whole lookback",
+			name:                 "never held a candle starts at the edge of the day the lookback reaches",
 			latestStoredOpenTime: time.Time{},
-			expectedStartTime:    time.Date(2026, 8, 29, 9, 7, 0, 0, time.UTC),
+			expectedStartTime:    time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:                 "a gap of exactly one candle",
@@ -139,6 +142,179 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 			assert.Equal(t, testCase.expectedEmpty, window.IsEmpty())
 		})
 	}
+}
+
+func TestBackfillReachesBackToABucketEdgeWhateverTimeItIsAsked(t *testing.T) {
+	// A stretch that begins mid-bucket makes the oldest bucket of every coarseness
+	// begin part way through itself, and it is still merged and handed over as a whole
+	// one — at one day, an afternoon's opening price and half a day's volume reported
+	// as the day's. Nothing downstream can tell that from a market that traded little,
+	// so the start has to be right.
+	//
+	// Every case reaches back 24 hours and then down to that day's edge, so they all
+	// land on the same moment however far into the day they were asked.
+	testCases := []struct {
+		name        string
+		currentTime time.Time
+	}{
+		{
+			name:        "asked part way through the day",
+			currentTime: time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC),
+		},
+		{
+			name:        "asked exactly on the edge, which moves nothing",
+			currentTime: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:        "asked in the last minute of the day, reaching back furthest",
+			currentTime: time.Date(2026, 8, 30, 23, 59, 0, 0, time.UTC),
+		},
+		{
+			name:        "asked in the first minute of the day, reaching back least",
+			currentTime: time.Date(2026, 8, 30, 0, 1, 0, 0, time.UTC),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			window := ingestionDomain(t, testCase.currentTime, 5).
+				BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+
+			assert.Equal(t,
+				time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC), window.StartTime)
+		})
+	}
+}
+
+func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T) {
+	// The lookback exists to stop the first round after a long silence from bolting.
+	// Reaching down to an edge loosens that, so how much it loosens it has to be
+	// bounded — and the bound is one bucket of the coarsest coarseness, never more.
+	testCases := []struct {
+		name              string
+		currentTime       time.Time
+		expectedExtraSpan time.Duration
+	}{
+		{
+			name:              "part way through the day",
+			currentTime:       time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC),
+			expectedExtraSpan: 14*time.Hour + 3*time.Minute,
+		},
+		{
+			name:              "the last minute of the day is the worst case",
+			currentTime:       time.Date(2026, 8, 30, 23, 59, 0, 0, time.UTC),
+			expectedExtraSpan: 23*time.Hour + 59*time.Minute,
+		},
+		{
+			name:              "on the edge nothing extra is fetched",
+			currentTime:       time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+			expectedExtraSpan: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			window := ingestionDomain(t, testCase.currentTime, 5).
+				BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+
+			unalignedStart := testCase.currentTime.Add(-backfillLookback)
+
+			assert.Equal(t, testCase.expectedExtraSpan, unalignedStart.Sub(window.StartTime))
+			// The bound is one bucket of the coarsest coarseness, so it is derived
+			// rather than written down: the day a coarser interval is added, this
+			// keeps checking what the test's name says it checks.
+			coarsestBucketSpan := time.Duration(
+				domains.NewCoarsestAggregationIntervalDomain().SourceCandleCount(1)) *
+				domains.KCandleInterval
+			assert.Less(t, unalignedStart.Sub(window.StartTime), coarsestBucketSpan,
+				"多抓的量不會達到一整格")
+		})
+	}
+}
+
+func TestBackfillLeavesAStartTakenFromStoredDataAlone(t *testing.T) {
+	// That start already sits on a minute edge and abuts the candles that are there.
+	// Reaching down to a bucket edge would step back over them and fetch what is
+	// already stored — so the rounding must not touch this one.
+	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
+		BackfillWindow("BTCUSDT", vo.MarketCrypto,
+			time.Date(2026, 8, 30, 12, 30, 0, 0, time.UTC))
+
+	assert.Equal(t, time.Date(2026, 8, 30, 12, 31, 0, 0, time.UTC), window.StartTime,
+		"接在已存那一根之後，沒有被拉回當天零點")
+}
+
+func TestABackfillStartedAtAnEdgeProducesAWholeOldestBucket(t *testing.T) {
+	// This is what the whole change is for, and it is the one claim neither half's
+	// tests make on their own: the window's start is tested here, merging is tested
+	// over in the series, and nothing joined them up. Joined up, a run that begins
+	// where the window says produces an oldest bucket whose opening really is that
+	// day's opening — not an afternoon's wearing the day's name.
+	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
+		BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+	require.Equal(t, time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC), window.StartTime)
+
+	// What the source hands back for that window, newest first: the day opens at the
+	// window's own start, so the first candle of the bucket is the first of the day.
+	dayOpeningPrice := decimal.NewFromInt(100)
+	storedKCandles := []entities.KCandle{
+		{
+			Symbol: "BTCUSDT", OpenTime: window.StartTime.Add(time.Hour),
+			Open: decimal.NewFromInt(300), High: decimal.NewFromInt(300),
+			Low: decimal.NewFromInt(300), Close: decimal.NewFromInt(300),
+			Volume: decimal.NewFromInt(1),
+		},
+		{
+			Symbol: "BTCUSDT", OpenTime: window.StartTime,
+			Open: dayOpeningPrice, High: decimal.NewFromInt(100),
+			Low: decimal.NewFromInt(100), Close: decimal.NewFromInt(100),
+			Volume: decimal.NewFromInt(1),
+		},
+	}
+
+	dailyInterval, intervalError := domains.NewAggregationIntervalDomain("1d")
+	require.NoError(t, intervalError)
+	buckets := domains.NewKCandleSeriesDomain("BTCUSDT", dailyInterval, storedKCandles).Buckets()
+
+	require.Len(t, buckets, 1)
+	assert.Equal(t, window.StartTime, buckets[0].OpenTime(),
+		"最舊那一格從當天第一分鐘算起")
+	assert.True(t, buckets[0].ToDto().Open.Equal(dayOpeningPrice),
+		"它的開盤價是那一天第一分鐘的開盤價，不是後來某一刻的")
+}
+
+func TestABucketIsWholeEvenWhenTheMarketOnlyTradedPartOfTheDay(t *testing.T) {
+	// A symbol listed that morning, or a market that only opens for a few hours. The
+	// bucket still belongs to the whole day and still holds everything that traded in
+	// it — the alignment is about where fetching starts, not about demanding that a
+	// day be busy. Refusing this would turn every listing day and every short session
+	// into missing data.
+	dayStart := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	firstTradeOfTheDay := dayStart.Add(3 * time.Hour)
+	storedKCandles := []entities.KCandle{
+		{
+			Symbol: "BTCUSDT", OpenTime: firstTradeOfTheDay.Add(time.Minute),
+			Open: decimal.NewFromInt(210), High: decimal.NewFromInt(210),
+			Low: decimal.NewFromInt(210), Close: decimal.NewFromInt(210),
+			Volume: decimal.NewFromInt(1),
+		},
+		{
+			Symbol: "BTCUSDT", OpenTime: firstTradeOfTheDay,
+			Open: decimal.NewFromInt(200), High: decimal.NewFromInt(200),
+			Low: decimal.NewFromInt(200), Close: decimal.NewFromInt(200),
+			Volume: decimal.NewFromInt(1),
+		},
+	}
+
+	dailyInterval, intervalError := domains.NewAggregationIntervalDomain("1d")
+	require.NoError(t, intervalError)
+	buckets := domains.NewKCandleSeriesDomain("BTCUSDT", dailyInterval, storedKCandles).Buckets()
+
+	require.Len(t, buckets, 1)
+	assert.Equal(t, dayStart, buckets[0].OpenTime(),
+		"那一格仍然屬於一整天，起始時間是當天零點")
+	assert.True(t, buckets[0].ToDto().Volume.Equal(decimal.NewFromInt(2)),
+		"當天成交的每一根都在裡面，一根都沒少")
 }
 
 func TestSelectClosedDropsTheCandleStillRunning(t *testing.T) {
