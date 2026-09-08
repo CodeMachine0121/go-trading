@@ -1,7 +1,7 @@
 {
 	"info": {
 		"name": "go-trading",
-		"description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊五分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。",
+		"description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -74,7 +74,8 @@
 					"    pm.collectionVariables.set('userEmail', `postman-${Date.now()}@example.com`);",
 					"}",
 					"",
-					"// 所有時間都在執行當下算出來：對齊五分鐘刻度，且一定落在過去。",
+					"// 所有時間都在執行當下算出來：對齊一分鐘刻度，且一定落在過去。",
+					"// 種子之間仍隔五分鐘，好讓五分鐘刻度的彙總每一格恰好收一根。",
 					"const FIVE_MINUTES = 5 * 60 * 1000;",
 					"const asRfc3339 = (date) => date.toISOString().replace(/\\.\\d{3}Z$/, 'Z');",
 					"",
@@ -85,8 +86,8 @@
 					"pm.collectionVariables.set('rangeStart', asRfc3339(new Date(latestClosed.getTime() - 60 * 60 * 1000)));",
 					"pm.collectionVariables.set('rangeEnd', asRfc3339(latestClosed));",
 					"",
-					"// 不在五分鐘刻度上，用來驗證系統會拒絕。",
-					"pm.collectionVariables.set('offTickTime', asRfc3339(new Date(latestClosed.getTime() + 3 * 60 * 1000)));",
+					"// 不在一分鐘刻度上（帶了 30 秒），用來驗證系統會拒絕。",
+					"pm.collectionVariables.set('offTickTime', asRfc3339(new Date(latestClosed.getTime() + 30 * 1000)));",
 					"",
 					"// 從未建立過的一根，用來驗證找不到的回應。",
 					"pm.collectionVariables.set('unknownOpenTime', asRfc3339(new Date(latestClosed.getTime() - 30 * 24 * 60 * 60 * 1000)));",
@@ -852,7 +853,7 @@
 		},
 		{
 			"name": "K 線",
-			"description": "K 線的新增、查詢、修改、刪除。一根固定涵蓋五分鐘，以「交易標的 + 起始時間」唯一辨識，一律使用世界標準時間。",
+			"description": "K 線的新增、查詢、修改、刪除。一根固定涵蓋一分鐘，以「交易標的 + 起始時間」唯一辨識，一律使用世界標準時間。",
 			"item": [
 				{
 					"name": "新增一根 K 線",
@@ -1013,7 +1014,7 @@
 								}
 							]
 						},
-						"description": "起訖**兩端都包含在內**，起訖本身不必落在五分鐘刻度上。結果依起始時間由早到晚排列。"
+						"description": "起訖**兩端都包含在內**，起訖本身不必落在一分鐘刻度上。結果依起始時間由早到晚排列。"
 					},
 					"event": [
 						{
@@ -1099,7 +1100,7 @@
 					]
 				},
 				{
-					"name": "不指定彙總刻度就是五分鐘",
+					"name": "不指定彙總刻度就是一分鐘",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -1127,7 +1128,7 @@
 								}
 							]
 						},
-						"description": "沒有指明彙總刻度時視為五分鐘——等同不合併，每根就是原本存下的那一根。"
+						"description": "沒有指明彙總刻度時視為一分鐘——等同不合併，每根就是原本存下的那一根。"
 					},
 					"event": [
 						{
@@ -1138,8 +1139,8 @@
 									"pm.test(\"回應 200\", function () {",
 									"    pm.response.to.have.status(200);",
 									"});",
-									"pm.test(\"預設是五分鐘\", function () {",
-									"    pm.expect(pm.response.json().interval).to.eql(\"5m\");",
+									"pm.test(\"預設是一分鐘\", function () {",
+									"    pm.expect(pm.response.json().interval).to.eql(\"1m\");",
 									"});"
 								]
 							}
@@ -1179,7 +1180,7 @@
 								}
 							]
 						},
-						"description": "彙總刻度只接受 5m、15m、1h、4h、1d。"
+						"description": "彙總刻度只接受 1m、5m、15m、1h、4h、1d。"
 					},
 					"event": [
 						{
@@ -1405,7 +1406,7 @@
 					]
 				},
 				{
-					"name": "拒絕：起始時間不在五分鐘刻度上",
+					"name": "拒絕：起始時間不在一分鐘刻度上",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -1928,7 +1929,7 @@
 								"indicator-calculations"
 							]
 						},
-						"description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是五分鐘一格，而目前正在走的那五分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種（`float`、`floatList`、`bool`、`boolList`、`signal`）；`float` 是預設值，省略不寫的行為完全相同。`signal` 種類回傳的是單一一個信號、沒有指標名稱。",
+						"description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是一分鐘一格，而目前正在走的那一分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種（`float`、`floatList`、`bool`、`boolList`、`signal`）；`float` 是預設值，省略不寫的行為完全相同。`signal` 種類回傳的是單一一個信號、沒有指標名稱。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 4,\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
@@ -1959,8 +1960,8 @@
 									"pm.test(\"回報這次的種類是 float\", function () {",
 									"    pm.expect(pm.response.json().resultType).to.eql(\"float\");",
 									"});",
-									"pm.test(\"回報這次的彙總刻度是五分鐘\", function () {",
-									"    pm.expect(pm.response.json().interval).to.eql(\"5m\");",
+									"pm.test(\"回報這次的彙總刻度是一分鐘\", function () {",
+									"    pm.expect(pm.response.json().interval).to.eql(\"1m\");",
 									"});",
 									"pm.test(\"說得出這次讀了哪四根，由早到晚\", function () {",
 									"    // 呼叫端要把一串值擺回圖上，就得知道第幾個值對應哪一根。",
@@ -2384,7 +2385,7 @@
 								"indicator-calculations"
 							]
 						},
-						"description": "彙總刻度五選一：`5m`、`15m`、`1h`、`4h`、`1d`。七分鐘不是暫時不支援，是不成立——它既不是五分鐘的整數倍，也不整除一天，刻度區間的邊界會逐日漂移。",
+						"description": "彙總刻度六選一：`1m`、`5m`、`15m`、`1h`、`4h`、`1d`。七分鐘不是暫時不支援，是不成立——它既不是一分鐘 K 線長度整除得出的刻度之一，也不整除一天，刻度區間的邊界會逐日漂移。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"7m\",\n  \"candleCount\": 2,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
@@ -2600,7 +2601,7 @@
 		},
 		{
 			"name": "策略",
-			"description": "把一套算法留下來：取個名字，記住它算出來的值長什麼樣、要吃多粗、多少根 K 線。\n\n彙總刻度沿用系統既有的那五種（5m／15m／1h／4h／1d），不另立第二套。\n存策略不執行也不檢查指標算式——半成品也該存得住。",
+			"description": "把一套算法留下來：取個名字，記住它算出來的值長什麼樣、要吃多粗、多少根 K 線。\n\n彙總刻度沿用系統既有的那六種（1m／5m／15m／1h／4h／1d），不另立第二套。\n存策略不執行也不檢查指標算式——半成品也該存得住。",
 			"item": [
 				{
 					"name": "存下一支策略",
@@ -2718,7 +2719,7 @@
 								"strategies"
 							]
 						},
-						"description": "與彙總查詢、指標計算的規則一致：沒說彙總刻度就是五分鐘，沒說指標值種類就是一個數字。",
+						"description": "與彙總查詢、指標計算的規則一致：沒說彙總刻度就是一分鐘，沒說指標值種類就是一個數字。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\"\n}",
@@ -4493,7 +4494,7 @@
 		},
 		{
 			"name": "觀察清單",
-			"description": "系統要持續追蹤哪些交易標的。改完最多等一輪（五分鐘）就生效，不必重開系統。\n\n加進來之前系統會先向該市場確認這個代號存在：打錯字當場被擋下，而不是換來一條每輪安靜失敗的線。「拿掉」只停止追蹤——已經抓回來的 K 線一根都不會少。",
+			"description": "系統要持續追蹤哪些交易標的。改完最多等一輪（一分鐘）就生效，不必重開系統。\n\n加進來之前系統會先向該市場確認這個代號存在：打錯字當場被擋下，而不是換來一條每輪安靜失敗的線。「拿掉」只停止追蹤——已經抓回來的 K 線一根都不會少。",
 			"item": [
 				{
 					"name": "把一檔台股加進觀察清單",
@@ -4853,7 +4854,7 @@
 								"backfill"
 							]
 						},
-						"description": "台股收盤後，每五分鐘一輪已經沒有東西可收——這時想看今天的資料就按這個。補到 KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS 為止。",
+						"description": "台股收盤後，每分鐘一輪已經沒有東西可收——這時想看今天的資料就按這個。補到 KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS 為止。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"2330\"\n}"
@@ -4984,7 +4985,7 @@
 								}
 							]
 						},
-						"description": "跟上的當下就會收到目前進行中的那一根（若這五分鐘已經有成交）。之後每十秒至多送一次目前的樣子；一根走完時立刻送出，不受那個上限限制。"
+						"description": "跟上的當下就會收到目前進行中的那一根（若這一分鐘已經有成交）。之後每十秒至多送一次目前的樣子；一根走完時立刻送出，不受那個上限限制。"
 					},
 					"event": [
 						{
