@@ -6,9 +6,11 @@ import "time"
 // They are the values the requirements name; a caller that hands over something
 // unusable gets these rather than a broken channel.
 const (
-	defaultQuietTimeout      = 30 * time.Second
-	defaultMaximumRetryDelay = 30 * time.Second
-	initialRetryDelay        = time.Second
+	defaultQuietTimeout = 30 * time.Second
+	// minimumQuietCheckInterval is the shortest gap the silence is ever measured at.
+	minimumQuietCheckInterval = time.Millisecond
+	defaultMaximumRetryDelay  = 30 * time.Second
+	initialRetryDelay         = time.Second
 )
 
 // LiveChannelHealthDomain owns how one live channel is judged over time: how long a
@@ -90,7 +92,11 @@ func (liveChannelHealthDomain *LiveChannelHealthDomain) HasGoneQuiet(now time.Ti
 // threshold after it has been settled — a caller working it out from the raw setting
 // would have to know the fallback as well, and would then hold a second copy of it.
 func (liveChannelHealthDomain *LiveChannelHealthDomain) QuietCheckInterval() time.Duration {
-	return liveChannelHealthDomain.quietTimeout / 2
+	// Never nothing. Halving the smallest threshold a caller can express rounds down
+	// to no interval at all, and a repeating job asked to repeat every nothing is not
+	// a fast job — it is a crash, taken in a background goroutine, which ends the
+	// whole process rather than the one follow it belongs to.
+	return max(liveChannelHealthDomain.quietTimeout/2, minimumQuietCheckInterval)
 }
 
 // NextRetryDelay hands out how long to wait before trying again, and doubles it for

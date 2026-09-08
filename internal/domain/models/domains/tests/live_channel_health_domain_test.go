@@ -99,6 +99,15 @@ func TestSilenceIsCheckedTwicePerThreshold(t *testing.T) {
 		"門檻沒設定時，檢查間隔也該跟著回到預設門檻的一半")
 }
 
+// Halving the smallest threshold a caller can express rounds down to nothing, and a
+// repeating check asked to repeat every nothing is a crash rather than a fast check.
+func TestSilenceIsNeverCheckedAtNoIntervalAtAll(t *testing.T) {
+	healthDomain := domains.NewLiveChannelHealthDomain(
+		time.Nanosecond, 30*time.Second, followStartedAt)
+
+	assert.Positive(t, healthDomain.QuietCheckInterval())
+}
+
 // Recovering must undo the gap the outage earned, or a channel that comes back would
 // keep waiting half a minute between rounds it no longer needs to retry. Recovering
 // means data arriving — that is the only thing a source can do that proves it works.
