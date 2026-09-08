@@ -38,7 +38,7 @@ func channelsOf(t *testing.T, watchedSymbols []entities.TradingSymbol) []vo.Live
 
 	return domains.NewLiveFollowRosterDomain(
 		watchedSymbols, marketCatalog(), rosterAt(t, "2026-09-08T10:00:00+08:00")).
-		Channels(marketCatalog())
+		Channels()
 }
 
 // The whole point: the plan allows one line carrying five, so four place holders are
@@ -67,7 +67,7 @@ func TestAnEmptyRosterAsksForNoChannels(t *testing.T) {
 		watchedIn(vo.MarketTaiwanStock, "2330"), marketCatalog(),
 		rosterAt(t, "2026-09-08T20:00:00+08:00"))
 
-	assert.Empty(t, rosterDomain.Channels(marketCatalog()))
+	assert.Empty(t, rosterDomain.Channels())
 }
 
 // A market with no ceiling holds no places, so the roster asks for no channels of
@@ -88,7 +88,7 @@ func TestMoreHoldersThanOneChannelCarriesAreCutIntoSeveral(t *testing.T) {
 	channels := domains.NewLiveFollowRosterDomain(
 		watchedIn(vo.MarketCrypto, "AAA", "BBB", "CCC", "DDD", "EEE", "FFF"),
 		marketCatalogDomain, rosterAt(t, "2026-09-08T10:00:00+08:00")).
-		Channels(marketCatalogDomain)
+		Channels()
 
 	require.Len(t, channels, 2)
 	assert.Equal(t, []string{"AAA", "BBB", "CCC"}, channels[0].Symbols)

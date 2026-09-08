@@ -192,7 +192,7 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 	// Once it has ended, all that is left is a symbol that is no longer on a roster —
 	// and that looks identical whether the day is over or somebody else took its
 	// place.
-	wantedChannels := rosterDomain.Channels(kCandleFollowService.marketCatalogDomain)
+	wantedChannels := rosterDomain.Channels()
 
 	departing := kCandleFollowService.takeDepartedChannels(wantedChannels)
 	for _, departingChannel := range departing {
@@ -236,7 +236,7 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 
 	departing := make([]*followChannel, 0)
 	for key, openChannel := range kCandleFollowService.channels {
-		if isWanted[key] || !kCandleFollowService.isRostered(openChannel) {
+		if isWanted[key] || !openChannel.isRostered() {
 			continue
 		}
 
@@ -248,19 +248,6 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 	}
 
 	return departing
-}
-
-// isRostered reports a channel the system keeps up because a market's places were
-// handed to its symbols, rather than because somebody is watching. Only those are
-// the roster's to retire.
-func (kCandleFollowService *KCandleFollowService) isRostered(openChannel *followChannel) bool {
-	for _, follow := range openChannel.follows {
-		if follow.isOnARoster {
-			return true
-		}
-	}
-
-	return false
 }
 
 // startMissingChannels opens every channel the roster asks for that is not open

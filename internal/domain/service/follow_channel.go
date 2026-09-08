@@ -51,6 +51,19 @@ func (followChannel *followChannel) followOf(symbol string) (*symbolFollow, bool
 	return follow, isCarried
 }
 
+// isRostered reports a channel the system keeps up because a market's places were
+// handed to its symbols, rather than because somebody is watching. Only those are
+// the roster's to retire.
+func (followChannel *followChannel) isRostered() bool {
+	for _, follow := range followChannel.follows {
+		if follow.isOnARoster {
+			return true
+		}
+	}
+
+	return false
+}
+
 // publishStalled tells every symbol on this channel that live updating has stopped.
 // One line went down, so it is one piece of news — said to everyone it reaches.
 func (followChannel *followChannel) publishStalled() {
