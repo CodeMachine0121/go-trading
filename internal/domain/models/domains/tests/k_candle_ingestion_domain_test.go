@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -241,6 +242,79 @@ func TestBackfillLeavesAStartTakenFromStoredDataAlone(t *testing.T) {
 
 	assert.Equal(t, time.Date(2026, 8, 30, 12, 31, 0, 0, time.UTC), window.StartTime,
 		"接在已存那一根之後，沒有被拉回當天零點")
+}
+
+func TestABackfillStartedAtAnEdgeProducesAWholeOldestBucket(t *testing.T) {
+	// This is what the whole change is for, and it is the one claim neither half's
+	// tests make on their own: the window's start is tested here, merging is tested
+	// over in the series, and nothing joined them up. Joined up, a run that begins
+	// where the window says produces an oldest bucket whose opening really is that
+	// day's opening — not an afternoon's wearing the day's name.
+	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
+		BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+	require.Equal(t, time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC), window.StartTime)
+
+	// What the source hands back for that window, newest first: the day opens at the
+	// window's own start, so the first candle of the bucket is the first of the day.
+	dayOpeningPrice := decimal.NewFromInt(100)
+	storedKCandles := []entities.KCandle{
+		{
+			Symbol: "BTCUSDT", OpenTime: window.StartTime.Add(time.Hour),
+			Open: decimal.NewFromInt(300), High: decimal.NewFromInt(300),
+			Low: decimal.NewFromInt(300), Close: decimal.NewFromInt(300),
+			Volume: decimal.NewFromInt(1),
+		},
+		{
+			Symbol: "BTCUSDT", OpenTime: window.StartTime,
+			Open: dayOpeningPrice, High: decimal.NewFromInt(100),
+			Low: decimal.NewFromInt(100), Close: decimal.NewFromInt(100),
+			Volume: decimal.NewFromInt(1),
+		},
+	}
+
+	dailyInterval, intervalError := domains.NewAggregationIntervalDomain("1d")
+	require.NoError(t, intervalError)
+	buckets := domains.NewKCandleSeriesDomain("BTCUSDT", dailyInterval, storedKCandles).Buckets()
+
+	require.Len(t, buckets, 1)
+	assert.Equal(t, window.StartTime, buckets[0].OpenTime(),
+		"最舊那一格從當天第一分鐘算起")
+	assert.True(t, buckets[0].ToDto().Open.Equal(dayOpeningPrice),
+		"它的開盤價是那一天第一分鐘的開盤價，不是後來某一刻的")
+}
+
+func TestABucketIsWholeEvenWhenTheMarketOnlyTradedPartOfTheDay(t *testing.T) {
+	// A symbol listed that morning, or a market that only opens for a few hours. The
+	// bucket still belongs to the whole day and still holds everything that traded in
+	// it — the alignment is about where fetching starts, not about demanding that a
+	// day be busy. Refusing this would turn every listing day and every short session
+	// into missing data.
+	dayStart := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	firstTradeOfTheDay := dayStart.Add(3 * time.Hour)
+	storedKCandles := []entities.KCandle{
+		{
+			Symbol: "BTCUSDT", OpenTime: firstTradeOfTheDay.Add(time.Minute),
+			Open: decimal.NewFromInt(210), High: decimal.NewFromInt(210),
+			Low: decimal.NewFromInt(210), Close: decimal.NewFromInt(210),
+			Volume: decimal.NewFromInt(1),
+		},
+		{
+			Symbol: "BTCUSDT", OpenTime: firstTradeOfTheDay,
+			Open: decimal.NewFromInt(200), High: decimal.NewFromInt(200),
+			Low: decimal.NewFromInt(200), Close: decimal.NewFromInt(200),
+			Volume: decimal.NewFromInt(1),
+		},
+	}
+
+	dailyInterval, intervalError := domains.NewAggregationIntervalDomain("1d")
+	require.NoError(t, intervalError)
+	buckets := domains.NewKCandleSeriesDomain("BTCUSDT", dailyInterval, storedKCandles).Buckets()
+
+	require.Len(t, buckets, 1)
+	assert.Equal(t, dayStart, buckets[0].OpenTime(),
+		"那一格仍然屬於一整天，起始時間是當天零點")
+	assert.True(t, buckets[0].ToDto().Volume.Equal(decimal.NewFromInt(2)),
+		"當天成交的每一根都在裡面，一根都沒少")
 }
 
 func TestSelectClosedDropsTheCandleStillRunning(t *testing.T) {
