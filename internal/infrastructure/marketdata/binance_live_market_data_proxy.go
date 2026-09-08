@@ -50,7 +50,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 	}
 
 	liveKCandles := make(chan vo.LiveKCandleVo, liveKCandleBufferSize)
-	go binanceLiveMarketDataProxy.read(executionContext, connection, liveKCandles)
+	go binanceLiveMarketDataProxy.read(executionContext, connection, symbol, liveKCandles)
 
 	return liveKCandles, nil
 }
@@ -58,21 +58,29 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 // read carries messages from the connection to the channel until either end stops.
 // Whatever the reason, the connection is closed and the channel with it, so the
 // caller learns of every ending in exactly one way.
+//
+// Closing is best effort and its failure is not reported: by the time this runs the
+// connection has almost always already gone, which is precisely why the read
+// stopped. What is worth saying is why it stopped, and that is said once, with the
+// symbol it happened to.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 	executionContext context.Context,
 	connection *websocket.Conn,
+	symbol string,
 	liveKCandles chan<- vo.LiveKCandleVo,
 ) {
 	defer close(liveKCandles)
-	defer func() {
-		if closeError := connection.CloseNow(); closeError != nil {
-			log.Printf("live market data: closing the feed failed: %v", closeError)
-		}
-	}()
+	defer func() { _ = connection.CloseNow() }()
 
 	for {
 		_, body, readError := connection.Read(executionContext)
 		if readError != nil {
+			// A follow the system ended on purpose is not a feed that broke, and
+			// saying so would put a line in the log for every orderly shutdown.
+			if executionContext.Err() == nil {
+				log.Printf("live market data: the feed for %s ended: %v", symbol, readError)
+			}
+
 			return
 		}
 

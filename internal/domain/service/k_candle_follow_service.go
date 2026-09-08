@@ -377,7 +377,14 @@ func (kCandleFollowService *KCandleFollowService) run(
 
 		follow.publishStalled()
 
-		if !waitOrDone(executionContext, followDomain.NextRetryDelay()) {
+		// Said out loud because the gap is the only evidence the growing back-off is
+		// working: a source that keeps accepting connections and dropping them is
+		// otherwise indistinguishable, in the log, from one being retried every second.
+		retryDelay := followDomain.NextRetryDelay()
+		log.Printf("live k candle follow: %s is not delivering; trying again in %s",
+			follow.symbol, retryDelay)
+
+		if !waitOrDone(executionContext, retryDelay) {
 			return
 		}
 	}
