@@ -69,7 +69,8 @@ func testMarketCatalog() domains.MarketCatalogDomain {
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
 			},
-			SimultaneousFollowCeiling: 5,
+			SimultaneousChannelCeiling: 1,
+			SymbolsPerLiveChannel:      5,
 		},
 	})
 }

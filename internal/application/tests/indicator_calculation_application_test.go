@@ -70,17 +70,17 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 		assert.Equal(t, "BTCUSDT", resultDto.Symbol)
 		assert.Equal(t, 2, resultDto.UsedCandleCount)
 		assert.Equal(t, []float64{110}, resultDto.Values["ma"].Numbers)
-		assert.Equal(t, "5m", resultDto.Interval)
+		assert.Equal(t, "1m", resultDto.Interval)
 		assert.Equal(t, []time.Time{at(9, 5), at(9, 10)}, resultDto.OpenTimes)
 	})
 
 	t.Run("reads at the coarseness asked for, up to the stretch that has finished", func(t *testing.T) {
-		// One hour is twelve five-minute candles, so two buckets plus the spare is a
-		// read of 36; and at 09:15 the hour that began at 09:00 has not finished, so
-		// reading stops there rather than at the five-minute edge.
+		// One hour is sixty one-minute candles, so two buckets plus the spare is a
+		// read of 180; and at 09:15 the hour that began at 09:00 has not finished, so
+		// reading stops there rather than at the one-minute edge.
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", at(9, 0), 36).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", at(9, 0), 180).
 			Return([]entities.KCandle{
 				kCandleAt(at(8, 5), "100"), kCandleAt(at(8, 0), "100"),
 				kCandleAt(at(7, 0), "100"),

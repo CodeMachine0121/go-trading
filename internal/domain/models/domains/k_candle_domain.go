@@ -9,13 +9,29 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// kCandleIntervalMinutes is how many minutes one K candle covers. It is the single
-// place this length is written down; widening the feature to other lengths starts here.
-const kCandleIntervalMinutes = 5
+// KCandleInterval is how long one K candle covers, and it is the only place the
+// system writes that length down. Changing the granularity is changing this line:
+// the market sources spell their own requests from it, the ingestion round takes its
+// interval from it, aggregation counts source candles with it, and a market's last
+// candle of the session is its closing time less this.
+//
+// It is exported for exactly that reason. Left unexported, every one of those places
+// had to write the length out again and merely happen to agree — and a place that
+// forgot would store candles of a length nothing in the system could detect.
+const KCandleInterval = time.Minute
 
-// kCandleInterval is that same length as a span of time. It is derived rather than
-// written out again, so the length one candle covers stays said in exactly one place.
-const kCandleInterval = kCandleIntervalMinutes * time.Minute
+// KCandleIntervalMinutes is that same length as a whole number of minutes, which is
+// the unit every market source spells it in.
+//
+// It is worked out here, once, and refuses to be zero: a length under a minute would
+// truncate to nothing and have each source politely ask for a "0m" candle, which
+// they answer with silence rather than an error. Anyone shortening the length below
+// a minute meets this line first, which is the point.
+const KCandleIntervalMinutes = int(KCandleInterval / time.Minute)
+
+// Deliberately unusable rather than merely wrong: a K candle length that does not
+// spell as whole minutes stops this package compiling.
+const _ = uint(KCandleIntervalMinutes - 1)
 
 // KCandleDomain holds one K candle and guarantees its own invariants. An instance
 // only exists when every rule passed, so there is no half-valid K candle.
@@ -40,13 +56,13 @@ func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCan
 		return KCandleDomain{}, fmt.Errorf("%w: %w", ErrKCandleValidation, symbolError)
 	}
 
+	// Truncating says the whole rule in one line — the minutes, the seconds and
+	// everything finer at once — and it says it for whatever length the system runs
+	// on rather than only for lengths that divide an hour into whole minutes.
 	openTime := writeDto.OpenTime.UTC()
-	isOnInterval := openTime.Minute()%kCandleIntervalMinutes == 0 &&
-		openTime.Second() == 0 &&
-		openTime.Nanosecond() == 0
-	if !isOnInterval {
+	if !openTime.Truncate(KCandleInterval).Equal(openTime) {
 		return KCandleDomain{}, fmt.Errorf(
-			"%w: 起始時間必須落在%d分鐘刻度上", ErrKCandleValidation, kCandleIntervalMinutes)
+			"%w: 起始時間必須落在%d分鐘刻度上", ErrKCandleValidation, KCandleIntervalMinutes)
 	}
 
 	if openTime.After(currentTime.UTC()) {

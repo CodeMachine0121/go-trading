@@ -210,7 +210,7 @@ func registerRoutes(
 	engine.POST("/sessions/revocation", userController.RevokeSession)
 	engine.GET("/users/me", userController.GetCurrentUser)
 
-	// Following a market live is an addition, not a replacement: the five-minute
+	// Following a market live is an addition, not a replacement: the scheduled
 	// round keeps running, and it is what fills in every candle that closed while
 	// nobody was looking. This path only shortens the wait for whoever is looking.
 	kCandleFollowService := service.NewKCandleFollowService(
@@ -320,7 +320,8 @@ func liveMarketDataProxyFor(
 				applicationConfig.LiveFollow.MarketDataStreamUrl),
 			vo.MarketTaiwanStock: marketdata.NewFugleLiveMarketDataProxy(
 				applicationConfig.TaiwanStock.StreamUrl,
-				applicationConfig.TaiwanStock.ApiKey),
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.RequestTimeout),
 		})
 }
 

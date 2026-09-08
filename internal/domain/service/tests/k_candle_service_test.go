@@ -193,7 +193,7 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("merges the candles of each bucket into one, earliest first", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), 3*12).
+			FindInRange(gomock.Any(), gomock.Any(), 3*60).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 0), "100"),
 				kCandleAt(at(9, 55), "150"),
@@ -217,7 +217,7 @@ func TestGetKCandleSeries(t *testing.T) {
 	t.Run("leaves out a bucket nothing fell into", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), 3*12).
+			FindInRange(gomock.Any(), gomock.Any(), 3*60).
 			Return([]entities.KCandle{kCandleAt(at(10, 5), "100"), kCandleAt(at(12, 30), "200")}, nil)
 
 		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
@@ -246,10 +246,10 @@ func TestGetKCandleSeries(t *testing.T) {
 		assert.Equal(t, "1h", seriesDto.Interval)
 	})
 
-	t.Run("aggregating at five minutes leaves every candle as it was", func(t *testing.T) {
+	t.Run("aggregating at one minute leaves every candle as it was", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), 3).
+			FindInRange(gomock.Any(), gomock.Any(), 11).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 0), "100"),
 				kCandleAt(at(9, 5), "101"),
@@ -257,7 +257,7 @@ func TestGetKCandleSeries(t *testing.T) {
 			}, nil)
 
 		seriesDto, err := fixture.kCandleService.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
-			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10), Interval: "5m",
+			Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 10), Interval: "1m",
 		})
 
 		assert.NoError(t, err)
@@ -352,7 +352,8 @@ func TestSaveKCandle(t *testing.T) {
 	t.Run("never reaches storage when the candle breaks a rule", func(t *testing.T) {
 		fixture := newServiceUnderTest(t)
 
-		_, err := fixture.kCandleService.SaveKCandle(t.Context(), writeDtoAt(at(9, 3), "120"))
+		_, err := fixture.kCandleService.SaveKCandle(
+			t.Context(), writeDtoAt(at(9, 3).Add(30*time.Second), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
 	})

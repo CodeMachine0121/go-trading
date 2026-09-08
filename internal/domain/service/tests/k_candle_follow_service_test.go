@@ -81,7 +81,10 @@ func followMarketCatalog() domains.MarketCatalogDomain {
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
 			},
-			SimultaneousFollowCeiling: 2,
+			// One channel carrying two symbols: the ceiling of two these tests were
+			// written against, said the way a plan says it.
+			SimultaneousChannelCeiling: 1,
+			SymbolsPerLiveChannel:      2,
 		},
 	})
 }
@@ -142,16 +145,20 @@ func newFollowTestBedWith(
 	}
 
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
-			symbol := target.Symbol
-			// Dropped rather than blocked: a retry loop that outruns the test must not
-			// be able to wedge the follow it is being watched through.
-			select {
-			case testBed.feedsRequested <- symbol:
-			default:
+		func(_ context.Context, channel vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
+			// Every symbol on the channel is recorded as asked for: one line carries
+			// them all, and a test that checks what is being followed is checking the
+			// symbols, not the lines.
+			for _, symbol := range channel.Symbols {
+				// Dropped rather than blocked: a retry loop that outruns the test must
+				// not be able to wedge the follow it is being watched through.
+				select {
+				case testBed.feedsRequested <- symbol:
+				default:
+				}
 			}
 
-			return feedFor(symbol)
+			return feedFor(channel.Symbols[0])
 		}).AnyTimes()
 
 	// The ceiling is zero-ish so nothing is throttled away in a lifecycle test; the
@@ -704,11 +711,12 @@ func newTaiwanFollowTestBed(t *testing.T, currentTime time.Time) *taiwanFollowTe
 	}
 
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
-			symbol := target.Symbol
-			select {
-			case testBed.feedsRequested <- symbol:
-			default:
+		func(_ context.Context, channel vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
+			for _, symbol := range channel.Symbols {
+				select {
+				case testBed.feedsRequested <- symbol:
+				default:
+				}
 			}
 
 			// Never delivers and never ends, so a follow that was started stays
@@ -1045,10 +1053,14 @@ func TestAFollowHeldUpByARosterOutlivesItsLastViewer(t *testing.T) {
 	}, 500*time.Millisecond, 10*time.Millisecond)
 }
 
-func TestPlacesAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
+func TestChannelsAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
 	// Going over what the source allows costs every place at once, not just the extra
-	// one — so for the moment a roster is swapped wholesale, the count must never rise
-	// above the ceiling. Starting first and stopping after would double it.
+	// one — so for the moment a roster is swapped wholesale, the number of open lines
+	// must never rise above what the plan allows. Starting first and stopping after
+	// would double it.
+	//
+	// This market's plan is one line carrying two symbols, so a roster of two is one
+	// line before the swap, one line after, and one line at every moment in between.
 	mockController := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(taipeiFollowAt(t, "2026-09-08T10:00:00+08:00")).AnyTimes()
@@ -1063,7 +1075,7 @@ func TestPlacesAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
 	concurrentFeeds := &feedCounter{}
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(followContext context.Context, _ vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+		func(followContext context.Context, _ vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
 			concurrentFeeds.opened()
 			go func() {
 				<-followContext.Done()
@@ -1081,16 +1093,17 @@ func TestPlacesAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
 	t.Cleanup(followService.Stop)
 
 	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
-	// Both places have to be genuinely open before the swap, or a high water mark of
-	// two would only mean the first pair never got going.
-	require.Eventually(t, func() bool { return concurrentFeeds.currentlyOpen() == 2 },
+	// The line has to be genuinely open before the swap, or a high water mark of one
+	// would only mean the first pair never got going.
+	require.Eventually(t, func() bool { return concurrentFeeds.currentlyOpen() == 1 },
 		2*time.Second, 10*time.Millisecond)
 
 	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
 
-	require.Eventually(t, func() bool { return concurrentFeeds.currentlyOpen() == 2 },
+	require.Eventually(t, func() bool { return concurrentFeeds.currentlyOpen() == 1 },
 		2*time.Second, 10*time.Millisecond)
-	assert.Equal(t, 2, concurrentFeeds.highWaterMark())
+	assert.Equal(t, 1, concurrentFeeds.highWaterMark(),
+		"方案只准一條，換名單的那一瞬間也不能有第二條")
 	assert.Equal(t, 2, followService.FollowedSymbolCount())
 }
 
@@ -1111,15 +1124,26 @@ type feedCounter struct {
 	mutex   sync.Mutex
 	open    int
 	highest int
+	total   int
 }
 
 func (counter *feedCounter) opened() {
 	counter.mutex.Lock()
 	defer counter.mutex.Unlock()
 	counter.open++
+	counter.total++
 	if counter.open > counter.highest {
 		counter.highest = counter.open
 	}
+}
+
+// totalOpened is how many were ever opened, which is what tells a high water mark of
+// one apart from nothing having been retried at all.
+func (counter *feedCounter) totalOpened() int {
+	counter.mutex.Lock()
+	defer counter.mutex.Unlock()
+
+	return counter.total
 }
 
 func (counter *feedCounter) closed() {
@@ -1258,4 +1282,429 @@ func TestALimitedMarketIsFollowedAgainOnceItOpens(t *testing.T) {
 	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
 
 	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
+}
+
+// sharedChannelTestBed follows a limited market whose plan puts two symbols on one
+// line, and hands the test the feed of whichever channel was opened so it can push
+// candles for either symbol down it.
+type sharedChannelTestBed struct {
+	service                 *service.KCandleFollowService
+	tradingSymbolRepository *mocks.MockITradingSymbolRepository
+	// One queue rather than two, so the channel that was opened and the feed it was
+	// answered with can never drift out of step.
+	channelsOpened chan openedChannel
+	// saved is the symbol of every candle storage was asked to keep, in order.
+	saved chan string
+}
+
+type openedChannel struct {
+	channel vo.LiveFollowChannelVo
+	feed    chan vo.LiveKCandleVo
+}
+
+func newSharedChannelTestBed(t *testing.T) *sharedChannelTestBed {
+	t.Helper()
+
+	mockController := gomock.NewController(t)
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	// The clock moves on every reading. A frozen one would mean no time ever passes,
+	// and the update ceiling would then hold back every forming candle — which is the
+	// throttle working correctly, but it would be all these tests ever measured.
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	var readings atomic.Int64
+	clockProxy.EXPECT().Now().DoAndReturn(func() time.Time {
+		return taipeiFollowAt(t, "2026-09-08T10:00:00+08:00").
+			Add(time.Duration(readings.Add(1)) * time.Second)
+	}).AnyTimes()
+
+	testBed := &sharedChannelTestBed{
+		tradingSymbolRepository: tradingSymbolRepository,
+		channelsOpened:          make(chan openedChannel, 16),
+		saved:                   make(chan string, 16),
+	}
+
+	// Storage records whose candle it was asked to keep, which is the only way from
+	// outside to see that a candle on a shared line was filed under its own symbol.
+	kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, kCandle entities.KCandle) (entities.KCandle, error) {
+			select {
+			case testBed.saved <- kCandle.Symbol:
+			default:
+			}
+
+			return kCandle, nil
+		}).AnyTimes()
+
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, channel vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
+			feed := make(chan vo.LiveKCandleVo, 8)
+			// Dropped rather than blocked: a retry loop that outruns the test must not
+			// be able to wedge the very goroutine the test is waiting to shut down.
+			select {
+			case testBed.channelsOpened <- openedChannel{channel: channel, feed: feed}:
+			default:
+			}
+
+			return feed, nil
+		}).AnyTimes()
+
+	// The update ceiling is as small as it goes so that nothing is throttled away
+	// here; what the throttle does is pinned by the domain's own tests. The retry
+	// ceiling is small so that a reopen happens inside a test rather than after it.
+	testBed.service = service.NewKCandleFollowService(
+		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
+		followMarketCatalog(), time.Nanosecond, time.Hour, 10*time.Millisecond,
+	)
+	t.Cleanup(testBed.service.Stop)
+
+	return testBed
+}
+
+// watching sets the watchlist the next refresh will read. Each call replaces the
+// previous answer, so a test can change the roster between rounds.
+func (testBed *sharedChannelTestBed) watching(symbols ...string) {
+	watchedSymbols := make([]entities.TradingSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		watchedSymbols = append(watchedSymbols, entities.TradingSymbol{
+			Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		})
+	}
+
+	testBed.tradingSymbolRepository.EXPECT().
+		FindWatched(gomock.Any()).Return(watchedSymbols, nil).Times(1)
+	testBed.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, symbol string) (entities.TradingSymbol, bool, error) {
+			return entities.TradingSymbol{
+				Symbol: symbol, Market: string(vo.MarketTaiwanStock), IsWatched: true,
+			}, true, nil
+		}).AnyTimes()
+}
+
+func (testBed *sharedChannelTestBed) nextChannel(t *testing.T) (vo.LiveFollowChannelVo, chan vo.LiveKCandleVo) {
+	t.Helper()
+
+	select {
+	case opened := <-testBed.channelsOpened:
+		return opened.channel, opened.feed
+	case <-time.After(2 * time.Second):
+		t.Fatal("沒有任何通道被開起來")
+
+		return vo.LiveFollowChannelVo{}, nil
+	}
+}
+
+func sharedChannelKCandle(t *testing.T, symbol string, closed bool) vo.LiveKCandleVo {
+	t.Helper()
+
+	return vo.LiveKCandleVo{
+		Symbol:   symbol,
+		OpenTime: taipeiFollowAt(t, "2026-09-08T09:59:00+08:00").UTC(),
+		Open:     decimal.RequireFromString("100"),
+		High:     decimal.RequireFromString("120"),
+		Low:      decimal.RequireFromString("90"),
+		Close:    decimal.RequireFromString("110"),
+		Volume:   decimal.RequireFromString("11"),
+		Closed:   closed,
+	}
+}
+
+// The failure this whole feature exists to end: four place holders used to be four
+// lines against a plan that allows one.
+func TestALimitedMarketsRosterTravelsDownOneChannel(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	channel, _ := testBed.nextChannel(t)
+	assert.Equal(t, []string{"2330", "2454"}, channel.Symbols)
+	assert.Empty(t, testBed.channelsOpened, "整份名單只該開一條線")
+}
+
+// Sharing a line must not mean sharing a picture.
+func TestACandleReachesOnlyTheViewersOfItsOwnSymbol(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	_, feed := testBed.nextChannel(t)
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, watchError := testBed.service.WatchKCandles(viewer, "2330")
+	require.NoError(t, watchError)
+
+	feed <- sharedChannelKCandle(t, "2454", false)
+	feed <- sharedChannelKCandle(t, "2330", false)
+
+	update := <-updates
+	assert.Equal(t, "2330", update.Symbol,
+		"看 2330 的人不該收到 2454 的那一根——同一條線不等於同一份行情")
+	assert.Equal(t, dto.KCandleFollowStatusForming, update.Status)
+}
+
+// Sharing a line must not mean sharing a stored candle either. A closed candle is
+// the one thing that outlives the picture, so getting this wrong would write the
+// wrong symbol's market into storage and nothing downstream could tell.
+func TestOnlyTheSymbolACandleNamesIsStored(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	_, feed := testBed.nextChannel(t)
+
+	// The later of the two on purpose: filing a candle under whichever symbol the
+	// line happens to name first would pass if this were the earlier one.
+	feed <- sharedChannelKCandle(t, "2454", true)
+
+	select {
+	case saved := <-testBed.saved:
+		assert.Equal(t, "2454", saved)
+	case <-time.After(2 * time.Second):
+		t.Fatal("走完的那一根沒有被存起來")
+	}
+	assert.Empty(t, testBed.saved, "同一條線上的另一檔不該有任何東西被存入")
+}
+
+// One line went down, so it is one piece of news — said to everybody it reaches.
+func TestAChannelEndingTellsEverySymbolOnIt(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	_, feed := testBed.nextChannel(t)
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	firstUpdates, firstError := testBed.service.WatchKCandles(viewer, "2330")
+	require.NoError(t, firstError)
+	secondUpdates, secondError := testBed.service.WatchKCandles(viewer, "2454")
+	require.NoError(t, secondError)
+
+	close(feed)
+
+	assert.Equal(t, dto.KCandleFollowStatusStalled, (<-firstUpdates).Status)
+	assert.Equal(t, dto.KCandleFollowStatusStalled, (<-secondUpdates).Status)
+}
+
+// Reopening brings the whole roster back, not whichever symbol happened to be first.
+func TestAChannelThatComesBackCarriesTheWholeRosterAgain(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	_, feed := testBed.nextChannel(t)
+
+	close(feed)
+
+	reopened, _ := testBed.nextChannel(t)
+	assert.Equal(t, []string{"2330", "2454"}, reopened.Symbols)
+}
+
+// A roster that changed is a different channel, and a different channel is a new
+// line — the old one ends first, because the plan allows only so many at once.
+func TestARosterThatGainsASymbolRebuildsTheChannel(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330"}))
+
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	rebuilt, _ := testBed.nextChannel(t)
+	assert.Equal(t, []string{"2330", "2454"}, rebuilt.Symbols)
+}
+
+// A symbol that arrives with nowhere to go changes nothing. The places are full, so
+// the set on the line is the set it already was — and an untouched set is an
+// untouched line.
+func TestASymbolThatWinsNoPlaceLeavesTheChannelAlone(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	testBed.watching("2330", "2454", "2603")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Empty(t, testBed.channelsOpened,
+		"名額已滿，第三檔進不來，線上的名單沒變就不該重建")
+}
+
+func TestARosterThatLosesASymbolRebuildsTheChannel(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	rebuilt, _ := testBed.nextChannel(t)
+	assert.Equal(t, []string{"2330"}, rebuilt.Symbols)
+}
+
+// Nothing changed, so nobody is interrupted. This is the half that a comparison
+// written by hand would be most likely to get wrong.
+func TestARosterThatDidNotChangeLeavesTheChannelAlone(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Empty(t, testBed.channelsOpened, "名單沒變就不該有第二條線被開起來")
+}
+
+// A line that fell silent is still open — its reader is sitting on a socket nobody
+// is listening to any more. Dialling the next attempt without letting go of it would
+// leave two lines where the plan allows one, which is the very failure that being
+// followed a channel at a time was meant to prevent.
+func TestAChannelThatFellSilentIsLetGoOfBeforeTheNextAttempt(t *testing.T) {
+	mockController := gomock.NewController(t)
+	// The clock moves on every reading, so the line is found silent as soon as it is
+	// checked. A frozen one would mean no time ever passes and nothing is ever quiet.
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	var readings atomic.Int64
+	clockProxy.EXPECT().Now().DoAndReturn(func() time.Time {
+		return taipeiFollowAt(t, "2026-09-08T10:00:00+08:00").
+			Add(time.Duration(readings.Add(1)) * time.Second)
+	}).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return(taiwanWatchlist("2330"), nil).AnyTimes()
+
+	concurrentFeeds := &feedCounter{}
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(followContext context.Context, _ vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
+			concurrentFeeds.opened()
+			// Never delivers and never ends of its own accord — the shape of a line
+			// that has gone silent. It lets go only when it is let go of.
+			go func() {
+				<-followContext.Done()
+				concurrentFeeds.closed()
+			}()
+
+			return make(chan vo.LiveKCandleVo), nil
+		}).AnyTimes()
+
+	// A silence threshold of nothing means every check finds the line quiet, so it is
+	// abandoned and retried over and over within the test.
+	followService := service.NewKCandleFollowService(
+		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, 2*time.Millisecond, time.Millisecond,
+	)
+	t.Cleanup(followService.Stop)
+
+	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
+
+	// Several attempts have to have happened, or a high water mark of one would only
+	// mean nothing was ever retried.
+	require.Eventually(t, func() bool { return concurrentFeeds.totalOpened() >= 3 },
+		2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, 1, concurrentFeeds.highWaterMark(),
+		"安靜的那條線必須先放掉，才能撥下一條——方案只准一條")
+}
+
+// Losing one symbol replaces the line, and everyone else on it was never asked
+// about. Telling them their symbol has no place — the one answer that means "not
+// today either" — and cutting their stream would be a lie about the thing they came
+// for, told every time somebody edits the watchlist.
+func TestASymbolThatSurvivesARebuildKeepsItsViewers(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, watchError := testBed.service.WatchKCandles(viewer, "2330")
+	require.NoError(t, watchError)
+
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	// Stalled, not unavailable: the line is being replaced, not the symbol.
+	assert.Equal(t, dto.KCandleFollowStatusStalled, (<-updates).Status)
+
+	// And the stream is still theirs — the candle arriving down the new line reaches
+	// the viewer who was already watching, without their reconnecting.
+	_, rebuiltFeed := testBed.nextChannel(t)
+	rebuiltFeed <- sharedChannelKCandle(t, "2330", false)
+
+	select {
+	case update := <-updates:
+		assert.Equal(t, "2330", update.Symbol)
+		assert.Equal(t, dto.KCandleFollowStatusForming, update.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("換線之後，原本的觀看者沒有再收到任何更新")
+	}
+}
+
+// The symbol that really did lose its place hears the real reason, not the promise
+// that it will be back.
+func TestASymbolDroppedFromARebuildIsToldItsPlaceIsGone(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330", "2454"}))
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, watchError := testBed.service.WatchKCandles(viewer, "2454")
+	require.NoError(t, watchError)
+
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, dto.KCandleFollowStatusUnavailable, (<-updates).Status,
+		"被擠掉的那一檔不該先聽到「等一下就回來」")
+}
+
+// An emptied roster is not merely "asks for nothing" — the line that was open has to
+// actually stop, or the plan keeps being spent on a market nobody is following.
+func TestARosterThatEmptiesEndsTheOpenChannel(t *testing.T) {
+	testBed := newSharedChannelTestBed(t)
+	testBed.watching("2330")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.NotNil(t, mustChannelSymbols(t, testBed, []string{"2330"}))
+
+	viewer, cancelViewer := context.WithCancel(context.Background())
+	defer cancelViewer()
+	updates, watchError := testBed.service.WatchKCandles(viewer, "2330")
+	require.NoError(t, watchError)
+
+	testBed.watching()
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	// The viewer being told, and then their updates closing, is how a follow that
+	// really ended is told apart from one that merely went quiet.
+	assert.Equal(t, dto.KCandleFollowStatusUnavailable, (<-updates).Status)
+	// Read without blocking, so a line that never closes fails this test rather than
+	// hanging it.
+	assert.Eventually(t, func() bool {
+		select {
+		case _, isDelivering := <-updates:
+			return !isDelivering
+		default:
+			return false
+		}
+	}, 2*time.Second, 10*time.Millisecond, "名單空了，開著的那條線必須真的收掉")
+	assert.Empty(t, testBed.channelsOpened, "收掉之後不該再開新的")
+}
+
+// mustChannelSymbols waits for the next channel and asserts what it carries, so the
+// tests above can state their starting point in one line.
+func mustChannelSymbols(
+	t *testing.T, testBed *sharedChannelTestBed, expectedSymbols []string,
+) chan vo.LiveKCandleVo {
+	t.Helper()
+
+	channel, feed := testBed.nextChannel(t)
+	require.Equal(t, expectedSymbols, channel.Symbols)
+
+	return feed
 }

@@ -1,6 +1,8 @@
 package domains
 
 import (
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -26,6 +28,10 @@ type LiveFollowRosterDomain struct {
 	// place needs to know which venue to open a feed against — and looking it up
 	// again is a second chance to get a different answer.
 	marketsBySymbol map[string]vo.MarketVo
+	// How many symbols one of each market's channels carries, read once while the
+	// catalogue was in hand. Asking the caller for it again when the channels are
+	// wanted would be a second chance to answer it differently.
+	symbolsPerChannelByMarket map[vo.MarketVo]int
 }
 
 // NewLiveFollowRosterDomain hands each limited market's places to its
@@ -40,6 +46,7 @@ func NewLiveFollowRosterDomain(
 ) LiveFollowRosterDomain {
 	placesLeft := make(map[vo.MarketVo]int)
 	marketsBySymbol := make(map[string]vo.MarketVo)
+	symbolsPerChannelByMarket := make(map[vo.MarketVo]int)
 
 	for _, watchedSymbol := range watchedSymbols {
 		marketDomain := marketCatalogDomain.MarketOf(watchedSymbol.Market)
@@ -63,10 +70,14 @@ func NewLiveFollowRosterDomain(
 		}
 
 		marketsBySymbol[watchedSymbol.Symbol] = marketDomain.Value()
+		symbolsPerChannelByMarket[marketDomain.Value()] = marketDomain.SymbolsPerLiveChannel()
 		placesLeft[marketDomain.Value()] = remaining - 1
 	}
 
-	return LiveFollowRosterDomain{marketsBySymbol: marketsBySymbol}
+	return LiveFollowRosterDomain{
+		marketsBySymbol:           marketsBySymbol,
+		symbolsPerChannelByMarket: symbolsPerChannelByMarket,
+	}
 }
 
 // Holds reports whether this symbol is one the system should be following because it
@@ -92,6 +103,37 @@ func (liveFollowRosterDomain LiveFollowRosterDomain) Symbols() []string {
 	}
 
 	return symbols
+}
+
+// Channels is what should be open right now: each market's place holders cut into
+// channels of the size its plan allows one to carry.
+//
+// It is what the roster is for, rather than a convenience over Symbols. A caller
+// given loose symbols would have to know how many go on a channel and cut them
+// itself, and every caller that did would be a second place the plan is understood.
+//
+// The order is settled — markets by name, symbols within a channel sorted by the
+// channel itself — so the same roster always produces the same channels, which is
+// what lets a channel be recognised by what it carries.
+func (liveFollowRosterDomain LiveFollowRosterDomain) Channels() []vo.LiveFollowChannelVo {
+	symbolsByMarket := make(map[vo.MarketVo][]string)
+	for symbol, market := range liveFollowRosterDomain.marketsBySymbol {
+		symbolsByMarket[market] = append(symbolsByMarket[market], symbol)
+	}
+
+	channels := make([]vo.LiveFollowChannelVo, 0, len(symbolsByMarket))
+	for _, market := range slices.Sorted(maps.Keys(symbolsByMarket)) {
+		symbols := symbolsByMarket[market]
+		slices.Sort(symbols)
+
+		perChannel := liveFollowRosterDomain.symbolsPerChannelByMarket[market]
+		for start := 0; start < len(symbols); start += perChannel {
+			channels = append(channels, vo.NewLiveFollowChannelVo(
+				market, symbols[start:min(start+perChannel, len(symbols))]))
+		}
+	}
+
+	return channels
 }
 
 // HasLiveUpdates reports whether a symbol of this market can be followed live right

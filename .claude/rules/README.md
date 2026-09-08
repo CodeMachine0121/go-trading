@@ -7,7 +7,7 @@
 
 | 檔案 | 內容 |
 | :--- | :--- |
-| [architecture.md](architecture.md) | Clean / Onion 分層、依賴方向、呼叫鏈、`domain/models/` 結構、**Entity 乾淨 + 行為放 Domain Model**、**Domain Model 不是介面抽象**、**model 內禁 static（含 `fromXxx` 轉換）**、禁 private static（搬去參數所屬的 module） |
+| [architecture.md](architecture.md) | Clean / Onion 分層、依賴方向、呼叫鏈、`domain/models/` 結構、**Entity 乾淨 + 行為放 Domain Model**、**Domain Model 不是介面抽象**、**model 內禁 static（含 `fromXxx` 轉換）**、禁 private static（搬去參數所屬的 module）、**單一呼叫者 private 的唯一例外：圈住資源持有範圍**、**goroutine 生命週期物件住在 service 旁邊** |
 | [naming.md](naming.md) | 命名規範：角色後綴、entity / `Domain` / `Dto` / `Vo` / `Request` 四種 model 後綴、**介面只抽象行為不抽象資料**、介面以**能力抽象**命名（`I` 前綴）、外部資源一律 `Proxy` 結尾、檔名對齊主型別 |
 | [code-style.md](code-style.md) | 跨語言原則：禁任意型別、宣告即賦值、行為掛物件、**禁 static helper class（不得已才放 `utilities/`）**、金額用精確小數 |
 | [persistence.md](persistence.md) | **一律 Code First**、schema sync 交給 ORM、禁手寫 SQL/DDL、一 entity 一 repository |

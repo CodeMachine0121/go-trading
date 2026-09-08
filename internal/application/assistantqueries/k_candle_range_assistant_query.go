@@ -19,11 +19,11 @@ type kCandleRangeAssistantArguments struct {
 	CandleCount int    `json:"candleCount"`
 }
 
-// KCandleRangeAssistantQuery lets the assistant read the raw five-minute candles of a
+// KCandleRangeAssistantQuery lets the assistant read the raw one-minute candles of a
 // stretch.
 //
 // It is offered alongside the aggregated series, not instead of it, because some
-// questions really are about the five-minute detail. It obeys the same ceiling, and
+// questions really are about the minute-by-minute detail. It obeys the same ceiling, and
 // the description points the assistant at the series first: raw candles are the
 // expensive way to look at anything longer than a few hours.
 type KCandleRangeAssistantQuery struct {
@@ -45,9 +45,9 @@ func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) Name() string {
 }
 
 func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) Description() string {
-	return "查一段時間內的原始五分鐘 K 線。時間一律用 RFC3339。" +
+	return "查一段時間內的原始一分鐘 K 線。時間一律用 RFC3339。" +
 		fmt.Sprintf("candleCount 上限 %d 根，未給即視為上限，回傳那一段裡最新的幾根。", kCandleRangeAssistantQuery.candleLimit) +
-		"只有真的需要五分鐘級細節時才用；問走勢或形狀請改用 get_k_candle_series。"
+		"只有真的需要分鐘級細節時才用；問走勢或形狀請改用 get_k_candle_series。"
 }
 
 func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) ArgumentSchema() string {

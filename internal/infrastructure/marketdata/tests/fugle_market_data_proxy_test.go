@@ -48,7 +48,7 @@ func fugleAnswerJson(symbol string, candles ...string) string {
 		joined += candle
 	}
 
-	return fmt.Sprintf(`{"symbol":"%s","timeframe":"5","data":[%s]}`, symbol, joined)
+	return fmt.Sprintf(`{"symbol":"%s","timeframe":"1","data":[%s]}`, symbol, joined)
 }
 
 // fugleSourceUnderTest stands in for the two addresses this source answers at, and
@@ -180,7 +180,7 @@ func TestFugleAsksTheAddressThatAnswersAboutTheDayWanted(t *testing.T) {
 	require.NoError(t, fetchError)
 	require.Len(t, source.askedIntraday(), 1)
 	assert.Empty(t, source.askedHistorical())
-	assert.Equal(t, "5", source.askedIntraday()[0].URL.Query().Get("timeframe"))
+	assert.Equal(t, "1", source.askedIntraday()[0].URL.Query().Get("timeframe"))
 	// Oldest first, said out loud: this source answers newest first unless told.
 	assert.Equal(t, "asc", source.askedIntraday()[0].URL.Query().Get("sort"))
 	assert.Equal(t, "a-key", source.askedIntraday()[0].Header.Get("X-API-KEY"))
@@ -236,6 +236,31 @@ func TestFugleKeepsOnlyTheCandlesInsideTheWindow(t *testing.T) {
 	require.Len(t, marketKCandles, 2)
 	assert.Equal(t, taipeiAt(t, "2026-09-08T09:55:00+08:00").UTC(), marketKCandles[0].OpenTime)
 	assert.Equal(t, taipeiAt(t, "2026-09-08T10:00:00+08:00").UTC(), marketKCandles[1].OpenTime)
+}
+
+func TestFugleLeavesOutTheClosingAuctionThatEndsATaiwanSession(t *testing.T) {
+	// Taiwan trades until 13:30, so the last candle a session can hold is the one
+	// that opened at 13:29. The source also publishes the closing auction at 13:30 —
+	// a moment of trading, not a minute of it — and storing that as a candle would
+	// put a bar on the chart for a minute the market was already shut.
+	//
+	// Nothing detects it as a special case: the window a round asks for already ends
+	// at 13:29, and anything outside the window is dropped here.
+	source := newFugleSourceUnderTest(t)
+	source.answersWith("", fugleAnswerJson("2330",
+		fugleCandleJson("2026-09-08T13:28:00.000+08:00"),
+		fugleCandleJson("2026-09-08T13:29:00.000+08:00"),
+		fugleCandleJson("2026-09-08T13:30:00.000+08:00"),
+	))
+
+	marketKCandles, fetchError := source.proxyAt(t, taipeiAt(t, "2026-09-08T13:31:00+08:00")).
+		FetchKCandles(t.Context(), fugleWindow(t, "2026-09-08T13:28:00+08:00", "2026-09-08T13:29:00+08:00"))
+
+	require.NoError(t, fetchError)
+	require.Len(t, marketKCandles, 2)
+	assert.Equal(t, taipeiAt(t, "2026-09-08T13:28:00+08:00").UTC(), marketKCandles[0].OpenTime)
+	assert.Equal(t, taipeiAt(t, "2026-09-08T13:29:00+08:00").UTC(), marketKCandles[1].OpenTime,
+		"當日最新一根的起始時間是 13:29，13:30 那一刻不構成一根")
 }
 
 func TestFugleReportsADayItHasNothingForAsNothing(t *testing.T) {

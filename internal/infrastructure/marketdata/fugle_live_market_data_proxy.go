@@ -7,14 +7,15 @@ import (
 	"log"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/coder/websocket"
 )
 
 // fugleCandleInterval is the length one K candle covers, as a span. The source is
 // told which symbol to push but not which length to push it at, so what arrives is
-// folded into candles of this length here.
-const fugleCandleInterval = 5 * time.Minute
+// folded into candles of this length here — the one length the system works in.
+const fugleCandleInterval = domains.KCandleInterval
 
 // FugleLiveMarketDataProxy follows one Taiwan stock over a connection that stays
 // open. It is the only place that knows such a connection exists: everything above it
@@ -26,43 +27,64 @@ const fugleCandleInterval = 5 * time.Minute
 type FugleLiveMarketDataProxy struct {
 	streamUrl string
 	apiKey    string
+	// authenticationTimeout bounds the wait for the source to say it accepted us. A
+	// source that answers nothing would otherwise hold the attempt open for ever,
+	// and the caller's retry — the thing that recovers from a bad line — never runs.
+	authenticationTimeout time.Duration
 }
 
-func NewFugleLiveMarketDataProxy(streamUrl string, apiKey string) *FugleLiveMarketDataProxy {
-	return &FugleLiveMarketDataProxy{streamUrl: streamUrl, apiKey: apiKey}
+func NewFugleLiveMarketDataProxy(
+	streamUrl string, apiKey string, authenticationTimeout time.Duration,
+) *FugleLiveMarketDataProxy {
+	return &FugleLiveMarketDataProxy{
+		streamUrl:             streamUrl,
+		apiKey:                apiKey,
+		authenticationTimeout: authenticationTimeout,
+	}
 }
 
 // FollowKCandles opens the feed for one trading symbol and reports its candles until
 // the feed ends, the context is done, or the source sends something unreadable.
 // Closing the returned channel is the only way it says so.
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) FollowKCandles(
-	executionContext context.Context, target vo.FollowTargetVo,
+	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
 	connection, _, dialError := websocket.Dial(
 		executionContext, fugleLiveMarketDataProxy.streamUrl, nil)
 	if dialError != nil {
-		return nil, fmt.Errorf("follow k candles for %s: %w", target.Symbol, dialError)
+		return nil, fmt.Errorf("follow k candles for %s: %w", channel.Key, dialError)
 	}
 
 	// Saying who is asking and what is wanted has to succeed before there is a feed
 	// at all, so both are done here rather than in the reader — a caller handed a
 	// channel is entitled to believe a feed was opened.
 	if handshakeError := fugleLiveMarketDataProxy.handshake(
-		executionContext, connection, target.Symbol); handshakeError != nil {
+		executionContext, connection, channel.Symbols); handshakeError != nil {
 		_ = connection.CloseNow()
 
 		return nil, handshakeError
 	}
 
 	liveKCandles := make(chan vo.LiveKCandleVo, liveKCandleBufferSize)
-	go fugleLiveMarketDataProxy.read(executionContext, connection, target.Symbol, liveKCandles)
+	go fugleLiveMarketDataProxy.read(executionContext, connection, channel, liveKCandles)
 
 	return liveKCandles, nil
 }
 
-// handshake tells the source who is asking and which symbol is wanted.
+// handshake tells the source who is asking, once, waits until it says it accepted
+// us, and only then asks for the symbols, one request each.
+//
+// Saying who is asking only once is the point of this whole feature: the plan limits
+// how many lines may be open at a time, not how many symbols may travel on one.
+//
+// Waiting in between is not politeness. This source answers each instruction in the
+// order it arrives, so a subscription sent in the same breath as the credentials is
+// read before they have been accepted and is refused as a forbidden resource. The
+// line then stays open and perfectly silent — which reads from the outside exactly
+// like a market with nothing to report, and is why this failed for a whole session
+// without saying why.
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
-	executionContext context.Context, connection *websocket.Conn, symbol string,
+	executionContext context.Context, connection *websocket.Conn, symbols []string,
 ) error {
 	authentication := map[string]any{
 		"event": "auth",
@@ -70,16 +92,42 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
 	}
 	if writeError := fugleLiveMarketDataProxy.send(
 		executionContext, connection, authentication); writeError != nil {
-		return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+		return fmt.Errorf("follow k candles: %w", writeError)
 	}
 
-	subscription := map[string]any{
-		"event": "subscribe",
-		"data":  map[string]any{"channel": "candles", "symbol": symbol},
+	authenticationContext, giveUpOnAuthentication := context.WithTimeout(
+		executionContext, fugleLiveMarketDataProxy.authenticationTimeout)
+	defer giveUpOnAuthentication()
+
+	for {
+		_, body, readError := connection.Read(authenticationContext)
+		if readError != nil {
+			return fmt.Errorf("authenticate with market source: %w", readError)
+		}
+
+		var acknowledgement fugleStreamAcknowledgement
+		if decodeError := json.Unmarshal(body, &acknowledgement); decodeError != nil {
+			return fmt.Errorf("read market source answer: %w", decodeError)
+		}
+
+		if acknowledgement.Event == fugleAuthenticatedEvent {
+			break
+		}
+		if acknowledgement.Event == fugleErrorEvent {
+			return fmt.Errorf(
+				"authenticate with market source: %s", acknowledgement.Data.Message)
+		}
 	}
-	if writeError := fugleLiveMarketDataProxy.send(
-		executionContext, connection, subscription); writeError != nil {
-		return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+
+	for _, symbol := range symbols {
+		subscription := map[string]any{
+			"event": "subscribe",
+			"data":  map[string]any{"channel": "candles", "symbol": symbol},
+		}
+		if writeError := fugleLiveMarketDataProxy.send(
+			executionContext, connection, subscription); writeError != nil {
+			return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+		}
 	}
 
 	return nil
@@ -101,24 +149,37 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) send(
 // read carries pushed candles to the channel until either end stops. Whatever the
 // reason, the connection is closed and the channel with it, so the caller learns of
 // every ending in exactly one way.
+//
+// Closing is best effort and its failure is not reported: by the time this runs the
+// connection has almost always already gone, which is precisely why the read
+// stopped. What is worth saying is why it stopped, and that is said once, with the
+// symbol it happened to.
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) read(
 	executionContext context.Context,
 	connection *websocket.Conn,
-	symbol string,
+	channel vo.LiveFollowChannelVo,
 	liveKCandles chan<- vo.LiveKCandleVo,
 ) {
 	defer close(liveKCandles)
-	defer func() {
-		if closeError := connection.CloseNow(); closeError != nil {
-			log.Printf("live market data: closing the feed failed: %v", closeError)
-		}
-	}()
+	defer func() { _ = connection.CloseNow() }()
 
-	forming := newFugleFormingKCandle(symbol)
+	// One folder per symbol. They cannot share one: folding is about which slot a
+	// push falls in and what the slot before it closed at, and two symbols pushing
+	// alternately would each keep proving the other's slot finished.
+	formingBySymbol := make(map[string]*fugleFormingKCandle, len(channel.Symbols))
+	for _, symbol := range channel.Symbols {
+		formingBySymbol[symbol] = newFugleFormingKCandle(symbol)
+	}
 
 	for {
 		_, body, readError := connection.Read(executionContext)
 		if readError != nil {
+			// A follow the system ended on purpose is not a feed that broke, and
+			// saying so would put a line in the log for every orderly shutdown.
+			if executionContext.Err() == nil {
+				log.Printf("live market data: the feed for %s ended: %v", channel.Key, readError)
+			}
+
 			return
 		}
 
@@ -136,7 +197,15 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) read(
 			continue
 		}
 
-		reportedKCandle, convertError := message.Data.toLiveKCandleVo(symbol)
+		// The push names its own symbol, and that is the only thing that decides whose
+		// candle it is. A push for something this channel never subscribed to is not
+		// worth guessing about — it belongs to nobody here.
+		forming, isFollowed := formingBySymbol[message.Data.Symbol]
+		if !isFollowed {
+			continue
+		}
+
+		reportedKCandle, convertError := message.Data.toLiveKCandleVo(message.Data.Symbol)
 		if convertError != nil {
 			log.Printf("live market data: unreadable candle: %v", convertError)
 

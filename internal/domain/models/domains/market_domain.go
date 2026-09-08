@@ -33,7 +33,7 @@ func (marketDomain MarketDomain) Value() vo.MarketVo {
 //
 // It answers "can this be followed live" and "should the console say it is closed".
 // It deliberately does not answer "is there anything worth fetching" — a round
-// running at 13:33 still has the 13:25 candle to collect, and conflating the two
+// running at 13:33 still has the 13:29 candle to collect, and conflating the two
 // would lose it. ClampToTradingSession answers that one.
 func (marketDomain MarketDomain) IsOpen(moment time.Time) bool {
 	if marketDomain.neverCloses() {
@@ -80,8 +80,29 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 
 // SimultaneousFollowCeiling is how many of this market's symbols may be followed
 // live at the same time. Zero means the market data plan sets no ceiling.
+//
+// It is worked out rather than stored: as many channels as the plan opens, each
+// carrying as many symbols as the plan allows on one. A plan is sold in those two
+// numbers, so those two are what is set — and a ceiling that contradicts them
+// becomes a thing nobody can write down.
 func (marketDomain MarketDomain) SimultaneousFollowCeiling() int {
-	return marketDomain.rules.SimultaneousFollowCeiling
+	if marketDomain.rules.SimultaneousChannelCeiling <= 0 {
+		return 0
+	}
+
+	return marketDomain.rules.SimultaneousChannelCeiling * marketDomain.SymbolsPerLiveChannel()
+}
+
+// SymbolsPerLiveChannel is how many trading symbols one of this market's live
+// channels may carry, which is never fewer than one: a channel carrying nothing is
+// not a channel. A market whose source follows symbols one at a time therefore needs
+// no setting at all.
+func (marketDomain MarketDomain) SymbolsPerLiveChannel() int {
+	if marketDomain.rules.SymbolsPerLiveChannel <= 0 {
+		return 1
+	}
+
+	return marketDomain.rules.SymbolsPerLiveChannel
 }
 
 // HasFollowCeiling reports a market that limits how many of its symbols may be
@@ -93,7 +114,7 @@ func (marketDomain MarketDomain) SimultaneousFollowCeiling() int {
 // clock and still cap how many feeds one plan may open, and reading one as the other
 // would then hand out places nobody was allowed to take.
 func (marketDomain MarketDomain) HasFollowCeiling() bool {
-	return marketDomain.rules.SimultaneousFollowCeiling > 0
+	return marketDomain.rules.SimultaneousChannelCeiling > 0
 }
 
 // TradingDateOf is the market's own calendar day a moment falls on — midnight local,
@@ -224,7 +245,7 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 		sessionStart := marketDomain.sessionMomentOn(
 			localDay, marketDomain.rules.TradingSession.DailyStart)
 		sessionLastOpenTime := marketDomain.sessionMomentOn(
-			localDay, marketDomain.rules.TradingSession.DailyEnd-kCandleInterval)
+			localDay, marketDomain.rules.TradingSession.DailyEnd-KCandleInterval)
 
 		if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
 			continue
@@ -260,5 +281,5 @@ func (marketDomain MarketDomain) localMidnightOf(localMoment time.Time) time.Tim
 // system already reads as "there is nothing to do here".
 func (marketDomain MarketDomain) emptyWindow(window vo.KCandleFetchWindowVo) vo.KCandleFetchWindowVo {
 	return vo.NewKCandleFetchWindowVo(
-		window.Symbol, window.Market, window.EndTime.Add(kCandleInterval), window.EndTime)
+		window.Symbol, window.Market, window.EndTime.Add(KCandleInterval), window.EndTime)
 }

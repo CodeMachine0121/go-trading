@@ -79,13 +79,14 @@ func TestKCandleApplicationSave(t *testing.T) {
 		assert.True(t, decimal.RequireFromString("120").Equal(kCandleDto.Close))
 	})
 
-	t.Run("refuses a candle whose open time is off the five minute mark", func(t *testing.T) {
+	t.Run("refuses a candle whose open time is off the one minute mark", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 
-		_, err := fixture.kCandleApplication.SaveKCandle(t.Context(), writeDtoAt(at(9, 3), "120"))
+		_, err := fixture.kCandleApplication.SaveKCandle(
+			t.Context(), writeDtoAt(at(9, 3).Add(30*time.Second), "120"))
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
-		assert.Contains(t, err.Error(), "起始時間必須落在5分鐘刻度上")
+		assert.Contains(t, err.Error(), "起始時間必須落在1分鐘刻度上")
 	})
 
 	t.Run("refuses a candle whose open time points into the future", func(t *testing.T) {
@@ -130,7 +131,7 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 	t.Run("hands back one candle per bucket, earliest first", func(t *testing.T) {
 		fixture := newApplicationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), 2*12).
+			FindInRange(gomock.Any(), gomock.Any(), 2*60).
 			Return([]entities.KCandle{
 				kCandleAt(at(9, 55), "150"),
 				kCandleAt(at(9, 0), "100"),

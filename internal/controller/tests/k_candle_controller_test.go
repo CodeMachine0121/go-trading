@@ -89,12 +89,12 @@ func TestCreateKCandleResponses(t *testing.T) {
 
 	t.Run("reports a broken rule as a bad request naming the rule", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
-		offMarkBody := strings.Replace(validBody, "T09:00:00Z", "T09:03:00Z", 1)
+		offMarkBody := strings.Replace(validBody, "T09:00:00Z", "T09:03:30Z", 1)
 
 		recorder := fixture.call(http.MethodPost, "/k-candles", offMarkBody)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
-		assert.Contains(t, recorder.Body.String(), "起始時間必須落在5分鐘刻度上")
+		assert.Contains(t, recorder.Body.String(), "起始時間必須落在1分鐘刻度上")
 	})
 
 	t.Run("reports unreadable input as a bad request", func(t *testing.T) {
@@ -205,7 +205,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), `"kCandles":[]`)
 	})
 
-	t.Run("naming no interval falls back to five minutes", func(t *testing.T) {
+	t.Run("naming no interval falls back to one minute", func(t *testing.T) {
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -215,7 +215,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z&endTime=2026-08-29T09:10:00Z", "")
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
-		assert.Contains(t, recorder.Body.String(), `"interval":"5m"`)
+		assert.Contains(t, recorder.Body.String(), `"interval":"1m"`)
 	})
 
 	t.Run("reports an interval nobody offers as a bad request", func(t *testing.T) {

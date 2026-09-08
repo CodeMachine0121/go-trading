@@ -64,14 +64,14 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Na
 
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Description() string {
 	return "算一次指標。可以指名一支既有策略（strategyId），或自己帶一段算式（script）；" +
-		"兩者都給時以 strategyId 為準。彙總刻度只接受 5m、15m、1h、4h、1d，未給視為 5m。" +
+		"兩者都給時以 strategyId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
 		"candleCount 是要餵幾根彙總 K 線，必須大於零。回傳的是指標值，不是 K 線。"
 }
 
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) ArgumentSchema() string {
 	return `{"type":"object","properties":{` +
 		`"symbol":{"type":"string","description":"交易標的代號，例如 BTCUSDT"},` +
-		`"interval":{"type":"string","enum":["5m","15m","1h","4h","1d"],"description":"彙總刻度"},` +
+		`"interval":{"type":"string","enum":["1m","5m","15m","1h","4h","1d"],"description":"彙總刻度"},` +
 		`"candleCount":{"type":"integer","description":"要餵幾根彙總 K 線"},` +
 		`"strategyId":{"type":"integer","description":"要用哪一支既有策略"},` +
 		`"script":{"type":"string","description":"自帶的指標算式，未指名策略時使用"},` +

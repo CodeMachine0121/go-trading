@@ -5,7 +5,7 @@ import "github.com/shopspring/decimal"
 // OptionalFigureDomain is a trading figure a market may simply not report.
 //
 // It exists because "absent" and "zero" are different facts that look identical the
-// moment either is written as a number. A five-minute slot in which nothing traded
+// moment either is written as a number. A minute in which nothing traded
 // has a volume of zero; a market that does not publish turnover at all has no
 // turnover figure — and an indicator built on the second one, told it was the first,
 // produces a whole column of plausible wrong answers with nothing anywhere to

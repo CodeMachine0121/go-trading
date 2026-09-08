@@ -108,7 +108,7 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 // than the lookback allows.
 //
 // It exists because the two automatic runs are both driven by time — one by the
-// clock at startup, one by a five-minute tick — and neither can answer "I want this
+// clock at startup, one by a tick as long as a K candle — and neither can answer "I want this
 // symbol's day now". A market that closes makes that gap visible: after the bell,
 // the scheduled round has nothing left to collect, so a symbol nobody had before the
 // close would have no candles at all until the next start-up.

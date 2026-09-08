@@ -43,10 +43,10 @@ func NewIndicatorCalculationService(
 //
 // It has not settled at the live edge. The cut-off is worked out from the clock,
 // not from what has actually been stored, and ingestion writes a candle a little
-// after the five minutes it covers have passed. So at 10:00:30 with one-hour
-// buckets, the hour that began at 09:00 counts as finished while the candle for
-// 09:55 may still be on its way: that bucket merges eleven of its twelve candles,
-// and the same request a few minutes later answers differently.
+// after the minute it covers has passed. So at 10:00:30 with one-hour buckets, the
+// hour that began at 09:00 counts as finished while the candle for 09:59 may still
+// be on its way: that bucket merges fifty-nine of its sixty candles, and the same
+// request a minute later answers differently.
 //
 // The alternative — refusing a bucket until it holds every candle it could hold —
 // is worse: it cannot tell a market that did not trade from one whose data has not

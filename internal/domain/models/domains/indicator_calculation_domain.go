@@ -83,7 +83,7 @@ func NewIndicatorCalculationDomain(
 	inputCandleCount := requestDto.CandleCount + max(0, parameters.MaximumLookbackCount()-1)
 
 	// The ceiling counts aggregated candles, not the stored ones behind them: asking
-	// for a day at one-hour buckets asks for 24 candles however many five-minute
+	// for a day at one-hour buckets asks for 24 candles however many one-minute
 	// candles were read to build them. It is judged against what will actually be
 	// fed to the algorithm, not against what was asked for — a modest span with a
 	// long look-back can exceed it, and refusing only on the asked-for number would
@@ -148,9 +148,9 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) Interval() Aggregat
 //
 // It is the start of the bucket the end time falls into, which is always the bucket
 // still running — so the bucket that has not finished is never read at all, rather
-// than read and then thrown away. At five-minute buckets this comes out as the old
-// rule of leaving out the newest candle; at one hour it leaves out the seven candles
-// of an hour that is 35 minutes old, which the old rule never could.
+// than read and then thrown away. At one-minute buckets this comes out as the plain
+// rule of leaving out the newest candle; at one hour it leaves out the thirty-five
+// candles of an hour that is 35 minutes old, which the plain rule never could.
 //
 // It holds equally for an end time long past. A bucket cut off half way through is
 // half-formed whenever it happened, and a value computed from it would change if the

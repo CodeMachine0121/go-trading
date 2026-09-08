@@ -98,8 +98,8 @@ func TestRunBacktest(t *testing.T) {
 				assert.Equal(t, "BTCUSDT", query.Symbol())
 				assert.Equal(t, backtestStart, query.StartTime())
 				assert.Equal(t, backtestStart.Add(4*time.Hour), query.EndTime())
-				// Five hourly buckets plus one spare, twelve five-minute candles each.
-				assert.Equal(t, 6*12, limit)
+				// Five hourly buckets plus one spare, sixty one-minute candles each.
+				assert.Equal(t, 6*60, limit)
 				return []entities.KCandle{
 					storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110"),
 				}, nil

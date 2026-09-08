@@ -31,13 +31,26 @@ func NewBinanceLiveMarketDataProxy(baseUrl string) *BinanceLiveMarketDataProxy {
 	return &BinanceLiveMarketDataProxy{baseUrl: baseUrl}
 }
 
-// FollowKCandles opens the feed for one trading symbol and reports its candles
-// until the feed ends, the context is done, or the source sends something
+// FollowKCandles opens the feed for the channel it is handed and reports its
+// candles until the feed ends, the context is done, or the source sends something
 // unreadable. Closing the returned channel is the only way it says so.
+//
+// This source is followed one symbol to a line. It does publish combined streams
+// that carry several, but they arrive in an envelope of their own, so reading them
+// is a piece of work rather than a longer address — and nothing asks for it, because
+// this market's rules put one symbol on a channel. A channel carrying more is
+// therefore refused out loud: quietly following the first of them would leave the
+// rest looking followed and never moving, which is the failure this whole feature
+// exists to end.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
-	executionContext context.Context, target vo.FollowTargetVo,
+	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
-	symbol := target.Symbol
+	if len(channel.Symbols) != 1 {
+		return nil, fmt.Errorf(
+			"follow k candles for %s: this source follows one symbol to a channel, asked for %d",
+			channel.Market, len(channel.Symbols))
+	}
+	symbol := channel.Symbols[0]
 
 	streamUrl, urlError := binanceLiveMarketDataProxy.streamUrl(symbol)
 	if urlError != nil {
@@ -50,7 +63,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 	}
 
 	liveKCandles := make(chan vo.LiveKCandleVo, liveKCandleBufferSize)
-	go binanceLiveMarketDataProxy.read(executionContext, connection, liveKCandles)
+	go binanceLiveMarketDataProxy.read(executionContext, connection, symbol, liveKCandles)
 
 	return liveKCandles, nil
 }
@@ -58,21 +71,29 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 // read carries messages from the connection to the channel until either end stops.
 // Whatever the reason, the connection is closed and the channel with it, so the
 // caller learns of every ending in exactly one way.
+//
+// Closing is best effort and its failure is not reported: by the time this runs the
+// connection has almost always already gone, which is precisely why the read
+// stopped. What is worth saying is why it stopped, and that is said once, with the
+// symbol it happened to.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 	executionContext context.Context,
 	connection *websocket.Conn,
+	symbol string,
 	liveKCandles chan<- vo.LiveKCandleVo,
 ) {
 	defer close(liveKCandles)
-	defer func() {
-		if closeError := connection.CloseNow(); closeError != nil {
-			log.Printf("live market data: closing the feed failed: %v", closeError)
-		}
-	}()
+	defer func() { _ = connection.CloseNow() }()
 
 	for {
 		_, body, readError := connection.Read(executionContext)
 		if readError != nil {
+			// A follow the system ended on purpose is not a feed that broke, and
+			// saying so would put a line in the log for every orderly shutdown.
+			if executionContext.Err() == nil {
+				log.Printf("live market data: the feed for %s ended: %v", symbol, readError)
+			}
+
 			return
 		}
 

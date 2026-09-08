@@ -90,10 +90,15 @@ type TaiwanStockConfig struct {
 	// ends.
 	SessionStart time.Duration
 	SessionEnd   time.Duration
-	// SimultaneousFollowCeiling is how many of this market's symbols may be followed
-	// live at once, as the market data plan allows.
-	SimultaneousFollowCeiling int
-	RequestTimeout            time.Duration
+	// SimultaneousChannelCeiling is how many live channels this market's plan allows
+	// open at the same time, and SymbolsPerLiveChannel how many trading symbols one
+	// of them may carry. The plans are sold in exactly these two numbers, and how
+	// many symbols may be followed at once is worked out from them rather than set
+	// beside them — set beside them, the two could contradict each other and nothing
+	// could tell.
+	SimultaneousChannelCeiling int
+	SymbolsPerLiveChannel      int
+	RequestTimeout             time.Duration
 }
 
 // AssistantConfig holds what the market chat assistant runs under: which assistant to
@@ -191,7 +196,7 @@ func Load() ApplicationConfig {
 		TaiwanStock:           taiwanStockConfig,
 		MarketRules:           marketRules(taiwanStockConfig),
 		Ingestion: IngestionConfig{
-			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 5),
+			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			MarketDataBaseUrl: stringWithDefault(
@@ -275,7 +280,8 @@ func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketR
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
 			},
-			SimultaneousFollowCeiling: taiwanStockConfig.SimultaneousFollowCeiling,
+			SimultaneousChannelCeiling: taiwanStockConfig.SimultaneousChannelCeiling,
+			SymbolsPerLiveChannel:      taiwanStockConfig.SymbolsPerLiveChannel,
 		},
 	}
 }
@@ -294,8 +300,10 @@ func loadTaiwanStockConfig() TaiwanStockConfig {
 		TimeZone:     timeZoneWithDefault("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipei"),
 		SessionStart: timeOfDayWithDefault("TAIWAN_STOCK_SESSION_START", 9*time.Hour),
 		SessionEnd:   timeOfDayWithDefault("TAIWAN_STOCK_SESSION_END", 13*time.Hour+30*time.Minute),
-		SimultaneousFollowCeiling: positiveIntWithDefault(
-			"TAIWAN_STOCK_SIMULTANEOUS_FOLLOW_CEILING", 5),
+		SimultaneousChannelCeiling: positiveIntWithDefault(
+			"TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING", 1),
+		SymbolsPerLiveChannel: positiveIntWithDefault(
+			"TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL", 5),
 		RequestTimeout: time.Duration(
 			positiveIntWithDefault("TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 	}

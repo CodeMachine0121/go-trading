@@ -27,16 +27,27 @@ type TradingSessionVo struct {
 }
 
 // MarketRulesVo is everything that differs between one market and the next: when it
-// trades, and how many of its symbols may be followed live at the same time.
+// trades, and what its market data plan allows of a live feed.
 //
-// The two live together because they are the same kind of fact — a property of the
+// They live together because they are the same kind of fact — a property of the
 // venue, settled outside this system, and changed by a setting rather than by code.
 // A third market is a third entry, not a third branch.
+//
+// The two live-feed numbers are the two the plans are actually written in, and how
+// many symbols may be followed at once is worked out from them rather than kept
+// alongside as a third. Kept alongside, somebody could set a ceiling of five against
+// a plan that allows one line of one symbol — which is a state nothing could detect
+// and everything downstream would believe.
 //
 // Immutable, no behavior — MarketDomain is where these become answers.
 type MarketRulesVo struct {
 	TradingSession TradingSessionVo
-	// SimultaneousFollowCeiling is how many of this market's symbols may be followed
-	// live at once, as the market data plan allows. Zero means no ceiling.
-	SimultaneousFollowCeiling int
+	// SimultaneousChannelCeiling is how many live channels this market's plan allows
+	// to be open at the same time. Zero means no ceiling.
+	SimultaneousChannelCeiling int
+	// SymbolsPerLiveChannel is how many trading symbols one of this market's live
+	// channels may carry. Zero means one — a channel always carries at least one
+	// symbol, and a market whose source follows them one at a time is then written
+	// as the zero value rather than as a number somebody has to remember to set.
+	SymbolsPerLiveChannel int
 }

@@ -73,6 +73,25 @@ func (fugleCandle fugleCandle) toLiveKCandleVo(symbol string) (vo.LiveKCandleVo,
 	}, nil
 }
 
+// fugleAuthenticatedEvent and fugleErrorEvent are how this source names the two
+// answers a set of credentials can get.
+const (
+	fugleAuthenticatedEvent = "authenticated"
+	fugleErrorEvent         = "error"
+)
+
+// fugleStreamAcknowledgement is this source's answer to an instruction — accepted,
+// subscribed, or refused. It reads only the envelope and the reason, because that is
+// all an answer carries; the candles come in their own shape below.
+type fugleStreamAcknowledgement struct {
+	Event string                         `json:"event"`
+	Data  fugleStreamAcknowledgementData `json:"data"`
+}
+
+type fugleStreamAcknowledgementData struct {
+	Message string `json:"message"`
+}
+
 // fugleStreamMessage is one message from the live feed. Every message names its own
 // event, so one shape reads them all: the greeting, the acknowledgements, the
 // heartbeats and the candles.

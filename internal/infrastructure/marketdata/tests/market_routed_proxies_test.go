@@ -51,7 +51,7 @@ func TestFollowingIsSentToTheSourceThatServesTheTargetsMarket(t *testing.T) {
 	mockController := gomock.NewController(t)
 	taiwanSource := mocks.NewMockILiveMarketDataProxy(mockController)
 	cryptoSource := mocks.NewMockILiveMarketDataProxy(mockController)
-	target := vo.FollowTargetVo{Symbol: "2330", Market: vo.MarketTaiwanStock}
+	target := vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"})
 	feed := make(chan vo.LiveKCandleVo)
 	taiwanSource.EXPECT().FollowKCandles(gomock.Any(), target).Return(feed, nil)
 
@@ -68,9 +68,7 @@ func TestFollowingIsSentToTheSourceThatServesTheTargetsMarket(t *testing.T) {
 func TestFollowingAMarketWithNoSourceIsAFailure(t *testing.T) {
 	_, followError := marketdata.NewMarketRoutedLiveMarketDataProxy(
 		map[vo.MarketVo]_interface.ILiveMarketDataProxy{}).
-		FollowKCandles(t.Context(), vo.FollowTargetVo{
-			Symbol: "2330", Market: vo.MarketTaiwanStock,
-		})
+		FollowKCandles(t.Context(), vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 
 	require.Error(t, followError)
 	assert.Contains(t, followError.Error(), "taiwanStock")

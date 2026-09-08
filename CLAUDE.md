@@ -20,6 +20,8 @@
 | 新增 entity、domain model、DTO、VO | [architecture.md](.claude/rules/architecture.md)、[naming.md](.claude/rules/naming.md) |
 | 想把業務邏輯寫進 entity | [architecture.md](.claude/rules/architecture.md)（Entity 保持乾淨，行為放 Domain Model） |
 | 出現 `private static` 或只被一處使用的 `private` method | [architecture.md](.claude/rules/architecture.md)（三步搬家 / inline 門檻） |
+| 想抽一個 method 只為了讓 `defer` 在它結尾還鎖 / 還交易 / 關連線 | [architecture.md](.claude/rules/architecture.md)（inline 門檻的唯一例外：圈住資源持有範圍） |
+| 需要一個物件拿著取消函式、完成訊號等「一件正在跑的工作」 | [architecture.md](.claude/rules/architecture.md)（goroutine 生命週期物件不是 Domain Model，住在 service 旁邊、不加後綴） |
 | 想在 model 上開 `static`（工廠、`fromXxx` 轉換） | [architecture.md](.claude/rules/architecture.md)（model 內一律不得有 static；轉換寫在來源的 `toXxx()`） |
 | 幫 Domain Model 或 VO 命名 | [naming.md](.claude/rules/naming.md)（`Domain` / `Vo` 後綴） |
 | 想為 Domain Model 定介面或做繼承 | [architecture.md](.claude/rules/architecture.md)（Domain Model 是由 entity 轉換而來的普通 class，不是介面抽象） |
