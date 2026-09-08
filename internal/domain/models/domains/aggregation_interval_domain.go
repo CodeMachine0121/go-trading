@@ -26,6 +26,7 @@ type selectableAggregationInterval struct {
 // Supporting one more interval means adding a row here and a constant in vo — nothing
 // downstream branches per interval.
 var selectableAggregationIntervals = []selectableAggregationInterval{
+	{value: vo.AggregationIntervalOneMinute, duration: KCandleInterval},
 	{value: vo.AggregationIntervalFiveMinutes, duration: 5 * time.Minute},
 	{value: vo.AggregationIntervalFifteenMinutes, duration: 15 * time.Minute},
 	{value: vo.AggregationIntervalOneHour, duration: time.Hour},
@@ -108,10 +109,10 @@ func (aggregationIntervalDomain AggregationIntervalDomain) BucketCount(
 
 // SourceCandleCount is the most stored K candles the given number of buckets can hold.
 // One bucket holds as many candles as its length fits, and a trading symbol holds at
-// most one candle per five-minute slot, so this is an upper bound the data cannot
+// most one candle per K candle slot, so this is an upper bound the data cannot
 // exceed — which is exactly what a read limit needs to be.
 func (aggregationIntervalDomain AggregationIntervalDomain) SourceCandleCount(bucketCount int) int {
-	candlesPerBucket := int(aggregationIntervalDomain.duration / (kCandleIntervalMinutes * time.Minute))
+	candlesPerBucket := int(aggregationIntervalDomain.duration / KCandleInterval)
 
 	return bucketCount * candlesPerBucket
 }

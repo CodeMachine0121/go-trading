@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/coder/websocket"
 )
 
 // fugleCandleInterval is the length one K candle covers, as a span. The source is
 // told which symbol to push but not which length to push it at, so what arrives is
-// folded into candles of this length here.
-const fugleCandleInterval = 5 * time.Minute
+// folded into candles of this length here — the one length the system works in.
+const fugleCandleInterval = domains.KCandleInterval
 
 // FugleLiveMarketDataProxy follows one Taiwan stock over a connection that stays
 // open. It is the only place that knows such a connection exists: everything above it

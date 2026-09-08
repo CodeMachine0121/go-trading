@@ -31,7 +31,7 @@ var currentTime = time.Date(2026, 8, 30, currentHour, currentMinute, 0, 0, time.
 
 // scheduledWindowStart is where a periodic round begins: four candles back from the
 // newest closed one.
-var scheduledWindowStart = time.Date(2026, 8, 30, 8, 40, 0, 0, time.UTC)
+var scheduledWindowStart = time.Date(2026, 8, 30, 9, 2, 0, 0, time.UTC)
 
 type jobUnderTest struct {
 	job             *job.KCandleIngestionJob
@@ -155,7 +155,7 @@ func drain(events chan string) {
 }
 
 func TestTheIntervalBetweenRoundsIsTheLengthOneKCandleCovers(t *testing.T) {
-	assert.Equal(t, 5*time.Minute, job.KCandleIngestionInterval)
+	assert.Equal(t, time.Minute, job.KCandleIngestionInterval)
 }
 
 // The context is the second way a job ends, and it has to work on its own: an

@@ -124,12 +124,12 @@ func TestNewIndicatorCalculationDomainRejectsBrokenRequests(t *testing.T) {
 		{
 			name: "an interval nobody offers", symbol: "BTCUSDT", candleCount: 30,
 			declaredInterval: "7m",
-			expectedReason:   "彙總刻度只能是 5m、15m、1h、4h、1d 其中之一",
+			expectedReason:   "彙總刻度只能是 1m、5m、15m、1h、4h、1d 其中之一",
 		},
 		{
 			name: "an interval that would not divide a day", symbol: "BTCUSDT", candleCount: 30,
 			declaredInterval: "1w",
-			expectedReason:   "彙總刻度只能是 5m、15m、1h、4h、1d 其中之一",
+			expectedReason:   "彙總刻度只能是 1m、5m、15m、1h、4h、1d 其中之一",
 		},
 	}
 
@@ -185,7 +185,7 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredInterval(t *testing.T) {
 		},
 		{
 			name:             "declaring nothing means the coarseness a stored candle already has",
-			declaredInterval: "", expectedInterval: vo.AggregationIntervalFiveMinutes,
+			declaredInterval: "", expectedInterval: vo.AggregationIntervalOneMinute,
 		},
 	}
 
@@ -287,10 +287,11 @@ func TestSourceCandleLimitCoversTheBucketsAskedForPlusOneSpare(t *testing.T) {
 		candleCount      int
 		expectedLimit    int
 	}{
-		{declaredInterval: "5m", candleCount: 3, expectedLimit: 4},
-		{declaredInterval: "15m", candleCount: 3, expectedLimit: 12},
-		{declaredInterval: "1h", candleCount: 24, expectedLimit: 300},
-		{declaredInterval: "1d", candleCount: 1, expectedLimit: 576},
+		{declaredInterval: "1m", candleCount: 3, expectedLimit: 4},
+		{declaredInterval: "5m", candleCount: 3, expectedLimit: 20},
+		{declaredInterval: "15m", candleCount: 3, expectedLimit: 60},
+		{declaredInterval: "1h", candleCount: 24, expectedLimit: 1500},
+		{declaredInterval: "1d", candleCount: 1, expectedLimit: 2880},
 	}
 
 	for _, testCase := range testCases {
@@ -364,9 +365,9 @@ func TestSelectInputCandlesNeverHandsOverABucketTheReadCutInHalf(t *testing.T) {
 	// Nothing has to detect that. Reading one bucket more than was asked for, and
 	// handing over the latest ones, together put the half-read bucket out of reach.
 	calculationDomain := calculationFor(t, "1h", 2)
-	require.Equal(t, 36, calculationDomain.SourceCandleLimit())
+	require.Equal(t, 180, calculationDomain.SourceCandleLimit())
 
-	readToTheLimit := make([]entities.KCandle, 0, 36)
+	readToTheLimit := make([]entities.KCandle, 0, 180)
 	readToTheLimit = append(readToTheLimit, fullBucketsNewestFirst(
 		"2026-09-03T08:00:00Z", "2026-09-03T07:00:00Z")...)
 	for minute := 55; minute >= 0; minute -= 5 {
@@ -594,9 +595,12 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
 				dto.IndicatorCalculationRequestDto{
-					Symbol:              "BTCUSDT",
-					CandleCount:         testCase.requestedSpan,
-					AggregationInterval: "5m",
+					Symbol:      "BTCUSDT",
+					CandleCount: testCase.requestedSpan,
+					// One minute is the length a stored candle already covers, so one
+					// bucket is one candle and the read limit reads back as the input
+					// count plus the spare bucket — which is what this asserts.
+					AggregationInterval: "1m",
 					ResultType:          "float",
 					Parameters:          testCase.parameters,
 				}, 1000, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))

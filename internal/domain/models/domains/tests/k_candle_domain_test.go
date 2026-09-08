@@ -46,6 +46,34 @@ func TestNewKCandleDomainAcceptsACandleFromAMarketThatReportsFewerFigures(t *tes
 	assert.True(t, decimal.RequireFromString("11").Equal(storedKCandle.Volume))
 }
 
+func TestNewKCandleDomainAcceptsAnyWholeMinute(t *testing.T) {
+	// The mark a candle has to land on is the length it covers, and that is now a
+	// minute. A time on the old five-minute mark still lands on it — the rule got
+	// wider, not different — and a time between two of them lands on it too.
+	currentTime := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
+
+	testCases := []struct {
+		name     string
+		openTime time.Time
+	}{
+		{name: "a whole minute", openTime: time.Date(2026, 8, 29, 8, 7, 0, 0, time.UTC)},
+		{name: "an exact hour is also a whole minute", openTime: time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)},
+		{name: "a time on the old five minute mark", openTime: time.Date(2026, 8, 29, 8, 5, 0, 0, time.UTC)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := validWriteDto()
+			writeDto.OpenTime = testCase.openTime
+
+			kCandleDomain, validationError := domains.NewKCandleDomain(writeDto, currentTime)
+
+			assert.NoError(t, validationError)
+			assert.Equal(t, testCase.openTime, kCandleDomain.ToEntity().OpenTime)
+		})
+	}
+}
+
 func TestNewKCandleDomainRejectsBrokenRules(t *testing.T) {
 	currentTime := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
 
@@ -60,18 +88,18 @@ func TestNewKCandleDomainRejectsBrokenRules(t *testing.T) {
 			expectedReason: "必須指定交易標的",
 		},
 		{
-			name: "open time off the five minute mark",
-			mutate: func(writeDto *dto.KCandleWriteDto) {
-				writeDto.OpenTime = time.Date(2026, 8, 29, 8, 3, 0, 0, time.UTC)
-			},
-			expectedReason: "起始時間必須落在5分鐘刻度上",
-		},
-		{
 			name: "open time carrying seconds",
 			mutate: func(writeDto *dto.KCandleWriteDto) {
-				writeDto.OpenTime = time.Date(2026, 8, 29, 8, 5, 30, 0, time.UTC)
+				writeDto.OpenTime = time.Date(2026, 8, 29, 8, 7, 59, 0, time.UTC)
 			},
-			expectedReason: "起始時間必須落在5分鐘刻度上",
+			expectedReason: "起始時間必須落在1分鐘刻度上",
+		},
+		{
+			name: "open time carrying less than a second",
+			mutate: func(writeDto *dto.KCandleWriteDto) {
+				writeDto.OpenTime = time.Date(2026, 8, 29, 8, 7, 0, 1, time.UTC)
+			},
+			expectedReason: "起始時間必須落在1分鐘刻度上",
 		},
 		{
 			name: "open time pointing into the future",

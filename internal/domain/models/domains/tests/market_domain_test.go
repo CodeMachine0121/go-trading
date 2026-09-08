@@ -153,12 +153,12 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 		},
 		{
 			// The round just after the close still has that day's last candle to
-			// collect — 13:25 is the one that finished exactly at 13:30.
+			// collect — 13:29 is the one that finished exactly at 13:30.
 			name:              "the round just after the close still reaches the day's last candle",
 			windowStart:       "2026-09-08T13:05:00+08:00",
-			windowEnd:         "2026-09-08T13:25:00+08:00",
+			windowEnd:         "2026-09-08T13:29:00+08:00",
 			expectedStartTime: "2026-09-08T13:05:00+08:00",
-			expectedEndTime:   "2026-09-08T13:25:00+08:00",
+			expectedEndTime:   "2026-09-08T13:29:00+08:00",
 		},
 		{
 			// A window reaching past the close is cut back to the last candle the
@@ -167,7 +167,7 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			windowStart:       "2026-09-08T13:20:00+08:00",
 			windowEnd:         "2026-09-08T14:00:00+08:00",
 			expectedStartTime: "2026-09-08T13:20:00+08:00",
-			expectedEndTime:   "2026-09-08T13:25:00+08:00",
+			expectedEndTime:   "2026-09-08T13:29:00+08:00",
 		},
 		{
 			name:            "an evening round covers nothing",
@@ -188,7 +188,7 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			windowStart:       "2026-09-11T09:00:00+08:00",
 			windowEnd:         "2026-09-12T08:55:00+08:00",
 			expectedStartTime: "2026-09-11T09:00:00+08:00",
-			expectedEndTime:   "2026-09-11T13:25:00+08:00",
+			expectedEndTime:   "2026-09-11T13:29:00+08:00",
 		},
 		{
 			// Starting up on Monday morning with Friday already complete: the gap in

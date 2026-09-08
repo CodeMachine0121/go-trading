@@ -22,17 +22,17 @@ func TestNewKCandleSeriesQueryDomainAcceptsARangeThatFitsTheLimit(t *testing.T) 
 		{
 			name:      "a range cut into exactly as many buckets as one query may answer with",
 			startTime: "2026-09-02T00:00:00Z", endTime: "2026-09-05T11:15:00Z", interval: "5m",
-			expectedSourceCandleLimit: 1000,
+			expectedSourceCandleLimit: 1000 * 5,
 		},
 		{
 			name:      "the same start and end is one bucket",
 			startTime: "2026-09-02T10:00:00Z", endTime: "2026-09-02T10:00:00Z", interval: "1h",
-			expectedSourceCandleLimit: 12,
+			expectedSourceCandleLimit: 60,
 		},
 		{
 			name:      "a range too wide for five minutes fits comfortably at a day",
 			startTime: "2026-09-02T00:00:00Z", endTime: "2026-09-05T11:20:00Z", interval: "1d",
-			expectedSourceCandleLimit: 4 * 288,
+			expectedSourceCandleLimit: 4 * 1440,
 		},
 	}
 
@@ -113,7 +113,7 @@ func TestNewKCandleSeriesQueryDomainRefusesAnIntervalNobodyOffers(t *testing.T) 
 	assert.Contains(t, validationError.Error(), "彙總刻度只能是")
 }
 
-func TestNewKCandleSeriesQueryDomainDeclaringNoIntervalMeansFiveMinutes(t *testing.T) {
+func TestNewKCandleSeriesQueryDomainDeclaringNoIntervalMeansOneMinute(t *testing.T) {
 	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
 		Symbol:    "BTCUSDT",
 		StartTime: mustParseTime(t, "2026-09-02T10:00:00Z"),
@@ -121,6 +121,8 @@ func TestNewKCandleSeriesQueryDomainDeclaringNoIntervalMeansFiveMinutes(t *testi
 	}, seriesQueryMaxBucketCount)
 
 	require.NoError(t, validationError)
-	assert.Equal(t, "5m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
-	assert.Equal(t, 12, seriesQueryDomain.SourceCandleLimit())
+	assert.Equal(t, "1m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
+	// Fifty-six one-minute buckets, each holding the single candle that already
+	// covers a minute: aggregating at the stored length reads nothing extra.
+	assert.Equal(t, 56, seriesQueryDomain.SourceCandleLimit())
 }

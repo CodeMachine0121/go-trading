@@ -15,16 +15,16 @@ import (
 // does not say when one is final. Believing a push as it stands would store bars of
 // an unknown length and never mark any of them closed.
 //
-// Both are worked out from the pushes themselves. A push is placed in the
-// five-minute slot its own time falls in, replacing whatever that slot last held from
-// the same source time; and a push landing in a later slot is what proves the earlier
-// slot finished. That reading is right whether the source pushes one bar a minute or
-// one every five: at five minutes each slot has a single contributor and folding is
-// the identity.
+// Both are worked out from the pushes themselves. A push is placed in the slot its
+// own time falls in, replacing whatever that slot last held from the same source
+// time; and a push landing in a later slot is what proves the earlier slot finished.
+// That reading is right whatever rate the source pushes at: at one bar a minute each
+// slot has a single contributor and folding is the identity, and a source that ever
+// pushed faster is folded rather than believed.
 //
 // The last candle of a session is therefore never reported closed here — nothing
 // arrives after it to prove it finished. That is deliberate and costs nothing: the
-// five-minute round collects it, which is the very thing the round is for.
+// scheduled round collects it, which is the very thing the round is for.
 type fugleFormingKCandle struct {
 	symbol       string
 	slotOpenTime time.Time

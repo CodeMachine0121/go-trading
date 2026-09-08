@@ -7,9 +7,11 @@ package vo
 type AggregationIntervalVo string
 
 const (
-	// AggregationIntervalFiveMinutes is one candle per five minutes, the interval
-	// assumed when a caller declares nothing. It matches the length one stored K
-	// candle already covers, so aggregating at it changes nothing.
+	// AggregationIntervalOneMinute is one candle per minute, the interval assumed
+	// when a caller declares nothing. It matches the length one stored K candle
+	// already covers, so aggregating at it changes nothing.
+	AggregationIntervalOneMinute AggregationIntervalVo = "1m"
+	// AggregationIntervalFiveMinutes is one candle per five minutes.
 	AggregationIntervalFiveMinutes AggregationIntervalVo = "5m"
 	// AggregationIntervalFifteenMinutes is one candle per quarter of an hour.
 	AggregationIntervalFifteenMinutes AggregationIntervalVo = "15m"

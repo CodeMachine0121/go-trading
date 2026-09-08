@@ -84,7 +84,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), `"symbol":"BTCUSDT"`)
 		assert.Contains(t, recorder.Body.String(), `"usedCandleCount":2`)
 		assert.Contains(t, recorder.Body.String(), `"ma":110`)
-		assert.Contains(t, recorder.Body.String(), `"interval":"5m"`)
+		assert.Contains(t, recorder.Body.String(), `"interval":"1m"`)
 		assert.Contains(t, recorder.Body.String(), `"openTimes":["2026-08-29T09:05:00Z","2026-08-29T09:10:00Z"]`,
 			"呼叫端要把值擺回圖上，就得知道這次讀的是哪幾根")
 	})
@@ -95,7 +95,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		// hour it falls into has not finished.
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC), 36).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC), 180).
 			Return([]entities.KCandle{
 				kCandleAt(time.Date(2025, 3, 1, 13, 0, 0, 0, time.UTC), "100"),
 				kCandleAt(time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC), "100"),

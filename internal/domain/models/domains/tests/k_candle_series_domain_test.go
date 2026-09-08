@@ -129,7 +129,7 @@ func TestKCandleSeriesDomainNamesTheIntervalItWasCutAt(t *testing.T) {
 		buildSeriesKCandle(t, "2026-09-02T10:00:00Z", "105"),
 	}).ToDto()
 
-	assert.Equal(t, "5m", seriesDto.Interval, "declaring nothing means five minutes")
+	assert.Equal(t, "1m", seriesDto.Interval, "declaring nothing means one minute")
 }
 
 func TestKCandleSeriesDomainBucketsAreHandedOutEarliestFirst(t *testing.T) {

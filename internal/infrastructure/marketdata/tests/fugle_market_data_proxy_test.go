@@ -48,7 +48,7 @@ func fugleAnswerJson(symbol string, candles ...string) string {
 		joined += candle
 	}
 
-	return fmt.Sprintf(`{"symbol":"%s","timeframe":"5","data":[%s]}`, symbol, joined)
+	return fmt.Sprintf(`{"symbol":"%s","timeframe":"1","data":[%s]}`, symbol, joined)
 }
 
 // fugleSourceUnderTest stands in for the two addresses this source answers at, and
@@ -180,7 +180,7 @@ func TestFugleAsksTheAddressThatAnswersAboutTheDayWanted(t *testing.T) {
 	require.NoError(t, fetchError)
 	require.Len(t, source.askedIntraday(), 1)
 	assert.Empty(t, source.askedHistorical())
-	assert.Equal(t, "5", source.askedIntraday()[0].URL.Query().Get("timeframe"))
+	assert.Equal(t, "1", source.askedIntraday()[0].URL.Query().Get("timeframe"))
 	// Oldest first, said out loud: this source answers newest first unless told.
 	assert.Equal(t, "asc", source.askedIntraday()[0].URL.Query().Get("sort"))
 	assert.Equal(t, "a-key", source.askedIntraday()[0].Header.Get("X-API-KEY"))

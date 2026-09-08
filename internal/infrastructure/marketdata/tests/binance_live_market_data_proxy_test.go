@@ -43,7 +43,7 @@ func streamUrlOf(server *httptest.Server) string {
 // Following asks the source for five-minute candles, spelled the way it wants them.
 // Asking for the wrong length would quietly deliver candles of another size, and
 // nothing downstream could tell.
-func TestTheFeedIsOpenedForFiveMinuteCandlesOfThatSymbol(t *testing.T) {
+func TestTheFeedIsOpenedForOneMinuteCandlesOfThatSymbol(t *testing.T) {
 	askedFor := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(
 		responseWriter http.ResponseWriter, request *http.Request,
@@ -61,7 +61,7 @@ func TestTheFeedIsOpenedForFiveMinuteCandlesOfThatSymbol(t *testing.T) {
 		FollowKCandles(t.Context(), vo.FollowTargetVo{Symbol: "BTCUSDT", Market: vo.MarketCrypto})
 	require.NoError(t, followError)
 
-	assert.Equal(t, "/btcusdt@kline_5m", <-askedFor)
+	assert.Equal(t, "/btcusdt@kline_1m", <-askedFor)
 }
 
 // aLiveMessage is the message **as this source actually sends it** — every field it
@@ -74,7 +74,7 @@ func TestTheFeedIsOpenedForFiveMinuteCandlesOfThatSymbol(t *testing.T) {
 // exactly how those two got through.
 func aLiveMessage(closed bool, low string) string {
 	return fmt.Sprintf(`{"e":"kline","E":1788404712345,"s":"BTCUSDT","k":{
-		"t":1788404700000,"T":1788404999999,"s":"BTCUSDT","i":"5m",
+		"t":1788404700000,"T":1788404999999,"s":"BTCUSDT","i":"1m",
 		"f":100,"L":200,"o":"100.5","c":"118.25","h":"120","l":%q,
 		"v":"12.5","n":100,"x":%t,"q":"1400.75","V":"7.25","Q":"800.5","B":"0"}}`, low, closed)
 }

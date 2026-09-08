@@ -55,9 +55,9 @@ func calculationRequestOf(
 	}
 }
 
-// fiveMinuteCutoff is where a read stops when nothing coarser was declared: the
-// start of the five minutes still running, which at 09:20 is 09:20 itself.
-var fiveMinuteCutoff = calculationNow
+// oneMinuteCutoff is where a read stops when nothing coarser was declared: the
+// start of the minute still running, which at 09:20 is 09:20 itself.
+var oneMinuteCutoff = calculationNow
 
 type calculationUnderTest struct {
 	indicatorCalculationService *service.IndicatorCalculationService
@@ -84,7 +84,7 @@ func TestCalculateIndicator(t *testing.T) {
 	t.Run("asks storage for one bucket more than requested, up to the cut-off", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -97,7 +97,7 @@ func TestCalculateIndicator(t *testing.T) {
 
 	t.Run("hands the script the requested candles oldest first, from finished buckets", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
@@ -121,7 +121,7 @@ func TestCalculateIndicator(t *testing.T) {
 
 	t.Run("reports the indicator values and how many candles were used", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
@@ -140,7 +140,7 @@ func TestCalculateIndicator(t *testing.T) {
 
 	t.Run("treats an empty set of indicator values as a success", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 2).Return(newestFirst(5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 2).Return(newestFirst(5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{}, nil)
@@ -175,7 +175,7 @@ func TestCalculateIndicator(t *testing.T) {
 	t.Run("never runs the script when too few buckets are there", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 31).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
 			Return(newestFirst(0), nil)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), calculationRequest("BTCUSDT", 30))
@@ -187,7 +187,7 @@ func TestCalculateIndicator(t *testing.T) {
 	t.Run("reports a storage failure as neither a request nor a script problem", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		storageFailure := errors.New("storage unreachable")
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(nil, storageFailure)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(nil, storageFailure)
 
 		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
 			calculationRequest("BTCUSDT", 3))
@@ -200,7 +200,7 @@ func TestCalculateIndicator(t *testing.T) {
 
 	t.Run("reports a script failure without any partial result", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
@@ -217,7 +217,7 @@ func TestCalculateIndicator(t *testing.T) {
 func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 	t.Run("hands the script runner the kind that was declared", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
@@ -239,7 +239,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 
 	t.Run("reports the kind alongside the values", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{
@@ -257,7 +257,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 
 	t.Run("reports the signal itself, with no indicator name, under the signal kind", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
@@ -282,7 +282,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 
 	t.Run("reports one number per indicator when nothing was declared", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 2).Return(newestFirst(5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 2).Return(newestFirst(5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
@@ -319,7 +319,7 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 	t.Run("too few usable candles is refused just the same, naming what is usable", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 31).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
 			Return(newestFirst(10, 5, 0), nil)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
@@ -331,7 +331,7 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 
 	t.Run("the candles handed to the script are chosen the same way", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
-		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
+		fixture.kCandleRepository.EXPECT().FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
@@ -359,12 +359,12 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 	t.Run("a coarser interval stops before the bucket still running", func(t *testing.T) {
 		// At 09:20 the hour that began at 09:00 is twenty minutes old. Reading stops
-		// at 09:00, so it is not read at all — its seven candles would otherwise be
+		// at 09:00, so it is not read at all — its twenty candles would otherwise be
 		// merged into an hour that keeps changing.
 		fixture := newCalculationUnderTest(t)
 		hourCutoff := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", hourCutoff, 36).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", hourCutoff, 180).
 			Return([]entities.KCandle{}, nil)
 
 		requestDto := calculationRequest("BTCUSDT", 2)
@@ -381,7 +381,7 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		pastCutoff := time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", pastCutoff, 36).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", pastCutoff, 180).
 			Return([]entities.KCandle{}, nil)
 
 		requestDto := calculationRequest("BTCUSDT", 2)
@@ -396,7 +396,7 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 	t.Run("an end time that has not arrived is read up to now", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -418,7 +418,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 	t.Run("names where each candle the script saw begins, earliest first", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -442,7 +442,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 		// are has nothing to do with it.
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -458,7 +458,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 	t.Run("names them even when the script produced nothing at all", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
-			FindLatestBefore(gomock.Any(), "BTCUSDT", fiveMinuteCutoff, 4).
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).
 			Return(newestFirst(15, 10, 5, 0), nil)
 		fixture.indicatorScriptProxy.EXPECT().
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -480,7 +480,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 			expectedInterval string
 		}{
 			{name: "declared", declaredInterval: "1h", expectedInterval: "1h"},
-			{name: "left out", declaredInterval: "", expectedInterval: "5m"},
+			{name: "left out", declaredInterval: "", expectedInterval: "1m"},
 		}
 
 		for _, testCase := range testCases {

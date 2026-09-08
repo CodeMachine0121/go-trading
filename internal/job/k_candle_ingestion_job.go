@@ -7,14 +7,16 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// KCandleIngestionInterval is how often the market is caught up with. It matches
-// the length one K candle covers, which is a rule rather than a tuning knob: any
+// KCandleIngestionInterval is how often the market is caught up with. It is the
+// length one K candle covers, taken from where that length is written down rather
+// than repeated here: matching it is a rule rather than a tuning knob, since any
 // other value would leave candles never fetched. Switching ingestion off is done by
 // switching background jobs off or by watching nothing, not by changing this.
-const KCandleIngestionInterval = 5 * time.Minute
+const KCandleIngestionInterval = domains.KCandleInterval
 
 // KCandleIngestionJob keeps the stored K candles current. It closes the gap left
 // behind while nothing was running before it starts keeping up, and that ordering is

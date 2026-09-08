@@ -84,7 +84,7 @@ func TestFetchKCandlesAsksTheSourceForTheWindow(t *testing.T) {
 	require.NoError(t, fetchError)
 	query := <-requestedQuery
 	assert.Equal(t, "BTCUSDT", query["symbol"])
-	assert.Equal(t, "5m", query["interval"])
+	assert.Equal(t, "1m", query["interval"])
 	assert.Equal(t, strconv.FormatInt(at(8, 40).UnixMilli(), 10), query["startTime"])
 	assert.Equal(t, strconv.FormatInt(at(9, 0).UnixMilli(), 10), query["endTime"])
 }

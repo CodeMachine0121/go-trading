@@ -123,5 +123,5 @@ func (kCandleIngestionDomain KCandleIngestionDomain) RoundCoverage() time.Durati
 // interval is how long one K candle covers, taken from the single place the
 // project writes that length down.
 func (kCandleIngestionDomain KCandleIngestionDomain) interval() time.Duration {
-	return time.Duration(kCandleIntervalMinutes) * time.Minute
+	return KCandleInterval
 }

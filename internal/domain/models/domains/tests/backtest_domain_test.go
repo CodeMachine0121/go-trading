@@ -180,8 +180,8 @@ func TestBacktestDomainReadPlan(t *testing.T) {
 		require.NoError(t, err)
 
 		// Six one-hour buckets from 00:00 to 05:00 inclusive, plus one spare, each
-		// holding twelve five-minute candles.
-		assert.Equal(t, 7*12, backtestDomain.SourceCandleLimit())
+		// holding sixty one-minute candles.
+		assert.Equal(t, 7*60, backtestDomain.SourceCandleLimit())
 	})
 
 	t.Run("a replayed script always runs under the signal kind", func(t *testing.T) {

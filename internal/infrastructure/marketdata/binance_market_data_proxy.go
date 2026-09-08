@@ -9,19 +9,25 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// kCandleInterval is how one K candle's length is spelled for this source, and
-// pageLimit is the most candles it will hand over at once.
-const (
-	kCandleInterval = "5m"
-	pageLimit       = 1000
-)
+// kCandleInterval is how one K candle's length is spelled for this source: the
+// number of minutes it covers followed by an "m".
+//
+// It is derived rather than written out, so that changing the length the system
+// works in cannot leave this source quietly asking for the old one. The spelling
+// holds for whole minutes under an hour, which is the range this source spells that
+// way — a length outside it is the moment to come back here.
+var kCandleInterval = strconv.Itoa(int(domains.KCandleInterval/time.Minute)) + "m"
+
+// pageLimit is the most candles this source will hand over at once.
+const pageLimit = 1000
 
 // intervalStep is the same length as a duration, used to step past the last candle
 // a page ended on.
-const intervalStep = 5 * time.Minute
+const intervalStep = domains.KCandleInterval
 
 // BinanceMarketDataProxy fetches K candles from Binance. Everything the rest of the
 // system must not know about this source stops here: the address, the way it spells

@@ -187,9 +187,10 @@ func TestACandleIsReportedFinishedOnlyOnceALaterOneArrives(t *testing.T) {
 
 func TestPushesInsideOneSlotAreFoldedIntoOneCandle(t *testing.T) {
 	// The source does not say how long a pushed candle covers, and its subscription
-	// takes no length. Folding by the slot a push falls in is right whether it pushes
-	// one bar a minute or one every five — at five minutes each slot has a single
-	// contributor and folding is the identity.
+	// takes no length. Folding by the slot a push falls in is right whatever rate it
+	// pushes at — at one bar a minute each slot has a single contributor and folding
+	// is the identity, and a source that ever pushed faster is folded rather than
+	// believed.
 	stream := newFugleStreamUnderTest(t)
 	liveKCandles := stream.follow(t)
 
@@ -198,7 +199,7 @@ func TestPushesInsideOneSlotAreFoldedIntoOneCandle(t *testing.T) {
 
 	// A different open on the later part, so that "opens where its earliest part
 	// opened" is a claim this test could actually catch being broken.
-	stream.push(fugleCandlePushOpening("2026-09-08T10:01:00.000+08:00", "581", "590", "50"))
+	stream.push(fugleCandlePushOpening("2026-09-08T10:00:30.000+08:00", "581", "590", "50"))
 
 	folded := nextLiveKCandle(t, liveKCandles)
 	assert.Equal(t, taipeiAt(t, "2026-09-08T10:00:00+08:00").UTC(), folded.OpenTime)
@@ -216,7 +217,7 @@ func TestASlotIsOpenedAndClosedByTimeRatherThanByArrivalOrder(t *testing.T) {
 	stream := newFugleStreamUnderTest(t)
 	liveKCandles := stream.follow(t)
 
-	stream.push(fugleCandlePushOpening("2026-09-08T10:01:00.000+08:00", "581", "590", "50"))
+	stream.push(fugleCandlePushOpening("2026-09-08T10:00:30.000+08:00", "581", "590", "50"))
 	require.Equal(t, "50", nextLiveKCandle(t, liveKCandles).Volume.String())
 
 	stream.push(fugleCandlePushOpening("2026-09-08T10:00:00.000+08:00", "574", "575", "100"))
@@ -253,7 +254,7 @@ func TestAPushOlderThanTheSlotBeingBuiltIsIgnored(t *testing.T) {
 		nextLiveKCandle(t, liveKCandles).OpenTime)
 
 	stream.push(fugleCandlePush("2026-09-08T10:00:00.000+08:00", "575", "999"))
-	stream.push(fugleCandlePush("2026-09-08T10:06:00.000+08:00", "585", "50"))
+	stream.push(fugleCandlePush("2026-09-08T10:05:30.000+08:00", "585", "50"))
 
 	// The stale push produced nothing, so the next thing reported is the later slot
 	// folded — still 10:05, and without the 999 that arrived out of order.
@@ -334,7 +335,7 @@ func TestAFoldedSlotReachesAsHighAndAsLowAsAnyOfItsParts(t *testing.T) {
 	require.Equal(t, "576", nextLiveKCandle(t, liveKCandles).High.String())
 
 	stream.push(`{"event":"data","channel":"candles","data":{"symbol":"2330",` +
-		`"date":"2026-09-08T10:01:00.000+08:00","open":575,"high":590,"low":560,"close":585,"volume":50}}`)
+		`"date":"2026-09-08T10:00:30.000+08:00","open":575,"high":590,"low":560,"close":585,"volume":50}}`)
 
 	folded := nextLiveKCandle(t, liveKCandles)
 	assert.Equal(t, "590", folded.High.String())

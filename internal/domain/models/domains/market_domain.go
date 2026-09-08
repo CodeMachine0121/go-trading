@@ -33,7 +33,7 @@ func (marketDomain MarketDomain) Value() vo.MarketVo {
 //
 // It answers "can this be followed live" and "should the console say it is closed".
 // It deliberately does not answer "is there anything worth fetching" — a round
-// running at 13:33 still has the 13:25 candle to collect, and conflating the two
+// running at 13:33 still has the 13:29 candle to collect, and conflating the two
 // would lose it. ClampToTradingSession answers that one.
 func (marketDomain MarketDomain) IsOpen(moment time.Time) bool {
 	if marketDomain.neverCloses() {
@@ -224,7 +224,7 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 		sessionStart := marketDomain.sessionMomentOn(
 			localDay, marketDomain.rules.TradingSession.DailyStart)
 		sessionLastOpenTime := marketDomain.sessionMomentOn(
-			localDay, marketDomain.rules.TradingSession.DailyEnd-kCandleInterval)
+			localDay, marketDomain.rules.TradingSession.DailyEnd-KCandleInterval)
 
 		if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
 			continue
@@ -260,5 +260,5 @@ func (marketDomain MarketDomain) localMidnightOf(localMoment time.Time) time.Tim
 // system already reads as "there is nothing to do here".
 func (marketDomain MarketDomain) emptyWindow(window vo.KCandleFetchWindowVo) vo.KCandleFetchWindowVo {
 	return vo.NewKCandleFetchWindowVo(
-		window.Symbol, window.Market, window.EndTime.Add(kCandleInterval), window.EndTime)
+		window.Symbol, window.Market, window.EndTime.Add(KCandleInterval), window.EndTime)
 }

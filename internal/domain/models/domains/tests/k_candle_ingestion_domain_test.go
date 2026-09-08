@@ -35,18 +35,18 @@ func TestLatestClosedOpenTimeExcludesTheCandleStillRunning(t *testing.T) {
 	}{
 		{
 			name:                 "part way through an interval",
-			currentTime:          at(9, 7, 0),
-			expectedLatestClosed: at(9, 0, 0),
+			currentTime:          at(9, 7, 20),
+			expectedLatestClosed: at(9, 6, 0),
 		},
 		{
 			name:                 "one second before the interval finishes",
-			currentTime:          at(9, 9, 59),
-			expectedLatestClosed: at(9, 0, 0),
+			currentTime:          at(9, 7, 59),
+			expectedLatestClosed: at(9, 6, 0),
 		},
 		{
 			name:                 "exactly on the mark, so the interval just finished",
-			currentTime:          at(9, 10, 0),
-			expectedLatestClosed: at(9, 5, 0),
+			currentTime:          at(9, 8, 0),
+			expectedLatestClosed: at(9, 7, 0),
 		},
 	}
 
@@ -69,14 +69,14 @@ func TestScheduledWindowCoversTheNewestClosedCandlesBackwards(t *testing.T) {
 		{
 			name:              "five candles",
 			roundCandleCount:  5,
-			expectedStartTime: at(8, 40, 0),
-			expectedEndTime:   at(9, 0, 0),
+			expectedStartTime: at(9, 2, 0),
+			expectedEndTime:   at(9, 6, 0),
 		},
 		{
 			name:              "a single candle",
 			roundCandleCount:  1,
-			expectedStartTime: at(9, 0, 0),
-			expectedEndTime:   at(9, 0, 0),
+			expectedStartTime: at(9, 6, 0),
+			expectedEndTime:   at(9, 6, 0),
 		},
 	}
 
@@ -103,7 +103,7 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 		{
 			name:                 "gap inside the lookback starts right after the stored candle",
 			latestStoredOpenTime: at(7, 0, 0),
-			expectedStartTime:    at(7, 5, 0),
+			expectedStartTime:    at(7, 1, 0),
 		},
 		{
 			name:                 "gap wider than the lookback starts at the lookback",
@@ -117,13 +117,13 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 		},
 		{
 			name:                 "a gap of exactly one candle",
-			latestStoredOpenTime: at(8, 55, 0),
-			expectedStartTime:    at(9, 0, 0),
+			latestStoredOpenTime: at(9, 5, 0),
+			expectedStartTime:    at(9, 6, 0),
 		},
 		{
 			name:                 "no gap at all comes back empty",
-			latestStoredOpenTime: at(9, 0, 0),
-			expectedStartTime:    at(9, 5, 0),
+			latestStoredOpenTime: at(9, 6, 0),
+			expectedStartTime:    at(9, 7, 0),
 			expectedEmpty:        true,
 		},
 	}
@@ -135,7 +135,7 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 
 			assert.Equal(t, "BTCUSDT", window.Symbol)
 			assert.Equal(t, testCase.expectedStartTime, window.StartTime)
-			assert.Equal(t, at(9, 0, 0), window.EndTime)
+			assert.Equal(t, at(9, 6, 0), window.EndTime)
 			assert.Equal(t, testCase.expectedEmpty, window.IsEmpty())
 		})
 	}
@@ -143,25 +143,25 @@ func TestBackfillWindowStartsAfterTheStoredCandleButNeverBeyondTheLookback(t *te
 
 func TestSelectClosedDropsTheCandleStillRunning(t *testing.T) {
 	reported := []vo.MarketKCandleVo{
-		{Symbol: "BTCUSDT", OpenTime: at(8, 55, 0)},
-		{Symbol: "BTCUSDT", OpenTime: at(9, 0, 0)},
 		{Symbol: "BTCUSDT", OpenTime: at(9, 5, 0)},
+		{Symbol: "BTCUSDT", OpenTime: at(9, 6, 0)},
+		{Symbol: "BTCUSDT", OpenTime: at(9, 7, 0)},
 	}
 
-	closed := ingestionDomain(t, at(9, 7, 0), 5).SelectClosed(reported)
+	closed := ingestionDomain(t, at(9, 7, 20), 5).SelectClosed(reported)
 
-	assert.Equal(t, []time.Time{at(8, 55, 0), at(9, 0, 0)}, openTimesOf(closed))
+	assert.Equal(t, []time.Time{at(9, 5, 0), at(9, 6, 0)}, openTimesOf(closed))
 }
 
 func TestSelectClosedKeepsEveryCandleWhenAllHaveFinished(t *testing.T) {
 	reported := []vo.MarketKCandleVo{
-		{Symbol: "BTCUSDT", OpenTime: at(8, 55, 0)},
-		{Symbol: "BTCUSDT", OpenTime: at(9, 0, 0)},
+		{Symbol: "BTCUSDT", OpenTime: at(9, 5, 0)},
+		{Symbol: "BTCUSDT", OpenTime: at(9, 6, 0)},
 	}
 
-	closed := ingestionDomain(t, at(9, 7, 0), 5).SelectClosed(reported)
+	closed := ingestionDomain(t, at(9, 7, 20), 5).SelectClosed(reported)
 
-	assert.Equal(t, []time.Time{at(8, 55, 0), at(9, 0, 0)}, openTimesOf(closed))
+	assert.Equal(t, []time.Time{at(9, 5, 0), at(9, 6, 0)}, openTimesOf(closed))
 }
 
 func TestNewKCandleIngestionDomainRejectsACandleCountOfZeroOrLess(t *testing.T) {

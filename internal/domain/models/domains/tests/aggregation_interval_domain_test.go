@@ -25,6 +25,7 @@ func TestNewAggregationIntervalDomainReadsWhatWasDeclared(t *testing.T) {
 		declared      string
 		expectedValue vo.AggregationIntervalVo
 	}{
+		{name: "one minute", declared: "1m", expectedValue: vo.AggregationIntervalOneMinute},
 		{name: "five minutes", declared: "5m", expectedValue: vo.AggregationIntervalFiveMinutes},
 		{name: "fifteen minutes", declared: "15m", expectedValue: vo.AggregationIntervalFifteenMinutes},
 		{name: "one hour", declared: "1h", expectedValue: vo.AggregationIntervalOneHour},
@@ -32,8 +33,8 @@ func TestNewAggregationIntervalDomainReadsWhatWasDeclared(t *testing.T) {
 		{name: "one day", declared: "1d", expectedValue: vo.AggregationIntervalOneDay},
 		{name: "surrounding blanks and letter case", declared: "  1H ", expectedValue: vo.AggregationIntervalOneHour},
 		{
-			name: "declaring nothing means five minutes", declared: "",
-			expectedValue: vo.AggregationIntervalFiveMinutes,
+			name: "declaring nothing means one minute", declared: "",
+			expectedValue: vo.AggregationIntervalOneMinute,
 		},
 	}
 
@@ -65,7 +66,7 @@ func TestNewAggregationIntervalDomainRefusesAnythingElse(t *testing.T) {
 			// is asserted where the wrapping happens — see the series query and the
 			// strategy, which refuse the same bad spelling under their own sentinels.
 			require.Error(t, validationError)
-			assert.Contains(t, validationError.Error(), "彙總刻度只能是 5m、15m、1h、4h、1d 其中之一")
+			assert.Contains(t, validationError.Error(), "彙總刻度只能是 1m、5m、15m、1h、4h、1d 其中之一")
 		})
 	}
 }
@@ -173,10 +174,11 @@ func TestAggregationIntervalDomainSourceCandleCountBoundsWhatABucketCanHold(t *t
 		bucketCount               int
 		expectedSourceCandleCount int
 	}{
-		{name: "five minutes holds one candle per bucket", declared: "5m", bucketCount: 1000, expectedSourceCandleCount: 1000},
-		{name: "a quarter of an hour holds three", declared: "15m", bucketCount: 10, expectedSourceCandleCount: 30},
-		{name: "an hour holds twelve", declared: "1h", bucketCount: 24, expectedSourceCandleCount: 288},
-		{name: "a day holds two hundred and eighty-eight", declared: "1d", bucketCount: 2, expectedSourceCandleCount: 576},
+		{name: "one minute holds one candle per bucket", declared: "1m", bucketCount: 1000, expectedSourceCandleCount: 1000},
+		{name: "five minutes holds five", declared: "5m", bucketCount: 100, expectedSourceCandleCount: 500},
+		{name: "a quarter of an hour holds fifteen", declared: "15m", bucketCount: 10, expectedSourceCandleCount: 150},
+		{name: "an hour holds sixty", declared: "1h", bucketCount: 24, expectedSourceCandleCount: 1440},
+		{name: "a day holds one thousand four hundred and forty", declared: "1d", bucketCount: 2, expectedSourceCandleCount: 2880},
 	}
 
 	for _, testCase := range testCases {
