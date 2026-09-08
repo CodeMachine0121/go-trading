@@ -230,6 +230,38 @@ func TestCalculateIndicator(t *testing.T) {
 		assert.Equal(t, 1, minimumCandleCount)
 	})
 
+	t.Run("an algorithm needing more than it declared fails as an algorithm", func(t *testing.T) {
+		// Nothing is declared, so the floor is one candle and three is answerable —
+		// but the algorithm actually reaches back over twenty and blows up on three.
+		// That has to come back as the algorithm's problem: reported as a shortfall it
+		// would send somebody to fetch more history for a script that will fail on any
+		// amount, and the system has no way to know what a script reaches for.
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
+			Return(newestFirst(10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				_ context.Context,
+				_ string,
+				_ domains.IndicatorResultTypeDomain,
+				kCandleVos []vo.KCandleVo,
+				_ domains.StrategyParametersDomain,
+			) (map[string]vo.IndicatorValueVo, error) {
+				assert.Len(t, kCandleVos, 3, "手上那三根照樣交給算式")
+
+				return nil, domains.ErrIndicatorScriptFailed
+			})
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), calculationRequest("BTCUSDT", 30))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+		assert.NotErrorIs(t, err, domains.ErrIndicatorCalculationCandleCoverageTooThin,
+			"不是根數不足——系統不猜算式需要幾根")
+	})
+
 	t.Run("reports a storage failure as neither a request nor a script problem", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		storageFailure := errors.New("storage unreachable")

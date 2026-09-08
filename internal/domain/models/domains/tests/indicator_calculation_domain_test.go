@@ -183,6 +183,15 @@ func TestNewIndicatorCalculationDomainRejectsBrokenRequests(t *testing.T) {
 	}
 }
 
+func TestTheCeilingAcceptsExactlyItsOwnLimit(t *testing.T) {
+	// The rejected side is covered above; this is the accepted side of the same line.
+	// An off-by-one here would turn away the widest stretch the system does allow,
+	// and nothing else would notice — the message would read perfectly sensibly.
+	calculationDomain := calculationFor(t, "1m", maxCandleCount)
+
+	assert.Equal(t, maxCandleCount, calculationDomain.CandleCount())
+}
+
 func TestNewIndicatorCalculationDomainCountsAggregatedCandlesNotStoredOnes(t *testing.T) {
 	// A thousand daily candles is nearly three years of market and 288,000 stored
 	// candles behind them; a thousand five-minute candles is three and a half days.
