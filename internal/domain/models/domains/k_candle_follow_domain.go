@@ -69,11 +69,15 @@ func NewKCandleFollowDomain(
 // forwarding every move makes the screen busy without making it clearer.
 //
 // Receiving anything at all counts as the feed being alive, whether or not it is
-// passed on.
+// passed on — and it is the only thing that does. The retry gap goes back to its
+// shortest here rather than when the connection opened, because a source that
+// accepts a connection and then says nothing has not recovered from anything: it is
+// exactly the source the growing gap exists to stop hammering.
 func (kCandleFollowDomain *KCandleFollowDomain) Admit(
 	liveKCandle vo.LiveKCandleVo, now time.Time,
 ) bool {
 	kCandleFollowDomain.lastReceivedAt = now.UTC()
+	kCandleFollowDomain.retryDelay = min(initialRetryDelay, kCandleFollowDomain.maximumRetryDelay)
 
 	if !liveKCandle.Closed && now.Sub(kCandleFollowDomain.lastAdmittedAt) < kCandleFollowDomain.updateIntervalCeiling {
 		return false
@@ -119,11 +123,16 @@ func (kCandleFollowDomain *KCandleFollowDomain) NextRetryDelay() time.Duration {
 	return delay
 }
 
-// MarkFollowing records that the source is answering again: the retry gap goes back
-// to its shortest, and the feed counts as alive as of now. Without this a follow
-// that recovers would keep the long gap it earned while it was broken.
-func (kCandleFollowDomain *KCandleFollowDomain) MarkFollowing(now time.Time) {
-	kCandleFollowDomain.retryDelay = min(initialRetryDelay, kCandleFollowDomain.maximumRetryDelay)
+// MarkConnected records that a connection was opened, which is when the silence
+// starts being measured from. A feed that has only just opened has not been quiet
+// for however long the previous one was.
+//
+// It deliberately does not touch the retry gap. Opening a connection proves nothing
+// about a source: one that accepts every connection and immediately drops it would
+// otherwise reset the gap on every attempt and be hammered once a second forever,
+// which is the exact failure the growing gap exists to prevent. Only data arriving
+// counts as recovery, and Admit is where that is recorded.
+func (kCandleFollowDomain *KCandleFollowDomain) MarkConnected(now time.Time) {
 	kCandleFollowDomain.lastReceivedAt = now.UTC()
 }
 

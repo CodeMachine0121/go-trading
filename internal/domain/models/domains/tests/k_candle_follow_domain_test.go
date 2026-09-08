@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var followStartedAt = time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)
@@ -156,19 +157,75 @@ func TestSilenceIsCheckedTwicePerThreshold(t *testing.T) {
 }
 
 // Recovering must undo the gap the outage earned, or a follow that comes back would
-// keep waiting half a minute between rounds it no longer needs to retry.
-func TestFollowingAgainPutsTheRetryGapBackToItsShortest(t *testing.T) {
+// keep waiting half a minute between rounds it no longer needs to retry. Recovering
+// means data arriving — that is the only thing a source can do that proves it works.
+func TestReceivingACandleAgainPutsTheRetryGapBackToItsShortest(t *testing.T) {
 	followDomain := domains.NewKCandleFollowDomain(
 		10*time.Second, 30*time.Second, 30*time.Second, followStartedAt)
 	for range 5 {
 		followDomain.NextRetryDelay()
 	}
 
-	followDomain.MarkFollowing(followStartedAt.Add(time.Minute))
+	followDomain.Admit(formingKCandle(), followStartedAt.Add(time.Minute))
 
 	assert.Equal(t, time.Second, followDomain.NextRetryDelay())
 	assert.False(t, followDomain.HasGoneQuiet(followStartedAt.Add(time.Minute+29*time.Second)),
-		"重新跟上之後，安靜門檻應從那一刻重新起算")
+		"重新收到資料之後，安靜門檻應從那一刻重新起算")
+}
+
+// A candle held back by the update ceiling is still a candle that arrived. The
+// source is working, so the gap it earned while broken has to go — otherwise a busy
+// feed whose updates are being throttled would look, to the retry rule, like silence.
+func TestACandleHeldBackByTheCeilingStillCountsAsRecovering(t *testing.T) {
+	followDomain := domains.NewKCandleFollowDomain(
+		10*time.Second, 30*time.Second, 30*time.Second, followStartedAt)
+	for range 5 {
+		followDomain.NextRetryDelay()
+	}
+
+	require.True(t, followDomain.Admit(formingKCandle(), followStartedAt.Add(time.Minute)))
+	require.False(t, followDomain.Admit(formingKCandle(), followStartedAt.Add(time.Minute+time.Second)),
+		"上限之內的第二根被擋下，這正是這個案例要的前提")
+
+	assert.Equal(t, time.Second, followDomain.NextRetryDelay())
+}
+
+// The failure this rule exists for: a source that accepts every connection and then
+// says nothing. Opening a connection proves nothing, so it must not shorten the gap
+// — otherwise every attempt resets it and the source is hammered once a second for
+// as long as it stays broken.
+func TestConnectingWithoutDeliveringNeverShortensTheRetryGap(t *testing.T) {
+	followDomain := domains.NewKCandleFollowDomain(
+		10*time.Second, 30*time.Second, 30*time.Second, followStartedAt)
+
+	delays := make([]time.Duration, 0, 6)
+	for attempt := range 6 {
+		// Each round is one connection that opened and delivered nothing before dying.
+		followDomain.MarkConnected(followStartedAt.Add(time.Duration(attempt) * time.Minute))
+		delays = append(delays, followDomain.NextRetryDelay())
+	}
+
+	assert.Equal(t, []time.Duration{
+		time.Second,
+		2 * time.Second,
+		4 * time.Second,
+		8 * time.Second,
+		16 * time.Second,
+		30 * time.Second,
+	}, delays, "連得上但沒資料，間隔仍必須逐次拉長到上限")
+}
+
+// A connection that has only just opened has not been silent for however long the
+// previous one was, so the silence has to start being measured from here.
+func TestAFreshConnectionIsNotInstantlyQuiet(t *testing.T) {
+	followDomain := domains.NewKCandleFollowDomain(
+		10*time.Second, 30*time.Second, 30*time.Second, followStartedAt)
+	require.True(t, followDomain.HasGoneQuiet(followStartedAt.Add(31*time.Second)))
+
+	followDomain.MarkConnected(followStartedAt.Add(31 * time.Second))
+
+	assert.False(t, followDomain.HasGoneQuiet(followStartedAt.Add(31*time.Second+29*time.Second)))
+	assert.True(t, followDomain.HasGoneQuiet(followStartedAt.Add(31*time.Second+30*time.Second)))
 }
 
 // A setting left unfilled means "use the stated rule", never "no rule at all".

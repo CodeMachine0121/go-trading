@@ -360,7 +360,7 @@ func (kCandleFollowService *KCandleFollowService) run(
 				Symbol: follow.symbol, Market: follow.market,
 			})
 		if followError == nil {
-			followDomain.MarkFollowing(kCandleFollowService.clockProxy.Now())
+			followDomain.MarkConnected(kCandleFollowService.clockProxy.Now())
 			kCandleFollowService.consume(executionContext, follow, followDomain, liveKCandles)
 		} else {
 			log.Printf("live k candle follow: %s could not be followed: %v",
