@@ -1949,6 +1949,9 @@
 									"pm.test(\"回應 200\", function () {",
 									"    pm.response.to.have.status(200);",
 									"});",
+									"pm.test(\"填滿這一段要 4 根，而且真的填滿了\", function () {",
+									"    pm.expect(pm.response.json().candleCount).to.eql(4);",
+									"});",
 									"pm.test(\"用了 4 根\", function () {",
 									"    pm.expect(pm.response.json().usedCandleCount).to.eql(4);",
 									"});",
@@ -2414,7 +2417,7 @@
 					]
 				},
 				{
-					"name": "拒絕：走完的刻度區間湊不滿",
+					"name": "湊不滿就算手上有的",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -2432,6 +2435,7 @@
 								"indicator-calculations"
 							]
 						},
+						"description": "要了 999 根，走完的刻度區間只湊得出準備好的那 5 根。**這不是拒絕**：要幾根是由「要看多長」推出來的，一段只有部分存下來的行情不算問錯，所以算式拿到手上那 5 根，回應同時說出「填滿要 999 根」與「實際用了 5 根」。\n\n兩個數字並列回報，呼叫端才說得出一句不混單位的話——兩者同為彙總 K 線的根數。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 999,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
@@ -2448,11 +2452,70 @@
 							"script": {
 								"type": "text/javascript",
 								"exec": [
+									"pm.test(\"回應 200——湊不滿不是拒絕\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"填滿這一段要 999 根\", function () {",
+									"    pm.expect(pm.response.json().candleCount).to.eql(999);",
+									"});",
+									"pm.test(\"實際只用得到 5 根\", function () {",
+									"    pm.expect(pm.response.json().usedCandleCount).to.eql(5);",
+									"});",
+									"pm.test(\"起始時間的個數等於實際採用根數\", function () {",
+									"    pm.expect(pm.response.json().openTimes).to.have.lengthOf(5);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：連一個值都算不出來",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/indicator-calculations",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"indicator-calculations"
+							]
+						},
+						"description": "宣告一個回看 20 根的旋鈕，但走完的刻度區間只湊得出 5 根。回看 20 根的算法要到第 20 根才生出第一個值，所以 5 根連一個值都算不出來——**這一種才是拒絕**。\n\n回應把「湊得出幾根」與「至少要幾根」當成兩個值交出來，不只寫在那句話裡面：呼叫端要靠它們給出路，而讀訊息文字等於在比對寫給人看的散文。\n\n它與「計算根數超過單次上限」是**兩句不同的話**，出路正好相反：這一種要改用更細的彙總刻度或把缺的歷史補回來，那一種要縮短區間或改用更粗的刻度。",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 1,\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 20\n    }\n  ],\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 20\n    }\n  ],\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
 									"pm.test(\"回應 400\", function () {",
 									"    pm.response.to.have.status(400);",
 									"});",
-									"pm.test(\"告訴我實際湊得出幾根\", function () {",
-									"    pm.expect(pm.response.json().message).to.match(/湊得出 \\d+ 根/);",
+									"pm.test(\"湊得出的根數當成一個值交出來\", function () {",
+									"    pm.expect(pm.response.json().availableCandleCount).to.eql(5);",
+									"});",
+									"pm.test(\"至少要幾根也當成一個值交出來\", function () {",
+									"    pm.expect(pm.response.json().minimumCandleCount).to.eql(20);",
+									"});",
+									"pm.test(\"不是「超過單次上限」那一種——出路相反\", function () {",
+									"    pm.expect(pm.response.json().field).to.be.undefined;",
 									"});"
 								]
 							}
