@@ -33,7 +33,7 @@ Oracle: Acceptance Criteria（20 條）＋ Core Business Rules（12 條）＋ No
 |----|--------|------------------------|------|------|------------|------------|--------|
 | AC-09 | 收到自己那一檔的進行中 K 線 | 看甲的人收到甲的那一根 | `k_candle_follow_service.go:483`（依代號分流）；`fugle_live_market_data_proxy.go:161`（每檔一個折疊器） | `k_candle_follow_service_test.go:1403 TestACandleReachesOnlyTheViewersOfItsOwnSymbol`；`fugle_live_market_data_proxy_test.go:TestEachSymbolOnTheLineIsFoldedOnItsOwn` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-10 | 收不到別人那一檔的資料 | 看甲的人收不到任何更新 | `k_candle_follow_service.go:483` | 同上（該測試先送乙、再送甲，斷言收到的是甲） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-11 | 走完的那一根只算在自己頭上 | 甲那一根被存入；乙沒有任何 K 線被存入 | `k_candle_follow_service.go:483` → `report`／`store`（以該根自己的代號建立） | `fugle_live_market_data_proxy_test.go:TestANeighboursPushDoesNotCloseThisSymbolsCandle`（隔壁的推送不會宣告這一檔走完）；`k_candle_follow_service_test.go:TestOnlyAClosedCandleIsStored`（只有走完的才存） | shallow — 兩支分別驗「不會誤判走完」與「只有走完才存」，**沒有一支**在共用通道上送出甲走完的那一根、再斷言乙沒有任何東西被存入 | produces-oracle | 🟠 mis-asserted |
+| AC-11 | 走完的那一根只算在自己頭上 | 甲那一根被存入；乙沒有任何 K 線被存入 | `k_candle_follow_service.go:483` → `report`／`store`（以該根自己的代號建立） | `k_candle_follow_service_test.go:TestOnlyTheSymbolACandleNamesIsStored`（在共用通道上送出後掛那一檔走完的 K 線，斷言存入的是它、且只有一筆） | asserts-oracle | produces-oracle | ✅ conforms |
 
 ### US-04 — 通道中斷時掛在上面的每一檔一起處理
 
@@ -51,7 +51,7 @@ Oracle: Acceptance Criteria（20 條）＋ Core Business Rules（12 條）＋ No
 | AC-16 | 加入一檔會重建通道 | 舊通道先結束，新通道掛著加進來之後的名單 | `live_follow_channel_vo.go:32`（鍵＝集合）＋ `k_candle_follow_service.go:takeDepartedChannels`／`startMissingChannels`（先退後起） | `k_candle_follow_service_test.go:1458 TestARosterThatGainsASymbolRebuildsTheChannel`；`:1056 TestChannelsAreGivenUpBeforeNewOnesAreTaken`（換名單的瞬間也只有一條） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-17 | 移除一檔會重建通道 | 舊通道先結束，新通道只掛著剩下的 | 同上 | `k_candle_follow_service_test.go:1487 TestARosterThatLosesASymbolRebuildsTheChannel` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-18 | 名單沒變就不動通道 | 通道維持原樣，沒有任何一檔被中斷 | `live_follow_channel_vo.go:32`（鍵不變即比對得上） | `k_candle_follow_service_test.go:1502 TestARosterThatDidNotChangeLeavesTheChannelAlone`；`:1474 TestASymbolThatWinsNoPlaceLeavesTheChannelAlone`（名額已滿、名單其實沒變）；`live_follow_channel_test.go:TestAChannelIsTheSameChannelWhateverOrderItsSymbolsArriveIn` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-19 | 名單變成空的就不再開通道 | 舊通道結束，不開新的 | `live_follow_roster_domain.go:118`（回空）＋ `takeDepartedChannels` | `live_follow_channel_test.go:TestAnEmptyRosterAsksForNoChannels`（名單為空即無通道） | shallow — 驗的是「空名單不要求任何通道」，**沒有**驗「本來開著的那一條會被結束」 | produces-oracle | 🟠 mis-asserted |
+| AC-19 | 名單變成空的就不再開通道 | 舊通道結束，不開新的 | `live_follow_roster_domain.go:118`（回空）＋ `takeDepartedChannels` | `k_candle_follow_service_test.go:TestARosterThatEmptiesEndsTheOpenChannel`（觀看者被告知、更新真的收掉、之後沒有新線）；`live_follow_channel_test.go:TestAnEmptyRosterAsksForNoChannels` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-20 | 重建期間走完的那一根不會永久少掉 | 下一輪自動抓取把它取回並存入 | `k_candle_ingestion_job.go`／`k_candle_ingestion_service.go`（既有，每分鐘一輪） | `k_candle_ingestion_service_test.go:TestScheduledRoundStoresTheNewestClosedCandles` | asserts-oracle（抓取行為）；「重建期間」這個前提不由測試建立 | produces-oracle | ✅ conforms |
 
 ### Core Business Rules
@@ -89,9 +89,9 @@ Oracle: Acceptance Criteria（20 條）＋ Core Business Rules（12 條）＋ No
 
 ## Summary
 
-- Conforms: 34/36 clauses ✅（94.4%）
+- Conforms: 34/36 clauses ✅（94.4%，另兩條為 🟡）
 - Violations: 無 🔴
-- Mis-asserted: `AC-11`、`AC-19` 🟠（兩者程式行為都正確，缺的是把該情境從頭走一次的測試）
+- Mis-asserted: 無 🟠（原 `AC-11`、`AC-19` 缺的兩支已補上並各自以變異驗證會紅）
 - Partial: `BR-03`、`NFR-03` 🟡（兩者都在描述「系統刻意不做／不提供某件事」，無從以行為測試斷言）
 - Gaps: 無 ❌
 - Unclear: 無 ❔
