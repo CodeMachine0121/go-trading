@@ -14,6 +14,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -172,16 +173,61 @@ func TestCalculateIndicator(t *testing.T) {
 		assert.Contains(t, err.Error(), "超過單次可用的最大根數")
 	})
 
-	t.Run("never runs the script when too few buckets are there", func(t *testing.T) {
+	t.Run("answers over a short stretch, reporting both counts", func(t *testing.T) {
+		// Thirty were asked for and one is stored. The run is not refused: it answers
+		// over the one, and says so by putting the two counts side by side. Without
+		// the pair, a caller cannot tell a short answer from a full one.
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
 			Return(newestFirst(0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
 
-		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), calculationRequest("BTCUSDT", 30))
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), calculationRequest("BTCUSDT", 30))
 
-		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, err.Error(), "湊得出 1 根，但要求 30 根")
+		require.NoError(t, err)
+		assert.Equal(t, 30, resultDto.CandleCount, "整段填滿要三十根")
+		assert.Equal(t, 1, resultDto.UsedCandleCount, "手上只有一根")
+		assert.Len(t, resultDto.OpenTimes, 1, "起始時間的個數等於實際採用根數")
+	})
+
+	t.Run("reports both counts as the same number when the stretch is all there", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).
+			Return(newestFirst(10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), calculationRequest("BTCUSDT", 3))
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, resultDto.CandleCount)
+		assert.Equal(t, 3, resultDto.UsedCandleCount)
+	})
+
+	t.Run("never runs the script over a stretch too thin to yield one value", func(t *testing.T) {
+		// Nothing stored at all. There is no value to be had, so this stays a refusal
+		// — and the script is never reached, because there is nothing to run it over.
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
+			Return(nil, nil)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), calculationRequest("BTCUSDT", 30))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationCandleCoverageTooThin)
+		availableCandleCount, minimumCandleCount, isTooThin :=
+			domains.CandleCoverageShortfall(err)
+		require.True(t, isTooThin)
+		assert.Equal(t, 0, availableCandleCount)
+		assert.Equal(t, 1, minimumCandleCount)
 	})
 
 	t.Run("reports a storage failure as neither a request nor a script problem", func(t *testing.T) {
@@ -316,17 +362,33 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 		assert.Contains(t, err.Error(), "計算根數必須大於零")
 	})
 
-	t.Run("too few usable candles is refused just the same, naming what is usable", func(t *testing.T) {
+	t.Run("a short stretch is answered over just the same", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
 			Return(newestFirst(10, 5, 0), nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
+
+		resultDto, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
+			calculationRequestOf("BTCUSDT", 30, "bool"))
+
+		require.NoError(t, err)
+		assert.Equal(t, 30, resultDto.CandleCount)
+		assert.Equal(t, 3, resultDto.UsedCandleCount)
+	})
+
+	t.Run("a stretch too thin to yield one value is refused just the same", func(t *testing.T) {
+		fixture := newCalculationUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
+			Return(nil, nil)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
 			calculationRequestOf("BTCUSDT", 30, "bool"))
 
-		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, err.Error(), "湊得出 3 根，但要求 30 根")
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationCandleCoverageTooThin)
 	})
 
 	t.Run("the candles handed to the script are chosen the same way", func(t *testing.T) {

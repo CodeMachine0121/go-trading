@@ -145,16 +145,51 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), "計算根數必須大於零")
 	})
 
-	t.Run("reports too few buckets as a bad request naming how many there were", func(t *testing.T) {
+	t.Run("answers a short stretch with both counts rather than refusing", func(t *testing.T) {
+		// Two buckets asked for, one stored. It comes back as a success carrying the
+		// pair, so a caller can draw the shorter line and say why it is shorter.
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorRouterNow, 3).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
+
+		recorder := fixture.post(indicatorBody)
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"candleCount":2`)
+		assert.Contains(t, recorder.Body.String(), `"usedCandleCount":1`)
+	})
+
+	t.Run("reports a stretch too thin to answer, handing over both counts", func(t *testing.T) {
+		// The two numbers travel as values, not only inside the sentence: the way out
+		// depends on them, and a caller reading them out of the prose would break the
+		// day the wording improves.
+		fixture := newIndicatorRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorRouterNow, 3).
+			Return(nil, nil)
 
 		recorder := fixture.post(indicatorBody)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
-		assert.Contains(t, recorder.Body.String(), "湊得出 1 根，但要求 2 根")
+		assert.Contains(t, recorder.Body.String(), `"availableCandleCount":0`)
+		assert.Contains(t, recorder.Body.String(), `"minimumCandleCount":1`)
+	})
+
+	t.Run("keeps asking for too much apart from a stretch too thin", func(t *testing.T) {
+		// Their remedies are opposite — read more finely versus read more coarsely —
+		// so a caller has to be able to tell which one it got. Never reaches storage.
+		fixture := newIndicatorRouterUnderTest(t)
+
+		recorder := fixture.post(
+			`{"symbol":"BTCUSDT","candleCount":100000,"script":"the script"}`)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"field":"candleCount"`)
+		assert.NotContains(t, recorder.Body.String(), "availableCandleCount")
 	})
 
 	t.Run("reports a script that cannot run as unprocessable", func(t *testing.T) {

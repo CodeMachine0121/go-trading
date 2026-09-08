@@ -37,6 +37,11 @@ func NewIndicatorCalculationService(
 // reports one value per indicator name in the kind the request declared. An empty
 // set of names is a valid result.
 //
+// A stretch of market only partly stored is answered over what is there, and the
+// result says both how many buckets a full answer would have taken and how many it
+// worked from. Only a stretch too thin to yield a single value is refused; that
+// judgement belongs to the calculation, not here.
+//
 // It reads up to the cut-off the request works out rather than simply the latest
 // few, so that the same question asked twice about the same stretch of market
 // answers the same thing both times — **as long as that stretch has settled**.
@@ -96,8 +101,12 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 	}
 
 	resultDto := dto.IndicatorCalculationResultDto{
-		Symbol:          calculationDomain.Symbol(),
-		Interval:        string(calculationDomain.Interval().Value()),
+		Symbol:   calculationDomain.Symbol(),
+		Interval: string(calculationDomain.Interval().Value()),
+		// What a full answer would have taken, next to what there was to work from.
+		// Both come from the calculation itself rather than being worked out here:
+		// this layer reports the two numbers, it never counts candles of its own.
+		CandleCount:     calculationDomain.CandleCount(),
 		UsedCandleCount: len(inputKCandleVos),
 		OpenTimes:       openTimes,
 		ResultType:      string(calculationDomain.ResultType().Value()),

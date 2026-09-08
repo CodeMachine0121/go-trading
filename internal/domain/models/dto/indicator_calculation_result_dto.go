@@ -7,6 +7,9 @@ import "time"
 // the script's decision, and an empty set is a valid result. ResultType names the
 // kind those values are, so a reader never has to look back at what was requested.
 //
+// It also says how much market a full answer would have taken next to how much there
+// was to work from, so a short stretch is visible rather than merely shorter.
+//
 // It also says which stretch of market it read, and that is not a courtesy: a caller
 // putting a list of values back onto a chart has to know which candle each one
 // belongs to. Left to work it out, it would have to cut the same grid a second time
@@ -16,8 +19,14 @@ type IndicatorCalculationResultDto struct {
 	Symbol string `json:"symbol"`
 	// Interval is the coarseness actually used, so a caller that named none still
 	// learns what it got.
-	Interval        string `json:"interval"`
-	UsedCandleCount int    `json:"usedCandleCount"`
+	Interval string `json:"interval"`
+	// CandleCount is how many finished buckets a full answer would have taken, and
+	// UsedCandleCount is how many there actually were to work from. They differ only
+	// when the stretch asked about is only partly stored, and they are answered
+	// together so that a caller can say so without deriving the first number a second
+	// time from the span and the look-back.
+	CandleCount     int `json:"candleCount"`
+	UsedCandleCount int `json:"usedCandleCount"`
 	// OpenTimes is where each candle the script saw begins, earliest first. The nth
 	// value of a list-shaped indicator belongs to the nth of these. It is answered
 	// whatever the kind: it describes what was read, not what came out.
