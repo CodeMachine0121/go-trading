@@ -14,6 +14,12 @@ import (
 // retry loop, the silence and the context that ends it all belong here rather than
 // being repeated once per symbol.
 //
+// It carries execution, not domain data — a cancel function, a done signal, and the
+// registries it feeds — so it is not an entity, a domain model or a value object and
+// has no place under models/. It lives beside the service that runs it and takes no
+// suffix, because a suffix would invite somebody to move it and give it rules. The
+// rules it needs are asked of LiveChannelHealthDomain instead.
+//
 // It is recognised by the channel it carries, and a channel is recognised by the
 // exact set of symbols on it. That is what makes "rebuild when the followed set
 // changes, leave it alone when it does not" a fact about identity rather than a

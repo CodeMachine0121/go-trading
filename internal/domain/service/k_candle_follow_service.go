@@ -234,6 +234,11 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 // "No longer asks for" is decided by key alone, so a channel that lost a symbol and
 // a channel that lost its whole market are the same case. Nothing here compares two
 // sets of symbols, because the key already is the set.
+// It is a method of its own rather than part of the round for one reason: it draws
+// the stretch the lock is held for. Ending a line waits on a goroutine that may be
+// sleeping out a thirty-second retry, and holding this lock for that long would stop
+// anybody opening a chart. Written inline, the release would have to be remembered
+// by hand at every way out of it.
 func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 	wantedChannels []vo.LiveFollowChannelVo,
 ) ([]*followChannel, []*symbolFollow) {
@@ -282,6 +287,10 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 
 // startMissingChannels opens every channel the roster asks for that is not open
 // already.
+//
+// Its own method for the same reason as its counterpart above: it draws the second
+// stretch the lock is held for, after the lines that departed have been let go of
+// outside it.
 func (kCandleFollowService *KCandleFollowService) startMissingChannels(
 	executionContext context.Context, wantedChannels []vo.LiveFollowChannelVo,
 ) {
