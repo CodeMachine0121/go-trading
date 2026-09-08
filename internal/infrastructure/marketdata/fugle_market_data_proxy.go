@@ -17,7 +17,7 @@ import (
 // fugleTimeframe is how this source spells the length one K candle covers: plainly
 // the number of minutes. Deriving it rather than writing it out keeps this source
 // from quietly asking for a length the system no longer works in.
-var fugleTimeframe = strconv.Itoa(int(domains.KCandleInterval / time.Minute))
+var fugleTimeframe = strconv.Itoa(domains.KCandleIntervalMinutes)
 
 // fugleApiKeyHeader is where this source expects to be told who is asking.
 const fugleApiKeyHeader = "X-API-KEY"

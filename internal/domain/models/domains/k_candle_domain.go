@@ -20,6 +20,19 @@ import (
 // forgot would store candles of a length nothing in the system could detect.
 const KCandleInterval = time.Minute
 
+// KCandleIntervalMinutes is that same length as a whole number of minutes, which is
+// the unit every market source spells it in.
+//
+// It is worked out here, once, and refuses to be zero: a length under a minute would
+// truncate to nothing and have each source politely ask for a "0m" candle, which
+// they answer with silence rather than an error. Anyone shortening the length below
+// a minute meets this line first, which is the point.
+const KCandleIntervalMinutes = int(KCandleInterval / time.Minute)
+
+// Deliberately unusable rather than merely wrong: a K candle length that does not
+// spell as whole minutes stops this package compiling.
+const _ = uint(KCandleIntervalMinutes - 1)
+
 // KCandleDomain holds one K candle and guarantees its own invariants. An instance
 // only exists when every rule passed, so there is no half-valid K candle.
 type KCandleDomain struct {
@@ -49,8 +62,7 @@ func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCan
 	openTime := writeDto.OpenTime.UTC()
 	if !openTime.Truncate(KCandleInterval).Equal(openTime) {
 		return KCandleDomain{}, fmt.Errorf(
-			"%w: 起始時間必須落在%d分鐘刻度上",
-			ErrKCandleValidation, int(KCandleInterval/time.Minute))
+			"%w: 起始時間必須落在%d分鐘刻度上", ErrKCandleValidation, KCandleIntervalMinutes)
 	}
 
 	if openTime.After(currentTime.UTC()) {

@@ -20,7 +20,7 @@ import (
 // works in cannot leave this source quietly asking for the old one. The spelling
 // holds for whole minutes under an hour, which is the range this source spells that
 // way — a length outside it is the moment to come back here.
-var kCandleInterval = strconv.Itoa(int(domains.KCandleInterval/time.Minute)) + "m"
+var kCandleInterval = strconv.Itoa(domains.KCandleIntervalMinutes) + "m"
 
 // pageLimit is the most candles this source will hand over at once.
 const pageLimit = 1000
