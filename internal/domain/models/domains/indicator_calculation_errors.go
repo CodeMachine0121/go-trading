@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// ErrIndicatorCalculationValidation marks a request the caller got wrong:
-// the candle count, or not enough candles to satisfy it.
+// ErrIndicatorCalculationValidation marks a request the caller got wrong: the candle
+// count, or a stretch of market too thin to yield even one value.
 var ErrIndicatorCalculationValidation = errors.New("indicator calculation validation failed")
 
 // ErrIndicatorCalculationCandleCountExceeded marks the one validation failure a
@@ -43,6 +43,61 @@ func (exceeded *candleCountExceededError) Error() string {
 
 func (exceeded *candleCountExceededError) Unwrap() []error {
 	return []error{ErrIndicatorCalculationValidation, ErrIndicatorCalculationCandleCountExceeded}
+}
+
+// ErrIndicatorCalculationCandleCoverageTooThin marks the one shortfall that cannot be
+// answered at all: the finished buckets do not even reach the look-back the algorithm
+// declares, so not a single indicator value can come out of them.
+//
+// Coming up short of the count asked for is no longer a refusal — the calculation
+// answers over whatever is there. This is the floor below that, and it is told apart
+// from every other validation failure for the same reason the over-wide one is: the
+// caller has concrete ways out, and they are the *opposite* ways out. Too thin is
+// fixed by reading the market more finely or by filling in the missing history; too
+// wide is fixed by asking for less or reading more coarsely. Answered as one failure,
+// a caller would send people to turn the dial the wrong way.
+var ErrIndicatorCalculationCandleCoverageTooThin = errors.New(
+	"indicator calculation candle coverage too thin")
+
+// CandleCoverageTooThin builds that failure. It answers to both sentinels: still a
+// validation failure to everything that only cares about that, and the too-thin one
+// to whoever can offer the way out.
+func CandleCoverageTooThin(availableCandleCount int, minimumCandleCount int) error {
+	return &candleCoverageTooThinError{
+		availableCandleCount: availableCandleCount,
+		minimumCandleCount:   minimumCandleCount,
+	}
+}
+
+// CandleCoverageShortfall digs the two counts out of a too-thin failure, so that
+// whoever answers the caller can hand them over as values of their own.
+//
+// They travel as numbers rather than only inside the sentence for the same reason the
+// undeclared knob's name does: a caller reading them out of the message would be
+// parsing prose written for a person, which changes whenever the wording improves.
+func CandleCoverageShortfall(err error) (int, int, bool) {
+	var tooThin *candleCoverageTooThinError
+	if !errors.As(err, &tooThin) {
+		return 0, 0, false
+	}
+
+	return tooThin.availableCandleCount, tooThin.minimumCandleCount, true
+}
+
+type candleCoverageTooThinError struct {
+	availableCandleCount int
+	minimumCandleCount   int
+}
+
+func (tooThin *candleCoverageTooThinError) Error() string {
+	return fmt.Sprintf(
+		"%v: K 線不足，走完的刻度區間目前湊得出 %d 根，但這支算法至少要 %d 根才算得出一個值",
+		ErrIndicatorCalculationValidation,
+		tooThin.availableCandleCount, tooThin.minimumCandleCount)
+}
+
+func (tooThin *candleCoverageTooThinError) Unwrap() []error {
+	return []error{ErrIndicatorCalculationValidation, ErrIndicatorCalculationCandleCoverageTooThin}
 }
 
 // ErrIndicatorScriptFailed marks a well-formed request whose script could not run:

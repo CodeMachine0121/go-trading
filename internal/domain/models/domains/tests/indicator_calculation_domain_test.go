@@ -88,6 +88,54 @@ func calculationFor(
 	return calculationDomain
 }
 
+// hourlyOpenTimesEndingBefore lists whole hours reaching back that far, newest first,
+// all of them finished by the moment the tests ask at — leaving out the hours named,
+// counted the same way, so that a stretch can be spanned with holes in it.
+//
+// Reaching back N hours and skipping none gives N buckets; skipping one gives N−1
+// from the same span, which is the only way to tell "no market in that hour" apart
+// from "the stretch is one hour shorter".
+func hourlyOpenTimesEndingBefore(hoursBackLimit int, untradedHoursBack ...int) []string {
+	skipped := make(map[int]bool, len(untradedHoursBack))
+	for _, hoursBack := range untradedHoursBack {
+		skipped[hoursBack] = true
+	}
+
+	openTimes := make([]string, 0, hoursBackLimit)
+	for hoursBack := 1; hoursBack <= hoursBackLimit; hoursBack++ {
+		if skipped[hoursBack] {
+			continue
+		}
+		openTimes = append(openTimes, calculationNow.
+			Truncate(time.Hour).
+			Add(-time.Duration(hoursBack)*time.Hour).
+			Format(time.RFC3339))
+	}
+
+	return openTimes
+}
+
+// calculationWithLookback builds a calculation over the given span whose strategy
+// declares one look-back knob, which is the only thing that moves the floor. A
+// look-back of zero declares no knob at all.
+func calculationWithLookback(
+	t *testing.T, requestedSpan int, lookbackCount float64,
+) domains.IndicatorCalculationDomain {
+	t.Helper()
+
+	requestDto := calculationRequest("1h", requestedSpan, time.Time{})
+	if lookbackCount > 0 {
+		requestDto.Parameters = []dto.StrategyParameterWriteDto{
+			{Name: "期數", Kind: "lookbackCount", DefaultValue: lookbackCount}}
+	}
+
+	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
+		requestDto, maxCandleCount, calculationNow)
+	require.NoError(t, validationError)
+
+	return calculationDomain
+}
+
 func bucketOpenTimesOf(kCandleVos []vo.KCandleVo) []time.Time {
 	openTimes := make([]time.Time, 0, len(kCandleVos))
 	for _, kCandleVo := range kCandleVos {
@@ -145,6 +193,15 @@ func TestNewIndicatorCalculationDomainRejectsBrokenRequests(t *testing.T) {
 			assert.Contains(t, validationError.Error(), testCase.expectedReason)
 		})
 	}
+}
+
+func TestTheCeilingAcceptsExactlyItsOwnLimit(t *testing.T) {
+	// The rejected side is covered above; this is the accepted side of the same line.
+	// An off-by-one here would turn away the widest stretch the system does allow,
+	// and nothing else would notice — the message would read perfectly sensibly.
+	calculationDomain := calculationFor(t, "1m", maxCandleCount)
+
+	assert.Equal(t, maxCandleCount, calculationDomain.CandleCount())
 }
 
 func TestNewIndicatorCalculationDomainCountsAggregatedCandlesNotStoredOnes(t *testing.T) {
@@ -404,28 +461,56 @@ func TestSelectInputCandlesKeepsEveryBucketAReadThatCameUpShortFound(t *testing.
 	assert.Len(t, kCandleVos, 3)
 }
 
-func TestSelectInputCandlesRefusesWhenTooFewBucketsAreThere(t *testing.T) {
-	// Twelve candles of a twenty-candle average still produce a number, and it looks
-	// exactly like the right one. Saying so is the only way the caller finds out.
+func TestSelectInputCandlesAnswersOverWhateverIsThere(t *testing.T) {
+	// Coming up short is not the caller's mistake. How many buckets are asked for is
+	// worked out from how wide a stretch is being looked at, so a chart reaching
+	// further back than storage does has asked about a stretch that is only partly
+	// there — and a shorter answer is the honest one. Refusing hands back nothing and
+	// leaves the reader zooming around to find a coarseness that happens to fit.
 	testCases := []struct {
-		name            string
-		candleCount     int
-		storedOpenTimes []string
-		expectedMessage string
+		name                    string
+		candleCount             int
+		storedOpenTimes         []string
+		expectedBucketOpenTimes []time.Time
 	}{
+		{
+			name: "exactly as many as were asked for", candleCount: 3,
+			storedOpenTimes: []string{
+				"2026-09-03T07:00:00Z", "2026-09-03T06:00:00Z", "2026-09-03T05:00:00Z"},
+			expectedBucketOpenTimes: []time.Time{
+				momentAt("2026-09-03T05:00:00Z"),
+				momentAt("2026-09-03T06:00:00Z"),
+				momentAt("2026-09-03T07:00:00Z")},
+		},
+		{
+			name: "fewer than were asked for, so all of them", candleCount: 30,
+			storedOpenTimes: []string{
+				"2026-09-03T07:00:00Z", "2026-09-03T06:00:00Z", "2026-09-03T05:00:00Z"},
+			expectedBucketOpenTimes: []time.Time{
+				momentAt("2026-09-03T05:00:00Z"),
+				momentAt("2026-09-03T06:00:00Z"),
+				momentAt("2026-09-03T07:00:00Z")},
+		},
 		{
 			name: "short by one", candleCount: 3,
 			storedOpenTimes: []string{"2026-09-03T07:00:00Z", "2026-09-03T06:00:00Z"},
-			expectedMessage: "湊得出 2 根，但要求 3 根",
+			expectedBucketOpenTimes: []time.Time{
+				momentAt("2026-09-03T06:00:00Z"),
+				momentAt("2026-09-03T07:00:00Z")},
 		},
 		{
-			name: "far too few", candleCount: 30,
-			storedOpenTimes: []string{"2026-09-03T07:00:00Z"},
-			expectedMessage: "湊得出 1 根，但要求 30 根",
+			name: "a single bucket against a wide request", candleCount: 100,
+			storedOpenTimes:         []string{"2026-09-03T07:00:00Z"},
+			expectedBucketOpenTimes: []time.Time{momentAt("2026-09-03T07:00:00Z")},
 		},
 		{
-			name: "no candles at all", candleCount: 5, storedOpenTimes: nil,
-			expectedMessage: "湊得出 0 根，但要求 5 根",
+			name:        "more than were asked for still hands over the latest ones",
+			candleCount: 2,
+			storedOpenTimes: []string{
+				"2026-09-03T07:00:00Z", "2026-09-03T06:00:00Z", "2026-09-03T05:00:00Z"},
+			expectedBucketOpenTimes: []time.Time{
+				momentAt("2026-09-03T06:00:00Z"),
+				momentAt("2026-09-03T07:00:00Z")},
 		},
 	}
 
@@ -436,11 +521,163 @@ func TestSelectInputCandlesRefusesWhenTooFewBucketsAreThere(t *testing.T) {
 			kCandleVos, selectionError := calculationDomain.SelectInputCandles(
 				storedCandlesNewestFirst(testCase.storedOpenTimes...))
 
-			assert.ErrorIs(t, selectionError, domains.ErrIndicatorCalculationValidation)
-			assert.Contains(t, selectionError.Error(), testCase.expectedMessage)
+			require.NoError(t, selectionError)
+			assert.Equal(t, testCase.expectedBucketOpenTimes, bucketOpenTimesOf(kCandleVos),
+				"由早到晚，而且是最靠近截止時間的那幾格")
+		})
+	}
+}
+
+func TestSelectInputCandlesRefusesAStretchTooThinToYieldOneValue(t *testing.T) {
+	// The floor is not "as many as were asked for" — it is "enough for a single
+	// value". Below it there is nothing to hand over at all, so this stays a refusal,
+	// and it names both counts because the way out depends on them.
+	testCases := []struct {
+		name              string
+		lookbackCount     float64
+		storedOpenTimes   []string
+		expectedAvailable int
+		expectedMinimum   int
+	}{
+		{
+			name: "one bucket short of the declared look-back", lookbackCount: 3,
+			storedOpenTimes:   []string{"2026-09-03T07:00:00Z", "2026-09-03T06:00:00Z"},
+			expectedAvailable: 2, expectedMinimum: 3,
+		},
+		{
+			name: "nowhere near the declared look-back", lookbackCount: 20,
+			storedOpenTimes:   []string{"2026-09-03T07:00:00Z"},
+			expectedAvailable: 1, expectedMinimum: 20,
+		},
+		{
+			name: "no candles at all, with nothing declared", lookbackCount: 0,
+			storedOpenTimes:   nil,
+			expectedAvailable: 0, expectedMinimum: 1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			calculationDomain := calculationWithLookback(t, 5, testCase.lookbackCount)
+
+			kCandleVos, selectionError := calculationDomain.SelectInputCandles(
+				storedCandlesNewestFirst(testCase.storedOpenTimes...))
+
+			assert.ErrorIs(t, selectionError,
+				domains.ErrIndicatorCalculationCandleCoverageTooThin)
+			assert.ErrorIs(t, selectionError, domains.ErrIndicatorCalculationValidation,
+				"它仍然是一種呼叫端弄錯的請求")
+			availableCandleCount, minimumCandleCount, isTooThin :=
+				domains.CandleCoverageShortfall(selectionError)
+			require.True(t, isTooThin)
+			assert.Equal(t, testCase.expectedAvailable, availableCandleCount)
+			assert.Equal(t, testCase.expectedMinimum, minimumCandleCount)
 			assert.Nil(t, kCandleVos, "不回傳任何部分結果")
 		})
 	}
+}
+
+func TestSelectInputCandlesAnswersAtExactlyTheFloor(t *testing.T) {
+	// The boundary is inclusive, and it has to be: a look-back of twenty produces its
+	// first value on the twentieth candle, so twenty is enough for one value. Getting
+	// this off by one would refuse the very stretch that just became answerable.
+	calculationDomain := calculationWithLookback(t, 100, 3)
+
+	kCandleVos, selectionError := calculationDomain.SelectInputCandles(
+		storedCandlesNewestFirst(
+			"2026-09-03T07:00:00Z", "2026-09-03T06:00:00Z", "2026-09-03T05:00:00Z"))
+
+	require.NoError(t, selectionError)
+	assert.Len(t, kCandleVos, 3)
+}
+
+func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
+	// The floor moves with what the strategy declares, and these cases pin it through
+	// the refusal rather than by asking for the number: what matters is which stretch
+	// gets turned away, and the count it names is how a caller says why.
+	testCases := []struct {
+		name            string
+		parameters      []dto.StrategyParameterWriteDto
+		availableHours  int
+		expectedMinimum int
+	}{
+		{
+			name: "several declared look-backs take the hungriest",
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "短期", Kind: "lookbackCount", DefaultValue: 5},
+				{Name: "長期", Kind: "lookbackCount", DefaultValue: 60},
+			},
+			availableHours: 59, expectedMinimum: 60,
+		},
+		{
+			name: "a plain number declares no reach at all, so one candle is enough",
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "倍數", Kind: "number", DefaultValue: 60},
+			},
+			availableHours: 0, expectedMinimum: 1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestDto := calculationRequest("1h", 100, time.Time{})
+			requestDto.Parameters = testCase.parameters
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				requestDto, maxCandleCount, calculationNow)
+			require.NoError(t, buildError)
+
+			_, selectionError := calculationDomain.SelectInputCandles(
+				storedCandlesNewestFirst(hourlyOpenTimesEndingBefore(testCase.availableHours)...))
+
+			require.ErrorIs(t, selectionError,
+				domains.ErrIndicatorCalculationCandleCoverageTooThin)
+			_, minimumCandleCount, _ := domains.CandleCoverageShortfall(selectionError)
+			assert.Equal(t, testCase.expectedMinimum, minimumCandleCount)
+		})
+	}
+}
+
+func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
+	// Sixty hours of history, but the market never traded in one of them. That hour
+	// is not a bucket, so a look-back of sixty still has nothing to say — and the
+	// refusal names 59, not 60.
+	//
+	// The gap has to be in the middle for this to mean anything. Sixty contiguous
+	// hours minus the oldest is just a shorter stretch, and that case is already
+	// covered above; only a hole inside the span tells "no market in that hour" apart
+	// from it, and only it would break if empty buckets were ever filled in.
+	requestDto := calculationRequest("1h", 100, time.Time{})
+	requestDto.Parameters = []dto.StrategyParameterWriteDto{
+		{Name: "期數", Kind: "lookbackCount", DefaultValue: 60}}
+	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+		requestDto, maxCandleCount, calculationNow)
+	require.NoError(t, buildError)
+
+	storedOpenTimes := hourlyOpenTimesEndingBefore(60, 31)
+	require.Len(t, storedOpenTimes, 59, "六十小時的跨度，中間缺一小時")
+
+	_, selectionError := calculationDomain.SelectInputCandles(
+		storedCandlesNewestFirst(storedOpenTimes...))
+
+	availableCandleCount, minimumCandleCount, isTooThin :=
+		domains.CandleCoverageShortfall(selectionError)
+	require.True(t, isTooThin)
+	assert.Equal(t, 59, availableCandleCount, "空的那一格不算一格")
+	assert.Equal(t, 60, minimumCandleCount)
+}
+
+func TestCandleCountIsWhatAFullAnswerWouldHaveTaken(t *testing.T) {
+	t.Run("the span plus what the look-back reaches back over", func(t *testing.T) {
+		calculationDomain := calculationWithLookback(t, 100, 20)
+
+		assert.Equal(t, 119, calculationDomain.CandleCount())
+	})
+
+	t.Run("no look-back costs nothing extra", func(t *testing.T) {
+		calculationDomain := calculationFor(t, "1h", 100)
+
+		assert.Equal(t, 100, calculationDomain.CandleCount())
+	})
 }
 
 func TestSelectInputCandlesMergesEachBucketBeforeHandingItOver(t *testing.T) {

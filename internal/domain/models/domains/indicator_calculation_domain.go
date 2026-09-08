@@ -30,7 +30,10 @@ const spareBucketCount = 1
 // than the algorithm, so they arrive here — which is what lets one algorithm be run
 // at any coarseness over any stretch of market.
 type IndicatorCalculationDomain struct {
-	symbol      string
+	symbol string
+	// candleCount is how many finished buckets it would take to fill every position
+	// the caller is looking at. It is what the read is sized for and what a full
+	// answer holds; a short stretch answers with fewer, never with an error.
 	candleCount int
 	parameters  StrategyParametersDomain
 	resultType  IndicatorResultTypeDomain
@@ -173,9 +176,46 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SourceCandleLimit()
 }
 
 // SelectInputCandles takes the K candles as read — newest first, none of them from a
-// bucket still running — and hands back what the script sees: one candle per
-// finished bucket, as many as were asked for, oldest first. Too few is refused,
-// naming how many there actually were.
+// bucket still running — and hands back what the script sees: one candle per finished
+// bucket, oldest first, as many as were asked for or as many as there are, whichever
+// is fewer.
+//
+// Coming up short is not a refusal. The count asked for is worked out from how wide a
+// stretch the caller is looking at, and a chart looking further back than the stored
+// history reaches has not asked anything wrong — it has asked about a stretch that is
+// only partly there. Answering over what is there hands back a shorter line, which is
+// the honest answer; refusing hands back nothing and leaves the reader guessing which
+// coarseness would have worked.
+//
+// The one shortfall that cannot be answered is a stretch below what the declared
+// look-back reaches over: not one value can come out, so there is nothing to hand
+// over. That floor is worked out here, next to the comparison that uses it.
+//
+// Taking every bucket when short is safe against the truncation spareBucketCount
+// guards, and it is worth saying why, because this is the first read that keeps the
+// earliest bucket. The read limit holds as many stored candles as the count asked for
+// plus one bucket, and a trading symbol has at most one candle per slot — so a read
+// that reached its limit has necessarily merged at least that many buckets. Coming
+// out with fewer buckets than were asked for therefore proves the read never reached
+// its limit: storage was exhausted, and no cut by the limit is in the answer.
+//
+// **What that does not prove is that the earliest bucket is full**, and at a
+// coarseness that merges several candles it often is not. Ingestion backfills from a
+// plain wall-clock moment, which lands nowhere near a bucket edge, so the oldest
+// stored candle sits somewhere inside its bucket: at one day, the earliest bucket of
+// a symbol backfilled from 14:03 merges ten hours of trading and is presented as a
+// day, with that afternoon's opening price and roughly half a day's volumes. A short
+// answer's first value can be computed from it, and usedCandleCount counts it as a
+// bucket like any other.
+//
+// It is left in, and that is a decision rather than an oversight. A single candle at
+// 07:35 is either an hour the market barely traded or an hour storage only caught the
+// end of, and nothing here can tell those apart — the same ambiguity that stops this
+// calculation from demanding a full bucket at the live edge, where the choice was
+// also to answer and name the limit. Dropping it would cost every coarse read one
+// value (N values would want N+1 buckets of history) and would refuse thin symbols a
+// value they had earned. Naming it is the cheaper honesty; the caller that needs a
+// settled first value asks over a stretch it knows is fully stored.
 func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	newestFirstKCandles []entities.KCandle,
 ) ([]vo.KCandleVo, error) {
@@ -185,22 +225,41 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 		newestFirstKCandles,
 	).Buckets()
 
-	if len(buckets) < indicatorCalculationDomain.candleCount {
-		return nil, fmt.Errorf(
-			"%w: K 線不足，走完的刻度區間目前湊得出 %d 根，但要求 %d 根",
-			ErrIndicatorCalculationValidation, len(buckets), indicatorCalculationDomain.candleCount)
+	// The fewest finished buckets this calculation can say anything at all from: the
+	// look-back its hungriest knob declares, because an algorithm reaching back over
+	// twenty candles produces its first value on the twentieth. One when nothing
+	// reaches back, never zero — a calculation over no market at all has no answer,
+	// and the alternative is handing an empty batch to a script to fail inside.
+	//
+	// It reads only what the strategy *declares*. What an algorithm actually reaches
+	// for stays the algorithm's own business to guard, which is why a script
+	// hard-coding a period it never declared comes back as a script failure rather
+	// than as a shortfall: the system does not guess how many an algorithm needs.
+	minimumCandleCount := max(1, indicatorCalculationDomain.parameters.MaximumLookbackCount())
+	if len(buckets) < minimumCandleCount {
+		return nil, CandleCoverageTooThin(len(buckets), minimumCandleCount)
 	}
 
 	// The latest ones, which is also what keeps a bucket the read cut in half out of
-	// the answer: see spareBucketCount.
-	latestBuckets := buckets[len(buckets)-indicatorCalculationDomain.candleCount:]
+	// the answer whenever there are more than were asked for: see spareBucketCount.
+	usedCandleCount := min(indicatorCalculationDomain.candleCount, len(buckets))
+	latestBuckets := buckets[len(buckets)-usedCandleCount:]
 
-	oldestFirstKCandleVos := make([]vo.KCandleVo, 0, indicatorCalculationDomain.candleCount)
+	oldestFirstKCandleVos := make([]vo.KCandleVo, 0, usedCandleCount)
 	for _, bucket := range latestBuckets {
 		oldestFirstKCandleVos = append(oldestFirstKCandleVos, bucket.ToVo())
 	}
 
 	return oldestFirstKCandleVos, nil
+}
+
+// CandleCount is how many finished buckets this calculation would need to have a
+// value for every position the caller is looking at. Answered alongside how many were
+// actually used, it is what lets a caller say a stretch came out short without
+// working the number out a second time from the span and the look-back — and the day
+// the two derivations disagree, the sentence would be wrong with nothing reported.
+func (indicatorCalculationDomain IndicatorCalculationDomain) CandleCount() int {
+	return indicatorCalculationDomain.candleCount
 }
 
 // Parameters are this run's knobs, already settled: every declared one carries the

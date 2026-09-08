@@ -65,7 +65,10 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Na
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Description() string {
 	return "算一次指標。可以指名一支既有策略（strategyId），或自己帶一段算式（script）；" +
 		"兩者都給時以 strategyId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
-		"candleCount 是要餵幾根彙總 K 線，必須大於零。回傳的是指標值，不是 K 線。"
+		"candleCount 是要餵幾根彙總 K 線，必須大於零。回傳的是指標值，不是 K 線。" +
+		"存下來的行情不夠長時不會被拒絕，而是用手上有的算：回傳的 requiredCandleCount 是填滿要幾根、" +
+		"usedCandleCount 是實際用了幾根，兩者不同就表示這個讀數是以較少的行情算出來的，說結論時要講出來。" +
+		"requiredCandleCount 已經含了回看根數，所以它與你送出的 candleCount 本來就不會相等，不要拿它們互相比對。"
 }
 
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) ArgumentSchema() string {
@@ -86,8 +89,14 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ar
 //
 // Every rule the calculation already obeys is obeyed here unrelaxed — an
 // unrecognised coarseness, a count outside its bounds, an algorithm that will not
-// run, too few candles to fill the count — and each comes back as the reason it was
-// refused, which the assistant reads and may act on.
+// run, a stretch of market too thin to yield a single value — and each comes back as
+// the reason it was refused, which the assistant reads and may act on.
+//
+// A stretch merely shorter than the count asked for is not among them: the
+// calculation answers over what is there, and the answer carries both the count a
+// full one would have taken and the count it worked from. Those travel to the
+// assistant as they are, so it can say a reading is based on less market than asked
+// for instead of presenting it as complete.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Run(
 	executionContext context.Context, arguments string,
 ) (string, error) {

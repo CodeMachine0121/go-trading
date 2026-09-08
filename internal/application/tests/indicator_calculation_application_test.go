@@ -13,6 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -110,16 +111,40 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 		assert.Contains(t, err.Error(), "計算根數必須大於零")
 	})
 
-	t.Run("refuses when too few finished buckets are there", func(t *testing.T) {
+	t.Run("answers over a short stretch instead of refusing it", func(t *testing.T) {
+		// Three buckets asked for, one stored. The line comes back shorter rather than
+		// not at all, and the pair of counts is what says so.
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorCutoff, 4).
 			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(map[string]vo.IndicatorValueVo{}, nil)
 
-		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(3))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(
+			t.Context(), indicatorRequest(3))
 
-		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, err.Error(), "湊得出 1 根，但要求 3 根")
+		require.NoError(t, err)
+		assert.Equal(t, 3, resultDto.RequiredCandleCount)
+		assert.Equal(t, 1, resultDto.UsedCandleCount)
+	})
+
+	t.Run("refuses a stretch too thin to yield one value", func(t *testing.T) {
+		fixture := newIndicatorUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorCutoff, 4).
+			Return(nil, nil)
+
+		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(
+			t.Context(), indicatorRequest(3))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationCandleCoverageTooThin)
+		availableCandleCount, minimumCandleCount, isTooThin :=
+			domains.CandleCoverageShortfall(err)
+		require.True(t, isTooThin)
+		assert.Equal(t, 0, availableCandleCount)
+		assert.Equal(t, 1, minimumCandleCount)
 	})
 
 	t.Run("passes a script failure through untouched", func(t *testing.T) {
