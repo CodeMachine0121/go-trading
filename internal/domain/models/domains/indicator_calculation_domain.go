@@ -197,7 +197,25 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SourceCandleLimit()
 // plus one bucket, and a trading symbol has at most one candle per slot — so a read
 // that reached its limit has necessarily merged at least that many buckets. Coming
 // out with fewer buckets than were asked for therefore proves the read never reached
-// its limit: storage was exhausted, and the earliest bucket is whole.
+// its limit: storage was exhausted, and no cut by the limit is in the answer.
+//
+// **What that does not prove is that the earliest bucket is full**, and at a
+// coarseness that merges several candles it often is not. Ingestion backfills from a
+// plain wall-clock moment, which lands nowhere near a bucket edge, so the oldest
+// stored candle sits somewhere inside its bucket: at one day, the earliest bucket of
+// a symbol backfilled from 14:03 merges ten hours of trading and is presented as a
+// day, with that afternoon's opening price and roughly half a day's volumes. A short
+// answer's first value can be computed from it, and usedCandleCount counts it as a
+// bucket like any other.
+//
+// It is left in, and that is a decision rather than an oversight. A single candle at
+// 07:35 is either an hour the market barely traded or an hour storage only caught the
+// end of, and nothing here can tell those apart — the same ambiguity that stops this
+// calculation from demanding a full bucket at the live edge, where the choice was
+// also to answer and name the limit. Dropping it would cost every coarse read one
+// value (N values would want N+1 buckets of history) and would refuse thin symbols a
+// value they had earned. Naming it is the cheaper honesty; the caller that needs a
+// settled first value asks over a stretch it knows is fully stored.
 func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	newestFirstKCandles []entities.KCandle,
 ) ([]vo.KCandleVo, error) {

@@ -189,7 +189,7 @@ func TestCalculateIndicator(t *testing.T) {
 			t.Context(), calculationRequest("BTCUSDT", 30))
 
 		require.NoError(t, err)
-		assert.Equal(t, 30, resultDto.CandleCount, "整段填滿要三十根")
+		assert.Equal(t, 30, resultDto.RequiredCandleCount, "整段填滿要三十根")
 		assert.Equal(t, 1, resultDto.UsedCandleCount, "手上只有一根")
 		assert.Len(t, resultDto.OpenTimes, 1, "起始時間的個數等於實際採用根數")
 	})
@@ -207,7 +207,7 @@ func TestCalculateIndicator(t *testing.T) {
 			t.Context(), calculationRequest("BTCUSDT", 3))
 
 		require.NoError(t, err)
-		assert.Equal(t, 3, resultDto.CandleCount)
+		assert.Equal(t, 3, resultDto.RequiredCandleCount)
 		assert.Equal(t, 3, resultDto.UsedCandleCount)
 	})
 
@@ -407,7 +407,7 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 			calculationRequestOf("BTCUSDT", 30, "bool"))
 
 		require.NoError(t, err)
-		assert.Equal(t, 30, resultDto.CandleCount)
+		assert.Equal(t, 30, resultDto.RequiredCandleCount)
 		assert.Equal(t, 3, resultDto.UsedCandleCount)
 	})
 

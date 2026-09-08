@@ -159,7 +159,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		recorder := fixture.post(indicatorBody)
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
-		assert.Contains(t, recorder.Body.String(), `"candleCount":2`)
+		assert.Contains(t, recorder.Body.String(), `"requiredCandleCount":2`)
 		assert.Contains(t, recorder.Body.String(), `"usedCandleCount":1`)
 	})
 

@@ -88,12 +88,24 @@ func calculationFor(
 	return calculationDomain
 }
 
-// hourlyOpenTimesEndingBefore lists that many whole hours, newest first, all of them
-// finished by the moment the tests ask at — so the count of buckets is exactly the
-// count asked for here.
-func hourlyOpenTimesEndingBefore(hourCount int) []string {
-	openTimes := make([]string, 0, hourCount)
-	for hoursBack := 1; hoursBack <= hourCount; hoursBack++ {
+// hourlyOpenTimesEndingBefore lists whole hours reaching back that far, newest first,
+// all of them finished by the moment the tests ask at — leaving out the hours named,
+// counted the same way, so that a stretch can be spanned with holes in it.
+//
+// Reaching back N hours and skipping none gives N buckets; skipping one gives N−1
+// from the same span, which is the only way to tell "no market in that hour" apart
+// from "the stretch is one hour shorter".
+func hourlyOpenTimesEndingBefore(hoursBackLimit int, untradedHoursBack ...int) []string {
+	skipped := make(map[int]bool, len(untradedHoursBack))
+	for _, hoursBack := range untradedHoursBack {
+		skipped[hoursBack] = true
+	}
+
+	openTimes := make([]string, 0, hoursBackLimit)
+	for hoursBack := 1; hoursBack <= hoursBackLimit; hoursBack++ {
+		if skipped[hoursBack] {
+			continue
+		}
 		openTimes = append(openTimes, calculationNow.
 			Truncate(time.Hour).
 			Add(-time.Duration(hoursBack)*time.Hour).
@@ -626,9 +638,14 @@ func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
 }
 
 func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
-	// Sixty hours of history but only fifty-nine of them traded: the empty hour is
-	// not a bucket, so a look-back of sixty still has nothing to say. Counting the
-	// gap would let a value out of fifty-nine candles and call it sixty.
+	// Sixty hours of history, but the market never traded in one of them. That hour
+	// is not a bucket, so a look-back of sixty still has nothing to say — and the
+	// refusal names 59, not 60.
+	//
+	// The gap has to be in the middle for this to mean anything. Sixty contiguous
+	// hours minus the oldest is just a shorter stretch, and that case is already
+	// covered above; only a hole inside the span tells "no market in that hour" apart
+	// from it, and only it would break if empty buckets were ever filled in.
 	requestDto := calculationRequest("1h", 100, time.Time{})
 	requestDto.Parameters = []dto.StrategyParameterWriteDto{
 		{Name: "期數", Kind: "lookbackCount", DefaultValue: 60}}
@@ -636,13 +653,16 @@ func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
 		requestDto, maxCandleCount, calculationNow)
 	require.NoError(t, buildError)
 
+	storedOpenTimes := hourlyOpenTimesEndingBefore(60, 31)
+	require.Len(t, storedOpenTimes, 59, "六十小時的跨度，中間缺一小時")
+
 	_, selectionError := calculationDomain.SelectInputCandles(
-		storedCandlesNewestFirst(hourlyOpenTimesEndingBefore(59)...))
+		storedCandlesNewestFirst(storedOpenTimes...))
 
 	availableCandleCount, minimumCandleCount, isTooThin :=
 		domains.CandleCoverageShortfall(selectionError)
 	require.True(t, isTooThin)
-	assert.Equal(t, 59, availableCandleCount)
+	assert.Equal(t, 59, availableCandleCount, "空的那一格不算一格")
 	assert.Equal(t, 60, minimumCandleCount)
 }
 

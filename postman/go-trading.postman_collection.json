@@ -1950,7 +1950,7 @@
 									"    pm.response.to.have.status(200);",
 									"});",
 									"pm.test(\"填滿這一段要 4 根，而且真的填滿了\", function () {",
-									"    pm.expect(pm.response.json().candleCount).to.eql(4);",
+									"    pm.expect(pm.response.json().requiredCandleCount).to.eql(4);",
 									"});",
 									"pm.test(\"用了 4 根\", function () {",
 									"    pm.expect(pm.response.json().usedCandleCount).to.eql(4);",
@@ -2435,7 +2435,7 @@
 								"indicator-calculations"
 							]
 						},
-						"description": "要了 999 根，走完的刻度區間只湊得出準備好的那 5 根。**這不是拒絕**：要幾根是由「要看多長」推出來的，一段只有部分存下來的行情不算問錯，所以算式拿到手上那 5 根，回應同時說出「填滿要 999 根」與「實際用了 5 根」。\n\n兩個數字並列回報，呼叫端才說得出一句不混單位的話——兩者同為彙總 K 線的根數。",
+						"description": "要了 999 根，走完的刻度區間只湊得出準備好的那 5 根。**這不是拒絕**：要幾根是由「要看多長」推出來的，一段只有部分存下來的行情不算問錯，所以算式拿到手上那 5 根，回應同時說出「填滿要 999 根」（`requiredCandleCount`）與「實際用了 5 根」（`usedCandleCount`）。\n\n兩個數字並列回報，呼叫端才說得出一句不混單位的話——兩者同為彙總 K 線的根數。\n\n回應那個數字**不叫** `candleCount`：請求裡的 `candleCount` 是「要為幾個位置拿到值」，回應的 `requiredCandleCount` 已經含了回看根數，兩者本來就不會相等，同名只會招來一個不存在的落差。",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"candleCount\": 999,\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
@@ -2456,7 +2456,7 @@
 									"    pm.response.to.have.status(200);",
 									"});",
 									"pm.test(\"填滿這一段要 999 根\", function () {",
-									"    pm.expect(pm.response.json().candleCount).to.eql(999);",
+									"    pm.expect(pm.response.json().requiredCandleCount).to.eql(999);",
 									"});",
 									"pm.test(\"實際只用得到 5 根\", function () {",
 									"    pm.expect(pm.response.json().usedCandleCount).to.eql(5);",

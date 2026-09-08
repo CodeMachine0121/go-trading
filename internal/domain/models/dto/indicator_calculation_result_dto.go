@@ -20,13 +20,18 @@ type IndicatorCalculationResultDto struct {
 	// Interval is the coarseness actually used, so a caller that named none still
 	// learns what it got.
 	Interval string `json:"interval"`
-	// CandleCount is how many finished buckets a full answer would have taken, and
-	// UsedCandleCount is how many there actually were to work from. They differ only
-	// when the stretch asked about is only partly stored, and they are answered
+	// RequiredCandleCount is how many finished buckets a full answer would have taken,
+	// and UsedCandleCount is how many there actually were to work from. They differ
+	// only when the stretch asked about is only partly stored, and they are answered
 	// together so that a caller can say so without deriving the first number a second
 	// time from the span and the look-back.
-	CandleCount     int `json:"candleCount"`
-	UsedCandleCount int `json:"usedCandleCount"`
+	//
+	// It is deliberately *not* called candleCount, which is what the request calls the
+	// span it wants values for. The two are different numbers — a request for 100
+	// values with a look-back of 20 needs 119 buckets — and sharing one name would
+	// invite a caller to compare them and report a discrepancy that is not one.
+	RequiredCandleCount int `json:"requiredCandleCount"`
+	UsedCandleCount     int `json:"usedCandleCount"`
 	// OpenTimes is where each candle the script saw begins, earliest first. The nth
 	// value of a list-shaped indicator belongs to the nth of these. It is answered
 	// whatever the kind: it describes what was read, not what came out.

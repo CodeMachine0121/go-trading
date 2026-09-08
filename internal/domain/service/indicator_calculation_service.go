@@ -106,10 +106,10 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		// What a full answer would have taken, next to what there was to work from.
 		// Both come from the calculation itself rather than being worked out here:
 		// this layer reports the two numbers, it never counts candles of its own.
-		CandleCount:     calculationDomain.CandleCount(),
-		UsedCandleCount: len(inputKCandleVos),
-		OpenTimes:       openTimes,
-		ResultType:      string(calculationDomain.ResultType().Value()),
+		RequiredCandleCount: calculationDomain.CandleCount(),
+		UsedCandleCount:     len(inputKCandleVos),
+		OpenTimes:           openTimes,
+		ResultType:          string(calculationDomain.ResultType().Value()),
 	}
 
 	// A signal has no indicator name, so it leaves as the result itself rather than

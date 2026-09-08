@@ -126,7 +126,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			t.Context(), indicatorRequest(3))
 
 		require.NoError(t, err)
-		assert.Equal(t, 3, resultDto.CandleCount)
+		assert.Equal(t, 3, resultDto.RequiredCandleCount)
 		assert.Equal(t, 1, resultDto.UsedCandleCount)
 	})
 
