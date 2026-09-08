@@ -57,6 +57,21 @@ func (mr *MockIKCandleRepositoryMockRecorder) Delete(executionContext, symbol, o
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIKCandleRepository)(nil).Delete), executionContext, symbol, openTime)
 }
 
+// DeleteAll mocks base method.
+func (m *MockIKCandleRepository) DeleteAll(executionContext context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAll", executionContext)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteAll indicates an expected call of DeleteAll.
+func (mr *MockIKCandleRepositoryMockRecorder) DeleteAll(executionContext any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockIKCandleRepository)(nil).DeleteAll), executionContext)
+}
+
 // FindDistinctSymbols mocks base method.
 func (m *MockIKCandleRepository) FindDistinctSymbols(executionContext context.Context) ([]string, error) {
 	m.ctrl.T.Helper()

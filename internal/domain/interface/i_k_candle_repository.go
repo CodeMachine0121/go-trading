@@ -39,4 +39,11 @@ type IKCandleRepository interface {
 		executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
 	) ([]entities.KCandle, error)
 	Delete(executionContext context.Context, symbol string, openTime time.Time) error
+	// DeleteAll removes every stored K candle and reports how many it removed.
+	//
+	// It is not Delete without arguments. Delete names one candle and says so when it
+	// names none; this one is the whole body of them at once, which is only ever
+	// wanted when what is stored has stopped meaning what it used to — and it reports
+	// a count rather than a not-found, because an empty store is a fine thing to find.
+	DeleteAll(executionContext context.Context) (int64, error)
 }

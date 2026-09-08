@@ -180,6 +180,25 @@ func (kCandleRepository *KCandleRepository) FindLatestBefore(
 	return kCandles, nil
 }
 
+// DeleteAll removes every stored K candle and reports how many it removed. Removing
+// none is not a failure: a store with nothing in it is already in the state asked for.
+//
+// The global-update session is how GORM is told this really is meant to reach every
+// row — without it a delete with no condition is refused, which is the right default
+// and the wrong answer here.
+func (kCandleRepository *KCandleRepository) DeleteAll(
+	executionContext context.Context,
+) (int64, error) {
+	result := kCandleRepository.database.WithContext(executionContext).
+		Session(&gorm.Session{AllowGlobalUpdate: true}).
+		Delete(&entities.KCandle{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("delete every k candle: %w", result.Error)
+	}
+
+	return result.RowsAffected, nil
+}
+
 // Delete removes the K candle named by trading symbol and open time, reporting not
 // found when it names no candle.
 func (kCandleRepository *KCandleRepository) Delete(
