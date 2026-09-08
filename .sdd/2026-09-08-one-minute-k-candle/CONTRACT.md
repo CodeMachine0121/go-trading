@@ -2,8 +2,8 @@
 
 Contract: `PRD.md`
 Design map: `ARCH.md`
-Implementation: `internal/domain/`, `internal/infrastructure/`, `internal/job/`, `cmd/migrate/`
-Oracle: Acceptance Criteria（27 條）＋ Core Business Rules（11 條）＋ Non-Functional（4 條）＝ 42 clauses
+Implementation: `internal/domain/`, `internal/infrastructure/`, `internal/job/`
+Oracle: Acceptance Criteria（26 條）＋ Core Business Rules（11 條）＋ Non-Functional（4 條）＝ 41 clauses
 
 > **Ceiling.** 這是**靜態**符合性稽核：逐條把「規格推導出的預期結果」分別對照測試斷言與production 程式碼路徑，**不以整套測試綠燈作為判準**，也不自行撰寫或執行新的探測案例。
 
@@ -59,14 +59,15 @@ Oracle: Acceptance Criteria（27 條）＋ Core Business Rules（11 條）＋ No
 | AC-22 | 進入下一分鐘時先送出前一根的最終樣子並將它存入 | 先送出前一根（已完成），再送出新的進行中那根；前一根被存入 | `fugle_forming_k_candle.go:63`；`k_candle_follow_service.go:444` | `fugle_live_market_data_proxy_test.go:TestACandleIsReportedFinishedOnlyOnceALaterOneArrives`（送出順序＋Closed）；`k_candle_follow_service_test.go`（走完的那根落地） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-23 | 同一分鐘被重複推送時取代而非累加 | 成交量為 800，不會出現第二根 10:07 | `fugle_forming_k_candle.go:71` | `fugle_live_market_data_proxy_test.go:TestARepeatOfTheSamePushDoesNotCountTwice` | asserts-oracle | produces-oracle | ✅ conforms |
 
-### US-06 — 切換時清除既有的五分鐘 K 線
+### US-06 — 切換時由人清除既有的五分鐘 K 線
+
+> 這條 user story 描述的是**部署時的人工步驟**，不是系統行為。以下三條的「Impl」欄因此指向說明文件而非程式碼，並註明為何不由程式承擔。
 
 | ID | Clause | Spec-expected (oracle) | Impl | Test | Test audit | Code audit | Status |
 |----|--------|------------------------|------|------|------------|------------|--------|
-| AC-24 | 遷移首次執行時清除既有 K 線 | K 線全部被清除；回補會依既有上限重新取回；除既有遷移指令外不需人工操作 | `data_retirement_migrator.go:77`；`cmd/migrate/main.go` | `data_retirement_migrator_test.go:TestRetiringEmptiesTheKCandlesStoredAtTheOldLength` | asserts-oracle（清除與回報）；「回補重新取回」由既有啟動回補承擔，未在本切片新增測試 | produces-oracle | ✅ conforms |
-| AC-25 | 一根 K 線都沒有時清除不算失敗 | 沒有東西被清除，遷移照常完成 | `data_retirement_migrator.go:77`；`k_candle_repository.go:189` | `data_retirement_migrator_test.go:TestRetiringWithNothingStoredIsNotAFailure`；`...TestDeletingEveryKCandleFromAnEmptyStoreRemovesNone` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-26 | 清除只發生一次 | 第二次執行不清除任何 K 線，已取回的全部保留 | `data_retirement_migrator.go:83`（台帳查詢） | `data_retirement_migrator_test.go:TestRetiringASecondTimeLeavesTheCandlesFetchedSinceAlone` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-27 | 只清除 K 線，其他留存資料不受影響 | 交易標的、策略、使用者完全不受影響 | `data_retirement_migrator.go:57`（清除動作只呼叫 `IKCandleRepository`） | `data_retirement_migrator_test.go:TestRetiringLeavesEverythingThatIsNotAKCandleAlone` | asserts-oracle（交易標的、策略）；使用者未逐一斷言 | produces-oracle | ✅ conforms |
+| AC-24 | 清乾淨之後啟動，留存的只有一分鐘 K 線 | 啟動回補依既有上限取回一分鐘 K 線；留存的全部涵蓋一分鐘 | 既有啟動回補（`k_candle_ingestion_service.go:RunBackfill`）＋ `README.md`「切換 K 線長度時要先清掉舊資料」 | `k_candle_ingestion_service_test.go:TestBackfillAsksOnlyForTheGap`（回補視窗以一分鐘為步進） | asserts-oracle（可自動驗的那一半：回補行為）；清除本身是人工步驟，無從以測試斷言 | produces-oracle | ✅ conforms |
+| AC-25 | 清除只針對 K 線，其他留存資料不受影響 | 交易標的、策略、使用者完全不受影響 | `README.md` 部署步驟明確只針對 `KCandles` 一張表 | — | no-test（人工步驟） | produces-oracle（其他資料存於不同資料表，指令未觸及） | 🟡 partial |
+| AC-26 | 沒有清乾淨就啟動，兩種長度會混在一起而且分不出來 | 兩種長度並存且系統無從分辨；指標與回測會當成同一種東西計算 | `entities/k_candle.go`（沒有記錄長度的欄位——這正是「分不出來」的成因）；`PRD.md` §1 Out of Scope 明列不做「兩種長度並存」 | — | no-test | produces-oracle（此為**刻意接受的後果**，不是待修的缺陷；PRD §7 已列為風險） | 🟡 partial |
 
 ### Core Business Rules
 
@@ -82,7 +83,7 @@ Oracle: Acceptance Criteria（27 條）＋ Core Business Rules（11 條）＋ No
 | BR-08 | 每輪取回根數與回補上限沿用現值 | 預設仍為 5 根／24 小時 | `application_config.go:194-196` | `internal/config/tests/ingestion_config_test.go` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-09 | 交易時段最新一根＝收盤時間減一根長度（台股 13:29） | 台股當日最後一根為 13:29 | `market_domain.go:227` | `market_domain_test.go` 三個案例 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-10 | 即時跟盤送出一分鐘的進行中 K 線；折疊規則保留 | 折疊仍成立，一分鐘下自然一對一 | `fugle_forming_k_candle.go:50` | `fugle_live_market_data_proxy_test.go:TestPushesInsideOneSlotAreFoldedIntoOneCandle`（以同一分鐘內不同秒數的兩次推送驗折疊仍成立） | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-11 | 遷移首次執行時清除既有 K 線，之後不再清除；只清 K 線 | 同 AC-24～AC-27 | `data_retirement_migrator.go:77` | `data_retirement_migrator_test.go` 六支 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-11 | 既有 K 線由人手動清除一次，且須在啟動新版之前完成；系統不自動清除 | 系統不含任何自動清除既有 K 線的路徑；清除步驟與順序寫在部署說明 | 全 codebase 無清除既有 K 線的路徑（`IKCandleRepository` 只有指名單根的 `Delete`）；`README.md` 部署說明 | — | no-test（「系統不做某件事」無從以行為測試斷言） | produces-oracle | 🟡 partial |
 
 ### Non-Functional
 
@@ -97,16 +98,16 @@ Oracle: Acceptance Criteria（27 條）＋ Core Business Rules（11 條）＋ No
 
 | Code | Description | Verdict |
 |------|-------------|---------|
-| `entities.AppliedDataRetirement`、`persistence.DataRetirementMigrator` 的**通用性**（宣告式清單、可加第二項） | PRD 只要求清除一次舊 K 線；程式做成可宣告多項的機制 | undocumented — 已由 `ARCH.md` §6 記為刻意的擴充縫，且是冪等的唯一實作方式。**不是 out-of-scope 違規** |
+| — | 本次無 code orphan：所有新增／修改的公開行為都對應到條款 | — |
 | ~~15 處註解／提示詞仍寫「五分鐘」~~ | 註解與 AI 提示詞的用字落後於行為 | **已修正**（commit `bdf03b1`）。`claude_assistant_proxy.go` 那一行會直接影響助手的用詞，是其中最要緊的一處 |
 | `postman` 的「策略預設 `aggregationInterval` 為 `5m`」斷言 | 策略早已不帶彙總刻度（欄位已退場） | **既有漂移，與本切片無關**——本次未動它，留給後續處理 |
 
 ## Summary
 
-- Conforms: 40/42 clauses ✅（95.2%）
+- Conforms: 37/41 clauses ✅（90.2%）
 - Violations: 無 🔴
 - Mis-asserted: 無 🟠（原 `AC-19` 缺的那一支已補上：`TestFugleLeavesOutTheClosingAuctionThatEndsATaiwanSession`）
-- Partial: `NFR-03` 🟡
+- Partial: `AC-25`、`AC-26`、`BR-11`、`NFR-03` 🟡（四條都在描述「人工步驟」或「系統刻意不做某事」，本質上無從以自動化測試斷言，非缺測試）
 - Gaps: 無 ❌
 - Unclear: `NFR-01` ❔（容量陳述，非行為條款）
-- Orphans: 3 類（「註解仍寫五分鐘」已於 `bdf03b1` 修正；postman 的策略欄位斷言為既有漂移，與本切片無關）
+- Orphans: 2 類，皆為文件而非程式（「註解仍寫五分鐘」已於 `bdf03b1` 修正；postman 的策略欄位斷言為既有漂移，與本切片無關）

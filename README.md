@@ -38,8 +38,8 @@ make start               # 啟動於 SERVER_PORT（預設 8080）
 ```
 
 `make migrate` 與 `make start` 是分開的：**server 啟動時不會動 schema**，
-資料表變更一律由 migrate 指令明確套用。它同時負責**一次性的資料退場**——
-見下方「舊資料的退場」。
+資料表變更一律由 migrate 指令明確套用。**它只動結構，不動資料**——一次性的資料清理
+由人自己來，見下方「切換 K 線長度時要先清掉舊資料」。
 
 確認服務活著：
 
@@ -700,28 +700,30 @@ default trading symbols: registered 2 new (BTCUSDT, ETHUSDT)
 
 重跑幾次都安全，第二次起會說 `already registered, nothing to add`。
 
-## 舊資料的退場
+## 切換 K 線長度時要先清掉舊資料
 
-有些改動會讓**已經存的資料不再代表原本的意思**。這種資料留著比刪掉危險：它長得跟新資料
-一模一樣，計算時會被當成同一種東西，算出來的結果沒有人看得出是錯的。
+**K 線長度改了，既有的 K 線就得清掉，而且要在啟動新版之前清。** 系統不會自己做這件事。
 
-`make migrate` 因此還有一步「資料退場」，把這類資料清掉一次：
+理由是舊資料留著比刪掉危險：一根涵蓋五分鐘的 K 線和一根涵蓋一分鐘的，欄位、形狀、
+起始時間刻度**完全相同**，分不出來。混在一起之後，指標計算與回測會把兩者當成同一種東西，
+算出來的數字沒有人看得出是錯的。
 
+順序不能反：
+
+```bash
+# 1. 停掉 server（Ctrl+C 或 SIGTERM）
+# 2. 清掉 K 線——只清這一張，其他資料不要動
+docker exec postgres psql -U postgres -d go_trading -c 'TRUNCATE "KCandles";'
+# 3. 用新版啟動
+make start
 ```
-data retirements: applied 1 (k-candles-before-one-minute-granularity)
-```
 
-目前只有一項：**K 線由五分鐘一根改為一分鐘一根**之前存下來的那些。兩者的欄位、形狀、
-起始時間刻度完全相同，分不出來，所以一律清除，由啟動回補依 `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS`
-重新抓回一分鐘 K 線。
+啟動回補會依 `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS`（預設 24 小時）把新長度的
+K 線重新抓回來，不需要別的動作。**回補上限之外的歷史資料是真的沒了**——本專案不以長期
+留存歷史為目的，判斷依據本來就只用到回補上限內的資料；真要留就自己先備份。
 
-**只會發生一次。** 做過的退場記在 `AppliedDataRetirements`，第二次起會說
-`already applied, nothing to retire`——沒有這張表，重跑一次 migrate 就會把回補剛抓回來的
-K 線再刪一次。**只清 K 線**，交易標的、策略、使用者完全不受影響。
+交易標的、策略、使用者都存在別的資料表，不受影響。
 
-要再加一項退場：到 `internal/infrastructure/persistence/data_retirement_migrator.go` 的
-`retiredDataSets` 補一列（一個名稱 + 一段清除動作）。**名稱用過就不能改**——它是「做過了沒」
-的唯一依據。
 預設清單寫在 `internal/domain/service/trading_symbol_service.go` 的 `defaultTradingSymbols`，
 目前不可用環境變數設定。
 

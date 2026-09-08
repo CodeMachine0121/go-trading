@@ -9,7 +9,7 @@
 ## 1. Design Goal & Guiding Principle
 
 - **In one sentence:**
-  把系統唯一的 K 線長度由五分鐘改為一分鐘，讓「一分鐘」成為最細的彙總刻度與預設值、自動抓取跟著改為每分鐘一輪，並在遷移時把舊顆粒度的 K 線一次清乾淨。
+  把系統唯一的 K 線長度由五分鐘改為一分鐘，讓「一分鐘」成為最細的彙總刻度與預設值，自動抓取跟著改為每分鐘一輪。舊顆粒度的 K 線由人在切換時手動清除一次，系統不為此新增任何機制。
 
 - **Guiding principle:**
   **把「一根 K 線多長」收斂成整個系統唯一一個常數，並讓每個依賴它的地方從它推導出自己的說法。**
@@ -33,10 +33,8 @@
 | `marketdata.FugleLiveMarketDataProxy` / `fugleFormingKCandle` | **Modify** | 刪掉自己的長度常數，改用匯出的那一個；折疊邏輯**不動**（一分鐘下自然成為一對一） |
 | `job.KCandleIngestionJob` | **Modify** | `KCandleIngestionInterval` 由匯出的長度常數推導，讓「間隔等於 K 線長度」變成由結構保證而非由註解承諾 |
 | `assistantqueries`（兩支查詢的參數說明） | **Modify** | 彙總刻度的可選值加入 `1m` |
-| `entities.AppliedDataRetirement` | **Add** | 記錄哪一次一次性資料清除已經做過，讓清除**冪等** |
-| `persistence.DataRetirementMigrator` | **Add** | 宣告式的一次性資料清除：跑沒跑過的、跳過跑過的 |
-| `IKCandleRepository.DeleteAll` | **Add** | 清除所有 K 線。一 entity 一 repository，清除是 K 線的寫入動作，放它自己的 repository |
-| `cmd/migrate` | **Modify** | 結構同步之後多跑一步資料清除，並把結果印出來 |
+| 既有 K 線的清除 | **Not touched** | 由人在切換時手動執行一次（PRD §4 R-11）。系統要「只清一次」就得留存做過沒做過，代價是一張表加一套機制——為只發生一次的動作養一輩子的狀態並不划算 |
+| `cmd/migrate` | **Not touched** | 本次沒有結構變更，也不加資料清除步驟；它仍然只同步結構與登錄預設市場 |
 | `entities.KCandle` / `KCandles` 資料表 | **Not touched** | 本次**沒有任何結構變更**。不加「這根多長」的欄位——那是「兩種長度並存」，PRD 已明列為 out of scope |
 | `domains.MarketDomain` | **Not touched** | 它算「當日最新一根」時本來就是「收盤時間減一根的長度」，長度一改就自動由 13:25 變 13:29。**改它反而是錯的** |
 | `domains.KCandleIngestionDomain` | **Not touched** | 已經只透過那個長度常數表達所有視窗規則，長度一改全部自動跟上 |
@@ -48,19 +46,11 @@
 
 ## 3. New Classes / Modules
 
-| Name | Kind | Responsibility (purpose) | Collaborators | Satisfies (PRD scenario) |
-| :--- | :--- | :--- | :--- | :--- |
-| `entities.AppliedDataRetirement` | Entity（乾淨 data model） | 記住某一次一次性資料清除已經做過。只有名稱與執行時間兩個欄位，名稱即主鍵 | — | Scenario: 清除只發生一次 |
-| `persistence.DataRetirementMigrator` | Migrator（infrastructure） | 擁有「一次性資料清除」這件事的全部：有哪些、哪些做過了、怎麼記下來。對外只有一個 `Retire`，回報這次真正做了哪幾項 | `IKCandleRepository`、`AppliedDataRetirement` | Scenario: 遷移首次執行時清除既有 K 線 / 一根 K 線都沒有時清除不算失敗 / 清除只發生一次 / 只清除 K 線 |
+**沒有新類別。** 這次改動的全部價值在於「把一個數字收斂成一個來源」，那是既有型別的修改，不是新結構。
 
-### 深度檢查（`DataRetirementMigrator`）
-
-- **介面夠簡單嗎？** 對外只有 `Retire(executionContext) ([]string, error)`。呼叫端不需要先問「做過了嗎」再決定要不要做——那正是把冪等外洩給呼叫端。
-- **複雜度藏在裡面嗎？** 清單、查紀錄、寫紀錄、逐項執行全部在內部。
-- **名字有 And / Then 嗎？** 沒有。它做的是一件事：**把該退場的資料退場**。
-- **參數會長大嗎？** 不會。新增一次清除是在內部清單加一列，不是多一個參數。
-
----
+原本考慮為「舊資料清除」新增一個台帳 entity 與一個 migrator，讓清除**冪等**。後來否決：
+清除只會發生這一次，而冪等機制要留存的狀態會活得比它服務的那次動作久得多。清除改由人手動執行一次，
+系統不留任何痕跡——代價是「記得做」與「順序不能反」落到人身上，這一點寫在部署說明與 PRD §7 風險表裡。
 
 ## 4. Modified Components
 
@@ -75,9 +65,6 @@
 | `marketdata.FugleLiveMarketDataProxy` | 自有 `fugleCandleInterval = 5 * time.Minute` | 刪除此常數，`fugleFormingKCandle` 改用 `domains.KCandleInterval` 截斷。**折疊演算法本身不動** |
 | `job.KCandleIngestionJob` | `KCandleIngestionInterval = 5 * time.Minute`，註解聲稱「與 K 線長度一致」 | 改為 `= domains.KCandleInterval`，讓那句註解由結構保證 |
 | `assistantqueries`（`k_candle_series_assistant_query.go`、`indicator_calculation_assistant_query.go`） | 參數說明中列出彙總刻度的可選值 | 加入 `1m`。**刻意保留字面值**：抽出一個 package-level 的「取得所有可選拼法」函式會違反本專案「不放散落的靜態工具函式」規則，而為此在領域物件上開一個不需要實例的方法同樣不對。這份重複已存在（五個值兩處），本次不擴大它的形狀，只多一個值 |
-| `IKCandleRepository` / `KCandleRepository` | K 線的讀寫入口 | 新增 `DeleteAll`。**清除是 K 線的寫入動作**，依「一 entity 一 repository、讀寫同處」放這裡，而不是讓 migrator 自己下手。以 GORM 的 `AllowGlobalUpdate` session 執行，不拼任何 SQL 字串 |
-| `persistence.SchemaMigrator` | 由 entity 同步結構、丟掉退場欄位 | 註冊 `AppliedDataRetirement` 這個新 entity。**其餘不動**——結構退場與資料退場是兩件事，塞進同一個物件會讓它有兩個改變的理由 |
-| `cmd/migrate/main.go` | 同步結構 → 登錄預設市場 | 中間插入一步：結構同步之後、登錄市場之前執行資料退場，並印出這次真正做了哪幾項 |
 
 ---
 
@@ -99,18 +86,11 @@ flowchart TD
         FP["FugleMarketDataProxy<br/>拼成 1"]
         FLP["FugleLiveMarketDataProxy<br/>折疊為一對一"]
         KR[("KCandleRepository")]
-        DRM["DataRetirementMigrator"]
-        SM["SchemaMigrator"]
     end
 
     subgraph Job["Background Job"]
         KIJ["KCandleIngestionJob<br/>間隔 = KCandleInterval"]
     end
-
-    Migrate["cmd/migrate"] --> SM
-    Migrate --> DRM
-    DRM --> KR
-    DRM --> ADR[("AppliedDataRetirements")]
 
     KCI --> KCD
     KCI --> AID
@@ -130,21 +110,19 @@ flowchart TD
 - **Most likely next requirement:**
   1. **「我想同時看一分鐘與五分鐘的原始 K 線」**——也就是本次明確排除的「兩種長度並存」。
   2. **再換一次基礎長度**（例如改成十五秒或三分鐘）。
-  3. **再一次一次性資料清除**（下一個改變資料意義的功能）。
+  3. **同一次切換再發生一遍**（下一個改變既有資料意義的功能）——那時要決定的仍是同一題：值不值得為它蓋機制。
 
 - **Where it lands:**
   - 換長度 → **只有 `domains.KCandleInterval` 一行**。所有行情來源的拼法、抓取間隔、彙總換算、交易時段收尾全部由它推導。
-  - 再一次資料清除 → `DataRetirementMigrator` 內部的清單加一列。
   - 兩種長度並存 → 這是**唯一需要動結構**的方向：`KCandle` 要加上「這根多長」並進入唯一鍵，查詢／指標／回測都要跟著問長度。屆時 `KCandleInterval` 會從「唯一的長度」變成「預設的長度」，而不是被刪掉。
 
 - **How to add it:**
   - 換長度：改 `KCandleInterval`，跑測試。若新長度不是整數分鐘或不小於一小時，Binance 拼法那一行會需要調整——該處註解已寫明這個界線。
   - 新增彙總刻度：`vo` 加一個常數、`selectableAggregationIntervals` 加一列。**下游沒有任何地方會依刻度分支**（既有註解已如此承諾，本次維持）。唯一要順手補的是兩支助手查詢的可選值字面值。
-  - 新增一次性資料清除：`retiredDataSets` 加一列（一個名稱 + 一段清除動作）。名稱一旦用過就永遠不能改——它是「做過了沒」的唯一依據。
+  - 一次性資料清除：先問這件事會不會再發生。只發生一次就寫進部署說明由人執行；真的變成常態，才值得為它蓋一套會留存狀態的機制。
 
 - **Patterns applied & why:**
   - **單一真實來源（Single Source of Truth）**：`KCandleInterval`。針對的軸線是「長度會再變」。
-  - **宣告式清單 + 冪等台帳**：`DataRetirementMigrator`，比照既有 `retiredColumns` 的「說出口」哲學。針對的軸線是「還會有下一次一次性資料異動」。
   - 沒有引入 Strategy／Factory。K 線長度目前只有一個值，為它開多型是為想像中的需求付現在的代價。
 
 - **Do not hardcode:**
@@ -154,7 +132,6 @@ flowchart TD
 
 - **Known debt / deferred:**
   - **兩支助手查詢的彙總刻度字面值**與 `vo` 的常數重複。取捨理由見 §4。**該重視的訊號**：當彙總刻度增加到需要第三處列舉時，就值得為「可選刻度清單」找一個合法的居所（例如讓助手查詢向某個既有領域物件要）。
-  - **`DataRetirementMigrator` 目前只有一項清除**，看起來像為一件事蓋了一座框架。**該重視的訊號**：如果一年之內沒有第二項，下一個人可以合理地把它壓扁；台帳 entity 本身仍值得留著。
   - **全天候市場查一整天會超過單次查詢筆數上限**（1440 > 1000）。PRD §4 已明列為預期行為。**該重視的訊號**：使用者開始抱怨這件事時，要調的是設定值，不是規則。
 
 ---
@@ -186,10 +163,6 @@ flowchart TD
 | US-05 送出目前這一分鐘進行中的那一根 | `fugleFormingKCandle.absorb`（截斷長度改用 `KCandleInterval`） |
 | US-05 進入下一分鐘時先送出前一根的最終樣子 | `fugleFormingKCandle.absorb` |
 | US-05 同一分鐘被重複推送時取代而非累加 | `fugleFormingKCandle.contributions`（既有，不動） |
-| US-06 遷移首次執行時清除既有 K 線 | `DataRetirementMigrator.Retire` + `KCandleRepository.DeleteAll` |
-| US-06 一根 K 線都沒有時清除不算失敗 | `KCandleRepository.DeleteAll`（刪零筆不是錯誤） |
-| US-06 清除只發生一次 | `DataRetirementMigrator` + `AppliedDataRetirement` 台帳 |
-| US-06 只清除 K 線，其他留存資料不受影響 | `DataRetirementMigrator` 的清除動作只呼叫 `IKCandleRepository` |
 
 ---
 
@@ -200,13 +173,9 @@ flowchart TD
 | 風險 / 取捨 | 為什麼可以接受 |
 | :--- | :--- |
 | **由長度推導行情來源的拼法**比寫死字面值間接一層 | 換來的是「長度只寫一次」。兩個推導都只有一行，且各自的適用界線寫在註解裡；寫死才是這次改動之所以需要找齊五個地方的原因 |
-| **`DataRetirementMigrator` 為單一一項清除而存在** | 它同時是冪等的唯一實現方式。不做台帳就得接受「跑第二次會把剛抓回來的一分鐘 K 線也刪掉」，而 PRD 明確要求只發生一次 |
-| **清除不可逆，回補上限之外的歷史資料真的消失** | 本專案不以長期歷史留存為目的，且既有判斷依據本來就只用到回補上限內的資料。PRD §7 已載明 |
+| **清除不可逆、靠人記得做，且順序不能反** | 回補上限之外的歷史資料本來就不是判斷依據；「停系統 → 清資料 → 啟動」寫在 README 的部署說明與 PRD §7 風險表裡。系統不替人記得這件事，是這次刻意不蓋機制所接受的代價 |
 | **一分鐘顆粒度下，行情來源的提問頻率變為五倍** | 目前觀察三檔台股，距離其方案上限有大量餘裕。PRD §6 已載明擴充前須重新評估 |
 | **`Truncate` 對齊檢查在世界標準時間下才等價於「整分鐘」** | 系統所有起始時間本來就一律以世界標準時間表示與儲存（UL-MAP 已確認），且 `NewKCandleDomain` 第一步就把時間轉為世界標準時間 |
 
 ### Open decisions (for implementation)
 
-- **`AppliedDataRetirement` 的資料表名稱**：其他 entity 以 `TableName()` 釘成 PascalCase 複數（`KCandles`、`TradingSymbols`）。比照即可，取 `AppliedDataRetirements`，實作時確認一致。
-- **這次清除的名稱字串**：建議 `k-candles-before-one-minute-granularity`。一旦寫下就不可再改。
-- **`DeleteAll` 的 mock**：`IKCandleRepository` 變動後需重新產生 mock（`make mock`）。
