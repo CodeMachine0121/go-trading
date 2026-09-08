@@ -66,73 +66,49 @@ func NewDataRetirementMigrator(
 // names in the order they were applied. A run with nothing left to do reports nothing
 // and is not a failure.
 //
-// Each retirement is recorded in the same transaction that carries it out, so a
-// retirement can never be remembered as done without having been done, nor done twice
-// because the recording failed.
+// Each retirement does its work first and is recorded after. The other order reads as
+// the safer one and is not: a run that stopped between the two would have remembered
+// a retirement it never carried out, leaving data nothing will ever remove again.
+// This way the worst a stop between them costs is doing it once more next time, which
+// the startup backfill undoes by fetching the range again.
+//
+// Not knowing whether a retirement has run stops the whole thing rather than being
+// read as "not yet" — guessing that way would empty a store already refilled.
 func (dataRetirementMigrator *DataRetirementMigrator) Retire(
 	executionContext context.Context,
 ) ([]string, error) {
 	appliedNames := make([]string, 0, len(dataRetirementMigrator.retiredDataSets))
 
 	for _, retiredData := range dataRetirementMigrator.retiredDataSets {
-		wasApplied, applyError := dataRetirementMigrator.apply(executionContext, retiredData)
-		if applyError != nil {
-			return nil, applyError
+		// Counting rather than fetching: the row's contents are of no interest, and
+		// asking for one that is not there is the ordinary case here — reading that as
+		// the absence of a record rather than as a failure to find one keeps a first
+		// run from looking like something went wrong.
+		appliedCount := int64(0)
+		lookupError := dataRetirementMigrator.database.WithContext(executionContext).
+			Model(&entities.AppliedDataRetirement{}).
+			Where(&entities.AppliedDataRetirement{Name: retiredData.name}).
+			Count(&appliedCount).Error
+		if lookupError != nil {
+			return nil, fmt.Errorf("read applied data retirements: %w", lookupError)
 		}
-		if wasApplied {
-			appliedNames = append(appliedNames, retiredData.name)
+		if appliedCount > 0 {
+			continue
 		}
+
+		if _, retireError := retiredData.retire(executionContext); retireError != nil {
+			return nil, fmt.Errorf("apply data retirement %s: %w", retiredData.name, retireError)
+		}
+
+		if recordError := dataRetirementMigrator.database.WithContext(executionContext).
+			Create(&entities.AppliedDataRetirement{
+				Name: retiredData.name, AppliedAt: time.Now().UTC(),
+			}).Error; recordError != nil {
+			return nil, fmt.Errorf("record data retirement %s: %w", retiredData.name, recordError)
+		}
+
+		appliedNames = append(appliedNames, retiredData.name)
 	}
 
 	return appliedNames, nil
-}
-
-// apply carries out one retirement unless it has been carried out before, reporting
-// whether it did.
-//
-// The data goes first and the record is written after. The other order reads as the
-// safer one and is not: a run that stopped between the two would have remembered a
-// retirement it never carried out, leaving data nothing will ever remove again. This
-// way the worst a stop between them costs is doing it once more next time, which the
-// startup backfill undoes by fetching the range again.
-func (dataRetirementMigrator *DataRetirementMigrator) apply(
-	executionContext context.Context, retiredData retiredDataSet,
-) (bool, error) {
-	alreadyApplied, lookupError := dataRetirementMigrator.alreadyApplied(
-		executionContext, retiredData.name)
-	if lookupError != nil || alreadyApplied {
-		return false, lookupError
-	}
-
-	if _, retireError := retiredData.retire(executionContext); retireError != nil {
-		return false, fmt.Errorf("apply data retirement %s: %w", retiredData.name, retireError)
-	}
-
-	if recordError := dataRetirementMigrator.database.WithContext(executionContext).
-		Create(&entities.AppliedDataRetirement{
-			Name: retiredData.name, AppliedAt: time.Now().UTC(),
-		}).Error; recordError != nil {
-		return false, fmt.Errorf("record data retirement %s: %w", retiredData.name, recordError)
-	}
-
-	return true, nil
-}
-
-// alreadyApplied counts rather than fetches, because the row's contents are of no
-// interest and asking for one that is not there is the ordinary case here — reading
-// it as the absence of a record rather than as a failure to find one keeps a first
-// run from looking like something went wrong.
-func (dataRetirementMigrator *DataRetirementMigrator) alreadyApplied(
-	executionContext context.Context, name string,
-) (bool, error) {
-	appliedCount := int64(0)
-	lookupError := dataRetirementMigrator.database.WithContext(executionContext).
-		Model(&entities.AppliedDataRetirement{}).
-		Where(&entities.AppliedDataRetirement{Name: name}).
-		Count(&appliedCount).Error
-	if lookupError != nil {
-		return false, fmt.Errorf("read applied data retirements: %w", lookupError)
-	}
-
-	return appliedCount > 0, nil
 }
