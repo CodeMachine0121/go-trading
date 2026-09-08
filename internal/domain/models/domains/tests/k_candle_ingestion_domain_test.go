@@ -219,7 +219,13 @@ func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T
 			unalignedStart := testCase.currentTime.Add(-backfillLookback)
 
 			assert.Equal(t, testCase.expectedExtraSpan, unalignedStart.Sub(window.StartTime))
-			assert.Less(t, unalignedStart.Sub(window.StartTime), 24*time.Hour,
+			// The bound is one bucket of the coarsest coarseness, so it is derived
+			// rather than written down: the day a coarser interval is added, this
+			// keeps checking what the test's name says it checks.
+			coarsestBucketSpan := time.Duration(
+				domains.NewCoarsestAggregationIntervalDomain().SourceCandleCount(1)) *
+				domains.KCandleInterval
+			assert.Less(t, unalignedStart.Sub(window.StartTime), coarsestBucketSpan,
 				"多抓的量不會達到一整格")
 		})
 	}
