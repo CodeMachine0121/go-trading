@@ -1,4 +1,4 @@
-# 回補起點對齊刻度起日 — Architecture Design
+# 回補起點對齊刻度區間對齊基準 — Architecture Design
 
 **Status:** Confirmed
 **Source PRD:** `.sdd/2026-09-08-aligned-backfill-start/PRD.md`
@@ -106,6 +106,11 @@ flowchart TD
 
 - **Patterns applied & why:**
   沒有新模式。唯一的設計動作是**把一個既有規則問出來**（`BucketStart`）而不是複製它。
+
+- **順序不是契約：** 「最粗那一種」是**比對長度**取出來的，不是取清單的最後一個。
+  那份清單的「shortest first」只是一句註解，沒有任何東西強制它——
+  有人把新的一行插錯位置，就會靜靜地拿到不是最粗的那一種，
+  而由它推出來的每一個邊界都會是錯的、看起來卻很正常。
 
 - **Do not hardcode:**
   - **不得寫 `Truncate(24 * time.Hour)` 或任何「一天」的字面值。** 對齊到哪裡要問最粗那一種刻度；

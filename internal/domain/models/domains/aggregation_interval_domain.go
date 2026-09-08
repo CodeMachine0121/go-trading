@@ -94,9 +94,20 @@ func NewAggregationIntervalDomain(declared string) (AggregationIntervalDomain, e
 //
 // It cannot fail — the set is never empty — so unlike NewAggregationIntervalDomain
 // there is nothing to declare and nothing to refuse.
+//
+// It reads the lengths rather than trusting the set's shortest-first order. That order
+// is a comment, and nothing enforces it: a row inserted in the wrong place would
+// silently hand back an interval that is not the coarsest, and every bucket edge
+// derived from it would be wrong while looking ordinary.
 func NewCoarsestAggregationIntervalDomain() AggregationIntervalDomain {
-	return newAggregationIntervalDomain(
-		selectableAggregationIntervals[len(selectableAggregationIntervals)-1])
+	coarsestInterval := selectableAggregationIntervals[0]
+	for _, selectableInterval := range selectableAggregationIntervals {
+		if selectableInterval.duration > coarsestInterval.duration {
+			coarsestInterval = selectableInterval
+		}
+	}
+
+	return newAggregationIntervalDomain(coarsestInterval)
 }
 
 // newAggregationIntervalDomain is the only way an instance is built, so an interval

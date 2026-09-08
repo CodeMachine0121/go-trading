@@ -219,15 +219,12 @@ func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T
 
 			unalignedStart := testCase.currentTime.Add(-backfillLookback)
 
+			// The bound is the spec's own number, not one asked of the code being
+			// tested: derived from the coarsest interval it would widen by itself the
+			// day a coarser one is added, and go on passing while meaning less.
 			assert.Equal(t, testCase.expectedExtraSpan, unalignedStart.Sub(window.StartTime))
-			// The bound is one bucket of the coarsest coarseness, so it is derived
-			// rather than written down: the day a coarser interval is added, this
-			// keeps checking what the test's name says it checks.
-			coarsestBucketSpan := time.Duration(
-				domains.NewCoarsestAggregationIntervalDomain().SourceCandleCount(1)) *
-				domains.KCandleInterval
-			assert.Less(t, unalignedStart.Sub(window.StartTime), coarsestBucketSpan,
-				"多抓的量不會達到一整格")
+			assert.Less(t, unalignedStart.Sub(window.StartTime), 24*time.Hour,
+				"多抓的量不會達到一整天——回補上限的原始目的（避免第一輪暴衝）靠這個上界成立")
 		})
 	}
 }
@@ -289,7 +286,12 @@ func TestABucketIsWholeEvenWhenTheMarketOnlyTradedPartOfTheDay(t *testing.T) {
 	// it — the alignment is about where fetching starts, not about demanding that a
 	// day be busy. Refusing this would turn every listing day and every short session
 	// into missing data.
-	dayStart := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	//
+	// The day is taken from the window rather than written down, so this stays a
+	// statement about what a backfill produces — which is what this file is about.
+	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
+		BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+	dayStart := window.StartTime
 	firstTradeOfTheDay := dayStart.Add(3 * time.Hour)
 	storedKCandles := []entities.KCandle{
 		{
