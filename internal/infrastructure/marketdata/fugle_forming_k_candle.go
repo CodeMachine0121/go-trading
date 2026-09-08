@@ -18,9 +18,13 @@ import (
 // Both are worked out from the pushes themselves. A push is placed in the slot its
 // own time falls in, replacing whatever that slot last held from the same source
 // time; and a push landing in a later slot is what proves the earlier slot finished.
-// That reading is right whatever rate the source pushes at: at one bar a minute each
-// slot has a single contributor and folding is the identity, and a source that ever
-// pushed faster is folded rather than believed.
+//
+// It pushes several times a minute, not once. What arrives is the same minute
+// restated as it fills — 11:44 at a volume of 99, then the same 11:44 at 124, then
+// at 128 — so replacing by source time rather than adding is what keeps that minute
+// from being counted three times over. Two pushes bearing different times inside one
+// slot are a different case and really are folded together, which is what makes this
+// right at whatever rate the source chooses to talk.
 //
 // The last candle of a session is therefore never reported closed here — nothing
 // arrives after it to prove it finished. That is deliberate and costs nothing: the

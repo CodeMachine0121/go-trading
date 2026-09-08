@@ -359,10 +359,9 @@ func TestACandleIsReportedFinishedOnlyOnceALaterOneArrives(t *testing.T) {
 
 func TestPushesInsideOneSlotAreFoldedIntoOneCandle(t *testing.T) {
 	// The source does not say how long a pushed candle covers, and its subscription
-	// takes no length. Folding by the slot a push falls in is right whatever rate it
-	// pushes at — at one bar a minute each slot has a single contributor and folding
-	// is the identity, and a source that ever pushed faster is folded rather than
-	// believed.
+	// takes no length. Folding by the slot a push falls in is what makes that not
+	// matter: two pushes bearing different times inside one slot become one candle,
+	// however often the source chooses to talk.
 	stream := newFugleStreamUnderTest(t)
 	liveKCandles := stream.follow(t)
 
@@ -401,7 +400,9 @@ func TestASlotIsOpenedAndClosedByTimeRatherThanByArrivalOrder(t *testing.T) {
 }
 
 func TestARepeatOfTheSamePushDoesNotCountTwice(t *testing.T) {
-	// A source restating a bar it already sent must not double the slot's volume.
+	// The ordinary case, not an edge one: this source restates the same minute several
+	// times as it fills, so a slot that added instead of replacing would count that
+	// minute's volume once per push.
 	stream := newFugleStreamUnderTest(t)
 	liveKCandles := stream.follow(t)
 
