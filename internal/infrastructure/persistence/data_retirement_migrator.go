@@ -2,7 +2,6 @@ package persistence
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -119,18 +118,21 @@ func (dataRetirementMigrator *DataRetirementMigrator) apply(
 	return true, nil
 }
 
+// alreadyApplied counts rather than fetches, because the row's contents are of no
+// interest and asking for one that is not there is the ordinary case here — reading
+// it as the absence of a record rather than as a failure to find one keeps a first
+// run from looking like something went wrong.
 func (dataRetirementMigrator *DataRetirementMigrator) alreadyApplied(
 	executionContext context.Context, name string,
 ) (bool, error) {
+	appliedCount := int64(0)
 	lookupError := dataRetirementMigrator.database.WithContext(executionContext).
+		Model(&entities.AppliedDataRetirement{}).
 		Where(&entities.AppliedDataRetirement{Name: name}).
-		First(&entities.AppliedDataRetirement{}).Error
-	if lookupError == nil {
-		return true, nil
-	}
-	if errors.Is(lookupError, gorm.ErrRecordNotFound) {
-		return false, nil
+		Count(&appliedCount).Error
+	if lookupError != nil {
+		return false, fmt.Errorf("read applied data retirements: %w", lookupError)
 	}
 
-	return false, fmt.Errorf("read applied data retirements: %w", lookupError)
+	return appliedCount > 0, nil
 }
