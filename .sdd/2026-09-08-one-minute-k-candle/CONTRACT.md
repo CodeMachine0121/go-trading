@@ -48,7 +48,7 @@ Oracle: Acceptance Criteria（27 條）＋ Core Business Rules（11 條）＋ No
 |----|--------|------------------------|------|------|------------|------------|--------|
 | AC-17 | 台股盤中一輪抓取落在交易時段之內 | 取回的起始時間全部落在當日 09:00–13:29 | `market_domain.go:65 ClampToTradingSession` | `market_domain_test.go:"a round in the middle of the session"` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-18 | 收盤剛過的那一輪仍取回當日最後一根（13:31 時） | 仍取回當日 13:29 那根 | `market_domain.go:227` | `market_domain_test.go:"the round just after the close still reaches the day's last candle"`；`k_candle_ingestion_service_test.go:TestCatchingOneSymbolUpAsksForItsOwnGapAfterTheCloseHasPassed` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-19 | 收盤那一刻不構成一根 K 線（來源提供 13:30 的成交） | 13:30 那根不被存入；當日最新一根是 13:29 | `market_domain.go:227`（視窗上界＝收盤−一根）＋ `fugle_market_data_proxy.go:79`（丟掉視窗外的） | `market_domain_test.go:"a window reaching past the close stops at the last candle"`；`fugle_market_data_proxy_test.go:221 TestFugleKeepsOnlyTheCandlesInsideTheWindow` | shallow — 兩支測試分別驗「視窗到 13:29」與「丟掉視窗外的」，**沒有一支**把 13:30 的成交餵進抓取流程再斷言它沒被存入 | produces-oracle | 🟠 mis-asserted |
+| AC-19 | 收盤那一刻不構成一根 K 線（來源提供 13:30 的成交） | 13:30 那根不被存入；當日最新一根是 13:29 | `market_domain.go:227`（視窗上界＝收盤−一根）＋ `fugle_market_data_proxy.go:79`（丟掉視窗外的） | `fugle_market_data_proxy_test.go:TestFugleLeavesOutTheClosingAuctionThatEndsATaiwanSession`（來源同時給出 13:28／13:29／13:30，斷言只回前兩根）；`market_domain_test.go:"a window reaching past the close stops at the last candle"` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-20 | 非交易日整個跳過 | 該標的整個跳過，不算失敗、不留失敗紀錄 | `market_domain.go:74`（空視窗）＋ `k_candle_ingestion_service.go:291` | `market_domain_test.go:"a sunday round covers nothing"`；`k_candle_ingestion_service_test.go:TestBackfillAsksForNothingWhenNothingInReachCouldTrade` | asserts-oracle | produces-oracle | ✅ conforms |
 
 ### US-05 — 即時跟盤送出一分鐘的進行中 K 線
@@ -98,15 +98,15 @@ Oracle: Acceptance Criteria（27 條）＋ Core Business Rules（11 條）＋ No
 | Code | Description | Verdict |
 |------|-------------|---------|
 | `entities.AppliedDataRetirement`、`persistence.DataRetirementMigrator` 的**通用性**（宣告式清單、可加第二項） | PRD 只要求清除一次舊 K 線；程式做成可宣告多項的機制 | undocumented — 已由 `ARCH.md` §6 記為刻意的擴充縫，且是冪等的唯一實作方式。**不是 out-of-scope 違規** |
-| `k_candle_follow_service.go:27,455`、`k_candle_ingestion_service.go:111`、`indicator_calculation_service.go:46`、`indicator_calculation_domain.go:86,151`、`k_candle_ingestion_domain.go:117`、`optional_figure_domain.go:8`、`k_candle_series_query_dto.go:7`、`indicator_calculation_request_dto.go:15`、`k_candle_range_assistant_query.go:22,26`、`indicator_calculation_request.go:12`、`live_follow_roster_job.go:90`、`claude_assistant_proxy.go:27`、`cmd/server/dependencies.go:213` | 註解／提示詞仍寫「五分鐘」，但程式行為已是一分鐘 | **文件漂移**——程式碼正確，說明文字過期。違反專案「文件與程式碼不可漂移」原則，需修正（`claude_assistant_proxy.go` 那一行還會直接影響 AI 的用詞） |
+| ~~15 處註解／提示詞仍寫「五分鐘」~~ | 註解與 AI 提示詞的用字落後於行為 | **已修正**（commit `bdf03b1`）。`claude_assistant_proxy.go` 那一行會直接影響助手的用詞，是其中最要緊的一處 |
 | `postman` 的「策略預設 `aggregationInterval` 為 `5m`」斷言 | 策略早已不帶彙總刻度（欄位已退場） | **既有漂移，與本切片無關**——本次未動它，留給後續處理 |
 
 ## Summary
 
-- Conforms: 39/42 clauses ✅（92.9%）
+- Conforms: 40/42 clauses ✅（95.2%）
 - Violations: 無 🔴
-- Mis-asserted: `AC-19` 🟠（程式行為正確；缺一支「把 13:30 的成交餵進抓取流程、斷言它沒被存入」的端到端測試）
+- Mis-asserted: 無 🟠（原 `AC-19` 缺的那一支已補上：`TestFugleLeavesOutTheClosingAuctionThatEndsATaiwanSession`）
 - Partial: `NFR-03` 🟡
 - Gaps: 無 ❌
 - Unclear: `NFR-01` ❔（容量陳述，非行為條款）
-- Orphans: 3 類（其中「註解仍寫五分鐘」為必須修正的文件漂移）
+- Orphans: 3 類（「註解仍寫五分鐘」已於 `bdf03b1` 修正；postman 的策略欄位斷言為既有漂移，與本切片無關）
