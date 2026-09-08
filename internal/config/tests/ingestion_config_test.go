@@ -108,7 +108,8 @@ func TestLoadAppliesTaiwanStockDefaultsWhenNothingIsSet(t *testing.T) {
 
 	assert.Equal(t, 9*time.Hour, applicationConfig.TaiwanStock.SessionStart)
 	assert.Equal(t, 13*time.Hour+30*time.Minute, applicationConfig.TaiwanStock.SessionEnd)
-	assert.Equal(t, 5, applicationConfig.TaiwanStock.SimultaneousFollowCeiling)
+	assert.Equal(t, 1, applicationConfig.TaiwanStock.SimultaneousChannelCeiling)
+	assert.Equal(t, 5, applicationConfig.TaiwanStock.SymbolsPerLiveChannel)
 	assert.Equal(t, "Asia/Taipei", applicationConfig.TaiwanStock.TimeZone.String())
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.IntradayCandlesUrl)
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.HistoricalCandlesUrl)
@@ -152,12 +153,15 @@ func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 	applicationConfig := config.Load()
 
 	// The round-the-clock market says it never closes by having no zone to state hours
-	// in, and no ceiling on how many of it may be followed at once.
+	// in, no ceiling on how many channels may be open, and no need to say how many
+	// symbols one carries — every unfilled number is the zero value.
 	assert.Nil(t, applicationConfig.MarketRules[vo.MarketCrypto].TradingSession.Location)
-	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SimultaneousFollowCeiling)
+	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SimultaneousChannelCeiling)
+	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SymbolsPerLiveChannel)
 
 	taiwanStockRules := applicationConfig.MarketRules[vo.MarketTaiwanStock]
-	assert.Equal(t, 5, taiwanStockRules.SimultaneousFollowCeiling)
+	assert.Equal(t, 1, taiwanStockRules.SimultaneousChannelCeiling)
+	assert.Equal(t, 5, taiwanStockRules.SymbolsPerLiveChannel)
 	assert.Equal(t, 9*time.Hour, taiwanStockRules.TradingSession.DailyStart)
 	assert.Len(t, taiwanStockRules.TradingSession.Weekdays, 5)
 }

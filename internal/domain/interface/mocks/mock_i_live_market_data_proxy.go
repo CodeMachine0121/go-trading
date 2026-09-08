@@ -42,16 +42,16 @@ func (m *MockILiveMarketDataProxy) EXPECT() *MockILiveMarketDataProxyMockRecorde
 }
 
 // FollowKCandles mocks base method.
-func (m *MockILiveMarketDataProxy) FollowKCandles(executionContext context.Context, target vo.FollowTargetVo) (<-chan vo.LiveKCandleVo, error) {
+func (m *MockILiveMarketDataProxy) FollowKCandles(executionContext context.Context, channel vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FollowKCandles", executionContext, target)
+	ret := m.ctrl.Call(m, "FollowKCandles", executionContext, channel)
 	ret0, _ := ret[0].(<-chan vo.LiveKCandleVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FollowKCandles indicates an expected call of FollowKCandles.
-func (mr *MockILiveMarketDataProxyMockRecorder) FollowKCandles(executionContext, target any) *gomock.Call {
+func (mr *MockILiveMarketDataProxyMockRecorder) FollowKCandles(executionContext, channel any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FollowKCandles", reflect.TypeOf((*MockILiveMarketDataProxy)(nil).FollowKCandles), executionContext, target)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FollowKCandles", reflect.TypeOf((*MockILiveMarketDataProxy)(nil).FollowKCandles), executionContext, channel)
 }

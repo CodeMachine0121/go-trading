@@ -27,7 +27,8 @@ func taiwanStockRules() vo.MarketRulesVo {
 				time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 			},
 		},
-		SimultaneousFollowCeiling: 5,
+		SimultaneousChannelCeiling: 1,
+		SymbolsPerLiveChannel:      5,
 	}
 }
 
@@ -257,11 +258,66 @@ func TestClampToTradingSessionLeavesAnAlreadyEmptyWindowEmpty(t *testing.T) {
 	assert.True(t, taiwanStockMarket().ClampToTradingSession(emptyWindow).IsEmpty())
 }
 
+// The plans are sold in two numbers — how many lines at once, how many symbols on
+// one — so those two are what is set, and how many symbols may be followed at once
+// is worked out from them. Set beside them it could contradict them, and nothing
+// could tell.
+func TestSimultaneousFollowCeilingIsTheTwoPlanNumbersMultiplied(t *testing.T) {
+	testCases := []struct {
+		name            string
+		rules           vo.MarketRulesVo
+		expectedCeiling int
+	}{
+		{
+			name:            "一條通道乘上每條五檔是五檔",
+			rules:           vo.MarketRulesVo{SimultaneousChannelCeiling: 1, SymbolsPerLiveChannel: 5},
+			expectedCeiling: 5,
+		},
+		{
+			name:            "兩條通道各跟三檔是六檔",
+			rules:           vo.MarketRulesVo{SimultaneousChannelCeiling: 2, SymbolsPerLiveChannel: 3},
+			expectedCeiling: 6,
+		},
+		{
+			name:            "一條通道只跟一檔是一檔",
+			rules:           vo.MarketRulesVo{SimultaneousChannelCeiling: 1, SymbolsPerLiveChannel: 1},
+			expectedCeiling: 1,
+		},
+		{
+			name:            "沒說一條跟幾檔就是一檔",
+			rules:           vo.MarketRulesVo{SimultaneousChannelCeiling: 3},
+			expectedCeiling: 3,
+		},
+		{
+			name:            "不限通道數就不設上限",
+			rules:           vo.MarketRulesVo{},
+			expectedCeiling: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			marketDomain := domains.NewMarketCatalogDomain(
+				map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: testCase.rules}).
+				MarketOf(string(vo.MarketCrypto))
+
+			assert.Equal(t, testCase.expectedCeiling, marketDomain.SimultaneousFollowCeiling())
+		})
+	}
+}
+
 func TestSimultaneousFollowCeilingIsTheMarketsOwn(t *testing.T) {
 	assert.Equal(t, 5, taiwanStockMarket().SimultaneousFollowCeiling())
 	// No ceiling is how a market says its follows are driven by viewers rather than
 	// by a roster.
 	assert.Equal(t, 0, cryptoMarket().SimultaneousFollowCeiling())
+}
+
+// A channel carrying nothing is not a channel, so a market whose source follows
+// symbols one at a time needs no setting at all.
+func TestSymbolsPerLiveChannelIsNeverFewerThanOne(t *testing.T) {
+	assert.Equal(t, 5, taiwanStockMarket().SymbolsPerLiveChannel())
+	assert.Equal(t, 1, cryptoMarket().SymbolsPerLiveChannel())
 }
 
 func TestTradingDateOfIsTheMarketsOwnDay(t *testing.T) {

@@ -87,6 +87,25 @@ func (stream *fugleStreamUnderTest) nextInstruction(t *testing.T) map[string]any
 	}
 }
 
+// followChannel opens one line carrying the given symbols, which is the unit this
+// source is asked in.
+func (stream *fugleStreamUnderTest) followChannel(
+	t *testing.T, symbols ...string,
+) <-chan vo.LiveKCandleVo {
+	t.Helper()
+
+	followContext, stopFollowing := context.WithCancel(t.Context())
+	t.Cleanup(stopFollowing)
+
+	liveKCandles, followError := marketdata.NewFugleLiveMarketDataProxy(
+		"ws"+stream.server.URL[len("http"):], "a-key").
+		FollowKCandles(followContext,
+			vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, symbols))
+	require.NoError(t, followError)
+
+	return liveKCandles
+}
+
 func (stream *fugleStreamUnderTest) follow(t *testing.T) <-chan vo.LiveKCandleVo {
 	t.Helper()
 
@@ -95,9 +114,7 @@ func (stream *fugleStreamUnderTest) follow(t *testing.T) <-chan vo.LiveKCandleVo
 
 	liveKCandles, followError := marketdata.NewFugleLiveMarketDataProxy(
 		"ws"+stream.server.URL[len("http"):], "a-key").
-		FollowKCandles(followContext, vo.FollowTargetVo{
-			Symbol: "2330", Market: vo.MarketTaiwanStock,
-		})
+		FollowKCandles(followContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 	require.NoError(t, followError)
 
 	return liveKCandles
@@ -106,6 +123,14 @@ func (stream *fugleStreamUnderTest) follow(t *testing.T) <-chan vo.LiveKCandleVo
 // fugleCandlePush spells one pushed candle the way the source does.
 func fugleCandlePush(localTime string, close string, volume string) string {
 	return fugleCandlePushOpening(localTime, "574", close, volume)
+}
+
+// fugleCandlePushFor is the same, for a named symbol — the cases that are about
+// telling two symbols on one line apart.
+func fugleCandlePushFor(symbol string, localTime string, close string, volume string) string {
+	return `{"event":"data","channel":"candles","data":{"symbol":"` + symbol +
+		`","date":"` + localTime + `","open":574,"high":576,"low":572,"close":` + close +
+		`,"volume":` + volume + `}}`
 }
 
 // fugleCandlePushOpening is the same, with the open spelled out — for the cases that
@@ -128,6 +153,78 @@ func nextLiveKCandle(t *testing.T, liveKCandles <-chan vo.LiveKCandleVo) vo.Live
 
 		return vo.LiveKCandleVo{}
 	}
+}
+
+// The plan limits how many lines may be open, not how many symbols travel on one.
+// Saying who is asking once and then naming each symbol is the whole feature.
+func TestOneLineCarriesEverySymbolOfTheChannel(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+
+	followContext, stopFollowing := context.WithCancel(t.Context())
+	t.Cleanup(stopFollowing)
+	_, followError := marketdata.NewFugleLiveMarketDataProxy(
+		"ws"+stream.server.URL[len("http"):], "a-key").
+		FollowKCandles(followContext,
+			vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2454", "2330"}))
+	require.NoError(t, followError)
+
+	authentication := stream.nextInstruction(t)
+	assert.Equal(t, "auth", authentication["event"], "誰在問只說一次")
+
+	firstSubscription := stream.nextInstruction(t)
+	assert.Equal(t, "subscribe", firstSubscription["event"])
+	assert.Equal(t, "2330", firstSubscription["data"].(map[string]any)["symbol"])
+
+	secondSubscription := stream.nextInstruction(t)
+	assert.Equal(t, "subscribe", secondSubscription["event"])
+	assert.Equal(t, "2454", secondSubscription["data"].(map[string]any)["symbol"])
+}
+
+// Two symbols on one line are two candles, told apart by what the push says it is.
+func TestEachSymbolOnTheLineIsFoldedOnItsOwn(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+	liveKCandles := stream.followChannel(t, "2330", "2454")
+
+	stream.push(fugleCandlePushFor("2330", "2026-09-08T10:00:00.000+08:00", "575", "100"))
+	stream.push(fugleCandlePushFor("2454", "2026-09-08T10:00:00.000+08:00", "480", "50"))
+
+	first := nextLiveKCandle(t, liveKCandles)
+	assert.Equal(t, "2330", first.Symbol)
+	assert.Equal(t, "100", first.Volume.String())
+
+	second := nextLiveKCandle(t, liveKCandles)
+	assert.Equal(t, "2454", second.Symbol)
+	assert.Equal(t, "50", second.Volume.String(),
+		"另一檔的量不該被折進這一檔——同一條線不等於同一根 K 線")
+}
+
+// A push landing in a later slot proves the earlier slot of that same symbol
+// finished. A different symbol's push proves nothing about it.
+func TestANeighboursPushDoesNotCloseThisSymbolsCandle(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+	liveKCandles := stream.followChannel(t, "2330", "2454")
+
+	stream.push(fugleCandlePushFor("2330", "2026-09-08T10:00:00.000+08:00", "575", "100"))
+	require.False(t, nextLiveKCandle(t, liveKCandles).Closed)
+
+	stream.push(fugleCandlePushFor("2454", "2026-09-08T10:01:00.000+08:00", "480", "50"))
+
+	neighbour := nextLiveKCandle(t, liveKCandles)
+	assert.Equal(t, "2454", neighbour.Symbol)
+	assert.False(t, neighbour.Closed, "隔壁那一檔的推送不能宣告這一檔走完了")
+}
+
+// A source restating something nobody subscribed to belongs to nobody here.
+func TestAPushForASymbolTheChannelNeverAskedForIsIgnored(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+	liveKCandles := stream.followChannel(t, "2330")
+
+	stream.push(fugleCandlePushFor("9999", "2026-09-08T10:00:00.000+08:00", "111", "1"))
+	stream.push(fugleCandlePushFor("2330", "2026-09-08T10:00:00.000+08:00", "575", "100"))
+
+	liveKCandle := nextLiveKCandle(t, liveKCandles)
+	assert.Equal(t, "2330", liveKCandle.Symbol)
+	assert.Equal(t, "100", liveKCandle.Volume.String())
 }
 
 func TestFollowingSaysWhoIsAskingAndWhatIsWanted(t *testing.T) {
@@ -294,9 +391,7 @@ func TestAnUnreadableMessageDoesNotEndTheFeed(t *testing.T) {
 func TestAFeedThatCannotBeOpenedIsReportedRatherThanHandedBack(t *testing.T) {
 	_, followError := marketdata.NewFugleLiveMarketDataProxy(
 		"ws://127.0.0.1:1/streaming", "a-key").
-		FollowKCandles(t.Context(), vo.FollowTargetVo{
-			Symbol: "2330", Market: vo.MarketTaiwanStock,
-		})
+		FollowKCandles(t.Context(), vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 
 	require.Error(t, followError)
 }
@@ -309,9 +404,7 @@ func TestTheChannelClosesWhenTheFollowEnds(t *testing.T) {
 	followContext, stopFollowing := context.WithCancel(t.Context())
 	liveKCandles, followError := marketdata.NewFugleLiveMarketDataProxy(
 		"ws"+stream.server.URL[len("http"):], "a-key").
-		FollowKCandles(followContext, vo.FollowTargetVo{
-			Symbol: "2330", Market: vo.MarketTaiwanStock,
-		})
+		FollowKCandles(followContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
 	require.NoError(t, followError)
 
 	stopFollowing()

@@ -24,15 +24,15 @@ func NewMarketRoutedLiveMarketDataProxy(
 	return &MarketRoutedLiveMarketDataProxy{liveMarketDataProxies: maps.Clone(liveMarketDataProxies)}
 }
 
-// FollowKCandles opens the feed for one symbol against its market's source.
+// FollowKCandles opens one channel against the source that serves its market.
 func (marketRoutedLiveMarketDataProxy *MarketRoutedLiveMarketDataProxy) FollowKCandles(
-	executionContext context.Context, target vo.FollowTargetVo,
+	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
 	liveMarketDataProxy, isServed := marketRoutedLiveMarketDataProxy.
-		liveMarketDataProxies[target.Market]
+		liveMarketDataProxies[channel.Market]
 	if !isServed {
-		return nil, fmt.Errorf("no live market data source is wired up for %s", target.Market)
+		return nil, fmt.Errorf("no live market data source is wired up for %s", channel.Market)
 	}
 
-	return liveMarketDataProxy.FollowKCandles(executionContext, target)
+	return liveMarketDataProxy.FollowKCandles(executionContext, channel)
 }

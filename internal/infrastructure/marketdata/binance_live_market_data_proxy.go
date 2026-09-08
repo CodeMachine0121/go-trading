@@ -31,13 +31,26 @@ func NewBinanceLiveMarketDataProxy(baseUrl string) *BinanceLiveMarketDataProxy {
 	return &BinanceLiveMarketDataProxy{baseUrl: baseUrl}
 }
 
-// FollowKCandles opens the feed for one trading symbol and reports its candles
-// until the feed ends, the context is done, or the source sends something
+// FollowKCandles opens the feed for the channel it is handed and reports its
+// candles until the feed ends, the context is done, or the source sends something
 // unreadable. Closing the returned channel is the only way it says so.
+//
+// This source is followed one symbol to a line. It does publish combined streams
+// that carry several, but they arrive in an envelope of their own, so reading them
+// is a piece of work rather than a longer address — and nothing asks for it, because
+// this market's rules put one symbol on a channel. A channel carrying more is
+// therefore refused out loud: quietly following the first of them would leave the
+// rest looking followed and never moving, which is the failure this whole feature
+// exists to end.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
-	executionContext context.Context, target vo.FollowTargetVo,
+	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
-	symbol := target.Symbol
+	if len(channel.Symbols) != 1 {
+		return nil, fmt.Errorf(
+			"follow k candles for %s: this source follows one symbol to a channel, asked for %d",
+			channel.Market, len(channel.Symbols))
+	}
+	symbol := channel.Symbols[0]
 
 	streamUrl, urlError := binanceLiveMarketDataProxy.streamUrl(symbol)
 	if urlError != nil {

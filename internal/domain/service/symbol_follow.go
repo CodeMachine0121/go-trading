@@ -1,9 +1,9 @@
 package service
 
 import (
-	"context"
 	"sync"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
@@ -28,14 +28,17 @@ type symbolFollow struct {
 	// market is which venue this symbol trades on, carried so that opening its feed
 	// needs nothing looked up again — the follow already knows.
 	market vo.MarketVo
-	cancel context.CancelFunc
 	// isOnARoster marks a follow the system keeps up because a market's places were
 	// handed to this symbol, not because anybody is looking at it. Such a follow
 	// outlives its last viewer: the places are decided by the watchlist, and dropping
 	// one the moment nobody happened to be watching would leave it unfilled until
 	// somebody was.
 	isOnARoster bool
-	finished    chan struct{}
+	// throttle is how often this symbol's picture may be redrawn. It is per symbol
+	// and not per channel: two symbols sharing a line are two pictures, and holding
+	// one back because the other just moved would make a busy neighbour into a slow
+	// chart.
+	throttle *domains.ViewerUpdateThrottleDomain
 
 	mutex        sync.Mutex
 	viewers      map[int]chan dto.KCandleFollowUpdateDto
@@ -46,14 +49,16 @@ type symbolFollow struct {
 }
 
 func newSymbolFollow(
-	symbol string, market vo.MarketVo, isOnARoster bool, cancel context.CancelFunc,
+	symbol string,
+	market vo.MarketVo,
+	isOnARoster bool,
+	throttle *domains.ViewerUpdateThrottleDomain,
 ) *symbolFollow {
 	return &symbolFollow{
 		symbol:      symbol,
 		market:      market,
 		isOnARoster: isOnARoster,
-		cancel:      cancel,
-		finished:    make(chan struct{}),
+		throttle:    throttle,
 		viewers:     make(map[int]chan dto.KCandleFollowUpdateDto),
 	}
 }
@@ -178,12 +183,10 @@ func (symbolFollow *symbolFollow) publishMarketClosed() {
 	})
 }
 
-// end stops this follow and closes every viewer's updates, waiting for the work to
-// finish first so that nothing is still publishing into a channel about to close.
+// end closes every viewer's updates. Stopping the work that publishes into them is
+// the channel's job and has already happened by the time this is called — a symbol
+// does not own the line it travels on.
 func (symbolFollow *symbolFollow) end() {
-	symbolFollow.cancel()
-	<-symbolFollow.finished
-
 	symbolFollow.mutex.Lock()
 	defer symbolFollow.mutex.Unlock()
 

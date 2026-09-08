@@ -43,9 +43,15 @@ type KCandleFollowService struct {
 	quietTimeout            time.Duration
 	maximumRetryDelay       time.Duration
 
-	mutex   sync.Mutex
+	mutex sync.Mutex
+	// follows is every symbol with a viewer registry, whether or not anybody is
+	// watching it. It is keyed by symbol because that is how a viewer asks.
 	follows map[string]*symbolFollow
-	stopped bool
+	// channels is every line currently open, keyed by the set of symbols travelling
+	// on it. Keying by the set is what makes rebuilding-on-change free: a roster that
+	// produced the same set produces the same key and matches what is already there.
+	channels map[string]*followChannel
+	stopped  bool
 }
 
 // NewKCandleFollowService takes the three timing rules once; every follow it starts
@@ -70,6 +76,7 @@ func NewKCandleFollowService(
 		quietTimeout:            quietTimeout,
 		maximumRetryDelay:       maximumRetryDelay,
 		follows:                 make(map[string]*symbolFollow),
+		channels:                make(map[string]*followChannel),
 	}
 }
 
@@ -122,13 +129,17 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 				executionContext, symbol, marketDomain), nil
 		}
 
-		// The follow outlives the viewer who started it, so it must not inherit their
-		// context — the next viewer would be following a market on a cancelled one.
-		followContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
-		follow = newSymbolFollow(symbol, marketDomain.Value(), false, cancel)
+		// A market with no ceiling puts one symbol on a channel, so the channel a
+		// viewer starts carries exactly what they came for.
+		follow = newSymbolFollow(symbol, marketDomain.Value(), false,
+			domains.NewViewerUpdateThrottleDomain(
+				kCandleFollowService.updateIntervalCeiling,
+				kCandleFollowService.clockProxy.Now()))
 		kCandleFollowService.follows[symbol] = follow
-
-		go kCandleFollowService.run(followContext, follow)
+		kCandleFollowService.openChannel(
+			executionContext,
+			vo.NewLiveFollowChannelVo(marketDomain.Value(), []string{symbol}),
+			map[string]*symbolFollow{symbol: follow})
 	}
 
 	viewerId, updates := follow.join()
@@ -181,28 +192,36 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 	// Once it has ended, all that is left is a symbol that is no longer on a roster —
 	// and that looks identical whether the day is over or somebody else took its
 	// place.
-	departing := kCandleFollowService.takeDepartedFollows(rosterDomain)
-	for _, follow := range departing {
-		if kCandleFollowService.marketCatalogDomain.MarketOf(string(follow.market)).
-			IsOpen(currentTime) {
-			follow.publishUnavailable()
-		} else {
-			follow.publishMarketClosed()
+	wantedChannels := rosterDomain.Channels(kCandleFollowService.marketCatalogDomain)
+
+	departing := kCandleFollowService.takeDepartedChannels(wantedChannels)
+	for _, departingChannel := range departing {
+		for _, follow := range departingChannel.follows {
+			if kCandleFollowService.marketCatalogDomain.MarketOf(string(follow.market)).
+				IsOpen(currentTime) {
+				follow.publishUnavailable()
+			} else {
+				follow.publishMarketClosed()
+			}
 		}
 
-		follow.end()
+		departingChannel.end()
 	}
 
-	kCandleFollowService.startMissingFollows(executionContext, rosterDomain)
+	kCandleFollowService.startMissingChannels(executionContext, wantedChannels)
 
 	return nil
 }
 
-// takeDepartedFollows removes every rostered follow that no longer holds a place and
-// hands them back to be ended outside the lock.
-func (kCandleFollowService *KCandleFollowService) takeDepartedFollows(
-	rosterDomain domains.LiveFollowRosterDomain,
-) []*symbolFollow {
+// takeDepartedChannels removes every rostered channel the roster no longer asks for
+// and hands them back to be ended outside the lock.
+//
+// "No longer asks for" is decided by key alone, so a channel that lost a symbol and
+// a channel that lost its whole market are the same case. Nothing here compares two
+// sets of symbols, because the key already is the set.
+func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
+	wantedChannels []vo.LiveFollowChannelVo,
+) []*followChannel {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
 
@@ -210,23 +229,44 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedFollows(
 		return nil
 	}
 
-	departing := make([]*symbolFollow, 0)
-	for symbol, follow := range kCandleFollowService.follows {
-		if !follow.isOnARoster || rosterDomain.Holds(symbol) {
+	isWanted := make(map[string]bool, len(wantedChannels))
+	for _, wantedChannel := range wantedChannels {
+		isWanted[wantedChannel.Key] = true
+	}
+
+	departing := make([]*followChannel, 0)
+	for key, openChannel := range kCandleFollowService.channels {
+		if isWanted[key] || !kCandleFollowService.isRostered(openChannel) {
 			continue
 		}
 
-		departing = append(departing, follow)
-		delete(kCandleFollowService.follows, symbol)
+		departing = append(departing, openChannel)
+		delete(kCandleFollowService.channels, key)
+		for symbol := range openChannel.follows {
+			delete(kCandleFollowService.follows, symbol)
+		}
 	}
 
 	return departing
 }
 
-// startMissingFollows begins following every symbol that holds a place and is not
-// already being followed.
-func (kCandleFollowService *KCandleFollowService) startMissingFollows(
-	executionContext context.Context, rosterDomain domains.LiveFollowRosterDomain,
+// isRostered reports a channel the system keeps up because a market's places were
+// handed to its symbols, rather than because somebody is watching. Only those are
+// the roster's to retire.
+func (kCandleFollowService *KCandleFollowService) isRostered(openChannel *followChannel) bool {
+	for _, follow := range openChannel.follows {
+		if follow.isOnARoster {
+			return true
+		}
+	}
+
+	return false
+}
+
+// startMissingChannels opens every channel the roster asks for that is not open
+// already.
+func (kCandleFollowService *KCandleFollowService) startMissingChannels(
+	executionContext context.Context, wantedChannels []vo.LiveFollowChannelVo,
 ) {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
@@ -235,17 +275,38 @@ func (kCandleFollowService *KCandleFollowService) startMissingFollows(
 		return
 	}
 
-	for _, symbol := range rosterDomain.Symbols() {
-		if _, isFollowing := kCandleFollowService.follows[symbol]; isFollowing {
+	now := kCandleFollowService.clockProxy.Now()
+	for _, wantedChannel := range wantedChannels {
+		if _, isOpen := kCandleFollowService.channels[wantedChannel.Key]; isOpen {
 			continue
 		}
 
-		followContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
-		follow := newSymbolFollow(symbol, rosterDomain.MarketOf(symbol), true, cancel)
-		kCandleFollowService.follows[symbol] = follow
+		follows := make(map[string]*symbolFollow, len(wantedChannel.Symbols))
+		for _, symbol := range wantedChannel.Symbols {
+			follow := newSymbolFollow(symbol, wantedChannel.Market, true,
+				domains.NewViewerUpdateThrottleDomain(
+					kCandleFollowService.updateIntervalCeiling, now))
+			follows[symbol] = follow
+			kCandleFollowService.follows[symbol] = follow
+		}
 
-		go kCandleFollowService.run(followContext, follow)
+		kCandleFollowService.openChannel(executionContext, wantedChannel, follows)
 	}
+}
+
+// openChannel starts one channel running. The caller holds the lock; the channel
+// outlives the viewer or the round that asked for it, so it must not inherit their
+// context — the next viewer would be following a market on a cancelled one.
+func (kCandleFollowService *KCandleFollowService) openChannel(
+	executionContext context.Context,
+	channel vo.LiveFollowChannelVo,
+	follows map[string]*symbolFollow,
+) {
+	channelContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
+	openChannel := newFollowChannel(channel, follows, cancel)
+	kCandleFollowService.channels[channel.Key] = openChannel
+
+	go kCandleFollowService.run(channelContext, openChannel)
 }
 
 // noLivePlaceUpdates is what a viewer of a market with no place for their symbol
@@ -288,15 +349,16 @@ func (kCandleFollowService *KCandleFollowService) Stop() {
 	}
 	kCandleFollowService.stopped = true
 
-	stoppedFollows := make([]*symbolFollow, 0, len(kCandleFollowService.follows))
-	for symbol, follow := range kCandleFollowService.follows {
-		stoppedFollows = append(stoppedFollows, follow)
-		delete(kCandleFollowService.follows, symbol)
+	stoppedChannels := make([]*followChannel, 0, len(kCandleFollowService.channels))
+	for key, openChannel := range kCandleFollowService.channels {
+		stoppedChannels = append(stoppedChannels, openChannel)
+		delete(kCandleFollowService.channels, key)
 	}
+	clear(kCandleFollowService.follows)
 	kCandleFollowService.mutex.Unlock()
 
-	for _, follow := range stoppedFollows {
-		follow.end()
+	for _, openChannel := range stoppedChannels {
+		openChannel.end()
 	}
 }
 
@@ -334,21 +396,31 @@ func (kCandleFollowService *KCandleFollowService) leave(
 		return
 	}
 	delete(kCandleFollowService.follows, symbol)
+
+	// A viewer-started follow is alone on its channel, so the last viewer leaving
+	// takes the line with it. Looking the channel up by what this symbol travels on
+	// rather than remembering it here keeps one answer to "which line is this on".
+	channelKey := vo.NewLiveFollowChannelVo(follow.market, []string{symbol}).Key
+	departingChannel, isOpen := kCandleFollowService.channels[channelKey]
+	if isOpen {
+		delete(kCandleFollowService.channels, channelKey)
+	}
 	kCandleFollowService.mutex.Unlock()
 
-	follow.cancel()
+	if isOpen {
+		departingChannel.cancel()
+	}
 }
 
 // run keeps one market followed for as long as anyone is watching it. Every time the
 // feed ends — refused, dropped, or gone silent — the viewers are told, the wait
 // grows, and it tries again. It never gives up; only the last viewer leaving ends it.
 func (kCandleFollowService *KCandleFollowService) run(
-	executionContext context.Context, follow *symbolFollow,
+	executionContext context.Context, openChannel *followChannel,
 ) {
-	defer close(follow.finished)
+	defer close(openChannel.finished)
 
-	followDomain := domains.NewKCandleFollowDomain(
-		kCandleFollowService.updateIntervalCeiling,
+	healthDomain := domains.NewLiveChannelHealthDomain(
 		kCandleFollowService.quietTimeout,
 		kCandleFollowService.maximumRetryDelay,
 		kCandleFollowService.clockProxy.Now(),
@@ -356,33 +428,32 @@ func (kCandleFollowService *KCandleFollowService) run(
 
 	for {
 		liveKCandles, followError := kCandleFollowService.liveMarketDataProxy.
-			FollowKCandles(executionContext, vo.FollowTargetVo{
-				Symbol: follow.symbol, Market: follow.market,
-			})
+			FollowKCandles(executionContext, openChannel.channel)
 		if followError == nil {
-			followDomain.MarkConnected(kCandleFollowService.clockProxy.Now())
-			kCandleFollowService.consume(executionContext, follow, followDomain, liveKCandles)
+			healthDomain.MarkConnected(kCandleFollowService.clockProxy.Now())
+			kCandleFollowService.consume(executionContext, openChannel, healthDomain, liveKCandles)
 		} else {
 			log.Printf("live k candle follow: %s could not be followed: %v",
-				follow.symbol, followError)
+				openChannel.channel.Key, followError)
 		}
 
-		// A follow whose context is already done was ended on purpose — the system is
-		// shutting down, or this symbol lost its place. Saying "stalled" then would
-		// leave a viewer waiting for a recovery nobody intends, and would overwrite
-		// the reason they were just given.
+		// A channel whose context is already done was ended on purpose — the system is
+		// shutting down, or these symbols lost their places. Saying "stalled" then
+		// would leave a viewer waiting for a recovery nobody intends, and would
+		// overwrite the reason they were just given.
 		if executionContext.Err() != nil {
 			return
 		}
 
-		follow.publishStalled()
+		// One line went down, so every symbol on it hears the same news.
+		openChannel.publishStalled()
 
 		// Said out loud because the gap is the only evidence the growing back-off is
 		// working: a source that keeps accepting connections and dropping them is
 		// otherwise indistinguishable, in the log, from one being retried every second.
-		retryDelay := followDomain.NextRetryDelay()
+		retryDelay := healthDomain.NextRetryDelay()
 		log.Printf("live k candle follow: %s is not delivering; trying again in %s",
-			follow.symbol, retryDelay)
+			openChannel.channel.Key, retryDelay)
 
 		if !waitOrDone(executionContext, retryDelay) {
 			return
@@ -398,11 +469,11 @@ func (kCandleFollowService *KCandleFollowService) run(
 // to be live.
 func (kCandleFollowService *KCandleFollowService) consume(
 	executionContext context.Context,
-	follow *symbolFollow,
-	followDomain *domains.KCandleFollowDomain,
+	openChannel *followChannel,
+	healthDomain *domains.LiveChannelHealthDomain,
 	liveKCandles <-chan vo.LiveKCandleVo,
 ) {
-	quietCheck := time.NewTicker(followDomain.QuietCheckInterval())
+	quietCheck := time.NewTicker(healthDomain.QuietCheckInterval())
 	defer quietCheck.Stop()
 
 	for {
@@ -414,10 +485,22 @@ func (kCandleFollowService *KCandleFollowService) consume(
 			if !isDelivering {
 				return
 			}
-			kCandleFollowService.report(executionContext, follow, followDomain, liveKCandle)
+
+			// Anything arriving proves the line is alive, whichever symbol it was
+			// about — the silence and the retry gap belong to the line, not to a
+			// symbol that happened to trade.
+			healthDomain.MarkReceived(kCandleFollowService.clockProxy.Now())
+
+			// The candle names the symbol it belongs to, and that is the only thing
+			// that decides whose it is. Two symbols sharing a line are two pictures.
+			follow, isCarried := openChannel.followOf(liveKCandle.Symbol)
+			if !isCarried {
+				continue
+			}
+			kCandleFollowService.report(executionContext, follow, liveKCandle)
 
 		case <-quietCheck.C:
-			if followDomain.HasGoneQuiet(kCandleFollowService.clockProxy.Now()) {
+			if healthDomain.HasGoneQuiet(kCandleFollowService.clockProxy.Now()) {
 				return
 			}
 		}
@@ -429,11 +512,10 @@ func (kCandleFollowService *KCandleFollowService) consume(
 func (kCandleFollowService *KCandleFollowService) report(
 	executionContext context.Context,
 	follow *symbolFollow,
-	followDomain *domains.KCandleFollowDomain,
 	liveKCandle vo.LiveKCandleVo,
 ) {
 	now := kCandleFollowService.clockProxy.Now()
-	if !followDomain.Admit(liveKCandle, now) {
+	if !follow.throttle.Admit(liveKCandle, now) {
 		return
 	}
 

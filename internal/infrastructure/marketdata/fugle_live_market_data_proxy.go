@@ -36,33 +36,37 @@ func NewFugleLiveMarketDataProxy(streamUrl string, apiKey string) *FugleLiveMark
 // the feed ends, the context is done, or the source sends something unreadable.
 // Closing the returned channel is the only way it says so.
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) FollowKCandles(
-	executionContext context.Context, target vo.FollowTargetVo,
+	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
 	connection, _, dialError := websocket.Dial(
 		executionContext, fugleLiveMarketDataProxy.streamUrl, nil)
 	if dialError != nil {
-		return nil, fmt.Errorf("follow k candles for %s: %w", target.Symbol, dialError)
+		return nil, fmt.Errorf("follow k candles for %s: %w", channel.Key, dialError)
 	}
 
 	// Saying who is asking and what is wanted has to succeed before there is a feed
 	// at all, so both are done here rather than in the reader — a caller handed a
 	// channel is entitled to believe a feed was opened.
 	if handshakeError := fugleLiveMarketDataProxy.handshake(
-		executionContext, connection, target.Symbol); handshakeError != nil {
+		executionContext, connection, channel.Symbols); handshakeError != nil {
 		_ = connection.CloseNow()
 
 		return nil, handshakeError
 	}
 
 	liveKCandles := make(chan vo.LiveKCandleVo, liveKCandleBufferSize)
-	go fugleLiveMarketDataProxy.read(executionContext, connection, target.Symbol, liveKCandles)
+	go fugleLiveMarketDataProxy.read(executionContext, connection, channel, liveKCandles)
 
 	return liveKCandles, nil
 }
 
-// handshake tells the source who is asking and which symbol is wanted.
+// handshake tells the source who is asking, once, and then which symbols are
+// wanted, one request each.
+//
+// Saying who is asking only once is the point of this whole feature: the plan limits
+// how many lines may be open at a time, not how many symbols may travel on one.
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
-	executionContext context.Context, connection *websocket.Conn, symbol string,
+	executionContext context.Context, connection *websocket.Conn, symbols []string,
 ) error {
 	authentication := map[string]any{
 		"event": "auth",
@@ -70,16 +74,18 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
 	}
 	if writeError := fugleLiveMarketDataProxy.send(
 		executionContext, connection, authentication); writeError != nil {
-		return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+		return fmt.Errorf("follow k candles: %w", writeError)
 	}
 
-	subscription := map[string]any{
-		"event": "subscribe",
-		"data":  map[string]any{"channel": "candles", "symbol": symbol},
-	}
-	if writeError := fugleLiveMarketDataProxy.send(
-		executionContext, connection, subscription); writeError != nil {
-		return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+	for _, symbol := range symbols {
+		subscription := map[string]any{
+			"event": "subscribe",
+			"data":  map[string]any{"channel": "candles", "symbol": symbol},
+		}
+		if writeError := fugleLiveMarketDataProxy.send(
+			executionContext, connection, subscription); writeError != nil {
+			return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+		}
 	}
 
 	return nil
@@ -109,13 +115,19 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) send(
 func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) read(
 	executionContext context.Context,
 	connection *websocket.Conn,
-	symbol string,
+	channel vo.LiveFollowChannelVo,
 	liveKCandles chan<- vo.LiveKCandleVo,
 ) {
 	defer close(liveKCandles)
 	defer func() { _ = connection.CloseNow() }()
 
-	forming := newFugleFormingKCandle(symbol)
+	// One folder per symbol. They cannot share one: folding is about which slot a
+	// push falls in and what the slot before it closed at, and two symbols pushing
+	// alternately would each keep proving the other's slot finished.
+	formingBySymbol := make(map[string]*fugleFormingKCandle, len(channel.Symbols))
+	for _, symbol := range channel.Symbols {
+		formingBySymbol[symbol] = newFugleFormingKCandle(symbol)
+	}
 
 	for {
 		_, body, readError := connection.Read(executionContext)
@@ -123,7 +135,7 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) read(
 			// A follow the system ended on purpose is not a feed that broke, and
 			// saying so would put a line in the log for every orderly shutdown.
 			if executionContext.Err() == nil {
-				log.Printf("live market data: the feed for %s ended: %v", symbol, readError)
+				log.Printf("live market data: the feed for %s ended: %v", channel.Key, readError)
 			}
 
 			return
@@ -143,7 +155,15 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) read(
 			continue
 		}
 
-		reportedKCandle, convertError := message.Data.toLiveKCandleVo(symbol)
+		// The push names its own symbol, and that is the only thing that decides whose
+		// candle it is. A push for something this channel never subscribed to is not
+		// worth guessing about — it belongs to nobody here.
+		forming, isFollowed := formingBySymbol[message.Data.Symbol]
+		if !isFollowed {
+			continue
+		}
+
+		reportedKCandle, convertError := message.Data.toLiveKCandleVo(message.Data.Symbol)
 		if convertError != nil {
 			log.Printf("live market data: unreadable candle: %v", convertError)
 
