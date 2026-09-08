@@ -24,7 +24,7 @@ var ErrKCandleFollowStopped = errors.New("k candle follow stopped")
 //
 // Ten people watching BTCUSDT are one follow, because the market has only one
 // answer and asking for it ten times would open ten connections to hear the same
-// thing. Following a market nobody is looking at buys nothing the five-minute round
+// thing. Following a market nobody is looking at buys nothing the scheduled round
 // would not deliver anyway, which is why the last viewer leaving ends it.
 //
 // This is the first domain service in the project that holds state and outlives a
@@ -452,7 +452,7 @@ func (kCandleFollowService *KCandleFollowService) report(
 // through the ordinary K candle rules — the same road a fetched candle takes.
 //
 // It does not report failure upwards: a candle that breaks a rule, or that storage
-// refuses, is one the five-minute round will deal with, and neither reason is worth
+// refuses, is one the scheduled round will deal with, and neither reason is worth
 // taking the picture away from whoever is watching.
 func (kCandleFollowService *KCandleFollowService) store(
 	executionContext context.Context, liveKCandle vo.LiveKCandleVo, now time.Time,

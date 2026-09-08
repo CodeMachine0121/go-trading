@@ -19,11 +19,11 @@ type kCandleRangeAssistantArguments struct {
 	CandleCount int    `json:"candleCount"`
 }
 
-// KCandleRangeAssistantQuery lets the assistant read the raw five-minute candles of a
+// KCandleRangeAssistantQuery lets the assistant read the raw one-minute candles of a
 // stretch.
 //
 // It is offered alongside the aggregated series, not instead of it, because some
-// questions really are about the five-minute detail. It obeys the same ceiling, and
+// questions really are about the minute-by-minute detail. It obeys the same ceiling, and
 // the description points the assistant at the series first: raw candles are the
 // expensive way to look at anything longer than a few hours.
 type KCandleRangeAssistantQuery struct {

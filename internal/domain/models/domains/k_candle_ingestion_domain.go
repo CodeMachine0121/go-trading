@@ -113,9 +113,9 @@ func (kCandleIngestionDomain KCandleIngestionDomain) SelectClosed(
 
 // RoundCoverage is how much time one scheduled round asks about.
 //
-// It is what makes an empty answer worth interpreting: a round that asked about
-// twenty-five minutes and heard nothing has said something, and a market that has
-// only been open for seven of those minutes has not.
+// It is what makes an empty answer worth interpreting: a round that asked about the
+// last five minutes and heard nothing has said something, and a market that has only
+// been open for two of them has not.
 func (kCandleIngestionDomain KCandleIngestionDomain) RoundCoverage() time.Duration {
 	return time.Duration(kCandleIngestionDomain.roundCandleCount) * kCandleIngestionDomain.interval()
 }

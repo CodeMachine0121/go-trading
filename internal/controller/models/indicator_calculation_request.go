@@ -9,7 +9,7 @@ import (
 // IndicatorCalculationRequest is the body a caller sends to run an indicator script.
 //
 // AggregationInterval, ResultType and EndTime may each be left out: the calculation
-// then reads five-minute candles, produces one number per indicator, and computes up
+// then reads one-minute candles, produces one number per indicator, and computes up
 // to now — which is exactly what it did before any of the three could be declared.
 type IndicatorCalculationRequest struct {
 	Symbol              string    `json:"symbol"`

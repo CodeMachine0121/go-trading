@@ -11,8 +11,8 @@ import "time"
 type IndicatorCalculationRequestDto struct {
 	Symbol string
 	// CandleCount is how many aggregated candles to compute from, counted after
-	// aggregating — twenty-four of them is a day at one-hour buckets and two hours
-	// at five-minute ones.
+	// aggregating — twenty-four of them is a day at one-hour buckets and twenty-four
+	// minutes at one-minute ones.
 	CandleCount int
 	Script      string
 	// AggregationInterval is the coarseness the caller declared, exactly as it was

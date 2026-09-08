@@ -87,7 +87,7 @@ func (liveFollowRosterJob *LiveFollowRosterJob) run(executionContext context.Con
 }
 
 // refresh writes down only what went wrong. A pass that simply found nothing to
-// change stays quiet, because a line every five minutes saying nothing happened is a
+// change stays quiet, because a line every pass saying nothing happened is a
 // line nobody reads when something does.
 func (liveFollowRosterJob *LiveFollowRosterJob) refresh(executionContext context.Context) {
 	if refreshError := liveFollowRosterJob.kCandleFollowApplication.
