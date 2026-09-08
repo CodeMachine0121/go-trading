@@ -22,7 +22,19 @@ type KCandleIngestionDomain struct {
 }
 
 // NewKCandleIngestionDomain judges "closed" and "how far back" against currentTime.
-// It does not assume the caller already screened the candle count.
+// It does not assume the caller already screened either number.
+//
+// A lookback shorter than one bucket of the coarsest coarseness is raised to it,
+// because the two things asked of a backfill cannot both hold below that. Reaching
+// back an hour and then down to a bucket edge reaches back up to a day and a half —
+// far past what a caller setting an hour was asking for, and the setting exists
+// precisely to keep the first round after a long silence small. Above the floor the
+// two agree again: the reach is the lookback plus less than one bucket, so never more
+// than twice what was asked.
+//
+// Zero or less is refused rather than raised. Asking to reach back no distance is not
+// a small request, it is an incoherent one — and refusing it here is what the round
+// candle count already does with the same kind of value.
 func NewKCandleIngestionDomain(
 	currentTime time.Time,
 	roundCandleCount int,
@@ -33,11 +45,27 @@ func NewKCandleIngestionDomain(
 			"%w: 單輪取回根數必須大於零", ErrKCandleIngestionValidation)
 	}
 
+	if backfillLookback <= 0 {
+		return KCandleIngestionDomain{}, fmt.Errorf(
+			"%w: 回補上限必須大於零", ErrKCandleIngestionValidation)
+	}
+
 	return KCandleIngestionDomain{
 		currentTime:      currentTime.UTC(),
 		roundCandleCount: roundCandleCount,
-		backfillLookback: backfillLookback,
+		backfillLookback: max(backfillLookback, coarsestBucketSpan()),
 	}, nil
+}
+
+// coarsestBucketSpan is how long one bucket of the coarsest coarseness covers, which
+// is both the floor under the lookback and the most the alignment can add to it.
+//
+// It is read off the interval set rather than written down for the same reason the
+// alignment is: a second copy of "a day" would go out of step the moment a coarser
+// interval is added, and nothing would report it.
+func coarsestBucketSpan() time.Duration {
+	return time.Duration(
+		NewCoarsestAggregationIntervalDomain().SourceCandleCount(1)) * KCandleInterval
 }
 
 // CurrentTime is the moment every ingestion rule is judged against. It is handed
@@ -83,8 +111,13 @@ func (kCandleIngestionDomain KCandleIngestionDomain) ScheduledWindow(
 // over as a whole one. At one day that is an afternoon's opening price and half a
 // day's volume reported as the day's, and nothing downstream can tell that apart from
 // a market that simply traded little. So the reach-back is rounded *down* to a bucket
-// edge, which costs at most one more bucket's worth of candles, once, on the first
-// fetch of a symbol.
+// edge, which costs at most one more bucket's worth of candles.
+//
+// That cost is paid by every backfill whose start comes from the lookback — a restart
+// after being down longer than it, a symbol joining the watchlist, a manual catch-up,
+// and every round for a symbol the source never answers for. Only a symbol whose
+// stored data is newer than the aligned edge escapes it, which after the first
+// successful fetch is the ordinary case.
 //
 // Down rather than up: rounding up would give away most of a day of the gap it was
 // asked to close, and would put the oldest bucket at today.

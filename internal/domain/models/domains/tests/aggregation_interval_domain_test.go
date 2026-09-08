@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +127,27 @@ func TestAggregationIntervalDomainBucketStartCutsFromMidnight(t *testing.T) {
 	}
 }
 
+// everyDeclarableInterval reads the whole declarable set out of the refusal an
+// unrecognised spelling comes back with — the only place that set is exposed outside
+// its own package.
+//
+// Reading prose in a test is worth it here: this is the enumeration the "every length
+// divides a day" invariant has to be checked against, and a hard-coded copy would go
+// quietly out of step with the set the moment anyone added a row.
+func everyDeclarableInterval(t *testing.T) []string {
+	t.Helper()
+
+	_, refusal := domains.NewAggregationIntervalDomain("彙總刻度不可能是這個")
+	require.Error(t, refusal)
+
+	_, listed, found := strings.Cut(refusal.Error(), "彙總刻度只能是 ")
+	require.True(t, found, "拒絕的說法變了，這個 helper 要跟著改")
+	spellings, _, found := strings.Cut(listed, " 其中之一")
+	require.True(t, found, "拒絕的說法變了，這個 helper 要跟著改")
+
+	return strings.Split(spellings, "、")
+}
+
 func TestTheCoarsestIntervalIsADayAndItsEdgesServeEveryOtherInterval(t *testing.T) {
 	// Anything aligning to a bucket edge asks for this one rather than naming a length
 	// of its own. That is only sound because its edges are a subset of every other
@@ -138,15 +160,17 @@ func TestTheCoarsestIntervalIsADayAndItsEdgesServeEveryOtherInterval(t *testing.
 	t.Run("its edge is also an edge for each of the six on offer", func(t *testing.T) {
 		// This is the whole reason one alignment covers all of them.
 		//
-		// It cannot promise more than the six named here: the set is unexported, so a
-		// seventh length would simply be absent from this list rather than caught by
-		// it. What guards the invariant against a new row is the note on the set
-		// itself — this only pins that today's six hold.
+		// The spellings are read out of the refusal, which is the only place the set
+		// is exposed. Hard-coding them here would mean a seventh length was simply
+		// absent from the list rather than caught by it — the opposite of a guard.
 		coarsestEdge := domains.NewCoarsestAggregationIntervalDomain().BucketStart(
 			time.Date(2026, 9, 7, 14, 3, 0, 0, time.UTC))
 		require.Equal(t, time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC), coarsestEdge)
 
-		for _, declared := range []string{"1m", "5m", "15m", "1h", "4h", "1d"} {
+		declarableSpellings := everyDeclarableInterval(t)
+		require.Len(t, declarableSpellings, 6, "六種——多一種就要回來讀這條不變量")
+
+		for _, declared := range declarableSpellings {
 			intervalDomain, buildError := domains.NewAggregationIntervalDomain(declared)
 			require.NoError(t, buildError)
 
@@ -155,12 +179,17 @@ func TestTheCoarsestIntervalIsADayAndItsEdgesServeEveryOtherInterval(t *testing.
 		}
 	})
 
-	t.Run("the oldest bucket of a coarse interval starts on that edge", func(t *testing.T) {
+	t.Run("the oldest bucket of a coarse interval starts where a backfill did", func(t *testing.T) {
 		// The acceptance criterion that says aligning once serves a coarser reading
-		// too: candles beginning at the edge produce a four-hour bucket that begins
-		// there, not one that begins wherever the data happened to start.
-		edge := domains.NewCoarsestAggregationIntervalDomain().BucketStart(
-			time.Date(2026, 9, 7, 14, 3, 0, 0, time.UTC))
+		// too. The edge has to come from a real backfill: taken from BucketStart it
+		// would only restate that truncation is idempotent, which the loop above
+		// already says, and it would pass with the alignment removed entirely.
+		ingestionDomain, ingestionError := domains.NewKCandleIngestionDomain(
+			time.Date(2026, 9, 8, 14, 3, 0, 0, time.UTC), 5, 24*time.Hour)
+		require.NoError(t, ingestionError)
+		edge := ingestionDomain.
+			BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{}).StartTime
+
 		fourHourInterval, buildError := domains.NewAggregationIntervalDomain("4h")
 		require.NoError(t, buildError)
 

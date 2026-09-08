@@ -319,6 +319,59 @@ func TestABucketIsWholeEvenWhenTheMarketOnlyTradedPartOfTheDay(t *testing.T) {
 		"當天成交的每一根都在裡面，一根都沒少")
 }
 
+func TestALookbackShorterThanOneBucketIsRaisedToIt(t *testing.T) {
+	// The setting exists to keep the first round after a long silence small. Reaching
+	// back an hour and then down to a bucket edge reaches back up to a day and a half
+	// — twenty-five times what an hour asked for, which defeats the setting instead of
+	// honouring it. Below one bucket the two things asked of a backfill cannot both
+	// hold, so the shorter one gives way and says so.
+	oneHourLookback := time.Hour
+	ingestionDomain, buildError := domains.NewKCandleIngestionDomain(
+		time.Date(2026, 8, 30, 0, 30, 0, 0, time.UTC), 5, oneHourLookback)
+	require.NoError(t, buildError)
+
+	window := ingestionDomain.BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+
+	assert.Equal(t, time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC), window.StartTime,
+		"回補上限被提高到一整格，所以起點是前一天的零點，而不是今天的")
+}
+
+func TestTheReachIsNeverMoreThanTwiceTheLookback(t *testing.T) {
+	// This is the bound the setting's purpose rests on, and it only holds because a
+	// lookback below one bucket is raised: at the floor the alignment can add almost
+	// as much again, and any higher lookback dilutes that share further.
+	for _, declaredLookback := range []time.Duration{
+		time.Minute, time.Hour, 24 * time.Hour, 72 * time.Hour,
+	} {
+		currentTime := time.Date(2026, 8, 30, 23, 59, 0, 0, time.UTC)
+		ingestionDomain, buildError := domains.NewKCandleIngestionDomain(
+			currentTime, 5, declaredLookback)
+		require.NoError(t, buildError)
+
+		window := ingestionDomain.BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
+		reach := currentTime.Sub(window.StartTime)
+		effectiveLookback := max(declaredLookback, 24*time.Hour)
+
+		assert.GreaterOrEqual(t, reach, effectiveLookback,
+			"至少往回這麼久：宣告 %s", declaredLookback)
+		assert.Less(t, reach, 2*effectiveLookback,
+			"但絕不到兩倍：宣告 %s", declaredLookback)
+	}
+}
+
+func TestALookbackOfNoDistanceAtAllIsRefused(t *testing.T) {
+	// Not a small request but an incoherent one — and left unscreened it would now do
+	// the opposite of nothing: aligning zero lands on today's midnight, which fetches
+	// a whole day for every symbol that has never stored a candle.
+	for _, declaredLookback := range []time.Duration{0, -time.Hour} {
+		_, buildError := domains.NewKCandleIngestionDomain(
+			time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5, declaredLookback)
+
+		assert.ErrorIs(t, buildError, domains.ErrKCandleIngestionValidation)
+		assert.Contains(t, buildError.Error(), "回補上限必須大於零")
+	}
+}
+
 func TestSelectClosedDropsTheCandleStillRunning(t *testing.T) {
 	reported := []vo.MarketKCandleVo{
 		{Symbol: "BTCUSDT", OpenTime: at(9, 5, 0)},
