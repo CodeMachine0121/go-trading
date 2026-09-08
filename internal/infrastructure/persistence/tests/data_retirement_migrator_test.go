@@ -1,14 +1,17 @@
 package persistence_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 )
 
@@ -100,6 +103,43 @@ func TestRetiringLeavesEverythingThatIsNotAKCandleAlone(t *testing.T) {
 	assert.Equal(t, int64(1), countOf(t, database, &entities.Strategy{}))
 }
 
+func TestRetirementWorkThatFailsIsReportedAndNotRememberedAsDone(t *testing.T) {
+	// Remembering a retirement that did not happen is the one outcome the ledger must
+	// never produce: nothing would ever remove that data again.
+	database := newTestDatabase(t)
+	clearAppliedDataRetirements(t, database)
+	kCandleRepository := mocks.NewMockIKCandleRepository(gomock.NewController(t))
+	storageFailure := errors.New("storage refused the delete")
+	kCandleRepository.EXPECT().DeleteAll(gomock.Any()).Return(int64(0), storageFailure)
+
+	appliedNames, retireError := persistence.
+		NewDataRetirementMigrator(database, kCandleRepository).
+		Retire(t.Context())
+
+	require.ErrorIs(t, retireError, storageFailure)
+	assert.Nil(t, appliedNames)
+	assert.Equal(t, int64(0), countOf(t, database, &entities.AppliedDataRetirement{}))
+}
+
+func TestALedgerThatCannotBeReadStopsTheRetirement(t *testing.T) {
+	// Not knowing whether a retirement has run is not the same as knowing it has not.
+	// Guessing "not yet" would empty a store that was already refilled.
+	database := newTestDatabase(t)
+	clearAppliedDataRetirements(t, database)
+	kCandleRepository := mocks.NewMockIKCandleRepository(gomock.NewController(t))
+	connection, connectionError := database.DB()
+	require.NoError(t, connectionError)
+	require.NoError(t, connection.Close())
+
+	appliedNames, retireError := persistence.
+		NewDataRetirementMigrator(database, kCandleRepository).
+		Retire(t.Context())
+
+	require.Error(t, retireError)
+	assert.Contains(t, retireError.Error(), "read applied data retirements")
+	assert.Nil(t, appliedNames)
+}
+
 func TestDeletingEveryKCandleReportsHowManyItRemoved(t *testing.T) {
 	database := newTestDatabase(t)
 	require.NoError(t, database.WithContext(t.Context()).
@@ -122,6 +162,22 @@ func TestDeletingEveryKCandleFromAnEmptyStoreRemovesNone(t *testing.T) {
 	removedCount, deleteError := persistence.NewKCandleRepository(database).DeleteAll(t.Context())
 
 	require.NoError(t, deleteError)
+	assert.Equal(t, int64(0), removedCount)
+}
+
+func TestDeletingEveryKCandleReportsAStorageFailureRatherThanACount(t *testing.T) {
+	// A delete that never reached the database has removed nothing, and answering
+	// zero would be indistinguishable from an empty store — which the caller reads
+	// as work already done.
+	database := newTestDatabase(t)
+	connection, connectionError := database.DB()
+	require.NoError(t, connectionError)
+	require.NoError(t, connection.Close())
+
+	removedCount, deleteError := persistence.NewKCandleRepository(database).DeleteAll(t.Context())
+
+	require.Error(t, deleteError)
+	assert.Contains(t, deleteError.Error(), "delete every k candle")
 	assert.Equal(t, int64(0), removedCount)
 }
 
