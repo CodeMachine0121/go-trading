@@ -1124,15 +1124,26 @@ type feedCounter struct {
 	mutex   sync.Mutex
 	open    int
 	highest int
+	total   int
 }
 
 func (counter *feedCounter) opened() {
 	counter.mutex.Lock()
 	defer counter.mutex.Unlock()
 	counter.open++
+	counter.total++
 	if counter.open > counter.highest {
 		counter.highest = counter.open
 	}
+}
+
+// totalOpened is how many were ever opened, which is what tells a high water mark of
+// one apart from nothing having been retried at all.
+func (counter *feedCounter) totalOpened() int {
+	counter.mutex.Lock()
+	defer counter.mutex.Unlock()
+
+	return counter.total
 }
 
 func (counter *feedCounter) closed() {
@@ -1544,6 +1555,58 @@ func TestARosterThatDidNotChangeLeavesTheChannelAlone(t *testing.T) {
 	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
 
 	assert.Empty(t, testBed.channelsOpened, "名單沒變就不該有第二條線被開起來")
+}
+
+// A line that fell silent is still open — its reader is sitting on a socket nobody
+// is listening to any more. Dialling the next attempt without letting go of it would
+// leave two lines where the plan allows one, which is the very failure that being
+// followed a channel at a time was meant to prevent.
+func TestAChannelThatFellSilentIsLetGoOfBeforeTheNextAttempt(t *testing.T) {
+	mockController := gomock.NewController(t)
+	// The clock moves on every reading, so the line is found silent as soon as it is
+	// checked. A frozen one would mean no time ever passes and nothing is ever quiet.
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	var readings atomic.Int64
+	clockProxy.EXPECT().Now().DoAndReturn(func() time.Time {
+		return taipeiFollowAt(t, "2026-09-08T10:00:00+08:00").
+			Add(time.Duration(readings.Add(1)) * time.Second)
+	}).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
+		Return(taiwanWatchlist("2330"), nil).AnyTimes()
+
+	concurrentFeeds := &feedCounter{}
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(followContext context.Context, _ vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
+			concurrentFeeds.opened()
+			// Never delivers and never ends of its own accord — the shape of a line
+			// that has gone silent. It lets go only when it is let go of.
+			go func() {
+				<-followContext.Done()
+				concurrentFeeds.closed()
+			}()
+
+			return make(chan vo.LiveKCandleVo), nil
+		}).AnyTimes()
+
+	// A silence threshold of nothing means every check finds the line quiet, so it is
+	// abandoned and retried over and over within the test.
+	followService := service.NewKCandleFollowService(
+		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
+		tradingSymbolRepository, clockProxy, followMarketCatalog(),
+		time.Nanosecond, 2*time.Millisecond, time.Millisecond,
+	)
+	t.Cleanup(followService.Stop)
+
+	require.NoError(t, followService.RefreshFixedFollows(t.Context()))
+
+	// Several attempts have to have happened, or a high water mark of one would only
+	// mean nothing was ever retried.
+	require.Eventually(t, func() bool { return concurrentFeeds.totalOpened() >= 3 },
+		2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, 1, concurrentFeeds.highWaterMark(),
+		"安靜的那條線必須先放掉，才能撥下一條——方案只准一條")
 }
 
 // An emptied roster is not merely "asks for nothing" — the line that was open has to

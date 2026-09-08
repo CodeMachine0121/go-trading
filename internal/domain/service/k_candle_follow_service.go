@@ -414,15 +414,25 @@ func (kCandleFollowService *KCandleFollowService) run(
 	)
 
 	for {
+		// Each attempt gets a context of its own so that abandoning it really closes
+		// the line behind it. A feed that fell silent is still open — its reader is
+		// sitting on a socket nobody is listening to any more — and dialling the next
+		// attempt without letting go of it would leave two lines where the plan
+		// allows one, which is the very thing being followed a channel at a time was
+		// meant to prevent.
+		attemptContext, abandonAttempt := context.WithCancel(executionContext)
+
 		liveKCandles, followError := kCandleFollowService.liveMarketDataProxy.
-			FollowKCandles(executionContext, openChannel.channel)
+			FollowKCandles(attemptContext, openChannel.channel)
 		if followError == nil {
 			healthDomain.MarkConnected(kCandleFollowService.clockProxy.Now())
-			kCandleFollowService.consume(executionContext, openChannel, healthDomain, liveKCandles)
+			kCandleFollowService.consume(attemptContext, openChannel, healthDomain, liveKCandles)
 		} else {
 			log.Printf("live k candle follow: %s could not be followed: %v",
 				openChannel.channel.Key, followError)
 		}
+
+		abandonAttempt()
 
 		// A channel whose context is already done was ended on purpose — the system is
 		// shutting down, or these symbols lost their places. Saying "stalled" then
