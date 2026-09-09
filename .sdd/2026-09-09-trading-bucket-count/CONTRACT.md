@@ -53,9 +53,9 @@
 
 | ID | Clause | Oracle | Impl | Test | Status |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| AC-20 | 一個交易日、一小時 → 為 5 個位置拿值 | 5 | `indicator_calculation_domain.go:117` 改問新算法 | `indicator_calculation_domain_test.go` `TestTheSlotsAskedForFollowTheMarketsOwnHours`（一分鐘那幾條釘住細刻度不變；一小時由 `TradingSlotCount` 的表格釘住） | 🟠 mis-asserted |
+| AC-20 | 一個交易日、一小時 → 為 5 個位置拿值 | 5 | `indicator_calculation_domain.go:117` 改問新算法 | `TestTheSlotsAskedForAtACoarserInterval`（從指標計算自己的計算根數斷言 5／2／1／5 格） | ✅ conforms |
 | AC-21 | 一個交易日、一分鐘 → 為 270 個位置拿值 | 270 | 同上 | 同表格 "a whole session" | ✅ conforms |
-| AC-22 | 照新算法超過上限的觀察區間 → 整次拒絕 | 拒絕，說明根數超過上限 | 同上 ＋ 既有上限檢查 | 既有上限測試（斷言未改即通過），但**沒有台股粗刻度長區間的案例** | 🟡 partial |
+| AC-22 | 照新算法超過上限的觀察區間 → 整次拒絕 | 拒絕，說明根數超過上限 | 同上 ＋ 既有上限檢查 | `TestACoarseTaiwanWindowIsRefusedNowThatTheSlotsAreCounted`（台股五年、一天刻度） | ✅ conforms |
 
 ### Business Rules
 
@@ -95,22 +95,22 @@
 Contract verification complete for "一段裡有幾格，要照格子數".
 Oracle: PRD Acceptance Criteria ＋ Business Rules ＋ NFR — 30 clauses.
 
-✅ 28 conforms · 🔴 0 violations · 🟠 1 mis-asserted · 🟡 1 partial · ❌ 0 gaps · ❔ 0 unclear · ⚠️ 0 orphans
-Conformance: 93%
+✅ 30 conforms · 🔴 0 violations · 🟠 0 mis-asserted · 🟡 0 partial · ❌ 0 gaps · ❔ 0 unclear · ⚠️ 0 orphans
+Conformance: 100%
 ```
 
 **🔴 Violations：無。**
 
-**🟠 AC-20** —「台股一個交易日、一小時 → 為 5 個位置拿值」的 oracle 是**指標計算實際餵幾根**，
-而現有測試只在 `TradingSlotCount` 的層級斷言 5 格；指標那一側的表格用的是一分鐘刻度。
-兩者中間只隔一次相加，但**沒有測試從指標計算的出口斷言那個 5**。
-補一個案例即可（一小時刻度、無回看根數、斷言實際採用根數為 5）。
+第一輪稽核為 28 ✅ / 1 🟠 / 1 🟡，兩者都不是程式錯，而是測試**沒有從正確的出口斷言**：
 
-**🟡 AC-22** —「照新算法超過上限就拒絕」由既有的上限測試覆蓋，
-但那些案例都是全天候市場；**沒有一個台股粗刻度長區間的案例**，
-而那正是這次讓它從答得出來變成被拒絕的組合。
+- **AC-20** 只在 `TradingSlotCount` 的層級斷言過 5 格；指標那一側的表格全用一分鐘刻度，
+  而一分鐘**恰好是舊的除法也算得對的那幾種**。已補 `TestTheSlotsAskedForAtACoarserInterval`，
+  從指標計算自己的計算根數斷言 5／2／1／5 格；把它改回除法會轉紅。
+- **AC-22** 的上限案例全是全天候市場，缺的正是「台股粗刻度長區間」這個組合——
+  這次讓它從答得出來變成被拒絕的就是它。已補 `TestACoarseTaiwanWindowIsRefused…`。
 
-兩者都不是程式錯，是測試沒有從正確的出口斷言。**已在下一節列為要補的兩條。**
+補的時候順手抓到自己一個錯：第一版斷言的是讀取上限，而它的單位是**原始 K 線**，
+在較粗的刻度上會把格數乘上一格裝得下幾根——斷言因此再也讀不出格數。改成斷言計算根數。
 
 ---
 

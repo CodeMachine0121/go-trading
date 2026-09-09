@@ -1079,3 +1079,71 @@ func TestHolidaysAreNotDeductedFromTheSlotsAskedFor(t *testing.T) {
 	// 三個交易日 × 54 格 = 162 格，即使其中一天其實整天沒有交易。
 	assert.Equal(t, (162+1)*5, calculationDomain.SourceCandleLimit())
 }
+
+// 指標計算在較粗的刻度上，要看的格數與圖表問同一段時得到的是同一個數字。
+//
+// 上面那一組用一分鐘刻度，因為那時「幾格」與「幾根」是同一個數字、斷言讀得出格數本身；
+// 但一分鐘刻度**恰好是舊的除法也算得對的那幾種**。這一組刻意用較粗的刻度，
+// 從指標計算自己的出口斷言那個數字——否則「兩條路說出同一個數字」這件事
+// 只在細刻度上被證明過。
+func TestTheSlotsAskedForAtACoarserInterval(t *testing.T) {
+	testCases := []struct {
+		name              string
+		declaredInterval  string
+		startTime         string
+		endTime           string
+		expectedSlotCount int
+	}{
+		{
+			// 四個半小時碰到世界標準時間 01、02、03、04、05 五個整點格子。
+			name: "a whole session at one hour is five slots, not four", declaredInterval: "1h",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 5,
+		},
+		{
+			// 同一段跨過 04:00 那條線，所以是兩格。
+			name: "a whole session at four hours is two slots, not one", declaredInterval: "4h",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 2,
+		},
+		{
+			name: "a whole session at one day is one slot", declaredInterval: "1d",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 1,
+		},
+		{
+			// 五個交易日在一天刻度是五格。除法會說不到一格,
+			// 於是這次計算會只為一個位置拿值,而使用者要的是五個。
+			name: "five sessions at one day are five slots", declaredInterval: "1d",
+			startTime: "2026-09-07T00:00:00+08:00", endTime: "2026-09-12T00:00:00+08:00",
+			expectedSlotCount: 5,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				taiwanCalculationRequest(
+					t, testCase.declaredInterval, testCase.startTime, testCase.endTime, nil),
+				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+			require.NoError(t, buildError)
+			// 沒宣告回看根數，所以要看幾格就是要餵幾根——計算根數因此就是格數本身。
+			// 這裡刻意不看讀取上限：它的單位是**原始 K 線**，在較粗的刻度上會把格數
+			// 乘上一格裝得下幾根，於是斷言就再也讀不出格數。
+			assert.Equal(t, testCase.expectedSlotCount, calculationDomain.CandleCount())
+		})
+	}
+}
+
+// 台股在較粗的刻度上看較長的觀察區間，照新的算法會超過上限——那正是這次讓它
+// 從答得出來變成被拒絕的組合，而舊的除法會說它只有兩百多格。
+func TestACoarseTaiwanWindowIsRefusedNowThatTheSlotsAreCounted(t *testing.T) {
+	_, buildError := domains.NewIndicatorCalculationDomain(
+		taiwanCalculationRequest(
+			t, "1d", "2021-01-01T00:00:00+08:00", "2026-01-01T00:00:00+08:00", nil),
+		taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+	require.Error(t, buildError)
+	assert.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
+}
