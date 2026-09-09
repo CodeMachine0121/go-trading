@@ -141,6 +141,25 @@ func (aggregationIntervalDomain AggregationIntervalDomain) BucketCount(
 	return int(lastBucketStart.Sub(firstBucketStart)/aggregationIntervalDomain.duration) + 1
 }
 
+// SlotCount is how many of this coarseness fit into a stretch of trading time — the
+// number of values a caller looking at that much market is asking for.
+//
+// It rounds down and stops at one: a stretch that does not fill a whole slot still
+// shows one candle on a chart, and asking for none of them is not a smaller question
+// but an unanswerable one.
+//
+// **The stretch handed in is trading time, not wall-clock time.** A market that shuts
+// overnight offers less of it than the clock does, and that difference is the whole
+// reason this takes a duration rather than two moments: working the duration out is
+// the market's job, and this one only knows how long it is itself. A stretch of no
+// trading at all never reaches here — a window holding none of it is refused before
+// anybody asks how many slots it holds.
+func (aggregationIntervalDomain AggregationIntervalDomain) SlotCount(
+	tradingTime time.Duration,
+) int {
+	return max(1, int(tradingTime/aggregationIntervalDomain.duration))
+}
+
 // SourceCandleCount is the most stored K candles the given number of buckets can hold.
 // One bucket holds as many candles as its length fits, and a trading symbol holds at
 // most one candle per K candle slot, so this is an upper bound the data cannot

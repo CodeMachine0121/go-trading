@@ -32,8 +32,9 @@ const spareBucketCount = 1
 type IndicatorCalculationDomain struct {
 	symbol string
 	// candleCount is how many finished buckets it would take to fill every position
-	// the caller is looking at. It is what the read is sized for and what a full
-	// answer holds; a short stretch answers with fewer, never with an error.
+	// the caller is looking at, worked out from how much market the observation
+	// window holds. It is what the read is sized for and what a full answer holds; a
+	// short stretch answers with fewer, never with an error.
 	candleCount int
 	parameters  StrategyParametersDomain
 	resultType  IndicatorResultTypeDomain
@@ -43,23 +44,28 @@ type IndicatorCalculationDomain struct {
 	endTime time.Time
 }
 
-// NewIndicatorCalculationDomain validates the request against every request rule.
+// NewIndicatorCalculationDomain validates the request against every request rule and
+// works out how many candles the stretch it names is worth.
+//
+// The market is handed in rather than looked up, because how long a venue trades is
+// a fact about the venue and this object is not the place that knows which venue a
+// symbol belongs to. What it does own is the consequence: a caller names a stretch of
+// the clock, and how much market that stretch holds decides how many values come out
+// of it.
 //
 // The current moment is passed in rather than read here, so that what a calculation
 // answers stays decided by its arguments — a rule about "now" that reads the wall
 // clock cannot be checked.
 func NewIndicatorCalculationDomain(
-	requestDto dto.IndicatorCalculationRequestDto, maxCandleCount int, now time.Time,
+	requestDto dto.IndicatorCalculationRequestDto,
+	marketDomain MarketDomain,
+	maxCandleCount int,
+	now time.Time,
 ) (IndicatorCalculationDomain, error) {
 	tradingSymbol, symbolError := NewTradingSymbolDomain(requestDto.Symbol)
 	if symbolError != nil {
 		return IndicatorCalculationDomain{},
 			fmt.Errorf("%w: %w", ErrIndicatorCalculationValidation, symbolError)
-	}
-
-	if requestDto.CandleCount <= 0 {
-		return IndicatorCalculationDomain{},
-			fmt.Errorf("%w: 計算根數必須大於零", ErrIndicatorCalculationValidation)
 	}
 
 	declaredParameters, parametersError := NewStrategyParametersDomain(requestDto.Parameters)
@@ -74,8 +80,28 @@ func NewIndicatorCalculationDomain(
 			"%w: %w", ErrIndicatorCalculationValidation, applyError)
 	}
 
-	// The caller asks for however many candles it wants a value for; the algorithm
-	// needs that many plus whatever its hungriest knob reaches back over, less the
+	interval, intervalError := NewAggregationIntervalDomain(requestDto.AggregationInterval)
+	if intervalError != nil {
+		return IndicatorCalculationDomain{}, fmt.Errorf(
+			"%w: %w", ErrIndicatorCalculationValidation, intervalError)
+	}
+
+	observationWindow, windowError := NewObservationWindowDomain(
+		requestDto.StartTime, requestDto.EndTime, now)
+	if windowError != nil {
+		return IndicatorCalculationDomain{}, fmt.Errorf(
+			"%w: %w", ErrIndicatorCalculationValidation, windowError)
+	}
+
+	// How much market the stretch actually holds, which for a venue that shuts is
+	// less than the stretch itself — and for one that never shuts is all of it.
+	tradingTime := marketDomain.TradingTimeWithin(observationWindow)
+	if tradingTime <= 0 {
+		return IndicatorCalculationDomain{}, ObservationWindowHoldsNoTrading(marketDomain.Value())
+	}
+
+	// The caller wants a value for every slot the stretch holds; the algorithm needs
+	// that many candles plus whatever its hungriest knob reaches back over, less the
 	// one they share.
 	//
 	// The "less one" only applies once there is something to reach back over: a
@@ -83,7 +109,11 @@ func NewIndicatorCalculationDomain(
 	// costs nineteen extra. An algorithm that declares no look-back at all costs
 	// nothing extra — not one candle less, which is what subtracting unconditionally
 	// would quietly do.
-	inputCandleCount := requestDto.CandleCount + max(0, parameters.MaximumLookbackCount()-1)
+	//
+	// The extra candles come from before the stretch, and that is deliberate: looking
+	// back is looking at earlier market, so reaching over a close and into an earlier
+	// session is the reaching working, not the stretch leaking.
+	inputCandleCount := interval.SlotCount(tradingTime) + max(0, parameters.MaximumLookbackCount()-1)
 
 	// The ceiling counts aggregated candles, not the stored ones behind them: asking
 	// for a day at one-hour buckets asks for 24 candles however many one-minute
@@ -93,12 +123,6 @@ func NewIndicatorCalculationDomain(
 	// let that through and fail further in.
 	if inputCandleCount > maxCandleCount {
 		return IndicatorCalculationDomain{}, CandleCountExceeded(inputCandleCount, maxCandleCount)
-	}
-
-	interval, intervalError := NewAggregationIntervalDomain(requestDto.AggregationInterval)
-	if intervalError != nil {
-		return IndicatorCalculationDomain{}, fmt.Errorf(
-			"%w: %w", ErrIndicatorCalculationValidation, intervalError)
 	}
 
 	resultType, resultTypeError := NewIndicatorResultTypeDomain(requestDto.ResultType)
@@ -113,20 +137,8 @@ func NewIndicatorCalculationDomain(
 		parameters:  parameters,
 		resultType:  resultType,
 		interval:    interval,
-		endTime:     effectiveEndTime(requestDto.EndTime, now),
+		endTime:     observationWindow.EndTime(),
 	}, nil
-}
-
-// effectiveEndTime settles what "up to when" means. Naming no moment means now, and
-// naming one that has not arrived also means now — the market cannot be read past
-// the present, and refusing would break the ordinary case of a chart scrolled a
-// little past its right edge.
-func effectiveEndTime(declaredEndTime time.Time, now time.Time) time.Time {
-	if declaredEndTime.IsZero() || declaredEndTime.After(now) {
-		return now
-	}
-
-	return declaredEndTime
 }
 
 func (indicatorCalculationDomain IndicatorCalculationDomain) Symbol() string {

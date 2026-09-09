@@ -61,7 +61,22 @@ func (indicatorCalculationController *IndicatorCalculationController) respondWit
 	if errors.Is(err, domains.ErrIndicatorCalculationCandleCountExceeded) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
 			"message": err.Error(),
-			"field":   "candleCount",
+			// The stretch asked about is the input at fault: it is what the count is
+			// worked out from, and shortening it is one of the two ways out. The
+			// other is a coarser interval, which the sentence names.
+			"field": "startTime",
+		})
+		return
+	}
+	// A stretch that holds no market at all is a third failure with a way out of its
+	// own, and it is unrelated to both of the others: neither a finer interval nor a
+	// coarser one puts trading into a Saturday. It says so as a value rather than
+	// only in the sentence, so a caller can send the person to pick a time the market
+	// was open instead of to turn a dial that changes nothing.
+	if errors.Is(err, domains.ErrObservationWindowHoldsNoTrading) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message":                         err.Error(),
+			"observationWindowHoldsNoTrading": true,
 		})
 		return
 	}

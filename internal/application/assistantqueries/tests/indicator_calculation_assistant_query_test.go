@@ -27,6 +27,9 @@ type indicatorCalculationAssistantQueryUnderTest struct {
 func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalculationAssistantQueryUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	strategyRepository := mocks.NewMockIStrategyRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
@@ -36,7 +39,10 @@ func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalcu
 		assistantQuery: assistantqueries.NewIndicatorCalculationAssistantQuery(
 			application.NewIndicatorCalculationApplication(
 				service.NewIndicatorCalculationService(
-					kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)),
+					kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+					domains.NewMarketCatalogDomain(
+						map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+					queryMaxResults)),
 			application.NewStrategyApplication(service.NewStrategyService(strategyRepository)),
 		),
 		kCandleRepository:    kCandleRepository,
@@ -67,7 +73,7 @@ func TestIndicatorCalculationAssistantQueryRunsAnAlgorithmTheAssistantBrought(t 
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 	outcome, runError := fixture.assistantQuery.Run(t.Context(),
-		`{"symbol":"BTCUSDT","candleCount":2,"script":"func Calculate() {}"}`)
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","script":"func Calculate() {}"}`)
 
 	require.NoError(t, runError)
 	assert.Contains(t, outcome, `"ma":110`)
@@ -87,7 +93,7 @@ func TestIndicatorCalculationAssistantQueryRunsTheStrategyItNames(t *testing.T) 
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 	outcome, runError := fixture.assistantQuery.Run(t.Context(),
-		`{"symbol":"BTCUSDT","candleCount":2,"strategyId":1,`+
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,`+
 			`"parameterValues":[{"name":"lookback","value":30}]}`)
 
 	require.NoError(t, runError)
@@ -107,7 +113,7 @@ func TestIndicatorCalculationAssistantQueryPrefersTheNamedStrategyOverAnAlgorith
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(),
-		`{"symbol":"BTCUSDT","candleCount":2,"strategyId":1,"script":"func Other() {}"}`)
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,"script":"func Other() {}"}`)
 
 	require.NoError(t, runError)
 }
@@ -124,7 +130,7 @@ func TestIndicatorCalculationAssistantQueryReadsUpToTheMomentItWasGiven(t *testi
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(),
-		`{"symbol":"BTCUSDT","candleCount":2,"script":"func Calculate() {}",`+
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T08:58:00Z","script":"func Calculate() {}",`+
 			`"endTime":"2026-08-29T09:00:00Z"}`)
 
 	require.NoError(t, runError)
@@ -136,7 +142,7 @@ func TestIndicatorCalculationAssistantQueryReportsAStrategyThatIsNotThere(t *tes
 		Return(entities.Strategy{}, domains.StrategyNotFound(99))
 
 	_, runError := fixture.assistantQuery.Run(t.Context(),
-		`{"symbol":"BTCUSDT","candleCount":2,"strategyId":99}`)
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":99}`)
 
 	require.ErrorIs(t, runError, domains.ErrStrategyNotFound)
 }
@@ -145,10 +151,10 @@ func TestIndicatorCalculationAssistantQueryIsBoundByTheRulesTheCalculationAlread
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(),
-		`{"symbol":"BTCUSDT","candleCount":0,"script":"func Calculate() {}"}`)
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:15:00Z","script":"func Calculate() {}"}`)
 
 	require.ErrorIs(t, runError, domains.ErrIndicatorCalculationValidation)
-	assert.Contains(t, runError.Error(), "計算根數必須大於零")
+	assert.Contains(t, runError.Error(), "起點必須早於終點")
 }
 
 func TestIndicatorCalculationAssistantQueryRefusesArgumentsItCannotRead(t *testing.T) {
@@ -160,7 +166,7 @@ func TestIndicatorCalculationAssistantQueryRefusesArgumentsItCannotRead(t *testi
 		{name: "not JSON at all", arguments: `nope`, expectedMessage: "不是合法的 JSON"},
 		{
 			name:            "a moment that is not a moment",
-			arguments:       `{"symbol":"BTCUSDT","candleCount":2,"endTime":"昨天"}`,
+			arguments:       `{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","endTime":"昨天"}`,
 			expectedMessage: "RFC3339",
 		},
 	}
