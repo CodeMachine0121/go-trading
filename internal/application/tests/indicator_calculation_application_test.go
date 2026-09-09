@@ -36,6 +36,9 @@ type indicatorUnderTest struct {
 func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(indicatorNow).AnyTimes()
@@ -43,15 +46,21 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	return indicatorUnderTest{
 		indicatorCalculationApplication: application.NewIndicatorCalculationApplication(
 			service.NewIndicatorCalculationService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)),
+				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				queryMaxResults)),
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
 }
 
+// indicatorRequest asks about a stretch holding that many one-minute slots. BTCUSDT
+// trades round the clock, so a minute of the clock is a minute of market.
 func indicatorRequest(candleCount int) dto.IndicatorCalculationRequestDto {
 	return dto.IndicatorCalculationRequestDto{
-		Symbol: "BTCUSDT", CandleCount: candleCount, Script: "the script",
+		Symbol:    "BTCUSDT",
+		StartTime: indicatorNow.Add(-time.Duration(candleCount) * time.Minute),
+		Script:    "the script",
 	}
 }
 
@@ -92,6 +101,9 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 
 		requestDto := indicatorRequest(2)
 		requestDto.AggregationInterval = "1h"
+		// Two hours of market, so two hourly slots: the stretch says how many, and a
+		// slot is an hour at this coarseness.
+		requestDto.StartTime = indicatorNow.Add(-2 * time.Hour)
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), requestDto)
 
@@ -102,13 +114,13 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			"兩根一小時的彙總 K 線，起始時間是那兩格的起點")
 	})
 
-	t.Run("refuses a request whose candle count is not usable", func(t *testing.T) {
+	t.Run("refuses a request whose stretch of market has no length", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 
 		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorRequest(0))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, err.Error(), "計算根數必須大於零")
+		assert.Contains(t, err.Error(), "起點必須早於終點")
 	})
 
 	t.Run("answers over a short stretch instead of refusing it", func(t *testing.T) {

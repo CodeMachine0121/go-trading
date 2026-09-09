@@ -3,6 +3,8 @@ package domains
 import (
 	"errors"
 	"fmt"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // ErrIndicatorCalculationValidation marks a request the caller got wrong: the candle
@@ -98,6 +100,37 @@ func (tooThin *candleCoverageTooThinError) Error() string {
 
 func (tooThin *candleCoverageTooThinError) Unwrap() []error {
 	return []error{ErrIndicatorCalculationValidation, ErrIndicatorCalculationCandleCoverageTooThin}
+}
+
+// ErrObservationWindowHoldsNoTrading marks a stretch of market that holds no market:
+// the window a caller is looking at and the hours its venue trades do not overlap at
+// all — a Taiwan night, a weekend, the wrong side of the closing bell.
+//
+// It is told apart from a stretch that is merely too thin because the ways out are
+// not just different but unrelated. Too thin is answered by reading more finely or
+// waiting for history to fill in; this one is answered by looking at a time the
+// market was open. Offered as the same failure, a caller would send people to turn a
+// dial that changes nothing.
+var ErrObservationWindowHoldsNoTrading = errors.New("observation window holds no trading")
+
+// ObservationWindowHoldsNoTrading builds that failure. It answers to both sentinels:
+// still a validation failure to everything that only cares about that, and the
+// no-trading one to whoever can offer the way out.
+func ObservationWindowHoldsNoTrading(market vo.MarketVo) error {
+	return &observationWindowHoldsNoTradingError{market: market}
+}
+
+type observationWindowHoldsNoTradingError struct {
+	market vo.MarketVo
+}
+
+func (holdsNoTrading *observationWindowHoldsNoTradingError) Error() string {
+	return fmt.Sprintf("%v: 要看的這一段時間裡，%s 沒有交易——換彙總刻度沒有用，請改看有交易的時間",
+		ErrIndicatorCalculationValidation, holdsNoTrading.market)
+}
+
+func (holdsNoTrading *observationWindowHoldsNoTradingError) Unwrap() []error {
+	return []error{ErrIndicatorCalculationValidation, ErrObservationWindowHoldsNoTrading}
 }
 
 // ErrIndicatorScriptFailed marks a well-formed request whose script could not run:

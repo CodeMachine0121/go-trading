@@ -36,6 +36,22 @@ type BacktestDomain struct {
 	readCutoff time.Time
 }
 
+// effectiveEndTime settles what "up to when" means for a replay. Naming no moment
+// means now, and naming one that has not arrived also means now — the market cannot
+// be read past the present, and refusing would break the ordinary case of a stretch
+// asked for a little past the right edge.
+//
+// It lives here because a replay is the only thing left that reads a raw declaration:
+// an indicator calculation now takes an observation window, which settles the same
+// rule at construction. The day a replay takes one too, this goes with it.
+func effectiveEndTime(declaredEndTime time.Time, now time.Time) time.Time {
+	if declaredEndTime.IsZero() || declaredEndTime.After(now) {
+		return now
+	}
+
+	return declaredEndTime
+}
+
 // NewBacktestDomain validates the request against every replay rule.
 //
 // The current moment is passed in rather than read here, so that what a replay answers

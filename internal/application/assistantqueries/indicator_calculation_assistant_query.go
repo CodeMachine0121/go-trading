@@ -14,13 +14,16 @@ import (
 // indicatorCalculationAssistantArguments is what the assistant sends to run one
 // calculation. It may name a saved strategy or bring its own algorithm, never both.
 type indicatorCalculationAssistantArguments struct {
-	Symbol      string `json:"symbol"`
-	Interval    string `json:"interval"`
-	CandleCount int    `json:"candleCount"`
-	StrategyID  uint   `json:"strategyId"`
-	Script      string `json:"script"`
-	ResultType  string `json:"resultType"`
-	EndTime     string `json:"endTime"`
+	Symbol     string `json:"symbol"`
+	Interval   string `json:"interval"`
+	StrategyID uint   `json:"strategyId"`
+	Script     string `json:"script"`
+	ResultType string `json:"resultType"`
+	// StartTime and EndTime are the stretch of market to read, RFC3339. How many
+	// values come out of it depends on how much of it the symbol's market is open
+	// for, so a stretch over a Taiwan night holds nothing at all.
+	StartTime string `json:"startTime"`
+	EndTime   string `json:"endTime"`
 	// ParameterValues are what the named strategy's knobs are worth this time.
 	// Anything left out keeps the value it was declared with.
 	ParameterValues []strategyParameterValueAssistantArgument `json:"parameterValues"`
@@ -65,24 +68,25 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Na
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Description() string {
 	return "算一次指標。可以指名一支既有策略（strategyId），或自己帶一段算式（script）；" +
 		"兩者都給時以 strategyId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
-		"candleCount 是要餵幾根彙總 K 線，必須大於零。回傳的是指標值，不是 K 線。" +
+		"startTime 與 endTime 是要看哪一段行情；會收盤的市場只數有交易的那些時間，" +
+		"所以整段落在台股收盤時間裡的區間會被拒絕。回傳的是指標值，不是 K 線。" +
 		"存下來的行情不夠長時不會被拒絕，而是用手上有的算：回傳的 requiredCandleCount 是填滿要幾根、" +
 		"usedCandleCount 是實際用了幾根，兩者不同就表示這個讀數是以較少的行情算出來的，說結論時要講出來。" +
-		"requiredCandleCount 已經含了回看根數，所以它與你送出的 candleCount 本來就不會相等，不要拿它們互相比對。"
+		"requiredCandleCount 已經含了回看根數，也已經扣掉收盤的時間，不要自己拿區間長度去推算它。"
 }
 
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) ArgumentSchema() string {
 	return `{"type":"object","properties":{` +
 		`"symbol":{"type":"string","description":"交易標的代號，例如 BTCUSDT"},` +
 		`"interval":{"type":"string","enum":["1m","5m","15m","1h","4h","1d"],"description":"彙總刻度"},` +
-		`"candleCount":{"type":"integer","description":"要餵幾根彙總 K 線"},` +
+		`"startTime":{"type":"string","description":"要看哪一段行情的起點，RFC3339"},` +
 		`"strategyId":{"type":"integer","description":"要用哪一支既有策略"},` +
 		`"script":{"type":"string","description":"自帶的指標算式，未指名策略時使用"},` +
 		`"resultType":{"type":"string","enum":["float","floatList","bool","boolList"],"description":"自帶算式的指標值種類"},` +
 		`"endTime":{"type":"string","description":"算到哪個時間為止，RFC3339，未給視為現在"},` +
 		`"parameterValues":{"type":"array","description":"這次每個參數是多少","items":{"type":"object","properties":{` +
 		`"name":{"type":"string"},"value":{"type":"number"}},"required":["name","value"],"additionalProperties":false}}` +
-		`},"required":["symbol","candleCount"],"additionalProperties":false}`
+		`},"required":["symbol","startTime"],"additionalProperties":false}`
 }
 
 // Run works out one calculation and hands back its values.
@@ -105,6 +109,11 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 		return "", fmt.Errorf("%w: 參數不是合法的 JSON: %s", domains.ErrAssistantQueryArgument, unmarshalError)
 	}
 
+	startTime, startTimeError := assistantMomentOf(calculationArguments.StartTime, "startTime")
+	if startTimeError != nil {
+		return "", startTimeError
+	}
+
 	endTime := time.Time{}
 	if calculationArguments.EndTime != "" {
 		namedEndTime, endTimeError := assistantMomentOf(calculationArguments.EndTime, "endTime")
@@ -116,7 +125,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 	}
 
 	requestDto, requestError := indicatorCalculationAssistantQuery.requestFor(
-		executionContext, calculationArguments, endTime)
+		executionContext, calculationArguments, startTime, endTime)
 	if requestError != nil {
 		return "", requestError
 	}
@@ -144,6 +153,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) requestFor(
 	executionContext context.Context,
 	calculationArguments indicatorCalculationAssistantArguments,
+	startTime time.Time,
 	endTime time.Time,
 ) (dto.IndicatorCalculationRequestDto, error) {
 	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(calculationArguments.ParameterValues))
@@ -156,7 +166,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) re
 
 	requestDto := dto.IndicatorCalculationRequestDto{
 		Symbol:              calculationArguments.Symbol,
-		CandleCount:         calculationArguments.CandleCount,
+		StartTime:           startTime,
 		Script:              calculationArguments.Script,
 		AggregationInterval: calculationArguments.Interval,
 		ResultType:          calculationArguments.ResultType,

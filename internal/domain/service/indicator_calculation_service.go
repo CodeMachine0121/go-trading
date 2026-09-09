@@ -12,23 +12,29 @@ import (
 // IndicatorCalculationService is the application layer's only entry point for
 // running a user-written indicator script.
 type IndicatorCalculationService struct {
-	kCandleRepository    domaininterface.IKCandleRepository
-	indicatorScriptProxy domaininterface.IIndicatorScriptProxy
-	clockProxy           domaininterface.IClockProxy
-	maxCandleCount       int
+	kCandleRepository       domaininterface.IKCandleRepository
+	tradingSymbolRepository domaininterface.ITradingSymbolRepository
+	indicatorScriptProxy    domaininterface.IIndicatorScriptProxy
+	clockProxy              domaininterface.IClockProxy
+	marketCatalogDomain     domains.MarketCatalogDomain
+	maxCandleCount          int
 }
 
 func NewIndicatorCalculationService(
 	kCandleRepository domaininterface.IKCandleRepository,
+	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy,
 	clockProxy domaininterface.IClockProxy,
+	marketCatalogDomain domains.MarketCatalogDomain,
 	maxCandleCount int,
 ) *IndicatorCalculationService {
 	return &IndicatorCalculationService{
-		kCandleRepository:    kCandleRepository,
-		indicatorScriptProxy: indicatorScriptProxy,
-		clockProxy:           clockProxy,
-		maxCandleCount:       maxCandleCount,
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		indicatorScriptProxy:    indicatorScriptProxy,
+		clockProxy:              clockProxy,
+		marketCatalogDomain:     marketCatalogDomain,
+		maxCandleCount:          maxCandleCount,
 	}
 }
 
@@ -61,8 +67,22 @@ func NewIndicatorCalculationService(
 func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicator(
 	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
+	// Which venue the symbol trades on is what decides how much of a stretch of the
+	// clock actually holds market. A symbol nobody registered is not refused: its
+	// registration comes back empty, and an empty market reads as the one this system
+	// had before it knew markets existed — the round-the-clock one, which trades every
+	// minute of every stretch. That is how such a symbol behaved before any of this.
+	registeredSymbol, _, findSymbolError := indicatorCalculationService.tradingSymbolRepository.
+		FindBySymbol(executionContext, requestDto.Symbol)
+	if findSymbolError != nil {
+		return dto.IndicatorCalculationResultDto{}, findSymbolError
+	}
+
+	marketDomain := indicatorCalculationService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
+
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
 		requestDto,
+		marketDomain,
 		indicatorCalculationService.maxCandleCount,
 		indicatorCalculationService.clockProxy.Now(),
 	)

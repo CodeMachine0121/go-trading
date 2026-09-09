@@ -97,8 +97,10 @@ func registerRoutes(
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 		service.NewIndicatorCalculationService(
 			kCandleRepository,
+			persistence.NewTradingSymbolRepository(database),
 			script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
 			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
 		),
 	)

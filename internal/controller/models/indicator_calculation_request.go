@@ -8,13 +8,14 @@ import (
 
 // IndicatorCalculationRequest is the body a caller sends to run an indicator script.
 //
-// AggregationInterval, ResultType and EndTime may each be left out: the calculation
-// then reads one-minute candles, produces one number per indicator, and computes up
-// to now — which is exactly what it did before any of the three could be declared.
+// StartTime says where the stretch of market to read begins and is the one field
+// with nothing sensible to fall back on. AggregationInterval, ResultType and EndTime
+// may each be left out: the calculation then reads one-minute candles, produces one
+// number per indicator, and computes up to now.
 type IndicatorCalculationRequest struct {
 	Symbol              string    `json:"symbol"`
 	AggregationInterval string    `json:"aggregationInterval"`
-	CandleCount         int       `json:"candleCount"`
+	StartTime           time.Time `json:"startTime"`
 	EndTime             time.Time `json:"endTime"`
 	Script              string    `json:"script"`
 	ResultType          string    `json:"resultType"`
@@ -30,7 +31,7 @@ func (indicatorCalculationRequest IndicatorCalculationRequest) ToRequestDto() dt
 	return dto.IndicatorCalculationRequestDto{
 		Symbol:              indicatorCalculationRequest.Symbol,
 		AggregationInterval: indicatorCalculationRequest.AggregationInterval,
-		CandleCount:         indicatorCalculationRequest.CandleCount,
+		StartTime:           indicatorCalculationRequest.StartTime,
 		EndTime:             indicatorCalculationRequest.EndTime,
 		Script:              indicatorCalculationRequest.Script,
 		ResultType:          indicatorCalculationRequest.ResultType,

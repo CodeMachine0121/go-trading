@@ -78,6 +78,48 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 		window.Symbol, window.Market, earliestOpenTime, latestOpenTime)
 }
 
+// TradingTimeWithin is how much of an observation window this market actually
+// trades. It is what turns a stretch of the clock into a number of slots: a market
+// that shuts overnight offers far fewer hours than the window spans, and counting
+// the closed ones would ask for candles that were never going to exist.
+//
+// A market that never closes trades the whole window, which is why the answer needs
+// no branch anywhere else — the round-the-clock case comes out of the same question.
+//
+// It counts time, not candle open times, and that is the difference from
+// ClampToTradingSession: one narrows a window to where candles could be, the other
+// measures how long the market was open inside it. They share the walk over days and
+// nothing else, because a duration and a pair of open times round differently at both
+// ends.
+func (marketDomain MarketDomain) TradingTimeWithin(
+	observationWindow ObservationWindowDomain,
+) time.Duration {
+	if marketDomain.neverCloses() {
+		return observationWindow.EndTime().Sub(observationWindow.StartTime())
+	}
+
+	tradingTime := time.Duration(0)
+	marketDomain.eachTradingDaySession(
+		observationWindow.StartTime(), observationWindow.EndTime(),
+		func(sessionStart time.Time, sessionEnd time.Time) {
+			overlapStart := observationWindow.StartTime()
+			if sessionStart.After(overlapStart) {
+				overlapStart = sessionStart
+			}
+
+			overlapEnd := observationWindow.EndTime()
+			if sessionEnd.Before(overlapEnd) {
+				overlapEnd = sessionEnd
+			}
+
+			if overlapEnd.After(overlapStart) {
+				tradingTime += overlapEnd.Sub(overlapStart)
+			}
+		})
+
+	return tradingTime
+}
+
 // SimultaneousFollowCeiling is how many of this market's symbols may be followed
 // live at the same time. Zero means the market data plan sets no ceiling.
 //
@@ -239,48 +281,68 @@ func (marketDomain MarketDomain) sinceLocalMidnight(localMoment time.Time) time.
 		time.Duration(localMoment.Second())*time.Second
 }
 
-// overlappingCandleOpenTimes walks the local days the window touches and reports the
-// first and last candle open time inside it that a session could actually hold.
+// overlappingCandleOpenTimes reports the first and last candle open time inside the
+// window that a session could actually hold.
 //
-// Walking days rather than sessions is what bounds the work: however long the window
-// is, the search is its own length and no longer, so a holiday of any length costs
-// nothing extra and needs no list of holidays to skip.
+// It walks the days the window touches rather than the sessions, which is what bounds
+// the work: however long the window is, the search is its own length and no longer, so
+// a holiday of any length costs nothing extra and needs no list of holidays to skip.
 func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 	window vo.KCandleFetchWindowVo,
 ) (time.Time, time.Time, bool) {
-	location := marketDomain.rules.TradingSession.Location
-	lastLocalDay := marketDomain.localMidnightOf(window.EndTime.In(location))
-
 	earliestOpenTime := time.Time{}
 	latestOpenTime := time.Time{}
-	for localDay := marketDomain.localMidnightOf(window.StartTime.In(location)); !localDay.After(lastLocalDay); localDay = localDay.AddDate(0, 0, 1) {
+
+	marketDomain.eachTradingDaySession(window.StartTime, window.EndTime,
+		func(sessionStart time.Time, sessionEnd time.Time) {
+			// The last open time a session can hold, not the moment it shuts: a candle
+			// stamped at the closing bell would cover time the market was closed for.
+			sessionLastOpenTime := sessionEnd.Add(-KCandleInterval)
+			if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
+				return
+			}
+
+			if earliestOpenTime.IsZero() {
+				earliestOpenTime = sessionStart
+				if window.StartTime.After(sessionStart) {
+					earliestOpenTime = window.StartTime
+				}
+			}
+
+			latestOpenTime = sessionLastOpenTime
+			if window.EndTime.Before(sessionLastOpenTime) {
+				latestOpenTime = window.EndTime
+			}
+		})
+
+	return earliestOpenTime, latestOpenTime, !earliestOpenTime.IsZero()
+}
+
+// eachTradingDaySession walks the market's own days from one moment to another and
+// hands each trading day's session to the visitor, as the two moments it runs between.
+//
+// It is the single place that knows which days this market trades and when its
+// session runs, so a venue that grows a second daily session — an afternoon board, an
+// evening board — is a change here and nowhere else. Two copies of that walk would go
+// out of step, and the one that was not updated would keep answering.
+func (marketDomain MarketDomain) eachTradingDaySession(
+	startTime time.Time,
+	endTime time.Time,
+	visit func(sessionStart time.Time, sessionEnd time.Time),
+) {
+	location := marketDomain.rules.TradingSession.Location
+	lastLocalDay := marketDomain.localMidnightOf(endTime.In(location))
+
+	for localDay := marketDomain.localMidnightOf(startTime.In(location)); !localDay.After(lastLocalDay); localDay = localDay.AddDate(0, 0, 1) {
 		if !marketDomain.tradesOn(localDay.Weekday()) {
 			continue
 		}
 
-		sessionStart := marketDomain.sessionMomentOn(
-			localDay, marketDomain.rules.TradingSession.DailyStart)
-		sessionLastOpenTime := marketDomain.sessionMomentOn(
-			localDay, marketDomain.rules.TradingSession.DailyEnd-KCandleInterval)
-
-		if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
-			continue
-		}
-
-		if earliestOpenTime.IsZero() {
-			earliestOpenTime = sessionStart
-			if window.StartTime.After(sessionStart) {
-				earliestOpenTime = window.StartTime
-			}
-		}
-
-		latestOpenTime = sessionLastOpenTime
-		if window.EndTime.Before(sessionLastOpenTime) {
-			latestOpenTime = window.EndTime
-		}
+		visit(
+			marketDomain.sessionMomentOn(localDay, marketDomain.rules.TradingSession.DailyStart),
+			marketDomain.sessionMomentOn(localDay, marketDomain.rules.TradingSession.DailyEnd),
+		)
 	}
-
-	return earliestOpenTime, latestOpenTime, !earliestOpenTime.IsZero()
 }
 
 // localMidnightOf is the start of the local day a moment belongs to. Building the

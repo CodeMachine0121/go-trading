@@ -282,3 +282,55 @@ func TestAggregationIntervalDomainSourceCandleCountBoundsWhatABucketCanHold(t *t
 		})
 	}
 }
+
+// 一段交易時間裝得下幾格——向下取整，最少一格。
+func TestSlotCountIsHowManyOfThisCoarsenessFitTheTradingTime(t *testing.T) {
+	testCases := []struct {
+		name              string
+		declared          string
+		tradingTime       time.Duration
+		expectedSlotCount int
+	}{
+		{
+			name: "a Taiwan session at five minutes", declared: "5m",
+			tradingTime: 4*time.Hour + 30*time.Minute, expectedSlotCount: 54,
+		},
+		{
+			name: "a whole day at five minutes", declared: "5m",
+			tradingTime: 24 * time.Hour, expectedSlotCount: 288,
+		},
+		{
+			name: "an hour at five minutes", declared: "5m",
+			tradingTime: time.Hour, expectedSlotCount: 12,
+		},
+		{
+			name: "a Taiwan session at one minute", declared: "1m",
+			tradingTime: 4*time.Hour + 30*time.Minute, expectedSlotCount: 270,
+		},
+		{
+			name: "the boundary: exactly one slot", declared: "5m",
+			tradingTime: 5 * time.Minute, expectedSlotCount: 1,
+		},
+		{
+			name: "the boundary: a minute short of two slots rounds down", declared: "5m",
+			tradingTime: 9 * time.Minute, expectedSlotCount: 1,
+		},
+		{
+			name: "less than one slot still shows one", declared: "5m",
+			tradingTime: 3 * time.Minute, expectedSlotCount: 1,
+		},
+		{
+			name: "a day's trading at one day", declared: "1d",
+			tradingTime: 24 * time.Hour, expectedSlotCount: 1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			interval, buildError := domains.NewAggregationIntervalDomain(testCase.declared)
+			require.NoError(t, buildError)
+
+			assert.Equal(t, testCase.expectedSlotCount, interval.SlotCount(testCase.tradingTime))
+		})
+	}
+}

@@ -42,18 +42,24 @@ func newestFirst(minutes ...int) []entities.KCandle {
 	return kCandles
 }
 
+// calculationRequest asks about a stretch holding exactly that many one-minute
+// slots. Every symbol here trades round the clock, so a minute of the clock is a
+// minute of market and the stretch says "this many" faithfully.
 func calculationRequest(symbol string, candleCount int) dto.IndicatorCalculationRequestDto {
 	return dto.IndicatorCalculationRequestDto{
-		Symbol: symbol, CandleCount: candleCount, Script: "the script",
+		Symbol:    symbol,
+		StartTime: calculationNow.Add(-time.Duration(candleCount) * time.Minute),
+		Script:    "the script",
 	}
 }
 
 func calculationRequestOf(
 	symbol string, candleCount int, resultType string,
 ) dto.IndicatorCalculationRequestDto {
-	return dto.IndicatorCalculationRequestDto{
-		Symbol: symbol, CandleCount: candleCount, Script: "the script", ResultType: resultType,
-	}
+	requestDto := calculationRequest(symbol, candleCount)
+	requestDto.ResultType = resultType
+
+	return requestDto
 }
 
 // oneMinuteCutoff is where a read stops when nothing coarser was declared: the
@@ -63,22 +69,48 @@ var oneMinuteCutoff = calculationNow
 type calculationUnderTest struct {
 	indicatorCalculationService *service.IndicatorCalculationService
 	kCandleRepository           *mocks.MockIKCandleRepository
+	tradingSymbolRepository     *mocks.MockITradingSymbolRepository
 	indicatorScriptProxy        *mocks.MockIIndicatorScriptProxy
 }
 
 func newCalculationUnderTest(t *testing.T) calculationUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+	// Unless a test says otherwise, the symbol is registered to the round-the-clock
+	// market — which is what every stretch in this file is measured against.
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(calculationNow).AnyTimes()
 
 	return calculationUnderTest{
 		indicatorCalculationService: service.NewIndicatorCalculationService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, maxCandleCount),
-		kCandleRepository:    kCandleRepository,
-		indicatorScriptProxy: indicatorScriptProxy,
+			kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+			marketCatalog(), maxCandleCount),
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		indicatorScriptProxy:    indicatorScriptProxy,
 	}
+}
+
+// marketCatalog is the two markets this system recognises, with Taiwan's hours as
+// the requirements name them: 09:00 to 13:30 Taipei time, Monday to Friday.
+func marketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   time.FixedZone("Asia/Taipei", 8*60*60),
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+		},
+	})
 }
 
 func TestCalculateIndicator(t *testing.T) {
@@ -160,7 +192,7 @@ func TestCalculateIndicator(t *testing.T) {
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), calculationRequest("BTCUSDT", 0))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, err.Error(), "計算根數必須大於零")
+		assert.Contains(t, err.Error(), "起點必須早於終點")
 	})
 
 	t.Run("never reaches storage when too many candles are requested", func(t *testing.T) {
@@ -384,14 +416,14 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 }
 
 func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
-	t.Run("a candle count of zero is refused just the same", func(t *testing.T) {
+	t.Run("a stretch of no length is refused just the same", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(),
 			calculationRequestOf("BTCUSDT", 0, "floatList"))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, err.Error(), "計算根數必須大於零")
+		assert.Contains(t, err.Error(), "起點必須早於終點")
 	})
 
 	t.Run("a short stretch is answered over just the same", func(t *testing.T) {
@@ -463,6 +495,9 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 
 		requestDto := calculationRequest("BTCUSDT", 2)
 		requestDto.AggregationInterval = "1h"
+		// Two hours of market, so two hourly slots — the stretch says how many, and
+		// at this coarseness a slot is an hour.
+		requestDto.StartTime = calculationNow.Add(-2 * time.Hour)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), requestDto)
 
@@ -481,6 +516,7 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 		requestDto := calculationRequest("BTCUSDT", 2)
 		requestDto.AggregationInterval = "1h"
 		requestDto.EndTime = time.Date(2025, 3, 1, 14, 30, 0, 0, time.UTC)
+		requestDto.StartTime = requestDto.EndTime.Add(-2 * time.Hour)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), requestDto)
 
@@ -597,5 +633,124 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 				assert.Equal(t, testCase.expectedInterval, resultDto.Interval)
 			})
 		}
+	})
+}
+
+// 服務把交易標的換成它所屬的市場，計算才問得出「這一段時間有多少市場」。
+func TestCalculateIndicatorSizesTheReadByTheSymbolsOwnMarket(t *testing.T) {
+	// 台北 09:00–13:30 的那一天，用世界標準時間說是 01:00–05:30。
+	sessionStart := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
+	sessionEnd := time.Date(2026, 9, 7, 5, 30, 0, 0, time.UTC)
+	askedAt := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+
+	buildFixture := func(t *testing.T, market vo.MarketVo) calculationUnderTest {
+		t.Helper()
+
+		controller := gomock.NewController(t)
+		kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+		tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+		tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").
+			Return(entities.TradingSymbol{Symbol: "2330", Market: string(market)}, true, nil)
+		indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
+		clockProxy := mocks.NewMockIClockProxy(controller)
+		clockProxy.EXPECT().Now().Return(askedAt).AnyTimes()
+
+		return calculationUnderTest{
+			indicatorCalculationService: service.NewIndicatorCalculationService(
+				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
+				marketCatalog(), maxCandleCount),
+			kCandleRepository:       kCandleRepository,
+			tradingSymbolRepository: tradingSymbolRepository,
+			indicatorScriptProxy:    indicatorScriptProxy,
+		}
+	}
+
+	requestOver := func(startTime time.Time, endTime time.Time) dto.IndicatorCalculationRequestDto {
+		return dto.IndicatorCalculationRequestDto{
+			Symbol:              "2330",
+			AggregationInterval: "5m",
+			StartTime:           startTime,
+			EndTime:             endTime,
+			Script:              "the script",
+		}
+	}
+
+	t.Run("a whole day of a market that shuts asks for one session of slots", func(t *testing.T) {
+		fixture := buildFixture(t, vo.MarketTaiwanStock)
+		// 54 格加多讀的一格，五分鐘刻度下一格五根 → 275 根原始 K 線。
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "2330", sessionEnd, 275).
+			Return([]entities.KCandle{}, nil)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), requestOver(sessionEnd.Add(-24*time.Hour), sessionEnd))
+
+		// 讀到什麼是別的案例在驗的；這裡驗的是它問了多少。
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+	})
+
+	t.Run("the same day of a market that never shuts asks for a day of slots", func(t *testing.T) {
+		fixture := buildFixture(t, vo.MarketCrypto)
+		// 288 格加一 → 1445 根。
+		fixture.kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "2330", sessionEnd, 1445).
+			Return([]entities.KCandle{}, nil)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), requestOver(sessionEnd.Add(-24*time.Hour), sessionEnd))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+	})
+
+	t.Run("a stretch a shutting market holds none of never reaches storage", func(t *testing.T) {
+		fixture := buildFixture(t, vo.MarketTaiwanStock)
+
+		_, err := fixture.indicatorCalculationService.CalculateIndicator(
+			t.Context(), requestOver(sessionEnd.Add(3*time.Hour), sessionEnd.Add(5*time.Hour)))
+
+		assert.ErrorIs(t, err, domains.ErrObservationWindowHoldsNoTrading)
+	})
+
+	t.Run("a symbol nobody registered trades round the clock, as it always did", func(t *testing.T) {
+		controller := gomock.NewController(t)
+		kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+		tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+		tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").
+			Return(entities.TradingSymbol{}, false, nil)
+		clockProxy := mocks.NewMockIClockProxy(controller)
+		clockProxy.EXPECT().Now().Return(askedAt).AnyTimes()
+		// 沒登錄的代號落到永不收盤的市場，所以整段二十四小時都算數：288 格加一。
+		kCandleRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), "2330", sessionEnd, 1445).
+			Return([]entities.KCandle{}, nil)
+
+		indicatorCalculationService := service.NewIndicatorCalculationService(
+			kCandleRepository, tradingSymbolRepository,
+			mocks.NewMockIIndicatorScriptProxy(controller), clockProxy,
+			marketCatalog(), maxCandleCount)
+
+		_, err := indicatorCalculationService.CalculateIndicator(
+			t.Context(), requestOver(sessionEnd.Add(-24*time.Hour), sessionEnd))
+
+		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
+	})
+
+	t.Run("storage refusing to say which market it is stops the calculation", func(t *testing.T) {
+		controller := gomock.NewController(t)
+		tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+		tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").
+			Return(entities.TradingSymbol{}, false, errors.New("資料庫讀不到"))
+		clockProxy := mocks.NewMockIClockProxy(controller)
+		clockProxy.EXPECT().Now().Return(askedAt).AnyTimes()
+
+		indicatorCalculationService := service.NewIndicatorCalculationService(
+			mocks.NewMockIKCandleRepository(controller), tradingSymbolRepository,
+			mocks.NewMockIIndicatorScriptProxy(controller), clockProxy,
+			marketCatalog(), maxCandleCount)
+
+		_, err := indicatorCalculationService.CalculateIndicator(
+			t.Context(), requestOver(sessionStart, sessionEnd))
+
+		assert.ErrorContains(t, err, "資料庫讀不到")
 	})
 }

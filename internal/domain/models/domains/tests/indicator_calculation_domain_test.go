@@ -64,16 +64,38 @@ func fullBucketsNewestFirst(hours ...string) []entities.KCandle {
 	return kCandles
 }
 
+// calculationRequest asks about a stretch long enough to hold exactly that many
+// slots. The tests below are written in slots because that is what the rules they
+// check are about; a round-the-clock market trades every minute of the stretch, so
+// the two are the same number there — which is what makes the stretch a faithful way
+// to say "this many".
 func calculationRequest(
 	declaredInterval string, candleCount int, endTime time.Time,
 ) dto.IndicatorCalculationRequestDto {
+	settledEndTime := endTime
+	if settledEndTime.IsZero() || settledEndTime.After(calculationNow) {
+		settledEndTime = calculationNow
+	}
+
 	return dto.IndicatorCalculationRequestDto{
 		Symbol:              "BTCUSDT",
 		AggregationInterval: declaredInterval,
-		CandleCount:         candleCount,
+		StartTime:           settledEndTime.Add(-slotSpan(declaredInterval, candleCount)),
 		EndTime:             endTime,
 		Script:              "irrelevant",
 	}
+}
+
+// slotSpan is how long that many slots of that coarseness cover. A coarseness the
+// system does not recognise is measured in minutes, which is never read: the
+// calculation refuses the coarseness before it ever looks at the stretch.
+func slotSpan(declaredInterval string, slotCount int) time.Duration {
+	interval, intervalError := domains.NewAggregationIntervalDomain(declaredInterval)
+	if intervalError != nil {
+		return time.Duration(slotCount) * time.Minute
+	}
+
+	return time.Duration(slotCount*interval.SourceCandleCount(1)) * domains.KCandleInterval
 }
 
 func calculationFor(
@@ -82,7 +104,8 @@ func calculationFor(
 	t.Helper()
 
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
-		calculationRequest(declaredInterval, candleCount, time.Time{}), maxCandleCount, calculationNow)
+		calculationRequest(declaredInterval, candleCount, time.Time{}),
+		cryptoMarket(), maxCandleCount, calculationNow)
 	require.NoError(t, validationError)
 
 	return calculationDomain
@@ -130,7 +153,7 @@ func calculationWithLookback(
 	}
 
 	calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
-		requestDto, maxCandleCount, calculationNow)
+		requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 	require.NoError(t, validationError)
 
 	return calculationDomain
@@ -158,12 +181,12 @@ func TestNewIndicatorCalculationDomainRejectsBrokenRequests(t *testing.T) {
 			expectedReason: "必須指定交易標的",
 		},
 		{
-			name: "zero candles", symbol: "BTCUSDT", candleCount: 0,
-			expectedReason: "計算根數必須大於零",
+			name: "a stretch of no length", symbol: "BTCUSDT", candleCount: 0,
+			expectedReason: "起點必須早於終點",
 		},
 		{
-			name: "negative candles", symbol: "BTCUSDT", candleCount: -5,
-			expectedReason: "計算根數必須大於零",
+			name: "a stretch that ends before it starts", symbol: "BTCUSDT", candleCount: -5,
+			expectedReason: "起點必須早於終點",
 		},
 		{
 			name: "more candles than a single call allows", symbol: "BTCUSDT", candleCount: 1001,
@@ -187,7 +210,7 @@ func TestNewIndicatorCalculationDomainRejectsBrokenRequests(t *testing.T) {
 			requestDto.Symbol = testCase.symbol
 
 			_, validationError := domains.NewIndicatorCalculationDomain(
-				requestDto, maxCandleCount, calculationNow)
+				requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 
 			assert.ErrorIs(t, validationError, domains.ErrIndicatorCalculationValidation)
 			assert.Contains(t, validationError.Error(), testCase.expectedReason)
@@ -223,7 +246,7 @@ func TestNewIndicatorCalculationDomainCountsAggregatedCandlesNotStoredOnes(t *te
 		t.Run(testCase.declaredInterval, func(t *testing.T) {
 			_, validationError := domains.NewIndicatorCalculationDomain(
 				calculationRequest(testCase.declaredInterval, testCase.candleCount, time.Time{}),
-				maxCandleCount, calculationNow)
+				cryptoMarket(), maxCandleCount, calculationNow)
 
 			assert.NoError(t, validationError)
 		})
@@ -302,7 +325,7 @@ func TestReadCutoffStopsBeforeTheBucketStillRunning(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
 				calculationRequest(testCase.declaredInterval, 3, testCase.endTime),
-				maxCandleCount, calculationNow)
+				cryptoMarket(), maxCandleCount, calculationNow)
 
 			require.NoError(t, validationError)
 			assert.Equal(t, momentAt(testCase.expectedCutoff), calculationDomain.ReadCutoff(),
@@ -327,7 +350,7 @@ func TestReadCutoffTreatsAnEndTimeThatHasNotArrivedAsNow(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
-				calculationRequest("1h", 3, testCase.endTime), maxCandleCount, calculationNow)
+				calculationRequest("1h", 3, testCase.endTime), cryptoMarket(), maxCandleCount, calculationNow)
 
 			require.NoError(t, validationError)
 			assert.Equal(t, momentAt("2026-09-03T08:00:00Z"), calculationDomain.ReadCutoff())
@@ -623,7 +646,7 @@ func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
 			requestDto := calculationRequest("1h", 100, time.Time{})
 			requestDto.Parameters = testCase.parameters
 			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
-				requestDto, maxCandleCount, calculationNow)
+				requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 			require.NoError(t, buildError)
 
 			_, selectionError := calculationDomain.SelectInputCandles(
@@ -650,7 +673,7 @@ func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
 	requestDto.Parameters = []dto.StrategyParameterWriteDto{
 		{Name: "期數", Kind: "lookbackCount", DefaultValue: 60}}
 	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
-		requestDto, maxCandleCount, calculationNow)
+		requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 	require.NoError(t, buildError)
 
 	storedOpenTimes := hourlyOpenTimesEndingBefore(60, 31)
@@ -716,7 +739,7 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredResultType(t *testing.T) {
 		requestDto.ResultType = "boolList"
 
 		calculationDomain, validationError := domains.NewIndicatorCalculationDomain(
-			requestDto, maxCandleCount, calculationNow)
+			requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 
 		require.NoError(t, validationError)
 		assert.Equal(t, vo.IndicatorResultTypeBoolList, calculationDomain.ResultType().Value())
@@ -733,21 +756,21 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredResultType(t *testing.T) {
 		requestDto.ResultType = "string"
 
 		_, validationError := domains.NewIndicatorCalculationDomain(
-			requestDto, maxCandleCount, calculationNow)
+			requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 
 		assert.ErrorIs(t, validationError, domains.ErrIndicatorCalculationValidation)
 		assert.Contains(t, validationError.Error(), "指標值種類只能是")
 	})
 
-	t.Run("a broken candle count is still reported first", func(t *testing.T) {
+	t.Run("a stretch of no length is still reported first", func(t *testing.T) {
 		requestDto := calculationRequest("1h", 0, time.Time{})
 		requestDto.ResultType = "string"
 
 		_, validationError := domains.NewIndicatorCalculationDomain(
-			requestDto, maxCandleCount, calculationNow)
+			requestDto, cryptoMarket(), maxCandleCount, calculationNow)
 
 		assert.ErrorIs(t, validationError, domains.ErrIndicatorCalculationValidation)
-		assert.Contains(t, validationError.Error(), "計算根數必須大於零")
+		assert.Contains(t, validationError.Error(), "起點必須早於終點")
 	})
 }
 
@@ -832,15 +855,16 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
 				dto.IndicatorCalculationRequestDto{
-					Symbol:      "BTCUSDT",
-					CandleCount: testCase.requestedSpan,
+					Symbol: "BTCUSDT",
+					StartTime: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC).
+						Add(-time.Duration(testCase.requestedSpan) * time.Minute),
 					// One minute is the length a stored candle already covers, so one
 					// bucket is one candle and the read limit reads back as the input
 					// count plus the spare bucket — which is what this asserts.
 					AggregationInterval: "1m",
 					ResultType:          "float",
 					Parameters:          testCase.parameters,
-				}, 1000, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
+				}, cryptoMarket(), 1000, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
 
 			require.NoError(t, buildError)
 			// 讀取上限是「要餵給算式的根數」加上多讀的那一格，所以反推得回來。
@@ -854,14 +878,185 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 func TestTheCeilingIsJudgedAgainstWhatWillActuallyBeFed(t *testing.T) {
 	_, buildError := domains.NewIndicatorCalculationDomain(
 		dto.IndicatorCalculationRequestDto{
-			Symbol:              "BTCUSDT",
-			CandleCount:         10,
+			Symbol: "BTCUSDT",
+			StartTime: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC).
+				Add(-10 * 5 * time.Minute),
 			AggregationInterval: "5m",
 			ResultType:          "float",
 			Parameters: []dto.StrategyParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 100}},
-		}, 50, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
+		}, cryptoMarket(), 50, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
 
 	require.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
 	assert.Contains(t, buildError.Error(), "109")
+}
+
+// taiwanCalculationRequest asks about a stretch of Taipei-time market. It is written
+// in clock readings rather than in slots, because for a market that shuts the two
+// are exactly the thing that no longer agree.
+func taiwanCalculationRequest(
+	t *testing.T, declaredInterval string, startTime string, endTime string,
+	parameters []dto.StrategyParameterWriteDto,
+) dto.IndicatorCalculationRequestDto {
+	t.Helper()
+
+	return dto.IndicatorCalculationRequestDto{
+		Symbol:              "2330",
+		AggregationInterval: declaredInterval,
+		StartTime:           mustParseTime(t, startTime),
+		EndTime:             mustParseTime(t, endTime),
+		Script:              "irrelevant",
+		Parameters:          parameters,
+	}
+}
+
+// 一段時間裡要看幾格，照市場自己的交易時段數——夜裡與週末不產生格子。
+// 讀取上限反推得回計算根數：一分鐘刻度下一格就是一根，上限是計算根數加多讀的那一格。
+// 2026-09-07 是週一，09-11 是週五。
+func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
+	// 一分鐘刻度讓「幾格」與「幾根」是同一個數字，斷言因此讀得出格數本身。
+	testCases := []struct {
+		name              string
+		startTime         string
+		endTime           string
+		expectedSlotCount int
+	}{
+		{
+			name:      "a whole session",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 270,
+		},
+		{
+			name:      "a whole day holds one session, not a day of slots",
+			startTime: "2026-09-06T13:30:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 270,
+		},
+		{
+			name:      "wholly inside a session",
+			startTime: "2026-09-07T11:00:00+08:00", endTime: "2026-09-07T12:00:00+08:00",
+			expectedSlotCount: 60,
+		},
+		{
+			name:      "across one close",
+			startTime: "2026-09-07T13:00:00+08:00", endTime: "2026-09-08T10:00:00+08:00",
+			expectedSlotCount: 90,
+		},
+		{
+			name:      "across a weekend",
+			startTime: "2026-09-11T12:00:00+08:00", endTime: "2026-09-14T10:00:00+08:00",
+			expectedSlotCount: 150,
+		},
+		{
+			name:      "a stretch shorter than one slot still holds one",
+			startTime: "2026-09-07T10:00:00+08:00", endTime: "2026-09-07T10:00:30+08:00",
+			expectedSlotCount: 1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				taiwanCalculationRequest(t, "1m", testCase.startTime, testCase.endTime, nil),
+				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+			require.NoError(t, buildError)
+			assert.Equal(t, testCase.expectedSlotCount+1, calculationDomain.SourceCandleLimit())
+		})
+	}
+}
+
+// 同樣一段二十四小時，永不收盤的市場一格都不少——這一半本來就是對的，不能被改壞。
+func TestAMarketThatNeverClosesStillHoldsEverySlotOfTheStretch(t *testing.T) {
+	// 五分鐘刻度：整整一天是 288 格。一分鐘刻度下同一段是 1440 格，本來就超過單次上限——
+	// 那是既有規則，不是這次要驗的事。
+	requestDto := dto.IndicatorCalculationRequestDto{
+		Symbol:              "BTCUSDT",
+		AggregationInterval: "5m",
+		StartTime:           mustParseTime(t, "2026-09-06T13:30:00+08:00"),
+		EndTime:             mustParseTime(t, "2026-09-07T13:30:00+08:00"),
+		Script:              "irrelevant",
+	}
+
+	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+		requestDto, cryptoMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+	require.NoError(t, buildError)
+	assert.Equal(t, (288+1)*5, calculationDomain.SourceCandleLimit())
+}
+
+// 回看要的那一段歷史仍然往更早的行情取，跨過收盤是對的：計算根數是格數加回看減一。
+func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
+	testCases := []struct {
+		name                string
+		startTime           string
+		endTime             string
+		parameters          []dto.StrategyParameterWriteDto
+		expectedCandleCount int
+	}{
+		{
+			name:      "a whole session with a twenty-bar look-back",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
+			expectedCandleCount: 54 + 19,
+		},
+		{
+			name:      "the first hour of a session with a twenty-bar look-back",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T10:00:00+08:00",
+			parameters: []dto.StrategyParameterWriteDto{
+				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
+			expectedCandleCount: 12 + 19,
+		},
+		{
+			name:      "no look-back declared costs nothing extra",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			parameters:          nil,
+			expectedCandleCount: 54,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				taiwanCalculationRequest(
+					t, "5m", testCase.startTime, testCase.endTime, testCase.parameters),
+				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+			require.NoError(t, buildError)
+			// 五分鐘刻度下一格是五根，讀取上限是（計算根數 + 多讀的那一格）× 五。
+			assert.Equal(t, (testCase.expectedCandleCount+1)*5, calculationDomain.SourceCandleLimit())
+		})
+	}
+}
+
+// 要看的那一段裡市場根本沒開，換什麼刻度都一樣——這是一種認得出來的拒絕。
+func TestAStretchHoldingNoMarketIsRefusedAsItsOwnKind(t *testing.T) {
+	testCases := []struct {
+		name      string
+		startTime string
+		endTime   string
+	}{
+		{
+			name:      "wholly after the close",
+			startTime: "2026-09-07T14:00:00+08:00", endTime: "2026-09-07T16:00:00+08:00",
+		},
+		{
+			name:      "a whole Saturday",
+			startTime: "2026-09-12T00:00:00+08:00", endTime: "2026-09-13T00:00:00+08:00",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, buildError := domains.NewIndicatorCalculationDomain(
+				taiwanCalculationRequest(t, "5m", testCase.startTime, testCase.endTime, nil),
+				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+			require.ErrorIs(t, buildError, domains.ErrObservationWindowHoldsNoTrading)
+			// 與「湊不出最少可算根數」是兩種不同的拒絕：出路不一樣。
+			assert.NotErrorIs(t, buildError, domains.ErrIndicatorCalculationCandleCoverageTooThin)
+			assert.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
+			assert.Contains(t, buildError.Error(), "沒有交易")
+		})
+	}
 }
