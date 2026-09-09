@@ -1060,3 +1060,17 @@ func TestAStretchHoldingNoMarketIsRefusedAsItsOwnKind(t *testing.T) {
 		})
 	}
 }
+
+// 休市日不預先扣除：推算格數只看「哪幾天交易、幾點到幾點」，不查假日名單。
+// 少掉的那一天由「計算根數」與「實際採用根數」的落差說出來，不是在這裡先扣掉。
+// 2026-09-07 是週一，09-09 是週三：三個平日、三段交易時段。
+func TestHolidaysAreNotDeductedFromTheSlotsAskedFor(t *testing.T) {
+	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+		taiwanCalculationRequest(
+			t, "5m", "2026-09-07T09:00:00+08:00", "2026-09-09T13:30:00+08:00", nil),
+		taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+	require.NoError(t, buildError)
+	// 三個交易日 × 54 格 = 162 格，即使其中一天其實整天沒有交易。
+	assert.Equal(t, (162+1)*5, calculationDomain.SourceCandleLimit())
+}
