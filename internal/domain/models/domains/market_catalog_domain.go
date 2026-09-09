@@ -35,7 +35,16 @@ type MarketCatalogDomain struct {
 func NewMarketCatalogDomain(rulesByMarket map[vo.MarketVo]vo.MarketRulesVo) MarketCatalogDomain {
 	recognisedRules := make(map[vo.MarketVo]vo.MarketRulesVo, len(rulesByMarket)+1)
 	for market, rules := range rulesByMarket {
-		rules.TradingSession.Stretches = inStartOrder(rules.TradingSession.Stretches)
+		// Ordered into a copy of their own, so putting them in order here cannot reach
+		// back into the settings they came from.
+		orderedStretches := slices.Clone(rules.TradingSession.Stretches)
+		slices.SortStableFunc(orderedStretches, func(
+			oneStretch vo.TradingStretchVo, otherStretch vo.TradingStretchVo,
+		) int {
+			return int(oneStretch.StartOffset - otherStretch.StartOffset)
+		})
+
+		rules.TradingSession.Stretches = orderedStretches
 		recognisedRules[market] = rules
 	}
 
@@ -44,19 +53,6 @@ func NewMarketCatalogDomain(rulesByMarket map[vo.MarketVo]vo.MarketRulesVo) Mark
 	}
 
 	return MarketCatalogDomain{rulesByMarket: recognisedRules}
-}
-
-// inStartOrder is the stretches of one trading day, earliest first, in a copy of their
-// own — so that ordering them here cannot reach back into the settings they came from.
-func inStartOrder(tradingStretches []vo.TradingStretchVo) []vo.TradingStretchVo {
-	orderedStretches := slices.Clone(tradingStretches)
-	slices.SortStableFunc(orderedStretches, func(
-		oneStretch vo.TradingStretchVo, otherStretch vo.TradingStretchVo,
-	) int {
-		return int(oneStretch.StartOffset - otherStretch.StartOffset)
-	})
-
-	return orderedStretches
 }
 
 // fallbackMarket is what an unrecognised or absent market name means. Its rules

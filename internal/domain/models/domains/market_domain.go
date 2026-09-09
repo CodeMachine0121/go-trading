@@ -131,16 +131,10 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 
 	tradingBucketCount := 0
 	lastCountedBucketStart := time.Time{}
-	marketDomain.eachSessionOccurrence(startTime, endTime,
-		func(occurrence vo.TradingSessionOccurrenceVo) {
-			overlapStart, overlapEnd, holdsAny := marketDomain.overlapWith(
-				occurrence, startTime, endTime)
-			if !holdsAny {
-				return
-			}
-
-			firstBucketStart := bucketStartOf(overlapStart, bucketDuration)
-			lastBucketStart := bucketStartOf(overlapEnd, bucketDuration)
+	marketDomain.eachTradableRange(startTime, endTime,
+		func(rangeStart time.Time, rangeEnd time.Time) {
+			firstBucketStart := bucketStartOf(rangeStart, bucketDuration)
+			lastBucketStart := bucketStartOf(rangeEnd, bucketDuration)
 
 			// Start after the last bucket already counted, so a bucket two stretches
 			// share is one bar rather than two.
@@ -172,11 +166,9 @@ func (marketDomain MarketDomain) HoldsTrading(startTime time.Time, endTime time.
 	}
 
 	holdsTrading := false
-	marketDomain.eachSessionOccurrence(startTime, endTime,
-		func(occurrence vo.TradingSessionOccurrenceVo) {
-			if _, _, holdsAny := marketDomain.overlapWith(occurrence, startTime, endTime); holdsAny {
-				holdsTrading = true
-			}
+	marketDomain.eachTradableRange(startTime, endTime,
+		func(_ time.Time, _ time.Time) {
+			holdsTrading = true
 		})
 
 	return holdsTrading
@@ -402,49 +394,57 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 	earliestOpenTime := time.Time{}
 	latestOpenTime := time.Time{}
 
-	marketDomain.eachSessionOccurrence(window.StartTime, window.EndTime,
-		func(occurrence vo.TradingSessionOccurrenceVo) {
-			overlapStart, overlapEnd, holdsAny := marketDomain.overlapWith(
-				occurrence, window.StartTime, window.EndTime)
-			if !holdsAny {
-				return
-			}
-
+	marketDomain.eachTradableRange(window.StartTime, window.EndTime,
+		func(rangeStart time.Time, rangeEnd time.Time) {
 			if earliestOpenTime.IsZero() {
-				earliestOpenTime = overlapStart
+				earliestOpenTime = rangeStart
 			}
 
-			latestOpenTime = overlapEnd
+			latestOpenTime = rangeEnd
 		})
 
 	return earliestOpenTime, latestOpenTime, !earliestOpenTime.IsZero()
 }
 
-// overlapWith is the part of a stretch of time this occurrence could hold candles for,
-// said as its first and last candle open time — and whether it holds any at all.
+// eachTradableRange walks a stretch of time and hands the visitor each run of candle
+// open times inside it that this market could actually have traded, earliest first.
+//
+// It is the walk almost every question about a stretch of time wants: how many buckets
+// hold trading, which candle open times a window could cover, whether any trading
+// happened at all. Each of them used to work the overlap out for itself and then check
+// whether there was one, which is three copies of the same reading of a session's
+// edges — and the copy that was not updated would keep answering.
 //
 // The last open time is the one before the closing bell rather than the bell itself: a
-// candle stamped at the bell would cover time the market was already shut for. Every
-// reader of a session's edges takes that same reading, which is why it is worked out
-// once here.
-func (marketDomain MarketDomain) overlapWith(
-	occurrence vo.TradingSessionOccurrenceVo, startTime time.Time, endTime time.Time,
-) (time.Time, time.Time, bool) {
-	overlapStart := startTime
-	if occurrence.StartTime.After(overlapStart) {
-		overlapStart = occurrence.StartTime
-	}
+// candle stamped at the bell would cover time the market was already shut for. A run
+// that holds no open time at all is not handed over, so a visitor never has to ask.
+//
+// It is deliberately not what "is the market open" reads. A moment thirty seconds
+// before the bell is inside the session and after its last candle open time, so this
+// walk would call it shut — which is why IsOpen asks about occurrences instead.
+func (marketDomain MarketDomain) eachTradableRange(
+	startTime time.Time,
+	endTime time.Time,
+	visit func(rangeStart time.Time, rangeEnd time.Time),
+) {
+	marketDomain.eachSessionOccurrence(startTime, endTime,
+		func(occurrence vo.TradingSessionOccurrenceVo) {
+			rangeStart := startTime
+			if occurrence.StartTime.After(rangeStart) {
+				rangeStart = occurrence.StartTime
+			}
 
-	overlapEnd := endTime
-	if lastOpenTime := occurrence.EndTime.Add(-KCandleInterval); lastOpenTime.Before(overlapEnd) {
-		overlapEnd = lastOpenTime
-	}
+			rangeEnd := endTime
+			if lastOpenTime := occurrence.EndTime.Add(-KCandleInterval); lastOpenTime.Before(rangeEnd) {
+				rangeEnd = lastOpenTime
+			}
 
-	if overlapEnd.Before(overlapStart) {
-		return time.Time{}, time.Time{}, false
-	}
+			if rangeEnd.Before(rangeStart) {
+				return
+			}
 
-	return overlapStart, overlapEnd, true
+			visit(rangeStart, rangeEnd)
+		})
 }
 
 // eachSessionOccurrence walks the market's own opening days across a stretch of time
