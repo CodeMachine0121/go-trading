@@ -80,8 +80,12 @@ func TestCatchingUpASymbolReportsWhatItCollected(t *testing.T) {
 
 	response := underTest.post(`{"symbol":"BTCUSDT"}`)
 
+	// The names on the wire are the contract, so the whole body is pinned rather than
+	// only searched for the symbol. A caller looking for storedCount and handed
+	// StoredCount reads nothing at all, and finds out only when it goes to add the
+	// counts up — a page-breaking error about a field, one layer away from the field.
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Contains(t, response.Body.String(), "BTCUSDT")
+	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":true,"storedCount":0,"skippedKCandles":[],"fetchFailureReason":""}]}`, response.Body.String())
 }
 
 func TestCatchingUpASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
