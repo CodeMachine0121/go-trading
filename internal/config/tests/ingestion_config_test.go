@@ -168,3 +168,40 @@ func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 	}}, taiwanStockRules.TradingSession.Stretches)
 	assert.Len(t, taiwanStockRules.TradingSession.Weekdays, 5)
 }
+
+func TestTheFuturesMarketTradesTwoBoardsAndTheSecondRunsPastMidnight(t *testing.T) {
+	applicationConfig := config.Load()
+
+	taiwanFuturesRules := applicationConfig.MarketRules[vo.MarketTaiwanFutures]
+
+	// The evening board's end is written on the clock as five in the morning, and read
+	// as twenty-nine hours into the day it started — which is what "past midnight"
+	// means once it has to be compared with anything.
+	assert.Equal(t, []vo.TradingStretchVo{
+		{
+			StartOffset: 8*time.Hour + 45*time.Minute,
+			EndOffset:   13*time.Hour + 45*time.Minute,
+		},
+		{
+			StartOffset:              15 * time.Hour,
+			EndOffset:                29 * time.Hour,
+			BelongsToNextBusinessDay: true,
+		},
+	}, taiwanFuturesRules.TradingSession.Stretches)
+	assert.Len(t, taiwanFuturesRules.TradingSession.Weekdays, 5)
+	assert.Equal(t, 1, taiwanFuturesRules.SimultaneousChannelCeiling)
+	assert.Equal(t, 5, taiwanFuturesRules.SymbolsPerLiveChannel)
+}
+
+func TestAnEveningBoardEndingLaterOnTheClockIsTakenAsGiven(t *testing.T) {
+	// A venue whose second board shuts before midnight needs no carrying over, and
+	// reading one in would put its close a day out.
+	t.Setenv("TAIWAN_FUTURES_EVENING_BOARD_START", "15:00")
+	t.Setenv("TAIWAN_FUTURES_EVENING_BOARD_END", "20:00")
+
+	applicationConfig := config.Load()
+
+	eveningBoard := applicationConfig.MarketRules[vo.MarketTaiwanFutures].
+		TradingSession.Stretches[1]
+	assert.Equal(t, 20*time.Hour, eveningBoard.EndOffset)
+}

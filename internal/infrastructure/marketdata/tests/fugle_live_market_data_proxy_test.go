@@ -523,3 +523,29 @@ func TestAPushedCandleWhoseTimeCannotBeReadIsSkipped(t *testing.T) {
 	assert.Equal(t, taipeiAt(t, "2026-09-08T10:00:00+08:00").UTC(),
 		nextLiveKCandle(t, liveKCandles).OpenTime)
 }
+
+// A venue that trades an evening board publishes it separately and pushes only what
+// was asked for, so following it means two subscriptions per symbol. Asking for one
+// would leave the night — the whole reason for watching this market — silent, and
+// silent reads exactly like a market with nothing to say.
+func TestAVenueWithAnEveningBoardIsAskedForBothOfThem(t *testing.T) {
+	stream := newFugleStreamUnderTest(t)
+
+	followContext, stopFollowing := context.WithCancel(t.Context())
+	t.Cleanup(stopFollowing)
+	_, followError := marketdata.NewFugleEveningBoardLiveMarketDataProxy(
+		"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
+		FollowKCandles(followContext,
+			vo.NewLiveFollowChannelVo(vo.MarketTaiwanFutures, []string{"TXF"}))
+	require.NoError(t, followError)
+
+	require.Equal(t, "auth", stream.nextInstruction(t)["event"])
+
+	dayBoard := stream.nextInstruction(t)
+	require.Equal(t, "subscribe", dayBoard["event"])
+	assert.NotContains(t, dayBoard["data"], "afterHours")
+
+	eveningBoard := stream.nextInstruction(t)
+	require.Equal(t, "subscribe", eveningBoard["event"])
+	assert.Equal(t, true, eveningBoard["data"].(map[string]any)["afterHours"])
+}

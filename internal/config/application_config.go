@@ -101,6 +101,40 @@ type TaiwanStockConfig struct {
 	RequestTimeout             time.Duration
 }
 
+// TaiwanFuturesConfig holds what reaching the Taiwan index futures market runs on.
+//
+// It carries two boards rather than one because that is what this venue trades: a day
+// board, and an evening board that opens in the afternoon and runs to the small hours
+// of the next morning. The evening board's end being earlier on the clock than its
+// start is how "it runs past midnight" is written down, and it is read that way — so
+// nobody has to know that twenty-nine o'clock means five in the morning.
+type TaiwanFuturesConfig struct {
+	ApiKey string
+	// ProductsUrl is where the venue is asked which contracts it currently lists,
+	// which is how "the futures" becomes the contract being traded this month.
+	ProductsUrl string
+	// IntradayCandlesUrl answers about the boards trading now. This venue publishes no
+	// earlier days for futures, so there is no second address here: a backfill
+	// recovers what today's boards still hold and nothing older.
+	IntradayCandlesUrl string
+	// StreamUrl is where the live feed is opened.
+	StreamUrl string
+	// TimeZone is the zone this market states its hours in.
+	TimeZone *time.Location
+	// DayBoardStart and DayBoardEnd are how far into its local day the first board
+	// runs; EveningBoardStart and EveningBoardEnd the same for the second. An evening
+	// end at or before its start is read as the next morning.
+	DayBoardStart     time.Duration
+	DayBoardEnd       time.Duration
+	EveningBoardStart time.Duration
+	EveningBoardEnd   time.Duration
+	// SimultaneousChannelCeiling and SymbolsPerLiveChannel are the two numbers this
+	// market's data plan is sold in, exactly as for the stock market.
+	SimultaneousChannelCeiling int
+	SymbolsPerLiveChannel      int
+	RequestTimeout             time.Duration
+}
+
 // AssistantConfig holds what the market chat assistant runs under: which assistant to
 // ask, how hard it may think, and the five ceilings that decide what it may cost.
 //
@@ -172,6 +206,7 @@ type ApplicationConfig struct {
 	Ingestion              IngestionConfig
 	LiveFollow             LiveFollowConfig
 	TaiwanStock            TaiwanStockConfig
+	TaiwanFutures          TaiwanFuturesConfig
 	// MarketRules is how every market the system recognises behaves. Recognising one
 	// more market is one more entry here and two more sources wired to it; nothing
 	// inside the system branches on which market it is looking at.
@@ -184,6 +219,7 @@ type ApplicationConfig struct {
 // Load reads the configuration from the process environment, applying defaults.
 func Load() ApplicationConfig {
 	taiwanStockConfig := loadTaiwanStockConfig()
+	taiwanFuturesConfig := loadTaiwanFuturesConfig()
 
 	return ApplicationConfig{
 		ServerPort: stringWithDefault("SERVER_PORT", "8080"),
@@ -194,7 +230,8 @@ func Load() ApplicationConfig {
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		TaiwanStock:           taiwanStockConfig,
-		MarketRules:           marketRules(taiwanStockConfig),
+		TaiwanFutures:         taiwanFuturesConfig,
+		MarketRules:           marketRules(taiwanStockConfig, taiwanFuturesConfig),
 		Ingestion: IngestionConfig{
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
@@ -265,7 +302,9 @@ func Load() ApplicationConfig {
 //
 // Recognising a third market is one more entry here and its sources wired up beside
 // the others; nothing inside the system branches on which market it is looking at.
-func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketRulesVo {
+func marketRules(
+	taiwanStockConfig TaiwanStockConfig, taiwanFuturesConfig TaiwanFuturesConfig,
+) map[vo.MarketVo]vo.MarketRulesVo {
 	return map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
 		vo.MarketTaiwanStock: {
@@ -286,6 +325,76 @@ func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketR
 			SimultaneousChannelCeiling: taiwanStockConfig.SimultaneousChannelCeiling,
 			SymbolsPerLiveChannel:      taiwanStockConfig.SymbolsPerLiveChannel,
 		},
+		vo.MarketTaiwanFutures: {
+			TradingSession: vo.TradingSessionVo{
+				Location: taiwanFuturesConfig.TimeZone,
+				Stretches: []vo.TradingStretchVo{
+					{
+						StartOffset: taiwanFuturesConfig.DayBoardStart,
+						EndOffset:   taiwanFuturesConfig.DayBoardEnd,
+					},
+					{
+						StartOffset: taiwanFuturesConfig.EveningBoardStart,
+						EndOffset:   eveningBoardEndOffset(taiwanFuturesConfig),
+						// The evening board's trading counts towards the next business
+						// day, which is the reading the exchange itself takes. It is a
+						// fact about this venue rather than something to be set, so it
+						// is written here and not read from anywhere.
+						BelongsToNextBusinessDay: true,
+					},
+				},
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			SimultaneousChannelCeiling: taiwanFuturesConfig.SimultaneousChannelCeiling,
+			SymbolsPerLiveChannel:      taiwanFuturesConfig.SymbolsPerLiveChannel,
+		},
+	}
+}
+
+// eveningBoardEndOffset is how far into the board's own starting day it ends, which
+// for a board running past midnight is more than a whole day.
+//
+// An end at or before the start is read as the next morning, because that is how a
+// person writes down a board that runs from three in the afternoon to five: they write
+// five, not twenty-nine. Reading it here is what keeps that notation out of the
+// settings and out of everybody's head.
+func eveningBoardEndOffset(taiwanFuturesConfig TaiwanFuturesConfig) time.Duration {
+	if taiwanFuturesConfig.EveningBoardEnd > taiwanFuturesConfig.EveningBoardStart {
+		return taiwanFuturesConfig.EveningBoardEnd
+	}
+
+	return taiwanFuturesConfig.EveningBoardEnd + oneDay
+}
+
+// oneDay is how much of the clock a board that runs past midnight carries over.
+const oneDay = 24 * time.Hour
+
+func loadTaiwanFuturesConfig() TaiwanFuturesConfig {
+	return TaiwanFuturesConfig{
+		ApiKey: stringWithDefault("TAIWAN_FUTURES_API_KEY", ""),
+		ProductsUrl: stringWithDefault("TAIWAN_FUTURES_PRODUCTS_URL",
+			"https://api.fugle.tw/marketdata/v1.0/futopt/intraday/products"),
+		IntradayCandlesUrl: stringWithDefault("TAIWAN_FUTURES_INTRADAY_CANDLES_URL",
+			"https://api.fugle.tw/marketdata/v1.0/futopt/intraday/candles"),
+		StreamUrl: stringWithDefault("TAIWAN_FUTURES_STREAM_URL",
+			"wss://api.fugle.tw/marketdata/v1.0/futopt/streaming"),
+		TimeZone: timeZoneWithDefault("TAIWAN_FUTURES_TIME_ZONE", "Asia/Taipei"),
+		DayBoardStart: timeOfDayWithDefault(
+			"TAIWAN_FUTURES_DAY_BOARD_START", 8*time.Hour+45*time.Minute),
+		DayBoardEnd: timeOfDayWithDefault(
+			"TAIWAN_FUTURES_DAY_BOARD_END", 13*time.Hour+45*time.Minute),
+		EveningBoardStart: timeOfDayWithDefault(
+			"TAIWAN_FUTURES_EVENING_BOARD_START", 15*time.Hour),
+		EveningBoardEnd: timeOfDayWithDefault(
+			"TAIWAN_FUTURES_EVENING_BOARD_END", 5*time.Hour),
+		SimultaneousChannelCeiling: positiveIntWithDefault(
+			"TAIWAN_FUTURES_SIMULTANEOUS_CHANNEL_CEILING", 1),
+		SymbolsPerLiveChannel: positiveIntWithDefault(
+			"TAIWAN_FUTURES_SYMBOLS_PER_LIVE_CHANNEL", 5),
+		RequestTimeout: time.Duration(
+			positiveIntWithDefault("TAIWAN_FUTURES_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 	}
 }
 

@@ -291,7 +291,7 @@ func backgroundJobsFor(
 // marketDataProxyFor is where every market's candle source is named, and the only
 // place they are all named together.
 //
-// Recognising a third market is one more entry in each of these three, plus its
+// Recognising one more market is one more entry in each of these three, plus its
 // rules in the settings. Nothing else in the system changes: everything above these
 // asks for a window of candles and never learns which venue answered.
 func marketDataProxyFor(
@@ -311,6 +311,13 @@ func marketDataProxyFor(
 				clock.NewSystemClockProxy(),
 				applicationConfig.TaiwanStock.RequestTimeout,
 			),
+			vo.MarketTaiwanFutures: marketdata.NewFubonMarketDataProxy(
+				applicationConfig.TaiwanFutures.ProductsUrl,
+				applicationConfig.TaiwanFutures.IntradayCandlesUrl,
+				applicationConfig.TaiwanFutures.ApiKey,
+				clock.NewSystemClockProxy(),
+				applicationConfig.TaiwanFutures.RequestTimeout,
+			),
 		})
 }
 
@@ -326,6 +333,13 @@ func liveMarketDataProxyFor(
 				applicationConfig.TaiwanStock.StreamUrl,
 				applicationConfig.TaiwanStock.ApiKey,
 				applicationConfig.TaiwanStock.RequestTimeout),
+			// The futures venue's live feed speaks the same protocol as the stock
+			// one — it is the same vendor's technology — so the same proxy follows it,
+			// pointed at the futures address and asked for the evening board as well.
+			vo.MarketTaiwanFutures: marketdata.NewFugleEveningBoardLiveMarketDataProxy(
+				applicationConfig.TaiwanFutures.StreamUrl,
+				applicationConfig.TaiwanFutures.ApiKey,
+				applicationConfig.TaiwanFutures.RequestTimeout),
 		})
 }
 
@@ -342,5 +356,10 @@ func symbolLookupProxyFor(
 				applicationConfig.TaiwanStock.TickerUrl,
 				applicationConfig.TaiwanStock.ApiKey,
 				applicationConfig.TaiwanStock.RequestTimeout),
+			vo.MarketTaiwanFutures: marketdata.NewFubonSymbolLookupProxy(
+				applicationConfig.TaiwanFutures.ProductsUrl,
+				applicationConfig.TaiwanFutures.ApiKey,
+				clock.NewSystemClockProxy(),
+				applicationConfig.TaiwanFutures.RequestTimeout),
 		})
 }

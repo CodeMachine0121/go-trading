@@ -27,6 +27,13 @@ const fugleCandleInterval = domains.KCandleInterval
 type FugleLiveMarketDataProxy struct {
 	streamUrl string
 	apiKey    string
+	// followsEveningBoard asks for the after-hours board as well as the regular one.
+	//
+	// This source publishes each board separately and pushes only what was asked for,
+	// so a venue that trades twice a day needs two subscriptions per symbol. Which
+	// board is running at any moment is the domain's knowledge and is not repeated
+	// here: both are subscribed, and the quiet one simply says nothing.
+	followsEveningBoard bool
 	// authenticationTimeout bounds the wait for the source to say it accepted us. A
 	// source that answers nothing would otherwise hold the attempt open for ever,
 	// and the caller's retry — the thing that recovers from a bad line — never runs.
@@ -40,6 +47,20 @@ func NewFugleLiveMarketDataProxy(
 		streamUrl:             streamUrl,
 		apiKey:                apiKey,
 		authenticationTimeout: authenticationTimeout,
+	}
+}
+
+// NewFugleEveningBoardLiveMarketDataProxy follows a venue on this same source that
+// trades an evening board as well as a day board — Taiwan index futures does — and so
+// has to be asked for both.
+func NewFugleEveningBoardLiveMarketDataProxy(
+	streamUrl string, apiKey string, authenticationTimeout time.Duration,
+) *FugleLiveMarketDataProxy {
+	return &FugleLiveMarketDataProxy{
+		streamUrl:             streamUrl,
+		apiKey:                apiKey,
+		authenticationTimeout: authenticationTimeout,
+		followsEveningBoard:   true,
 	}
 }
 
@@ -120,17 +141,37 @@ func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) handshake(
 	}
 
 	for _, symbol := range symbols {
-		subscription := map[string]any{
-			"event": "subscribe",
-			"data":  map[string]any{"channel": "candles", "symbol": symbol},
-		}
-		if writeError := fugleLiveMarketDataProxy.send(
-			executionContext, connection, subscription); writeError != nil {
-			return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+		for _, subscription := range fugleLiveMarketDataProxy.subscriptionsFor(symbol) {
+			if writeError := fugleLiveMarketDataProxy.send(
+				executionContext, connection, subscription); writeError != nil {
+				return fmt.Errorf("follow k candles for %s: %w", symbol, writeError)
+			}
 		}
 	}
 
 	return nil
+}
+
+// subscriptionsFor is what has to be asked of this source to hear about one symbol:
+// its regular board, and its evening board too where the venue has one.
+func (fugleLiveMarketDataProxy *FugleLiveMarketDataProxy) subscriptionsFor(
+	symbol string,
+) []map[string]any {
+	subscriptions := []map[string]any{{
+		"event": "subscribe",
+		"data":  map[string]any{"channel": "candles", "symbol": symbol},
+	}}
+
+	if fugleLiveMarketDataProxy.followsEveningBoard {
+		subscriptions = append(subscriptions, map[string]any{
+			"event": "subscribe",
+			"data": map[string]any{
+				"channel": "candles", "symbol": symbol, "afterHours": true,
+			},
+		})
+	}
+
+	return subscriptions
 }
 
 // send writes one instruction to the source. The loose map is the shape this source's
