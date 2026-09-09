@@ -137,7 +137,7 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 				return
 			}
 
-			for bucketStart := overlapStart.UTC().Truncate(bucketDuration); !bucketStart.After(overlapEnd); bucketStart = bucketStart.Add(bucketDuration) {
+			for bucketStart := bucketStartOf(overlapStart, bucketDuration); !bucketStart.After(overlapEnd); bucketStart = bucketStart.Add(bucketDuration) {
 				countedBucketStarts[bucketStart] = true
 			}
 		})

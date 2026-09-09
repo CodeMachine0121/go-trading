@@ -172,11 +172,25 @@ func (aggregationIntervalDomain AggregationIntervalDomain) Value() vo.Aggregatio
 	return aggregationIntervalDomain.value
 }
 
-// BucketStart is the start of the bucket the moment falls into. Buckets are cut from
-// midnight in universal time, so the same moment always lands in the same bucket
-// whatever range it was asked for as part of.
+// BucketStart is the start of the bucket the moment falls into.
 func (aggregationIntervalDomain AggregationIntervalDomain) BucketStart(moment time.Time) time.Time {
-	return moment.UTC().Truncate(aggregationIntervalDomain.duration)
+	return bucketStartOf(moment, aggregationIntervalDomain.duration)
+}
+
+// bucketStartOf is where a bucket of the given length begins around a moment.
+//
+// **Buckets are cut from midnight in universal time**, so the same moment always
+// lands in the same bucket whatever range it was asked for as part of, and every
+// declarable length divides a day so the edges of a coarse one are a subset of a fine
+// one's.
+//
+// It is a plain function because the rule belongs to neither of the two things that
+// need it: an interval asks it about itself, and a market asks it about a length it
+// was handed. Written out in both places, one of them would be the copy that did not
+// get the note about universal time — and the symptom is a grid quietly offset by a
+// few hours for exactly one caller.
+func bucketStartOf(moment time.Time, bucketDuration time.Duration) time.Time {
+	return moment.UTC().Truncate(bucketDuration)
 }
 
 // BucketCount is how many buckets the range is cut into, both ends included. A range
