@@ -915,6 +915,10 @@ func taiwanCalculationRequest(
 // 2026-09-07 是週一，09-11 是週五。
 func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
 	// 一分鐘刻度讓「幾格」與「幾根」是同一個數字，斷言因此讀得出格數本身。
+	//
+	// **起訖兩端都算在內**，所以一段整整一小時的盤中是 61 格而不是 60——
+	// 從第一分鐘到第六十一分鐘，兩端各一根。以前把交易時間除以刻度長度，
+	// 那個除法把右端那一根丟掉了。
 	testCases := []struct {
 		name              string
 		startTime         string
@@ -934,17 +938,17 @@ func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
 		{
 			name:      "wholly inside a session",
 			startTime: "2026-09-07T11:00:00+08:00", endTime: "2026-09-07T12:00:00+08:00",
-			expectedSlotCount: 60,
+			expectedSlotCount: 61,
 		},
 		{
 			name:      "across one close",
 			startTime: "2026-09-07T13:00:00+08:00", endTime: "2026-09-08T10:00:00+08:00",
-			expectedSlotCount: 90,
+			expectedSlotCount: 91,
 		},
 		{
 			name:      "across a weekend",
 			startTime: "2026-09-11T12:00:00+08:00", endTime: "2026-09-14T10:00:00+08:00",
-			expectedSlotCount: 150,
+			expectedSlotCount: 151,
 		},
 		{
 			name:      "a stretch shorter than one slot still holds one",
@@ -1001,11 +1005,12 @@ func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 			expectedCandleCount: 54 + 19,
 		},
 		{
+			// 09:00 到 10:00 在五分鐘刻度上是 13 格（兩端都算），不是 12 格。
 			name:      "the first hour of a session with a twenty-bar look-back",
 			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T10:00:00+08:00",
 			parameters: []dto.StrategyParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
-			expectedCandleCount: 12 + 19,
+			expectedCandleCount: 13 + 19,
 		},
 		{
 			name:      "no look-back declared costs nothing extra",
@@ -1073,4 +1078,93 @@ func TestHolidaysAreNotDeductedFromTheSlotsAskedFor(t *testing.T) {
 	require.NoError(t, buildError)
 	// 三個交易日 × 54 格 = 162 格，即使其中一天其實整天沒有交易。
 	assert.Equal(t, (162+1)*5, calculationDomain.SourceCandleLimit())
+}
+
+// 指標計算在較粗的刻度上，要看的格數與圖表問同一段時得到的是同一個數字。
+//
+// 上面那一組用一分鐘刻度，因為那時「幾格」與「幾根」是同一個數字、斷言讀得出格數本身；
+// 但一分鐘刻度**恰好是舊的除法也算得對的那幾種**。這一組刻意用較粗的刻度，
+// 從指標計算自己的出口斷言那個數字——否則「兩條路說出同一個數字」這件事
+// 只在細刻度上被證明過。
+func TestTheSlotsAskedForAtACoarserInterval(t *testing.T) {
+	testCases := []struct {
+		name              string
+		declaredInterval  string
+		startTime         string
+		endTime           string
+		expectedSlotCount int
+	}{
+		{
+			// 四個半小時碰到世界標準時間 01、02、03、04、05 五個整點格子。
+			name: "a whole session at one hour is five slots, not four", declaredInterval: "1h",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 5,
+		},
+		{
+			// 同一段跨過 04:00 那條線，所以是兩格。
+			name: "a whole session at four hours is two slots, not one", declaredInterval: "4h",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 2,
+		},
+		{
+			name: "a whole session at one day is one slot", declaredInterval: "1d",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			expectedSlotCount: 1,
+		},
+		{
+			// 五個交易日在一天刻度是五格。除法會說不到一格,
+			// 於是這次計算會只為一個位置拿值,而使用者要的是五個。
+			name: "five sessions at one day are five slots", declaredInterval: "1d",
+			startTime: "2026-09-07T00:00:00+08:00", endTime: "2026-09-12T00:00:00+08:00",
+			expectedSlotCount: 5,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+				taiwanCalculationRequest(
+					t, testCase.declaredInterval, testCase.startTime, testCase.endTime, nil),
+				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+			require.NoError(t, buildError)
+			// 沒宣告回看根數，所以要看幾格就是要餵幾根——計算根數因此就是格數本身。
+			// 這裡刻意不看讀取上限：它的單位是**原始 K 線**，在較粗的刻度上會把格數
+			// 乘上一格裝得下幾根，於是斷言就再也讀不出格數。
+			assert.Equal(t, testCase.expectedSlotCount, calculationDomain.CandleCount())
+		})
+	}
+}
+
+// 台股在較粗的刻度上看較長的觀察區間，照新的算法會超過上限——那正是這次讓它
+// 從答得出來變成被拒絕的組合，而舊的除法會說它只有兩百多格。
+func TestACoarseTaiwanWindowIsRefusedNowThatTheSlotsAreCounted(t *testing.T) {
+	_, buildError := domains.NewIndicatorCalculationDomain(
+		taiwanCalculationRequest(
+			t, "1d", "2021-01-01T00:00:00+08:00", "2026-01-01T00:00:00+08:00", nil),
+		taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
+
+	require.Error(t, buildError)
+	assert.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
+}
+
+// 全天候市場的一段短到裝不滿一格，仍然是「有交易」。
+//
+// 這一條是為了擋住一個很容易長回來的寫法：拿「格數等於零」當「沒有交易」。
+// 格數會取整，所以三十秒會被讀成零格——於是一個永不收盤的市場被回報成沒有交易，
+// 而通用語地圖與市場那份文件都寫著「全天候市場不可能遇到這一種」。
+func TestAStretchShorterThanOneSlotStillHoldsTradingOnAMarketThatNeverCloses(t *testing.T) {
+	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+		dto.IndicatorCalculationRequestDto{
+			Symbol:              "BTCUSDT",
+			AggregationInterval: "1m",
+			StartTime:           calculationNow.Add(-30 * time.Second),
+			EndTime:             calculationNow,
+			Script:              "irrelevant",
+		},
+		cryptoMarket(), maxCandleCount, calculationNow)
+
+	require.NoError(t, buildError)
+	// 不滿一格仍然要為一個位置拿值——那是下限一格在做的事。
+	assert.Equal(t, 1, calculationDomain.CandleCount())
 }

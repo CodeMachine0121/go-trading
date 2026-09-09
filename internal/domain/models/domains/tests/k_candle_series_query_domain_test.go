@@ -251,8 +251,8 @@ func TestAChosenIntervalIsNeverRefusedByTheSystemsOwnCeiling(t *testing.T) {
 
 // 一段裡有幾根照交易時段數——連「一次要太多」也用同一種數法，
 // 否則系統會拒絕它自己剛挑出來的那一種刻度。
-func TestTheCeilingCountsTradingTimeToo(t *testing.T) {
-	t.Run("台股明確指定一分鐘看一整天：270 根，答得出來", func(t *testing.T) {
+func TestTheCeilingCountsTheBucketsThatHoldTrading(t *testing.T) {
+	t.Run("台股明確指定一分鐘看一整天：271 格，答得出來", func(t *testing.T) {
 		seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
 			dto.KCandleSeriesQueryDto{
 				Symbol:    "2330",
@@ -262,9 +262,10 @@ func TestTheCeilingCountsTradingTimeToo(t *testing.T) {
 			}, taiwanStockMarket(), seriesQueryMaxBucketCount)
 
 		require.NoError(t, validationError)
-		// 一段二十四小時的視窗恰好涵蓋一個交易時段的長度：270 根，
-		// 加上多留的一格——一分鐘刻度下一格就是一根。
-		assert.Equal(t, 271, seriesQueryDomain.SourceCandleLimit())
+		// 這一段二十四小時從盤中切到隔天盤中，因此碰到兩個交易時段的一部分：
+		// 週一 03:00 到收盤前 150 格，加上週二開盤到 03:00 的 121 格，共 271 格。
+		// 再加上多留的一格——一分鐘刻度下一格就是一根。
+		assert.Equal(t, 272, seriesQueryDomain.SourceCandleLimit())
 	})
 
 	t.Run("加密貨幣同一段一分鐘：1440 根，仍然要太多", func(t *testing.T) {
@@ -458,4 +459,60 @@ func TestNewKCandleSeriesQueryDomainStillHonoursADisplayBudgetWhenOneIsNamed(t *
 
 	require.NoError(t, validationError)
 	assert.Equal(t, "1h", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
+}
+
+func TestTaiwanYearsAreRefusedNowThatTheBucketsAreCounted(t *testing.T) {
+	// 這是這次改動的理由本身。台股五年在一天一根切出 1304 格，
+	// 而把交易時間除以一天只會說 244 格——於是它通過了檢查、然後交出 1304 根，
+	// 「單次最多一千根」因此是一句假話。
+	testCases := []struct {
+		name     string
+		queryDto dto.KCandleSeriesQueryDto
+	}{
+		{
+			name: "什麼都不說：挑到最粗的一天,而一天一根仍然切太多格",
+			queryDto: dto.KCandleSeriesQueryDto{
+				Symbol:    "2330",
+				StartTime: mustParseTime(t, "2021-01-01T00:00:00Z"),
+				EndTime:   mustParseTime(t, "2026-01-01T00:00:00Z"),
+			},
+		},
+		{
+			name: "自己指定一天:照原樣拒絕",
+			queryDto: dto.KCandleSeriesQueryDto{
+				Symbol:    "2330",
+				StartTime: mustParseTime(t, "2021-01-01T00:00:00Z"),
+				EndTime:   mustParseTime(t, "2026-01-01T00:00:00Z"),
+				Interval:  "1d",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, validationError := domains.NewKCandleSeriesQueryDomain(
+				testCase.queryDto, taiwanStockMarket(), seriesQueryMaxBucketCount)
+
+			require.Error(t, validationError)
+			assert.ErrorIs(t, validationError, domains.ErrKCandleValidation)
+			assert.Contains(t, validationError.Error(), "時間區間過大")
+		})
+	}
+}
+
+func TestTaiwanAYearAnswersAtAFinerCoarsenessThanBefore(t *testing.T) {
+	// 數格子不只讓一些請求被拒絕，也讓一些請求拿到**更細**的 K 線。
+	// 台股一年約 250 個交易日：四小時一根是 500 格，擺得進一千——所以挑到四小時。
+	// 舊的除法把那一年算成 1467 格（5868 小時 ÷ 4 小時）而以為擺不下，於是退到一天。
+	//
+	// 少了這一條，「乾脆把台股的長區間全部拒絕」會看起來像同一個方向的下一步。
+	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
+		dto.KCandleSeriesQueryDto{
+			Symbol:    "2330",
+			StartTime: mustParseTime(t, "2026-01-01T00:00:00Z"),
+			EndTime:   mustParseTime(t, "2026-12-31T00:00:00Z"),
+		}, taiwanStockMarket(), seriesQueryMaxBucketCount)
+
+	require.NoError(t, validationError)
+	assert.Equal(t, "4h", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
 }

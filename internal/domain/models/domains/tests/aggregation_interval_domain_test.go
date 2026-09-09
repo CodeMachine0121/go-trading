@@ -283,45 +283,115 @@ func TestAggregationIntervalDomainSourceCandleCountBoundsWhatABucketCanHold(t *t
 	}
 }
 
-// 一段交易時間裝得下幾格——向下取整，最少一格。
-func TestSlotCountIsHowManyOfThisCoarsenessFitTheTradingTime(t *testing.T) {
+// 一段時間裡有幾格——**數格子，不是把交易時間除以刻度長度**。
+//
+// 一個格子只要裝得到任何一點交易時間就算一整格，所以時間除得出零點幾格的地方，
+// 格子數是一。台股一個交易日在四小時刻度是兩格（它跨過了世界標準時間 04:00 那條線），
+// 不是一格——那正是這個算法取代的那個除法少算掉的東西。
+func TestTradingSlotCountCountsTheBucketsThatHoldTrading(t *testing.T) {
 	testCases := []struct {
 		name              string
+		market            domains.MarketDomain
+		startTime         string
+		endTime           string
 		declared          string
-		tradingTime       time.Duration
 		expectedSlotCount int
 	}{
 		{
-			name: "a Taiwan session at five minutes", declared: "5m",
-			tradingTime: 4*time.Hour + 30*time.Minute, expectedSlotCount: 54,
+			name:      "台股一個交易日、一分鐘：兩百七十格（與除法相同）",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			declared: "1m", expectedSlotCount: 270,
 		},
 		{
-			name: "a whole day at five minutes", declared: "5m",
-			tradingTime: 24 * time.Hour, expectedSlotCount: 288,
+			name:      "台股一個交易日、五分鐘：五十四格（與除法相同）",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			declared: "5m", expectedSlotCount: 54,
 		},
 		{
-			name: "an hour at five minutes", declared: "5m",
-			tradingTime: time.Hour, expectedSlotCount: 12,
+			name:      "台股一個交易日、十五分鐘：十八格（與除法相同）",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			declared: "15m", expectedSlotCount: 18,
 		},
 		{
-			name: "a Taiwan session at one minute", declared: "1m",
-			tradingTime: 4*time.Hour + 30*time.Minute, expectedSlotCount: 270,
+			name:      "台股一個交易日、一小時：**五**格，除法會說四",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			declared: "1h", expectedSlotCount: 5,
 		},
 		{
-			name: "the boundary: exactly one slot", declared: "5m",
-			tradingTime: 5 * time.Minute, expectedSlotCount: 1,
+			name:      "台股一個交易日、四小時：**兩**格，除法會說一",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			declared: "4h", expectedSlotCount: 2,
 		},
 		{
-			name: "the boundary: a minute short of two slots rounds down", declared: "5m",
-			tradingTime: 9 * time.Minute, expectedSlotCount: 1,
+			name:      "台股一個交易日、一天：一格",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			declared: "1d", expectedSlotCount: 1,
 		},
 		{
-			name: "less than one slot still shows one", declared: "5m",
-			tradingTime: 3 * time.Minute, expectedSlotCount: 1,
+			name:      "台股五個交易日、一天：**五**格，除法會說一",
+			market:    taiwanStockMarket(),
+			startTime: "2026-08-31T00:00:00Z", endTime: "2026-09-07T00:00:00Z",
+			declared: "1d", expectedSlotCount: 5,
 		},
 		{
-			name: "a day's trading at one day", declared: "1d",
-			tradingTime: 24 * time.Hour, expectedSlotCount: 1,
+			name:      "台股五個交易日、四小時：**十**格，除法會說五",
+			market:    taiwanStockMarket(),
+			startTime: "2026-08-31T00:00:00Z", endTime: "2026-09-07T00:00:00Z",
+			declared: "4h", expectedSlotCount: 10,
+		},
+		{
+			name:      "台股五個交易日、一分鐘：一千三百五十格（與除法相同）",
+			market:    taiwanStockMarket(),
+			startTime: "2026-08-31T00:00:00Z", endTime: "2026-09-07T00:00:00Z",
+			declared: "1m", expectedSlotCount: 1350,
+		},
+		{
+			name:      "只裝得到一分鐘交易的一天也算一整格",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T01:00:00Z", endTime: "2026-09-01T01:00:00Z",
+			declared: "1d", expectedSlotCount: 1,
+		},
+		{
+			name:      "全天候市場的二十四小時、一小時：二十四格（與除法相同）",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-02T00:00:00Z",
+			declared: "1h", expectedSlotCount: 24,
+		},
+		{
+			name:      "全天候市場的二十四小時、一分鐘：一千四百四十格（與除法相同）",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-02T00:00:00Z",
+			declared: "1m", expectedSlotCount: 1440,
+		},
+		{
+			name:      "全天候市場的一年、一天：三百六十五格（與除法相同）",
+			market:    cryptoMarket(),
+			startTime: "2026-01-01T00:00:00Z", endTime: "2027-01-01T00:00:00Z",
+			declared: "1d", expectedSlotCount: 365,
+		},
+		{
+			name:      "整段落在週末：一格——看週末是使用者做得到的事，答案是一張空的圖",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-05T00:00:00Z", endTime: "2026-09-05T23:59:00Z",
+			declared: "1m", expectedSlotCount: 1,
+		},
+		{
+			name:      "整段落在收盤之後：一格",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T06:00:00Z", endTime: "2026-09-01T23:00:00Z",
+			declared: "1m", expectedSlotCount: 1,
+		},
+		{
+			name:      "短到不滿一格的全天候市場：一格",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T00:03:00Z",
+			declared: "5m", expectedSlotCount: 1,
 		},
 	}
 
@@ -330,71 +400,106 @@ func TestSlotCountIsHowManyOfThisCoarsenessFitTheTradingTime(t *testing.T) {
 			interval, buildError := domains.NewAggregationIntervalDomain(testCase.declared)
 			require.NoError(t, buildError)
 
-			assert.Equal(t, testCase.expectedSlotCount, interval.SlotCount(testCase.tradingTime))
+			assert.Equal(t, testCase.expectedSlotCount, interval.TradingSlotCount(
+				testCase.market,
+				mustParseIntervalTime(t, testCase.startTime),
+				mustParseIntervalTime(t, testCase.endTime)))
 		})
 	}
 }
 
-// 這麼多交易時間、這麼多位置，哪一種刻度最細又擺得下。
-// 交出去的是**交易時間**：一段二十四小時的牆上時間，在會收盤的市場裡只有幾個小時。
+func mustParseIntervalTime(t *testing.T, value string) time.Time {
+	t.Helper()
+
+	parsed, parseError := time.Parse(time.RFC3339, value)
+	require.NoError(t, parseError)
+
+	return parsed
+}
+
+// 這一段裡有這麼多格、畫面有這麼多位置，哪一種刻度最細又擺得下。
+// **它問的是格子數而不是交易時間**，所以會收盤的市場在較粗的刻度上得到的答案更大。
 func TestFittingAggregationIntervalIsTheFinestThatFits(t *testing.T) {
 	testCases := []struct {
 		name                   string
-		tradingTime            time.Duration
+		market                 domains.MarketDomain
+		startTime              string
+		endTime                string
 		displayableCandleCount int
 		expectedInterval       vo.AggregationIntervalVo
 	}{
 		{
-			name:        "一個台股交易日加上今天兩小時：390 分鐘擺得進 400 格",
-			tradingTime: 390 * time.Minute, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalOneMinute,
+			name:      "台股一個交易日：270 格擺得進 400 格",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T23:59:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalOneMinute,
 		},
 		{
-			name:        "全天候市場的同一段二十四小時：1440 分鐘擺不下，退到五分鐘",
-			tradingTime: 24 * time.Hour, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalFiveMinutes,
+			name:      "全天候市場的同一段二十四小時：1440 格擺不下，退到五分鐘",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-02T00:00:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalFiveMinutes,
 		},
 		{
-			name:        "邊界：剛好 400 分鐘、剛好 400 格",
-			tradingTime: 400 * time.Minute, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalOneMinute,
+			name:      "邊界：剛好 400 格",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T06:40:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalOneMinute,
 		},
 		{
-			name:        "邊界：多一分鐘就擺不下",
-			tradingTime: 401 * time.Minute, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalFiveMinutes,
+			name:      "邊界：多一格就擺不下",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T06:41:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalFiveMinutes,
 		},
 		{
-			name:        "五個台股交易日：1350 分鐘，一分鐘擺不下、五分鐘 270 格擺得下",
-			tradingTime: 1350 * time.Minute, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalFiveMinutes,
+			name:      "台股五個交易日：一分鐘 1350 格擺不下、五分鐘 270 格擺得下",
+			market:    taiwanStockMarket(),
+			startTime: "2026-08-31T00:00:00Z", endTime: "2026-09-07T00:00:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalFiveMinutes,
 		},
 		{
-			name:        "長到連一天一根都擺不下：取最粗的那一種",
-			tradingTime: 401 * 24 * time.Hour, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalOneDay,
+			name:      "長到連一天一根都擺不下：取最粗的那一種",
+			market:    cryptoMarket(),
+			startTime: "2020-01-01T00:00:00Z", endTime: "2026-01-01T00:00:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalOneDay,
 		},
 		{
-			name:        "邊界：只擺得下一根",
-			tradingTime: 24 * time.Hour, displayableCandleCount: 1,
-			expectedInterval: vo.AggregationIntervalOneDay,
+			name:      "邊界：只擺得下一根",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-02T00:00:00Z",
+			displayableCandleCount: 1,
+			expectedInterval:       vo.AggregationIntervalOneDay,
 		},
 		{
-			name:        "邊界：一段短到不滿一格，最細的那一種就擺得下",
-			tradingTime: 30 * time.Second, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalOneMinute,
+			name:      "邊界：一段短到不滿一格，最細的那一種就擺得下",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T00:00:30Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalOneMinute,
 		},
 		{
-			name:        "完全沒有交易的一段：最細的那一種——沒有任何一根會超過任何上限",
-			tradingTime: 0, displayableCandleCount: 400,
-			expectedInterval: vo.AggregationIntervalOneMinute,
+			name:      "完全沒有交易的一段：最細的那一種——沒有任何一根會超過任何上限",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-05T00:00:00Z", endTime: "2026-09-05T23:59:00Z",
+			displayableCandleCount: 400,
+			expectedInterval:       vo.AggregationIntervalOneMinute,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fittingInterval := domains.NewFittingAggregationIntervalDomain(
-				testCase.tradingTime, testCase.displayableCandleCount)
+				testCase.market,
+				mustParseIntervalTime(t, testCase.startTime),
+				mustParseIntervalTime(t, testCase.endTime),
+				testCase.displayableCandleCount)
 
 			assert.Equal(t, testCase.expectedInterval, fittingInterval.Value())
 		})

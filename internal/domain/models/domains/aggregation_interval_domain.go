@@ -103,31 +103,37 @@ func NewCoarsestAggregationIntervalDomain() AggregationIntervalDomain {
 	return newAggregationIntervalDomain(coarsestSelectableAggregationInterval())
 }
 
-// NewFittingAggregationIntervalDomain is the finest coarseness that fits: given how
-// much market a stretch holds and how many candles the caller can display, the
-// shortest interval whose slots do not outnumber the places to put them.
+// NewFittingAggregationIntervalDomain is the finest coarseness that fits: given a
+// stretch of a market's time and how many candles the caller can display, the shortest
+// interval whose slots do not outnumber the places to put them.
 //
 // It cannot fail. A caller looking at more market than even the coarsest interval can
 // fit into its display gets that coarsest one, because seeing the stretch too densely
 // packed beats seeing nothing at all — and refusing would leave a chart with no answer
-// at the one moment the user zoomed furthest out.
+// at the one moment the user zoomed furthest out. What stops that from handing back
+// more candles than one query may answer with is the caller's own ceiling check, which
+// counts the same way this does.
 //
-// **The stretch handed in is trading time, not wall-clock time.** Working that out is
-// the market's job; this only knows how long each interval is. That split is the whole
-// point of the feature: a venue that shuts overnight offers a fraction of the clock,
-// and dividing the clock instead is what kept a Taiwan chart off its finest candles.
+// **It asks the market how many buckets a stretch holds, per candidate.** It used to
+// take a duration and divide, which is the assumption this whole line of changes has
+// been unpicking: a market that shuts does not offer its clock evenly, and a bucket
+// that catches a minute of trading is a whole candle. Counting is a walk over the
+// market's sessions, so the market has to be here.
 //
 // It walks the set finest-first by reading the lengths rather than trusting the set's
 // order, for the same reason the coarsest one does: that order is a comment, and a row
 // inserted in the wrong place would silently hand back an interval that is not the
 // finest fitting one.
 func NewFittingAggregationIntervalDomain(
-	tradingTime time.Duration, displayableCandleCount int,
+	marketDomain MarketDomain,
+	startTime time.Time,
+	endTime time.Time,
+	displayableCandleCount int,
 ) AggregationIntervalDomain {
 	fittingInterval := coarsestSelectableAggregationInterval()
 	for _, selectableInterval := range selectableAggregationIntervals {
 		candidate := newAggregationIntervalDomain(selectableInterval)
-		if candidate.SlotCount(tradingTime) > displayableCandleCount {
+		if candidate.TradingSlotCount(marketDomain, startTime, endTime) > displayableCandleCount {
 			continue
 		}
 
@@ -166,11 +172,25 @@ func (aggregationIntervalDomain AggregationIntervalDomain) Value() vo.Aggregatio
 	return aggregationIntervalDomain.value
 }
 
-// BucketStart is the start of the bucket the moment falls into. Buckets are cut from
-// midnight in universal time, so the same moment always lands in the same bucket
-// whatever range it was asked for as part of.
+// BucketStart is the start of the bucket the moment falls into.
 func (aggregationIntervalDomain AggregationIntervalDomain) BucketStart(moment time.Time) time.Time {
-	return moment.UTC().Truncate(aggregationIntervalDomain.duration)
+	return bucketStartOf(moment, aggregationIntervalDomain.duration)
+}
+
+// bucketStartOf is where a bucket of the given length begins around a moment.
+//
+// **Buckets are cut from midnight in universal time**, so the same moment always
+// lands in the same bucket whatever range it was asked for as part of, and every
+// declarable length divides a day so the edges of a coarse one are a subset of a fine
+// one's.
+//
+// It is a plain function because the rule belongs to neither of the two things that
+// need it: an interval asks it about itself, and a market asks it about a length it
+// was handed. Written out in both places, one of them would be the copy that did not
+// get the note about universal time — and the symptom is a grid quietly offset by a
+// few hours for exactly one caller.
+func bucketStartOf(moment time.Time, bucketDuration time.Duration) time.Time {
+	return moment.UTC().Truncate(bucketDuration)
 }
 
 // BucketCount is how many buckets the range is cut into, both ends included. A range
@@ -184,27 +204,31 @@ func (aggregationIntervalDomain AggregationIntervalDomain) BucketCount(
 	return int(lastBucketStart.Sub(firstBucketStart)/aggregationIntervalDomain.duration) + 1
 }
 
-// SlotCount is how many of this coarseness fit into a stretch of trading time — the
-// number of values a caller looking at that much market is asking for.
+// TradingSlotCount is how many of this coarseness a stretch holds — the number of
+// values a caller looking at that much market is asking for.
 //
-// It rounds down and stops at one: a stretch that does not fill a whole slot still
-// shows one candle on a chart, and asking for none of them is not a smaller question
-// but an unanswerable one.
+// **It asks the market to count buckets rather than dividing a duration.** The
+// division it replaced looked right and was not: a bucket is a slot with edges, not a
+// quantity of time, so one that catches a single minute of trading is a whole candle.
+// Dividing therefore undercounts wherever a bucket reaches past a session's edges, and
+// worse the coarser it is — a Taiwan trading day is five hourly buckets, not four, and
+// five Taiwan days are five daily buckets, not the fifth of one. The market is the only
+// thing that can count them, because counting means walking its sessions.
 //
-// **The stretch handed in is trading time, not wall-clock time.** A market that shuts
-// overnight offers less of it than the clock does, and that difference is the whole
-// reason this takes a duration rather than two moments: working the duration out is
-// the market's job, and this one only knows how long it is itself.
+// That is also why this takes the market and the two moments rather than a duration.
+// The earlier split — the market says how long it trades, the interval says how many of
+// itself fit — reads well and hides the bug in its second half: it assumes time can be
+// divided into buckets, and it cannot.
 //
-// A stretch of no trading at all does reach here, and the floor of one is what it
-// gets. An indicator calculation refuses such a window before asking; a series query
-// deliberately does not — looking at a Saturday is a thing a user can do, and the
-// answer is an empty series rather than a refusal. So the floor is load-bearing: drop
-// it and a Saturday would divide its way to zero slots.
-func (aggregationIntervalDomain AggregationIntervalDomain) SlotCount(
-	tradingTime time.Duration,
+// It stops at one. A stretch holding no trading at all reaches here, and the floor is
+// load-bearing: an indicator calculation refuses such a window before asking, but a
+// series query deliberately does not — looking at a Saturday is a thing a user can do,
+// and the answer is an empty series rather than a refusal.
+func (aggregationIntervalDomain AggregationIntervalDomain) TradingSlotCount(
+	marketDomain MarketDomain, startTime time.Time, endTime time.Time,
 ) int {
-	return max(1, int(tradingTime/aggregationIntervalDomain.duration))
+	return max(1, marketDomain.TradingBucketCountBetween(
+		startTime, endTime, aggregationIntervalDomain.duration))
 }
 
 // SourceCandleCount is the most stored K candles the given number of buckets can hold.

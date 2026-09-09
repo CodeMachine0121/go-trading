@@ -65,6 +65,16 @@
       "key": "weekStart",
       "value": "",
       "type": "default"
+    },
+    {
+      "key": "manyYearsStart",
+      "value": "",
+      "type": "default"
+    },
+    {
+      "key": "taiwanSymbol",
+      "value": "2330",
+      "type": "default"
     }
   ],
   "event": [
@@ -97,6 +107,10 @@
           "pm.collectionVariables.set(",
           "    'weekStart', asRfc3339(new Date(latestClosed.getTime() - 7 * 24 * 60 * 60 * 1000)));",
           "",
+          "",
+          "// 多年前——給「台股拉到多年會被拒絕」那個請求用。",
+          "pm.collectionVariables.set(",
+          "    'manyYearsStart', asRfc3339(new Date(latestClosed.getTime() - 5 * 365 * 24 * 60 * 60 * 1000)));",
           "// 不在一分鐘刻度上（帶了 30 秒），用來驗證系統會拒絕。",
           "pm.collectionVariables.set('offTickTime', asRfc3339(new Date(latestClosed.getTime() + 30 * 1000)));",
           "",
@@ -1525,6 +1539,54 @@
               ]
             },
             "description": "**自己指定刻度那條路一字不改。** 只有「什麼都不說」的呼叫端才是選擇了讓系統決定；自己說了一分鐘，就是真的要那麼多根，於是照原樣被告知區間過大。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明區間過大\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"時間區間過大\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：台股拉到多年,連一天一根都切太多格",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/series?symbol={{taiwanSymbol}}&startTime={{manyYearsStart}}&endTime={{rangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{taiwanSymbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{manyYearsStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{rangeEnd}}"
+                }
+              ]
+            },
+            "description": "**一段裡有幾格是數格子，不是把交易時間除以刻度長度。**\n\n台股一天只交易四個半小時。除法會說「五年 ÷ 一天」不到 250 格而放它過去，然後交出 1300 多根——「單次最多一千根」因此曾經是一句假話。\n\n數格子之後：連最粗的一天一根都切出 1300 多格，超過一千，於是照原樣拒絕。\n\n同一段時間在**全天候市場**照樣被拒絕（那邊本來就算得對），而台股的**一年**反而挑到比以前更細的四小時——舊的除法高估了粗刻度的格數。"
           },
           "event": [
             {
