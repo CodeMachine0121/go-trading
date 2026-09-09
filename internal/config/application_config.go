@@ -270,9 +270,12 @@ func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketR
 		vo.MarketCrypto: {},
 		vo.MarketTaiwanStock: {
 			TradingSession: vo.TradingSessionVo{
-				Location:   taiwanStockConfig.TimeZone,
-				DailyStart: taiwanStockConfig.SessionStart,
-				DailyEnd:   taiwanStockConfig.SessionEnd,
+				Location: taiwanStockConfig.TimeZone,
+				// One stretch: this venue opens once a day and shuts before midnight.
+				Stretches: []vo.TradingStretchVo{{
+					StartOffset: taiwanStockConfig.SessionStart,
+					EndOffset:   taiwanStockConfig.SessionEnd,
+				}},
 				// Weekends are not a setting. Every stock exchange takes them off, and
 				// the days it additionally takes off are read from its own answers
 				// rather than kept in a list somebody has to maintain.

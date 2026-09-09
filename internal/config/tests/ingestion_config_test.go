@@ -162,6 +162,9 @@ func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 	taiwanStockRules := applicationConfig.MarketRules[vo.MarketTaiwanStock]
 	assert.Equal(t, 1, taiwanStockRules.SimultaneousChannelCeiling)
 	assert.Equal(t, 5, taiwanStockRules.SymbolsPerLiveChannel)
-	assert.Equal(t, 9*time.Hour, taiwanStockRules.TradingSession.DailyStart)
+	assert.Equal(t, []vo.TradingStretchVo{{
+		StartOffset: 9 * time.Hour,
+		EndOffset:   13*time.Hour + 30*time.Minute,
+	}}, taiwanStockRules.TradingSession.Stretches)
 	assert.Len(t, taiwanStockRules.TradingSession.Weekdays, 5)
 }

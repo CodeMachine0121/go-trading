@@ -18,4 +18,8 @@ const (
 	// MarketTaiwanStock is the Taiwan listed-share market: it closes, its source
 	// follows only a few symbols at once, and it reports fewer volume figures.
 	MarketTaiwanStock MarketVo = "taiwanStock"
+	// MarketTaiwanFutures is the Taiwan index futures market: it trades twice a day,
+	// the second of those runs past midnight into the next business day, and the
+	// symbol watched is a standing one whose contract rolls every month.
+	MarketTaiwanFutures MarketVo = "taiwanFutures"
 )

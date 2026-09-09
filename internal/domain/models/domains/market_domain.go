@@ -35,20 +35,26 @@ func (marketDomain MarketDomain) Value() vo.MarketVo {
 // It deliberately does not answer "is there anything worth fetching" — a round
 // running at 13:33 still has the 13:29 candle to collect, and conflating the two
 // would lose it. ClampToTradingSession answers that one.
+//
+// It asks whether a stretch holds the moment rather than checking the moment's own
+// weekday first, and that is not a tidier way of writing the same thing: a stretch
+// that runs past midnight trades into a day the market never opens on. Friday's
+// evening board is still trading at two on Saturday morning, and a weekday check
+// would call it shut.
 func (marketDomain MarketDomain) IsOpen(moment time.Time) bool {
 	if marketDomain.neverCloses() {
 		return true
 	}
 
-	localMoment := moment.In(marketDomain.rules.TradingSession.Location)
-	if !marketDomain.tradesOn(localMoment.Weekday()) {
-		return false
-	}
+	isOpen := false
+	marketDomain.eachSessionOccurrence(moment, moment,
+		func(occurrence vo.TradingSessionOccurrenceVo) {
+			if occurrence.Contains(moment) {
+				isOpen = true
+			}
+		})
 
-	sinceMidnight := marketDomain.sinceLocalMidnight(localMoment)
-
-	return sinceMidnight >= marketDomain.rules.TradingSession.DailyStart &&
-		sinceMidnight < marketDomain.rules.TradingSession.DailyEnd
+	return isOpen
 }
 
 // ClampToTradingSession narrows a fetch window to the part of it that could hold
@@ -98,11 +104,18 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 // entries and most of a gigabyte, spent *before* the ceiling that would have refused
 // the range is consulted.
 //
-// It sums each session's buckets without checking whether two of them share one,
-// because a venue is written down with one session a day and the coarsest bucket is a
-// day: two sessions can never meet in the same bucket. The day that stops being true
-// is the day a second daily session is added, and the note about it lives on the walk
-// that would have to change — not here, where it would be a line no input reaches.
+// It counts each stretch in turn and **never counts a bucket twice**, because a venue
+// may trade more than once a day and two of its stretches can meet inside one bucket:
+// Taiwan index futures shuts its day board at 13:45 and opens its evening board at
+// 15:00, which in a four-hour bucket is the same bucket twice. Summing the two would
+// report one bar more than the chart has, on a path where nothing anywhere raises an
+// error. So each stretch starts counting after the last bucket already counted.
+//
+// That correction relies on the stretches arriving in start order, which
+// MarketCatalogDomain guarantees. It also only merges a bucket with the stretch
+// immediately before it — enough while two stretches a day is the most any market
+// here has, because the coarsest bucket is a day and the shortest gap between
+// stretches is over an hour. **Read this before adding a third stretch to a day.**
 //
 // **A market that never closes divides**, and that is a known inconsistency rather
 // than an oversight: it answers the way every count in this system has always answered
@@ -117,28 +130,30 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 	}
 
 	tradingBucketCount := 0
-	marketDomain.eachTradingDaySession(startTime, endTime,
-		func(sessionStart time.Time, sessionEnd time.Time) {
-			overlapStart := startTime
-			if sessionStart.After(overlapStart) {
-				overlapStart = sessionStart
-			}
-
-			// The last open time a session can hold, not the moment it shuts: a candle
-			// stamped at the closing bell would cover time the market was closed for,
-			// which is the same reading ClampToTradingSession takes.
-			overlapEnd := endTime
-			if sessionLastOpenTime := sessionEnd.Add(-KCandleInterval); sessionLastOpenTime.Before(overlapEnd) {
-				overlapEnd = sessionLastOpenTime
-			}
-
-			if overlapEnd.Before(overlapStart) {
+	lastCountedBucketStart := time.Time{}
+	marketDomain.eachSessionOccurrence(startTime, endTime,
+		func(occurrence vo.TradingSessionOccurrenceVo) {
+			overlapStart, overlapEnd, holdsAny := marketDomain.overlapWith(
+				occurrence, startTime, endTime)
+			if !holdsAny {
 				return
 			}
 
 			firstBucketStart := bucketStartOf(overlapStart, bucketDuration)
 			lastBucketStart := bucketStartOf(overlapEnd, bucketDuration)
+
+			// Start after the last bucket already counted, so a bucket two stretches
+			// share is one bar rather than two.
+			if !lastCountedBucketStart.IsZero() && !firstBucketStart.After(lastCountedBucketStart) {
+				firstBucketStart = lastCountedBucketStart.Add(bucketDuration)
+			}
+
+			if lastBucketStart.Before(firstBucketStart) {
+				return
+			}
+
 			tradingBucketCount += int(lastBucketStart.Sub(firstBucketStart)/bucketDuration) + 1
+			lastCountedBucketStart = lastBucketStart
 		})
 
 	return tradingBucketCount
@@ -157,19 +172,9 @@ func (marketDomain MarketDomain) HoldsTrading(startTime time.Time, endTime time.
 	}
 
 	holdsTrading := false
-	marketDomain.eachTradingDaySession(startTime, endTime,
-		func(sessionStart time.Time, sessionEnd time.Time) {
-			overlapStart := startTime
-			if sessionStart.After(overlapStart) {
-				overlapStart = sessionStart
-			}
-
-			overlapEnd := endTime
-			if sessionLastOpenTime := sessionEnd.Add(-KCandleInterval); sessionLastOpenTime.Before(overlapEnd) {
-				overlapEnd = sessionLastOpenTime
-			}
-
-			if !overlapEnd.Before(overlapStart) {
+	marketDomain.eachSessionOccurrence(startTime, endTime,
+		func(occurrence vo.TradingSessionOccurrenceVo) {
+			if _, _, holdsAny := marketDomain.overlapWith(occurrence, startTime, endTime); holdsAny {
 				holdsTrading = true
 			}
 		})
@@ -278,32 +283,75 @@ func (marketDomain MarketDomain) tradesOn(weekday time.Weekday) bool {
 	return false
 }
 
-// SessionElapsedAt is how much of this market's session is already behind it at this
-// moment: nothing before the bell, the whole session once it has rung.
+// SessionOccurrenceAt is the stretch of trading a round running at this moment is
+// working on: the one holding the moment, or — once that one has shut — the one that
+// has already run today.
+//
+// The second clause is what keeps the round just after the closing bell working on the
+// stretch that just ended rather than on nothing. At 13:46 the day board is over, but
+// its last candle is still what this round is fetching and a decision that it was shut
+// today is still the decision that applies. A stretch that ended before this day began
+// does not qualify: yesterday is not what this moment is about.
+//
+// It is one question rather than two ("which stretch is running" plus "which one just
+// finished") because every caller wants the same thing — the stretch this moment is
+// about — and splitting it would leave each of them to remember the closing-bell case.
+//
+// A market that never closes has no stretches and answers with none.
+func (marketDomain MarketDomain) SessionOccurrenceAt(
+	moment time.Time,
+) vo.TradingSessionOccurrenceVo {
+	if marketDomain.neverCloses() {
+		return vo.TradingSessionOccurrenceVo{}
+	}
+
+	dayStart := marketDomain.localMidnightOf(
+		moment.In(marketDomain.rules.TradingSession.Location)).UTC()
+
+	occurrenceAt := vo.TradingSessionOccurrenceVo{}
+	marketDomain.eachSessionOccurrence(moment.Add(-occurrenceLookback), moment,
+		func(occurrence vo.TradingSessionOccurrenceVo) {
+			if occurrence.Contains(moment) {
+				occurrenceAt = occurrence
+
+				return
+			}
+
+			if occurrence.EndTime.After(moment) || occurrence.EndTime.Before(dayStart) {
+				return
+			}
+
+			occurrenceAt = occurrence
+		})
+
+	return occurrenceAt
+}
+
+// occurrenceLookback is how far back SessionOccurrenceAt looks for the stretch a
+// moment belongs to. A stretch may start the day before the one it trades into, so a
+// day would not be enough; two is, and the walk is bounded by its own length.
+const occurrenceLookback = 2 * oneCalendarDay
+
+// SessionElapsedAt is how much of this market's current stretch of trading is already
+// behind it at this moment: nothing before the bell, the whole stretch once it has run.
 //
 // It answers "has this market had a chance to say anything yet". A market with no
 // hours always has: it has been trading all along.
-//
-// It reads the clock fields rather than subtracting from midnight, for the same
-// reason IsOpen does — a day is not always twenty-four hours long.
 func (marketDomain MarketDomain) SessionElapsedAt(moment time.Time) time.Duration {
 	if marketDomain.neverCloses() {
 		return marketDomain.sinceLocalMidnight(moment.UTC())
 	}
 
-	session := marketDomain.rules.TradingSession
-	localMoment := moment.In(session.Location)
-	if !marketDomain.tradesOn(localMoment.Weekday()) {
+	occurrence := marketDomain.SessionOccurrenceAt(moment)
+	if occurrence.IsZero() {
 		return 0
 	}
 
-	elapsed := marketDomain.sinceLocalMidnight(localMoment) - session.DailyStart
-	if elapsed < 0 {
-		return 0
-	}
-
-	if fullSession := session.DailyEnd - session.DailyStart; elapsed > fullSession {
-		return fullSession
+	// The occurrence is either holding this moment or already over by it, so the
+	// elapsed time is never negative and nothing here has to say what that would mean.
+	elapsed := moment.Sub(occurrence.StartTime)
+	if length := occurrence.Length(); elapsed > length {
+		return length
 	}
 
 	return elapsed
@@ -319,6 +367,10 @@ func (marketDomain MarketDomain) SessionElapsedAt(moment time.Time) time.Duratio
 //
 // Nothing in Taipei turns on it. But the zone is a setting, and the next market's
 // might.
+//
+// An offset past twenty-four hours is how a stretch that crosses midnight is written,
+// and it needs no special case here: an hour reading of twenty-nine is normalised into
+// five in the morning of the following day, in that market's own zone.
 func (marketDomain MarketDomain) sessionMomentOn(
 	localDay time.Time, sinceMidnight time.Duration,
 ) time.Time {
@@ -339,9 +391,9 @@ func (marketDomain MarketDomain) sinceLocalMidnight(localMoment time.Time) time.
 }
 
 // overlappingCandleOpenTimes reports the first and last candle open time inside the
-// window that a session could actually hold.
+// window that a stretch of trading could actually hold.
 //
-// It walks the days the window touches rather than the sessions, which is what bounds
+// It walks the days the window touches rather than the stretches, which is what bounds
 // the work: however long the window is, the search is its own length and no longer, so
 // a holiday of any length costs nothing extra and needs no list of holidays to skip.
 func (marketDomain MarketDomain) overlappingCandleOpenTimes(
@@ -350,63 +402,125 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 	earliestOpenTime := time.Time{}
 	latestOpenTime := time.Time{}
 
-	marketDomain.eachTradingDaySession(window.StartTime, window.EndTime,
-		func(sessionStart time.Time, sessionEnd time.Time) {
-			// The last open time a session can hold, not the moment it shuts: a candle
-			// stamped at the closing bell would cover time the market was closed for.
-			sessionLastOpenTime := sessionEnd.Add(-KCandleInterval)
-			if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
+	marketDomain.eachSessionOccurrence(window.StartTime, window.EndTime,
+		func(occurrence vo.TradingSessionOccurrenceVo) {
+			overlapStart, overlapEnd, holdsAny := marketDomain.overlapWith(
+				occurrence, window.StartTime, window.EndTime)
+			if !holdsAny {
 				return
 			}
 
 			if earliestOpenTime.IsZero() {
-				earliestOpenTime = sessionStart
-				if window.StartTime.After(sessionStart) {
-					earliestOpenTime = window.StartTime
-				}
+				earliestOpenTime = overlapStart
 			}
 
-			latestOpenTime = sessionLastOpenTime
-			if window.EndTime.Before(sessionLastOpenTime) {
-				latestOpenTime = window.EndTime
-			}
+			latestOpenTime = overlapEnd
 		})
 
 	return earliestOpenTime, latestOpenTime, !earliestOpenTime.IsZero()
 }
 
-// eachTradingDaySession walks the market's own days from one moment to another and
-// hands each trading day's session to the visitor, as the two moments it runs between.
+// overlapWith is the part of a stretch of time this occurrence could hold candles for,
+// said as its first and last candle open time — and whether it holds any at all.
 //
-// It is the single place that knows which days this market trades and when its
-// session runs, so a venue that grows a second daily session — an afternoon board, an
-// evening board — is a change here and nowhere else. Two copies of that walk would go
-// out of step, and the one that was not updated would keep answering.
+// The last open time is the one before the closing bell rather than the bell itself: a
+// candle stamped at the bell would cover time the market was already shut for. Every
+// reader of a session's edges takes that same reading, which is why it is worked out
+// once here.
+func (marketDomain MarketDomain) overlapWith(
+	occurrence vo.TradingSessionOccurrenceVo, startTime time.Time, endTime time.Time,
+) (time.Time, time.Time, bool) {
+	overlapStart := startTime
+	if occurrence.StartTime.After(overlapStart) {
+		overlapStart = occurrence.StartTime
+	}
+
+	overlapEnd := endTime
+	if lastOpenTime := occurrence.EndTime.Add(-KCandleInterval); lastOpenTime.Before(overlapEnd) {
+		overlapEnd = lastOpenTime
+	}
+
+	if overlapEnd.Before(overlapStart) {
+		return time.Time{}, time.Time{}, false
+	}
+
+	return overlapStart, overlapEnd, true
+}
+
+// eachSessionOccurrence walks the market's own opening days across a stretch of time
+// and hands the visitor every stretch of trading those days hold, in start order.
 //
-// **Whoever adds that second session: read TradingBucketCountBetween before you do.**
-// It sums each session's buckets and never asks whether two sessions met inside one,
-// which is safe only while there is one session a day. With a morning and an afternoon
-// board, a day a candle would be counted twice — and the symptom is a number that is
-// merely too big, reported by nothing.
-func (marketDomain MarketDomain) eachTradingDaySession(
+// It is the single place that knows which days this market opens on, when each of its
+// stretches runs, and which business day each one's trading counts towards — so a
+// venue that grows another board is a change here and nowhere else. Two copies of that
+// walk would go out of step, and the one that was not updated would keep answering.
+//
+// It begins a day earlier than it was asked to, because a stretch that runs past
+// midnight starts on the day before the one it trades into. Without that extra day,
+// Friday's evening board would be invisible to anything asking about Saturday morning
+// — and Saturday is not a day this market opens on, so nothing else would find it.
+func (marketDomain MarketDomain) eachSessionOccurrence(
 	startTime time.Time,
 	endTime time.Time,
-	visit func(sessionStart time.Time, sessionEnd time.Time),
+	visit func(occurrence vo.TradingSessionOccurrenceVo),
 ) {
 	location := marketDomain.rules.TradingSession.Location
 	lastLocalDay := marketDomain.localMidnightOf(endTime.In(location))
+	firstLocalDay := marketDomain.localMidnightOf(startTime.In(location)).AddDate(0, 0, -1)
 
-	for localDay := marketDomain.localMidnightOf(startTime.In(location)); !localDay.After(lastLocalDay); localDay = localDay.AddDate(0, 0, 1) {
+	for localDay := firstLocalDay; !localDay.After(lastLocalDay); localDay = localDay.AddDate(0, 0, 1) {
 		if !marketDomain.tradesOn(localDay.Weekday()) {
 			continue
 		}
 
-		visit(
-			marketDomain.sessionMomentOn(localDay, marketDomain.rules.TradingSession.DailyStart),
-			marketDomain.sessionMomentOn(localDay, marketDomain.rules.TradingSession.DailyEnd),
-		)
+		for _, tradingStretch := range marketDomain.rules.TradingSession.Stretches {
+			visit(vo.NewTradingSessionOccurrenceVo(
+				marketDomain.sessionMomentOn(localDay, tradingStretch.StartOffset),
+				marketDomain.sessionMomentOn(localDay, tradingStretch.EndOffset),
+				marketDomain.businessDateOf(localDay, tradingStretch),
+			))
+		}
 	}
 }
+
+// businessDateOf is the business day the trading of a stretch beginning on this local
+// day counts towards: that day, or the next day this market opens on.
+//
+// An evening board's trading counts towards the next business day — the reading the
+// exchange itself takes — so Friday evening belongs to Monday rather than to a
+// Saturday nobody trades. Whether a stretch reads that way is written on the stretch,
+// so this is arithmetic about a calendar and not a rule about evenings.
+func (marketDomain MarketDomain) businessDateOf(
+	localDay time.Time, tradingStretch vo.TradingStretchVo,
+) time.Time {
+	if !tradingStretch.BelongsToNextBusinessDay {
+		return localDay.UTC()
+	}
+
+	return marketDomain.nextOpeningDayAfter(localDay).UTC()
+}
+
+// nextOpeningDayAfter is the next day this market opens on.
+//
+// It is only ever asked about a day the market itself opens on — the walk skips every
+// other day before reaching this — so at least one day of the week opens and the
+// search always finds one. The week bounds it anyway rather than trusting that: a
+// misconfigured market answers with a day a week out, which is wrong and visible,
+// instead of never answering at all.
+func (marketDomain MarketDomain) nextOpeningDayAfter(localDay time.Time) time.Time {
+	nextDay := localDay
+	for dayCount := 1; dayCount <= daysInWeek; dayCount++ {
+		nextDay = localDay.AddDate(0, 0, dayCount)
+		if marketDomain.tradesOn(nextDay.Weekday()) {
+			break
+		}
+	}
+
+	return nextDay
+}
+
+// daysInWeek bounds the search for a market's next opening day.
+const daysInWeek = 7
 
 // localMidnightOf is the start of the local day a moment belongs to. Building the
 // date from its parts rather than truncating is what keeps it a local midnight on

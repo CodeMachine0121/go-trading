@@ -381,9 +381,11 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 					vo.MarketTaiwanStock: {
 						TradingSession: vo.TradingSessionVo{
-							Location:   time.FixedZone("Asia/Taipei", 8*60*60),
-							DailyStart: 9 * time.Hour,
-							DailyEnd:   13*time.Hour + 30*time.Minute,
+							Location: time.FixedZone("Asia/Taipei", 8*60*60),
+							Stretches: []vo.TradingStretchVo{{
+								StartOffset: 9 * time.Hour,
+								EndOffset:   13*time.Hour + 30*time.Minute,
+							}},
 							Weekdays: []time.Weekday{
 								time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 							},

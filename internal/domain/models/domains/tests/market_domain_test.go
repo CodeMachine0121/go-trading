@@ -20,9 +20,11 @@ var taipeiLocation = time.FixedZone("Asia/Taipei", 8*60*60)
 func taiwanStockRules() vo.MarketRulesVo {
 	return vo.MarketRulesVo{
 		TradingSession: vo.TradingSessionVo{
-			Location:   taipeiLocation,
-			DailyStart: 9 * time.Hour,
-			DailyEnd:   13*time.Hour + 30*time.Minute,
+			Location: taipeiLocation,
+			Stretches: []vo.TradingStretchVo{{
+				StartOffset: 9 * time.Hour,
+				EndOffset:   13*time.Hour + 30*time.Minute,
+			}},
 			Weekdays: []time.Weekday{
 				time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 			},
@@ -370,9 +372,11 @@ func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
 	marketDomain := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketTaiwanStock: {
 			TradingSession: vo.TradingSessionVo{
-				Location:   london,
-				DailyStart: 9 * time.Hour,
-				DailyEnd:   17 * time.Hour,
+				Location: london,
+				Stretches: []vo.TradingStretchVo{{
+					StartOffset: 9 * time.Hour,
+					EndOffset:   17 * time.Hour,
+				}},
 				Weekdays: []time.Weekday{
 					time.Sunday, time.Monday, time.Tuesday, time.Wednesday,
 					time.Thursday, time.Friday, time.Saturday,
@@ -619,4 +623,431 @@ func TestCountingACenturyIsStillAnswered(t *testing.T) {
 		time.Minute)
 
 	assert.Positive(t, bucketCount)
+}
+
+// taiwanFuturesRules are the rules the requirements name for Taiwan index futures:
+// a day board from 08:45 to 13:45 Taipei time and an evening board from 15:00 that
+// runs to 05:00 the next morning, Monday to Friday.
+//
+// The evening board is written as 15:00 to 29:00 because that is what crossing
+// midnight looks like as an offset, and it counts its trading towards the next
+// business day — which is the reading the exchange itself takes.
+func taiwanFuturesRules() vo.MarketRulesVo {
+	return vo.MarketRulesVo{
+		TradingSession: vo.TradingSessionVo{
+			Location: taipeiLocation,
+			Stretches: []vo.TradingStretchVo{
+				{
+					StartOffset: 8*time.Hour + 45*time.Minute,
+					EndOffset:   13*time.Hour + 45*time.Minute,
+				},
+				{
+					StartOffset:              15 * time.Hour,
+					EndOffset:                29 * time.Hour,
+					BelongsToNextBusinessDay: true,
+				},
+			},
+			Weekdays: []time.Weekday{
+				time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+			},
+		},
+		SimultaneousChannelCeiling: 1,
+		SymbolsPerLiveChannel:      5,
+	}
+}
+
+func taiwanFuturesMarket() domains.MarketDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto:        {},
+		vo.MarketTaiwanStock:   taiwanStockRules(),
+		vo.MarketTaiwanFutures: taiwanFuturesRules(),
+	}).MarketOf(string(vo.MarketTaiwanFutures))
+}
+
+func TestTaiwanFuturesIsOpenAcrossBothOfItsStretches(t *testing.T) {
+	testCases := []struct {
+		name           string
+		moment         string
+		expectedIsOpen bool
+	}{
+		{name: "inside the day board", moment: "2026-09-10T10:07:00+08:00", expectedIsOpen: true},
+		{name: "inside the evening board", moment: "2026-09-10T22:30:00+08:00", expectedIsOpen: true},
+		// The hour and a quarter between the two boards is the market's own break. It
+		// is not a fault and it is not a holiday.
+		{name: "between the two boards", moment: "2026-09-10T14:20:00+08:00", expectedIsOpen: false},
+		{
+			name:   "after the evening board and before the day board",
+			moment: "2026-09-10T06:30:00+08:00", expectedIsOpen: false,
+		},
+		// Past midnight, still the evening board that opened the day before.
+		{
+			name:   "past midnight inside the evening board",
+			moment: "2026-09-10T02:00:00+08:00", expectedIsOpen: true,
+		},
+		// Saturday is not a day this market opens on, and it is trading anyway: the
+		// board that opened on Friday evening runs into it. A weekday check would call
+		// this shut, which is why nothing checks the weekday of the moment itself.
+		{
+			name:   "saturday morning inside friday's evening board",
+			moment: "2026-09-12T02:00:00+08:00", expectedIsOpen: true,
+		},
+		{name: "sunday", moment: "2026-09-13T12:00:00+08:00", expectedIsOpen: false},
+		{name: "the opening bell is inside", moment: "2026-09-10T08:45:00+08:00", expectedIsOpen: true},
+		{name: "the closing bell is not", moment: "2026-09-10T13:45:00+08:00", expectedIsOpen: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedIsOpen,
+				taiwanFuturesMarket().IsOpen(mustParseTime(t, testCase.moment)))
+		})
+	}
+}
+
+func TestTaiwanFuturesEveningTradingCountsTowardsTheNextBusinessDay(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		moment               string
+		expectedStart        string
+		expectedBusinessDate string
+	}{
+		{
+			name:   "the evening board opened on wednesday belongs to thursday",
+			moment: "2026-09-09T22:30:00+08:00",
+			// It runs from Wednesday afternoon into Thursday morning.
+			expectedStart:        "2026-09-09T15:00:00+08:00",
+			expectedBusinessDate: "2026-09-10T00:00:00+08:00",
+		},
+		{
+			name:                 "past midnight it is still the same stretch and the same business day",
+			moment:               "2026-09-10T02:00:00+08:00",
+			expectedStart:        "2026-09-09T15:00:00+08:00",
+			expectedBusinessDate: "2026-09-10T00:00:00+08:00",
+		},
+		// Friday evening's trading belongs to Monday: the next day is a Saturday, and
+		// Saturday is not a business day.
+		{
+			name:                 "friday evening belongs to monday",
+			moment:               "2026-09-11T22:30:00+08:00",
+			expectedStart:        "2026-09-11T15:00:00+08:00",
+			expectedBusinessDate: "2026-09-14T00:00:00+08:00",
+		},
+		{
+			name:                 "the day board belongs to its own day",
+			moment:               "2026-09-10T10:00:00+08:00",
+			expectedStart:        "2026-09-10T08:45:00+08:00",
+			expectedBusinessDate: "2026-09-10T00:00:00+08:00",
+		},
+		// Once a stretch has shut, the moment is still about that stretch — the round
+		// running now is fetching its last candle.
+		{
+			name:                 "just after the day board shuts",
+			moment:               "2026-09-10T13:46:00+08:00",
+			expectedStart:        "2026-09-10T08:45:00+08:00",
+			expectedBusinessDate: "2026-09-10T00:00:00+08:00",
+		},
+		{
+			name:                 "just after the evening board shuts",
+			moment:               "2026-09-10T05:01:00+08:00",
+			expectedStart:        "2026-09-09T15:00:00+08:00",
+			expectedBusinessDate: "2026-09-10T00:00:00+08:00",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			occurrence := taiwanFuturesMarket().SessionOccurrenceAt(mustParseTime(t, testCase.moment))
+
+			require.False(t, occurrence.IsZero())
+			assert.Equal(t, mustParseTime(t, testCase.expectedStart).UTC(), occurrence.StartTime)
+			assert.Equal(t,
+				mustParseTime(t, testCase.expectedBusinessDate).UTC(), occurrence.BusinessDate)
+		})
+	}
+}
+
+func TestSessionOccurrenceIsAbsentWhenTheMomentIsAboutNoStretch(t *testing.T) {
+	testCases := []struct {
+		name   string
+		market domains.MarketDomain
+		moment string
+	}{
+		// Nothing has opened yet today, and yesterday is not what this moment is about.
+		{
+			name: "before the first stretch of the day", market: taiwanFuturesMarket(),
+			moment: "2026-09-13T12:00:00+08:00",
+		},
+		{
+			name: "taiwan stock before its opening bell", market: taiwanStockMarket(),
+			moment: "2026-09-10T03:00:00+08:00",
+		},
+		// A market with no hours has no stretches to be inside of.
+		{name: "a market that never closes", market: cryptoMarket(), moment: "2026-09-10T10:00:00+08:00"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.True(t,
+				testCase.market.SessionOccurrenceAt(mustParseTime(t, testCase.moment)).IsZero())
+		})
+	}
+}
+
+func TestTaiwanFuturesClampToTradingSessionReadsBothStretches(t *testing.T) {
+	testCases := []struct {
+		name              string
+		windowStart       string
+		windowEnd         string
+		expectedEmpty     bool
+		expectedStartTime string
+		expectedEndTime   string
+	}{
+		{
+			name:        "wholly inside the evening board",
+			windowStart: "2026-09-10T22:28:00+08:00", windowEnd: "2026-09-10T22:30:00+08:00",
+			expectedStartTime: "2026-09-10T22:28:00+08:00", expectedEndTime: "2026-09-10T22:30:00+08:00",
+		},
+		{
+			name:        "wholly inside the break",
+			windowStart: "2026-09-10T14:18:00+08:00", windowEnd: "2026-09-10T14:20:00+08:00",
+			expectedEmpty: true,
+		},
+		// The round just after a closing bell still has the stretch's last candle to
+		// collect, and that holds for both bells.
+		{
+			name:        "the round just after the day board shuts",
+			windowStart: "2026-09-10T13:44:00+08:00", windowEnd: "2026-09-10T13:46:00+08:00",
+			expectedStartTime: "2026-09-10T13:44:00+08:00", expectedEndTime: "2026-09-10T13:44:00+08:00",
+		},
+		{
+			name:        "the round just after the evening board shuts",
+			windowStart: "2026-09-10T04:59:00+08:00", windowEnd: "2026-09-10T05:01:00+08:00",
+			expectedStartTime: "2026-09-10T04:59:00+08:00", expectedEndTime: "2026-09-10T04:59:00+08:00",
+		},
+		{
+			name:        "saturday after the evening board has run out",
+			windowStart: "2026-09-12T08:00:00+08:00", windowEnd: "2026-09-12T10:00:00+08:00",
+			expectedEmpty: true,
+		},
+		// Starting up on a Saturday morning still has Friday evening's tail to collect.
+		{
+			name:        "a weekend backfill reaches back into friday evening",
+			windowStart: "2026-09-11T20:00:00+08:00", windowEnd: "2026-09-12T10:00:00+08:00",
+			expectedStartTime: "2026-09-11T20:00:00+08:00", expectedEndTime: "2026-09-12T04:59:00+08:00",
+		},
+		// Crossing midnight is not a gap.
+		{
+			name:        "a window crossing midnight comes back untouched",
+			windowStart: "2026-09-09T23:30:00+08:00", windowEnd: "2026-09-10T02:00:00+08:00",
+			expectedStartTime: "2026-09-09T23:30:00+08:00", expectedEndTime: "2026-09-10T02:00:00+08:00",
+		},
+		// Both ends are tradable even though the middle is the market's own break: the
+		// break holds no candle, and a window is a pair of edges rather than a set.
+		{
+			name:        "a window spanning both boards keeps both ends",
+			windowStart: "2026-09-10T12:00:00+08:00", windowEnd: "2026-09-10T16:00:00+08:00",
+			expectedStartTime: "2026-09-10T12:00:00+08:00", expectedEndTime: "2026-09-10T16:00:00+08:00",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			clampedWindow := taiwanFuturesMarket().ClampToTradingSession(windowBetween(
+				t, vo.MarketTaiwanFutures, testCase.windowStart, testCase.windowEnd))
+
+			if testCase.expectedEmpty {
+				assert.True(t, clampedWindow.IsEmpty())
+
+				return
+			}
+
+			require.False(t, clampedWindow.IsEmpty())
+			assert.Equal(t, mustParseTime(t, testCase.expectedStartTime).UTC(), clampedWindow.StartTime)
+			assert.Equal(t, mustParseTime(t, testCase.expectedEndTime).UTC(), clampedWindow.EndTime)
+		})
+	}
+}
+
+func TestTaiwanFuturesBucketCountNeverCountsASharedBucketTwice(t *testing.T) {
+	testCases := []struct {
+		name                string
+		startTime           string
+		endTime             string
+		bucketDuration      time.Duration
+		expectedBucketCount int
+	}{
+		// A whole trading day: six hourly buckets hold the day board, fourteen hold the
+		// evening board, and none of them is shared.
+		{
+			name:      "a whole trading day by the hour",
+			startTime: "2026-09-10T08:45:00+08:00", endTime: "2026-09-11T05:00:00+08:00",
+			bucketDuration: time.Hour, expectedBucketCount: 20,
+		},
+		// The same day in four-hour buckets is six bars rather than seven. The day board
+		// shuts at 13:45 and the evening board opens at 15:00, so both of them fall in
+		// the bucket that starts at 12:00 — and that bucket is one bar.
+		{
+			name:      "a whole trading day in four-hour buckets shares one",
+			startTime: "2026-09-10T08:45:00+08:00", endTime: "2026-09-11T05:00:00+08:00",
+			bucketDuration: 4 * time.Hour, expectedBucketCount: 6,
+		},
+		{
+			name:      "the day board alone by the hour",
+			startTime: "2026-09-10T08:45:00+08:00", endTime: "2026-09-10T13:44:00+08:00",
+			bucketDuration: time.Hour, expectedBucketCount: 6,
+		},
+		{
+			name:      "the evening board alone by the hour",
+			startTime: "2026-09-10T15:00:00+08:00", endTime: "2026-09-11T04:59:00+08:00",
+			bucketDuration: time.Hour, expectedBucketCount: 14,
+		},
+		// A whole trading day is one daily bar, both boards included: the evening board
+		// opens and shuts inside the same daily bucket the day board traded in, so it
+		// adds nothing of its own.
+		{
+			name:      "a whole trading day is one daily bucket",
+			startTime: "2026-09-10T08:45:00+08:00", endTime: "2026-09-11T05:00:00+08:00",
+			bucketDuration: 24 * time.Hour, expectedBucketCount: 1,
+		},
+		{
+			name:      "wholly inside the break",
+			startTime: "2026-09-10T13:46:00+08:00", endTime: "2026-09-10T14:59:00+08:00",
+			bucketDuration: time.Hour, expectedBucketCount: 0,
+		},
+		{
+			name:      "a weekend holds no trading at all",
+			startTime: "2026-09-12T05:00:00+08:00", endTime: "2026-09-14T08:44:00+08:00",
+			bucketDuration: time.Hour, expectedBucketCount: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedBucketCount,
+				taiwanFuturesMarket().TradingBucketCountBetween(
+					mustParseTime(t, testCase.startTime),
+					mustParseTime(t, testCase.endTime),
+					testCase.bucketDuration))
+		})
+	}
+}
+
+func TestTaiwanFuturesHoldsTradingAcrossBothStretches(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		startTime            string
+		endTime              string
+		expectedHoldsTrading bool
+	}{
+		{
+			name:      "inside the evening board",
+			startTime: "2026-09-10T22:00:00+08:00", endTime: "2026-09-10T22:30:00+08:00",
+			expectedHoldsTrading: true,
+		},
+		{
+			name:      "inside the break",
+			startTime: "2026-09-10T13:46:00+08:00", endTime: "2026-09-10T14:59:00+08:00",
+			expectedHoldsTrading: false,
+		},
+		{
+			name:      "a weekend",
+			startTime: "2026-09-12T05:00:00+08:00", endTime: "2026-09-14T08:44:00+08:00",
+			expectedHoldsTrading: false,
+		},
+		{
+			name:      "across midnight",
+			startTime: "2026-09-09T23:00:00+08:00", endTime: "2026-09-10T01:00:00+08:00",
+			expectedHoldsTrading: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedHoldsTrading,
+				taiwanFuturesMarket().HoldsTrading(
+					mustParseTime(t, testCase.startTime), mustParseTime(t, testCase.endTime)))
+		})
+	}
+}
+
+func TestSessionElapsedAtReadsTheStretchTheMomentIsAbout(t *testing.T) {
+	testCases := []struct {
+		name            string
+		market          domains.MarketDomain
+		moment          string
+		expectedElapsed time.Duration
+	}{
+		{
+			name: "part way into the evening board", market: taiwanFuturesMarket(),
+			moment: "2026-09-10T22:30:00+08:00", expectedElapsed: 7*time.Hour + 30*time.Minute,
+		},
+		// Once a stretch has run, it has had its whole length to say something.
+		{
+			name: "just after the day board shuts", market: taiwanFuturesMarket(),
+			moment: "2026-09-10T13:46:00+08:00", expectedElapsed: 5 * time.Hour,
+		},
+		{
+			name: "after the evening board has run", market: taiwanFuturesMarket(),
+			moment: "2026-09-10T08:00:00+08:00", expectedElapsed: 14 * time.Hour,
+		},
+		{
+			name: "a day nothing opens on", market: taiwanFuturesMarket(),
+			moment: "2026-09-13T12:00:00+08:00", expectedElapsed: 0,
+		},
+		// Taiwan stock reads exactly as it did before a day could hold two stretches.
+		{
+			name: "taiwan stock before its opening bell", market: taiwanStockMarket(),
+			moment: "2026-09-10T03:00:00+08:00", expectedElapsed: 0,
+		},
+		{
+			name: "taiwan stock after its close", market: taiwanStockMarket(),
+			moment: "2026-09-10T21:00:00+08:00", expectedElapsed: 4*time.Hour + 30*time.Minute,
+		},
+		// A market with no hours has been trading all along, so how far into its day it
+		// is stands in for how long it has had to say something.
+		{
+			name: "a market that never closes", market: cryptoMarket(),
+			moment: "2026-09-10T10:00:00Z", expectedElapsed: 10 * time.Hour,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedElapsed,
+				testCase.market.SessionElapsedAt(mustParseTime(t, testCase.moment)))
+		})
+	}
+}
+
+func TestTaiwanFuturesIsARecognisedMarket(t *testing.T) {
+	marketCatalogDomain := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto:        {},
+		vo.MarketTaiwanStock:   taiwanStockRules(),
+		vo.MarketTaiwanFutures: taiwanFuturesRules(),
+	})
+
+	assert.True(t, marketCatalogDomain.IsRecognised(string(vo.MarketTaiwanFutures)))
+	assert.Equal(t,
+		[]string{"crypto", "taiwanStock", "taiwanFutures"},
+		marketCatalogDomain.RecognisedMarkets())
+}
+
+func TestStretchesAreReadInStartOrderHoweverTheyWereWrittenDown(t *testing.T) {
+	outOfOrderRules := taiwanFuturesRules()
+	outOfOrderRules.TradingSession.Stretches = []vo.TradingStretchVo{
+		outOfOrderRules.TradingSession.Stretches[1],
+		outOfOrderRules.TradingSession.Stretches[0],
+	}
+
+	marketDomain := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketTaiwanFutures: outOfOrderRules,
+	}).MarketOf(string(vo.MarketTaiwanFutures))
+
+	// Counting buckets merges the one two adjacent stretches share, so it is only
+	// right while they arrive earliest first. Settings written the other way round
+	// must not change the answer.
+	assert.Equal(t, 6, marketDomain.TradingBucketCountBetween(
+		mustParseTime(t, "2026-09-10T08:45:00+08:00"),
+		mustParseTime(t, "2026-09-11T05:00:00+08:00"),
+		4*time.Hour))
 }

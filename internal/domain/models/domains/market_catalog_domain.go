@@ -1,6 +1,8 @@
 package domains
 
 import (
+	"slices"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
@@ -24,9 +26,16 @@ type MarketCatalogDomain struct {
 // NewMarketCatalogDomain takes the rules for every recognised market. The fallback
 // market is always recognised, whatever the caller passes, so MarketOf can never
 // come back with a market that has no rules to read.
+//
+// It puts each market's stretches of trading into start order as it takes them, so
+// that nothing downstream has to trust the order they were configured in. Counting
+// buckets depends on that order — it merges a bucket two adjacent stretches share, and
+// out of order it would merge the wrong pair — so the order is established once, here,
+// rather than asserted in a comment wherever it is read.
 func NewMarketCatalogDomain(rulesByMarket map[vo.MarketVo]vo.MarketRulesVo) MarketCatalogDomain {
 	recognisedRules := make(map[vo.MarketVo]vo.MarketRulesVo, len(rulesByMarket)+1)
 	for market, rules := range rulesByMarket {
+		rules.TradingSession.Stretches = inStartOrder(rules.TradingSession.Stretches)
 		recognisedRules[market] = rules
 	}
 
@@ -35,6 +44,19 @@ func NewMarketCatalogDomain(rulesByMarket map[vo.MarketVo]vo.MarketRulesVo) Mark
 	}
 
 	return MarketCatalogDomain{rulesByMarket: recognisedRules}
+}
+
+// inStartOrder is the stretches of one trading day, earliest first, in a copy of their
+// own — so that ordering them here cannot reach back into the settings they came from.
+func inStartOrder(tradingStretches []vo.TradingStretchVo) []vo.TradingStretchVo {
+	orderedStretches := slices.Clone(tradingStretches)
+	slices.SortStableFunc(orderedStretches, func(
+		oneStretch vo.TradingStretchVo, otherStretch vo.TradingStretchVo,
+	) int {
+		return int(oneStretch.StartOffset - otherStretch.StartOffset)
+	})
+
+	return orderedStretches
 }
 
 // fallbackMarket is what an unrecognised or absent market name means. Its rules
@@ -73,7 +95,9 @@ func (marketCatalogDomain MarketCatalogDomain) RecognisedMarkets() []string {
 	// The order is fixed rather than taken from the map, so that a refusal reads the
 	// same way twice running.
 	recognisedMarkets := make([]string, 0, len(marketCatalogDomain.rulesByMarket))
-	for _, market := range []vo.MarketVo{vo.MarketCrypto, vo.MarketTaiwanStock} {
+	for _, market := range []vo.MarketVo{
+		vo.MarketCrypto, vo.MarketTaiwanStock, vo.MarketTaiwanFutures,
+	} {
 		if _, isRecognised := marketCatalogDomain.rulesByMarket[market]; isRecognised {
 			recognisedMarkets = append(recognisedMarkets, string(market))
 		}
