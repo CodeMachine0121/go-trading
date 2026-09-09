@@ -93,11 +93,10 @@ func NewIndicatorCalculationDomain(
 			"%w: %w", ErrIndicatorCalculationValidation, windowError)
 	}
 
-	// Whether the stretch holds any market at all. Asked at the length a stored candle
-	// covers, because that is the finest slot there is: no one-minute bucket in this
-	// window holding trading is the same statement as the window holding none.
-	if marketDomain.TradingBucketCountBetween(
-		observationWindow.StartTime(), observationWindow.EndTime(), KCandleInterval) == 0 {
+	// Whether the stretch holds any market at all — asked as itself, not read off a
+	// count of buckets. A count rounds, and a stretch shorter than one bucket would
+	// then read as a closed market even on a venue that never shuts.
+	if !marketDomain.HoldsTrading(observationWindow.StartTime(), observationWindow.EndTime()) {
 		return IndicatorCalculationDomain{}, ObservationWindowHoldsNoTrading(marketDomain.Value())
 	}
 

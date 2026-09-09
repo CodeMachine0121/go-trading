@@ -28,12 +28,13 @@
 
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
-| `domain/models/domains/market_domain.go` | **Modify** | 新增 `TradingBucketCountBetween(startTime, endTime, bucketDuration)`：逐日走訪交易時段，數它們碰到的**不同格子**。全天候市場走另一條（整段除以刻度長度，行為與現況一致）。**沿用既有的 `eachTradingDaySession`**，不新增第二份市場作息 |
+| `domain/models/domains/market_domain.go` | **Modify** | 新增 `TradingBucketCountBetween(startTime, endTime, bucketDuration)`：逐日走訪交易時段，**逐段以算術數格子**（不逐格走訪、不materialise集合——沒有東西限制呼叫端問多長，一個世紀在一分鐘刻度上是九百萬格）。相鄰兩段共用邊界格時扣掉一格。全天候市場走另一條（整段除以刻度長度，行為與現況一致）。**沿用既有的 `eachTradingDaySession`**，不新增第二份市場作息 |
+| `domain/models/domains/market_domain.go` | **Modify** | 新增 `HoldsTrading(startTime, endTime)`：一段裡有沒有交易，**問它本身**。不拿「格數等於零」當答案——格數會取整，全天候市場的三十秒會被讀成零格，於是一個永不收盤的市場被回報成沒有交易 |
 | `domain/models/domains/market_domain.go` | **Remove** | `TradingTimeBetween` —— 這次之後沒有任何呼叫端。留著它就是留著那個錯的第一步，而它看起來完全無害 |
 | `domain/models/domains/aggregation_interval_domain.go` | **Modify** | `SlotCount(tradingTime)` → `TradingSlotCount(marketDomain, startTime, endTime)`：問市場數格子，並保留既有的**下限一格**（沒有交易的一段仍是一格）。`duration` 仍不外露 |
 | `domain/models/domains/aggregation_interval_domain.go` | **Modify** | `NewFittingAggregationIntervalDomain` 改收 `(marketDomain, startTime, endTime, displayableCandleCount)`：走訪候選時逐一問市場。它因此認識市場——理由見上方 |
 | `domain/models/domains/k_candle_series_query_domain.go` | **Modify** | 不再先算交易時間；挑刻度與上限檢查都改問新的問法 |
-| `domain/models/domains/indicator_calculation_domain.go` | **Modify** | 「要看幾格」改問新的問法。**行為會變**（台股較粗刻度算出更多格），這是刻意的：兩條路必須說出同一個數字 |
+| `domain/models/domains/indicator_calculation_domain.go` | **Modify** | 「要看幾格」改問新的問法。**行為會變**（台股較粗刻度算出更多格），這是刻意的：兩條路必須說出同一個數字。「有沒有交易」改問 `HoldsTrading` |
 | `postman/` | **Modify** | 新增「台股五年由系統挑刻度也被拒絕」一個請求 |
 | **`AggregationIntervalDomain.BucketStart` / `BucketCount` / `SourceCandleCount`** | **Not touched** | 格子邊界怎麼切、一格裝得下幾根原始 K 線都不變 |
 | **單次上限的數值、六種刻度、彙總算法、休市日名單** | **Not touched** | 只改「怎麼數」 |
@@ -151,3 +152,11 @@ flowchart TD
 
 - **Open decisions:** 無。前端那個五百天上限經確認仍然安全：
   台股五百天約 345 個交易日，加上兩側預取共一千天約 690 格，仍在一千之內。
+
+- **Review 之後留下的一件事（另開切片）：全天候市場那條分支仍然在除。**
+  它答的是 `duration / bucketDuration`，比一個**起訖兩端都算**的區間實際產出的格子少一格。
+  於是「單次最多一千根」對全天候市場仍然不是嚴格為真（可能多回一到兩根）。
+  **這與本切片無關**——那條分支的行為在本切片前後一字不變，它是既有的語意；
+  而修正它會移動這條路上**每一個**格數與使用者看到的每一根 K 線
+  （一天的小時線從 24 根變 25 根，77 個既有測試的斷言跟著變），
+  所以它值得自己一份規格，而不是夾在這一次裡。

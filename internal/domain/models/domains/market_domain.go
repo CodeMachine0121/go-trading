@@ -92,24 +92,23 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 // than four, two four-hour buckets rather than one, and five Taiwan days are five
 // daily buckets rather than the fifth of one the division reports.
 //
-// It counts distinct bucket starts, so a session spanning a bucket edge counts both
-// and two sessions inside one bucket count it once.
+// It counts arithmetically rather than visiting each bucket, and that is not a
+// micro-optimisation: nothing bounds the stretch a caller may name, so visiting them
+// would cost one map entry per bucket — a century at a minute a bucket is nine million
+// entries and most of a gigabyte, spent *before* the ceiling that would have refused
+// the range is consulted.
 //
-// **No test can reach that second half today, and it stays anyway.** A venue is
-// written down with one session a day, so no two sessions ever share a bucket and a
-// plain counter would give the same answers — mutating the set into a counter leaves
-// every test green. It stays because the day a venue gains an afternoon board (the
-// change this file is shaped to absorb), a counter would report that day twice at a
-// day a candle and nobody would be told. Counting distinct slots is what the question
-// means; the counter would merely be what today's data cannot tell apart from it.
+// It sums each session's buckets without checking whether two of them share one,
+// because a venue is written down with one session a day and the coarsest bucket is a
+// day: two sessions can never meet in the same bucket. The day that stops being true
+// is the day a second daily session is added, and the note about it lives on the walk
+// that would have to change — not here, where it would be a line no input reaches.
 //
-// A market that never closes trades every minute of the stretch, so the two ways of
-// counting agree and it takes the cheaper one. That is why nothing downstream needs a
-// branch: the round-the-clock case comes out of the same question.
-//
-// The walk over days is shared with ClampToTradingSession, and that is all they share.
-// One narrows a window to where candles could be; this one counts the slots those
-// candles would fall into.
+// **A market that never closes divides**, and that is a known inconsistency rather
+// than an oversight: it answers the way every count in this system has always answered
+// for such a market, which is one short of the buckets an inclusive range can actually
+// produce. Correcting it moves every count on that path and every bar the user sees, so
+// it is written down as its own change rather than smuggled in with this one.
 func (marketDomain MarketDomain) TradingBucketCountBetween(
 	startTime time.Time, endTime time.Time, bucketDuration time.Duration,
 ) int {
@@ -117,7 +116,7 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 		return int(endTime.Sub(startTime) / bucketDuration)
 	}
 
-	countedBucketStarts := make(map[time.Time]bool)
+	tradingBucketCount := 0
 	marketDomain.eachTradingDaySession(startTime, endTime,
 		func(sessionStart time.Time, sessionEnd time.Time) {
 			overlapStart := startTime
@@ -137,12 +136,45 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 				return
 			}
 
-			for bucketStart := bucketStartOf(overlapStart, bucketDuration); !bucketStart.After(overlapEnd); bucketStart = bucketStart.Add(bucketDuration) {
-				countedBucketStarts[bucketStart] = true
+			firstBucketStart := bucketStartOf(overlapStart, bucketDuration)
+			lastBucketStart := bucketStartOf(overlapEnd, bucketDuration)
+			tradingBucketCount += int(lastBucketStart.Sub(firstBucketStart)/bucketDuration) + 1
+		})
+
+	return tradingBucketCount
+}
+
+// HoldsTrading reports whether the market is open at any point of the stretch.
+//
+// It is asked out loud rather than derived from a bucket count being zero, because a
+// count answers a different question and rounds: a thirty-second stretch of a market
+// that never shuts holds trading throughout and yet holds no whole minute-bucket, so
+// reading the count as the answer would call a round-the-clock market closed. That
+// contradiction is one this system says out loud it cannot have.
+func (marketDomain MarketDomain) HoldsTrading(startTime time.Time, endTime time.Time) bool {
+	if marketDomain.neverCloses() {
+		return endTime.After(startTime)
+	}
+
+	holdsTrading := false
+	marketDomain.eachTradingDaySession(startTime, endTime,
+		func(sessionStart time.Time, sessionEnd time.Time) {
+			overlapStart := startTime
+			if sessionStart.After(overlapStart) {
+				overlapStart = sessionStart
+			}
+
+			overlapEnd := endTime
+			if sessionLastOpenTime := sessionEnd.Add(-KCandleInterval); sessionLastOpenTime.Before(overlapEnd) {
+				overlapEnd = sessionLastOpenTime
+			}
+
+			if !overlapEnd.Before(overlapStart) {
+				holdsTrading = true
 			}
 		})
 
-	return len(countedBucketStarts)
+	return holdsTrading
 }
 
 // SimultaneousFollowCeiling is how many of this market's symbols may be followed
@@ -350,6 +382,12 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 // session runs, so a venue that grows a second daily session — an afternoon board, an
 // evening board — is a change here and nowhere else. Two copies of that walk would go
 // out of step, and the one that was not updated would keep answering.
+//
+// **Whoever adds that second session: read TradingBucketCountBetween before you do.**
+// It sums each session's buckets and never asks whether two sessions met inside one,
+// which is safe only while there is one session a day. With a morning and an afternoon
+// board, a day a candle would be counted twice — and the symptom is a number that is
+// merely too big, reported by nothing.
 func (marketDomain MarketDomain) eachTradingDaySession(
 	startTime time.Time,
 	endTime time.Time,

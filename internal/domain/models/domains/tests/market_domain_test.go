@@ -540,3 +540,83 @@ func TestTradingBucketCountIsTheWholeStretchForAMarketThatNeverCloses(t *testing
 		})
 	}
 }
+
+// 一段裡有沒有交易——**問它本身，不要拿格數當答案**。
+//
+// 格數會取整：全天候市場的三十秒整段都在交易，卻裝不滿一個一分鐘的格子。
+// 把格數讀成答案，就會說一個永不收盤的市場「沒有交易」，
+// 而這份文件自己寫著那是不可能發生的事。
+func TestHoldsTradingAnswersTheQuestionItself(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		market               domains.MarketDomain
+		startTime            string
+		endTime              string
+		expectedHoldsTrading bool
+	}{
+		{
+			name:      "全天候市場的三十秒：有交易，即使裝不滿一格",
+			market:    cryptoMarket(),
+			startTime: "2026-09-07T00:00:00Z", endTime: "2026-09-07T00:00:30Z",
+			expectedHoldsTrading: true,
+		},
+		{
+			name:      "全天候市場的起訖相同：沒有任何一刻在裡面",
+			market:    cryptoMarket(),
+			startTime: "2026-09-07T00:00:00Z", endTime: "2026-09-07T00:00:00Z",
+			expectedHoldsTrading: false,
+		},
+		{
+			name:      "台股盤中的一小時：有交易",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-07T11:00:00+08:00", endTime: "2026-09-07T12:00:00+08:00",
+			expectedHoldsTrading: true,
+		},
+		{
+			name:      "台股盤中的三十秒：有交易，即使裝不滿一格",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-07T11:00:00+08:00", endTime: "2026-09-07T11:00:30+08:00",
+			expectedHoldsTrading: true,
+		},
+		{
+			name:      "台股整個週六：沒有交易",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-12T00:00:00+08:00", endTime: "2026-09-13T00:00:00+08:00",
+			expectedHoldsTrading: false,
+		},
+		{
+			name:      "台股收盤之後：沒有交易",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-07T14:00:00+08:00", endTime: "2026-09-07T16:00:00+08:00",
+			expectedHoldsTrading: false,
+		},
+		{
+			name:      "台股從收盤鐘聲起算：沒有交易——當日最後一根開在收盤前一分鐘",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-07T13:30:00+08:00", endTime: "2026-09-07T15:00:00+08:00",
+			expectedHoldsTrading: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			holdsTrading := testCase.market.HoldsTrading(
+				mustParseTime(t, testCase.startTime), mustParseTime(t, testCase.endTime))
+
+			assert.Equal(t, testCase.expectedHoldsTrading, holdsTrading)
+		})
+	}
+}
+
+// 沒有東西限制呼叫端可以問多長的一段，所以數格子不能為每一格花掉一份記憶體。
+// 一個世紀在一分鐘刻度上是九百萬格；照著走訪會在「區間過大」那句拒絕說出口之前
+// 先吃掉將近一 GB。這裡不量記憶體——量了會是一個看機器心情的測試——
+// 而是釘住它**答得出來**：算術數得完，走訪會死在半路。
+func TestCountingACenturyIsStillAnswered(t *testing.T) {
+	bucketCount := taiwanStockMarket().TradingBucketCountBetween(
+		mustParseTime(t, "1926-01-01T00:00:00Z"),
+		mustParseTime(t, "2026-01-01T00:00:00Z"),
+		time.Minute)
+
+	assert.Positive(t, bucketCount)
+}

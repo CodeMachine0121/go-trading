@@ -1147,3 +1147,24 @@ func TestACoarseTaiwanWindowIsRefusedNowThatTheSlotsAreCounted(t *testing.T) {
 	require.Error(t, buildError)
 	assert.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
 }
+
+// 全天候市場的一段短到裝不滿一格，仍然是「有交易」。
+//
+// 這一條是為了擋住一個很容易長回來的寫法：拿「格數等於零」當「沒有交易」。
+// 格數會取整，所以三十秒會被讀成零格——於是一個永不收盤的市場被回報成沒有交易，
+// 而通用語地圖與市場那份文件都寫著「全天候市場不可能遇到這一種」。
+func TestAStretchShorterThanOneSlotStillHoldsTradingOnAMarketThatNeverCloses(t *testing.T) {
+	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
+		dto.IndicatorCalculationRequestDto{
+			Symbol:              "BTCUSDT",
+			AggregationInterval: "1m",
+			StartTime:           calculationNow.Add(-30 * time.Second),
+			EndTime:             calculationNow,
+			Script:              "irrelevant",
+		},
+		cryptoMarket(), maxCandleCount, calculationNow)
+
+	require.NoError(t, buildError)
+	// 不滿一格仍然要為一個位置拿值——那是下限一格在做的事。
+	assert.Equal(t, 1, calculationDomain.CandleCount())
+}
