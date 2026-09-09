@@ -23,10 +23,11 @@ import (
 //     Decided from the range and the coarseness alone — before a single candle is read
 //     — so an over-large ask costs nothing to refuse.
 //
-// **Buckets are counted over trading time, not over the clock.** A day of a market
-// that shuts holds four and a half hours of candles, not twenty-four, and counting the
-// closed hours is what used to make the system refuse a chart it had just chosen the
-// coarseness for. One way of counting, used by the ceiling and the choosing alike.
+// **Buckets are counted, not divided out of a duration.** A day of a market that
+// shuts holds four and a half hours of trading, and dividing that by the bucket length
+// undercounts every bucket long enough to reach past a session's edges — badly enough
+// at a day a candle that the ceiling below stopped bounding anything. The market counts
+// them by walking its sessions, and the ceiling and the choosing ask it the same way.
 type KCandleSeriesQueryDomain struct {
 	rangeQuery  KCandleQueryDomain
 	interval    AggregationIntervalDomain
@@ -49,14 +50,14 @@ func NewKCandleSeriesQueryDomain(
 		return KCandleSeriesQueryDomain{}, rangeValidationError
 	}
 
-	tradingTime := marketDomain.TradingTimeBetween(rangeQuery.StartTime(), rangeQuery.EndTime())
-
-	interval, intervalError := intervalFor(seriesQueryDto, tradingTime, maxBucketCount)
+	interval, intervalError := intervalFor(
+		seriesQueryDto, marketDomain, rangeQuery.StartTime(), rangeQuery.EndTime(), maxBucketCount)
 	if intervalError != nil {
 		return KCandleSeriesQueryDomain{}, intervalError
 	}
 
-	bucketCount := interval.SlotCount(tradingTime)
+	bucketCount := interval.TradingSlotCount(
+		marketDomain, rangeQuery.StartTime(), rangeQuery.EndTime())
 	if bucketCount > maxBucketCount {
 		return KCandleSeriesQueryDomain{}, fmt.Errorf(
 			"%w: 時間區間過大，請縮小區間；若指定了彙總刻度，也可以改用更長的一種（單次最多 %d 根）",
@@ -86,7 +87,11 @@ func NewKCandleSeriesQueryDomain(
 // is not an error: it means the ceiling is the tighter of the two, which is exactly
 // what taking the smaller of them says.
 func intervalFor(
-	seriesQueryDto dto.KCandleSeriesQueryDto, tradingTime time.Duration, maxBucketCount int,
+	seriesQueryDto dto.KCandleSeriesQueryDto,
+	marketDomain MarketDomain,
+	startTime time.Time,
+	endTime time.Time,
+	maxBucketCount int,
 ) (AggregationIntervalDomain, error) {
 	if seriesQueryDto.DisplayableCandleCount != nil && seriesQueryDto.Interval != "" {
 		return AggregationIntervalDomain{}, fmt.Errorf(
@@ -111,7 +116,8 @@ func intervalFor(
 		}
 
 		return NewFittingAggregationIntervalDomain(
-			tradingTime, min(displayableCandleCount, maxBucketCount)), nil
+			marketDomain, startTime, endTime,
+			min(displayableCandleCount, maxBucketCount)), nil
 	}
 
 	// Saying neither is a caller with no opinion about how coarse a candle is, and the
@@ -123,7 +129,8 @@ func intervalFor(
 	// nothing said only that it wants an answer. The day the ceiling moves, this branch
 	// should follow it and the one above should not — folded together, that change would
 	// silently redefine one of them.
-	return NewFittingAggregationIntervalDomain(tradingTime, maxBucketCount), nil
+	return NewFittingAggregationIntervalDomain(
+		marketDomain, startTime, endTime, maxBucketCount), nil
 }
 
 // RangeQuery is the plain time-range query to read the source candles with.

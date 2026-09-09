@@ -93,11 +93,11 @@ func NewIndicatorCalculationDomain(
 			"%w: %w", ErrIndicatorCalculationValidation, windowError)
 	}
 
-	// How much market the stretch actually holds, which for a venue that shuts is
-	// less than the stretch itself — and for one that never shuts is all of it.
-	tradingTime := marketDomain.TradingTimeBetween(
-		observationWindow.StartTime(), observationWindow.EndTime())
-	if tradingTime <= 0 {
+	// Whether the stretch holds any market at all. Asked at the length a stored candle
+	// covers, because that is the finest slot there is: no one-minute bucket in this
+	// window holding trading is the same statement as the window holding none.
+	if marketDomain.TradingBucketCountBetween(
+		observationWindow.StartTime(), observationWindow.EndTime(), KCandleInterval) == 0 {
 		return IndicatorCalculationDomain{}, ObservationWindowHoldsNoTrading(marketDomain.Value())
 	}
 
@@ -114,7 +114,9 @@ func NewIndicatorCalculationDomain(
 	// The extra candles come from before the stretch, and that is deliberate: looking
 	// back is looking at earlier market, so reaching over a close and into an earlier
 	// session is the reaching working, not the stretch leaking.
-	inputCandleCount := interval.SlotCount(tradingTime) + max(0, parameters.MaximumLookbackCount()-1)
+	inputCandleCount := interval.TradingSlotCount(
+		marketDomain, observationWindow.StartTime(), observationWindow.EndTime()) +
+		max(0, parameters.MaximumLookbackCount()-1)
 
 	// The ceiling counts aggregated candles, not the stored ones behind them: asking
 	// for a day at one-hour buckets asks for 24 candles however many one-minute

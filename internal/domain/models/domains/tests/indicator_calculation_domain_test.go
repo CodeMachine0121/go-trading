@@ -915,6 +915,10 @@ func taiwanCalculationRequest(
 // 2026-09-07 是週一，09-11 是週五。
 func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
 	// 一分鐘刻度讓「幾格」與「幾根」是同一個數字，斷言因此讀得出格數本身。
+	//
+	// **起訖兩端都算在內**，所以一段整整一小時的盤中是 61 格而不是 60——
+	// 從第一分鐘到第六十一分鐘，兩端各一根。以前把交易時間除以刻度長度，
+	// 那個除法把右端那一根丟掉了。
 	testCases := []struct {
 		name              string
 		startTime         string
@@ -934,17 +938,17 @@ func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
 		{
 			name:      "wholly inside a session",
 			startTime: "2026-09-07T11:00:00+08:00", endTime: "2026-09-07T12:00:00+08:00",
-			expectedSlotCount: 60,
+			expectedSlotCount: 61,
 		},
 		{
 			name:      "across one close",
 			startTime: "2026-09-07T13:00:00+08:00", endTime: "2026-09-08T10:00:00+08:00",
-			expectedSlotCount: 90,
+			expectedSlotCount: 91,
 		},
 		{
 			name:      "across a weekend",
 			startTime: "2026-09-11T12:00:00+08:00", endTime: "2026-09-14T10:00:00+08:00",
-			expectedSlotCount: 150,
+			expectedSlotCount: 151,
 		},
 		{
 			name:      "a stretch shorter than one slot still holds one",
@@ -1001,11 +1005,12 @@ func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 			expectedCandleCount: 54 + 19,
 		},
 		{
+			// 09:00 到 10:00 在五分鐘刻度上是 13 格（兩端都算），不是 12 格。
 			name:      "the first hour of a session with a twenty-bar look-back",
 			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T10:00:00+08:00",
 			parameters: []dto.StrategyParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
-			expectedCandleCount: 12 + 19,
+			expectedCandleCount: 13 + 19,
 		},
 		{
 			name:      "no look-back declared costs nothing extra",

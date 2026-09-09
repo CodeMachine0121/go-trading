@@ -395,114 +395,148 @@ func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
 }
 
 // 一段時間裡這個市場實際交易多久——收盤的時間不算，週末不算。
-// 2026-09-07 是週一，09-11 是週五，09-12 是週六。
-func TestTradingTimeWithinCountsOnlyWhenTheMarketIsOpen(t *testing.T) {
+// 一段裡有幾個這麼長的格子裝得到交易——**數格子，不是把交易時間除以刻度長度**。
+//
+// 起訖兩端都算在內（沿用查詢區間的既有讀法），所以一段整整一小時的盤中會有 61 格
+// 一分鐘的格子：從第一分鐘到第六十一分鐘，兩端各一根。
+func TestTradingBucketCountCountsOnlyBucketsThatHoldTrading(t *testing.T) {
 	testCases := []struct {
 		name                string
 		startTime           string
 		endTime             string
-		expectedTradingTime time.Duration
+		bucketDuration      time.Duration
+		expectedBucketCount int
 	}{
 		{
-			name:                "a whole session",
-			startTime:           "2026-09-07T09:00:00+08:00",
-			endTime:             "2026-09-07T13:30:00+08:00",
-			expectedTradingTime: 4*time.Hour + 30*time.Minute,
+			name:      "a whole session at one minute",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 270,
 		},
 		{
-			name:                "a whole day around one session",
-			startTime:           "2026-09-06T13:30:00+08:00",
-			endTime:             "2026-09-07T13:30:00+08:00",
-			expectedTradingTime: 4*time.Hour + 30*time.Minute,
+			name:      "a whole day around one session at one minute",
+			startTime: "2026-09-06T13:30:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 270,
 		},
 		{
-			name:                "wholly inside a session",
-			startTime:           "2026-09-07T11:00:00+08:00",
-			endTime:             "2026-09-07T12:00:00+08:00",
-			expectedTradingTime: time.Hour,
+			name:      "wholly inside a session at one minute",
+			startTime: "2026-09-07T11:00:00+08:00", endTime: "2026-09-07T12:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 61,
 		},
 		{
-			name:                "across one close",
-			startTime:           "2026-09-07T13:00:00+08:00",
-			endTime:             "2026-09-08T10:00:00+08:00",
-			expectedTradingTime: 30*time.Minute + time.Hour,
+			name:      "across one close at one minute",
+			startTime: "2026-09-07T13:00:00+08:00", endTime: "2026-09-08T10:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 91,
 		},
 		{
-			name:                "across a weekend",
-			startTime:           "2026-09-11T12:00:00+08:00",
-			endTime:             "2026-09-14T10:00:00+08:00",
-			expectedTradingTime: time.Hour + 30*time.Minute + time.Hour,
+			name:      "across a weekend at one minute",
+			startTime: "2026-09-11T12:00:00+08:00", endTime: "2026-09-14T10:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 151,
 		},
 		{
-			name:                "wholly after the close",
-			startTime:           "2026-09-07T14:00:00+08:00",
-			endTime:             "2026-09-07T16:00:00+08:00",
-			expectedTradingTime: 0,
+			// 這一整段的每一格都是收盤時間，所以一格都沒有。
+			name:      "wholly after the close",
+			startTime: "2026-09-07T14:00:00+08:00", endTime: "2026-09-07T16:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 0,
 		},
 		{
-			name:                "a whole Saturday",
-			startTime:           "2026-09-12T00:00:00+08:00",
-			endTime:             "2026-09-13T00:00:00+08:00",
-			expectedTradingTime: 0,
+			name:      "a whole Saturday",
+			startTime: "2026-09-12T00:00:00+08:00", endTime: "2026-09-13T00:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 0,
 		},
 		{
-			name:                "the boundary: it ends exactly at the opening bell",
-			startTime:           "2026-09-07T08:00:00+08:00",
-			endTime:             "2026-09-07T09:00:00+08:00",
-			expectedTradingTime: 0,
+			// 起訖兩端都算，所以開盤那一刻的那一根落在裡面——這一段確實裝得到一根。
+			name:      "the boundary: it ends exactly at the opening bell",
+			startTime: "2026-09-07T08:00:00+08:00", endTime: "2026-09-07T09:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 1,
 		},
 		{
-			name:                "the boundary: it begins exactly at the closing bell",
-			startTime:           "2026-09-07T13:30:00+08:00",
-			endTime:             "2026-09-07T15:00:00+08:00",
-			expectedTradingTime: 0,
+			// 收盤那一刻沒有任何一根開始——當日最後一根開在收盤前一分鐘。
+			name:      "the boundary: it begins exactly at the closing bell",
+			startTime: "2026-09-07T13:30:00+08:00", endTime: "2026-09-07T15:00:00+08:00",
+			bucketDuration: time.Minute, expectedBucketCount: 0,
+		},
+		{
+			// 這幾個是這個算法存在的理由：四個半小時**除以**一小時是四，
+			// 但那四個半小時碰到了世界標準時間 01、02、03、04、05 這五個整點格子。
+			name:      "a whole session at one hour is five buckets, not four",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			bucketDuration: time.Hour, expectedBucketCount: 5,
+		},
+		{
+			name:      "a whole session at four hours is two buckets, not one",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			bucketDuration: 4 * time.Hour, expectedBucketCount: 2,
+		},
+		{
+			name:      "a whole session at one day is one bucket",
+			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
+			bucketDuration: 24 * time.Hour, expectedBucketCount: 1,
+		},
+		{
+			// 五個交易日在一天刻度是五格。除法會說「22.5 小時 ÷ 24 小時」不到一格,
+			// 而那正是讓「一次最多答一千根」變成一句假話的地方。
+			name:      "five sessions at one day are five buckets, not a fifth of one",
+			startTime: "2026-09-07T00:00:00+08:00", endTime: "2026-09-12T00:00:00+08:00",
+			bucketDuration: 24 * time.Hour, expectedBucketCount: 5,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tradingTime := taiwanStockMarket().TradingTimeBetween(
-				mustParseTime(t, testCase.startTime), mustParseTime(t, testCase.endTime))
+			bucketCount := taiwanStockMarket().TradingBucketCountBetween(
+				mustParseTime(t, testCase.startTime),
+				mustParseTime(t, testCase.endTime),
+				testCase.bucketDuration)
 
-			assert.Equal(t, testCase.expectedTradingTime, tradingTime)
+			assert.Equal(t, testCase.expectedBucketCount, bucketCount)
 		})
 	}
 }
 
-// 永不收盤的市場整段都在交易——它沒有「收盤後」這回事。
-func TestTradingTimeWithinIsTheWholeStretchForAMarketThatNeverCloses(t *testing.T) {
+// 永不收盤的市場整段都在交易，所以數格子與除時間的答案相同——它沒有「收盤後」這回事。
+func TestTradingBucketCountIsTheWholeStretchForAMarketThatNeverCloses(t *testing.T) {
 	testCases := []struct {
 		name                string
 		startTime           string
 		endTime             string
-		expectedTradingTime time.Duration
+		bucketDuration      time.Duration
+		expectedBucketCount int
 	}{
 		{
-			name:                "a whole day",
-			startTime:           "2026-09-06T13:30:00+08:00",
-			endTime:             "2026-09-07T13:30:00+08:00",
-			expectedTradingTime: 24 * time.Hour,
+			name:      "a whole day at one hour",
+			startTime: "2026-09-07T00:00:00Z", endTime: "2026-09-08T00:00:00Z",
+			bucketDuration: time.Hour, expectedBucketCount: 24,
 		},
 		{
-			name:                "the middle of the night",
-			startTime:           "2026-09-07T02:00:00+08:00",
-			endTime:             "2026-09-07T04:00:00+08:00",
-			expectedTradingTime: 2 * time.Hour,
+			name:      "a whole day at one minute",
+			startTime: "2026-09-07T00:00:00Z", endTime: "2026-09-08T00:00:00Z",
+			bucketDuration: time.Minute, expectedBucketCount: 1440,
 		},
 		{
-			name:                "a whole Saturday",
-			startTime:           "2026-09-12T00:00:00+08:00",
-			endTime:             "2026-09-13T00:00:00+08:00",
-			expectedTradingTime: 24 * time.Hour,
+			name:      "a Saturday counts like any other day",
+			startTime: "2026-09-12T00:00:00Z", endTime: "2026-09-13T00:00:00Z",
+			bucketDuration: time.Hour, expectedBucketCount: 24,
+		},
+		{
+			name:      "a year at one day",
+			startTime: "2026-01-01T00:00:00Z", endTime: "2027-01-01T00:00:00Z",
+			bucketDuration: 24 * time.Hour, expectedBucketCount: 365,
+		},
+		{
+			name:      "a stretch shorter than one bucket",
+			startTime: "2026-09-07T00:00:00Z", endTime: "2026-09-07T00:03:00Z",
+			bucketDuration: 5 * time.Minute, expectedBucketCount: 0,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tradingTime := cryptoMarket().TradingTimeBetween(
-				mustParseTime(t, testCase.startTime), mustParseTime(t, testCase.endTime))
+			bucketCount := cryptoMarket().TradingBucketCountBetween(
+				mustParseTime(t, testCase.startTime),
+				mustParseTime(t, testCase.endTime),
+				testCase.bucketDuration)
 
-			assert.Equal(t, testCase.expectedTradingTime, tradingTime)
+			assert.Equal(t, testCase.expectedBucketCount, bucketCount)
 		})
 	}
 }
