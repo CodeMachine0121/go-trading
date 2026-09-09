@@ -282,7 +282,8 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 	}
 
 	if kCandleIngestionService.marketClosureLedger.isPresumedClosed(
-		marketDomain.Value(), marketDomain.TradingDateOf(ingestionDomain.CurrentTime())) {
+		marketDomain.Value(),
+		marketDomain.SessionOccurrenceAt(ingestionDomain.CurrentTime())) {
 		return symbolReport
 	}
 
@@ -343,6 +344,10 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 // stops one quiet stock from shutting the whole market: a real holiday empties all of
 // them at once.
 //
+// What is decided shut is **one stretch of trading**, not a day. A venue that trades
+// twice a day can lose one board and hold the other, so a silent day board must not
+// speak for the evening board that follows it.
+//
 // A source that could not be reached is never read as a holiday. Answered-with-
 // nothing versus did-not-answer is the only reliable distinction available here, and
 // it is what leaves a broken source reported as broken.
@@ -381,13 +386,13 @@ func (kCandleIngestionService *KCandleIngestionService) presumeClosedMarkets(
 		// long to speak as the round asked about. Two minutes after the opening bell a
 		// round asks about one candle, and a source that publishes it a moment late
 		// empties every symbol at once — which is exactly the shape of a holiday. Given
-		// that latching one costs the market the rest of its day, it has to wait until
-		// silence is actually evidence.
+		// that latching one costs the market the rest of that stretch, it has to wait
+		// until silence is actually evidence.
 		if marketDomain.SessionElapsedAt(currentTime) < roundCoverage {
 			continue
 		}
 
 		kCandleIngestionService.marketClosureLedger.presumeClosed(
-			market, marketDomain.TradingDateOf(currentTime))
+			market, marketDomain.SessionOccurrenceAt(currentTime))
 	}
 }

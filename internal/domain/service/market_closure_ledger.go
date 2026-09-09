@@ -8,35 +8,40 @@ import (
 )
 
 // marketClosureLedger remembers which markets have already been decided shut, and
-// for which of their own days.
+// for which stretch of their trading.
 //
 // It is the one place that memory lives, and it holds nothing else. Whether a market
-// looks shut is read from what a round saw; when the decision expires is the
-// market's own calendar; this only remembers the conclusion in between. Keeping
-// those three apart is what leaves the ingestion service with no shared state of its
-// own to lock.
+// looks shut is read from what a round saw; when the decision expires is which stretch
+// of trading the next round is working on; this only remembers the conclusion in
+// between. Keeping those three apart is what leaves the ingestion service with no
+// shared state of its own to lock.
 //
-// The day is carried rather than the date it was written on, because "still today"
-// is a question about the market's calendar and not about how long ago it was: a
-// round at eleven at night in Taipei is the same trading day as one at ten in the
-// morning, and midnight somewhere else has nothing to do with it.
+// **The stretch is remembered rather than the day.** A venue may trade twice a day,
+// and the two are separately capable of being shut: an exchange can cancel a day board
+// and still hold its evening board that night. Remembering a day would let the day
+// board's silence speak for the evening board, and the system would give up on trading
+// it never asked about. A stretch's silence is only that stretch's.
+//
+// The stretch is carried as the moment it began, which names it exactly once: no two
+// stretches of one market ever start together, and "still the same stretch" is then a
+// question nobody has to ask a calendar.
 type marketClosureLedger struct {
-	mutex        sync.Mutex
-	closedOnDate map[vo.MarketVo]time.Time
+	mutex                 sync.Mutex
+	closedOccurrenceStart map[vo.MarketVo]time.Time
 }
 
 func newMarketClosureLedger() *marketClosureLedger {
-	return &marketClosureLedger{closedOnDate: make(map[vo.MarketVo]time.Time)}
+	return &marketClosureLedger{closedOccurrenceStart: make(map[vo.MarketVo]time.Time)}
 }
 
-// presumeClosed records that this market is shut for the trading day given.
+// presumeClosed records that this market is shut for the stretch of trading given.
 func (marketClosureLedger *marketClosureLedger) presumeClosed(
-	market vo.MarketVo, tradingDate time.Time,
+	market vo.MarketVo, sessionOccurrence vo.TradingSessionOccurrenceVo,
 ) {
 	marketClosureLedger.mutex.Lock()
 	defer marketClosureLedger.mutex.Unlock()
 
-	marketClosureLedger.closedOnDate[market] = tradingDate
+	marketClosureLedger.closedOccurrenceStart[market] = sessionOccurrence.StartTime
 }
 
 // reconsider forgets whatever was decided about this market, so the next thing that
@@ -51,18 +56,19 @@ func (marketClosureLedger *marketClosureLedger) reconsider(market vo.MarketVo) {
 	marketClosureLedger.mutex.Lock()
 	defer marketClosureLedger.mutex.Unlock()
 
-	delete(marketClosureLedger.closedOnDate, market)
+	delete(marketClosureLedger.closedOccurrenceStart, market)
 }
 
-// isPresumedClosed reports a market already decided shut for the trading day given.
-// Any other day is a fresh judgement — a holiday is one day off, not a verdict.
+// isPresumedClosed reports a market already decided shut for the stretch of trading
+// given. Any other stretch is a fresh judgement — a holiday is one board off, not a
+// verdict.
 func (marketClosureLedger *marketClosureLedger) isPresumedClosed(
-	market vo.MarketVo, tradingDate time.Time,
+	market vo.MarketVo, sessionOccurrence vo.TradingSessionOccurrenceVo,
 ) bool {
 	marketClosureLedger.mutex.Lock()
 	defer marketClosureLedger.mutex.Unlock()
 
-	closedOnDate, wasPresumedClosed := marketClosureLedger.closedOnDate[market]
+	closedOccurrenceStart, wasPresumedClosed := marketClosureLedger.closedOccurrenceStart[market]
 
-	return wasPresumedClosed && closedOnDate.Equal(tradingDate)
+	return wasPresumedClosed && closedOccurrenceStart.Equal(sessionOccurrence.StartTime)
 }

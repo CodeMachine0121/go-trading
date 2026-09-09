@@ -109,8 +109,9 @@ func newIngestionUnderTest(t *testing.T, currentTime time.Time) ingestionUnderTe
 	}
 }
 
-// ingestionMarketCatalog is the two markets these tests are written against: the
-// round-the-clock one, and a Taiwan session that closes at half past one.
+// ingestionMarketCatalog is the three markets these tests are written against: the
+// round-the-clock one, a Taiwan session that closes at half past one, and a venue that
+// trades twice a day with the second board running past midnight.
 func ingestionMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
@@ -121,6 +122,27 @@ func ingestionMarketCatalog() domains.MarketCatalogDomain {
 					StartOffset: 9 * time.Hour,
 					EndOffset:   13*time.Hour + 30*time.Minute,
 				}},
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			SimultaneousChannelCeiling: 1,
+			SymbolsPerLiveChannel:      5,
+		},
+		vo.MarketTaiwanFutures: {
+			TradingSession: vo.TradingSessionVo{
+				Location: time.FixedZone("Asia/Taipei", 8*60*60),
+				Stretches: []vo.TradingStretchVo{
+					{
+						StartOffset: 8*time.Hour + 45*time.Minute,
+						EndOffset:   13*time.Hour + 45*time.Minute,
+					},
+					{
+						StartOffset:              15 * time.Hour,
+						EndOffset:                29 * time.Hour,
+						BelongsToNextBusinessDay: true,
+					},
+				},
 				Weekdays: []time.Weekday{
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
@@ -1119,4 +1141,68 @@ func TestARoundInFlightWorksFromTheListItStartedWith(t *testing.T) {
 	require.NoError(t, runError)
 	<-changedMidRound
 	assert.Len(t, report.SymbolReports, 1)
+}
+
+func TestAShutDayBoardDoesNotSpeakForTheEveningBoardThatFollowsIt(t *testing.T) {
+	// The two boards are separately capable of being shut: an exchange can cancel a
+	// day board and hold its evening board that night. Reading the day board's
+	// silence as the whole day's would give up on trading nobody ever asked about.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-10T10:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanFutures, "TXF")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+
+	_, dayBoardError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, dayBoardError)
+
+	// Still the same board: the decision stands and the source is left alone.
+	underTest.clock.moveTo(taipeiIngestionAt(t, "2026-09-10T11:00:00+08:00"))
+	_, sameBoardError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, sameBoardError)
+
+	// The evening board is a different stretch, so it is asked.
+	underTest.clock.moveTo(taipeiIngestionAt(t, "2026-09-10T22:30:00+08:00"))
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+
+	_, eveningBoardError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, eveningBoardError)
+}
+
+func TestAShutEveningBoardIsJudgedAfreshTheFollowingEvening(t *testing.T) {
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-10T22:30:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanFutures, "TXF")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+	_, firstError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, firstError)
+
+	// Past midnight it is still the same stretch of trading, whatever the date says.
+	underTest.clock.moveTo(taipeiIngestionAt(t, "2026-09-11T02:00:00+08:00"))
+	_, sameBoardError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, sameBoardError)
+
+	// The next evening is a fresh judgement.
+	underTest.clock.moveTo(taipeiIngestionAt(t, "2026-09-11T22:30:00+08:00"))
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).Times(1)
+
+	_, nextEveningError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, nextEveningError)
+}
+
+func TestTheBreakBetweenTwoBoardsIsSkippedRatherThanFailed(t *testing.T) {
+	// An hour and a quarter of nothing in the middle of the day is the venue's own
+	// break. Fetching through it would report a failure once a minute, and the
+	// failures that matter would be lost among them.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-10T14:20:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanFutures, "TXF")
+
+	report, roundError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.Empty(t, reportFor(t, report, "TXF").FetchFailureReason)
+	assert.Zero(t, reportFor(t, report, "TXF").StoredCount)
 }
