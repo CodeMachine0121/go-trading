@@ -272,7 +272,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 				"&endTime=2026-09-01T11:25:00Z&interval=5m", "")
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
-		assert.Contains(t, recorder.Body.String(), "請縮小區間或改用更長的彙總刻度")
+		assert.Contains(t, recorder.Body.String(), "時間區間過大，請縮小區間")
 	})
 
 	t.Run("reports a missing trading symbol as a bad request", func(t *testing.T) {

@@ -63,7 +63,7 @@ func TestNewKCandleSeriesQueryDomainRefusesARangeCutIntoTooManyBuckets(t *testin
 	}, cryptoMarket(), seriesQueryMaxBucketCount)
 
 	require.ErrorIs(t, validationError, domains.ErrKCandleValidation)
-	assert.Contains(t, validationError.Error(), "時間區間過大，請縮小區間或改用更長的彙總刻度（單次最多 1000 根）")
+	assert.Contains(t, validationError.Error(), "時間區間過大，請縮小區間；若指定了彙總刻度，也可以改用更長的一種（單次最多 1000 根）")
 }
 
 func TestNewKCandleSeriesQueryDomainRefusesWhatTheRangeQueryAlreadyRefuses(t *testing.T) {
@@ -208,7 +208,7 @@ func TestSeriesQueryRefusesBothWaysOfAskingAtOnce(t *testing.T) {
 	assert.Contains(t, validationError.Error(), "只能挑一種")
 }
 
-// 擺得下的根數必須大於零。**零與「沒說」是兩件事**：沒說走既有那條路（視為一分鐘）。
+// 擺得下的根數必須大於零。**零與「沒說」是兩件事**：沒說走另一條路（由系統挑一種答得出來的）。
 func TestSeriesQueryRefusesADisplayThatHoldsNothing(t *testing.T) {
 	testCases := []struct {
 		name                   string
@@ -362,7 +362,13 @@ func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t
 			expectedInterval: "1m",
 		},
 		{
-			name:      "a stretch holding exactly as many minutes as the ceiling allows",
+			// A thousand minutes of trading is a thousand slots, so the finest one is
+			// what fits. The stretch itself holds one candle more than that — both its
+			// ends are included — and the ceiling has always been compared against
+			// slots rather than candles, so the answer here comes back one over it.
+			// That predates letting the system choose, and it is why the case pins the
+			// coarseness rather than the count.
+			name:      "a stretch holding exactly as many minutes of trading as the ceiling allows",
 			market:    cryptoMarket(),
 			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T16:40:00Z",
 			expectedInterval: "1m",

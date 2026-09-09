@@ -59,7 +59,7 @@ func NewKCandleSeriesQueryDomain(
 	bucketCount := interval.SlotCount(tradingTime)
 	if bucketCount > maxBucketCount {
 		return KCandleSeriesQueryDomain{}, fmt.Errorf(
-			"%w: 時間區間過大，請縮小區間或改用更長的彙總刻度（單次最多 %d 根）",
+			"%w: 時間區間過大，請縮小區間；若指定了彙總刻度，也可以改用更長的一種（單次最多 %d 根）",
 			ErrKCandleValidation, maxBucketCount)
 	}
 

@@ -60,6 +60,11 @@
     {
       "key": "usedRefreshToken",
       "value": ""
+    },
+    {
+      "key": "weekStart",
+      "value": "",
+      "type": "default"
     }
   ],
   "event": [
@@ -85,6 +90,12 @@
           "pm.collectionVariables.set('openTime', asRfc3339(latestClosed));",
           "pm.collectionVariables.set('rangeStart', asRfc3339(new Date(latestClosed.getTime() - 60 * 60 * 1000)));",
           "pm.collectionVariables.set('rangeEnd', asRfc3339(latestClosed));",
+          "",
+          "// 一週前——給「什麼都不說就由系統挑刻度」那幾個請求用。",
+          "// 與 rangeEnd 一起在當下算出來，否則寫死的日期會一天一天變長，",
+          "// 總有一天超過系統一次答得出的量，於是那個請求開始回 400 而測試還在斷言 200。",
+          "pm.collectionVariables.set(",
+          "    'weekStart', asRfc3339(new Date(latestClosed.getTime() - 7 * 24 * 60 * 60 * 1000)));",
           "",
           "// 不在一分鐘刻度上（帶了 30 秒），用來驗證系統會拒絕。",
           "pm.collectionVariables.set('offTickTime', asRfc3339(new Date(latestClosed.getTime() + 30 * 1000)));",
@@ -1143,7 +1154,7 @@
                 }
               ]
             },
-            "description": "沒有指明彙總刻度時視為一分鐘——等同不合併，每根就是原本存下的那一根。"
+            "description": "**沒有指明彙總刻度時由系統挑一種答得出來的**（短區間挑到的就是一分鐘，等同不合併；區間一長就會更粗）。回覆一律說出實際用的是哪一種，每根就是原本存下的那一根。"
           },
           "event": [
             {
@@ -1154,7 +1165,7 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"預設是一分鐘\", function () {",
+                  "pm.test(\"這麼短的一段挑到的是一分鐘\", function () {",
                   "    pm.expect(pm.response.json().interval).to.eql(\"1m\");",
                   "});"
                 ]
@@ -1306,7 +1317,7 @@
                 }
               ]
             },
-            "description": "**零與「沒說」是兩件事**：沒說走既有那條路（視為一分鐘），說了零則是一個答不出來的問題——一個位置都沒有的畫面，挑哪一種刻度都填不進去。"
+            "description": "**零與「沒說」是兩件事**：沒說走另一條路（由系統挑一種答得出來的），說了零則是一個答不出來的問題——一個位置都沒有的畫面，挑哪一種刻度都填不進去。"
           },
           "event": [
             {
@@ -1422,7 +1433,7 @@
                   "    pm.response.to.have.status(400);",
                   "});",
                   "pm.test(\"指出縮小區間或改用更長的刻度\", function () {",
-                  "    pm.expect(pm.response.json().message).to.include(\"請縮小區間或改用更長的彙總刻度\");",
+                  "    pm.expect(pm.response.json().message).to.include(\"時間區間過大，請縮小區間\");",
                   "});"
                 ]
               }

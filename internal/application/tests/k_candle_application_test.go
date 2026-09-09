@@ -168,7 +168,7 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 		})
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
-		assert.Contains(t, err.Error(), "請縮小區間或改用更長的彙總刻度")
+		assert.Contains(t, err.Error(), "時間區間過大，請縮小區間")
 	})
 }
 

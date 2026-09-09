@@ -47,7 +47,9 @@ func (kCandleSeriesAssistantQuery *KCandleSeriesAssistantQuery) Name() string {
 }
 
 func (kCandleSeriesAssistantQuery *KCandleSeriesAssistantQuery) Description() string {
-	return "查一段時間內的彙總 K 線序列。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
+	return "查一段時間內的彙總 K 線序列。彙總刻度只接受 1m、5m、15m、1h、4h、1d；" +
+		"**未給則由系統挑一種答得出來的**（那一段越長就越粗），回傳的 interval 會說出實際用的是哪一種——" +
+		"想要細的就自己指定，但區間一長指定細的會被拒絕。" +
 		"時間一律用 RFC3339（例如 2026-09-04T00:00:00Z）。" +
 		fmt.Sprintf("candleCount 是你想看幾根，上限 %d 根，未給即視為上限；", kCandleSeriesAssistantQuery.candleLimit) +
 		"回傳的是那一段裡最新的幾根。問「最近走勢」時優先用這個，不要逐根拉原始 K 線。"
