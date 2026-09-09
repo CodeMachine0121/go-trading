@@ -1206,3 +1206,39 @@ func TestTheBreakBetweenTwoBoardsIsSkippedRatherThanFailed(t *testing.T) {
 	assert.Empty(t, reportFor(t, report, "TXF").FetchFailureReason)
 	assert.Zero(t, reportFor(t, report, "TXF").StoredCount)
 }
+
+func TestAnEveningBoardRoundStoresTheCandleItCollected(t *testing.T) {
+	// The whole point of watching this market is the night, so the night has to be
+	// followed all the way to storage — not merely asked about.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-10T22:30:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanFutures, "TXF")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{
+			reportedFor("TXF", taipeiIngestionAt(t, "2026-09-10T22:29:00+08:00")),
+		}, nil).Times(1)
+	saved := underTest.acceptEverySave()
+
+	report, roundError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.Equal(t,
+		[]time.Time{taipeiIngestionAt(t, "2026-09-10T22:29:00+08:00").UTC()}, saved.all())
+	assert.Equal(t, 1, reportFor(t, report, "TXF").StoredCount)
+}
+
+func TestADayBoardRoundStoresTheCandleItCollected(t *testing.T) {
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-10T10:07:00+08:00"))
+	underTest.watchingInMarket(vo.MarketTaiwanFutures, "TXF")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{
+			reportedFor("TXF", taipeiIngestionAt(t, "2026-09-10T10:06:00+08:00")),
+		}, nil).Times(1)
+	saved := underTest.acceptEverySave()
+
+	report, roundError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.Equal(t,
+		[]time.Time{taipeiIngestionAt(t, "2026-09-10T10:06:00+08:00").UTC()}, saved.all())
+	assert.Equal(t, 1, reportFor(t, report, "TXF").StoredCount)
+}

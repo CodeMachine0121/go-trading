@@ -94,3 +94,23 @@ func TestMoreHoldersThanOneChannelCarriesAreCutIntoSeveral(t *testing.T) {
 	assert.Equal(t, []string{"AAA", "BBB", "CCC"}, channels[0].Symbols)
 	assert.Equal(t, []string{"DDD", "EEE", "FFF"}, channels[1].Symbols)
 }
+
+// The futures market has a follow ceiling of its own, so it hands its places out
+// from a roster exactly as the stock market does — one line carrying its symbols.
+// Nothing about it being a futures venue makes it a different rule.
+func TestTheFuturesMarketHandsOutItsPlacesFromARosterToo(t *testing.T) {
+	channels := domains.NewLiveFollowRosterDomain(
+		watchedIn(vo.MarketTaiwanFutures, "TXF"),
+		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+			vo.MarketCrypto:        {},
+			vo.MarketTaiwanStock:   taiwanStockRules(),
+			vo.MarketTaiwanFutures: taiwanFuturesRules(),
+		}),
+		// Inside the evening board, which is a stretch only this market has.
+		rosterAt(t, "2026-09-10T22:30:00+08:00")).
+		Channels()
+
+	require.Len(t, channels, 1)
+	assert.Equal(t, vo.MarketTaiwanFutures, channels[0].Market)
+	assert.Equal(t, []string{"TXF"}, channels[0].Symbols)
+}

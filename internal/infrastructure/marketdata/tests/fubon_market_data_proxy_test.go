@@ -20,6 +20,14 @@ import (
 // fubonSourceUnderTest stands in for the two addresses this source answers at — the
 // list of contracts it trades, and one board's candles at a time — and records what
 // it was asked, so a test can say which contract was fetched and under which board.
+// fubonZeroVolumeCandleJson is a minute this venue reported and nobody traded in.
+// Zero is a figure it can legitimately publish, which is exactly why it must not look
+// like the figures it never publishes at all.
+func fubonZeroVolumeCandleJson(localTime string) string {
+	return fmt.Sprintf(
+		`{"date":"%s","open":574,"high":574,"low":574,"close":574,"volume":0}`, localTime)
+}
+
 type fubonSourceUnderTest struct {
 	server *httptest.Server
 
@@ -463,4 +471,24 @@ func TestAFuturesSourceThatCannotBeReachedAtAllIsAFailure(t *testing.T) {
 			require.Error(t, fetchError)
 		})
 	}
+}
+
+func TestAFuturesVolumeOfZeroIsAFigureRatherThanAnAbsentOne(t *testing.T) {
+	// Zero is a legitimate minute: nobody traded. "This venue does not publish that
+	// figure" is a different thing, and writing both as zero would let an indicator
+	// read a string of perfectly plausible numbers that are all wrong.
+	source := newFubonSourceUnderTest(t)
+	source.lists("TXFI6")
+	source.answersBoard("REGULAR", fugleAnswerJson("TXFI6",
+		fubonZeroVolumeCandleJson("2026-09-10T10:06:00.000+08:00")))
+	source.answersBoard("AFTERHOURS", fugleAnswerJson("TXFI6"))
+
+	marketKCandles, fetchError := futuresProxyUnderTest(t, source, "2026-09-10T10:07:00+08:00").
+		FetchKCandles(t.Context(), futuresWindow(
+			t, "2026-09-10T10:00:00+08:00", "2026-09-10T10:07:00+08:00"))
+
+	require.NoError(t, fetchError)
+	require.Len(t, marketKCandles, 1)
+	assert.Equal(t, "0", marketKCandles[0].Volume.String())
+	assert.False(t, marketKCandles[0].QuoteVolume.Valid)
 }
