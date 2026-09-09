@@ -379,6 +379,15 @@ func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t
 			startTime: "2026-01-01T00:00:00Z", endTime: "2026-12-31T00:00:00Z",
 			expectedInterval: "1d",
 		},
+		{
+			// A stretch holding no trading at all still has to settle on something to
+			// answer an empty series at. It is not refused: looking at a Saturday is a
+			// thing a user can do, and the answer is that there is nothing to draw.
+			name:      "a Saturday of a market that shuts settles on the finest and answers empty",
+			market:    taiwanStockMarket(),
+			startTime: "2026-09-05T00:00:00Z", endTime: "2026-09-05T23:59:00Z",
+			expectedInterval: "1m",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -427,4 +436,20 @@ func TestNewKCandleSeriesQueryDomainKeepsRefusingACoarsenessTheCallerNamedItself
 	require.Error(t, validationError)
 	assert.ErrorIs(t, validationError, domains.ErrKCandleValidation)
 	assert.Contains(t, validationError.Error(), "時間區間過大")
+}
+
+func TestNewKCandleSeriesQueryDomainStillHonoursADisplayBudgetWhenOneIsNamed(t *testing.T) {
+	// A named budget is the tighter of the two, so it wins: the caller saying "my
+	// screen holds four hundred" must not be handed the thousand the ceiling allows.
+	// The same week the ceiling answers at fifteen minutes — 672 buckets fit 1000 but
+	// not 400 — so a named budget steps one coarser.
+	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
+		Symbol:                 "BTCUSDT",
+		StartTime:              mustParseTime(t, "2026-09-01T00:00:00Z"),
+		EndTime:                mustParseTime(t, "2026-09-08T00:00:00Z"),
+		DisplayableCandleCount: displayableCandleCountOf(400),
+	}, cryptoMarket(), seriesQueryMaxBucketCount)
+
+	require.NoError(t, validationError)
+	assert.Equal(t, "1h", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
 }
