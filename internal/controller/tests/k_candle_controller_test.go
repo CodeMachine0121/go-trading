@@ -211,7 +211,9 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), `"kCandles":[]`)
 	})
 
-	t.Run("naming no interval falls back to one minute", func(t *testing.T) {
+	t.Run("naming nothing over ten minutes is chosen as one minute", func(t *testing.T) {
+		// Not a fallback any more: the coarseness is chosen, and ten minutes is short
+		// enough that the finest one is what fits.
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -222,6 +224,33 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), `"interval":"1m"`)
+	})
+
+	t.Run("naming nothing over a week is answered coarsely instead of refused", func(t *testing.T) {
+		// This is the ask a chart makes: "the user is looking at this stretch." Before,
+		// it was answered with 區間過大 for anything longer than about seventeen hours.
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{kCandleAt(at(9, 0), "100")}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT"+
+				"&startTime=2026-08-22T09:00:00Z&endTime=2026-08-29T09:00:00Z", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"15m"`)
+	})
+
+	t.Run("naming a minute over a week is still refused", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT"+
+				"&startTime=2026-08-22T09:00:00Z&endTime=2026-08-29T09:00:00Z&interval=1m", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "時間區間過大")
 	})
 
 	t.Run("reports an interval nobody offers as a bad request", func(t *testing.T) {

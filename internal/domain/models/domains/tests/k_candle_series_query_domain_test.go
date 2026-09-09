@@ -327,3 +327,104 @@ func TestSeriesQueryDoesNotDeductHolidaysWhenPickingTheInterval(t *testing.T) {
 	assert.Equal(t, "5m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
 	assert.Equal(t, (162+1)*5, seriesQueryDomain.SourceCandleLimit())
 }
+
+func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t *testing.T) {
+	// A caller that names neither a coarseness nor a display budget is one that only
+	// knows which stretch its user is looking at. Before, it got one minute, and any
+	// stretch of real length was answered by refusing it.
+	testCases := []struct {
+		name             string
+		market           domains.MarketDomain
+		startTime        string
+		endTime          string
+		expectedInterval string
+	}{
+		{
+			name:   "a round-the-clock week is fifteen minutes",
+			market: cryptoMarket(),
+			// 10080 minutes of trading: a minute needs 10080 places and five minutes
+			// 2016, both past the ceiling; fifteen needs 672.
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-08T00:00:00Z",
+			expectedInterval: "15m",
+		},
+		{
+			name:   "the same week of a market that shuts is five minutes",
+			market: taiwanStockMarket(),
+			// The same seven days hold five sessions of 270 minutes: a minute needs
+			// 1350 places, five minutes 270.
+			startTime: "2026-08-31T00:00:00Z", endTime: "2026-09-07T00:00:00Z",
+			expectedInterval: "5m",
+		},
+		{
+			name:      "half an hour is still the finest there is",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T00:30:00Z",
+			expectedInterval: "1m",
+		},
+		{
+			name:      "a stretch holding exactly as many minutes as the ceiling allows",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T16:40:00Z",
+			expectedInterval: "1m",
+		},
+		{
+			name:      "one minute more than the ceiling allows steps to the next coarseness",
+			market:    cryptoMarket(),
+			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T16:41:00Z",
+			expectedInterval: "5m",
+		},
+		{
+			name:      "a year is a day a candle, and is answered rather than refused",
+			market:    cryptoMarket(),
+			startTime: "2026-01-01T00:00:00Z", endTime: "2026-12-31T00:00:00Z",
+			expectedInterval: "1d",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
+				Symbol:    "BTCUSDT",
+				StartTime: mustParseTime(t, testCase.startTime),
+				EndTime:   mustParseTime(t, testCase.endTime),
+			}, testCase.market, seriesQueryMaxBucketCount)
+
+			require.NoError(t, validationError)
+			assert.Equal(
+				t, testCase.expectedInterval, string(seriesQueryDomain.SeriesOf(nil).ToDto().Interval))
+		})
+	}
+}
+
+func TestNewKCandleSeriesQueryDomainStillRefusesWhatNoCoarsenessCanHold(t *testing.T) {
+	// The ceiling that refuses an over-wide ask does not go away; it only stops
+	// catching the coarsenesses this system picked. Ten years still needs 3650 places
+	// at a day a candle, and there is nothing coarser to step to.
+	//
+	// Without this case, "stop refusing altogether" would read as the next step in the
+	// same direction as the change above.
+	_, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
+		Symbol:    "BTCUSDT",
+		StartTime: mustParseTime(t, "2016-01-01T00:00:00Z"),
+		EndTime:   mustParseTime(t, "2026-01-01T00:00:00Z"),
+	}, cryptoMarket(), seriesQueryMaxBucketCount)
+
+	require.Error(t, validationError)
+	assert.ErrorIs(t, validationError, domains.ErrKCandleValidation)
+	assert.Contains(t, validationError.Error(), "時間區間過大")
+}
+
+func TestNewKCandleSeriesQueryDomainKeepsRefusingACoarsenessTheCallerNamedItself(t *testing.T) {
+	// Naming a minute for a year is the caller asking for half a million candles, and
+	// it is still told so. Only the caller who named nothing is choosing to be flexible.
+	_, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
+		Symbol:    "BTCUSDT",
+		StartTime: mustParseTime(t, "2026-01-01T00:00:00Z"),
+		EndTime:   mustParseTime(t, "2026-12-31T00:00:00Z"),
+		Interval:  "1m",
+	}, cryptoMarket(), seriesQueryMaxBucketCount)
+
+	require.Error(t, validationError)
+	assert.ErrorIs(t, validationError, domains.ErrKCandleValidation)
+	assert.Contains(t, validationError.Error(), "時間區間過大")
+}
