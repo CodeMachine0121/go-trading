@@ -334,3 +334,69 @@ func TestSlotCountIsHowManyOfThisCoarsenessFitTheTradingTime(t *testing.T) {
 		})
 	}
 }
+
+// 這麼多交易時間、這麼多位置，哪一種刻度最細又擺得下。
+// 交出去的是**交易時間**：一段二十四小時的牆上時間，在會收盤的市場裡只有幾個小時。
+func TestFittingAggregationIntervalIsTheFinestThatFits(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		tradingTime            time.Duration
+		displayableCandleCount int
+		expectedInterval       vo.AggregationIntervalVo
+	}{
+		{
+			name:        "一個台股交易日加上今天兩小時：390 分鐘擺得進 400 格",
+			tradingTime: 390 * time.Minute, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalOneMinute,
+		},
+		{
+			name:        "全天候市場的同一段二十四小時：1440 分鐘擺不下，退到五分鐘",
+			tradingTime: 24 * time.Hour, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalFiveMinutes,
+		},
+		{
+			name:        "邊界：剛好 400 分鐘、剛好 400 格",
+			tradingTime: 400 * time.Minute, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalOneMinute,
+		},
+		{
+			name:        "邊界：多一分鐘就擺不下",
+			tradingTime: 401 * time.Minute, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalFiveMinutes,
+		},
+		{
+			name:        "五個台股交易日：1350 分鐘，一分鐘擺不下、五分鐘 270 格擺得下",
+			tradingTime: 1350 * time.Minute, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalFiveMinutes,
+		},
+		{
+			name:        "長到連一天一根都擺不下：取最粗的那一種",
+			tradingTime: 401 * 24 * time.Hour, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalOneDay,
+		},
+		{
+			name:        "邊界：只擺得下一根",
+			tradingTime: 24 * time.Hour, displayableCandleCount: 1,
+			expectedInterval: vo.AggregationIntervalOneDay,
+		},
+		{
+			name:        "邊界：一段短到不滿一格，最細的那一種就擺得下",
+			tradingTime: 30 * time.Second, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalOneMinute,
+		},
+		{
+			name:        "完全沒有交易的一段：最細的那一種——沒有任何一根會超過任何上限",
+			tradingTime: 0, displayableCandleCount: 400,
+			expectedInterval: vo.AggregationIntervalOneMinute,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fittingInterval := domains.NewFittingAggregationIntervalDomain(
+				testCase.tradingTime, testCase.displayableCandleCount)
+
+			assert.Equal(t, testCase.expectedInterval, fittingInterval.Value())
+		})
+	}
+}

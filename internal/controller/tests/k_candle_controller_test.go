@@ -3,6 +3,7 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,9 +53,14 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	// 這一份測試裡的每一檔都是全天候交易的，所以一段時間裡每一分鐘都算數。
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
 	kCandleController := controller.NewKCandleController(application.NewKCandleApplication(
-		service.NewKCandleService(kCandleRepository, clockProxy, queryMaxResults)))
+		service.NewKCandleService(
+			kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)))
 
 	engine := gin.New()
 	engine.POST("/k-candles", kCandleController.CreateKCandle)
@@ -234,7 +240,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 
 		recorder := fixture.call(http.MethodGet,
 			"/k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T00:00:00Z"+
-				"&endTime=2026-09-01T11:20:00Z&interval=5m", "")
+				"&endTime=2026-09-01T11:25:00Z&interval=5m", "")
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "請縮小區間或改用更長的彙總刻度")
@@ -479,4 +485,76 @@ func TestKCandleRouterRefusesAnUnstorableSymbolOnEveryWayIn(t *testing.T) {
 			assert.Contains(t, recorder.Body.String(), "NUL")
 		})
 	}
+}
+
+// cryptoOnlyCatalog is the market this file's symbols trade on: the round-the-clock
+// one, whose every minute holds market. A venue that shuts is what the market-hours
+// tests are for; here it would only add a second reason for a number to change.
+func cryptoOnlyCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
+}
+
+// 呼叫端說「我最多擺得下幾根」時，由系統挑刻度並在回覆裡說出挑了哪一種。
+func TestGetKCandleSeriesLetsTheMarketChooseHowLongOneCandleCovers(t *testing.T) {
+	t.Run("說得出擺得下幾根就由系統挑，回覆說出挑到的那一種", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		// 全天候市場的兩小時：一分鐘 120 根擺得下 400 根，加上多留的一格。
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any(), 121).
+			Return([]entities.KCandle{}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-09-07T01:00:00Z"+
+				"&endTime=2026-09-07T03:00:00Z&displayableCandleCount=400", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"1m"`)
+	})
+
+	t.Run("兩種問法都給就回 400", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-09-07T01:00:00Z"+
+				"&endTime=2026-09-07T03:00:00Z&interval=5m&displayableCandleCount=400", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "只能挑一種")
+	})
+
+	t.Run("擺得下的根數不是整數就回 400，並指名是哪一格", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-09-07T01:00:00Z"+
+				"&endTime=2026-09-07T03:00:00Z&displayableCandleCount=四百", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"field":"displayableCandleCount"`)
+	})
+
+	t.Run("擺得下零根就回 400——那與沒說是兩件事", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-09-07T01:00:00Z"+
+				"&endTime=2026-09-07T03:00:00Z&displayableCandleCount=0", "")
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "可顯示根數必須大於零")
+	})
+
+	t.Run("什麼都不說仍然是一分鐘", func(t *testing.T) {
+		fixture := newRouterUnderTest(t)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any(), 121).
+			Return([]entities.KCandle{}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/k-candles/series?symbol=BTCUSDT&startTime=2026-09-07T01:00:00Z"+
+				"&endTime=2026-09-07T03:00:00Z", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"1m"`)
+	})
 }

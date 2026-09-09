@@ -3,6 +3,7 @@ package assistantqueries_test
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
@@ -34,9 +35,14 @@ func newKCandleAssistantQueriesUnderTest(t *testing.T) kCandleAssistantQueriesUn
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(at(23, 55)).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+	// 這一份測試裡的每一檔都是全天候交易的，所以一段時間裡每一分鐘都算數。
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
 	kCandleApplication := application.NewKCandleApplication(
-		service.NewKCandleService(kCandleRepository, clockProxy, queryMaxResults))
+		service.NewKCandleService(
+			kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults))
 
 	return kCandleAssistantQueriesUnderTest{
 		seriesAssistantQuery: assistantqueries.NewKCandleSeriesAssistantQuery(
@@ -299,4 +305,11 @@ func TestKCandleRangeAssistantQueryObeysTheRulesTheUnderlyingQueryAlreadyHas(t *
 
 	require.Error(t, runError)
 	assert.Contains(t, runError.Error(), "交易標的")
+}
+
+// cryptoOnlyCatalog is the market this file's symbols trade on: the round-the-clock
+// one, whose every minute holds market. A venue that shuts is what the market-hours
+// tests are for; here it would only add a second reason for a number to change.
+func cryptoOnlyCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 }

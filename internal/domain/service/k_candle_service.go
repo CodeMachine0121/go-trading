@@ -13,20 +13,26 @@ import (
 // KCandleService is the application layer's only entry point for K candles.
 // Its public use-case methods never call one another.
 type KCandleService struct {
-	kCandleRepository domaininterface.IKCandleRepository
-	clockProxy        domaininterface.IClockProxy
-	queryMaxResults   int
+	kCandleRepository       domaininterface.IKCandleRepository
+	tradingSymbolRepository domaininterface.ITradingSymbolRepository
+	clockProxy              domaininterface.IClockProxy
+	marketCatalogDomain     domains.MarketCatalogDomain
+	queryMaxResults         int
 }
 
 func NewKCandleService(
 	kCandleRepository domaininterface.IKCandleRepository,
+	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	clockProxy domaininterface.IClockProxy,
+	marketCatalogDomain domains.MarketCatalogDomain,
 	queryMaxResults int,
 ) *KCandleService {
 	return &KCandleService{
-		kCandleRepository: kCandleRepository,
-		clockProxy:        clockProxy,
-		queryMaxResults:   queryMaxResults,
+		kCandleRepository:       kCandleRepository,
+		tradingSymbolRepository: tradingSymbolRepository,
+		clockProxy:              clockProxy,
+		marketCatalogDomain:     marketCatalogDomain,
+		queryMaxResults:         queryMaxResults,
 	}
 }
 
@@ -79,13 +85,27 @@ func (kCandleService *KCandleService) GetKCandlesInRange(
 }
 
 // GetKCandleSeries returns the K candles inside the range merged into one candle per
-// bucket of the requested aggregation interval, earliest first. A range cut into more
-// buckets than the configured maximum is refused before anything is read.
+// bucket, earliest first, at whichever coarseness the query settles on — the one the
+// caller named, or the finest one its display can hold. A range cut into more buckets
+// than the configured maximum is refused before anything is read.
 func (kCandleService *KCandleService) GetKCandleSeries(
 	executionContext context.Context, seriesQueryDto dto.KCandleSeriesQueryDto,
 ) (dto.KCandleSeriesDto, error) {
+	// Which venue the symbol trades on is what decides how much of the range holds
+	// market, and therefore how many candles it can possibly hold. A symbol nobody
+	// registered is not refused: its registration comes back empty, and an empty market
+	// reads as the round-the-clock one — how such a symbol behaved before any of this.
+	registeredSymbol, _, findSymbolError := kCandleService.tradingSymbolRepository.
+		FindBySymbol(executionContext, seriesQueryDto.Symbol)
+	if findSymbolError != nil {
+		return dto.KCandleSeriesDto{}, findSymbolError
+	}
+
 	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
-		seriesQueryDto, kCandleService.queryMaxResults)
+		seriesQueryDto,
+		kCandleService.marketCatalogDomain.MarketOf(registeredSymbol.Market),
+		kCandleService.queryMaxResults,
+	)
 	if validationError != nil {
 		return dto.KCandleSeriesDto{}, validationError
 	}

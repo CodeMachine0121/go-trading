@@ -100,6 +100,49 @@ func NewAggregationIntervalDomain(declared string) (AggregationIntervalDomain, e
 // silently hand back an interval that is not the coarsest, and every bucket edge
 // derived from it would be wrong while looking ordinary.
 func NewCoarsestAggregationIntervalDomain() AggregationIntervalDomain {
+	return newAggregationIntervalDomain(coarsestSelectableAggregationInterval())
+}
+
+// NewFittingAggregationIntervalDomain is the finest coarseness that fits: given how
+// much market a stretch holds and how many candles the caller can display, the
+// shortest interval whose slots do not outnumber the places to put them.
+//
+// It cannot fail. A caller looking at more market than even the coarsest interval can
+// fit into its display gets that coarsest one, because seeing the stretch too densely
+// packed beats seeing nothing at all — and refusing would leave a chart with no answer
+// at the one moment the user zoomed furthest out.
+//
+// **The stretch handed in is trading time, not wall-clock time.** Working that out is
+// the market's job; this only knows how long each interval is. That split is the whole
+// point of the feature: a venue that shuts overnight offers a fraction of the clock,
+// and dividing the clock instead is what kept a Taiwan chart off its finest candles.
+//
+// It walks the set finest-first by reading the lengths rather than trusting the set's
+// order, for the same reason the coarsest one does: that order is a comment, and a row
+// inserted in the wrong place would silently hand back an interval that is not the
+// finest fitting one.
+func NewFittingAggregationIntervalDomain(
+	tradingTime time.Duration, displayableCandleCount int,
+) AggregationIntervalDomain {
+	fittingInterval := coarsestSelectableAggregationInterval()
+	for _, selectableInterval := range selectableAggregationIntervals {
+		candidate := newAggregationIntervalDomain(selectableInterval)
+		if candidate.SlotCount(tradingTime) > displayableCandleCount {
+			continue
+		}
+
+		if selectableInterval.duration < fittingInterval.duration {
+			fittingInterval = selectableInterval
+		}
+	}
+
+	return newAggregationIntervalDomain(fittingInterval)
+}
+
+// coarsestSelectableAggregationInterval is the longest interval on offer, which is
+// both what "no coarseness declared at all" falls back to and what a stretch too wide
+// for any of them settles on.
+func coarsestSelectableAggregationInterval() selectableAggregationInterval {
 	coarsestInterval := selectableAggregationIntervals[0]
 	for _, selectableInterval := range selectableAggregationIntervals {
 		if selectableInterval.duration > coarsestInterval.duration {
@@ -107,7 +150,7 @@ func NewCoarsestAggregationIntervalDomain() AggregationIntervalDomain {
 		}
 	}
 
-	return newAggregationIntervalDomain(coarsestInterval)
+	return coarsestInterval
 }
 
 // newAggregationIntervalDomain is the only way an instance is built, so an interval

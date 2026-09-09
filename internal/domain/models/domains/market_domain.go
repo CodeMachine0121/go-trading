@@ -78,10 +78,16 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 		window.Symbol, window.Market, earliestOpenTime, latestOpenTime)
 }
 
-// TradingTimeWithin is how much of an observation window this market actually
-// trades. It is what turns a stretch of the clock into a number of slots: a market
-// that shuts overnight offers far fewer hours than the window spans, and counting
-// the closed ones would ask for candles that were never going to exist.
+// TradingTimeBetween is how much of a stretch of the clock this market actually
+// trades. It is what turns a stretch into a number of slots: a market that shuts
+// overnight offers far fewer hours than the stretch spans, and counting the closed
+// ones would ask for candles that were never going to exist.
+//
+// It takes the two moments rather than any one caller's shape of them, because the
+// two callers do not agree on what a stretch may be: an observation window refuses to
+// have no length, while a query range is allowed to begin and end at the same instant.
+// Sharing the moments costs nothing; sharing a type would mean relaxing one of those
+// rules to suit the other.
 //
 // A market that never closes trades the whole window, which is why the answer needs
 // no branch anywhere else — the round-the-clock case comes out of the same question.
@@ -91,23 +97,22 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 // measures how long the market was open inside it. They share the walk over days and
 // nothing else, because a duration and a pair of open times round differently at both
 // ends.
-func (marketDomain MarketDomain) TradingTimeWithin(
-	observationWindow ObservationWindowDomain,
+func (marketDomain MarketDomain) TradingTimeBetween(
+	startTime time.Time, endTime time.Time,
 ) time.Duration {
 	if marketDomain.neverCloses() {
-		return observationWindow.EndTime().Sub(observationWindow.StartTime())
+		return endTime.Sub(startTime)
 	}
 
 	tradingTime := time.Duration(0)
-	marketDomain.eachTradingDaySession(
-		observationWindow.StartTime(), observationWindow.EndTime(),
+	marketDomain.eachTradingDaySession(startTime, endTime,
 		func(sessionStart time.Time, sessionEnd time.Time) {
-			overlapStart := observationWindow.StartTime()
+			overlapStart := startTime
 			if sessionStart.After(overlapStart) {
 				overlapStart = sessionStart
 			}
 
-			overlapEnd := observationWindow.EndTime()
+			overlapEnd := endTime
 			if sessionEnd.Before(overlapEnd) {
 				overlapEnd = sessionEnd
 			}

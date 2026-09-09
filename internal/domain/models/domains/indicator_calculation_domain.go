@@ -95,7 +95,8 @@ func NewIndicatorCalculationDomain(
 
 	// How much market the stretch actually holds, which for a venue that shuts is
 	// less than the stretch itself — and for one that never shuts is all of it.
-	tradingTime := marketDomain.TradingTimeWithin(observationWindow)
+	tradingTime := marketDomain.TradingTimeBetween(
+		observationWindow.StartTime(), observationWindow.EndTime())
 	if tradingTime <= 0 {
 		return IndicatorCalculationDomain{}, ObservationWindowHoldsNoTrading(marketDomain.Value())
 	}

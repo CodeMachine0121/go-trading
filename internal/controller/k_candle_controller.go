@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
@@ -79,11 +80,17 @@ func (kCandleController *KCandleController) GetKCandleSeries(ginContext *gin.Con
 		return
 	}
 
+	displayableCandleCount, countIsReadable := kCandleController.readDisplayableCandleCount(ginContext)
+	if !countIsReadable {
+		return
+	}
+
 	kCandleSeriesDto, err := kCandleController.kCandleApplication.GetKCandleSeries(ginContext.Request.Context(), dto.KCandleSeriesQueryDto{
-		Symbol:    ginContext.Query("symbol"),
-		StartTime: startTime,
-		EndTime:   endTime,
-		Interval:  ginContext.Query("interval"),
+		Symbol:                 ginContext.Query("symbol"),
+		StartTime:              startTime,
+		EndTime:                endTime,
+		Interval:               ginContext.Query("interval"),
+		DisplayableCandleCount: displayableCandleCount,
 	})
 	if err != nil {
 		kCandleController.respondWithError(ginContext, err)
@@ -187,4 +194,33 @@ func (kCandleController *KCandleController) respondWithError(ginContext *gin.Con
 	}
 
 	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+}
+
+// readDisplayableCandleCount reads how many candles the caller can display, telling
+// "did not say" apart from "said a number".
+//
+// Absent is nil, which is how the query reads "let me name the coarseness myself".
+// Present but not a whole number is answered here, because it is the request that is
+// unreadable rather than the ask that is wrong — the same split every other parameter
+// on this path already makes. A number that is readable but unusable (zero, negative)
+// travels on and is refused where the rest of the query's rules live.
+func (kCandleController *KCandleController) readDisplayableCandleCount(
+	ginContext *gin.Context,
+) (*int, bool) {
+	declaredCount := ginContext.Query("displayableCandleCount")
+	if declaredCount == "" {
+		return nil, true
+	}
+
+	displayableCandleCount, parseError := strconv.Atoi(declaredCount)
+	if parseError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{
+			"message": "displayableCandleCount 必須是整數",
+			"field":   "displayableCandleCount",
+		})
+
+		return nil, false
+	}
+
+	return &displayableCandleCount, true
 }
