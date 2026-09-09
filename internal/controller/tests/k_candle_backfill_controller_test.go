@@ -80,8 +80,32 @@ func TestCatchingUpASymbolReportsWhatItCollected(t *testing.T) {
 
 	response := underTest.post(`{"symbol":"BTCUSDT"}`)
 
+	// The names on the wire are the contract, so the whole body is pinned rather than
+	// only searched for the symbol. A caller looking for storedCount and handed
+	// StoredCount reads nothing at all, and finds out only when it goes to add the
+	// counts up — a page-breaking error about a field, one layer away from the field.
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Contains(t, response.Body.String(), "BTCUSDT")
+	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":true,"storedCount":0,"skippedKCandles":[],"fetchFailureReason":""}]}`, response.Body.String())
+}
+
+func TestCatchingUpAnswersWithASkippedListEvenWhenTheSourceWillNotAnswer(t *testing.T) {
+	// The path a reader inspects the skipped list on is this one, not the happy one.
+	// Answered with null here, a caller counting the list would break on exactly the
+	// round it was asking about — and nowhere else, so nobody would find it.
+	underTest := newBackfillRouterUnderTest(t)
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("source unavailable"))
+
+	response := underTest.post(`{"symbol":"BTCUSDT"}`)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":false,"storedCount":0,"skippedKCandles":[],"fetchFailureReason":"source unavailable"}]}`, response.Body.String())
 }
 
 func TestCatchingUpASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
