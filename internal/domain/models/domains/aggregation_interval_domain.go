@@ -194,9 +194,13 @@ func (aggregationIntervalDomain AggregationIntervalDomain) BucketCount(
 // **The stretch handed in is trading time, not wall-clock time.** A market that shuts
 // overnight offers less of it than the clock does, and that difference is the whole
 // reason this takes a duration rather than two moments: working the duration out is
-// the market's job, and this one only knows how long it is itself. A stretch of no
-// trading at all never reaches here — a window holding none of it is refused before
-// anybody asks how many slots it holds.
+// the market's job, and this one only knows how long it is itself.
+//
+// A stretch of no trading at all does reach here, and the floor of one is what it
+// gets. An indicator calculation refuses such a window before asking; a series query
+// deliberately does not — looking at a Saturday is a thing a user can do, and the
+// answer is an empty series rather than a refusal. So the floor is load-bearing: drop
+// it and a Saturday would divide its way to zero slots.
 func (aggregationIntervalDomain AggregationIntervalDomain) SlotCount(
 	tradingTime time.Duration,
 ) int {

@@ -59,7 +59,7 @@ func NewKCandleSeriesQueryDomain(
 	bucketCount := interval.SlotCount(tradingTime)
 	if bucketCount > maxBucketCount {
 		return KCandleSeriesQueryDomain{}, fmt.Errorf(
-			"%w: 時間區間過大，請縮小區間或改用更長的彙總刻度（單次最多 %d 根）",
+			"%w: 時間區間過大，請縮小區間；若指定了彙總刻度，也可以改用更長的一種（單次最多 %d 根）",
 			ErrKCandleValidation, maxBucketCount)
 	}
 
@@ -70,8 +70,15 @@ func NewKCandleSeriesQueryDomain(
 	}, nil
 }
 
-// intervalFor settles how long one candle covers, from whichever of the two ways the
-// caller asked — and refuses an ask that uses both.
+// intervalFor settles how long one candle covers, from whichever of the three things
+// the caller said — a coarseness, a number of places to put candles in, or nothing at
+// all — and refuses an ask that names the first two at once.
+//
+// Naming nothing is the caller that only knows which stretch its user is looking at.
+// It gets a coarseness chosen the same way as one that named a display budget, against
+// the only budget there is left: what one query may answer with. Before, it got one
+// minute, which meant a stretch of any real length was answered by refusing it — the
+// system turning down a chart nobody had asked to be dense.
 //
 // The choosing is capped by what one query may answer with as well as by what the
 // caller can display, so that a coarseness this system picked can never come back
@@ -81,7 +88,12 @@ func NewKCandleSeriesQueryDomain(
 func intervalFor(
 	seriesQueryDto dto.KCandleSeriesQueryDto, tradingTime time.Duration, maxBucketCount int,
 ) (AggregationIntervalDomain, error) {
-	if seriesQueryDto.DisplayableCandleCount == nil {
+	if seriesQueryDto.DisplayableCandleCount != nil && seriesQueryDto.Interval != "" {
+		return AggregationIntervalDomain{}, fmt.Errorf(
+			"%w: 彙總刻度與可顯示根數只能挑一種說法", ErrKCandleValidation)
+	}
+
+	if seriesQueryDto.Interval != "" {
 		interval, intervalValidationError := NewAggregationIntervalDomain(seriesQueryDto.Interval)
 		if intervalValidationError != nil {
 			return AggregationIntervalDomain{}, fmt.Errorf(
@@ -91,19 +103,27 @@ func intervalFor(
 		return interval, nil
 	}
 
-	if seriesQueryDto.Interval != "" {
-		return AggregationIntervalDomain{}, fmt.Errorf(
-			"%w: 彙總刻度與可顯示根數只能挑一種說法", ErrKCandleValidation)
+	if seriesQueryDto.DisplayableCandleCount != nil {
+		displayableCandleCount := *seriesQueryDto.DisplayableCandleCount
+		if displayableCandleCount <= 0 {
+			return AggregationIntervalDomain{}, fmt.Errorf(
+				"%w: 可顯示根數必須大於零", ErrKCandleValidation)
+		}
+
+		return NewFittingAggregationIntervalDomain(
+			tradingTime, min(displayableCandleCount, maxBucketCount)), nil
 	}
 
-	displayableCandleCount := *seriesQueryDto.DisplayableCandleCount
-	if displayableCandleCount <= 0 {
-		return AggregationIntervalDomain{}, fmt.Errorf(
-			"%w: 可顯示根數必須大於零", ErrKCandleValidation)
-	}
-
-	return NewFittingAggregationIntervalDomain(
-		tradingTime, min(displayableCandleCount, maxBucketCount)), nil
+	// Saying neither is a caller with no opinion about how coarse a candle is, and the
+	// only budget left to choose against is what one query may answer with at all.
+	//
+	// It is deliberately not written as "the same as asking for the ceiling's worth of
+	// places". Those two agree on today's numbers and mean different things: a caller
+	// that named a number said something about **its own display**, and one that named
+	// nothing said only that it wants an answer. The day the ceiling moves, this branch
+	// should follow it and the one above should not — folded together, that change would
+	// silently redefine one of them.
+	return NewFittingAggregationIntervalDomain(tradingTime, maxBucketCount), nil
 }
 
 // RangeQuery is the plain time-range query to read the source candles with.
