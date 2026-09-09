@@ -270,9 +270,15 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 	windowOf func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error),
 ) dto.KCandleSymbolIngestionReportDto {
 	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(watchedSymbol.Market)
+	// The skipped list is built here rather than where the first candle is judged,
+	// so that every way out of this function answers with a list. Left to appear only
+	// on the path that reaches the source, it would be absent on exactly the paths a
+	// reader inspects it on — a shut market, a source that would not answer — and a
+	// caller counting it would break there and nowhere else.
 	symbolReport := dto.KCandleSymbolIngestionReportDto{
-		Symbol: watchedSymbol.Symbol,
-		Market: string(marketDomain.Value()),
+		Symbol:          watchedSymbol.Symbol,
+		Market:          string(marketDomain.Value()),
+		SkippedKCandles: make([]dto.SkippedKCandleDto, 0),
 	}
 
 	if kCandleIngestionService.marketClosureLedger.isPresumedClosed(
@@ -301,7 +307,6 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 	}
 
 	symbolReport.WasAsked = true
-	symbolReport.SkippedKCandles = make([]dto.SkippedKCandleDto, 0)
 	for _, reportedKCandle := range ingestionDomain.SelectClosed(reportedKCandles) {
 		kCandleDomain, validationError := domains.NewKCandleDomain(
 			reportedKCandle.ToWriteDto(), ingestionDomain.CurrentTime())
