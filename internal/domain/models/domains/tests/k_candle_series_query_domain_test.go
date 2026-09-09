@@ -307,3 +307,23 @@ func TestAStretchWithNoTradingIsNotRefused(t *testing.T) {
 		})
 	}
 }
+
+// 休市日不預先扣除：挑刻度只看「哪幾天交易、幾點到幾點」，不查假日名單。
+// 少掉的那一天由手上有多少 K 線決定，不是在挑刻度時先扣掉。
+// 2026-09-07 是週一、09-09 是週三：三個平日、三段交易時段。
+func TestSeriesQueryDoesNotDeductHolidaysWhenPickingTheInterval(t *testing.T) {
+	displayableCandleCount := 200
+
+	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
+		dto.KCandleSeriesQueryDto{
+			Symbol:                 "2330",
+			StartTime:              mustParseTime(t, "2026-09-07T01:00:00Z"),
+			EndTime:                mustParseTime(t, "2026-09-09T05:30:00Z"),
+			DisplayableCandleCount: &displayableCandleCount,
+		}, taiwanStockMarket(), seriesQueryMaxBucketCount)
+
+	require.NoError(t, validationError)
+	// 三個交易日 × 54 格 = 162 格擺得下 200 個位置，即使其中一天其實整天沒有交易。
+	assert.Equal(t, "5m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
+	assert.Equal(t, (162+1)*5, seriesQueryDomain.SourceCandleLimit())
+}
