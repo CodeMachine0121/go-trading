@@ -1163,6 +1163,169 @@
 					]
 				},
 				{
+					"name": "由系統挑刻度：說得出擺得下幾根",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}&displayableCandleCount=400",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"k-candles",
+								"series"
+							],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "{{symbol}}"
+								},
+								{
+									"key": "startTime",
+									"value": "{{rangeStart}}"
+								},
+								{
+									"key": "endTime",
+									"value": "{{rangeEnd}}"
+								},
+								{
+									"key": "displayableCandleCount",
+									"value": "400"
+								}
+							]
+						},
+						"description": "不指定彙總刻度，改說「我最多擺得下 400 根」，由系統照那一檔**所屬市場的交易時段**挑出最細的、且擺得下的那一種。台股一天只交易四個半小時，所以同樣看一天，台股挑到的會比全天候市場細。回應一律說出實際用的是哪一種，畫面照抄、不自行推算。"
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"回應說出這一次用的是哪一種刻度\", function () {",
+									"    pm.expect(pm.response.json().interval).to.be.oneOf([\"1m\", \"5m\", \"15m\", \"1h\", \"4h\", \"1d\"]);",
+									"});",
+									"pm.test(\"畫得出來的根數不超過說得出的那個數字\", function () {",
+									"    pm.expect(pm.response.json().kCandles.length).to.be.at.most(400);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：兩種問法只能挑一種",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}&interval=5m&displayableCandleCount=400",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"k-candles",
+								"series"
+							],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "{{symbol}}"
+								},
+								{
+									"key": "startTime",
+									"value": "{{rangeStart}}"
+								},
+								{
+									"key": "endTime",
+									"value": "{{rangeEnd}}"
+								},
+								{
+									"key": "interval",
+									"value": "5m"
+								},
+								{
+									"key": "displayableCandleCount",
+									"value": "400"
+								}
+							]
+						},
+						"description": "指定彙總刻度與說可顯示根數是兩種互斥的問法。兩者矛盾時沒有一個正確的取捨，任選一個都會讓另一個安靜地失效，所以同時給就整次拒絕。"
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"說明只能挑一種\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"只能挑一種\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "拒絕：擺得下零根",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/k-candles/series?symbol={{symbol}}&startTime={{rangeStart}}&endTime={{rangeEnd}}&displayableCandleCount=0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"k-candles",
+								"series"
+							],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "{{symbol}}"
+								},
+								{
+									"key": "startTime",
+									"value": "{{rangeStart}}"
+								},
+								{
+									"key": "endTime",
+									"value": "{{rangeEnd}}"
+								},
+								{
+									"key": "displayableCandleCount",
+									"value": "0"
+								}
+							]
+						},
+						"description": "**零與「沒說」是兩件事**：沒說走既有那條路（視為一分鐘），說了零則是一個答不出來的問題——一個位置都沒有的畫面，挑哪一種刻度都填不進去。"
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"回應 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"說明必須大於零\", function () {",
+									"    pm.expect(pm.response.json().message).to.include(\"可顯示根數必須大於零\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
 					"name": "拒絕：彙總刻度不在五種之內",
 					"request": {
 						"method": "GET",

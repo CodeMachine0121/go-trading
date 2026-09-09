@@ -394,21 +394,6 @@ func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
 		"開盤是「早上九點」，不是「午夜之後九小時」")
 }
 
-// observationWindowBetween builds a window from two Taipei-time moments, so the
-// tables below read in the same clock the requirements are written in.
-func observationWindowBetween(t *testing.T, startTime string, endTime string) domains.ObservationWindowDomain {
-	t.Helper()
-
-	// Settled against a moment far past both ends, so that nothing is pulled back to
-	// "now" — these tables are about market hours, not about the present.
-	observationWindow, buildError := domains.NewObservationWindowDomain(
-		mustParseTime(t, startTime), mustParseTime(t, endTime),
-		mustParseTime(t, "2030-01-01T00:00:00+08:00"))
-	require.NoError(t, buildError)
-
-	return observationWindow
-}
-
 // 一段時間裡這個市場實際交易多久——收盤的時間不算，週末不算。
 // 2026-09-07 是週一，09-11 是週五，09-12 是週六。
 func TestTradingTimeWithinCountsOnlyWhenTheMarketIsOpen(t *testing.T) {
@@ -476,8 +461,8 @@ func TestTradingTimeWithinCountsOnlyWhenTheMarketIsOpen(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tradingTime := taiwanStockMarket().TradingTimeWithin(
-				observationWindowBetween(t, testCase.startTime, testCase.endTime))
+			tradingTime := taiwanStockMarket().TradingTimeBetween(
+				mustParseTime(t, testCase.startTime), mustParseTime(t, testCase.endTime))
 
 			assert.Equal(t, testCase.expectedTradingTime, tradingTime)
 		})
@@ -514,8 +499,8 @@ func TestTradingTimeWithinIsTheWholeStretchForAMarketThatNeverCloses(t *testing.
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tradingTime := cryptoMarket().TradingTimeWithin(
-				observationWindowBetween(t, testCase.startTime, testCase.endTime))
+			tradingTime := cryptoMarket().TradingTimeBetween(
+				mustParseTime(t, testCase.startTime), mustParseTime(t, testCase.endTime))
 
 			assert.Equal(t, testCase.expectedTradingTime, tradingTime)
 		})

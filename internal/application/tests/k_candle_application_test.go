@@ -1,6 +1,7 @@
 package application_test
 
 import (
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"testing"
 	"time"
 
@@ -58,8 +59,13 @@ func newApplicationUnderTest(t *testing.T) applicationUnderTest {
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
+	// 這一份測試裡的每一檔都是全天候交易的，所以一段時間裡每一分鐘都算數。
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
-	kCandleService := service.NewKCandleService(kCandleRepository, clockProxy, queryMaxResults)
+	kCandleService := service.NewKCandleService(
+		kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)
 
 	return applicationUnderTest{
 		kCandleApplication: application.NewKCandleApplication(kCandleService),
@@ -156,8 +162,9 @@ func TestKCandleApplicationGetSeries(t *testing.T) {
 		_, err := fixture.kCandleApplication.GetKCandleSeries(t.Context(), dto.KCandleSeriesQueryDto{
 			Symbol:    "BTCUSDT",
 			StartTime: at(0, 0),
-			EndTime:   at(0, 0).Add(time.Duration(queryMaxResults) * 5 * time.Minute),
-			Interval:  "5m",
+			// 剛好 1000 格還在上限之內，多一格才是「要太多」。
+			EndTime:  at(0, 0).Add(time.Duration(queryMaxResults+1) * 5 * time.Minute),
+			Interval: "5m",
 		})
 
 		assert.ErrorIs(t, err, domains.ErrKCandleValidation)
@@ -203,4 +210,11 @@ func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 
 		assert.NoError(t, err)
 	})
+}
+
+// cryptoOnlyCatalog is the market this file's symbols trade on: the round-the-clock
+// one, whose every minute holds market. A venue that shuts is what the market-hours
+// tests are for; here it would only add a second reason for a number to change.
+func cryptoOnlyCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 }

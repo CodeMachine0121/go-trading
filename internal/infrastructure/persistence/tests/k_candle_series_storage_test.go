@@ -1,6 +1,8 @@
 package persistence_test
 
 import (
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
@@ -21,7 +23,8 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 	newSeriesService := func(t *testing.T) *service.KCandleService {
 		t.Helper()
 
-		kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+		database := newTestDatabase(t)
+		kCandleRepository := persistence.NewKCandleRepository(database)
 		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 55), "150"))
 		require.NoError(t, saveError)
 		_, saveError = kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(10, 0), "250"))
@@ -30,7 +33,11 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 		clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
 		clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 
-		return service.NewKCandleService(kCandleRepository, clockProxy, 1000)
+		// 沒登錄的交易標的落到永不收盤的市場（既有規則），所以這裡的每一分鐘都算數。
+		return service.NewKCandleService(
+			kCandleRepository, persistence.NewTradingSymbolRepository(database), clockProxy,
+			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+			1000)
 	}
 
 	t.Run("a range covering both candles gives each its own hour", func(t *testing.T) {

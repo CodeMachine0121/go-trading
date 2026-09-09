@@ -42,7 +42,9 @@ func registerRoutes(
 	kCandleApplication := application.NewKCandleApplication(
 		service.NewKCandleService(
 			kCandleRepository,
+			persistence.NewTradingSymbolRepository(database),
 			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
 		),
 	)
