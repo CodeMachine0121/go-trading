@@ -38,3 +38,9 @@ func kCandleAt(openTime time.Time, closePrice string) entities.KCandle {
 // indicatorNow is the moment every calculation below is asked at. It sits on a
 // five-minute edge, so the candle at 09:10 belongs to a bucket that has finished.
 var indicatorNow = at(9, 15)
+
+// assistantViewerID is whoever the assistant is acting for throughout these tests.
+// Every strategy it saves belongs to them, and every strategy it reads is theirs —
+// which is what makes these tests about the capabilities rather than about who may
+// see what.
+const assistantViewerID = uint(1)

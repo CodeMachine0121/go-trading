@@ -13,12 +13,17 @@ type AssistantAskRequest struct {
 	Question       string `json:"question"`
 }
 
-// ToAskDto turns the request into the shape the domain accepts. The question is
+// ToAskDto turns the request into the shape the domain accepts, taking who is
+// asking from the argument rather than from the body — a body that could name its
+// own asker is a body that could ask as somebody else.
+//
+// The question is
 // handed on untouched: what counts as an empty question is the domain's rule, not
 // this layer's.
-func (assistantAskRequest AssistantAskRequest) ToAskDto() dto.AssistantAskDto {
+func (assistantAskRequest AssistantAskRequest) ToAskDto(viewerID uint) dto.AssistantAskDto {
 	return dto.AssistantAskDto{
 		ConversationID: assistantAskRequest.ConversationID,
 		Question:       assistantAskRequest.Question,
+		ViewerID:       viewerID,
 	}
 }

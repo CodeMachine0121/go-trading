@@ -42,7 +42,7 @@ func (strategyCreateAssistantQuery *StrategyCreateAssistantQuery) ArgumentSchema
 
 // Run saves the strategy and hands it back as stored.
 func (strategyCreateAssistantQuery *StrategyCreateAssistantQuery) Run(
-	executionContext context.Context, arguments string,
+	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {
 	writeArguments := strategyWriteAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
@@ -50,7 +50,7 @@ func (strategyCreateAssistantQuery *StrategyCreateAssistantQuery) Run(
 	}
 
 	strategyDto, createError := strategyCreateAssistantQuery.strategyApplication.CreateStrategy(
-		executionContext, writeArguments.ToWriteDto(0))
+		executionContext, writeArguments.ToWriteDto(0, viewerID))
 	if createError != nil {
 		return "", createError
 	}

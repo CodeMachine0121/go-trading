@@ -71,7 +71,7 @@ func (kCandleSeriesAssistantQuery *KCandleSeriesAssistantQuery) ArgumentSchema()
 // to answer all come back as the reason they were refused, which the assistant reads
 // and may act on.
 func (kCandleSeriesAssistantQuery *KCandleSeriesAssistantQuery) Run(
-	executionContext context.Context, arguments string,
+	executionContext context.Context, _ uint, arguments string,
 ) (string, error) {
 	seriesArguments := kCandleSeriesAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &seriesArguments); unmarshalError != nil {

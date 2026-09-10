@@ -17,9 +17,15 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// strategyOwnerID is whoever these tests act as. Every strategy they save belongs
+// to them, and every strategy they read back is their own — which is what makes
+// these tests about saving and rewriting rather than about who may see what.
+const strategyOwnerID = uint(1)
+
 type strategyApplicationUnderTest struct {
-	strategyApplication *application.StrategyApplication
-	strategyRepository  *mocks.MockIStrategyRepository
+	strategyApplication         *application.StrategyApplication
+	strategyRepository          *mocks.MockIStrategyRepository
+	publishedStrategyRepository *mocks.MockIPublishedStrategyRepository
 }
 
 // newStrategyApplicationUnderTest wires the real domain service and the real
@@ -27,16 +33,19 @@ type strategyApplicationUnderTest struct {
 func newStrategyApplicationUnderTest(t *testing.T) strategyApplicationUnderTest {
 	controller := gomock.NewController(t)
 	strategyRepository := mocks.NewMockIStrategyRepository(controller)
+	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
 
 	return strategyApplicationUnderTest{
 		strategyApplication: application.NewStrategyApplication(
-			service.NewStrategyService(strategyRepository)),
-		strategyRepository: strategyRepository,
+			service.NewStrategyService(strategyRepository, publishedStrategyRepository)),
+		strategyRepository:          strategyRepository,
+		publishedStrategyRepository: publishedStrategyRepository,
 	}
 }
 
 func aStrategyWrite() dto.StrategyWriteDto {
 	return dto.StrategyWriteDto{
+		OwnerID:    strategyOwnerID,
 		Name:       "二十根均線",
 		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
 		ResultType: "floatList",
@@ -46,11 +55,26 @@ func aStrategyWrite() dto.StrategyWriteDto {
 func aStoredStrategy(id uint, name string) entities.Strategy {
 	return entities.Strategy{
 		ID:         id,
+		OwnerID:    strategyOwnerID,
 		Name:       name,
 		Script:     aStrategyWrite().Script,
 		ResultType: "floatList",
 		CreatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
 		UpdatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+	}
+}
+
+// aPublication is one strategy sitting on the marketplace, owned by somebody who is
+// not the caller.
+func aPublication(id uint, name string, ownerID uint) entities.PublishedStrategy {
+	strategy := aStoredStrategy(id, name)
+	strategy.OwnerID = ownerID
+	strategy.Owner = entities.User{ID: ownerID, Email: "someone@example.com"}
+
+	return entities.PublishedStrategy{
+		StrategyID:  id,
+		PublishedAt: time.Date(2026, 9, 10, 8, 0, 0, 0, time.UTC),
+		Strategy:    strategy,
 	}
 }
 
@@ -234,7 +258,7 @@ func TestStrategyApplicationGetStrategy(t *testing.T) {
 		fixture.strategyRepository.EXPECT().
 			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 
-		strategyDto, err := fixture.strategyApplication.GetStrategy(t.Context(), 7)
+		strategyDto, err := fixture.strategyApplication.GetStrategy(t.Context(), strategyOwnerID, 7)
 
 		require.NoError(t, err)
 		assert.Equal(t, uint(7), strategyDto.ID)
@@ -250,31 +274,34 @@ func TestStrategyApplicationGetStrategy(t *testing.T) {
 		fixture.strategyRepository.EXPECT().
 			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
-		_, err := fixture.strategyApplication.GetStrategy(t.Context(), 7)
+		_, err := fixture.strategyApplication.GetStrategy(t.Context(), strategyOwnerID, 7)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
 }
 
-func TestStrategyApplicationListStrategies(t *testing.T) {
-	t.Run("hands back every strategy in the order it was given them", func(t *testing.T) {
+func TestStrategyApplicationListAvailableStrategies(t *testing.T) {
+	t.Run("hands back the caller's own strategies in the order it was given them", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			FindAll(gomock.Any()).Return([]entities.Strategy{
+			FindAllOwnedBy(gomock.Any(), strategyOwnerID).Return([]entities.Strategy{
 			aStoredStrategy(1, "二十根均線"),
 			aStoredStrategy(2, "六十根均線"),
 		}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), strategyOwnerID).Return([]entities.PublishedStrategy{}, nil)
 
-		strategyDtos, err := fixture.strategyApplication.ListStrategies(t.Context())
+		availableStrategiesDto, err := fixture.strategyApplication.ListAvailableStrategies(
+			t.Context(), strategyOwnerID)
 
 		require.NoError(t, err)
-		require.Len(t, strategyDtos, 2)
-		assert.Equal(t, "二十根均線", strategyDtos[0].Name)
-		assert.Equal(t, "六十根均線", strategyDtos[1].Name)
+		require.Len(t, availableStrategiesDto.Mine, 2)
+		assert.Equal(t, "二十根均線", availableStrategiesDto.Mine[0].Name)
+		assert.Equal(t, "六十根均線", availableStrategiesDto.Mine[1].Name)
 
 		// Every one of them carries everything it remembers, not just its name —
 		// a collection of names would send the reader back for each strategy again.
-		for _, strategyDto := range strategyDtos {
+		for _, strategyDto := range availableStrategiesDto.Mine {
 			assert.NotZero(t, strategyDto.ID)
 			assert.NotEmpty(t, strategyDto.Name)
 			assert.Equal(t, aStrategyWrite().Script, strategyDto.Script)
@@ -284,23 +311,50 @@ func TestStrategyApplicationListStrategies(t *testing.T) {
 		}
 	})
 
-	t.Run("holding none is an answer, not a failure", func(t *testing.T) {
+	t.Run("hands back adopted strategies after the caller's own, and without their scripts", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), strategyOwnerID).
+			Return([]entities.Strategy{aStoredStrategy(1, "我的")}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), strategyOwnerID).
+			Return([]entities.PublishedStrategy{aPublication(2, "別人的", 8)}, nil)
 
-		strategyDtos, err := fixture.strategyApplication.ListStrategies(t.Context())
+		availableStrategiesDto, err := fixture.strategyApplication.ListAvailableStrategies(
+			t.Context(), strategyOwnerID)
 
 		require.NoError(t, err)
-		assert.NotNil(t, strategyDtos)
-		assert.Empty(t, strategyDtos)
+		require.Len(t, availableStrategiesDto.Mine, 1)
+		require.Len(t, availableStrategiesDto.Adopted, 1)
+		assert.Equal(t, "我的", availableStrategiesDto.Mine[0].Name)
+		assert.Equal(t, "別人的", availableStrategiesDto.Adopted[0].Name)
+		assert.Equal(t, "someone@example.com", availableStrategiesDto.Adopted[0].PublisherEmail)
+	})
+
+	t.Run("holding none is an answer, not a failure", func(t *testing.T) {
+		fixture := newStrategyApplicationUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), strategyOwnerID).Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), strategyOwnerID).Return([]entities.PublishedStrategy{}, nil)
+
+		availableStrategiesDto, err := fixture.strategyApplication.ListAvailableStrategies(
+			t.Context(), strategyOwnerID)
+
+		require.NoError(t, err)
+		assert.NotNil(t, availableStrategiesDto.Mine)
+		assert.NotNil(t, availableStrategiesDto.Adopted)
+		assert.Empty(t, availableStrategiesDto.Mine)
+		assert.Empty(t, availableStrategiesDto.Adopted)
 	})
 
 	t.Run("reports a storage failure", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		storageFailure := errors.New("connection refused")
-		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return(nil, storageFailure)
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), strategyOwnerID).Return(nil, storageFailure)
 
-		_, err := fixture.strategyApplication.ListStrategies(t.Context())
+		_, err := fixture.strategyApplication.ListAvailableStrategies(t.Context(), strategyOwnerID)
 
 		require.ErrorIs(t, err, storageFailure)
 	})
@@ -396,17 +450,19 @@ func TestStrategyApplicationUpdateStrategy(t *testing.T) {
 func TestStrategyApplicationDeleteStrategy(t *testing.T) {
 	t.Run("removes the strategy", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().Delete(gomock.Any(), uint(7)).Return(nil)
 
-		require.NoError(t, fixture.strategyApplication.DeleteStrategy(t.Context(), 7))
+		require.NoError(t, fixture.strategyApplication.DeleteStrategy(t.Context(), strategyOwnerID, 7))
 	})
 
 	t.Run("reports a strategy that is not there", func(t *testing.T) {
 		fixture := newStrategyApplicationUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Delete(gomock.Any(), uint(7)).Return(domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
-		err := fixture.strategyApplication.DeleteStrategy(t.Context(), 7)
+		err := fixture.strategyApplication.DeleteStrategy(t.Context(), strategyOwnerID, 7)
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})

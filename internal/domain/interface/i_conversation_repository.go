@@ -36,8 +36,12 @@ type IConversationRepository interface {
 	// FindOne returns the conversation carrying this identifier with every exchange
 	// under it, earliest first, or ErrConversationNotFound.
 	FindOne(executionContext context.Context, id uint) (entities.Conversation, error)
-	// FindAll returns every conversation, the most recently active first.
-	FindAll(executionContext context.Context) ([]entities.Conversation, error)
+	// FindAllOwnedBy returns this person's conversations, the most recently active
+	// first. Whose they are is a condition on the read rather than a filter applied
+	// after it: a list that arrives whole and is narrowed afterwards is a list that
+	// was somewhere in memory in full, and one forgotten narrowing away from being
+	// handed over.
+	FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.Conversation, error)
 	// SumUsageBetween totals the usage of every exchange stored in this stretch,
 	// start included and end excluded. Holding none is a total of zero rather than a
 	// failure.

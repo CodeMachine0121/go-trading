@@ -28,9 +28,22 @@ type IStrategyRepository interface {
 	Update(executionContext context.Context, strategy entities.Strategy) (entities.Strategy, error)
 	// FindOne returns the strategy carrying this identifier, or ErrStrategyNotFound.
 	FindOne(executionContext context.Context, id uint) (entities.Strategy, error)
-	// FindAll returns every saved strategy, ordered by name.
-	FindAll(executionContext context.Context) ([]entities.Strategy, error)
+	// FindAllOwnedBy returns every strategy belonging to this owner, ordered by
+	// name. Owning none is an answer, not a failure.
+	FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.Strategy, error)
+	// FindAllPublished returns every strategy that is on the marketplace, newest
+	// publication first, each one carrying its owner and the moment it was
+	// published. Reading the publications and the strategies together is one
+	// question — "what is on the marketplace" — and answering it in one place is
+	// what keeps a caller from paging through identifiers to fill in the rest.
+	FindAllPublished(executionContext context.Context) ([]entities.PublishedStrategy, error)
+	// FindAllAdoptedBy returns every strategy this user has taken from the
+	// marketplace and that is still on it, ordered by name, each carrying its owner
+	// and its publication. A withdrawn strategy cannot appear: the adoption went
+	// with the publication.
+	FindAllAdoptedBy(executionContext context.Context, userID uint) ([]entities.PublishedStrategy, error)
 	// Delete removes the strategy carrying this identifier for good, freeing its
-	// name. Refuses with ErrStrategyNotFound when there is no such strategy.
+	// name and taking its publication and everybody's adoption of it with it.
+	// Refuses with ErrStrategyNotFound when there is no such strategy.
 	Delete(executionContext context.Context, id uint) error
 }

@@ -38,6 +38,39 @@ func registerRoutes(
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})
 	})
 
+	// Recognising a person is built first because everything that belongs to
+	// somebody is built behind it. It is wired from two capabilities that are pure
+	// cryptography: turning a password into something storable, and turning an
+	// identity into something signed. Both are behind interfaces, so replacing
+	// either — bcrypt for something newer, one shared key for a key pair — is a new
+	// implementation and one changed line here.
+	userApplication := application.NewUserApplication(
+		service.NewUserService(
+			persistence.NewUserRepository(database),
+			persistence.NewSessionRepository(database),
+			security.NewBcryptPasswordProofProxy(),
+			security.NewJwtAccessTokenProxy(
+				applicationConfig.Authentication.AccessTokenSigningKey),
+			security.NewRandomRefreshTokenProxy(),
+			clock.NewSystemClockProxy(),
+			vo.SessionLifetimesVo{
+				AccessToken:  applicationConfig.Authentication.AccessTokenLifetime,
+				RefreshToken: applicationConfig.Authentication.RefreshTokenLifetime,
+			},
+		),
+	)
+
+	// The door. Everything mounted through it carries an identified user; everything
+	// mounted beside it is open to anybody who can reach this address.
+	//
+	// What is open is deliberate rather than overlooked. Creating the first user and
+	// signing in cannot require being signed in. The market — candles, symbols, the
+	// watchlist — is nobody's property: putting a door on it would only make a chart
+	// blank for a visitor, and there is nothing behind it to protect. What is closed
+	// is everything that belongs to a person: their strategies, the marketplace,
+	// running one, and the assistant that acts as them.
+	requiresSignIn := middlewares.NewAuthenticationMiddleware(userApplication).Handle
+
 	kCandleRepository := persistence.NewKCandleRepository(database)
 
 	kCandleApplication := application.NewKCandleApplication(
@@ -97,7 +130,53 @@ func registerRoutes(
 	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
 	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
 
+	// A saved strategy is its own resource: it holds an algorithm, who it belongs
+	// to, and nothing else — how coarse the K candles are, how many of them and up
+	// to when describe one run and travel with the calculation instead. It reads no
+	// K candles, so it is given no K candle repository.
+	//
+	// It is built before the two use cases that run a strategy, because both of them
+	// resolve an identifier through it first. That resolution is the only way a
+	// script leaves storage, and it is what lets one person run another's published
+	// algorithm without ever being handed it.
+	strategyRepository := persistence.NewStrategyRepository(database)
+	publishedStrategyRepository := persistence.NewPublishedStrategyRepository(database)
+
+	strategyService := service.NewStrategyService(strategyRepository, publishedStrategyRepository)
+	strategyApplication := application.NewStrategyApplication(strategyService)
+
+	strategyController := controller.NewStrategyController(strategyApplication)
+
+	engine.POST("/strategies", requiresSignIn, strategyController.CreateStrategy)
+	engine.GET("/strategies", requiresSignIn, strategyController.ListAvailableStrategies)
+	engine.GET("/strategies/:id", requiresSignIn, strategyController.GetStrategy)
+	engine.PUT("/strategies/:id", requiresSignIn, strategyController.UpdateStrategy)
+	engine.DELETE("/strategies/:id", requiresSignIn, strategyController.DeleteStrategy)
+
+	// The marketplace is the same rows read a different way, and a separate resource
+	// because it answers a different question: not "what is mine" but "what is out
+	// there". Publishing hangs off the strategy's own path because it is something
+	// done to a strategy; browsing and adopting hang off the marketplace because
+	// they are things done to the shelf.
+	strategyMarketplaceController := controller.NewStrategyMarketplaceController(
+		application.NewStrategyMarketplaceApplication(
+			service.NewStrategyMarketplaceService(
+				strategyRepository,
+				publishedStrategyRepository,
+				persistence.NewStrategyAdoptionRepository(database),
+				clock.NewSystemClockProxy(),
+			),
+		),
+	)
+
+	engine.POST("/strategies/:id/publication", requiresSignIn, strategyMarketplaceController.PublishStrategy)
+	engine.DELETE("/strategies/:id/publication", requiresSignIn, strategyMarketplaceController.WithdrawStrategy)
+	engine.GET("/marketplace/strategies", requiresSignIn, strategyMarketplaceController.BrowseMarketplace)
+	engine.POST("/marketplace/strategies/:id/adoption", requiresSignIn, strategyMarketplaceController.AdoptStrategy)
+	engine.DELETE("/marketplace/strategies/:id/adoption", requiresSignIn, strategyMarketplaceController.AbandonStrategy)
+
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
+		strategyService,
 		service.NewIndicatorCalculationService(
 			kCandleRepository,
 			persistence.NewTradingSymbolRepository(database),
@@ -108,7 +187,7 @@ func registerRoutes(
 		),
 	)
 
-	engine.POST("/indicator-calculations", controller.NewIndicatorCalculationController(
+	engine.POST("/indicator-calculations", requiresSignIn, controller.NewIndicatorCalculationController(
 		indicatorCalculationApplication).CalculateIndicator)
 
 	// Replaying a strategy is its own use case rather than a mode of calculating an
@@ -118,8 +197,9 @@ func registerRoutes(
 	// It shares the read ceiling with every other read, deliberately: a replay is
 	// still one look at the market, and giving it a ceiling of its own would leave two
 	// numbers to keep in step.
-	engine.POST("/backtests", controller.NewBacktestController(
+	engine.POST("/backtests", requiresSignIn, controller.NewBacktestController(
 		application.NewBacktestApplication(
+			strategyService,
 			service.NewBacktestService(
 				kCandleRepository,
 				script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
@@ -127,22 +207,6 @@ func registerRoutes(
 				applicationConfig.KCandleQueryMaxResults,
 			),
 		)).RunBacktest)
-
-	// A saved strategy is its own resource: it holds an algorithm and nothing else —
-	// how coarse the K candles are, how many of them and up to when describe one run
-	// and travel with the calculation instead. It reads no K candles, so it is given
-	// no K candle repository.
-	strategyApplication := application.NewStrategyApplication(
-		service.NewStrategyService(persistence.NewStrategyRepository(database)),
-	)
-
-	strategyController := controller.NewStrategyController(strategyApplication)
-
-	engine.POST("/strategies", strategyController.CreateStrategy)
-	engine.GET("/strategies", strategyController.ListStrategies)
-	engine.GET("/strategies/:id", strategyController.GetStrategy)
-	engine.PUT("/strategies/:id", strategyController.UpdateStrategy)
-	engine.DELETE("/strategies/:id", strategyController.DeleteStrategy)
 
 	assistantConversationController := controller.NewAssistantConversationController(
 		application.NewAssistantConversationApplication(
@@ -171,40 +235,18 @@ func registerRoutes(
 		),
 	)
 
-	engine.POST("/chat", assistantConversationController.Ask)
-	engine.GET("/chat/conversations", assistantConversationController.ListConversations)
-	engine.GET("/chat/conversations/:id", assistantConversationController.GetConversation)
+	// The assistant acts as whoever asked it, so it is behind the door like anything
+	// else that touches a strategy. Without that, a strategy it saved would belong
+	// to nobody, and "every strategy has an owner" would have its one exception.
+	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
+	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
+	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
 
-	// Recognising a person is the one thing here that has nothing to do with the
-	// market, and it is wired from two capabilities that are pure cryptography:
-	// turning a password into something storable, and turning an identity into
-	// something signed. Both are behind interfaces, so replacing either — bcrypt for
-	// something newer, one shared key for a key pair — is a new implementation and
-	// one changed line here.
-	//
-	// Two of these routes are open to anybody who can reach this address, and that is
-	// deliberate rather than overlooked: a system holding no users has nobody who
-	// could be allowed to create the first one. Only "who am I" needs a proof, and it
-	// is where this door is proved to actually shut. The market routes below are
-	// still open to anyone — see the sign-in design notes for why they are a slice of
-	// their own.
-	userController := controller.NewUserController(
-		application.NewUserApplication(
-			service.NewUserService(
-				persistence.NewUserRepository(database),
-				persistence.NewSessionRepository(database),
-				security.NewBcryptPasswordProofProxy(),
-				security.NewJwtAccessTokenProxy(
-					applicationConfig.Authentication.AccessTokenSigningKey),
-				security.NewRandomRefreshTokenProxy(),
-				clock.NewSystemClockProxy(),
-				vo.SessionLifetimesVo{
-					AccessToken:  applicationConfig.Authentication.AccessTokenLifetime,
-					RefreshToken: applicationConfig.Authentication.RefreshTokenLifetime,
-				},
-			),
-		),
-	)
+	// Creating a user and signing in are open, and have to be: a system holding no
+	// users has nobody who could be allowed to create the first one. "Who am I" is
+	// the one route here that reads the proof through the same door as everything
+	// else.
+	userController := controller.NewUserController(userApplication)
 
 	engine.POST("/users", userController.RegisterUser)
 	engine.POST("/sessions", userController.SignIn)
@@ -213,6 +255,10 @@ func registerRoutes(
 	// a body.
 	engine.POST("/sessions/renewal", userController.RenewSession)
 	engine.POST("/sessions/revocation", userController.RevokeSession)
+	// "Who am I" reads the proof itself rather than sitting behind the door, and
+	// that is not an oversight: the door answers a rejected proof with the same
+	// sentence this route would, so putting one in front of the other would only
+	// mean reading the header twice to reach the same answer.
 	engine.GET("/users/me", userController.GetCurrentUser)
 
 	// Following a market live is an addition, not a replacement: the scheduled
@@ -257,7 +303,7 @@ func assistantQueriesFor(
 		assistantqueries.NewTradingSymbolListAssistantQuery(tradingSymbolApplication),
 		assistantqueries.NewKCandleSeriesAssistantQuery(kCandleApplication, candleLimit),
 		assistantqueries.NewKCandleRangeAssistantQuery(kCandleApplication, candleLimit),
-		assistantqueries.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication, strategyApplication),
+		assistantqueries.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication),
 		assistantqueries.NewStrategyListAssistantQuery(strategyApplication),
 		assistantqueries.NewStrategyGetAssistantQuery(strategyApplication),
 		assistantqueries.NewStrategyCreateAssistantQuery(strategyApplication),

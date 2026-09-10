@@ -47,7 +47,7 @@ func (strategyGetAssistantQuery *StrategyGetAssistantQuery) ArgumentSchema() str
 // Run hands over the strategy in full. A strategy that is not there comes back as the
 // system's own words for that, which the assistant relays rather than reinvents.
 func (strategyGetAssistantQuery *StrategyGetAssistantQuery) Run(
-	executionContext context.Context, arguments string,
+	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {
 	getArguments := strategyGetAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &getArguments); unmarshalError != nil {
@@ -55,7 +55,7 @@ func (strategyGetAssistantQuery *StrategyGetAssistantQuery) Run(
 	}
 
 	strategyDto, findError := strategyGetAssistantQuery.strategyApplication.GetStrategy(
-		executionContext, getArguments.StrategyID)
+		executionContext, viewerID, getArguments.StrategyID)
 	if findError != nil {
 		return "", findError
 	}

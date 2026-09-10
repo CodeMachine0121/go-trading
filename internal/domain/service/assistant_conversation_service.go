@@ -106,7 +106,7 @@ func (assistantConversationService *AssistantConversationService) Ask(
 	}
 
 	recentMessages, recentMessagesError := assistantConversationService.recentMessagesOf(
-		executionContext, askDto.ConversationID)
+		executionContext, askDto.ViewerID, askDto.ConversationID)
 	if recentMessagesError != nil {
 		return dto.AssistantAnswerDto{}, recentMessagesError
 	}
@@ -120,21 +120,26 @@ func (assistantConversationService *AssistantConversationService) Ask(
 	)
 
 	answeredExchange, answer, exchangeError := assistantConversationService.writeAnswer(
-		executionContext, exchange)
+		executionContext, askDto.ViewerID, exchange)
 	if exchangeError != nil {
 		return dto.AssistantAnswerDto{}, exchangeError
 	}
 
 	return assistantConversationService.store(
-		executionContext, askDto.ConversationID, answeredExchange.ToTurn(answer, now))
+		executionContext, askDto.ViewerID, askDto.ConversationID,
+		answeredExchange.ToTurn(answer, now))
 }
 
-// ListConversations returns every conversation, the most recently active first.
-// Holding none is an answer rather than a failure.
+// ListConversations returns this person's conversations, the most recently active
+// first. Holding none is an answer rather than a failure.
+//
+// Whose they are is asked of the store rather than sorted out here: nothing this
+// method could forget to do can put somebody else's conversation in the list.
 func (assistantConversationService *AssistantConversationService) ListConversations(
-	executionContext context.Context,
+	executionContext context.Context, viewerID uint,
 ) ([]dto.ConversationSummaryDto, error) {
-	conversations, findError := assistantConversationService.conversationRepository.FindAll(executionContext)
+	conversations, findError := assistantConversationService.conversationRepository.FindAllOwnedBy(
+		executionContext, viewerID)
 	if findError != nil {
 		return nil, findError
 	}
@@ -147,25 +152,40 @@ func (assistantConversationService *AssistantConversationService) ListConversati
 	return summaryDtos, nil
 }
 
-// GetConversation returns one whole conversation, every message included — including
-// the ones too old for the assistant to still be shown.
+// GetConversation returns one whole conversation of this person's own, every message
+// included — including the ones too old for the assistant to still be shown.
+//
+// Somebody else's is answered as one that is not there. A transcript is not only
+// what was said: the assistant acts as whoever asked it, so an exchange can hold
+// that person's own algorithms in full.
 func (assistantConversationService *AssistantConversationService) GetConversation(
-	executionContext context.Context, id uint,
+	executionContext context.Context, viewerID uint, id uint,
 ) (dto.ConversationDto, error) {
 	conversation, findError := assistantConversationService.conversationRepository.FindOne(executionContext, id)
 	if findError != nil {
 		return dto.ConversationDto{}, findError
 	}
 
-	return domains.NewConversationDomain(conversation).ToDto(), nil
+	conversationDomain := domains.NewConversationDomain(conversation)
+	if ownershipError := conversationDomain.RequireOwnership(viewerID); ownershipError != nil {
+		return dto.ConversationDto{}, ownershipError
+	}
+
+	return conversationDomain.ToDto(), nil
 }
 
 // recentMessagesOf is what the assistant is allowed to remember of the conversation
 // this question belongs to. A question that names no conversation remembers nothing,
 // because there is nothing yet to remember — and it must not be answered by inventing
 // a conversation first, since an assistant that never answers must leave none behind.
+//
+// This is also where a question aimed at somebody else's conversation is turned away,
+// and it is the right place for two reasons: it is the first thing the ask does with
+// the identifier, so the refusal costs no answer, and it is the only read of that
+// conversation before the exchange is appended to it — so passing here is what makes
+// the append safe, rather than a second check that could disagree with this one.
 func (assistantConversationService *AssistantConversationService) recentMessagesOf(
-	executionContext context.Context, conversationId uint,
+	executionContext context.Context, viewerID uint, conversationId uint,
 ) ([]vo.AssistantMessageVo, error) {
 	if conversationId == 0 {
 		return make([]vo.AssistantMessageVo, 0), nil
@@ -177,7 +197,12 @@ func (assistantConversationService *AssistantConversationService) recentMessages
 		return nil, findError
 	}
 
-	return domains.NewConversationDomain(conversation).RecentMessages(
+	conversationDomain := domains.NewConversationDomain(conversation)
+	if ownershipError := conversationDomain.RequireOwnership(viewerID); ownershipError != nil {
+		return nil, ownershipError
+	}
+
+	return conversationDomain.RecentMessages(
 		assistantConversationService.recentMessageLimit), nil
 }
 
@@ -197,7 +222,7 @@ func (assistantConversationService *AssistantConversationService) recentMessages
 // all — recording a blank answer would put a question with nothing under it into the
 // conversation for good.
 func (assistantConversationService *AssistantConversationService) writeAnswer(
-	executionContext context.Context, exchange domains.AssistantExchangeDomain,
+	executionContext context.Context, viewerID uint, exchange domains.AssistantExchangeDomain,
 ) (domains.AssistantExchangeDomain, string, error) {
 	for {
 		reply, replyError := assistantConversationService.assistantProxy.Reply(
@@ -214,7 +239,7 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 		if len(allowedCalls) > 0 {
 			exchange = exchange.RecordRound(
 				reply.Answer,
-				assistantConversationService.runAssistantQueries(executionContext, allowedCalls))
+				assistantConversationService.runAssistantQueries(executionContext, viewerID, allowedCalls))
 
 			continue
 		}
@@ -234,11 +259,11 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 // result — including the refused ones. A request left without a result is the one
 // shape the assistant's own interface refuses outright.
 func (assistantConversationService *AssistantConversationService) runAssistantQueries(
-	executionContext context.Context, calls []vo.AssistantQueryCallVo,
+	executionContext context.Context, viewerID uint, calls []vo.AssistantQueryCallVo,
 ) []vo.AssistantQueryExchangeVo {
 	exchanges := make([]vo.AssistantQueryExchangeVo, 0, len(calls))
 	for _, call := range calls {
-		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, call)
+		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, viewerID, call)
 		exchanges = append(exchanges, vo.AssistantQueryExchangeVo{
 			Call:     call,
 			Outcome:  outcome,
@@ -258,14 +283,14 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 // at all, the assistant is handed the reason and goes on writing. Ending the answer
 // over any of them would throw away every lookup that had already succeeded.
 func (assistantConversationService *AssistantConversationService) runAssistantQuery(
-	executionContext context.Context, call vo.AssistantQueryCallVo,
+	executionContext context.Context, viewerID uint, call vo.AssistantQueryCallVo,
 ) (string, bool) {
 	for _, assistantQuery := range assistantConversationService.assistantQueries {
 		if assistantQuery.Name() != call.Name {
 			continue
 		}
 
-		outcome, runError := assistantQuery.Run(executionContext, call.Arguments)
+		outcome, runError := assistantQuery.Run(executionContext, viewerID, call.Arguments)
 		if runError != nil {
 			return runError.Error(), true
 		}
@@ -286,7 +311,7 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 // that a question which started a conversation can be followed up without the caller
 // going looking for where it landed.
 func (assistantConversationService *AssistantConversationService) store(
-	executionContext context.Context, conversationId uint, turn entities.AssistantTurn,
+	executionContext context.Context, viewerID uint, conversationId uint, turn entities.AssistantTurn,
 ) (dto.AssistantAnswerDto, error) {
 	storedConversation, storeError := entities.Conversation{}, error(nil)
 
@@ -294,6 +319,7 @@ func (assistantConversationService *AssistantConversationService) store(
 		storedConversation, storeError = assistantConversationService.conversationRepository.Save(
 			executionContext,
 			entities.Conversation{
+				OwnerID:      viewerID,
 				LastActiveAt: turn.CreatedAt,
 				Turns:        []entities.AssistantTurn{turn},
 			})

@@ -43,7 +43,7 @@ func (strategyUpdateAssistantQuery *StrategyUpdateAssistantQuery) ArgumentSchema
 
 // Run rewrites the strategy and hands it back as it now stands.
 func (strategyUpdateAssistantQuery *StrategyUpdateAssistantQuery) Run(
-	executionContext context.Context, arguments string,
+	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {
 	writeArguments := strategyWriteAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
@@ -51,7 +51,7 @@ func (strategyUpdateAssistantQuery *StrategyUpdateAssistantQuery) Run(
 	}
 
 	strategyDto, updateError := strategyUpdateAssistantQuery.strategyApplication.UpdateStrategy(
-		executionContext, writeArguments.ToWriteDto(writeArguments.StrategyID))
+		executionContext, writeArguments.ToWriteDto(writeArguments.StrategyID, viewerID))
 	if updateError != nil {
 		return "", updateError
 	}

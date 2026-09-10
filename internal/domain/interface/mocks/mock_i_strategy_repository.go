@@ -55,19 +55,49 @@ func (mr *MockIStrategyRepositoryMockRecorder) Delete(executionContext, id any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIStrategyRepository)(nil).Delete), executionContext, id)
 }
 
-// FindAll mocks base method.
-func (m *MockIStrategyRepository) FindAll(executionContext context.Context) ([]entities.Strategy, error) {
+// FindAllAdoptedBy mocks base method.
+func (m *MockIStrategyRepository) FindAllAdoptedBy(executionContext context.Context, userID uint) ([]entities.PublishedStrategy, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAll", executionContext)
+	ret := m.ctrl.Call(m, "FindAllAdoptedBy", executionContext, userID)
+	ret0, _ := ret[0].([]entities.PublishedStrategy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindAllAdoptedBy indicates an expected call of FindAllAdoptedBy.
+func (mr *MockIStrategyRepositoryMockRecorder) FindAllAdoptedBy(executionContext, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllAdoptedBy", reflect.TypeOf((*MockIStrategyRepository)(nil).FindAllAdoptedBy), executionContext, userID)
+}
+
+// FindAllOwnedBy mocks base method.
+func (m *MockIStrategyRepository) FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.Strategy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAllOwnedBy", executionContext, ownerID)
 	ret0, _ := ret[0].([]entities.Strategy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindAll indicates an expected call of FindAll.
-func (mr *MockIStrategyRepositoryMockRecorder) FindAll(executionContext any) *gomock.Call {
+// FindAllOwnedBy indicates an expected call of FindAllOwnedBy.
+func (mr *MockIStrategyRepositoryMockRecorder) FindAllOwnedBy(executionContext, ownerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockIStrategyRepository)(nil).FindAll), executionContext)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllOwnedBy", reflect.TypeOf((*MockIStrategyRepository)(nil).FindAllOwnedBy), executionContext, ownerID)
+}
+
+// FindAllPublished mocks base method.
+func (m *MockIStrategyRepository) FindAllPublished(executionContext context.Context) ([]entities.PublishedStrategy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAllPublished", executionContext)
+	ret0, _ := ret[0].([]entities.PublishedStrategy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindAllPublished indicates an expected call of FindAllPublished.
+func (mr *MockIStrategyRepositoryMockRecorder) FindAllPublished(executionContext any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllPublished", reflect.TypeOf((*MockIStrategyRepository)(nil).FindAllPublished), executionContext)
 }
 
 // FindOne mocks base method.

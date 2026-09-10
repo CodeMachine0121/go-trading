@@ -57,19 +57,19 @@ func (mr *MockIConversationRepositoryMockRecorder) AppendTurn(executionContext, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendTurn", reflect.TypeOf((*MockIConversationRepository)(nil).AppendTurn), executionContext, conversationId, turn)
 }
 
-// FindAll mocks base method.
-func (m *MockIConversationRepository) FindAll(executionContext context.Context) ([]entities.Conversation, error) {
+// FindAllOwnedBy mocks base method.
+func (m *MockIConversationRepository) FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.Conversation, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAll", executionContext)
+	ret := m.ctrl.Call(m, "FindAllOwnedBy", executionContext, ownerID)
 	ret0, _ := ret[0].([]entities.Conversation)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindAll indicates an expected call of FindAll.
-func (mr *MockIConversationRepositoryMockRecorder) FindAll(executionContext any) *gomock.Call {
+// FindAllOwnedBy indicates an expected call of FindAllOwnedBy.
+func (mr *MockIConversationRepositoryMockRecorder) FindAllOwnedBy(executionContext, ownerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAll", reflect.TypeOf((*MockIConversationRepository)(nil).FindAll), executionContext)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllOwnedBy", reflect.TypeOf((*MockIConversationRepository)(nil).FindAllOwnedBy), executionContext, ownerID)
 }
 
 // FindOne mocks base method.

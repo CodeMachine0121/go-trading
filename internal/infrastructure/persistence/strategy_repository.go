@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// StrategyNameIndex is the unique index on a strategy's name, and
+// StrategyNameIndex is the unique index on an owner and a strategy's name, and
 // uniqueViolationCode is what PostgreSQL calls a broken unique constraint. Together
 // they are how a name clash is told apart from any other constraint on the table —
 // the primary key included, which breaks when a restored dump leaves the identifier
@@ -23,7 +23,7 @@ import (
 // as a conflict and starts being reported as a storage failure. It is exported so
 // that the agreement between the two spellings is asserted by a test needing no
 // database, rather than only by one that skips when there is none.
-const StrategyNameIndex = "idx_strategies_name"
+const StrategyNameIndex = "idx_strategies_owner_name"
 
 // uniqueViolationCode is what PostgreSQL calls a broken unique constraint.
 const uniqueViolationCode = "23505"
@@ -32,8 +32,11 @@ const uniqueViolationCode = "23505"
 // what makes "the identifier and the time it was first saved never change" true:
 // they are not on the list, so no update can reach them however the entity handed in
 // was filled.
+//
+// The owner is not on the list either, which is what makes "a strategy never
+// changes hands" a thing this code cannot express rather than a thing it remembers.
 var strategyWritableColumns = []string{
-	"name", "script", "result_type", "aggregation_interval", "candle_count",
+	"name", "description", "script", "result_type",
 }
 
 // StrategyRepository stores saved strategies in PostgreSQL.
@@ -122,6 +125,21 @@ func (strategyRepository *StrategyRepository) Update(
 // back without them looks like a strategy that has none.
 const strategyParametersAssociation = "Parameters"
 
+// strategyPublicationAssociation is how GORM is asked whether a strategy is on the
+// marketplace. It is read alongside an owner's own strategies because that is the
+// only place the answer is used — it decides whether the button in front of them
+// publishes or withdraws — and asking per strategy would be one query each.
+const strategyPublicationAssociation = "Publication"
+
+// The three associations a marketplace row is read with. A publication on its own
+// is an identifier and a moment; what a reader wants is the strategy behind it, the
+// knobs it declares and who published it.
+const (
+	publishedStrategyAssociation           = "Strategy"
+	publishedStrategyParametersAssociation = "Strategy.Parameters"
+	publishedStrategyOwnerAssociation      = "Strategy.Owner"
+)
+
 // replaceParameters swaps a strategy's whole set of knobs for the ones handed in.
 //
 // Deleting then inserting, rather than working out which rows changed, is the honest
@@ -194,6 +212,7 @@ func (strategyRepository *StrategyRepository) FindOne(executionContext context.C
 
 	result := strategyRepository.database.WithContext(executionContext).
 		Preload(strategyParametersAssociation).
+		Preload(strategyPublicationAssociation).
 		First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Strategy{}, domains.StrategyNotFound(id)
@@ -205,12 +224,16 @@ func (strategyRepository *StrategyRepository) FindOne(executionContext context.C
 	return strategy, nil
 }
 
-// FindAll returns every saved strategy, ordered by name.
-func (strategyRepository *StrategyRepository) FindAll(executionContext context.Context) ([]entities.Strategy, error) {
+// FindAllOwnedBy returns every strategy belonging to this owner, ordered by name.
+func (strategyRepository *StrategyRepository) FindAllOwnedBy(
+	executionContext context.Context, ownerID uint,
+) ([]entities.Strategy, error) {
 	strategies := make([]entities.Strategy, 0)
 
 	result := strategyRepository.database.WithContext(executionContext).
 		Preload(strategyParametersAssociation).
+		Preload(strategyPublicationAssociation).
+		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "name"}}).
 		Find(&strategies)
 	if result.Error != nil {
@@ -218,6 +241,59 @@ func (strategyRepository *StrategyRepository) FindAll(executionContext context.C
 	}
 
 	return strategies, nil
+}
+
+// FindAllPublished returns everything on the marketplace, newest publication first,
+// each row already carrying the strategy, its knobs and its owner.
+//
+// Reading all four together is one question rather than four: a listing that came
+// back as identifiers would send the caller round again per row, and the marketplace
+// is the one page where every row needs all of it.
+func (strategyRepository *StrategyRepository) FindAllPublished(
+	executionContext context.Context,
+) ([]entities.PublishedStrategy, error) {
+	publications := make([]entities.PublishedStrategy, 0)
+
+	result := strategyRepository.database.WithContext(executionContext).
+		Preload(publishedStrategyAssociation).
+		Preload(publishedStrategyParametersAssociation).
+		Preload(publishedStrategyOwnerAssociation).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "published_at"}, Desc: true}).
+		Find(&publications)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find published strategies: %w", result.Error)
+	}
+
+	return publications, nil
+}
+
+// FindAllAdoptedBy returns everything this person has taken off the marketplace and
+// that is still on it, ordered by the strategy's name.
+//
+// "Still on it" needs no clause of its own: an adoption points at a publication and
+// goes with it, so a row that is here has a publication by construction. The join
+// onto the adoptions is what narrows this to one person's shelf, and it is also why
+// the ordering is stated over the strategy's own column rather than the row's.
+func (strategyRepository *StrategyRepository) FindAllAdoptedBy(
+	executionContext context.Context, userID uint,
+) ([]entities.PublishedStrategy, error) {
+	publications := make([]entities.PublishedStrategy, 0)
+
+	result := strategyRepository.database.WithContext(executionContext).
+		Model(&entities.PublishedStrategy{}).
+		Joins(`JOIN "StrategyAdoptions" ON "StrategyAdoptions".strategy_id = "PublishedStrategies".strategy_id`).
+		Joins(`JOIN "Strategies" ON "Strategies".id = "PublishedStrategies".strategy_id`).
+		Where(clause.Eq{Column: clause.Column{Table: "StrategyAdoptions", Name: "user_id"}, Value: userID}).
+		Preload(publishedStrategyAssociation).
+		Preload(publishedStrategyParametersAssociation).
+		Preload(publishedStrategyOwnerAssociation).
+		Order(clause.OrderByColumn{Column: clause.Column{Table: "Strategies", Name: "name"}}).
+		Find(&publications)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find adopted strategies: %w", result.Error)
+	}
+
+	return publications, nil
 }
 
 // Delete removes the strategy for good. There is no keeping of what was deleted:

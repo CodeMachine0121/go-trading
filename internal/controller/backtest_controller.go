@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/gin-gonic/gin"
@@ -28,8 +29,16 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 		return
 	}
 
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
+		backtestRequest.StrategyID, backtestRequest.Script, "", backtestRequest.ToParameterWriteDtos())
+	if subjectError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": subjectError.Error()})
+		return
+	}
+
 	resultDto, err := backtestController.backtestApplication.RunBacktest(
-		ginContext.Request.Context(), backtestRequest.ToRequestDto())
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), runSubjectDomain,
+		backtestRequest.ToRequestDto())
 	if err != nil {
 		backtestController.respondWithError(ginContext, err)
 		return
@@ -46,6 +55,13 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 // it to run, and a screen showing both should not have to tell two stories about one
 // broken line.
 func (backtestController *BacktestController) respondWithError(ginContext *gin.Context, err error) {
+	// A strategy that is not there, one belonging to somebody else, and one that is
+	// not on the marketplace all arrive as this single refusal, and all leave as the
+	// same 404. Telling them apart would let a caller learn which identifiers exist.
+	if errors.Is(err, domains.ErrStrategyNotFound) {
+		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
 	// Naming the input at fault is what lets a caller put the sentence where the
 	// person can act on it, rather than at the top of a page away from the box they
 	// have to change. The name travels as a value, not inside the sentence.

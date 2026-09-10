@@ -12,16 +12,21 @@ import (
 //
 // It carries no indicator value kind. A replay reads one number per candle — the
 // signal — so there is nothing here for a caller to declare and nothing to get wrong.
+// Like an indicator calculation, it either names a strategy or carries an
+// algorithm the caller wrote and has not saved — never both. It declares no kind of
+// value either way: a replay reads signals, so there is nothing to choose.
 type BacktestRequest struct {
-	Symbol              string    `json:"symbol"`
-	AggregationInterval string    `json:"aggregationInterval"`
-	StartTime           time.Time `json:"startTime"`
-	EndTime             time.Time `json:"endTime"`
-	Script              string    `json:"script"`
-	// Parameters are the algorithm's knobs as declared, and ParameterValues what they
-	// are worth this time. Both arrive with the run rather than being looked up,
-	// because what is replayed is a script — it may never have been saved.
-	Parameters      []StrategyParameterRequest      `json:"parameters"`
+	StrategyID uint   `json:"strategyId"`
+	Symbol     string `json:"symbol"`
+	// Script and Parameters describe an algorithm the caller wrote and has not
+	// saved. They are read only when no strategy is named.
+	Script              string                     `json:"script"`
+	Parameters          []StrategyParameterRequest `json:"parameters"`
+	AggregationInterval string                     `json:"aggregationInterval"`
+	StartTime           time.Time                  `json:"startTime"`
+	EndTime             time.Time                  `json:"endTime"`
+	// ParameterValues are what the strategy's knobs are worth this time, used for
+	// this replay only and never written back.
 	ParameterValues []StrategyParameterValueRequest `json:"parameterValues"`
 	InitialCapital  decimal.Decimal                 `json:"initialCapital"`
 	// PositionSizingMode is how much each opening stakes, and PositionSizingValue the
@@ -31,6 +36,16 @@ type BacktestRequest struct {
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
 }
 
+// ToParameterWriteDtos hands on the knobs an unsaved algorithm declares.
+func (backtestRequest BacktestRequest) ToParameterWriteDtos() []dto.StrategyParameterWriteDto {
+	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(backtestRequest.Parameters))
+	for _, parameterRequest := range backtestRequest.Parameters {
+		parameterWriteDtos = append(parameterWriteDtos, parameterRequest.ToWriteDto())
+	}
+
+	return parameterWriteDtos
+}
+
 // ToRequestDto turns the request into the shape the domain accepts.
 func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 	return dto.BacktestRequestDto{
@@ -38,22 +53,11 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 		AggregationInterval: backtestRequest.AggregationInterval,
 		StartTime:           backtestRequest.StartTime,
 		EndTime:             backtestRequest.EndTime,
-		Script:              backtestRequest.Script,
-		Parameters:          backtestRequest.parameterWriteDtos(),
 		ParameterValues:     backtestRequest.parameterValueDtos(),
 		InitialCapital:      backtestRequest.InitialCapital,
 		PositionSizingMode:  backtestRequest.PositionSizingMode,
 		PositionSizingValue: backtestRequest.PositionSizingValue,
 	}
-}
-
-func (backtestRequest BacktestRequest) parameterWriteDtos() []dto.StrategyParameterWriteDto {
-	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(backtestRequest.Parameters))
-	for _, parameterRequest := range backtestRequest.Parameters {
-		parameterWriteDtos = append(parameterWriteDtos, parameterRequest.ToWriteDto())
-	}
-
-	return parameterWriteDtos
 }
 
 func (backtestRequest BacktestRequest) parameterValueDtos() []dto.StrategyParameterValueDto {

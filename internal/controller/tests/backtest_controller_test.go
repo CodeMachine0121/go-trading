@@ -33,10 +33,14 @@ const backtestBody = `{
 	"aggregationInterval":"1h",
 	"startTime":"2026-08-29T00:00:00Z",
 	"endTime":"2026-08-29T04:00:00Z",
-	"script":"the script",
+	"strategyId":9,
 	"initialCapital":"10000",
 	"positionSizingMode":"allIn"
 }`
+
+// backtestRouterStrategyID is the strategy every replay below names. It belongs to
+// the signed-in viewer and holds "the script".
+const backtestRouterStrategyID = uint(9)
 
 type backtestRouterUnderTest struct {
 	engine               *gin.Engine
@@ -52,13 +56,23 @@ func newBacktestRouterUnderTest(t *testing.T) backtestRouterUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(backtestRouterNow).AnyTimes()
 
+	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
+	strategyRepository.EXPECT().FindOne(gomock.Any(), backtestRouterStrategyID).
+		Return(entities.Strategy{
+			ID: backtestRouterStrategyID, OwnerID: signedInViewerID, Script: "the script",
+		}, nil).AnyTimes()
+	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
+	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+
 	backtestController := controller.NewBacktestController(
 		application.NewBacktestApplication(
+			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
 			service.NewBacktestService(
 				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)))
 
 	engine := gin.New()
-	engine.POST("/backtests", backtestController.RunBacktest)
+	engine.POST("/backtests", doorOpenFor(t, signedInViewerID), backtestController.RunBacktest)
 
 	return backtestRouterUnderTest{
 		engine:               engine,
@@ -70,6 +84,7 @@ func newBacktestRouterUnderTest(t *testing.T) backtestRouterUnderTest {
 func (fixture backtestRouterUnderTest) post(body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/backtests", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 
@@ -161,7 +176,7 @@ func TestRunBacktestEndpoint(t *testing.T) {
 			"aggregationInterval":"1h",
 			"startTime":"2026-08-29T00:00:00Z",
 			"endTime":"2026-08-29T04:00:00Z",
-			"script":"the script",
+			"strategyId":9,
 			"initialCapital":"0",
 			"positionSizingMode":"allIn"
 		}`)
@@ -192,7 +207,7 @@ func TestRunBacktestEndpoint(t *testing.T) {
 			"aggregationInterval":"1h",
 			"startTime":"2026-08-29T00:00:00Z",
 			"endTime":"2026-08-29T04:00:00Z",
-			"script":"the script",
+			"strategyId":9,
 			"initialCapital":"10000",
 			"positionSizingMode":"percentage",
 			"positionSizingValue":"0"

@@ -33,7 +33,12 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"DELETE /k-candles/:symbol/:openTime",
+		// Taking a published strategy off one's own shelf, and taking one's own
+		// strategy off the shared shelf. Two different withdrawals, so two paths:
+		// one hangs off the marketplace, the other off the strategy itself.
+		"DELETE /marketplace/strategies/:id/adoption",
 		"DELETE /strategies/:id",
+		"DELETE /strategies/:id/publication",
 		// Stopping and starting the watching of one market. Neither reaches ingestion
 		// itself: a caller can say what to keep up to date, never when to do it.
 		"DELETE /watchlist/:symbol",
@@ -49,6 +54,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// and cannot touch the watchlist, so the boundary this test holds is intact.
 		"GET /k-candles/live",
 		"GET /k-candles/series",
+		// The shared shelf. It hands out names, descriptions and knobs, never an
+		// algorithm — that is a property of the shape it answers with, not of this
+		// route.
+		"GET /marketplace/strategies",
 		"GET /strategies",
 		"GET /strategies/:id",
 		"GET /trading-symbols",
@@ -62,10 +71,12 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"POST /k-candles/backfill",
+		"POST /marketplace/strategies/:id/adoption",
 		"POST /sessions",
 		"POST /sessions/renewal",
 		"POST /sessions/revocation",
 		"POST /strategies",
+		"POST /strategies/:id/publication",
 		"POST /users",
 		"POST /watchlist",
 		"PUT /k-candles/:symbol/:openTime",

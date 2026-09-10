@@ -6,7 +6,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// Strategy is one saved strategy: an algorithm and nothing else. How coarse the K
+// Strategy is one saved strategy: an algorithm, who it belongs to, and nothing else. How coarse the K
 // candles are, how many of them, and up to when are all decided by whoever runs it,
 // so the same algorithm can be run at any coarseness over any stretch of market.
 // It is a plain data model: fields, persistence mapping and shape conversion only,
@@ -17,13 +17,36 @@ import (
 // it unique: two creates arriving at once both pass a check, and only one passes an
 // index. It also gives renaming a strategy to its own current name for free, since
 // the row it collides with is itself.
+//
+// That index spans the owner as well as the name, so it is uniqueness *within one
+// person's collection*. A name is what its owner recognises a strategy by, and
+// nobody recognises a stranger's; one shared pool of names would only mean the
+// first person here takes "二十根均線" away from everybody else forever.
 type Strategy struct {
-	ID         uint      `gorm:"primaryKey"`
-	Name       string    `gorm:"size:128;not null;uniqueIndex:idx_strategies_name"`
-	Script     string    `gorm:"type:text;not null"`
-	ResultType string    `gorm:"size:32;not null"`
-	CreatedAt  time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt  time.Time `gorm:"type:timestamptz;not null"`
+	ID uint `gorm:"primaryKey"`
+	// OwnerID is the person this strategy belongs to. It is settled when the
+	// strategy is created and never changes: it is not on the list of columns a
+	// rewrite may touch, so "a strategy cannot change hands" is something the write
+	// path cannot express rather than something it remembers not to do.
+	OwnerID uint   `gorm:"not null;index:idx_strategies_owner;uniqueIndex:idx_strategies_owner_name"`
+	Name    string `gorm:"size:128;not null;uniqueIndex:idx_strategies_owner_name"`
+	// Description is what the owner says this strategy is for. It may be empty, and
+	// on the marketplace it is the only thing there is to judge by — the script is
+	// never handed out, so a strategy with no description is a name and nothing else.
+	Description string    `gorm:"type:text;not null;default:''"`
+	Script      string    `gorm:"type:text;not null"`
+	ResultType  string    `gorm:"size:32;not null"`
+	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	// Owner is declared so that a marketplace listing can name who published each
+	// strategy without a second copy of that fact living on the publication row.
+	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
+	// Publication is "this strategy is on the marketplace", and it is declared here
+	// with a cascade so that deleting a strategy takes it off the marketplace —
+	// and, through the publication's own cascade, out of everybody's shelf. That
+	// chain is the whole implementation of those two rules; no Go code performs it,
+	// which is why no Go code can forget to.
+	Publication *PublishedStrategy `gorm:"foreignKey:StrategyID;constraint:OnDelete:CASCADE"`
 	// Parameters belong to this strategy and to nothing else: they are never read,
 	// created or deleted on their own, which is why they have no repository of their
 	// own and travel with the strategy that owns them.
@@ -39,10 +62,15 @@ func (strategy Strategy) TableName() string {
 // are always handed out in universal time, whatever zone they were read back in.
 func (strategy Strategy) ToDto() dto.StrategyDto {
 	return dto.StrategyDto{
-		ID:         strategy.ID,
-		Name:       strategy.Name,
-		Script:     strategy.Script,
-		ResultType: strategy.ResultType,
+		ID:          strategy.ID,
+		Name:        strategy.Name,
+		Description: strategy.Description,
+		Script:      strategy.Script,
+		ResultType:  strategy.ResultType,
+		// A publication read back with the strategy is what says it is out there.
+		// Asking the marketplace separately would be one more query per strategy,
+		// and the association is already declared right here.
+		Published:  strategy.Publication != nil,
 		CreatedAt:  strategy.CreatedAt.UTC(),
 		UpdatedAt:  strategy.UpdatedAt.UTC(),
 		Parameters: strategy.parameterDtos(),

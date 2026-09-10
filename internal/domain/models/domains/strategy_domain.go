@@ -12,6 +12,12 @@ import (
 // around it are dropped. It is the single place this limit is written down.
 const strategyNameMaxLength = 128
 
+// strategyDescriptionMaxLength is how long a strategy's description may be, counted
+// after the blanks around it are dropped. It is generous because on the marketplace
+// it is the only thing a reader has to go on — the script is never handed out — but
+// it is bounded because a description is a paragraph, not a document.
+const strategyDescriptionMaxLength = 512
+
 // StrategyDomain holds one strategy and guarantees its own invariants. An instance
 // only exists when every rule passed, so there is no half-valid strategy.
 //
@@ -31,17 +37,28 @@ const strategyNameMaxLength = 128
 // get right, and a strategy that refused to be saved half-finished could not be
 // picked up again tomorrow.
 type StrategyDomain struct {
-	id         uint
-	name       string
-	script     string
-	resultType IndicatorResultTypeDomain
-	parameters StrategyParametersDomain
+	id          uint
+	ownerID     uint
+	name        string
+	description string
+	script      string
+	resultType  IndicatorResultTypeDomain
+	parameters  StrategyParametersDomain
 }
 
 // NewStrategyDomain validates the strategy against every rule that applies to it.
 // The rules are identical whether the strategy is being created or rewritten,
 // because both arrive here as the same shape.
 func NewStrategyDomain(writeDto dto.StrategyWriteDto) (StrategyDomain, error) {
+	// A strategy with nobody behind it is refused here rather than at the store,
+	// because "every strategy has an owner" is a rule about strategies, not a
+	// constraint that happens to exist on a column. Written here, it holds for
+	// anything that ever builds one — including a future caller that does not go
+	// through the same store.
+	if writeDto.OwnerID == 0 {
+		return StrategyDomain{}, fmt.Errorf("%w: 策略必須屬於一位使用者", ErrStrategyValidation)
+	}
+
 	name := strings.TrimSpace(writeDto.Name)
 	if name == "" {
 		return StrategyDomain{}, fmt.Errorf("%w: 必須給策略取一個名稱", ErrStrategyValidation)
@@ -55,6 +72,20 @@ func NewStrategyDomain(writeDto dto.StrategyWriteDto) (StrategyDomain, error) {
 	if len([]rune(name)) > strategyNameMaxLength {
 		return StrategyDomain{}, fmt.Errorf(
 			"%w: 策略名稱長度上限為 %d 個字", ErrStrategyValidation, strategyNameMaxLength)
+	}
+
+	// A description is optional, so blanks and nothing are the same thing: somebody
+	// who typed only spaces said nothing, and storing their spaces would make the
+	// marketplace show an empty paragraph instead of no paragraph.
+	description := strings.TrimSpace(writeDto.Description)
+	if len([]rune(description)) > strategyDescriptionMaxLength {
+		return StrategyDomain{}, fmt.Errorf(
+			"%w: 策略說明長度上限為 %d 個字", ErrStrategyValidation, strategyDescriptionMaxLength)
+	}
+
+	if strings.ContainsRune(description, nulCharacter) {
+		return StrategyDomain{}, fmt.Errorf(
+			"%w: 策略說明不得包含空字元（NUL）", ErrStrategyValidation)
 	}
 
 	if strings.TrimSpace(writeDto.Script) == "" {
@@ -79,11 +110,13 @@ func NewStrategyDomain(writeDto dto.StrategyWriteDto) (StrategyDomain, error) {
 	}
 
 	return StrategyDomain{
-		id:         writeDto.ID,
-		name:       name,
-		script:     writeDto.Script,
-		resultType: resultType,
-		parameters: parameters,
+		id:          writeDto.ID,
+		ownerID:     writeDto.OwnerID,
+		name:        name,
+		description: description,
+		script:      writeDto.Script,
+		resultType:  resultType,
+		parameters:  parameters,
 	}, nil
 }
 
@@ -99,10 +132,12 @@ func (strategyDomain StrategyDomain) ResultType() IndicatorResultTypeDomain {
 // saving happens, not claimed here.
 func (strategyDomain StrategyDomain) ToEntity() entities.Strategy {
 	return entities.Strategy{
-		ID:         strategyDomain.id,
-		Name:       strategyDomain.name,
-		Script:     strategyDomain.script,
-		ResultType: string(strategyDomain.resultType.Value()),
-		Parameters: strategyDomain.parameters.ToEntities(),
+		ID:          strategyDomain.id,
+		OwnerID:     strategyDomain.ownerID,
+		Name:        strategyDomain.name,
+		Description: strategyDomain.description,
+		Script:      strategyDomain.script,
+		ResultType:  string(strategyDomain.resultType.Value()),
+		Parameters:  strategyDomain.parameters.ToEntities(),
 	}
 }

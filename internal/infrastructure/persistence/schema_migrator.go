@@ -5,6 +5,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // SchemaMigrator syncs the database schema from the entity definitions, code first.
@@ -38,6 +39,48 @@ var retiredColumns = []retiredColumn{
 	{entity: &entities.Strategy{}, name: "candle_count"},
 }
 
+// retiredIndex is an index an entity used to carry. AutoMigrate adds indexes but
+// never drops them, so an index that has been replaced stays behind and keeps
+// enforcing a rule nobody asked for — which is worse than a leftover column: a
+// column just sits there, whereas a leftover unique index refuses writes the system
+// now considers perfectly fine.
+type retiredIndex struct {
+	entity any
+	name   string
+}
+
+// retiredIndexes are the indexes to drop after the schema is synced. Dropping is
+// idempotent, so this list may be kept long after every database has caught up.
+var retiredIndexes = []retiredIndex{
+	// A strategy's name used to be unique across the whole system. It is now unique
+	// within one owner's collection, and the old index would keep the first person
+	// here holding "二十根均線" against everybody else forever.
+	{entity: &entities.Strategy{}, name: "idx_strategies_name"},
+}
+
+// ownerlessTable is a table that gained an owner it may not be without. Rows saved
+// before that column existed belong to nobody, and nobody is not a person whose
+// things these are — so they go.
+type ownerlessTable struct {
+	entity      any
+	ownerColumn string
+	// description names the rows in the failure, because "clear ownerless rows"
+	// tells whoever reads it nothing about which ones.
+	description string
+}
+
+// ownerlessTables are the tables to empty while they still predate their owner
+// column. Each condition stops being true the moment the migration after it runs,
+// so this list may be kept long after every database has caught up.
+var ownerlessTables = []ownerlessTable{
+	// Strategies became somebody's property.
+	{entity: &entities.Strategy{}, ownerColumn: "owner_id", description: "strategies"},
+	// So did conversations, and for a sharper reason: the assistant acts as whoever
+	// asked it, so a transcript can hold that person's own algorithms. A conversation
+	// belonging to nobody would be readable by everybody.
+	{entity: &entities.Conversation{}, ownerColumn: "owner_id", description: "conversations"},
+}
+
 // Migrate creates or updates the table of every registered entity, drops the columns
 // no entity claims any more, and reports the resulting table names. Register every
 // new entity in the slice below.
@@ -52,6 +95,15 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.AssistantQueryRecord{},
 		&entities.User{},
 		&entities.Session{},
+		&entities.PublishedStrategy{},
+		&entities.StrategyAdoption{},
+	}
+
+	// Clearing has to happen before the schema is synced, not after: these tables
+	// gained an owner that may not be null, and a table with rows in it cannot grow
+	// such a column.
+	if clearError := schemaMigrator.clearOwnerlessRows(); clearError != nil {
+		return nil, clearError
 	}
 
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)
@@ -60,6 +112,10 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	}
 
 	if dropError := schemaMigrator.dropRetiredColumns(); dropError != nil {
+		return nil, dropError
+	}
+
+	if dropError := schemaMigrator.dropRetiredIndexes(); dropError != nil {
 		return nil, dropError
 	}
 
@@ -87,6 +143,69 @@ func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 
 		if dropError := migrator.DropColumn(column.entity, column.name); dropError != nil {
 			return fmt.Errorf("drop retired column %s: %w", column.name, dropError)
+		}
+	}
+
+	return nil
+}
+
+// dropRetiredIndexes removes every index no entity claims any more, skipping the
+// ones already gone so that running this twice is the same as running it once.
+func (schemaMigrator *SchemaMigrator) dropRetiredIndexes() error {
+	migrator := schemaMigrator.database.Migrator()
+
+	for _, index := range retiredIndexes {
+		if !migrator.HasIndex(index.entity, index.name) {
+			continue
+		}
+
+		// The ORM's own DropIndex is not usable here, and this is the one place in
+		// the codebase that writes a statement out by hand. On this driver it
+		// builds "DROP INDEX <schema>.<name>" and, on a connection that names no
+		// schema, fills the first blank with a function call — which is not valid
+		// there. The statement below is what it was trying to write.
+		//
+		// It carries no value from anywhere: the name is a constant in the list
+		// above, and it goes through the ORM's own identifier quoting rather than
+		// being pasted into the text.
+		dropped := schemaMigrator.database.Exec("DROP INDEX IF EXISTS ?", clause.Column{Name: index.name})
+		if dropped.Error != nil {
+			return fmt.Errorf("drop retired index %s: %w", index.name, dropped.Error)
+		}
+	}
+
+	return nil
+}
+
+// clearOwnerlessRows empties every table that still predates the owner it may not
+// be without. What hangs off those rows goes with them through the cascades already
+// on the tables.
+//
+// The condition is the point: each one fires only while its table exists and has no
+// owner column, which is exactly once, and never again after the migration that
+// follows it. It is therefore not a script somebody has to remember to run once — it
+// is a statement about a shape that stops being true the moment it has done its
+// work, in the same spirit as the retired columns above.
+//
+// Assigning the rows to somebody instead was the alternative, and it was rejected:
+// picking an owner for a test row is a guess, and a guess here would leave "every
+// one of these belongs to a person" true only by accident.
+func (schemaMigrator *SchemaMigrator) clearOwnerlessRows() error {
+	migrator := schemaMigrator.database.Migrator()
+
+	for _, table := range ownerlessTables {
+		if !migrator.HasTable(table.entity) {
+			continue
+		}
+
+		if migrator.HasColumn(table.entity, table.ownerColumn) {
+			continue
+		}
+
+		if deleteError := schemaMigrator.database.
+			Where("1 = 1").
+			Delete(table.entity).Error; deleteError != nil {
+			return fmt.Errorf("clear ownerless %s: %w", table.description, deleteError)
 		}
 	}
 

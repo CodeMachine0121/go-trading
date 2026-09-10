@@ -27,13 +27,15 @@ func (assistantConversationApplication *AssistantConversationApplication) Ask(
 }
 
 func (assistantConversationApplication *AssistantConversationApplication) ListConversations(
-	executionContext context.Context,
+	executionContext context.Context, viewerID uint,
 ) ([]dto.ConversationSummaryDto, error) {
-	return assistantConversationApplication.assistantConversationService.ListConversations(executionContext)
+	return assistantConversationApplication.assistantConversationService.ListConversations(
+		executionContext, viewerID)
 }
 
 func (assistantConversationApplication *AssistantConversationApplication) GetConversation(
-	executionContext context.Context, id uint,
+	executionContext context.Context, viewerID uint, id uint,
 ) (dto.ConversationDto, error) {
-	return assistantConversationApplication.assistantConversationService.GetConversation(executionContext, id)
+	return assistantConversationApplication.assistantConversationService.GetConversation(
+		executionContext, viewerID, id)
 }

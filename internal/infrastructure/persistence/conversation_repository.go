@@ -110,17 +110,18 @@ func (conversationRepository *ConversationRepository) FindOne(
 	return readConversation(conversationRepository.database.WithContext(executionContext), id)
 }
 
-// FindAll returns every conversation, the most recently active first.
+// FindAllOwnedBy returns this person's conversations, the most recently active first.
 //
 // The exchanges come along because the list says how many messages each conversation
 // holds, and that number is what tells two of them apart when neither has a name.
 // What each exchange looked at does not: nobody reads a lookup from a list.
-func (conversationRepository *ConversationRepository) FindAll(
-	executionContext context.Context,
+func (conversationRepository *ConversationRepository) FindAllOwnedBy(
+	executionContext context.Context, ownerID uint,
 ) ([]entities.Conversation, error) {
 	conversations := make([]entities.Conversation, 0)
 
 	result := conversationRepository.database.WithContext(executionContext).
+		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Preload(conversationTurnsAssociation, orderedTurns).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "last_active_at"}, Desc: true}).
 		Find(&conversations)
