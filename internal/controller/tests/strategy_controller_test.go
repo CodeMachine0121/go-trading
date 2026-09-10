@@ -197,6 +197,37 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 	})
 }
 
+func TestStrategyRouterSavesTheStrategyForWhoeverCameThroughTheDoor(t *testing.T) {
+	// Who a strategy belongs to comes from the proof on the request, never from
+	// what the request says about itself. Without this, a door that recognised
+	// everybody as the same person would still pass every other test in this file.
+	fixture := newStrategyRouterUnderTest(t)
+	storedOwnerID := uint(0)
+	fixture.strategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, strategy entities.Strategy) (entities.Strategy, error) {
+			storedOwnerID = strategy.OwnerID
+
+			return aStoredStrategyRow(7, strategy.Name), nil
+		})
+
+	response := fixture.send(http.MethodPost, "/strategies", aStrategyBody)
+
+	require.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, signedInViewerID, storedOwnerID)
+}
+
+func TestStrategyRouterSavesNothingForARequestCarryingNoProof(t *testing.T) {
+	// Nothing is stubbed on the repository: nothing may reach storage.
+	fixture := newStrategyRouterUnderTest(t)
+
+	request := httptest.NewRequest(http.MethodPost, "/strategies", strings.NewReader(aStrategyBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	fixture.engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
 func TestStrategyRouterListAvailableStrategies(t *testing.T) {
 	t.Run("answers with the caller's own strategies and the ones they adopted", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)

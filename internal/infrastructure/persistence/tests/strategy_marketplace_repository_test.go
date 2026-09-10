@@ -344,3 +344,79 @@ func TestEveryMarketplaceOperationReportsAnUnusableStore(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestRewritingAStrategyDoesNotChangeWhoItBelongsTo(t *testing.T) {
+	// A strategy never changes hands, and the write path is where that could
+	// quietly stop being true: the owner is not on the list of columns a rewrite
+	// may touch, so a rewrite carrying somebody else's identifier reaches nothing.
+	database := newStrategyTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	secondOwnerID := aSecondOwner(t, database)
+	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
+	require.NoError(t, saveError)
+
+	handedOver := savedStrategy
+	handedOver.OwnerID = secondOwnerID
+	handedOver.Script = rewrittenScript
+	_, updateError := strategyRepository.Update(t.Context(), handedOver)
+
+	require.NoError(t, updateError)
+	stillMine, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
+	require.NoError(t, findError)
+	require.Len(t, stillMine, 1, "它還在原來那個人的名下")
+	assert.Equal(t, rewrittenScript, stillMine[0].Script, "改得動的是算式，不是主人")
+	theirs, theirError := strategyRepository.FindAllOwnedBy(t.Context(), secondOwnerID)
+	require.NoError(t, theirError)
+	assert.Empty(t, theirs)
+}
+
+func TestRepublishingDoesNotBringBackAnybodysAdoption(t *testing.T) {
+	// The owner took it back, and taking it back is not an agreement that everyone
+	// gets it again the moment they change their mind. Each person decides afresh.
+	database := newStrategyTestDatabase(t)
+	adopterID := aSecondOwner(t, database)
+	strategyID := aPublishedStrategy(t, database)
+	require.NoError(t, persistence.NewStrategyAdoptionRepository(database).
+		Adopt(t.Context(), adopterID, strategyID, publishedAtNoon))
+	publishedStrategyRepository := persistence.NewPublishedStrategyRepository(database)
+	require.NoError(t, publishedStrategyRepository.Withdraw(t.Context(), strategyID))
+
+	require.NoError(t, publishedStrategyRepository.Publish(t.Context(), strategyID, publishedAtDusk))
+
+	adopted, findError := persistence.NewStrategyRepository(database).
+		FindAllAdoptedBy(t.Context(), adopterID)
+	require.NoError(t, findError)
+	assert.Empty(t, adopted, "要再加入一次")
+}
+
+func TestRewritingAPublishedStrategyLeavesItPublishedAndAdopted(t *testing.T) {
+	// Publishing hands out the use of an algorithm, not a frozen copy. An owner who
+	// fixes a mistake should not also have to remember to publish again, and
+	// whoever is using it should get the fix.
+	database := newStrategyTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	adopterID := aSecondOwner(t, database)
+	strategyID := aPublishedStrategy(t, database)
+	require.NoError(t, persistence.NewStrategyAdoptionRepository(database).
+		Adopt(t.Context(), adopterID, strategyID, publishedAtNoon))
+
+	rewritten := strategyNamed("改過名字的")
+	rewritten.ID = strategyID
+	rewritten.Description = "改過的說明"
+	rewritten.Script = rewrittenScript
+	_, updateError := strategyRepository.Update(t.Context(), rewritten)
+	require.NoError(t, updateError)
+
+	adopted, findError := strategyRepository.FindAllAdoptedBy(t.Context(), adopterID)
+	require.NoError(t, findError)
+	require.Len(t, adopted, 1, "改一支策略不會把它從別人的書架上拿走")
+	assert.Equal(t, "改過名字的", adopted[0].ToDto().Name, "採用的是那一支策略，不是它當時的名字")
+	assert.Equal(t, "改過的說明", adopted[0].ToDto().Description)
+	assert.Equal(t, rewrittenScript, adopted[0].Strategy.Script,
+		"下一次執行拿到的是改過之後的")
+
+	onTheShelf, publishedError := strategyRepository.FindAllPublished(t.Context())
+	require.NoError(t, publishedError)
+	require.Len(t, onTheShelf, 1, "它仍然在市集上")
+	assert.Equal(t, "改過的說明", onTheShelf[0].ToDto().Description)
+}

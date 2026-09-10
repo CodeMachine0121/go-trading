@@ -447,3 +447,17 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 	assert.NotContains(t, recorder.Body.String(), "availableCandleCount",
 		"這不是湊得太薄——兩者的出路正好相反")
 }
+
+func TestCalculateIndicatorTurnsAwayARequestCarryingNoProof(t *testing.T) {
+	// Nothing is stubbed on the market store: an unproven request must not reach
+	// the strategy, let alone the candles behind it.
+	fixture := newIndicatorRouterUnderTest(t)
+
+	request := httptest.NewRequest(http.MethodPost, "/indicator-calculations",
+		strings.NewReader(indicatorBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	fixture.engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}

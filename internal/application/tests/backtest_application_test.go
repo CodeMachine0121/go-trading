@@ -291,3 +291,73 @@ func TestRunBacktest(t *testing.T) {
 		assert.ErrorIs(t, err, storageError)
 	})
 }
+
+func TestRunBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
+	// The gates are shared by construction — both use cases resolve through the
+	// same service — but shared by construction is something a reader works out,
+	// not something the suite has ever seen happen on this path.
+	t.Run("somebody else's published strategy replays", func(t *testing.T) {
+		fixture := newBacktestGateUnderTest(t, true)
+		fixture.kCandleRepository.EXPECT().
+			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				storedHourlyCandle(0, "100"), storedHourlyCandle(1, "110"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
+
+		_, err := fixture.backtestApplication.RunBacktest(
+			t.Context(), backtestStrangerID, backtestStrategyID, backtestRequestDto())
+
+		require.NoError(t, err)
+	})
+
+	t.Run("somebody else's unpublished strategy is not there", func(t *testing.T) {
+		// Nothing is stubbed on the market store: the refusal lands before any
+		// candle is read.
+		fixture := newBacktestGateUnderTest(t, false)
+
+		_, err := fixture.backtestApplication.RunBacktest(
+			t.Context(), backtestStrangerID, backtestStrategyID, backtestRequestDto())
+
+		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
+	})
+}
+
+// backtestStrangerID is somebody who does not own the strategy being replayed.
+const backtestStrangerID = uint(2)
+
+// newBacktestGateUnderTest replays a strategy belonging to somebody else, which is
+// on the marketplace or not as the argument says.
+func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest {
+	controller := gomock.NewController(t)
+	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(backtestNow).AnyTimes()
+
+	strategyRepository := mocks.NewMockIStrategyRepository(controller)
+	strategyRepository.EXPECT().FindOne(gomock.Any(), backtestStrategyID).
+		Return(entities.Strategy{
+			ID: backtestStrategyID, OwnerID: backtestViewerID, Script: "the script",
+		}, nil).AnyTimes()
+
+	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
+	if isPublished {
+		publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), backtestStrategyID).
+			Return(entities.PublishedStrategy{StrategyID: backtestStrategyID}, nil).AnyTimes()
+	} else {
+		publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), backtestStrategyID).
+			Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	}
+
+	return backtestUnderTest{
+		backtestApplication: application.NewBacktestApplication(
+			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			service.NewBacktestService(
+				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)),
+		kCandleRepository:    kCandleRepository,
+		indicatorScriptProxy: indicatorScriptProxy,
+	}
+}

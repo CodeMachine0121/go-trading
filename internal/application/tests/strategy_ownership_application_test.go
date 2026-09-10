@@ -226,3 +226,25 @@ func TestStrategyApplicationReportsAFailureToAskWhetherSomethingIsPublished(t *t
 	require.ErrorIs(t, err, storageFailure)
 	require.NotErrorIs(t, err, domains.ErrStrategyNotFound)
 }
+
+func TestResolvingAStrategyToRunItWritesNothingBack(t *testing.T) {
+	// Running somebody else's strategy with your own numbers must change nothing
+	// about it. Nothing is stubbed on the writing side of either store, so any
+	// write at all — to the strategy, or to the shelf entry — fails this outright.
+	fixture := newStrategyApplicationUnderTest(t)
+	strangersStrategy := aStrangersStrategy(7)
+	strangersStrategy.Parameters = []entities.StrategyParameter{
+		{Name: "期數", Kind: "lookbackCount", DefaultValue: 20},
+	}
+	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(strangersStrategy, nil)
+	fixture.publishedStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), uint(7)).Return(entities.PublishedStrategy{StrategyID: 7}, nil)
+
+	runnableStrategyDto, err := fixture.strategyApplication.ResolveRunnableStrategy(
+		t.Context(), strategyOwnerID, 7)
+
+	require.NoError(t, err)
+	require.Len(t, runnableStrategyDto.Parameters, 1)
+	assert.InDelta(t, 20.0, runnableStrategyDto.Parameters[0].DefaultValue, 0,
+		"解析交出來的是策略記著的預設值，這一次帶什麼是執行那一端的事")
+}
