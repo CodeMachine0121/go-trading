@@ -165,28 +165,25 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) re
 	}
 }
 
-// calculate runs the named strategy, or the algorithm the assistant wrote itself
-// when it named none.
+// calculate runs whatever the assistant asked for: the strategy it named, or the
+// algorithm it wrote itself when it named none.
 //
-// The two paths are genuinely different and not a branch worth removing. A named
-// strategy has an owner and may belong to somebody else, so it goes through the
-// gates and the script is fetched on this side. An algorithm the assistant just
-// composed belongs to the person who asked for it — there is nobody to hide it from
-// — and no saved strategy to look up.
+// Both go through one call. Which of the two it is, is settled by the same model
+// every other caller uses, so the assistant is not a second place where "one or
+// the other" could come to mean something different.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) calculate(
 	executionContext context.Context,
 	viewerID uint,
 	calculationArguments indicatorCalculationAssistantArguments,
 	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	if calculationArguments.StrategyID != 0 {
-		return indicatorCalculationAssistantQuery.indicatorCalculationApplication.CalculateIndicator(
-			executionContext, viewerID, calculationArguments.StrategyID, requestDto)
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
+		calculationArguments.StrategyID, calculationArguments.Script,
+		calculationArguments.ResultType, nil)
+	if subjectError != nil {
+		return dto.IndicatorCalculationResultDto{}, subjectError
 	}
 
-	requestDto.Script = calculationArguments.Script
-	requestDto.ResultType = calculationArguments.ResultType
-
-	return indicatorCalculationAssistantQuery.indicatorCalculationApplication.CalculateAdHocIndicator(
-		executionContext, requestDto)
+	return indicatorCalculationAssistantQuery.indicatorCalculationApplication.CalculateIndicator(
+		executionContext, viewerID, runSubjectDomain, requestDto)
 }

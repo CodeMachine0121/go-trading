@@ -124,6 +124,9 @@ suite's colour was not the basis of any verdict.
 | AC-10.6 | 沒有登入就不能算 | 拒絕並說明要先登入 | `authentication_middleware.go:42` | `indicator_calculation_controller_test.go`（`TurnsAwayARequestCarryingNoProof`） | `asserts-oracle` | `produces-oracle` | ✅ conforms |
 | AC-10.7 | 回測適用同一套關卡 | 交出成績單，回覆不含算式 | `backtest_application.go:38` | `backtest_application_test.go`（`WalksTheSameGatesACalculationWalks`／已發佈） | `asserts-oracle` | `produces-oracle` | ✅ conforms |
 | AC-10.8 | 回測也算不動別人未發佈的 | 回覆找不到 | 同上（共用 `ResolveRunnableStrategy`） | 同上（未發佈那一列） | `asserts-oracle` | `produces-oracle` | ✅ conforms |
+| AC-10.9 | 帶一段自己剛寫、還沒存起來的算式 | 算出結果；系統沒有多出任何策略 | `run_subject_domain.go:62` | `strategy_ownership_application_test.go`（`RunningAnAlgorithmNobodySavedNeverTouchesTheStrategyStore`） | `asserts-oracle` | `produces-oracle` | ✅ conforms |
+| AC-10.10 | 同時指名策略又帶算式 | 拒絕，說明兩者只能挑一種 | `run_subject_domain.go:37` | `run_subject_domain_test.go:14`；`indicator_calculation_assistant_query_test.go`（助手那條路） | `asserts-oracle` | `produces-oracle` | ✅ conforms |
+| AC-10.11 | 既沒指名策略也沒帶算式 | 拒絕，說明沒有東西可以跑 | `run_subject_domain.go:43` | `run_subject_domain_test.go:14` | `asserts-oracle` | `produces-oracle` | ✅ conforms |
 
 ### US-11 — 執行時帶自己的參數值
 
@@ -153,13 +156,14 @@ suite's colour was not the basis of any verdict.
 | BR-1 | 歸屬在建立當下決定，之後不得更換 | 系統裡不存在沒有擁有者的策略，也沒有換手的路徑 | `strategy_domain.go:52`（沒有擁有者即拒絕）＋`strategy_repository.go:38` | `strategy_ownership_application_test.go:97` | ✅ conforms |
 | BR-2 | 三道關卡依序：存在 → 是我的 → 有沒有發佈 | 任何一道沒過都回同一句找不到 | `strategy_access_domain.go:53`／`:64`／`:95` | `strategy_access_domain_test.go:37`／`:66`／`:112` | ✅ conforms |
 | BR-3 | 讀與執行走完整三道；改、刪、發佈、取消發佈只走到第二道 | 已發佈的策略對非擁有者仍然改不動 | `strategy_access_domain.go:81`；`strategy_service.go:199`；`strategy_marketplace_service.go:141` | `strategy_access_domain_test.go:112`；`strategy_marketplace_application_test.go:100` | ✅ conforms |
-| BR-4 | 算式只交給擁有者 | 市集內容與別人的執行結果一律不含算式 | `published_strategy_dto.go`（型別上沒有這個欄位）；`runnable_strategy_dto.go`（不出應用層） | `strategy_marketplace_controller_test.go:161`；`strategy_controller_test.go:213` | ✅ conforms |
+| BR-4 | 算式只交給擁有者（沒有人拿得到他讀不到的算式） | 市集內容與別人的執行結果一律不含算式 | `published_strategy_dto.go`（型別上沒有這個欄位）；`runnable_strategy_dto.go`（不出應用層） | `strategy_marketplace_controller_test.go:161`；`strategy_controller_test.go:213` | ✅ conforms |
 | BR-5 | 名稱唯一性限縮在同一位擁有者之間 | 兩個人各自都能有一支同名的 | `strategy.go:31` | `strategy_marketplace_repository_test.go:23` | ✅ conforms |
 | BR-6 | 採用不是執行的前提 | 沒採用也算得動 | `strategy_access_domain.go:64` | `strategy_access_domain_test.go:66` | ✅ conforms |
 | BR-7 | 取消發佈與刪除都會清掉所有人的採用 | 對方的清單裡不再有它 | `published_strategy.go:36`；`strategy.go:48` | `strategy_marketplace_repository_test.go:196`／`:212` | ✅ conforms |
 | BR-8 | 五種重複動作都不算失敗 | 重複發佈／重複採用／取消沒發佈的／取消沒採用的／採用自己的 | `published_strategy_repository.go:31`／`:50`；`strategy_adoption_repository.go:43`／`:66`；`strategy_marketplace_service.go:108` | `strategy_marketplace_repository_test.go:66`／`:83`／`:151`／`:180`；`strategy_marketplace_application_test.go:163` | ✅ conforms |
 | BR-9 | 執行時的參數值只活一次 | 不寫回策略，也不記在採用的人身上 | `strategy_service.go:176` | `strategy_ownership_application_test.go`（`ResolvingAStrategyToRunItWritesNothingBack`） | ✅ conforms |
-| BR-10 | 登入是前提；「要先登入」與「找不到」是兩句不同的話 | 未登入拒絕的說法與找不到不同 | `authentication_middleware.go:42`（`請重新登入`）vs `strategy_errors.go:26`（`找不到…`） | `strategy_controller_test.go:265`（401）；`strategy_ownership_application_test.go:31`（找不到） | ✅ conforms |
+| BR-10 | 執行時指名策略與自帶算式恰好一種 | 兩個都給或都不給一律整次拒絕 | `run_subject_domain.go:37`／`:43` | `run_subject_domain_test.go:14` | ✅ conforms |
+| BR-11 | 登入是前提；「要先登入」與「找不到」是兩句不同的話 | 未登入拒絕的說法與找不到不同 | `authentication_middleware.go:42`（`請重新登入`）vs `strategy_errors.go:26`（`找不到…`） | `strategy_controller_test.go:265`（401）；`strategy_ownership_application_test.go:31`（找不到） | ✅ conforms |
 
 ---
 
@@ -192,7 +196,7 @@ suite's colour was not the basis of any verdict.
 
 | Status | Count |
 | :--- | ---: |
-| ✅ conforms | 69 |
+| ✅ conforms | 73 |
 | 🔴 violation | 0 |
 | 🟠 mis-asserted | 0 |
 | 🟡 partial | 3 |
@@ -200,7 +204,7 @@ suite's colour was not the basis of any verdict.
 | ❔ unclear | 0 |
 | ⚠️ orphan | 0 |
 
-**Conformance: 96% (69 / 72)**，**0 個行為是錯的**。
+**Conformance: 96% (73 / 76)**，**0 個行為是錯的**。
 
 **第一次稽核找到、已經補上的：**
 - **AC-01.1（🟠）** — 只有助手那條路證了「存下來的策略屬於誰」。HTTP 那條路沒有一處斷言存進儲存層的擁有者就是門後認出來的那一位；把中介層換成永遠回同一個人，那些測試照樣綠。現在斷言了。
@@ -213,5 +217,10 @@ suite's colour was not the basis of any verdict.
 - **AC-12.4**（沒登入時助手做不了事）——`/chat` 掛的就是別處已證的那一道門。
 
 **NFR-3（兩種看不到的耗時不同）維持 🟡**，理由記在 ARCH §6：兩者都讀一次策略表，差別只在有沒有再讀一次市集表；真要防時間側通道時改成一次 join 即可，那是一個 repository 內部的改動。
+
+**契約本身的一處修正（不是稽核結果，是規格改了）：** PRD 原本寫「執行一律指名策略」，
+理由是「呼叫端送得進算式就等於它本來就有」。接前端時發現那句話只對**別人的**算式成立，
+而砍掉自帶算式等於逼人替每一次實驗先取名字存檔。規則改成「指名一支，或帶自己剛寫的一段，
+恰好一種」，保密性未受影響——見 ARCH §7.5。上表的 AC-10.9／10.10／10.11 與 BR-10 是隨之新增的條款。
 
 **Ceiling:** 這是靜態一致性稽核——它讀測試斷言與程式碼路徑並與契約推導出的預期比對，不執行自己發明的情境。要動態證明某一則，走 `/tdd`。

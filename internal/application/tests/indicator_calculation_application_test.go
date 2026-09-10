@@ -94,7 +94,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, indicatorStrategyID, indicatorRequest(2))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(2))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", resultDto.Symbol)
@@ -125,7 +125,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 		// slot is an hour at this coarseness.
 		requestDto.StartTime = indicatorNow.Add(-2 * time.Hour)
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, indicatorStrategyID, requestDto)
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), requestDto)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "1h", resultDto.Interval)
@@ -137,7 +137,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	t.Run("refuses a request whose stretch of market has no length", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 
-		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, indicatorStrategyID, indicatorRequest(0))
+		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(0))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
 		assert.Contains(t, err.Error(), "起點必須早於終點")
@@ -155,7 +155,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(
-			t.Context(), indicatorViewerID, indicatorStrategyID, indicatorRequest(3))
+			t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(3))
 
 		require.NoError(t, err)
 		assert.Equal(t, 3, resultDto.RequiredCandleCount)
@@ -169,7 +169,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Return(nil, nil)
 
 		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(
-			t.Context(), indicatorViewerID, indicatorStrategyID, indicatorRequest(3))
+			t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(3))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationCandleCoverageTooThin)
 		availableCandleCount, minimumCandleCount, isTooThin :=
@@ -188,7 +188,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, fmt.Errorf("%w: 算式無法解讀", domains.ErrIndicatorScriptFailed))
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, indicatorStrategyID, indicatorRequest(1))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(1))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "算式無法解讀")

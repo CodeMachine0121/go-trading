@@ -105,20 +105,28 @@ func TestIndicatorCalculationAssistantQueryRunsTheStrategyItNames(t *testing.T) 
 	assert.Contains(t, outcome, `"resultType":"floatList"`)
 }
 
-func TestIndicatorCalculationAssistantQueryPrefersTheNamedStrategyOverAnAlgorithmSentWithIt(t *testing.T) {
-	// The two must never quietly disagree about which one ran.
+func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyAndSendingAnAlgorithm(t *testing.T) {
+	// The two used to have a winner: the named strategy quietly beat the algorithm
+	// sent with it. Picking a winner is a decision nobody asked for, and the loser
+	// disappears without a word — so both together is now refused outright, the
+	// same way the K candle series refuses two ways of saying how coarse to look.
+	//
+	// Nothing is stubbed: the refusal lands before anything is read.
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
-	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
-		Return(aStoredStrategyWithKnobs(1, "二十根均線"), nil)
-	fixture.expectMarketRead(40)
-	fixture.indicatorScriptProxy.EXPECT().
-		Execute(gomock.Any(), aStoredStrategyWithKnobs(1, "二十根均線").Script, gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,"script":"func Other() {}"}`)
 
-	require.NoError(t, runError)
+	require.ErrorIs(t, runError, domains.ErrRunSubjectAmbiguous)
+}
+
+func TestIndicatorCalculationAssistantQueryRefusesNeitherAStrategyNorAnAlgorithm(t *testing.T) {
+	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
+
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z"}`)
+
+	require.ErrorIs(t, runError, domains.ErrRunSubjectAmbiguous)
 }
 
 func TestIndicatorCalculationAssistantQueryReadsUpToTheMomentItWasGiven(t *testing.T) {

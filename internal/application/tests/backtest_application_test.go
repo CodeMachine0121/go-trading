@@ -124,7 +124,7 @@ func TestRunBacktest(t *testing.T) {
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		assert.NoError(t, err)
 	})
@@ -155,7 +155,7 @@ func TestRunBacktest(t *testing.T) {
 				return signalsSaying(vo.SignalHold, vo.SignalHold, vo.SignalHold), nil
 			})
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		assert.NoError(t, err)
 	})
@@ -172,7 +172,7 @@ func TestRunBacktest(t *testing.T) {
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
-		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		require.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", result.Symbol)
@@ -198,7 +198,7 @@ func TestRunBacktest(t *testing.T) {
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
-		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		result, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		require.NoError(t, err)
 		assert.Empty(t, result.ClosedTrades)
@@ -212,7 +212,7 @@ func TestRunBacktest(t *testing.T) {
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{storedHourlyCandle(0, "100")}, nil)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -222,7 +222,7 @@ func TestRunBacktest(t *testing.T) {
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, nil)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -233,7 +233,7 @@ func TestRunBacktest(t *testing.T) {
 		requestDto.StartTime = backtestStart.Add(10 * time.Hour)
 		requestDto.EndTime = backtestStart
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, requestDto)
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), requestDto)
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -243,7 +243,7 @@ func TestRunBacktest(t *testing.T) {
 		requestDto := backtestRequestDto()
 		requestDto.InitialCapital = decimal.Zero
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, requestDto)
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), requestDto)
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 	})
@@ -258,7 +258,7 @@ func TestRunBacktest(t *testing.T) {
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.ErrIndicatorScriptFailed)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	})
@@ -273,7 +273,7 @@ func TestRunBacktest(t *testing.T) {
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, domains.UndeclaredParameter("period"))
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		parameterName, isUndeclared := domains.UndeclaredParameterName(err)
 		assert.True(t, isUndeclared)
@@ -286,7 +286,7 @@ func TestRunBacktest(t *testing.T) {
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, storageError)
 
-		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, backtestStrategyID, backtestRequestDto())
+		_, err := fixture.backtestApplication.RunBacktest(t.Context(), backtestViewerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		assert.ErrorIs(t, err, storageError)
 	})
@@ -308,7 +308,7 @@ func TestRunBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 			Return(signalsSaying(vo.SignalHold, vo.SignalHold), nil)
 
 		_, err := fixture.backtestApplication.RunBacktest(
-			t.Context(), backtestStrangerID, backtestStrategyID, backtestRequestDto())
+			t.Context(), backtestStrangerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		require.NoError(t, err)
 	})
@@ -319,7 +319,7 @@ func TestRunBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 		fixture := newBacktestGateUnderTest(t, false)
 
 		_, err := fixture.backtestApplication.RunBacktest(
-			t.Context(), backtestStrangerID, backtestStrategyID, backtestRequestDto())
+			t.Context(), backtestStrangerID, namingStrategy(t, backtestStrategyID), backtestRequestDto())
 
 		require.ErrorIs(t, err, domains.ErrStrategyNotFound)
 	})
@@ -360,4 +360,26 @@ func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest 
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
+}
+
+// namingStrategy is how these tests say "run the saved strategy with this
+// identifier". Building the subject model here rather than passing a bare number
+// keeps the tests speaking the same language the callers do.
+func namingStrategy(t *testing.T, strategyID uint) domains.RunSubjectDomain {
+	t.Helper()
+
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(strategyID, "", "", nil)
+	require.NoError(t, subjectError)
+
+	return runSubjectDomain
+}
+
+// carrying is how these tests say "run this algorithm, which was never saved".
+func carrying(t *testing.T, script string) domains.RunSubjectDomain {
+	t.Helper()
+
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(0, script, "", nil)
+	require.NoError(t, subjectError)
+
+	return runSubjectDomain
 }

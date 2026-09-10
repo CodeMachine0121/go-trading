@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -247,4 +248,22 @@ func TestResolvingAStrategyToRunItWritesNothingBack(t *testing.T) {
 	require.Len(t, runnableStrategyDto.Parameters, 1)
 	assert.InDelta(t, 20.0, runnableStrategyDto.Parameters[0].DefaultValue, 0,
 		"解析交出來的是策略記著的預設值，這一次帶什麼是執行那一端的事")
+}
+
+func TestRunningAnAlgorithmNobodySavedNeverTouchesTheStrategyStore(t *testing.T) {
+	// An algorithm the caller just wrote is their own text, hidden from nobody, so
+	// it goes through no gate — and nothing is stubbed on either store here, which
+	// is how "no gate" is proved rather than described.
+	fixture := newIndicatorUnderTest(t)
+	fixture.kCandleRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "100"), kCandleAt(at(9, 5), "100")}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), "剛剛寫的那一段", gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
+
+	_, err := fixture.indicatorCalculationApplication.CalculateIndicator(
+		t.Context(), indicatorViewerID, carrying(t, "剛剛寫的那一段"), indicatorRequest(1))
+
+	require.NoError(t, err)
 }

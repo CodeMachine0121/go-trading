@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -25,19 +26,29 @@ func NewBacktestApplication(
 	return &BacktestApplication{strategyService: strategyService, backtestService: backtestService}
 }
 
-// RunBacktest replays the strategy this caller named over the stretch of market the
-// request describes.
+// RunBacktest replays whatever this caller is asking to replay: the strategy they
+// named, or the algorithm they wrote themselves. The choice is settled by the same
+// model a calculation uses, so the two use cases cannot drift on what "one or the
+// other" means.
 //
-// The kind of value is not taken from the strategy here, because a replay always
-// reads signals — there is nothing for the strategy to declare that the replay
-// would honour.
+// The kind of value is not taken from either, because a replay always reads
+// signals — there is nothing for anybody to declare that the replay would honour.
 func (backtestApplication *BacktestApplication) RunBacktest(
-	executionContext context.Context, viewerID uint, strategyID uint, requestDto dto.BacktestRequestDto,
+	executionContext context.Context,
+	viewerID uint,
+	runSubjectDomain domains.RunSubjectDomain,
+	requestDto dto.BacktestRequestDto,
 ) (dto.BacktestResultDto, error) {
-	runnableStrategyDto, resolveError := backtestApplication.strategyService.ResolveRunnableStrategy(
-		executionContext, viewerID, strategyID)
-	if resolveError != nil {
-		return dto.BacktestResultDto{}, resolveError
+	runnableStrategyDto := runSubjectDomain.ToRunnableDto()
+
+	if strategyID, namesAStrategy := runSubjectDomain.NamedStrategyID(); namesAStrategy {
+		resolved, resolveError := backtestApplication.strategyService.ResolveRunnableStrategy(
+			executionContext, viewerID, strategyID)
+		if resolveError != nil {
+			return dto.BacktestResultDto{}, resolveError
+		}
+
+		runnableStrategyDto = resolved
 	}
 
 	requestDto.Script = runnableStrategyDto.Script

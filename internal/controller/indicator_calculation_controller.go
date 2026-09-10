@@ -35,9 +35,19 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 		return
 	}
 
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
+		indicatorCalculationRequest.StrategyID,
+		indicatorCalculationRequest.Script,
+		indicatorCalculationRequest.ResultType,
+		indicatorCalculationRequest.ToParameterWriteDtos())
+	if subjectError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": subjectError.Error()})
+		return
+	}
+
 	resultDto, err := indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator(
-		ginContext.Request.Context(),
-		middlewares.CurrentUserID(ginContext), indicatorCalculationRequest.StrategyID, indicatorCalculationRequest.ToRequestDto())
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), runSubjectDomain,
+		indicatorCalculationRequest.ToRequestDto())
 	if err != nil {
 		indicatorCalculationController.respondWithError(ginContext, err)
 		return

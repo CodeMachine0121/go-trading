@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -29,42 +30,36 @@ func NewIndicatorCalculationApplication(
 	}
 }
 
-// CalculateIndicator runs the strategy this caller named over the stretch of market
-// the request describes.
+// CalculateIndicator runs whatever this caller is asking to run: the strategy they
+// named, or the algorithm they wrote themselves.
 //
-// The request arrives without an algorithm, and that is the point: a caller who
-// could send one would be a caller who already had it. What it may still send is
-// what the knobs are worth this time — those are the caller's, and they are used
-// for this run and never written back.
+// Which of the two it is, is settled before anything else happens — by a model, so
+// that "one or the other, never both" is answered in one place for every use case
+// that runs something. A named strategy then goes through the three gates, which is
+// what lets somebody run another person's published algorithm without being handed
+// it; an unsaved one is the caller's own text and needs no gate at all.
 func (indicatorCalculationApplication *IndicatorCalculationApplication) CalculateIndicator(
-	executionContext context.Context, viewerID uint, strategyID uint, requestDto dto.IndicatorCalculationRequestDto,
+	executionContext context.Context,
+	viewerID uint,
+	runSubjectDomain domains.RunSubjectDomain,
+	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	runnableStrategyDto, resolveError := indicatorCalculationApplication.strategyService.ResolveRunnableStrategy(
-		executionContext, viewerID, strategyID)
-	if resolveError != nil {
-		return dto.IndicatorCalculationResultDto{}, resolveError
+	runnableStrategyDto := runSubjectDomain.ToRunnableDto()
+
+	if strategyID, namesAStrategy := runSubjectDomain.NamedStrategyID(); namesAStrategy {
+		resolved, resolveError := indicatorCalculationApplication.strategyService.ResolveRunnableStrategy(
+			executionContext, viewerID, strategyID)
+		if resolveError != nil {
+			return dto.IndicatorCalculationResultDto{}, resolveError
+		}
+
+		runnableStrategyDto = resolved
 	}
 
 	requestDto.Script = runnableStrategyDto.Script
 	requestDto.ResultType = runnableStrategyDto.ResultType
 	requestDto.Parameters = runnableStrategyDto.Parameters
 
-	return indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(
-		executionContext, requestDto)
-}
-
-// CalculateAdHocIndicator runs a script that was never saved.
-//
-// It exists for the assistant, which composes an algorithm on the spot when asked
-// something no saved strategy answers. That is not a hole in "a script never comes
-// from outside": the script here was written by the assistant on this person's
-// behalf, and it is theirs — there is nobody it is being hidden from.
-//
-// Nothing over HTTP reaches this. The calculation endpoint names a strategy, and
-// that is what keeps somebody else's algorithm out of reach.
-func (indicatorCalculationApplication *IndicatorCalculationApplication) CalculateAdHocIndicator(
-	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
-) (dto.IndicatorCalculationResultDto, error) {
 	return indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(
 		executionContext, requestDto)
 }

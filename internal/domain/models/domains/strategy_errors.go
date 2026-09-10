@@ -33,3 +33,12 @@ func StrategyNotFound(id uint) error {
 // them it exists. It is only how the store says "there is no publication here" to
 // the code above it — the same role ErrUserNotFound plays for a sign-in.
 var ErrStrategyNotPublished = errors.New("strategy not published")
+
+// ErrRunSubjectAmbiguous marks a run that named a strategy and carried an algorithm
+// at the same time, or did neither.
+//
+// The two are alternatives, not a pair: naming a strategy fetches an algorithm, and
+// carrying one supplies it. Sent together they can disagree, and the system would
+// have to pick — a decision nobody asked it to make. Sent neither way there is
+// nothing to run.
+var ErrRunSubjectAmbiguous = errors.New("run subject ambiguous")

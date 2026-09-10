@@ -29,9 +29,16 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 		return
 	}
 
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
+		backtestRequest.StrategyID, backtestRequest.Script, "", backtestRequest.ToParameterWriteDtos())
+	if subjectError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": subjectError.Error()})
+		return
+	}
+
 	resultDto, err := backtestController.backtestApplication.RunBacktest(
-		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext),
-		backtestRequest.StrategyID, backtestRequest.ToRequestDto())
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), runSubjectDomain,
+		backtestRequest.ToRequestDto())
 	if err != nil {
 		backtestController.respondWithError(ginContext, err)
 		return

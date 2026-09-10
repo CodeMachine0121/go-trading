@@ -47,7 +47,8 @@
 | `IPublishedStrategyRepository` / `IStrategyAdoptionRepository` | **Add** | 兩張新表各自一個 repository |
 | `IndicatorCalculationService` / `BacktestService` | **Not touched** | **一行都不改。** 它們今天收的就是「一段算式 + 一組旋鈕」，那個形狀本來就對；改成指名策略是**應用層先去解析、再把同樣的形狀交給它們**。計算與回測不必認識擁有者、市集或登入 |
 | `IndicatorCalculationRequestDto` / `BacktestRequestDto` | **Not touched** | 同上。`Script` 與 `Parameters` 仍在裡面，只是**由應用層填**，不再由呼叫端送 |
-| `models.IndicatorCalculationRequest` / `models.BacktestRequest`（controller） | **Modify** | 對外的 `script`／`parameters` 拿掉，換成 `strategyId`。**這是破壞性變更**，前端必須同步 |
+| `models.IndicatorCalculationRequest` / `models.BacktestRequest`（controller） | **Modify** | 加上 `strategyId`，並保留 `script`／`resultType`／`parameters` 作為**互斥的另一條路**（自己剛寫、還沒存的算式）。**這是破壞性變更**，前端必須同步 |
+| `domains.RunSubjectDomain` | **Add** | 「這一次要跑什麼」的唯一判定處：指名一支策略，或自帶一段算式，兩者恰好一種。見下方修正記錄 |
 | `IAssistantQuery.Run` | **Modify** | 多收一位觀看者。八個實作都要改簽章，但只有四個策略相關的會用到它 |
 | `SchemaMigrator` | **Modify** | 註冊兩個新 entity；並在同步 schema **之前**清掉沒有主人的既有策略 |
 | `entities.KCandle` / 行情抓取 / 即時跟盤 / 觀察清單 | **Not touched** | 這些與「誰擁有什麼」無關。K 線是市場的事實，不是任何人的財產 |
@@ -237,6 +238,22 @@ flowchart TD
 | US-12 助手的四個情境 | `IAssistantQuery.Run` 多收觀看者 + 四個策略 query 往下傳 + `AuthenticationMiddleware` 掛上 `/chat` |
 
 ---
+
+## 7.5 設計修正（實作期間）
+
+設計時把執行入口一律改成「只收 `strategyId`」，理由是「呼叫端送得進算式，就等於它本來就有」。
+接到前端時發現那句話**只對別人的算式成立**：指標計算那一頁的核心流程是在編輯器裡寫一段、直接算，
+而自己剛打的字送進來沒有洩漏任何人的任何東西。把那條路砍掉，等於逼使用者替每一次實驗先取一個名字。
+
+修正後的規則：**指名一支你跑得動的策略，或送一段你自己寫的算式，兩者恰好一種。**
+保密性完全沒有變動——這個功能保護的一直是「沒有人拿得到他讀不到的算式」。
+
+落地方式是一個新的 Domain Model `RunSubjectDomain`：它在任何東西被讀取之前判定這一次要跑什麼，
+兩個都給或都不給一律拒絕。三個呼叫端（兩個 controller 與助手）共用它，所以「恰好一種」
+不會在其中一條路上悄悄變成別的意思。既有的「同時給彙總刻度與可顯示根數即拒絕」是同一條原則的先例。
+
+順帶取消的一個舊行為：助手那條路原本在兩者都給時**讓指名的策略獲勝**。
+挑一個贏家是沒有人要求過的決定，而輸的那一個會無聲消失，現在一律拒絕。
 
 ## 8. Risks & Open Decisions
 
