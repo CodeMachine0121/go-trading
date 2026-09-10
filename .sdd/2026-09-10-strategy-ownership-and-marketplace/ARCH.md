@@ -112,7 +112,8 @@ func (d StrategyAccessDomain) ToRunnableDto() (dto.RunnableStrategyDto, error) /
 | `controller.IndicatorCalculationController` / `BacktestController` | 執行的 HTTP 轉換 | 讀使用者識別碼、把 `strategyId` 傳下去；沿用既有的哨兵錯誤分流，多一條 `ErrStrategyNotFound → 404` |
 | `application.IndicatorCalculationApplication` / `BacktestApplication` | 執行用例編排 | 先解析策略再執行；把 `RunnableStrategyDto` 的算式與旋鈕填進既有的請求 DTO |
 | 四個策略相關的 `AssistantQuery` | 助手的策略能力 | `Run` 多收觀看者並往下傳；`list_strategies` 改述為「列出我看得到的」 |
-| `AssistantConversationService` / `AssistantAskDto` | 助手對話 | `AssistantAskDto` 加 `ViewerID`，一路傳到 `IAssistantQuery.Run` |
+| `AssistantConversationService` / `AssistantAskDto` | 助手對話 | `AssistantAskDto` 加 `ViewerID`，一路傳到 `IAssistantQuery.Run`；列清單、讀一段、把問題接到既有一段上，都先問這一段是不是他的 |
+| `Conversation` / `ConversationDomain` / `IConversationRepository` | 對話 | 對話加 `OwnerID`（不可為空）；`FindAll` 改成 `FindAllOwnedBy`；`RequireOwnership` 放在已經拿著那一段的 domain model 上 |
 | `SchemaMigrator` | code-first schema 同步 | 註冊 `PublishedStrategy`、`StrategyAdoption`；**同步前**清掉沒有主人的既有策略（見下） |
 | `cmd/server/dependencies.go` | 組裝根 | 三個新 repository、一個新 service/application/controller、一道中介層、七條新路由 |
 
@@ -235,6 +236,7 @@ flowchart TD
 | US-10 三道關卡（自己的／已發佈已採用／已發佈未採用／不存在／未發佈／未登入／回測同規則） | `StrategyService.ResolveRunnableStrategy` + `StrategyAccessDomain.ToRunnableDto` |
 | US-10「自己的回覆帶著算式」 | **結構上恆真**：計算與回測的回覆從來就不帶算式（今天也不帶）。有意義的另一半——別人的回覆不帶算式——由 `RunnableStrategyDto` 不出 application 層保證 |
 | US-11 參數值只活一次的五個情境 | 沿用既有 `ParameterValues` 機制；`ResolveRunnableStrategy` 每次重新讀取策略，沒有任何回寫路徑 |
+| US-12 對話歸屬的四個情境 | `Conversation.OwnerID` + `ConversationDomain.RequireOwnership` + `FindAllOwnedBy`（清單交給查詢條件而不是事後篩） |
 | US-12 助手的四個情境 | `IAssistantQuery.Run` 多收觀看者 + 四個策略 query 往下傳 + `AuthenticationMiddleware` 掛上 `/chat` |
 
 ---

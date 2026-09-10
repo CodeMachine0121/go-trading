@@ -163,7 +163,8 @@ suite's colour was not the basis of any verdict.
 | BR-8 | 五種重複動作都不算失敗 | 重複發佈／重複採用／取消沒發佈的／取消沒採用的／採用自己的 | `published_strategy_repository.go:31`／`:50`；`strategy_adoption_repository.go:43`／`:66`；`strategy_marketplace_service.go:108` | `strategy_marketplace_repository_test.go:66`／`:83`／`:151`／`:180`；`strategy_marketplace_application_test.go:163` | ✅ conforms |
 | BR-9 | 執行時的參數值只活一次 | 不寫回策略，也不記在採用的人身上 | `strategy_service.go:176` | `strategy_ownership_application_test.go`（`ResolvingAStrategyToRunItWritesNothingBack`） | ✅ conforms |
 | BR-10 | 執行時指名策略與自帶算式恰好一種 | 兩個都給或都不給一律整次拒絕 | `run_subject_domain.go:37`／`:43` | `run_subject_domain_test.go:14` | ✅ conforms |
-| BR-11 | 登入是前提；「要先登入」與「找不到」是兩句不同的話 | 未登入拒絕的說法與找不到不同 | `authentication_middleware.go:42`（`請重新登入`）vs `strategy_errors.go:26`（`找不到…`） | `strategy_controller_test.go:265`（401）；`strategy_ownership_application_test.go:31`（找不到） | ✅ conforms |
+| BR-11a | 對話紀錄也屬於問的那個人 | 只列自己的；讀別人的與接到別人的對話上都回答找不到，而且在助手被問到之前 | `conversation.go`（`OwnerID`，不可為空）；`conversation_domain.go:RequireOwnership`；`assistant_conversation_service.go:recentMessagesOf`（第一次讀那一段時就擋） | `assistant_conversation_service_test.go`（`RefusesSomebodyElsesAsOneThatIsNotThere`、`RefusesSomebodyElsesConversationBeforeAskingTheAssistant`）；`assistant_conversation_controller_test.go`（`AnswersSomebodyElsesAsNotFound`——同時斷言回應裡沒有那段話）；`conversation_repository_test.go`（`FindAllOwnedByLeavesOutSomebodyElses`） | ✅ conforms |
+| BR-12 | 登入是前提；「要先登入」與「找不到」是兩句不同的話 | 未登入拒絕的說法與找不到不同 | `authentication_middleware.go:42`（`請重新登入`）vs `strategy_errors.go:26`（`找不到…`） | `strategy_controller_test.go:265`（401）；`strategy_ownership_application_test.go:31`（找不到） | ✅ conforms |
 
 ---
 
@@ -196,7 +197,7 @@ suite's colour was not the basis of any verdict.
 
 | Status | Count |
 | :--- | ---: |
-| ✅ conforms | 73 |
+| ✅ conforms | 74 |
 | 🔴 violation | 0 |
 | 🟠 mis-asserted | 0 |
 | 🟡 partial | 3 |
@@ -204,7 +205,7 @@ suite's colour was not the basis of any verdict.
 | ❔ unclear | 0 |
 | ⚠️ orphan | 0 |
 
-**Conformance: 96% (73 / 76)**，**0 個行為是錯的**。
+**Conformance: 96% (74 / 77)**，**0 個行為是錯的**。
 
 **第一次稽核找到、已經補上的：**
 - **AC-01.1（🟠）** — 只有助手那條路證了「存下來的策略屬於誰」。HTTP 那條路沒有一處斷言存進儲存層的擁有者就是門後認出來的那一位；把中介層換成永遠回同一個人，那些測試照樣綠。現在斷言了。
@@ -222,5 +223,11 @@ suite's colour was not the basis of any verdict.
 理由是「呼叫端送得進算式就等於它本來就有」。接前端時發現那句話只對**別人的**算式成立，
 而砍掉自帶算式等於逼人替每一次實驗先取名字存檔。規則改成「指名一支，或帶自己剛寫的一段，
 恰好一種」，保密性未受影響——見 ARCH §7.5。上表的 AC-10.9／10.10／10.11 與 BR-10 是隨之新增的條款。
+
+**這一份審查之後補上的一條（BR-11a：對話歸屬）：** 開 PR 之後重看一遍才發現的——
+門裝上去了，但助手的**對話**沒有主人：任何一個登入的人都列得出、讀得到別人的每一段對話，
+而助手是以委託它的人的身分做事的，所以一段對話裡可能逐字帶著那個人自己的算式。
+這正是本切片存在的理由被繞過的那條路。對話因此比照策略有了擁有者，
+清單改成由查詢條件挑（不是撈回來再篩），而「接到別人的對話上」在助手被問到之前就擋下來。
 
 **Ceiling:** 這是靜態一致性稽核——它讀測試斷言與程式碼路徑並與契約推導出的預期比對，不執行自己發明的情境。要動態證明某一則，走 `/tdd`。

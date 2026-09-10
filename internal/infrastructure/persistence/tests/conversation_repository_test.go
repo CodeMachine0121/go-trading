@@ -111,20 +111,22 @@ func TestConversationRepositoryFindOneReportsOneThatIsNotThere(t *testing.T) {
 	require.ErrorIs(t, findError, domains.ErrConversationNotFound)
 }
 
-func TestConversationRepositoryFindAllPutsTheMostRecentlyActiveFirst(t *testing.T) {
+func TestConversationRepositoryFindAllOwnedByPutsTheMostRecentlyActiveFirst(t *testing.T) {
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 	_, oldestError := conversationRepository.Save(t.Context(), entities.Conversation{
+		OwnerID:      7,
 		LastActiveAt: momentAt(9, 0),
 		Turns:        []entities.AssistantTurn{turnAt(momentAt(9, 0), "舊的", 100)},
 	})
 	require.NoError(t, oldestError)
 	_, newestError := conversationRepository.Save(t.Context(), entities.Conversation{
+		OwnerID:      7,
 		LastActiveAt: momentAt(12, 0),
 		Turns:        []entities.AssistantTurn{turnAt(momentAt(12, 0), "新的", 100)},
 	})
 	require.NoError(t, newestError)
 
-	conversations, findError := conversationRepository.FindAll(t.Context())
+	conversations, findError := conversationRepository.FindAllOwnedBy(t.Context(), 7)
 
 	require.NoError(t, findError)
 	require.Len(t, conversations, 2)
@@ -135,13 +137,37 @@ func TestConversationRepositoryFindAllPutsTheMostRecentlyActiveFirst(t *testing.
 	assert.Equal(t, momentAt(9, 0), conversations[1].LastActiveAt.UTC())
 }
 
-func TestConversationRepositoryFindAllAnswersHoldingNoneWithAnEmptyList(t *testing.T) {
+func TestConversationRepositoryFindAllOwnedByAnswersHoldingNoneWithAnEmptyList(t *testing.T) {
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
-	conversations, findError := conversationRepository.FindAll(t.Context())
+	conversations, findError := conversationRepository.FindAllOwnedBy(t.Context(), 7)
 
 	require.NoError(t, findError)
 	assert.Empty(t, conversations)
+}
+
+func TestConversationRepositoryFindAllOwnedByLeavesOutSomebodyElses(t *testing.T) {
+	// The assistant acts as whoever asked it, so a transcript can hold that person's
+	// own algorithms. Whose conversation it is has to be a condition on the read.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+	_, mineError := conversationRepository.Save(t.Context(), entities.Conversation{
+		OwnerID:      7,
+		LastActiveAt: momentAt(9, 0),
+		Turns:        []entities.AssistantTurn{turnAt(momentAt(9, 0), "我問的", 100)},
+	})
+	require.NoError(t, mineError)
+	_, theirsError := conversationRepository.Save(t.Context(), entities.Conversation{
+		OwnerID:      8,
+		LastActiveAt: momentAt(12, 0),
+		Turns:        []entities.AssistantTurn{turnAt(momentAt(12, 0), "別人問的", 100)},
+	})
+	require.NoError(t, theirsError)
+
+	conversations, findError := conversationRepository.FindAllOwnedBy(t.Context(), 7)
+
+	require.NoError(t, findError)
+	require.Len(t, conversations, 1)
+	assert.Equal(t, "我問的", conversations[0].Turns[0].Ask)
 }
 
 func TestConversationRepositorySumUsageBetweenTotalsTheStretchAcrossEveryConversation(t *testing.T) {
@@ -234,7 +260,7 @@ func TestConversationRepositoryReportsStorageThatIsNotThere(t *testing.T) {
 	assert.ErrorContains(t, findOneError, "find conversation")
 	assert.NotErrorIs(t, findOneError, domains.ErrConversationNotFound)
 
-	_, findAllError := conversationRepository.FindAll(t.Context())
+	_, findAllError := conversationRepository.FindAllOwnedBy(t.Context(), 7)
 	assert.ErrorContains(t, findAllError, "find conversations")
 
 	_, sumError := conversationRepository.SumUsageBetween(t.Context(), momentAt(0, 0), momentAt(23, 59))

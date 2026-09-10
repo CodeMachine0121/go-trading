@@ -48,7 +48,7 @@ func (assistantConversationController *AssistantConversationController) Ask(ginC
 // ListConversations handles GET /chat/conversations.
 func (assistantConversationController *AssistantConversationController) ListConversations(ginContext *gin.Context) {
 	summaryDtos, err := assistantConversationController.assistantConversationApplication.ListConversations(
-		ginContext.Request.Context())
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext))
 	if err != nil {
 		assistantConversationController.respondWithError(ginContext, err)
 		return
@@ -65,7 +65,7 @@ func (assistantConversationController *AssistantConversationController) GetConve
 	}
 
 	conversationDto, err := assistantConversationController.assistantConversationApplication.GetConversation(
-		ginContext.Request.Context(), id)
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
 	if err != nil {
 		assistantConversationController.respondWithError(ginContext, err)
 		return

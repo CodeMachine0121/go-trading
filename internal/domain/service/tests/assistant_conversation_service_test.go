@@ -109,7 +109,7 @@ func TestAskStartsAConversationWhenTheQuestionNamesNone(t *testing.T) {
 		})
 
 	answerDto, askError := fixture.assistantConversationService.Ask(
-		t.Context(), dto.AssistantAskDto{Question: "BTCUSDT 最近走勢如何"})
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, Question: "BTCUSDT 最近走勢如何"})
 
 	require.NoError(t, askError)
 	assert.Equal(t, uint(42), answerDto.ConversationID)
@@ -118,6 +118,9 @@ func TestAskStartsAConversationWhenTheQuestionNamesNone(t *testing.T) {
 	assert.Equal(t, 0, answerDto.QueryCount)
 	assert.False(t, answerDto.StoppedAtQueryLimit)
 
+	// It belongs to whoever asked from the moment it is written. A conversation
+	// stored without an owner would be readable by everybody.
+	assert.Equal(t, uint(3), savedConversation.OwnerID)
 	require.Len(t, savedConversation.Turns, 1)
 	assert.Equal(t, "BTCUSDT 最近走勢如何", savedConversation.Turns[0].Ask)
 	assert.Equal(t, "最近在盤整", savedConversation.Turns[0].Answer)
@@ -128,7 +131,7 @@ func TestAskAddsToTheConversationTheQuestionNames(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
-		Return(entities.Conversation{ID: 7, Turns: []entities.AssistantTurn{
+		Return(entities.Conversation{ID: 7, OwnerID: 3, Turns: []entities.AssistantTurn{
 			{Ask: "BTCUSDT 呢", Answer: "在盤整", CreatedAt: askedAt},
 		}}, nil)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -137,7 +140,7 @@ func TestAskAddsToTheConversationTheQuestionNames(t *testing.T) {
 		Return(entities.Conversation{ID: 7}, nil)
 
 	answerDto, askError := fixture.assistantConversationService.Ask(
-		t.Context(), dto.AssistantAskDto{ConversationID: 7, Question: "那 ETHUSDT 呢"})
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "那 ETHUSDT 呢"})
 
 	require.NoError(t, askError)
 	assert.Equal(t, uint(7), answerDto.ConversationID)
@@ -148,7 +151,7 @@ func TestAskShowsTheAssistantWhatTheConversationAlreadySaid(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
-		Return(entities.Conversation{ID: 7, Turns: []entities.AssistantTurn{
+		Return(entities.Conversation{ID: 7, OwnerID: 3, Turns: []entities.AssistantTurn{
 			{Ask: "BTCUSDT 最近走勢如何", Answer: "在盤整", CreatedAt: askedAt},
 		}}, nil)
 
@@ -163,7 +166,7 @@ func TestAskShowsTheAssistantWhatTheConversationAlreadySaid(t *testing.T) {
 		Return(entities.Conversation{ID: 7}, nil)
 
 	_, askError := fixture.assistantConversationService.Ask(
-		t.Context(), dto.AssistantAskDto{ConversationID: 7, Question: "那 ETHUSDT 呢"})
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "那 ETHUSDT 呢"})
 
 	require.NoError(t, askError)
 	require.Len(t, sentRequest.Messages, 3)
@@ -203,7 +206,7 @@ func TestAskRefusesAQuestionThatSaidNothingBeforeSpendingAnything(t *testing.T) 
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 
 	_, askError := fixture.assistantConversationService.Ask(
-		t.Context(), dto.AssistantAskDto{ConversationID: 7, Question: "   "})
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "   "})
 
 	require.ErrorIs(t, askError, domains.ErrAssistantAskEmpty)
 }
@@ -215,7 +218,7 @@ func TestAskReportsAConversationThatIsNotThere(t *testing.T) {
 		Return(entities.Conversation{}, domains.ConversationNotFound(99))
 
 	_, askError := fixture.assistantConversationService.Ask(
-		t.Context(), dto.AssistantAskDto{ConversationID: 99, Question: "BTCUSDT 最近走勢如何"})
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 99, Question: "BTCUSDT 最近走勢如何"})
 
 	require.ErrorIs(t, askError, domains.ErrConversationNotFound)
 }
@@ -585,12 +588,12 @@ func TestAskLeavesNothingBehindWhenTheAssistantDoesNotAnswer(t *testing.T) {
 			fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 			fixture.expectUsageToday(0)
 			fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
-				Return(entities.Conversation{ID: 7}, nil)
+				Return(entities.Conversation{ID: 7, OwnerID: 3}, nil)
 			fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 				Return(testCase.reply, testCase.err)
 
 			_, askError := fixture.assistantConversationService.Ask(
-				t.Context(), dto.AssistantAskDto{ConversationID: 7, Question: "BTCUSDT 最近走勢如何"})
+				t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "BTCUSDT 最近走勢如何"})
 
 			require.ErrorIs(t, askError, domains.ErrAssistantUnavailable)
 		})
@@ -630,7 +633,7 @@ func TestListConversationsPutsTheMostRecentlyActiveFirst(t *testing.T) {
 	// The store is what orders them; this proves the order survives being turned into
 	// what a reader sees, and that the message count comes along.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
-	fixture.conversationRepository.EXPECT().FindAll(gomock.Any()).
+	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), uint(3)).
 		Return([]entities.Conversation{
 			{ID: 2, LastActiveAt: askedAt, Turns: []entities.AssistantTurn{
 				{Ask: "問", Answer: "答", CreatedAt: askedAt},
@@ -638,7 +641,7 @@ func TestListConversationsPutsTheMostRecentlyActiveFirst(t *testing.T) {
 			{ID: 1, LastActiveAt: askedAt.Add(-time.Hour)},
 		}, nil)
 
-	summaryDtos, listError := fixture.assistantConversationService.ListConversations(t.Context())
+	summaryDtos, listError := fixture.assistantConversationService.ListConversations(t.Context(), 3)
 
 	require.NoError(t, listError)
 	require.Len(t, summaryDtos, 2)
@@ -650,10 +653,10 @@ func TestListConversationsPutsTheMostRecentlyActiveFirst(t *testing.T) {
 
 func TestListConversationsAnswersHoldingNoneWithAnEmptyList(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
-	fixture.conversationRepository.EXPECT().FindAll(gomock.Any()).
+	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), uint(3)).
 		Return([]entities.Conversation{}, nil)
 
-	summaryDtos, listError := fixture.assistantConversationService.ListConversations(t.Context())
+	summaryDtos, listError := fixture.assistantConversationService.ListConversations(t.Context(), 3)
 
 	require.NoError(t, listError)
 	assert.Empty(t, summaryDtos)
@@ -661,10 +664,10 @@ func TestListConversationsAnswersHoldingNoneWithAnEmptyList(t *testing.T) {
 
 func TestListConversationsReportsAFailureToRead(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
-	fixture.conversationRepository.EXPECT().FindAll(gomock.Any()).
+	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), uint(3)).
 		Return(nil, errors.New("storage unavailable"))
 
-	_, listError := fixture.assistantConversationService.ListConversations(t.Context())
+	_, listError := fixture.assistantConversationService.ListConversations(t.Context(), 3)
 
 	require.Error(t, listError)
 }
@@ -674,12 +677,12 @@ func TestGetConversationHandsBackEveryMessageEverSaid(t *testing.T) {
 	// answers, and an assistant that is down must not take the record with it.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
-		Return(entities.Conversation{ID: 7, LastActiveAt: askedAt, Turns: []entities.AssistantTurn{
+		Return(entities.Conversation{ID: 7, OwnerID: 3, LastActiveAt: askedAt, Turns: []entities.AssistantTurn{
 			{Ask: "問 1", Answer: "答 1", CreatedAt: askedAt},
 			{Ask: "問 2", Answer: "答 2", CreatedAt: askedAt},
 		}}, nil)
 
-	conversationDto, findError := fixture.assistantConversationService.GetConversation(t.Context(), 7)
+	conversationDto, findError := fixture.assistantConversationService.GetConversation(t.Context(), 3, 7)
 
 	require.NoError(t, findError)
 	require.Len(t, conversationDto.Messages, 4)
@@ -687,12 +690,41 @@ func TestGetConversationHandsBackEveryMessageEverSaid(t *testing.T) {
 	assert.Equal(t, "答 2", conversationDto.Messages[3].Content)
 }
 
+func TestGetConversationRefusesSomebodyElsesAsOneThatIsNotThere(t *testing.T) {
+	// A transcript is not only what was said: the assistant acts as whoever asked
+	// it, so an exchange can hold that person's own algorithms in full. Told apart
+	// from one that does not exist, this refusal would also say whose it is.
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+		Return(entities.Conversation{ID: 7, OwnerID: 9, LastActiveAt: askedAt}, nil)
+
+	_, findError := fixture.assistantConversationService.GetConversation(t.Context(), 3, 7)
+
+	require.ErrorIs(t, findError, domains.ErrConversationNotFound)
+}
+
+func TestAskRefusesSomebodyElsesConversationBeforeAskingTheAssistant(t *testing.T) {
+	// Refused at the first read of that conversation, so the assistant is never
+	// shown a word of it — nor paid for.
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.expectUsageToday(0)
+	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+		Return(entities.Conversation{ID: 7, OwnerID: 9, Turns: []entities.AssistantTurn{
+			{Ask: "別人問的", Answer: "別人的答案", CreatedAt: askedAt},
+		}}, nil)
+
+	_, askError := fixture.assistantConversationService.Ask(
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "接著說"})
+
+	require.ErrorIs(t, askError, domains.ErrConversationNotFound)
+}
+
 func TestGetConversationReportsOneThatIsNotThere(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(99)).
 		Return(entities.Conversation{}, domains.ConversationNotFound(99))
 
-	_, findError := fixture.assistantConversationService.GetConversation(t.Context(), 99)
+	_, findError := fixture.assistantConversationService.GetConversation(t.Context(), 3, 99)
 
 	require.ErrorIs(t, findError, domains.ErrConversationNotFound)
 }

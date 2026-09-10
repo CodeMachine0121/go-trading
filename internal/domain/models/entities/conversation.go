@@ -12,6 +12,15 @@ import "time"
 // slower for no reason a reader could name.
 type Conversation struct {
 	ID uint `gorm:"primaryKey"`
+	// OwnerID is who asked. A conversation belongs to one person for the same reason
+	// a strategy does, and here the reason is sharper: the assistant acts as whoever
+	// asked it, so a transcript can hold that person's own strategies — the very
+	// thing publishing exists to hand out deliberately rather than by accident.
+	//
+	// It is not nullable. A conversation with nobody behind it could be read by
+	// everybody, and "belongs to one person" would then be true only of the rows
+	// that happened to be written after this column arrived.
+	OwnerID uint `gorm:"not null;index:idx_conversations_owner"`
 	// LastActiveAt carries a descending index because it is the only order the list
 	// of conversations is ever read in.
 	LastActiveAt time.Time `gorm:"type:timestamptz;not null;index:idx_conversations_last_active_at,sort:desc"`

@@ -52,10 +52,17 @@ func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 				20, 8, 300000, 2000,
 			)))
 
+	// The door is mounted here because it is mounted in front of these three routes
+	// in the running system: the assistant acts as whoever asked it, so what it
+	// reads, writes and remembers is that person's. A test router without the door
+	// would have every conversation belong to nobody, and nobody is the one owner
+	// these routes must never serve.
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
+
 	engine := gin.New()
-	engine.POST("/chat", assistantConversationController.Ask)
-	engine.GET("/chat/conversations", assistantConversationController.ListConversations)
-	engine.GET("/chat/conversations/:id", assistantConversationController.GetConversation)
+	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
+	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
+	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
 
 	return chatRouterUnderTest{
 		engine:                 engine,
@@ -69,6 +76,7 @@ func (fixture chatRouterUnderTest) send(
 ) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 
@@ -181,7 +189,7 @@ func TestChatAskMapsEachRefusalOntoWhatTheReaderMustDoAboutIt(t *testing.T) {
 
 func TestChatListConversationsAnswersWhateverIsThere(t *testing.T) {
 	fixture := newChatRouterUnderTest(t)
-	fixture.conversationRepository.EXPECT().FindAll(gomock.Any()).
+	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), signedInViewerID).
 		Return([]entities.Conversation{
 			{ID: 2, LastActiveAt: chatAskedAt},
 			{ID: 1, LastActiveAt: chatAskedAt.Add(-time.Hour)},
@@ -200,7 +208,7 @@ func TestChatListConversationsAnswersWhateverIsThere(t *testing.T) {
 
 func TestChatListConversationsAnswersHoldingNoneWithAnEmptyList(t *testing.T) {
 	fixture := newChatRouterUnderTest(t)
-	fixture.conversationRepository.EXPECT().FindAll(gomock.Any()).
+	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), signedInViewerID).
 		Return([]entities.Conversation{}, nil)
 
 	recorder := fixture.send(http.MethodGet, "/chat/conversations", "")
@@ -211,7 +219,7 @@ func TestChatListConversationsAnswersHoldingNoneWithAnEmptyList(t *testing.T) {
 
 func TestChatListConversationsReportsAFailureToRead(t *testing.T) {
 	fixture := newChatRouterUnderTest(t)
-	fixture.conversationRepository.EXPECT().FindAll(gomock.Any()).
+	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), signedInViewerID).
 		Return(nil, errors.New("storage unavailable"))
 
 	recorder := fixture.send(http.MethodGet, "/chat/conversations", "")
@@ -222,9 +230,10 @@ func TestChatListConversationsReportsAFailureToRead(t *testing.T) {
 func TestChatGetConversationHandsBackEveryMessage(t *testing.T) {
 	fixture := newChatRouterUnderTest(t)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
-		Return(entities.Conversation{ID: 7, LastActiveAt: chatAskedAt, Turns: []entities.AssistantTurn{
-			{Ask: "問 1", Answer: "答 1", CreatedAt: chatAskedAt},
-		}}, nil)
+		Return(entities.Conversation{
+			ID: 7, OwnerID: signedInViewerID, LastActiveAt: chatAskedAt,
+			Turns: []entities.AssistantTurn{{Ask: "問 1", Answer: "答 1", CreatedAt: chatAskedAt}},
+		}, nil)
 
 	recorder := fixture.send(http.MethodGet, "/chat/conversations/7", "")
 
@@ -252,6 +261,50 @@ func TestChatGetConversationRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, recorder.Code)
 			assert.Contains(t, recorder.Body.String(), "對話識別碼必須是正整數")
+		})
+	}
+}
+
+func TestChatGetConversationAnswersSomebodyElsesAsNotFound(t *testing.T) {
+	// The same status code as one that does not exist. A different one would tell a
+	// reader holding a list of identifiers which conversations are somebody's.
+	fixture := newChatRouterUnderTest(t)
+	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+		Return(entities.Conversation{
+			ID: 7, OwnerID: signedInViewerID + 1, LastActiveAt: chatAskedAt,
+			Turns: []entities.AssistantTurn{{Ask: "別人問的", Answer: "別人的答案", CreatedAt: chatAskedAt}},
+		}, nil)
+
+	recorder := fixture.send(http.MethodGet, "/chat/conversations/7", "")
+
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "別人的答案")
+}
+
+func TestChatRefusesEveryRouteWithoutAProof(t *testing.T) {
+	// The assistant acts as whoever asked it. Without a proof there is nobody to act
+	// as, and every one of these routes has to say so rather than act as nobody.
+	testCases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "asking", method: http.MethodPost, path: "/chat", body: `{"question":"BTCUSDT 呢"}`},
+		{name: "listing conversations", method: http.MethodGet, path: "/chat/conversations"},
+		{name: "reading one conversation", method: http.MethodGet, path: "/chat/conversations/7"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newChatRouterUnderTest(t)
+
+			request := httptest.NewRequest(testCase.method, testCase.path, strings.NewReader(testCase.body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			fixture.engine.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 		})
 	}
 }
