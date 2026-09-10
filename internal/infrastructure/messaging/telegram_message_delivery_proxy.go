@@ -12,25 +12,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// unknownChatDescriptions are the phrases Telegram uses when the chat is the
-// problem rather than the token.
-//
-// Matching on prose is unpleasant, and it is done here because Telegram gives no
-// other handle: a bad token and an unknown chat both come back as a refusal, and
-// only the sentence tells them apart. It is confined to this file, and everything
-// it cannot recognise is reported as unreachable rather than guessed at — an
-// unrecognised phrase makes somebody retry, whereas a wrong guess makes them
-// replace a token that was never wrong.
-var unknownChatDescriptions = []string{
-	"chat not found",
-	"chat_id is empty",
-	"group chat was upgraded",
-	"bot was blocked by the user",
-	"bot was kicked",
-	"user is deactivated",
-	"peer_id_invalid",
-}
-
 // TelegramMessageDeliveryProxy sends messages through Telegram.
 //
 // Nothing it logs or returns ever contains the request address. That is not
@@ -124,7 +105,7 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) reasonFrom(
 	}
 
 	if response.StatusCode == http.StatusBadRequest || response.StatusCode == http.StatusForbidden {
-		if describesUnknownChat(sendMessageResponse.Description) {
+		if sendMessageResponse.BlamesTheChat() {
 			return vo.DeliveryFailureDestinationNotFound
 		}
 
@@ -143,16 +124,4 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) sendMessageAdd
 	botToken string,
 ) string {
 	return telegramMessageDeliveryProxy.apiBaseUrl + "/bot" + botToken + "/sendMessage"
-}
-
-// describesUnknownChat says whether Telegram's sentence blames the chat.
-func describesUnknownChat(description string) bool {
-	loweredDescription := strings.ToLower(description)
-	for _, phrase := range unknownChatDescriptions {
-		if strings.Contains(loweredDescription, phrase) {
-			return true
-		}
-	}
-
-	return false
 }

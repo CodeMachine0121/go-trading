@@ -1,5 +1,7 @@
 package messaging
 
+import "strings"
+
 // telegramSendMessageRequest is what Telegram is asked to send.
 //
 // The chat identifier is text rather than a number, because Telegram accepts both a
@@ -20,4 +22,38 @@ type telegramSendMessageResponse struct {
 	Ok          bool   `json:"ok"`
 	ErrorCode   int    `json:"error_code"`
 	Description string `json:"description"`
+}
+
+// unknownChatDescriptions are the phrases Telegram uses when the chat is the problem
+// rather than the token.
+//
+// Matching on prose is unpleasant, and it is done because Telegram gives no other
+// handle: a bad token and an unknown chat both come back as a refusal, and only the
+// sentence tells them apart. It lives beside the field it reads, and nothing outside
+// this file ever sees a description.
+var unknownChatDescriptions = []string{
+	"chat not found",
+	"chat_id is empty",
+	"group chat was upgraded",
+	"bot was blocked by the user",
+	"bot was kicked",
+	"user is deactivated",
+	"peer_id_invalid",
+}
+
+// BlamesTheChat says whether this answer puts the fault on the chat rather than on
+// the bot speaking.
+//
+// An answer whose wording is unfamiliar says no, and the caller reports it as
+// unreachable rather than guessing. Sending somebody off to regenerate a working
+// token costs more than telling them to try again in a moment.
+func (telegramSendMessageResponse telegramSendMessageResponse) BlamesTheChat() bool {
+	loweredDescription := strings.ToLower(telegramSendMessageResponse.Description)
+	for _, phrase := range unknownChatDescriptions {
+		if strings.Contains(loweredDescription, phrase) {
+			return true
+		}
+	}
+
+	return false
 }
