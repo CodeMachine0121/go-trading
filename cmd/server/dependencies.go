@@ -15,6 +15,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/messaging"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/security"
@@ -266,6 +267,35 @@ func registerRoutes(
 	// ("that is not your current password") that must not be confused with the
 	// first — and the door is what keeps them apart.
 	engine.POST("/users/me/password", requiresSignIn, userController.ChangePassword)
+
+	// Where this system speaks to somebody. It is the first thing here that talks
+	// without being asked, so it is wired from two capabilities named for what they
+	// do rather than for who does them: locking a secret away, and delivering a
+	// message. Telegram is today's only carrier; a second one is a second
+	// implementation and one changed line here.
+	telegramDeliveryController := controller.NewTelegramDeliveryController(
+		application.NewTelegramDeliveryApplication(
+			service.NewTelegramDeliveryService(
+				persistence.NewTelegramDeliveryRepository(database),
+				security.NewAesSecretSealProxy(applicationConfig.Secrets.SealKey),
+				messaging.NewTelegramMessageDeliveryProxy(
+					applicationConfig.Telegram.ApiBaseUrl,
+					&http.Client{Timeout: applicationConfig.Telegram.RequestTimeout},
+				),
+			),
+		),
+	)
+
+	engine.GET("/users/me/telegram-delivery",
+		requiresSignIn, telegramDeliveryController.GetDeliverySetting)
+	// PUT rather than POST: there is at most one of these per person, and sending
+	// it twice leaves the same single setting behind.
+	engine.PUT("/users/me/telegram-delivery",
+		requiresSignIn, telegramDeliveryController.SaveDeliverySetting)
+	engine.DELETE("/users/me/telegram-delivery",
+		requiresSignIn, telegramDeliveryController.RemoveDeliverySetting)
+	engine.POST("/users/me/telegram-delivery/test-message",
+		requiresSignIn, telegramDeliveryController.SendTestMessage)
 
 	// Following a market live is an addition, not a replacement: the scheduled
 	// round keeps running, and it is what fills in every candle that closed while
