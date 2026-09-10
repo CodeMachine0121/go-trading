@@ -91,7 +91,12 @@ func (strategyMarketplaceService *StrategyMarketplaceService) BrowseMarketplace(
 		return nil, findError
 	}
 
-	return publishedStrategyDtosOf(publications), nil
+	publishedStrategyDtos := make([]dto.PublishedStrategyDto, 0, len(publications))
+	for _, publication := range publications {
+		publishedStrategyDtos = append(publishedStrategyDtos, publication.ToDto())
+	}
+
+	return publishedStrategyDtos, nil
 }
 
 // AdoptStrategy puts a published strategy on this person's own shelf. Taking one

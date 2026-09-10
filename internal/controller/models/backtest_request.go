@@ -46,7 +46,6 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 	}
 }
 
-
 func (backtestRequest BacktestRequest) parameterValueDtos() []dto.StrategyParameterValueDto {
 	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(backtestRequest.ParameterValues))
 	for _, valueRequest := range backtestRequest.ParameterValues {

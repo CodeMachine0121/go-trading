@@ -1,8 +1,6 @@
 package domains
 
 import (
-	"time"
-
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
@@ -113,22 +111,4 @@ func (strategyAccessDomain StrategyAccessDomain) ToRunnableDto() (dto.RunnableSt
 		ResultType: strategyAccessDomain.strategy.ResultType,
 		Parameters: parameterWriteDtos,
 	}, nil
-}
-
-// ToPublishedDto is the strategy as the marketplace shows it — everything but the
-// algorithm, plus who put it there and when.
-//
-// It asks no permission, because there is none to ask: a published strategy is
-// public, and this shape carries nothing that is not. The caller supplies the
-// moment because that fact lives on the publication, not on the strategy.
-func (strategyAccessDomain StrategyAccessDomain) ToPublishedDto(publishedAt time.Time) dto.PublishedStrategyDto {
-	return dto.PublishedStrategyDto{
-		ID:             strategyAccessDomain.strategy.ID,
-		Name:           strategyAccessDomain.strategy.Name,
-		Description:    strategyAccessDomain.strategy.Description,
-		ResultType:     strategyAccessDomain.strategy.ResultType,
-		PublisherEmail: strategyAccessDomain.strategy.Owner.Email,
-		PublishedAt:    publishedAt.UTC(),
-		Parameters:     strategyAccessDomain.strategy.ToParameterDtos(),
-	}
 }

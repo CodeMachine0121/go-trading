@@ -7,7 +7,6 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
 // StrategyService is the application layer's only entry point for saved strategies.
@@ -100,10 +99,12 @@ func (strategyService *StrategyService) ListAvailableStrategies(
 		mine = append(mine, strategy.ToDto())
 	}
 
-	return dto.AvailableStrategiesDto{
-		Mine:    mine,
-		Adopted: publishedStrategyDtosOf(adoptedPublications),
-	}, nil
+	adopted := make([]dto.PublishedStrategyDto, 0, len(adoptedPublications))
+	for _, publication := range adoptedPublications {
+		adopted = append(adopted, publication.ToDto())
+	}
+
+	return dto.AvailableStrategiesDto{Mine: mine, Adopted: adopted}, nil
 }
 
 // UpdateStrategy rewrites the strategy this write names and hands it back as it now
@@ -131,14 +132,8 @@ func (strategyService *StrategyService) UpdateStrategy(
 	// else's strategy with content that is also wrong answers "a strategy must carry
 	// a name" — which tells a stranger their target exists and what is wrong with
 	// what they sent.
-	existingStrategy, findError := strategyService.strategyRepository.FindOne(executionContext, writeDto.ID)
-	if findError != nil {
-		return dto.StrategyDto{}, findError
-	}
-
-	ownershipError := domains.NewStrategyAccessDomain(
-		existingStrategy, writeDto.OwnerID, false).RequireOwnership()
-	if ownershipError != nil {
+	if ownershipError := strategyService.requireOwnership(
+		executionContext, writeDto.OwnerID, writeDto.ID); ownershipError != nil {
 		return dto.StrategyDto{}, ownershipError
 	}
 
@@ -161,13 +156,8 @@ func (strategyService *StrategyService) UpdateStrategy(
 func (strategyService *StrategyService) DeleteStrategy(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
-	strategy, findError := strategyService.strategyRepository.FindOne(executionContext, id)
-	if findError != nil {
-		return findError
-	}
-
-	if ownershipError := domains.NewStrategyAccessDomain(
-		strategy, viewerID, false).RequireOwnership(); ownershipError != nil {
+	if ownershipError := strategyService.requireOwnership(
+		executionContext, viewerID, id); ownershipError != nil {
 		return ownershipError
 	}
 
@@ -199,6 +189,24 @@ func (strategyService *StrategyService) ResolveRunnableStrategy(
 	return domains.NewStrategyAccessDomain(strategy, viewerID, isPublished).ToRunnableDto()
 }
 
+// requireOwnership is the two steps that stand in front of changing a strategy:
+// find it, then ask whether it is this caller's. Rewriting and deleting both need
+// them, and both owe a stranger the same sentence as a strategy that is not there.
+//
+// It stops at the second gate on purpose. Publishing hands out the use of an
+// algorithm, never the right to alter it, so whether the strategy is on the
+// marketplace cannot change this answer — and not asking saves a read.
+func (strategyService *StrategyService) requireOwnership(
+	executionContext context.Context, viewerID uint, id uint,
+) error {
+	strategy, findError := strategyService.strategyRepository.FindOne(executionContext, id)
+	if findError != nil {
+		return findError
+	}
+
+	return domains.NewStrategyAccessDomain(strategy, viewerID, false).RequireOwnership()
+}
+
 // isPublished answers the third gate. "There is no publication" is not a failure to
 // report upwards — it is one of the two answers — so it is read here and turned
 // into a plain no.
@@ -214,19 +222,4 @@ func (strategyService *StrategyService) isPublished(
 	}
 
 	return true, nil
-}
-
-// publishedStrategyDtosOf renders a run of publications as the marketplace shows
-// them. It is a package-level function rather than a method because it belongs to
-// no one service: both the picker and the marketplace itself render the same rows
-// the same way, and the alternative is the same loop written twice.
-func publishedStrategyDtosOf(publications []entities.PublishedStrategy) []dto.PublishedStrategyDto {
-	publishedStrategyDtos := make([]dto.PublishedStrategyDto, 0, len(publications))
-	for _, publication := range publications {
-		publishedStrategyDtos = append(publishedStrategyDtos,
-			domains.NewStrategyAccessDomain(publication.Strategy, 0, true).
-				ToPublishedDto(publication.PublishedAt))
-	}
-
-	return publishedStrategyDtos
 }

@@ -42,7 +42,6 @@ func (indicatorCalculationRequest IndicatorCalculationRequest) ToRequestDto() dt
 	}
 }
 
-
 func (indicatorCalculationRequest IndicatorCalculationRequest) parameterValueDtos() []dto.StrategyParameterValueDto {
 	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(indicatorCalculationRequest.ParameterValues))
 	for _, valueRequest := range indicatorCalculationRequest.ParameterValues {

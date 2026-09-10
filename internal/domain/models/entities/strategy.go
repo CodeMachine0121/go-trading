@@ -83,11 +83,3 @@ func (strategy Strategy) parameterDtos() []dto.StrategyParameterDto {
 
 	return parameterDtos
 }
-
-// ToParameterDtos hands out this strategy's knobs to whoever is assembling a shape
-// other than StrategyDto — the marketplace listing shows the same knobs without the
-// script. It exists so that "the knobs" has one spelling; ToDto goes through the
-// same helper.
-func (strategy Strategy) ToParameterDtos() []dto.StrategyParameterDto {
-	return strategy.parameterDtos()
-}

@@ -1,6 +1,10 @@
 package entities
 
-import "time"
+import (
+	"time"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+)
 
 // PublishedStrategy is the fact that a strategy is on the marketplace. It holds
 // nothing about the strategy itself — only that it is out there, and since when.
@@ -33,6 +37,24 @@ type PublishedStrategy struct {
 	// that could be forgotten, and no window where a shelf points at a strategy the
 	// owner has already withdrawn.
 	Adoptions []StrategyAdoption `gorm:"foreignKey:StrategyID;references:StrategyID;constraint:OnDelete:CASCADE"`
+}
+
+// ToDto is this publication as everybody but the owner sees it: the strategy's
+// name, what it is for, what it produces, who put it there and when — and no
+// algorithm, because the shape it converts into has nowhere to put one.
+//
+// It asks no permission, and needs none: a published strategy is public, and
+// nothing here is not.
+func (publishedStrategy PublishedStrategy) ToDto() dto.PublishedStrategyDto {
+	return dto.PublishedStrategyDto{
+		ID:             publishedStrategy.Strategy.ID,
+		Name:           publishedStrategy.Strategy.Name,
+		Description:    publishedStrategy.Strategy.Description,
+		ResultType:     publishedStrategy.Strategy.ResultType,
+		PublisherEmail: publishedStrategy.Strategy.Owner.Email,
+		PublishedAt:    publishedStrategy.PublishedAt.UTC(),
+		Parameters:     publishedStrategy.Strategy.parameterDtos(),
+	}
 }
 
 // TableName pins the table to PublishedStrategies instead of GORM's default.

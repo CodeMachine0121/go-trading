@@ -2,7 +2,6 @@ package domains_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -71,15 +70,15 @@ func TestStrategyAccessDomainSaysWhoMayRunIt(t *testing.T) {
 	}{
 		{name: "the owner may run their own", viewerID: accessOwnerID, isPublished: false, expectedRunnable: true},
 		{
-			name: "a stranger may run a published one",
+			name:     "a stranger may run a published one",
 			viewerID: accessStrangerID, isPublished: true, expectedRunnable: true,
 		},
 		{
-			name: "a stranger may not run an unpublished one",
+			name:     "a stranger may not run an unpublished one",
 			viewerID: accessStrangerID, isPublished: false, expectedRunnable: false,
 		},
 		{
-			name: "the owner may run their own once published too",
+			name:     "the owner may run their own once published too",
 			viewerID: accessOwnerID, isPublished: true, expectedRunnable: true,
 		},
 		{name: "nobody may run anything", viewerID: 0, isPublished: false, expectedRunnable: false},
@@ -156,22 +155,4 @@ func TestStrategyAccessDomainResolvesWhatARunNeeds(t *testing.T) {
 		require.NoError(t, resolveError)
 		assert.Contains(t, runnableStrategyDto.Script, "func Calculate")
 	})
-}
-
-func TestStrategyAccessDomainShowsAMarketplaceListingWithoutTheAlgorithm(t *testing.T) {
-	publishedAt := time.Date(2026, 9, 10, 8, 0, 0, 0, time.FixedZone("Asia/Taipei", 8*60*60))
-	accessDomain := domains.NewStrategyAccessDomain(anOwnedStrategy(), accessStrangerID, true)
-
-	publishedStrategyDto := accessDomain.ToPublishedDto(publishedAt)
-
-	assert.Equal(t, uint(7), publishedStrategyDto.ID)
-	assert.Equal(t, "二十根均線", publishedStrategyDto.Name)
-	assert.Equal(t, "抓短線轉折", publishedStrategyDto.Description)
-	assert.Equal(t, "floatList", publishedStrategyDto.ResultType)
-	assert.Equal(t, "owner@example.com", publishedStrategyDto.PublisherEmail)
-	assert.Equal(t, publishedAt.UTC(), publishedStrategyDto.PublishedAt,
-		"a moment is handed out in universal time whatever zone it was read back in")
-	require.Len(t, publishedStrategyDto.Parameters, 1,
-		"a knob is a name and a default, not a step — declaring it gives nothing away")
-	assert.Equal(t, "lookback", publishedStrategyDto.Parameters[0].Name)
 }

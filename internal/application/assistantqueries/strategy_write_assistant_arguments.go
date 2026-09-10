@@ -54,13 +54,13 @@ func (strategyWriteAssistantArguments strategyWriteAssistantArguments) ToWriteDt
 // written once because they take the same ones — the only difference is whether the
 // identifier is required, and each says that for itself.
 const strategyWriteArgumentSchema = `` +
-	`"description":{"type":"string","description":"這支策略在做什麼，發佈到市集時別人只看得到這一段"},`+
-		`"name":{"type":"string","description":"策略名稱，不得空白、不得與既有策略重複，上限 128 字"},` +
+	`"description":{"type":"string","description":"這支策略在做什麼，發佈到市集時別人只看得到這一段"},` +
+	`"name":{"type":"string","description":"策略名稱，不得空白、不得與既有策略重複，上限 128 字"},` +
 	`"script":{"type":"string","description":"指標算式（Go 函式本文），不得空白"},` +
 	`"resultType":{"type":"string","enum":["float","floatList","bool","boolList"],"description":"指標值種類，未給視為 float"},` +
 	`"parameters":{"type":"array","description":"這支策略自己的參數","items":{"type":"object","properties":{` +
-	`"description":{"type":"string","description":"這支策略在做什麼，發佈到市集時別人只看得到這一段"},`+
-		`"name":{"type":"string"},` +
+	`"description":{"type":"string","description":"這支策略在做什麼，發佈到市集時別人只看得到這一段"},` +
+	`"name":{"type":"string"},` +
 	`"kind":{"type":"string","enum":["lookbackCount","number","boolean"],"description":"lookbackCount 是要看過去幾根，number 是任意數字，boolean 是是非"},` +
 	`"defaultValue":{"type":"number"}` +
 	`},"required":["name","kind"],"additionalProperties":false}}`
