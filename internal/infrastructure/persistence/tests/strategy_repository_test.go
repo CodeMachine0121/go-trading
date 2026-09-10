@@ -49,8 +49,17 @@ func newStrategyTestDatabase(t *testing.T) *gorm.DB {
 
 // aSecondOwner plants another person and answers with their identifier, for the
 // cases about two people's strategies not colliding.
+//
+// Their identifier is pinned, exactly like the first one's, and it has to be: a
+// pinned row leaves the table's own counter behind it, so a row that lets the
+// database choose is handed an identifier the pinned row already holds. Whether
+// that clashes depends on how far the counter happens to have climbed — which is
+// why it passes on a well-used database and fails on a fresh one, the one kind of
+// failure that reaches a pull request instead of a laptop.
 func aSecondOwner(t *testing.T, database *gorm.DB) uint {
-	secondOwner := entities.User{Email: "other@example.com", PasswordProof: "a-proof"}
+	secondOwner := entities.User{
+		ID: strategyRowOwnerID + 1, Email: "other@example.com", PasswordProof: "a-proof",
+	}
 	require.NoError(t, database.WithContext(t.Context()).Create(&secondOwner).Error)
 
 	return secondOwner.ID
