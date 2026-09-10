@@ -17,17 +17,19 @@ type strategyParameterAssistantArgument struct {
 // path and not the other. Which strategy is meant is the identifier, and a zero one
 // means none yet.
 type strategyWriteAssistantArguments struct {
-	StrategyID uint                                 `json:"strategyId"`
-	Name       string                               `json:"name"`
-	Script     string                               `json:"script"`
-	ResultType string                               `json:"resultType"`
-	Parameters []strategyParameterAssistantArgument `json:"parameters"`
+	StrategyID  uint                                 `json:"strategyId"`
+	Name        string                               `json:"name"`
+	Description string                               `json:"description"`
+	Script      string                               `json:"script"`
+	ResultType  string                               `json:"resultType"`
+	Parameters  []strategyParameterAssistantArgument `json:"parameters"`
 }
 
 // ToWriteDto turns what the assistant declared into the shape the domain judges,
-// taking the identity from the argument so that the capability calling this decides
-// whether a strategy is being saved or rewritten.
-func (strategyWriteAssistantArguments strategyWriteAssistantArguments) ToWriteDto(id uint) dto.StrategyWriteDto {
+// taking the identity and the owner from the arguments so that the capability
+// calling this decides whether a strategy is being saved or rewritten, and on whose
+// behalf. The assistant never names an owner itself — it acts for whoever asked it.
+func (strategyWriteAssistantArguments strategyWriteAssistantArguments) ToWriteDto(id uint, ownerID uint) dto.StrategyWriteDto {
 	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(strategyWriteAssistantArguments.Parameters))
 	for _, parameter := range strategyWriteAssistantArguments.Parameters {
 		parameterWriteDtos = append(parameterWriteDtos, dto.StrategyParameterWriteDto{
@@ -38,11 +40,13 @@ func (strategyWriteAssistantArguments strategyWriteAssistantArguments) ToWriteDt
 	}
 
 	return dto.StrategyWriteDto{
-		ID:         id,
-		Name:       strategyWriteAssistantArguments.Name,
-		Script:     strategyWriteAssistantArguments.Script,
-		ResultType: strategyWriteAssistantArguments.ResultType,
-		Parameters: parameterWriteDtos,
+		ID:          id,
+		OwnerID:     ownerID,
+		Name:        strategyWriteAssistantArguments.Name,
+		Description: strategyWriteAssistantArguments.Description,
+		Script:      strategyWriteAssistantArguments.Script,
+		ResultType:  strategyWriteAssistantArguments.ResultType,
+		Parameters:  parameterWriteDtos,
 	}
 }
 
@@ -50,11 +54,13 @@ func (strategyWriteAssistantArguments strategyWriteAssistantArguments) ToWriteDt
 // written once because they take the same ones — the only difference is whether the
 // identifier is required, and each says that for itself.
 const strategyWriteArgumentSchema = `` +
-	`"name":{"type":"string","description":"策略名稱，不得空白、不得與既有策略重複，上限 128 字"},` +
+	`"description":{"type":"string","description":"這支策略在做什麼，發佈到市集時別人只看得到這一段"},`+
+		`"name":{"type":"string","description":"策略名稱，不得空白、不得與既有策略重複，上限 128 字"},` +
 	`"script":{"type":"string","description":"指標算式（Go 函式本文），不得空白"},` +
 	`"resultType":{"type":"string","enum":["float","floatList","bool","boolList"],"description":"指標值種類，未給視為 float"},` +
 	`"parameters":{"type":"array","description":"這支策略自己的參數","items":{"type":"object","properties":{` +
-	`"name":{"type":"string"},` +
+	`"description":{"type":"string","description":"這支策略在做什麼，發佈到市集時別人只看得到這一段"},`+
+		`"name":{"type":"string"},` +
 	`"kind":{"type":"string","enum":["lookbackCount","number","boolean"],"description":"lookbackCount 是要看過去幾根，number 是任意數字，boolean 是是非"},` +
 	`"defaultValue":{"type":"number"}` +
 	`},"required":["name","kind"],"additionalProperties":false}}`

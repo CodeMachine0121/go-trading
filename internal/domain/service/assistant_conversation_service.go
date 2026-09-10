@@ -120,7 +120,7 @@ func (assistantConversationService *AssistantConversationService) Ask(
 	)
 
 	answeredExchange, answer, exchangeError := assistantConversationService.writeAnswer(
-		executionContext, exchange)
+		executionContext, askDto.ViewerID, exchange)
 	if exchangeError != nil {
 		return dto.AssistantAnswerDto{}, exchangeError
 	}
@@ -197,7 +197,7 @@ func (assistantConversationService *AssistantConversationService) recentMessages
 // all — recording a blank answer would put a question with nothing under it into the
 // conversation for good.
 func (assistantConversationService *AssistantConversationService) writeAnswer(
-	executionContext context.Context, exchange domains.AssistantExchangeDomain,
+	executionContext context.Context, viewerID uint, exchange domains.AssistantExchangeDomain,
 ) (domains.AssistantExchangeDomain, string, error) {
 	for {
 		reply, replyError := assistantConversationService.assistantProxy.Reply(
@@ -214,7 +214,7 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 		if len(allowedCalls) > 0 {
 			exchange = exchange.RecordRound(
 				reply.Answer,
-				assistantConversationService.runAssistantQueries(executionContext, allowedCalls))
+				assistantConversationService.runAssistantQueries(executionContext, viewerID, allowedCalls))
 
 			continue
 		}
@@ -234,11 +234,11 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 // result — including the refused ones. A request left without a result is the one
 // shape the assistant's own interface refuses outright.
 func (assistantConversationService *AssistantConversationService) runAssistantQueries(
-	executionContext context.Context, calls []vo.AssistantQueryCallVo,
+	executionContext context.Context, viewerID uint, calls []vo.AssistantQueryCallVo,
 ) []vo.AssistantQueryExchangeVo {
 	exchanges := make([]vo.AssistantQueryExchangeVo, 0, len(calls))
 	for _, call := range calls {
-		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, call)
+		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, viewerID, call)
 		exchanges = append(exchanges, vo.AssistantQueryExchangeVo{
 			Call:     call,
 			Outcome:  outcome,
@@ -258,14 +258,14 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 // at all, the assistant is handed the reason and goes on writing. Ending the answer
 // over any of them would throw away every lookup that had already succeeded.
 func (assistantConversationService *AssistantConversationService) runAssistantQuery(
-	executionContext context.Context, call vo.AssistantQueryCallVo,
+	executionContext context.Context, viewerID uint, call vo.AssistantQueryCallVo,
 ) (string, bool) {
 	for _, assistantQuery := range assistantConversationService.assistantQueries {
 		if assistantQuery.Name() != call.Name {
 			continue
 		}
 
-		outcome, runError := assistantQuery.Run(executionContext, call.Arguments)
+		outcome, runError := assistantQuery.Run(executionContext, viewerID, call.Arguments)
 		if runError != nil {
 			return runError.Error(), true
 		}

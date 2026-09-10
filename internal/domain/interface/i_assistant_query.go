@@ -28,8 +28,13 @@ type IAssistantQuery interface {
 	// text rather than forcing a loosely typed structure through the domain to
 	// describe something the domain has no opinion about.
 	ArgumentSchema() string
-	// Run carries this capability out and hands back what the assistant should read.
-	// An error is the reason it was refused, which the assistant reads and may act
-	// on; it does not end the answer being written.
-	Run(executionContext context.Context, arguments string) (string, error)
+	// Run carries this capability out on behalf of one person and hands back what
+	// the assistant should read. An error is the reason it was refused, which the
+	// assistant reads and may act on; it does not end the answer being written.
+	//
+	// Who it acts for is a parameter rather than something read off the context,
+	// so that forgetting to pass it on is a compile error instead of a capability
+	// quietly acting as nobody. Several capabilities have no use for it — the
+	// market is not anybody's property — and they ignore it by name.
+	Run(executionContext context.Context, viewerID uint, arguments string) (string, error)
 }

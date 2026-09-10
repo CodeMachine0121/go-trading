@@ -43,20 +43,31 @@ type strategyDigest struct {
 	Name           string   `json:"name"`
 	ResultType     string   `json:"resultType"`
 	ParameterNames []string `json:"parameterNames"`
+	// Mine says whether the asker owns this one. Only their own can be rewritten,
+	// and saying so here is what keeps the assistant from offering to.
+	Mine bool `json:"mine"`
 }
 
-// Run hands over every saved strategy in brief. Holding none is an answer, not a
-// refusal.
+// Run hands over, in brief, everything the person who asked can pick from: their
+// own strategies and the ones they took off the marketplace. Holding none is an
+// answer, not a refusal.
+//
+// The two arrive as one list here, unlike over HTTP, and that costs nothing: a
+// digest never carried an algorithm to begin with, so there is no shape difference
+// left to preserve. What it does carry is who each one belongs to, so the assistant
+// does not offer to rewrite one that is not the asker's.
 func (strategyListAssistantQuery *StrategyListAssistantQuery) Run(
-	executionContext context.Context, _ string,
+	executionContext context.Context, viewerID uint, _ string,
 ) (string, error) {
-	strategyDtos, listError := strategyListAssistantQuery.strategyApplication.ListStrategies(executionContext)
+	availableStrategiesDto, listError := strategyListAssistantQuery.strategyApplication.ListAvailableStrategies(
+		executionContext, viewerID)
 	if listError != nil {
 		return "", listError
 	}
 
-	digests := make([]strategyDigest, 0, len(strategyDtos))
-	for _, strategyDto := range strategyDtos {
+	digests := make([]strategyDigest, 0,
+		len(availableStrategiesDto.Mine)+len(availableStrategiesDto.Adopted))
+	for _, strategyDto := range availableStrategiesDto.Mine {
 		parameterNames := make([]string, 0, len(strategyDto.Parameters))
 		for _, parameterDto := range strategyDto.Parameters {
 			parameterNames = append(parameterNames, parameterDto.Name)
@@ -67,6 +78,22 @@ func (strategyListAssistantQuery *StrategyListAssistantQuery) Run(
 			Name:           strategyDto.Name,
 			ResultType:     strategyDto.ResultType,
 			ParameterNames: parameterNames,
+			Mine:           true,
+		})
+	}
+
+	for _, publishedStrategyDto := range availableStrategiesDto.Adopted {
+		parameterNames := make([]string, 0, len(publishedStrategyDto.Parameters))
+		for _, parameterDto := range publishedStrategyDto.Parameters {
+			parameterNames = append(parameterNames, parameterDto.Name)
+		}
+
+		digests = append(digests, strategyDigest{
+			ID:             publishedStrategyDto.ID,
+			Name:           publishedStrategyDto.Name,
+			ResultType:     publishedStrategyDto.ResultType,
+			ParameterNames: parameterNames,
+			Mine:           false,
 		})
 	}
 

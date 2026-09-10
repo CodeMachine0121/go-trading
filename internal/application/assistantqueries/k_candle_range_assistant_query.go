@@ -62,7 +62,7 @@ func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) ArgumentSchema() s
 // Run reads the stretch and hands over at most the ceiling's worth of it, most recent
 // last. Every rule the underlying query obeys is obeyed here unrelaxed.
 func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) Run(
-	executionContext context.Context, arguments string,
+	executionContext context.Context, _ uint, arguments string,
 ) (string, error) {
 	rangeArguments := kCandleRangeAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &rangeArguments); unmarshalError != nil {

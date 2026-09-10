@@ -26,3 +26,10 @@ var ErrStrategyNotFound = errors.New("strategy not found")
 func StrategyNotFound(id uint) error {
 	return fmt.Errorf("%w: 找不到識別碼為 %d 的策略", ErrStrategyNotFound, id)
 }
+
+// ErrStrategyNotPublished marks a strategy that is not on the marketplace. It never
+// reaches a caller: every path that meets it turns it into the one refusal a closed
+// door gives, because telling somebody "that exists but is not shared" is telling
+// them it exists. It is only how the store says "there is no publication here" to
+// the code above it — the same role ErrUserNotFound plays for a sign-in.
+var ErrStrategyNotPublished = errors.New("strategy not published")

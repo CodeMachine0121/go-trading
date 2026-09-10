@@ -12,24 +12,35 @@ import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 // belong to a calculation, not to a strategy. A caller that sends them anyway is
 // simply sending fields nothing binds to.
 type StrategyRequest struct {
-	Name       string `json:"name"`
-	Script     string `json:"script"`
-	ResultType string `json:"resultType"`
+	Name string `json:"name"`
+	// Description is what this strategy is for, in the owner's words. It may be
+	// left out; on the marketplace it is then the only thing missing from the only
+	// thing a reader has.
+	Description string `json:"description"`
+	Script      string `json:"script"`
+	ResultType  string `json:"resultType"`
 	// Parameters are the algorithm's own knobs. Leaving them out declares an
 	// algorithm with no knobs, which is what every algorithm was before knobs.
 	Parameters []StrategyParameterRequest `json:"parameters"`
 }
 
 // ToWriteDto turns the request into the shape the domain accepts, taking the
-// identity from the argument so the caller of this method decides what is named.
-// A zero identifier means a strategy that does not exist yet.
-func (strategyRequest StrategyRequest) ToWriteDto(id uint) dto.StrategyWriteDto {
+// identity and the owner from the arguments so the caller of this method decides
+// both. A zero identifier means a strategy that does not exist yet.
+//
+// The owner is deliberately not a field on the request. A body that could name its
+// own owner is a body that could claim somebody else's — who is asking comes from
+// the proof of identity on the request, never from what the request says about
+// itself.
+func (strategyRequest StrategyRequest) ToWriteDto(id uint, ownerID uint) dto.StrategyWriteDto {
 	return dto.StrategyWriteDto{
-		ID:         id,
-		Name:       strategyRequest.Name,
-		Script:     strategyRequest.Script,
-		ResultType: strategyRequest.ResultType,
-		Parameters: strategyRequest.parameterWriteDtos(),
+		ID:          id,
+		OwnerID:     ownerID,
+		Name:        strategyRequest.Name,
+		Description: strategyRequest.Description,
+		Script:      strategyRequest.Script,
+		ResultType:  strategyRequest.ResultType,
+		Parameters:  strategyRequest.parameterWriteDtos(),
 	}
 }
 

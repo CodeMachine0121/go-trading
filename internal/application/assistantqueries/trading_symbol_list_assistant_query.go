@@ -40,7 +40,7 @@ func (tradingSymbolListAssistantQuery *TradingSymbolListAssistantQuery) Argument
 // Run hands over every market the system knows about. Holding none is an answer, not
 // a refusal — a freshly built system genuinely knows of none.
 func (tradingSymbolListAssistantQuery *TradingSymbolListAssistantQuery) Run(
-	executionContext context.Context, _ string,
+	executionContext context.Context, _ uint, _ string,
 ) (string, error) {
 	tradingSymbolDtos, listError := tradingSymbolListAssistantQuery.tradingSymbolApplication.ListTradingSymbols(
 		executionContext)

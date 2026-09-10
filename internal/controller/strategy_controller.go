@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/gin-gonic/gin"
@@ -31,7 +32,7 @@ func (strategyController *StrategyController) CreateStrategy(ginContext *gin.Con
 	}
 
 	strategyDto, err := strategyController.strategyApplication.CreateStrategy(ginContext.Request.Context(),
-		strategyRequest.ToWriteDto(0))
+		strategyRequest.ToWriteDto(0, middlewares.CurrentUserID(ginContext)))
 	if err != nil {
 		strategyController.respondWithError(ginContext, err)
 		return
@@ -40,25 +41,33 @@ func (strategyController *StrategyController) CreateStrategy(ginContext *gin.Con
 	ginContext.JSON(http.StatusCreated, strategyDto)
 }
 
-// ListStrategies handles GET /strategies.
-func (strategyController *StrategyController) ListStrategies(ginContext *gin.Context) {
-	strategyDtos, err := strategyController.strategyApplication.ListStrategies(ginContext.Request.Context())
+// ListAvailableStrategies handles GET /strategies: what this caller picks from,
+// which is their own strategies plus the ones they took off the marketplace.
+//
+// The two come back as two lists rather than one, because the adopted ones carry no
+// script and there is no single shape that could hold both.
+func (strategyController *StrategyController) ListAvailableStrategies(ginContext *gin.Context) {
+	availableStrategiesDto, err := strategyController.strategyApplication.ListAvailableStrategies(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext))
 	if err != nil {
 		strategyController.respondWithError(ginContext, err)
 		return
 	}
 
-	ginContext.JSON(http.StatusOK, strategyDtos)
+	ginContext.JSON(http.StatusOK, availableStrategiesDto)
 }
 
-// GetStrategy handles GET /strategies/:id.
+// GetStrategy handles GET /strategies/:id, and serves owners only. Somebody else's
+// published strategy is read from the marketplace, which hands back a different
+// shape — one without a script.
 func (strategyController *StrategyController) GetStrategy(ginContext *gin.Context) {
 	id, idIsReadable := strategyController.readID(ginContext)
 	if !idIsReadable {
 		return
 	}
 
-	strategyDto, err := strategyController.strategyApplication.GetStrategy(ginContext.Request.Context(), id)
+	strategyDto, err := strategyController.strategyApplication.GetStrategy(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
 	if err != nil {
 		strategyController.respondWithError(ginContext, err)
 		return
@@ -82,7 +91,7 @@ func (strategyController *StrategyController) UpdateStrategy(ginContext *gin.Con
 	}
 
 	strategyDto, err := strategyController.strategyApplication.UpdateStrategy(ginContext.Request.Context(),
-		strategyRequest.ToWriteDto(id))
+		strategyRequest.ToWriteDto(id, middlewares.CurrentUserID(ginContext)))
 	if err != nil {
 		strategyController.respondWithError(ginContext, err)
 		return
@@ -98,7 +107,8 @@ func (strategyController *StrategyController) DeleteStrategy(ginContext *gin.Con
 		return
 	}
 
-	if err := strategyController.strategyApplication.DeleteStrategy(ginContext.Request.Context(), id); err != nil {
+	if err := strategyController.strategyApplication.DeleteStrategy(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id); err != nil {
 		strategyController.respondWithError(ginContext, err)
 		return
 	}

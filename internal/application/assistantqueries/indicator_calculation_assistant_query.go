@@ -46,18 +46,19 @@ type strategyParameterValueAssistantArgument struct {
 //
 // A strategy that is named wins over an algorithm that is sent, so that the two can
 // never quietly disagree about which one ran.
+//
+// It no longer reads the strategy itself. Fetching the algorithm belongs to the use
+// case that runs it — that is where the three gates are walked — so this capability
+// hands over an identifier and never holds a script it did not write.
 type IndicatorCalculationAssistantQuery struct {
 	indicatorCalculationApplication *application.IndicatorCalculationApplication
-	strategyApplication             *application.StrategyApplication
 }
 
 func NewIndicatorCalculationAssistantQuery(
 	indicatorCalculationApplication *application.IndicatorCalculationApplication,
-	strategyApplication *application.StrategyApplication,
 ) *IndicatorCalculationAssistantQuery {
 	return &IndicatorCalculationAssistantQuery{
 		indicatorCalculationApplication: indicatorCalculationApplication,
-		strategyApplication:             strategyApplication,
 	}
 }
 
@@ -102,7 +103,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ar
 // assistant as they are, so it can say a reading is based on less market than asked
 // for instead of presenting it as complete.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Run(
-	executionContext context.Context, arguments string,
+	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {
 	calculationArguments := indicatorCalculationAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &calculationArguments); unmarshalError != nil {
@@ -124,14 +125,9 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 		endTime = namedEndTime
 	}
 
-	requestDto, requestError := indicatorCalculationAssistantQuery.requestFor(
-		executionContext, calculationArguments, startTime, endTime)
-	if requestError != nil {
-		return "", requestError
-	}
-
-	resultDto, calculateError := indicatorCalculationAssistantQuery.indicatorCalculationApplication.CalculateIndicator(
-		executionContext, requestDto)
+	resultDto, calculateError := indicatorCalculationAssistantQuery.calculate(
+		executionContext, viewerID, calculationArguments,
+		indicatorCalculationAssistantQuery.requestFor(calculationArguments, startTime, endTime))
 	if calculateError != nil {
 		return "", calculateError
 	}
@@ -144,18 +140,13 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 	return string(payload), nil
 }
 
-// requestFor is the calculation to run: the algorithm comes from the named strategy
-// when one was named, and from the assistant itself when none was.
-//
-// Reading the strategy here rather than trusting what was sent is what keeps a named
-// strategy honest — the algorithm and the value kind that run are the ones the
-// strategy actually holds, whatever else arrived alongside the name.
+// requestFor is everything about this calculation except the algorithm: where to
+// read, how coarse, and what the knobs are worth this time.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) requestFor(
-	executionContext context.Context,
 	calculationArguments indicatorCalculationAssistantArguments,
 	startTime time.Time,
 	endTime time.Time,
-) (dto.IndicatorCalculationRequestDto, error) {
+) dto.IndicatorCalculationRequestDto {
 	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(calculationArguments.ParameterValues))
 	for _, parameterValue := range calculationArguments.ParameterValues {
 		parameterValueDtos = append(parameterValueDtos, dto.StrategyParameterValueDto{
@@ -164,36 +155,38 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) re
 		})
 	}
 
-	requestDto := dto.IndicatorCalculationRequestDto{
+	return dto.IndicatorCalculationRequestDto{
 		Symbol:              calculationArguments.Symbol,
 		StartTime:           startTime,
-		Script:              calculationArguments.Script,
 		AggregationInterval: calculationArguments.Interval,
-		ResultType:          calculationArguments.ResultType,
 		EndTime:             endTime,
 		Parameters:          make([]dto.StrategyParameterWriteDto, 0),
 		ParameterValues:     parameterValueDtos,
 	}
+}
 
-	if calculationArguments.StrategyID == 0 {
-		return requestDto, nil
+// calculate runs the named strategy, or the algorithm the assistant wrote itself
+// when it named none.
+//
+// The two paths are genuinely different and not a branch worth removing. A named
+// strategy has an owner and may belong to somebody else, so it goes through the
+// gates and the script is fetched on this side. An algorithm the assistant just
+// composed belongs to the person who asked for it — there is nobody to hide it from
+// — and no saved strategy to look up.
+func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) calculate(
+	executionContext context.Context,
+	viewerID uint,
+	calculationArguments indicatorCalculationAssistantArguments,
+	requestDto dto.IndicatorCalculationRequestDto,
+) (dto.IndicatorCalculationResultDto, error) {
+	if calculationArguments.StrategyID != 0 {
+		return indicatorCalculationAssistantQuery.indicatorCalculationApplication.CalculateIndicator(
+			executionContext, viewerID, calculationArguments.StrategyID, requestDto)
 	}
 
-	strategyDto, findError := indicatorCalculationAssistantQuery.strategyApplication.GetStrategy(
-		executionContext, calculationArguments.StrategyID)
-	if findError != nil {
-		return dto.IndicatorCalculationRequestDto{}, findError
-	}
+	requestDto.Script = calculationArguments.Script
+	requestDto.ResultType = calculationArguments.ResultType
 
-	requestDto.Script = strategyDto.Script
-	requestDto.ResultType = strategyDto.ResultType
-	for _, parameterDto := range strategyDto.Parameters {
-		requestDto.Parameters = append(requestDto.Parameters, dto.StrategyParameterWriteDto{
-			Name:         parameterDto.Name,
-			Kind:         parameterDto.Kind,
-			DefaultValue: parameterDto.DefaultValue,
-		})
-	}
-
-	return requestDto, nil
+	return indicatorCalculationAssistantQuery.indicatorCalculationApplication.CalculateAdHocIndicator(
+		executionContext, requestDto)
 }

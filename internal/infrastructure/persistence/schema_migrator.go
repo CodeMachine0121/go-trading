@@ -52,6 +52,15 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.AssistantQueryRecord{},
 		&entities.User{},
 		&entities.Session{},
+		&entities.PublishedStrategy{},
+		&entities.StrategyAdoption{},
+	}
+
+	// Clearing has to happen before the schema is synced, not after: a strategy
+	// gained an owner that may not be null, and a table with rows in it cannot grow
+	// such a column.
+	if clearError := schemaMigrator.clearOwnerlessStrategies(); clearError != nil {
+		return nil, clearError
 	}
 
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)
@@ -88,6 +97,37 @@ func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 		if dropError := migrator.DropColumn(column.entity, column.name); dropError != nil {
 			return fmt.Errorf("drop retired column %s: %w", column.name, dropError)
 		}
+	}
+
+	return nil
+}
+
+// clearOwnerlessStrategies drops every strategy saved before strategies belonged to
+// anybody. Their knobs go with them through the cascade already on the table.
+//
+// The condition is the point: it fires only while the Strategies table exists and
+// has no owner column, which is exactly once, and never again after the migration
+// that follows it. It is therefore not a script somebody has to remember to run
+// once — it is a statement about a shape that stops being true the moment it has
+// done its work, in the same spirit as the retired columns above.
+//
+// Assigning the rows to somebody instead was the alternative, and it was rejected:
+// picking an owner for a test row is a guess, and a guess here would leave "every
+// strategy has an owner" true only by accident.
+func (schemaMigrator *SchemaMigrator) clearOwnerlessStrategies() error {
+	migrator := schemaMigrator.database.Migrator()
+	if !migrator.HasTable(&entities.Strategy{}) {
+		return nil
+	}
+
+	if migrator.HasColumn(&entities.Strategy{}, "owner_id") {
+		return nil
+	}
+
+	if deleteError := schemaMigrator.database.
+		Where("1 = 1").
+		Delete(&entities.Strategy{}).Error; deleteError != nil {
+		return fmt.Errorf("clear ownerless strategies: %w", deleteError)
 	}
 
 	return nil

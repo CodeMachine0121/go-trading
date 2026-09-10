@@ -8,21 +8,26 @@ import (
 
 // IndicatorCalculationRequest is the body a caller sends to run an indicator script.
 //
+// It names a strategy rather than carrying an algorithm. That is what lets one
+// person run another's published strategy without reading it: a script sent from
+// outside is a script the sender already has, and then keeping it hidden is only a
+// matter of a screen not showing it.
+//
+// The kind of value is not here either — the strategy declares it, and declaring it
+// again per run would be a second answer that can disagree with the first.
+//
 // StartTime says where the stretch of market to read begins and is the one field
-// with nothing sensible to fall back on. AggregationInterval, ResultType and EndTime
-// may each be left out: the calculation then reads one-minute candles, produces one
-// number per indicator, and computes up to now.
+// with nothing sensible to fall back on. AggregationInterval and EndTime may each be
+// left out: the calculation then reads one-minute candles and computes up to now.
 type IndicatorCalculationRequest struct {
+	StrategyID          uint      `json:"strategyId"`
 	Symbol              string    `json:"symbol"`
 	AggregationInterval string    `json:"aggregationInterval"`
 	StartTime           time.Time `json:"startTime"`
 	EndTime             time.Time `json:"endTime"`
-	Script              string    `json:"script"`
-	ResultType          string    `json:"resultType"`
-	// Parameters are the algorithm's knobs as declared, and ParameterValues what
-	// they are worth this time. Both arrive with the run rather than being looked
-	// up, because what runs here is a script — it may never have been saved.
-	Parameters      []StrategyParameterRequest      `json:"parameters"`
+	// ParameterValues are what the strategy's knobs are worth this time. They are
+	// the caller's own and are used for this run only — running somebody else's
+	// strategy never writes anything back to it.
 	ParameterValues []StrategyParameterValueRequest `json:"parameterValues"`
 }
 
@@ -33,21 +38,10 @@ func (indicatorCalculationRequest IndicatorCalculationRequest) ToRequestDto() dt
 		AggregationInterval: indicatorCalculationRequest.AggregationInterval,
 		StartTime:           indicatorCalculationRequest.StartTime,
 		EndTime:             indicatorCalculationRequest.EndTime,
-		Script:              indicatorCalculationRequest.Script,
-		ResultType:          indicatorCalculationRequest.ResultType,
-		Parameters:          indicatorCalculationRequest.parameterWriteDtos(),
 		ParameterValues:     indicatorCalculationRequest.parameterValueDtos(),
 	}
 }
 
-func (indicatorCalculationRequest IndicatorCalculationRequest) parameterWriteDtos() []dto.StrategyParameterWriteDto {
-	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(indicatorCalculationRequest.Parameters))
-	for _, parameterRequest := range indicatorCalculationRequest.Parameters {
-		parameterWriteDtos = append(parameterWriteDtos, parameterRequest.ToWriteDto())
-	}
-
-	return parameterWriteDtos
-}
 
 func (indicatorCalculationRequest IndicatorCalculationRequest) parameterValueDtos() []dto.StrategyParameterValueDto {
 	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(indicatorCalculationRequest.ParameterValues))

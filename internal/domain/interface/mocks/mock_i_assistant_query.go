@@ -83,16 +83,16 @@ func (mr *MockIAssistantQueryMockRecorder) Name() *gomock.Call {
 }
 
 // Run mocks base method.
-func (m *MockIAssistantQuery) Run(executionContext context.Context, arguments string) (string, error) {
+func (m *MockIAssistantQuery) Run(executionContext context.Context, viewerID uint, arguments string) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Run", executionContext, arguments)
+	ret := m.ctrl.Call(m, "Run", executionContext, viewerID, arguments)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockIAssistantQueryMockRecorder) Run(executionContext, arguments any) *gomock.Call {
+func (mr *MockIAssistantQueryMockRecorder) Run(executionContext, viewerID, arguments any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockIAssistantQuery)(nil).Run), executionContext, arguments)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockIAssistantQuery)(nil).Run), executionContext, viewerID, arguments)
 }

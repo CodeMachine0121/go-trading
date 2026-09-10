@@ -12,16 +12,17 @@ import (
 //
 // It carries no indicator value kind. A replay reads one number per candle — the
 // signal — so there is nothing here for a caller to declare and nothing to get wrong.
+// Like an indicator calculation, it names a strategy rather than carrying an
+// algorithm — a replay of a script sent from outside would hide nothing from the
+// sender.
 type BacktestRequest struct {
+	StrategyID          uint      `json:"strategyId"`
 	Symbol              string    `json:"symbol"`
 	AggregationInterval string    `json:"aggregationInterval"`
 	StartTime           time.Time `json:"startTime"`
 	EndTime             time.Time `json:"endTime"`
-	Script              string    `json:"script"`
-	// Parameters are the algorithm's knobs as declared, and ParameterValues what they
-	// are worth this time. Both arrive with the run rather than being looked up,
-	// because what is replayed is a script — it may never have been saved.
-	Parameters      []StrategyParameterRequest      `json:"parameters"`
+	// ParameterValues are what the strategy's knobs are worth this time, used for
+	// this replay only and never written back.
 	ParameterValues []StrategyParameterValueRequest `json:"parameterValues"`
 	InitialCapital  decimal.Decimal                 `json:"initialCapital"`
 	// PositionSizingMode is how much each opening stakes, and PositionSizingValue the
@@ -38,8 +39,6 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 		AggregationInterval: backtestRequest.AggregationInterval,
 		StartTime:           backtestRequest.StartTime,
 		EndTime:             backtestRequest.EndTime,
-		Script:              backtestRequest.Script,
-		Parameters:          backtestRequest.parameterWriteDtos(),
 		ParameterValues:     backtestRequest.parameterValueDtos(),
 		InitialCapital:      backtestRequest.InitialCapital,
 		PositionSizingMode:  backtestRequest.PositionSizingMode,
@@ -47,14 +46,6 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 	}
 }
 
-func (backtestRequest BacktestRequest) parameterWriteDtos() []dto.StrategyParameterWriteDto {
-	parameterWriteDtos := make([]dto.StrategyParameterWriteDto, 0, len(backtestRequest.Parameters))
-	for _, parameterRequest := range backtestRequest.Parameters {
-		parameterWriteDtos = append(parameterWriteDtos, parameterRequest.ToWriteDto())
-	}
-
-	return parameterWriteDtos
-}
 
 func (backtestRequest BacktestRequest) parameterValueDtos() []dto.StrategyParameterValueDto {
 	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(backtestRequest.ParameterValues))

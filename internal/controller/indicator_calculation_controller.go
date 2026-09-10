@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/gin-gonic/gin"
@@ -34,8 +35,9 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 		return
 	}
 
-	resultDto, err := indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator(ginContext.Request.Context(),
-		indicatorCalculationRequest.ToRequestDto())
+	resultDto, err := indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator(
+		ginContext.Request.Context(),
+		middlewares.CurrentUserID(ginContext), indicatorCalculationRequest.StrategyID, indicatorCalculationRequest.ToRequestDto())
 	if err != nil {
 		indicatorCalculationController.respondWithError(ginContext, err)
 		return
@@ -55,6 +57,13 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
+	// A strategy that is not there, one belonging to somebody else, and one that is
+	// not on the marketplace all arrive as this single refusal, and all leave as the
+	// same 404. Telling them apart would let a caller learn which identifiers exist.
+	if errors.Is(err, domains.ErrStrategyNotFound) {
+		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
 	// Naming the input at fault is what lets a caller put the sentence where the
 	// person can act on it. Only this one validation failure has a specific input to
 	// name — the rest are answered as they were.

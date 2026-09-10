@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,7 @@ func (assistantConversationController *AssistantConversationController) Ask(ginC
 	}
 
 	answerDto, err := assistantConversationController.assistantConversationApplication.Ask(
-		ginContext.Request.Context(), assistantAskRequest.ToAskDto())
+		ginContext.Request.Context(), assistantAskRequest.ToAskDto(middlewares.CurrentUserID(ginContext)))
 	if err != nil {
 		assistantConversationController.respondWithError(ginContext, err)
 		return

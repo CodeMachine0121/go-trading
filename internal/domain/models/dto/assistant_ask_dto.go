@@ -8,4 +8,10 @@ package dto
 type AssistantAskDto struct {
 	ConversationID uint
 	Question       string
+	// ViewerID is who the assistant is acting for. Everything it does with
+	// strategies it does as this person: what it creates belongs to them, and what
+	// it can read is what they can read. Without it, an assistant asked to save a
+	// strategy would produce one belonging to nobody — and "every strategy has an
+	// owner" would have its first exception.
+	ViewerID uint
 }
