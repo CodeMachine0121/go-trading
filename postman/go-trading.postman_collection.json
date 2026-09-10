@@ -75,6 +75,134 @@
       "key": "taiwanSymbol",
       "value": "2330",
       "type": "default"
+    },
+    {
+      "key": "strategyIdForCalculation1",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation2",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation3",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForfloatList1",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForbool1",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForboolList1",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation4",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation5",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation6",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation7",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation8",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation9",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForCalculation10",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForsignal1",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest1",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest2",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest3",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest4",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest5",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest6",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest7",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktestTooFewCandles",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest8",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForBacktest9",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForKnobbedCalculation",
+      "value": ""
+    },
+    {
+      "key": "strategyIdForKnob1",
+      "value": ""
+    },
+    {
+      "key": "publishedStrategyId",
+      "value": ""
+    },
+    {
+      "key": "publishedAtFirstTime",
+      "value": ""
+    },
+    {
+      "key": "unpublishedStrategyId",
+      "value": ""
+    },
+    {
+      "key": "ownerAccessToken",
+      "value": ""
+    },
+    {
+      "key": "secondUserEmail",
+      "value": ""
+    },
+    {
+      "key": "refusalForSomebodyElses",
+      "value": ""
     }
   ],
   "event": [
@@ -166,6 +294,9 @@
               "path": [
                 "health"
               ]
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -213,6 +344,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -262,6 +396,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -300,6 +437,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"too-short@example.com\",\n    \"password\": \"1234567\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -341,6 +481,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -391,6 +534,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"  {{userEmail}}  \",\n    \"password\": \"{{userPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -429,6 +575,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"definitely-wrong\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -470,6 +619,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"nobody-at-all@example.com\",\n    \"password\": \"{{userPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -508,6 +660,9 @@
                 "users",
                 "me"
               ]
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -543,6 +698,9 @@
                 "users",
                 "me"
               ]
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -581,6 +739,9 @@
                 "users",
                 "me"
               ]
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -620,6 +781,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -668,6 +832,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"refreshToken\": \"{{usedRefreshToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -710,6 +877,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -751,6 +921,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -795,6 +968,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -834,6 +1010,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -873,6 +1052,9 @@
             "body": {
               "mode": "raw",
               "raw": "{\n    \"refreshToken\": \"a-refresh-token-nobody-ever-had\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           },
           "event": [
@@ -2265,6 +2447,45 @@
           ]
         },
         {
+          "name": "（先存）算一條移動平均",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算一條移動平均 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation1\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算一條移動平均",
           "request": {
             "method": "POST",
@@ -2286,7 +2507,7 @@
             "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是一分鐘一格，而目前正在走的那一分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種（`float`、`floatList`、`bool`、`boolList`、`signal`）；`float` 是預設值，省略不寫的行為完全相同。`signal` 種類回傳的是單一一個信號、沒有指標名稱。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2333,6 +2554,45 @@
           ]
         },
         {
+          "name": "（先存）算式可以一次回多個指標",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算式可以一次回多個指標 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\thighest := data[0].High\\n\\tlowest := data[0].Low\\n\\tfor _, candle := range data {\\n\\t\\tif candle.High > highest {\\n\\t\\t\\thighest = candle.High\\n\\t\\t}\\n\\t\\tif candle.Low < lowest {\\n\\t\\t\\tlowest = candle.Low\\n\\t\\t}\\n\\t}\\n\\treturn map[string]float64{\\\"highest\\\": highest, \\\"lowest\\\": lowest}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation2\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算式可以一次回多個指標",
           "request": {
             "method": "POST",
@@ -2353,7 +2613,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\thighest := data[0].High\\n\\tlowest := data[0].Low\\n\\tfor _, candle := range data {\\n\\t\\tif candle.High > highest {\\n\\t\\t\\thighest = candle.High\\n\\t\\t}\\n\\t\\tif candle.Low < lowest {\\n\\t\\t\\tlowest = candle.Low\\n\\t\\t}\\n\\t}\\n\\treturn map[string]float64{\\\"highest\\\": highest, \\\"lowest\\\": lowest}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation2}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2381,6 +2641,45 @@
           ]
         },
         {
+          "name": "（先存）算到指定的時間為止",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算到指定的時間為止 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation3\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算到指定的時間為止",
           "request": {
             "method": "POST",
@@ -2402,7 +2701,7 @@
             "description": "`endTime` 說這次算到哪個時間為止，省略就是現在。\n\n這裡把它訂在第 4 根的起始時間上——那一格從那一刻才開始走，所以只採用它之前走完的三根，收盤價 110/120/130，平均 120。同一個 `endTime` 問幾次都是同一個答案，這正是把時間交給呼叫端指定的理由。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart3BeforeSeed4}}\",\n  \"endTime\": \"{{seedTime4}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation3}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart3BeforeSeed4}}\",\n  \"endTime\": \"{{seedTime4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2433,6 +2732,45 @@
           ]
         },
         {
+          "name": "（先存）算一整條線（floatList）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算一整條線（floatList） {{$guid}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tclosePrices := []float64{}\\n\\tfor _, candle := range data {\\n\\t\\tclosePrices = append(closePrices, candle.Close)\\n\\t}\\n\\treturn map[string][]float64{\\\"line\\\": closePrices}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForfloatList1\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算一整條線（floatList）",
           "request": {
             "method": "POST",
@@ -2454,7 +2792,7 @@
             "description": "宣告 `resultType` 為 `floatList` 時，算式要回傳 `map[string][]float64`，一個指標名稱帶一整串數字——畫線用的形狀。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tclosePrices := []float64{}\\n\\tfor _, candle := range data {\\n\\t\\tclosePrices = append(closePrices, candle.Close)\\n\\t}\\n\\treturn map[string][]float64{\\\"line\\\": closePrices}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForfloatList1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2488,6 +2826,45 @@
           ]
         },
         {
+          "name": "（先存）算一個是非（bool）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算一個是非（bool） {{$guid}}\",\n  \"resultType\": \"bool\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]bool {\\n\\treturn map[string]bool{\\\"rising\\\": data[len(data)-1].Close > data[0].Close}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForbool1\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算一個是非（bool）",
           "request": {
             "method": "POST",
@@ -2509,7 +2886,7 @@
             "description": "宣告 `resultType` 為 `bool` 時，算式要回傳 `map[string]bool`。訊號類的指標本來就是是非題，不必再用 1 和 0 迂迴表達。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"bool\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]bool {\\n\\treturn map[string]bool{\\\"rising\\\": data[len(data)-1].Close > data[0].Close}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForbool1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2538,6 +2915,45 @@
           ]
         },
         {
+          "name": "（先存）算逐根的是非（boolList）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算逐根的是非（boolList） {{$guid}}\",\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]bool {\\n\\tanswers := []bool{}\\n\\tfor _, candle := range data {\\n\\t\\tanswers = append(answers, candle.Close > 125)\\n\\t}\\n\\treturn map[string][]bool{\\\"aboveAverage\\\": answers}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForboolList1\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "算逐根的是非（boolList）",
           "request": {
             "method": "POST",
@@ -2559,7 +2975,7 @@
             "description": "宣告 `resultType` 為 `boolList` 時，算式要回傳 `map[string][]bool`——每根 K 線各一個答案。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]bool {\\n\\tanswers := []bool{}\\n\\tfor _, candle := range data {\\n\\t\\tanswers = append(answers, candle.Close > 125)\\n\\t}\\n\\treturn map[string][]bool{\\\"aboveAverage\\\": answers}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForboolList1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2586,7 +3002,7 @@
           ]
         },
         {
-          "name": "拒絕：指標值種類不在五種之內",
+          "name": "（先存）拒絕：算式的形狀不是宣告的種類",
           "request": {
             "method": "POST",
             "header": [
@@ -2595,24 +3011,18 @@
                 "value": "application/json"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：算式的形狀不是宣告的種類 {{$guid}}\",\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}"
+            },
             "url": {
-              "raw": "{{baseUrl}}/indicator-calculations",
+              "raw": "{{baseUrl}}/strategies",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "indicator-calculations"
+                "strategies"
               ]
-            },
-            "description": "`resultType` 只認得 `float`、`floatList`、`bool`、`boolList`、`signal`；其他一律是**請求的問題**，連算式都不會跑。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"string\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "event": [
@@ -2621,12 +3031,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 400\", function () {",
-                  "    pm.response.to.have.status(400);",
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.test(\"告知可以宣告哪五種\", function () {",
-                  "    pm.expect(pm.response.json().message).to.include(\"指標值種類只能是\");",
-                  "});"
+                  "pm.collectionVariables.set(\"strategyIdForCalculation4\", pm.response.json().id);"
                 ]
               }
             }
@@ -2654,7 +3062,7 @@
             "description": "宣告了 `boolList` 卻回傳 `map[string]float64`，是**算式的問題**（`422`），訊息會說出 `Calculate` 該長什麼樣。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation4}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2674,6 +3082,45 @@
                   "pm.test(\"說出算式該有的形式\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"map[string][]bool\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：要看的那一段沒有長度",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：要看的那一段沒有長度 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation5\", pm.response.json().id);"
                 ]
               }
             }
@@ -2701,7 +3148,7 @@
             "description": "`400` 代表**你送的參數不對**。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStartNotBeforeEnd}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation5}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStartNotBeforeEnd}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2718,6 +3165,45 @@
                   "pm.test(\"回應 400\", function () {",
                   "    pm.response.to.have.status(400);",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：彙總刻度不在五種之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：彙總刻度不在五種之內 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation6\", pm.response.json().id);"
                 ]
               }
             }
@@ -2745,7 +3231,7 @@
             "description": "彙總刻度六選一：`1m`、`5m`、`15m`、`1h`、`4h`、`1d`。七分鐘不是暫時不支援，是不成立——它既不是一分鐘 K 線長度整除得出的刻度之一，也不整除一天，刻度區間的邊界會逐日漂移。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"7m\",\n  \"startTime\": \"{{calcStart2}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation6}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"7m\",\n  \"startTime\": \"{{calcStart2}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2765,6 +3251,45 @@
                   "pm.test(\"列出可以選的那五種\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"彙總刻度只能是\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）湊不滿就算手上有的",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"湊不滿就算手上有的 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation7\", pm.response.json().id);"
                 ]
               }
             }
@@ -2792,7 +3317,7 @@
             "description": "要了 999 根，走完的刻度區間只湊得出準備好的那 5 根。**這不是拒絕**：要幾根是由「要看多長」推出來的，一段只有部分存下來的行情不算問錯，所以算式拿到手上那 5 根，回應同時說出「填滿要 999 根」（`requiredCandleCount`）與「實際用了 5 根」（`usedCandleCount`）。\n\n兩個數字並列回報，呼叫端才說得出一句不混單位的話——兩者同為彙總 K 線的根數。\n\n回應那個數字**不叫** `candleCount`：請求裡的 `candleCount` 是「要為幾個位置拿到值」，回應的 `requiredCandleCount` 已經含了回看根數，兩者本來就不會相等，同名只會招來一個不存在的落差。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart999}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation7}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart999}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2824,6 +3349,45 @@
           ]
         },
         {
+          "name": "（先存）拒絕：連一個值都算不出來",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：連一個值都算不出來 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 20\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation8\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "拒絕：連一個值都算不出來",
           "request": {
             "method": "POST",
@@ -2845,7 +3409,7 @@
             "description": "宣告一個回看 20 根的旋鈕，但走完的刻度區間只湊得出 5 根。回看 20 根的算法要到第 20 根才生出第一個值，所以 5 根連一個值都算不出來——**這一種才是拒絕**。\n\n回應把「湊得出幾根」與「至少要幾根」當成兩個值交出來，不只寫在那句話裡面：呼叫端要靠它們給出路，而讀訊息文字等於在比對寫給人看的散文。\n\n它與「計算根數超過單次上限」是**兩句不同的話**，出路正好相反：這一種要改用更細的彙總刻度或把缺的歷史補回來，那一種要縮短區間或改用更粗的刻度。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 20\n    }\n  ],\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 20\n    }\n  ],\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation8}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 20\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2877,6 +3441,45 @@
           ]
         },
         {
+          "name": "（先存）拒絕：算式無法解讀",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：算式無法解讀 {{$guid}}\",\n  \"script\": \"package main\\nfunc Calculate(\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation9\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "拒絕：算式無法解讀",
           "request": {
             "method": "POST",
@@ -2898,7 +3501,7 @@
             "description": "`422` 代表**參數沒問題，但你的算式跑不動**。跟 `400` 分開，就是為了讓呼叫端不必讀訊息也分得出來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"script\": \"package main\\nfunc Calculate(\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation9}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2915,6 +3518,45 @@
                   "pm.test(\"回應 422\", function () {",
                   "    pm.response.to.have.status(422);",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：算式試圖碰不該碰的東西",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：算式試圖碰不該碰的東西 {{$guid}}\",\n  \"script\": \"package main\\nimport (\\n\\t\\\"indicator\\\"\\n\\t\\\"os\\\"\\n)\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"leak\\\": float64(len(os.Args))}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForCalculation10\", pm.response.json().id);"
                 ]
               }
             }
@@ -2942,7 +3584,7 @@
             "description": "白名單沒開放 `os`，所以在解讀階段就失敗了。同一批 K 線跑兩次結果必定相同，靠的就是這條。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"script\": \"package main\\nimport (\\n\\t\\\"indicator\\\"\\n\\t\\\"os\\\"\\n)\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"leak\\\": float64(len(os.Args))}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation10}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2959,6 +3601,45 @@
                   "pm.test(\"回應 422\", function () {",
                   "    pm.response.to.have.status(422);",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）算一個買賣信號（signal）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"算一個買賣信號（signal） {{$guid}}\",\n  \"resultType\": \"signal\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close > data[0].Close {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForsignal1\", pm.response.json().id);"
                 ]
               }
             }
@@ -2986,7 +3667,7 @@
             "description": "宣告 `resultType` 為 `signal` 時，算式回傳 `indicator.Signal`——值只能是 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，沒有第四種、也不能自己組一個。信號沒有指標名稱，直接以 `signal` 欄位回傳，`values` 為空。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"resultType\": \"signal\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close > data[0].Close {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForsignal1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3042,7 +3723,7 @@
             "description": "策略是被留下來的一整包：名稱、指標算式，以及它要吃多粗、多少根 K 線。存起來只是被記住，系統不會因此執行它。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"description\": \"這一支拿來示範存得住什麼\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3062,9 +3743,9 @@
                   "pm.test(\"存回來的就是送出去的那一支\", function () {",
                   "    const saved = pm.response.json();",
                   "    pm.expect(saved.name).to.eql(pm.collectionVariables.get(\"strategyName\"));",
-                  "    pm.expect(saved.aggregationInterval).to.eql(\"1h\");",
+                  "    pm.expect(saved.description).to.eql(\"這一支拿來示範存得住什麼\");",
                   "    pm.expect(saved.resultType).to.eql(\"floatList\");",
-                  "    pm.expect(saved.candleCount).to.eql(20);",
+                  "    pm.expect(saved.script).to.be.a(\"string\").and.not.empty;",
                   "    pm.expect(saved.id).to.be.above(0);",
                   "    pm.collectionVariables.set(\"strategyId\", saved.id);",
                   "});"
@@ -3158,9 +3839,11 @@
                   "});",
                   "pm.test(\"套用的是全系統同一套預設\", function () {",
                   "    const saved = pm.response.json();",
-                  "    pm.expect(saved.aggregationInterval).to.eql(\"5m\");",
                   "    pm.expect(saved.resultType).to.eql(\"float\");",
                   "    pm.collectionVariables.set(\"strategyIdDefaults\", saved.id);",
+                  "});",
+                  "pm.test(\"沒寫說明就是沒有說明，不是錯誤\", function () {",
+                  "    pm.expect(pm.response.json().description).to.eql(\"\");",
                   "});"
                 ]
               }
@@ -3343,7 +4026,7 @@
           ]
         },
         {
-          "name": "列出全部",
+          "name": "我的清單：自己的與採用的分成兩段",
           "request": {
             "method": "GET",
             "header": [],
@@ -3367,14 +4050,19 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"依名稱由小到大\", function () {",
-                  "    const names = pm.response.json().map(strategy => strategy.name);",
-                  "    pm.expect(names).to.eql([...names].sort());",
+                  "pm.test(\"兩段分開，不混成一個陣列\", function () {",
+                  "    const available = pm.response.json();",
+                  "    pm.expect(available).to.have.property(\"mine\").that.is.an(\"array\");",
+                  "    pm.expect(available).to.have.property(\"adopted\").that.is.an(\"array\");",
                   "});",
-                  "pm.test(\"每一支都帶著完整內容，不是只有名字\", function () {",
-                  "    pm.response.json().forEach(strategy => {",
-                  "        pm.expect(strategy).to.have.property(\"script\");",
-                  "        pm.expect(strategy).to.have.property(\"candleCount\");",
+                  "pm.test(\"自己的那些依名稱由小到大\", function () {",
+                  "    const names = pm.response.json().mine.map(function (one) { return one.name; });",
+                  "    pm.expect(names).to.eql(names.slice().sort());",
+                  "});",
+                  "pm.test(\"自己的每一支都帶著算式，不是只有名字\", function () {",
+                  "    pm.response.json().mine.forEach(function (one) {",
+                  "        pm.expect(one).to.have.property(\"script\");",
+                  "        pm.expect(one).to.have.property(\"description\");",
                   "    });",
                   "});"
                 ]
@@ -3405,7 +4093,7 @@
             "description": "五項內容一次改完。建立時的每一條規則，修改時一字不差地同樣適用。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"boolList\",\n  \"aggregationInterval\": \"4h\",\n  \"candleCount\": 60\n}",
+              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"boolList\",\n  \"description\": \"改過之後的說明\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3422,17 +4110,19 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"改的是那五項\", function () {",
-                  "    const updated = pm.response.json();",
-                  "    pm.expect(updated.aggregationInterval).to.eql(\"4h\");",
-                  "    pm.expect(updated.resultType).to.eql(\"boolList\");",
-                  "    pm.expect(updated.candleCount).to.eql(60);",
+                  "pm.test(\"改的是它記住的那幾項\", function () {",
+                  "    const rewritten = pm.response.json();",
+                  "    pm.expect(rewritten.resultType).to.eql(updatedResultType());",
+                  "    pm.expect(rewritten.description).to.eql(\"改過之後的說明\");",
                   "});",
                   "pm.test(\"識別碼與建立時間動不了\", function () {",
-                  "    const updated = pm.response.json();",
-                  "    pm.expect(updated.id).to.eql(Number(pm.collectionVariables.get(\"strategyId\")));",
-                  "    pm.expect(updated.createdAt).to.eql(pm.collectionVariables.get(\"strategyCreatedAt\"));",
-                  "});"
+                  "    const rewritten = pm.response.json();",
+                  "    pm.expect(rewritten.id).to.eql(Number(pm.collectionVariables.get(\"strategyId\")));",
+                  "    pm.expect(rewritten.createdAt).to.eql(pm.collectionVariables.get(\"strategyCreatedAt\"));",
+                  "});",
+                  "function updatedResultType() {",
+                  "    return JSON.parse(pm.request.body.raw).resultType;",
+                  "}"
                 ]
               }
             }
@@ -3823,6 +4513,1432 @@
       ]
     },
     {
+      "name": "策略市集",
+      "item": [
+        {
+          "name": "先存一支要發佈的策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"要發佈的策略 {{$guid}}\",\n  \"description\": \"把它放上市集，讓別人用得動但看不到算式\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"close\\\": data[len(data)-1].Close}\\n}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來（201）\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"publishedStrategyId\", pm.response.json().id);",
+                  "pm.test(\"說明留了下來\", function () {",
+                  "    pm.expect(pm.response.json().description).to.eql(\"把它放上市集，讓別人用得動但看不到算式\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再存一支，這一支不發佈",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"不發佈的策略 {{$guid}}\",\n  \"description\": \"只有我看得到\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"close\\\": data[0].Close}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"unpublishedStrategyId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "市集上還沒有它",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"尚未發佈就不在市集上\", function () {",
+                  "    const outThere = pm.response.json();",
+                  "    const mine = outThere.filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    });",
+                  "    pm.expect(mine).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "發佈它",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204，沒有多說什麼\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "市集上看得到它，但看不到算式",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"看得到名稱、說明、發佈者與發佈時刻\", function () {",
+                  "    const outThere = pm.response.json();",
+                  "    const mine = outThere.filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    });",
+                  "    pm.expect(mine).to.have.lengthOf(1);",
+                  "    pm.expect(mine[0].description).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(mine[0].publisherEmail).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+                  "    pm.expect(mine[0].publishedAt).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"算式不在裡面——不是留空，是根本沒有這一項\", function () {",
+                  "});",
+                  "pm.test(\"算式不在裡面——不是留空，是根本沒有這一項\", function () {",
+                  "    pm.response.json().forEach(function (one) {",
+                  "        pm.expect(one).to.not.have.property(\"script\");",
+                  "    });",
+                  "    pm.expect(pm.response.text()).to.not.include(\"func Calculate\");",
+                  "});",
+                  "pm.collectionVariables.set(\"publishedAtFirstTime\", pm.response.json().filter(function (one) { return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\")); })[0].publishedAt);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再發佈一次，維持一筆也不算失敗",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "它還是一筆，發佈時刻也沒有往前走",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"再按一次發佈，市集上仍然只有一筆\", function () {",
+                  "    const mine = pm.response.json().filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    });",
+                  "    pm.expect(mine).to.have.lengthOf(1);",
+                  "});",
+                  "pm.test(\"它從第一次發佈起就在那裡了\", function () {",
+                  "    const mine = pm.response.json().filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    })[0];",
+                  "    pm.expect(mine.publishedAt).to.eql(pm.collectionVariables.get(\"publishedAtFirstTime\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "採用自己的：不算失敗，清單也沒有變",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies",
+                "{{publishedStrategyId}}",
+                "adoption"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "pm.test(\"自己的本來就在清單裡\", function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "我的清單：自己的在前、採用的在後",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"兩段分開，不混成一個陣列\", function () {",
+                  "    const available = pm.response.json();",
+                  "    pm.expect(available).to.have.property(\"mine\").that.is.an(\"array\");",
+                  "    pm.expect(available).to.have.property(\"adopted\").that.is.an(\"array\");",
+                  "});",
+                  "pm.test(\"採用自己的沒有讓它多出現一次\", function () {",
+                  "    const adopted = pm.response.json().adopted.filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    });",
+                  "    pm.expect(adopted).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拿它去算：發佈出去的照樣跑得動",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyId\": {{publishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回覆裡沒有算式\", function () {",
+                  "    pm.expect(pm.response.text()).to.not.include(\"func Calculate\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "取消採用一支沒採用的，不算失敗",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies",
+                "{{publishedStrategyId}}",
+                "adoption"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "記住這是誰的憑證",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.collectionVariables.set(\"ownerAccessToken\", pm.collectionVariables.get(\"accessToken\"));",
+                  "pm.collectionVariables.set(\"secondUserEmail\", \"second-\" + pm.variables.replaceIn(\"{{$guid}}\") + \"@example.com\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "另一個人註冊",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "另一個人登入",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sessions"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.collectionVariables.set(\"accessToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "另一個人的清單是空的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"別人的策略不會自己跑進來\", function () {",
+                  "    pm.expect(pm.response.json().mine).to.be.empty;",
+                  "    pm.expect(pm.response.json().adopted).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀第一個人未發佈的那一支",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{unpublishedStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{unpublishedStrategyId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.collectionVariables.set(\"refusalForSomebodyElses\", pm.response.json().message);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀一支從未存在過的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "999999"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"兩種看不到，說法一字不差\", function () {",
+                  "    pm.expect(pm.response.json().message).to.eql(",
+                  "        pm.collectionVariables.get(\"refusalForSomebodyElses\").replace(",
+                  "            String(pm.collectionVariables.get(\"unpublishedStrategyId\")), \"999999\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：改第一個人未發佈的那一支",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{unpublishedStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{unpublishedStrategyId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"我要改別人的 {{$guid}}\",\n  \"script\": \"package main\\nfunc Calculate() {}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"不告訴他哪裡寫錯——那會透露這一支就在那裡\", function () {",
+                  "    pm.expect(pm.response.json().message).to.not.include(\"名稱\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：算第一個人未發佈的那一支",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyId\": {{unpublishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "但發佈出去的那一支，他看得到",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"市集是共用的\", function () {",
+                  "    const outThere = pm.response.json().filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    });",
+                  "    pm.expect(outThere).to.have.lengthOf(1);",
+                  "});",
+                  "pm.test(\"而且還是看不到算式\", function () {",
+                  "    pm.response.json().forEach(function (one) { pm.expect(one).to.not.have.property(\"script\"); });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "還沒加入就先試跑一次",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyId\": {{publishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"採用與否不影響能不能算\", function () {",
+                  "    pm.expect(pm.response.text()).to.not.include(\"func Calculate\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加入自己的清單",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies",
+                "{{publishedStrategyId}}",
+                "adoption"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加入之後清單上就有了",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"採用來的排在自己的後面，而且沒有算式\", function () {",
+                  "    const available = pm.response.json();",
+                  "    pm.expect(available.mine).to.be.empty;",
+                  "    pm.expect(available.adopted).to.have.lengthOf(1);",
+                  "    pm.expect(available.adopted[0]).to.not.have.property(\"script\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再加入一次也還是一筆",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies",
+                "{{publishedStrategyId}}",
+                "adoption"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：他發佈不了別人的策略",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：他也收不回別人發佈的",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：他改不動別人已發佈的那一支",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"我要改別人的 {{$guid}}\",\n  \"script\": \"package main\\nfunc Calculate() {}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換回第一個人的憑證",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"accessToken\", pm.collectionVariables.get(\"ownerAccessToken\"));",
+                  "pm.test(\"接下來的每一發又是第一個人了\", function () {",
+                  "    pm.expect(pm.collectionVariables.get(\"accessToken\")).to.not.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "第一個人收回發佈",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換成另一個人再看一次",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sessions"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{secondUserEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.collectionVariables.set(\"accessToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收回之後，他的清單裡也沒有了",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"擁有者收回，採用就跟著消失——不必他自己去清\", function () {",
+                  "    pm.expect(pm.response.json().adopted).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：收回之後他也算不動它了",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyId\": {{publishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換回第一個人，收尾",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"accessToken\", pm.collectionVariables.get(\"ownerAccessToken\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "取消一支本來就沒發佈的，不算失敗",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204——目的已經達成\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "市集上又沒有它了",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"收回之後就不在市集上\", function () {",
+                  "    const outThere = pm.response.json();",
+                  "    const mine = outThere.filter(function (one) {",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "    });",
+                  "    pm.expect(mine).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：發佈一支從未存在過的",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/999999/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "999999",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：採用一支從未存在過的",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/marketplace/strategies/999999/adoption",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "marketplace",
+                "strategies",
+                "999999",
+                "adoption"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：識別碼不是正整數",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/abc/publication",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "abc",
+                "publication"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉這一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{publishedStrategyId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉沒發佈的那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{unpublishedStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{unpublishedStrategyId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "行情對話助手",
       "item": [
         {
@@ -4155,6 +6271,45 @@
       "name": "策略回測",
       "item": [
         {
+          "name": "（先存）重演：買進之後一路抱著",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重演：買進之後一路抱著 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest1\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "重演：買進之後一路抱著",
           "request": {
             "method": "POST",
@@ -4176,7 +6331,7 @@
             "description": "回測一律以「信號」種類執行算式：算式回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，逐根決定進出場。\n\n這一發的算式在第一根說持有、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**重演不留存**：每次問、每次算、算完就走。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest1}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4215,6 +6370,45 @@
           ]
         },
         {
+          "name": "（先存）重演：聽到反向信號就在同一棒反手",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重演：聽到反向信號就在同一棒反手 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close < 135 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Sell\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest2\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "重演：聽到反向信號就在同一棒反手",
           "request": {
             "method": "POST",
@@ -4236,7 +6430,7 @@
             "description": "手上同一時間只有一個倉位。聽到反向的信號時，**先以該棒收盤價平掉舊的，再以同一個價格開新的**——所以一次反手會留下一筆已平倉交易，並且算兩次開倉。\n\n這一發在收盤價低於 135 時買入、否則賣出：收盤 110 開多倉，收盤 140 那根翻空，多倉賺 3,000 入袋，同一個 140 轉開空倉，最後一根收盤 150 讓空倉浮虧 1,000。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close < 135 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Sell\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4277,6 +6471,45 @@
           ]
         },
         {
+          "name": "（先存）重演：每次只押可用資金的一半",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重演：每次只押可用資金的一半 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest3\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "重演：每次只押可用資金的一半",
           "request": {
             "method": "POST",
@@ -4298,7 +6531,7 @@
             "description": "每次開倉押多少三選一：**全押**、**百分比**、**固定金額**。選百分比時押下當時可用資金的那個百分比，其餘不動。\n\n這一發押 50%：12,000 的一半在收盤 120 買到 50 單位，收盤 150 時值 7,500，加上沒動的 6,000。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest3}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4318,6 +6551,45 @@
                   "pm.test(\"只有押下去的那一半在動\", function () {",
                   "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"13500\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）重演：固定金額押不下去就跳過，不算失敗",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重演：固定金額押不下去就跳過，不算失敗 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest4\", pm.response.json().id);"
                 ]
               }
             }
@@ -4345,7 +6617,7 @@
             "description": "固定金額大於當時可用資金時，**這一次開倉被跳過**——不算失敗、不中斷重演、也不計為一次開倉。所以固定金額填得比初始資金還大是合法的，行為就是每一次開倉都被跳過。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest4}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4375,6 +6647,45 @@
           ]
         },
         {
+          "name": "（先存）拒絕：算式產出數字而不是信號",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：算式產出數字而不是信號 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest5\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "拒絕：算式產出數字而不是信號",
           "request": {
             "method": "POST",
@@ -4396,7 +6707,7 @@
             "description": "回測一律以「信號」種類執行算式：算式要回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`。產出一組數字（舊寫法）會被回測擋下（`422`），訊息說出 `Calculate` 該長什麼樣。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest5}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4416,6 +6727,45 @@
                   "pm.test(\"說出 Calculate 該回傳 indicator.Signal\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"indicator.Signal\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：初始資金不大於零",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：初始資金不大於零 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest6\", pm.response.json().id);"
                 ]
               }
             }
@@ -4443,7 +6793,7 @@
             "description": "沒有本金就沒有東西可以押。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest6}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4463,6 +6813,45 @@
                   "pm.test(\"說明初始資金必須大於零\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"初始資金\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：百分比不在零到一百之間",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：百分比不在零到一百之間 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest7\", pm.response.json().id);"
                 ]
               }
             }
@@ -4490,7 +6879,7 @@
             "description": "百分比填 0 的行為會是「每次開倉都被跳過」，跑出來是一張全空的成績單，看起來像壞了——當場拒絕比事後困惑好。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest7}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4510,6 +6899,45 @@
                   "pm.test(\"說明百分比的範圍\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"百分比\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：這段期間湊不出足夠的 K 線",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：這段期間湊不出足夠的 K 線 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktestTooFewCandles\", pm.response.json().id);"
                 ]
               }
             }
@@ -4537,7 +6965,7 @@
             "description": "一根 K 線重演不出任何東西，所以不足兩根即整次拒絕。起訖顛倒、或市場那段時間根本沒有資料，對提問的人來說是同一件事，因此**共用同一句說明**。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktestTooFewCandles}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4557,6 +6985,45 @@
                   "pm.test(\"說明湊不出足夠的 K 線\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"湊不出足夠的 K 線\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：算式取用了沒有宣告的參數名稱",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：算式取用了沒有宣告的參數名稱 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif indicator.LookbackCount(\\\"period\\\") > 0 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest8\", pm.response.json().id);"
                 ]
               }
             }
@@ -4584,7 +7051,7 @@
             "description": "錯的是名字對不上，不是算式本身寫壞——所以回的是 400 並指名那個參數，而不是把它報成算式失敗。重演與單純算指標在這裡的說法一字不差。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif indicator.LookbackCount(\\\"period\\\") > 0 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest8}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4604,6 +7071,45 @@
                   "pm.test(\"指名是哪一個參數對不上\", function () {",
                   "    pm.expect(pm.response.json().parameterName).to.eql(\"period\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：算式無法解讀",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：算式無法解讀 {{$guid}}\",\n  \"script\": \"這不是 Go\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForBacktest9\", pm.response.json().id);"
                 ]
               }
             }
@@ -4631,7 +7137,7 @@
             "description": "算式壞掉時的呈現方式與單純算指標一致：422。同一頁上的兩個去處，錯誤不該長成兩種樣子。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"script\": \"這不是 Go\"\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest9}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5483,7 +7989,7 @@
             "description": "參數宣告跟著策略一起存，與指標值種類同一個層級。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"布林通道 {{$timestamp}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\t_ = indicator.Number(\\\"倍數\\\")\\n\\tmiddle := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tmiddle = append(middle, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\"中線\": middle}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 20 },\n    { \"name\": \"倍數\", \"kind\": \"number\", \"defaultValue\": 2 }\n  ]\n}",
+              "raw": "{\n  \"name\": \"布林通道 {{$timestamp}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\t_ = indicator.Number(\\\"倍數\\\")\\n\\tmiddle := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tmiddle = append(middle, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\\\"中線\\\": middle}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 20 },\n    { \"name\": \"倍數\", \"kind\": \"number\", \"defaultValue\": 2 }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5497,8 +8003,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
-                  "    pm.response.to.have.status(200);",
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
                   "});",
                   "pm.test(\"兩個旋鈕連同種類與預設值都被記住\", function () {",
                   "    const parameters = pm.response.json().parameters;",
@@ -5607,6 +8113,45 @@
           ]
         },
         {
+          "name": "（先存）計算：這一次把期數改成 2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"計算：這一次把期數改成 2 {{$guid}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\tout := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tout = append(out, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\\\"ma\\\": out}\\n}\\n\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 5\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForKnobbedCalculation\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "計算：這一次把期數改成 2",
           "request": {
             "method": "POST",
@@ -5628,7 +8173,7 @@
             "description": "`candleCount` 是「我要幾格有值」；實際要拿幾根由系統算：2 格 + 回看 2 根 − 1 = 3 根。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart2}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\tout := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tout = append(out, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\"ma\": out}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 5 }\n  ],\n  \"parameterValues\": [\n    { \"name\": \"期數\", \"value\": 2 }\n  ]\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForKnobbedCalculation}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart2}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5649,6 +8194,45 @@
                   "    if (pm.response.code !== 200) { return; }",
                   "    pm.expect(pm.response.json().indicators.ma.values).to.have.lengthOf(2);",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）拒絕：給了一個沒有宣告的旋鈕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"拒絕：給了一個沒有宣告的旋鈕 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyIdForKnob1\", pm.response.json().id);"
                 ]
               }
             }
@@ -5676,7 +8260,7 @@
             "description": "安靜忽略會讓人以為他調的那一格有作用，而它什麼都沒做。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 1 }\n  ],\n  \"parameterValues\": [\n    { \"name\": \"週期\", \"value\": 5 }\n  ]\n}",
+              "raw": "{\n  \"strategyId\": {{strategyIdForKnob1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"週期\",\n      \"value\": 5\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5703,5 +8287,15 @@
         }
       ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  }
 }
