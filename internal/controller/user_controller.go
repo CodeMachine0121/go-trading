@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/gin-gonic/gin"
@@ -128,6 +129,36 @@ func (userController *UserController) GetCurrentUser(ginContext *gin.Context) {
 	ginContext.JSON(http.StatusOK, userDto)
 }
 
+// ChangePassword handles POST /users/me/password.
+//
+// It answers 204 rather than 200 with the user, because there is nothing to hand
+// back: the proof is not returned, the password is not returned, and the account
+// itself did not otherwise change. A body would only be an invitation to put one of
+// those in it later.
+//
+// Which account this changes comes from the door, not from the body. That is what
+// makes "you can only change your own" a fact about the shape of the request rather
+// than a check somebody has to remember to write.
+func (userController *UserController) ChangePassword(ginContext *gin.Context) {
+	var passwordChangeRequest models.PasswordChangeRequest
+
+	if bindError := ginContext.ShouldBindJSON(&passwordChangeRequest); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+		return
+	}
+
+	if err := userController.userApplication.ChangePassword(
+		ginContext.Request.Context(),
+		middlewares.CurrentUserID(ginContext),
+		passwordChangeRequest.ToPasswordChangeDto(),
+	); err != nil {
+		userController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.Status(http.StatusNoContent)
+}
+
 // readAccessToken pulls the proof of identity out of the Authorization header,
 // answering with nothing when the header is missing or carries some other scheme.
 //
@@ -168,6 +199,16 @@ func (userController *UserController) respondWithError(ginContext *gin.Context, 
 	if errors.Is(err, domains.ErrCredentialsRejected) ||
 		errors.Is(err, domains.ErrAuthenticationRequired) {
 		ginContext.JSON(http.StatusUnauthorized, gin.H{"message": err.Error()})
+		return
+	}
+	// The password given as the one in force was not the one in force. It is 403
+	// and deliberately not 401: in this system 401 means one thing only — "this
+	// sign-in no longer counts, go and sign in again" — and callers act on it by
+	// taking the person back to the sign-in screen. This person's sign-in is fine.
+	// What is wrong is one box on a form, and they need to stay where they are to
+	// fix it.
+	if errors.Is(err, domains.ErrCurrentPasswordRejected) {
+		ginContext.JSON(http.StatusForbidden, gin.H{"message": err.Error()})
 		return
 	}
 	// Having no key to sign with is the system being unable to do its job, not the

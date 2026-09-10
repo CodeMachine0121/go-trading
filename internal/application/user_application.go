@@ -45,3 +45,10 @@ func (userApplication *UserApplication) IdentifyUser(
 ) (dto.UserDto, error) {
 	return userApplication.userService.IdentifyUser(executionContext, accessToken)
 }
+
+func (userApplication *UserApplication) ChangePassword(
+	executionContext context.Context, userID uint, passwordChangeDto dto.PasswordChangeDto,
+) error {
+	return userApplication.userService.ChangePassword(
+		executionContext, userID, passwordChangeDto)
+}

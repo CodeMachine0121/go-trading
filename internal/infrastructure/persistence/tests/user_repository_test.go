@@ -2,6 +2,7 @@ package persistence_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -96,6 +97,11 @@ func TestUserRepositorySaysStorageBrokeRatherThanAnsweringWithNothing(t *testing
 		"連不上資料庫不等於查無此人——那會讓人以為自己的帳號被刪了")
 	require.Error(t, findError)
 	assert.NotErrorIs(t, findError, domains.ErrUserNotFound)
+
+	changeError := userRepository.ChangePasswordProof(t.Context(), 1, "the-new-proof")
+	require.Error(t, changeError)
+	assert.NotErrorIs(t, changeError, domains.ErrUserNotFound,
+		"連不上資料庫不等於查無此人——那會讓人以為自己的帳號被刪了")
 }
 
 // The repository names the index it blames in Go; the entity spells it in a struct
@@ -143,4 +149,131 @@ func TestUserRepositoryFindOneByEmailRefusesToGuessWhenGivenNothing(t *testing.T
 	_, findError := userRepository.FindOneByEmail(t.Context(), "")
 
 	require.ErrorIs(t, findError, domains.ErrUserNotFound)
+}
+
+func TestUserRepositoryChangePasswordProofReplacesTheProof(t *testing.T) {
+	database := newTestDatabase(t)
+	userRepository := persistence.NewUserRepository(database)
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	changeError := userRepository.ChangePasswordProof(t.Context(), savedUser.ID, "the-new-proof")
+
+	require.NoError(t, changeError)
+	reloadedUser, findError := userRepository.FindOne(t.Context(), savedUser.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "the-new-proof", reloadedUser.PasswordProof)
+}
+
+// This is the whole reason the two writes are one method. A password changed while
+// an old session keeps working is exactly the situation somebody changes their
+// password to end.
+func TestUserRepositoryChangePasswordProofEndsEverySessionThatUserHasOpen(t *testing.T) {
+	database := newTestDatabase(t)
+	userRepository := persistence.NewUserRepository(database)
+	sessionRepository := persistence.NewSessionRepository(database)
+	owner, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	laptop, laptopError := sessionRepository.Save(
+		t.Context(), sessionOf(owner.ID, "laptop-chain", "laptop-digest"))
+	require.NoError(t, laptopError)
+	phone, phoneError := sessionRepository.Save(
+		t.Context(), sessionOf(owner.ID, "phone-chain", "phone-digest"))
+	require.NoError(t, phoneError)
+
+	require.NoError(t, userRepository.ChangePasswordProof(t.Context(), owner.ID, "the-new-proof"))
+
+	reloadedLaptop, laptopFindError := sessionRepository.FindOneByDigest(t.Context(), "laptop-digest")
+	require.NoError(t, laptopFindError)
+	assert.NotNil(t, reloadedLaptop.RevokedAt, "換完密碼，發動變更的那一台也得跟著失效")
+	assert.Equal(t, laptop.ID, reloadedLaptop.ID)
+
+	reloadedPhone, phoneFindError := sessionRepository.FindOneByDigest(t.Context(), "phone-digest")
+	require.NoError(t, phoneFindError)
+	assert.NotNil(t, reloadedPhone.RevokedAt, "另一台裝置也得跟著失效")
+	assert.Equal(t, phone.ID, reloadedPhone.ID)
+}
+
+// Somebody else's sign-ins are not this person's business, and neither is their
+// password.
+func TestUserRepositoryChangePasswordProofLeavesEverybodyElseAlone(t *testing.T) {
+	database := newTestDatabase(t)
+	userRepository := persistence.NewUserRepository(database)
+	sessionRepository := persistence.NewSessionRepository(database)
+	changer, changerError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, changerError)
+	bystander, bystanderError := userRepository.Save(t.Context(), userWithEmail("someone@example.com"))
+	require.NoError(t, bystanderError)
+	_, sessionError := sessionRepository.Save(
+		t.Context(), sessionOf(bystander.ID, "bystander-chain", "bystander-digest"))
+	require.NoError(t, sessionError)
+
+	require.NoError(t, userRepository.ChangePasswordProof(t.Context(), changer.ID, "the-new-proof"))
+
+	reloadedBystander, findError := userRepository.FindOne(t.Context(), bystander.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "a-password-proof", reloadedBystander.PasswordProof)
+
+	reloadedSession, sessionFindError := sessionRepository.FindOneByDigest(
+		t.Context(), "bystander-digest")
+	require.NoError(t, sessionFindError)
+	assert.Nil(t, reloadedSession.RevokedAt, "別人的登入階段不該因為這一次變更而失效")
+}
+
+// A session that had already ended keeps the moment it ended. Overwriting it would
+// erase the only trail there is to when the sign-in actually stopped.
+func TestUserRepositoryChangePasswordProofLeavesAlreadyEndedSessionsAsTheyWere(t *testing.T) {
+	database := newTestDatabase(t)
+	userRepository := persistence.NewUserRepository(database)
+	sessionRepository := persistence.NewSessionRepository(database)
+	owner, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+	_, sessionError := sessionRepository.Save(
+		t.Context(), sessionOf(owner.ID, "old-chain", "old-digest"))
+	require.NoError(t, sessionError)
+	require.NoError(t, sessionRepository.RevokeChain(t.Context(), "old-chain"))
+
+	endedBefore, beforeError := sessionRepository.FindOneByDigest(t.Context(), "old-digest")
+	require.NoError(t, beforeError)
+	require.NotNil(t, endedBefore.RevokedAt)
+
+	require.NoError(t, userRepository.ChangePasswordProof(t.Context(), owner.ID, "the-new-proof"))
+
+	endedAfter, afterError := sessionRepository.FindOneByDigest(t.Context(), "old-digest")
+	require.NoError(t, afterError)
+	require.NotNil(t, endedAfter.RevokedAt)
+	assert.Equal(t, endedBefore.RevokedAt.UTC(), endedAfter.RevokedAt.UTC())
+}
+
+// A change aimed at nobody must not quietly succeed, and must not sign anybody out
+// on its way to finding that out.
+func TestUserRepositoryChangePasswordProofSaysNobodyIsThere(t *testing.T) {
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+
+	changeError := userRepository.ChangePasswordProof(t.Context(), 9999, "the-new-proof")
+
+	require.ErrorIs(t, changeError, domains.ErrUserNotFound)
+}
+
+// A proof the column cannot hold is a storage failure, not a missing user. Saying
+// "no such user" for it would send whoever reads it looking for an account that is
+// sitting right there — and because the write happens inside a transaction, the
+// refusal must also leave the password exactly as it was.
+func TestUserRepositoryChangePasswordProofSaysStorageBrokeRatherThanBlamingTheUser(t *testing.T) {
+	database := newTestDatabase(t)
+	userRepository := persistence.NewUserRepository(database)
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	changeError := userRepository.ChangePasswordProof(
+		t.Context(), savedUser.ID, strings.Repeat("x", 256))
+
+	require.Error(t, changeError)
+	assert.NotErrorIs(t, changeError, domains.ErrUserNotFound)
+
+	reloadedUser, findError := userRepository.FindOne(t.Context(), savedUser.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "a-password-proof", reloadedUser.PasswordProof,
+		"寫失敗的那一次不得改動任何東西")
 }

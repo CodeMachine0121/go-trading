@@ -59,6 +59,12 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 	engine.POST("/sessions/renewal", userController.RenewSession)
 	engine.POST("/sessions/revocation", userController.RevokeSession)
 	engine.GET("/users/me", userController.GetCurrentUser)
+	// The real door goes in front of this one, exactly as it does in the server,
+	// because the account whose password changes is named by the door and not by
+	// the body. A route wired without it would pass these tests while changing
+	// nobody's password.
+	engine.POST("/users/me/password", doorOpenFor(t, signedInViewerID),
+		userController.ChangePassword)
 
 	return userRouterUnderTest{
 		engine:             engine,
@@ -482,4 +488,104 @@ func TestUserRouterRevokeSession(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadGateway, recorder.Code)
 	})
+}
+
+func TestUserRouterChangePassword(t *testing.T) {
+	// The person the door lets through, with the proof their current password is
+	// checked against.
+	signedInUser := entities.User{
+		ID:            signedInViewerID,
+		Email:         "viewer@example.com",
+		PasswordProof: "the-stored-proof",
+	}
+
+	t.Run("a change that goes through answers with no content at all", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), signedInViewerID).
+			Return(signedInUser, nil)
+		fixture.passwordProofProxy.EXPECT().
+			Matches("correct horse", "the-stored-proof").
+			Return(true)
+		fixture.passwordProofProxy.EXPECT().Prove("battery staple").Return("the-new-proof", nil)
+		fixture.userRepository.EXPECT().
+			ChangePasswordProof(gomock.Any(), signedInViewerID, "the-new-proof").
+			Return(nil)
+
+		response := fixture.changePassword(`{"currentPassword":"correct horse","newPassword":"battery staple"}`)
+
+		require.Equal(t, http.StatusNoContent, response.Code)
+		assert.Empty(t, response.Body.String())
+	})
+
+	// 403 rather than 401. In this system 401 means "your sign-in no longer
+	// counts", and a caller acts on it by sending the person back to sign in —
+	// which is the wrong place to send somebody whose sign-in is fine and whose
+	// typing was not.
+	t.Run("the wrong current password is forbidden, not unauthorised", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), signedInViewerID).
+			Return(signedInUser, nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		response := fixture.changePassword(`{"currentPassword":"wrong horse","newPassword":"battery staple"}`)
+
+		require.Equal(t, http.StatusForbidden, response.Code)
+		assert.Contains(t, response.Body.String(), "目前的密碼不正確")
+	})
+
+	t.Run("a new password that breaks a rule is a bad request", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+
+		response := fixture.changePassword(`{"currentPassword":"correct horse","newPassword":"short"}`)
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+		assert.Contains(t, response.Body.String(), "密碼至少要 8 個字元")
+	})
+
+	t.Run("a body that is not readable is a bad request", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+
+		response := fixture.changePassword(`{`)
+
+		assert.Equal(t, http.StatusBadRequest, response.Code)
+	})
+
+	t.Run("without a proof of identity the handler never runs", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+
+		request := httptest.NewRequest(http.MethodPost, "/users/me/password",
+			strings.NewReader(`{"currentPassword":"correct horse","newPassword":"battery staple"}`))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		fixture.engine.ServeHTTP(response, request)
+
+		// No repository or proxy call is set up, so the mock controller fails this
+		// test if the handler ran at all.
+		require.Equal(t, http.StatusUnauthorized, response.Code)
+		assert.Contains(t, response.Body.String(), domains.ErrAuthenticationRequired.Error())
+	})
+
+	t.Run("storage failing is reported as the system's problem", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), signedInViewerID).
+			Return(entities.User{}, errors.New("the database is not there"))
+
+		response := fixture.changePassword(`{"currentPassword":"correct horse","newPassword":"battery staple"}`)
+
+		assert.Equal(t, http.StatusBadGateway, response.Code)
+	})
+}
+
+// changePassword sends a signed-in request to replace the password.
+func (fixture userRouterUnderTest) changePassword(body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, "/users/me/password", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
+	response := httptest.NewRecorder()
+	fixture.engine.ServeHTTP(response, request)
+
+	return response
 }

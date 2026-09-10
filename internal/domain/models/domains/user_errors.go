@@ -29,6 +29,21 @@ var ErrUserNotFound = errors.New("user not found")
 // which email addresses are registered here.
 var ErrCredentialsRejected = errors.New("電子郵件或密碼不正確")
 
+// ErrCurrentPasswordRejected is what changing a password says when the password
+// given as the one in force is not the one in force.
+//
+// It is deliberately not ErrCredentialsRejected. That one is vague on purpose,
+// because a stranger is asking and every distinction it draws is a way to find out
+// which email addresses are accounts here. Nobody reaches this one without already
+// having been recognised: they are asking about their own password, and the answer
+// contains no list anybody could walk. Being vague here would only have somebody
+// retyping an address that was never in question.
+//
+// It is also not ErrUserValidation. Both are "you typed something wrong", but they
+// are wrong in different boxes, and the caller has to put the explanation under the
+// right one — which it cannot do if the two arrive as the same kind of refusal.
+var ErrCurrentPasswordRejected = errors.New("目前的密碼不正確")
+
 // ErrAuthenticationRequired is what every rejected proof of identity says: missing,
 // tampered with, expired, or pointing at somebody who is no longer here.
 //
