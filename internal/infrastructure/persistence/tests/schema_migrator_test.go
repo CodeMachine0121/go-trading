@@ -64,9 +64,10 @@ func TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan(t *testing.T)
 	// actually is — its name, its script, the kind of value it produces and when it
 	// was first saved — has to come through untouched, or the migration would be
 	// quietly destroying the thing it was meant to leave alone.
-	database := newTestDatabase(t)
+	database := newStrategyTestDatabase(t)
 	strategyRepository := persistence.NewStrategyRepository(database)
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), entities.Strategy{
+		OwnerID:    strategyRowOwnerID,
 		Name:       "二十根均線",
 		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
 		ResultType: "floatList",
@@ -87,4 +88,82 @@ func TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan(t *testing.T)
 	assert.Equal(t, savedStrategy.Script, readBack.Script)
 	assert.Equal(t, savedStrategy.ResultType, readBack.ResultType)
 	assert.WithinDuration(t, savedStrategy.CreatedAt, readBack.CreatedAt, time.Millisecond)
+}
+
+func TestSchemaMigratorClearsStrategiesSavedBeforeAnybodyOwnedThem(t *testing.T) {
+	// A strategy cannot exist without an owner any more, and a table with rows in it
+	// cannot grow a column that may not be null. The rows saved before ownership are
+	// therefore cleared — assigning them to somebody would be a guess, and a guess
+	// here would leave "every strategy has an owner" true only by accident.
+	//
+	// The condition that clears them is "the table exists and has no owner column",
+	// which stops being true the moment the migration that follows it runs. Putting
+	// the column back is how this test reaches that state again.
+	database := newStrategyTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	_, saveError := strategyRepository.Save(t.Context(), strategyNamed("存在既有資料裡的"))
+	require.NoError(t, saveError)
+	require.NoError(t, database.Exec(`ALTER TABLE "Strategies" DROP COLUMN "owner_id"`).Error)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
+	require.NoError(t, findError)
+	assert.Empty(t, strategies)
+}
+
+func TestSchemaMigratorRunTwiceLeavesOwnedStrategiesAlone(t *testing.T) {
+	// The clearing must not fire again once the column is there, or every restart
+	// would wipe everybody's work.
+	database := newStrategyTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	_, saveError := strategyRepository.Save(t.Context(), strategyNamed("留下來的"))
+	require.NoError(t, saveError)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
+	require.NoError(t, findError)
+	require.Len(t, strategies, 1)
+	assert.Equal(t, "留下來的", strategies[0].Name)
+}
+
+func TestSchemaMigratorDropsTheIndexThatMadeANameUniqueEverywhere(t *testing.T) {
+	// AutoMigrate adds indexes and never drops them, and a leftover unique index is
+	// worse than a leftover column: it goes on enforcing a rule the system no longer
+	// holds. This one held the first person to save a name against everybody else.
+	database := newStrategyTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	secondOwnerID := aSecondOwner(t, database)
+	require.NoError(t, database.Exec(
+		`CREATE UNIQUE INDEX "idx_strategies_name" ON "Strategies" ("name")`).Error)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	_, firstError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
+	require.NoError(t, firstError)
+	secondPersons := strategyNamed("二十根均線")
+	secondPersons.OwnerID = secondOwnerID
+	_, secondError := strategyRepository.Save(t.Context(), secondPersons)
+	require.NoError(t, secondError, "the two of them may hold the same name")
+}
+
+func TestSchemaMigratorBuildsAStrategyTableThatIsNotThereYet(t *testing.T) {
+	// The very first migration meets a database with no Strategies table at all.
+	// Clearing the rows saved before ownership must not go looking for a table
+	// nobody has built yet.
+	database := newStrategyTestDatabase(t)
+	require.NoError(t, database.Exec(`DROP TABLE "Strategies" CASCADE`).Error)
+
+	migratedTables, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	assert.Contains(t, migratedTables, "Strategies")
+	strategies, findError := persistence.NewStrategyRepository(database).
+		FindAllOwnedBy(t.Context(), strategyRowOwnerID)
+	require.NoError(t, findError)
+	assert.Empty(t, strategies)
 }

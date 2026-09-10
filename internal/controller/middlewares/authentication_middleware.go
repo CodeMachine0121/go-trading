@@ -57,15 +57,12 @@ func (authenticationMiddleware *AuthenticationMiddleware) Handle(ginContext *gin
 // this answers a single value rather than a value and a doubt, and a handler is
 // spared writing an "if not" branch that can never run.
 func CurrentUserID(ginContext *gin.Context) uint {
-	userID, isPresent := ginContext.Get(currentUserKey)
-	if !isPresent {
-		return 0
-	}
-
-	identifier, isIdentifier := userID.(uint)
-	if !isIdentifier {
-		return 0
-	}
+	// Both "nothing is there" and "something else is there" come out as zero, and
+	// neither is written as a branch of its own: only this file's own door ever
+	// writes that key, so neither can happen, and a branch that cannot run is a
+	// branch nothing can prove right. Zero is nobody either way, and the models
+	// downstream already refuse nobody.
+	identifier, _ := ginContext.Value(currentUserKey).(uint)
 
 	return identifier
 }

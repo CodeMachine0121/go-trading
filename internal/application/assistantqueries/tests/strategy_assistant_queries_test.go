@@ -299,3 +299,71 @@ func keysOf(shape map[string]json.RawMessage) []string {
 
 	return keys
 }
+
+func TestStrategyAssistantQueriesActAsWhoeverAskedThem(t *testing.T) {
+	// The assistant has no standing of its own. What it saves belongs to the person
+	// who asked, and what it can read is what they can read — otherwise "every
+	// strategy has an owner" gets its first exception the moment somebody asks the
+	// assistant to save one.
+	t.Run("a strategy it saves belongs to the asker", func(t *testing.T) {
+		fixture := newStrategyAssistantQueriesUnderTest(t)
+		storedOwnerID := uint(0)
+		fixture.strategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, strategy entities.Strategy) (entities.Strategy, error) {
+				storedOwnerID = strategy.OwnerID
+
+				return strategy, nil
+			})
+
+		_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantViewerID,
+			`{"name":"二十根均線","script":"func Calculate() {}"}`)
+
+		require.NoError(t, runError)
+		assert.Equal(t, assistantViewerID, storedOwnerID)
+	})
+
+	t.Run("it cannot read somebody else's strategy", func(t *testing.T) {
+		fixture := newStrategyAssistantQueriesUnderTest(t)
+		strangersStrategy := aStoredStrategyWithKnobs(7, "別人的")
+		strangersStrategy.OwnerID = assistantViewerID + 1
+		fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(strangersStrategy, nil)
+
+		_, runError := fixture.getAssistantQuery.Run(t.Context(), assistantViewerID, `{"strategyId":7}`)
+
+		require.ErrorIs(t, runError, domains.ErrStrategyNotFound)
+	})
+
+	t.Run("it cannot rewrite somebody else's strategy", func(t *testing.T) {
+		// Nothing is stubbed on the writing side: the refusal must land before any
+		// write goes out.
+		fixture := newStrategyAssistantQueriesUnderTest(t)
+		strangersStrategy := aStoredStrategyWithKnobs(7, "別人的")
+		strangersStrategy.OwnerID = assistantViewerID + 1
+		fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(strangersStrategy, nil)
+
+		_, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantViewerID,
+			`{"strategyId":7,"name":"改過的","script":"func Calculate() {}"}`)
+
+		require.ErrorIs(t, runError, domains.ErrStrategyNotFound)
+	})
+
+	t.Run("its list says which ones the asker may rewrite", func(t *testing.T) {
+		fixture := newStrategyAssistantQueriesUnderTest(t)
+		adopted := aStoredStrategyWithKnobs(2, "別人的")
+		adopted.OwnerID = assistantViewerID + 1
+		adopted.Owner = entities.User{ID: adopted.OwnerID, Email: "someone@example.com"}
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), assistantViewerID).
+			Return([]entities.Strategy{aStoredStrategyWithKnobs(1, "我的")}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), assistantViewerID).
+			Return([]entities.PublishedStrategy{{StrategyID: 2, Strategy: adopted}}, nil)
+
+		outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantViewerID, "{}")
+
+		require.NoError(t, runError)
+		assert.Contains(t, outcome, `"name":"我的","resultType":"floatList","parameterNames":["lookback"],"mine":true`)
+		assert.Contains(t, outcome, `"name":"別人的","resultType":"floatList","parameterNames":["lookback"],"mine":false`)
+		assert.NotContains(t, outcome, "func Calculate")
+	})
+}

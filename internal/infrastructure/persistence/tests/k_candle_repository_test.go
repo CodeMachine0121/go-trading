@@ -38,6 +38,22 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 
 	database, err := persistence.NewDatabase(dataSourceName)
 	require.NoError(t, err)
+
+	// Every one of these opens a pool of its own, and a pool nobody closes stays
+	// open until the process ends — so a long enough suite runs the server out of
+	// connections and every test after that point fails for a reason that has
+	// nothing to do with what it was checking.
+	//
+	// Closing one that a test already closed itself is not an error worth
+	// reporting: the pool is shut either way, which is all this is asking for.
+	t.Cleanup(func() {
+		connection, connectionError := database.DB()
+		if connectionError != nil {
+			return
+		}
+
+		_ = connection.Close()
+	})
 	_, err = persistence.NewSchemaMigrator(database).Migrate()
 	require.NoError(t, err)
 	clearedDatabase := database.Session(&gorm.Session{AllowGlobalUpdate: true})
