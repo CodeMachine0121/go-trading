@@ -264,7 +264,7 @@ func TestAskAnswersInFullWhenTheAllowanceIsOnlySpentAfterwards(t *testing.T) {
 func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), `{}`).Return(`{"symbols":["BTCUSDT"]}`, nil)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), `{}`).Return(`{"symbols":["BTCUSDT"]}`, nil)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -312,7 +312,7 @@ func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) 
 	// 所以要先問「有沒有要查」再問「有沒有說話」。
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(`{"strategies":[]}`, nil)
 
 	gomock.InOrder(
@@ -358,7 +358,7 @@ func TestAskAnswersWithWhatItSaidWhenItsQueriesAreSpent(t *testing.T) {
 	// 比回一句「助手沒有回應」誠實。
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).Return("{}", nil)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -384,7 +384,7 @@ func TestAskAnswersWithWhatItSaidWhenItsQueriesAreSpent(t *testing.T) {
 func TestAskRunsEveryCapabilityAskedForAtOnce(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).Return("{}", nil).Times(2)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil).Times(2)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -439,7 +439,7 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 			fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 			fixture.expectUsageToday(0)
 			if testCase.expectsRun {
-				fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).
+				fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(testCase.runOutcome, testCase.runError)
 			}
 
@@ -480,7 +480,7 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 func TestAskStopsRunningCapabilitiesOnceTheirLimitIsSpent(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 2, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).Return("{}", nil).Times(2)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil).Times(2)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -520,7 +520,7 @@ func TestAskStopsPartWayThroughARoundThatWouldOverspend(t *testing.T) {
 	// count is spent per lookup, so the round is cut short rather than let through.
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).Return("{}", nil).Times(1)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil).Times(1)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -552,7 +552,7 @@ func TestAskGivesUpWhenTheAssistantAsksForMoreItCannotHave(t *testing.T) {
 	// same nothing as an assistant that never answered.
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any()).Return("{}", nil)
+	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).

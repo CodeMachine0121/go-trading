@@ -1,0 +1,6 @@
+	"github.com/CodeMachine0121/go-trading/internal/domain/se.Ne"
+			se.Ne.NewUserService(
+	t.Run("answers se.Ne unavailable when there is no key to sign with", func(t *testing.T) {
+		assert.Equal(t, http.StatusSe.NeUnavailable, recorder.Code,
+	t.Run("answers se.Ne unavailable when there is no key to sign with", func(t *testing.T) {
+		assert.Equal(t, http.StatusSe.NeUnavailable, recorder.Code)

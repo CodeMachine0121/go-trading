@@ -32,17 +32,21 @@ func newStrategyRouterUnderTest(t *testing.T) strategyRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
 	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
+	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
+	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
 
 	strategyController := controller.NewStrategyController(
 		application.NewStrategyApplication(
-			service.NewStrategyService(strategyRepository)))
+			service.NewStrategyService(strategyRepository, publishedStrategyRepository)))
 
 	engine := gin.New()
-	engine.POST("/strategies", strategyController.CreateStrategy)
-	engine.GET("/strategies", strategyController.ListStrategies)
-	engine.GET("/strategies/:id", strategyController.GetStrategy)
-	engine.PUT("/strategies/:id", strategyController.UpdateStrategy)
-	engine.DELETE("/strategies/:id", strategyController.DeleteStrategy)
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
+	engine.POST("/strategies", requiresSignIn, strategyController.CreateStrategy)
+	engine.GET("/strategies", requiresSignIn, strategyController.ListAvailableStrategies)
+	engine.GET("/strategies/:id", requiresSignIn, strategyController.GetStrategy)
+	engine.PUT("/strategies/:id", requiresSignIn, strategyController.UpdateStrategy)
+	engine.DELETE("/strategies/:id", requiresSignIn, strategyController.DeleteStrategy)
 
 	return strategyRouterUnderTest{engine: engine, strategyRepository: strategyRepository}
 }
@@ -52,6 +56,7 @@ func (fixture strategyRouterUnderTest) send(
 ) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 
@@ -67,11 +72,26 @@ const aStrategyBody = `{
 func aStoredStrategyRow(id uint, name string) entities.Strategy {
 	return entities.Strategy{
 		ID:         id,
+		OwnerID:    signedInViewerID,
 		Name:       name,
 		Script:     "func Calculate(candles []vo.KCandleVo) map[string][]float64 { return nil }",
 		ResultType: "floatList",
 		CreatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
 		UpdatedAt:  time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+	}
+}
+
+// aPublishedStrategyRow is one strategy on the marketplace, owned by somebody who
+// is not the signed-in viewer.
+func aPublishedStrategyRow(id uint, name string) entities.PublishedStrategy {
+	strategy := aStoredStrategyRow(id, name)
+	strategy.OwnerID = signedInViewerID + 1
+	strategy.Owner = entities.User{ID: strategy.OwnerID, Email: "someone@example.com"}
+
+	return entities.PublishedStrategy{
+		StrategyID:  id,
+		PublishedAt: time.Date(2026, 9, 10, 8, 0, 0, 0, time.UTC),
+		Strategy:    strategy,
 	}
 }
 
@@ -177,42 +197,79 @@ func TestStrategyRouterCreateStrategy(t *testing.T) {
 	})
 }
 
-func TestStrategyRouterListStrategies(t *testing.T) {
-	t.Run("answers with every strategy", func(t *testing.T) {
+func TestStrategyRouterListAvailableStrategies(t *testing.T) {
+	t.Run("answers with the caller's own strategies and the ones they adopted", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.Strategy{
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.Strategy{
 			aStoredStrategyRow(1, "二十根均線"),
 			aStoredStrategyRow(2, "六十根均線"),
 		}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), signedInViewerID).
+			Return([]entities.PublishedStrategy{aPublishedStrategyRow(3, "別人的")}, nil)
 
 		response := fixture.send(http.MethodGet, "/strategies", "")
 
 		require.Equal(t, http.StatusOK, response.Code)
-		strategyDtos := make([]dto.StrategyDto, 0)
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &strategyDtos))
-		require.Len(t, strategyDtos, 2)
-		assert.Equal(t, "二十根均線", strategyDtos[0].Name)
+		availableStrategiesDto := dto.AvailableStrategiesDto{}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &availableStrategiesDto))
+		require.Len(t, availableStrategiesDto.Mine, 2)
+		require.Len(t, availableStrategiesDto.Adopted, 1)
+		assert.Equal(t, "二十根均線", availableStrategiesDto.Mine[0].Name)
+		assert.Equal(t, "別人的", availableStrategiesDto.Adopted[0].Name)
 	})
 
-	t.Run("answers with an empty collection rather than nothing at all", func(t *testing.T) {
+	t.Run("never puts an adopted strategy's algorithm on the wire", func(t *testing.T) {
+		// The adopted half is a shape with no script field at all, so this is not a
+		// promise the handler keeps — it is one it cannot break.
+		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), signedInViewerID).
+			Return([]entities.PublishedStrategy{aPublishedStrategyRow(3, "別人的")}, nil)
+
+		response := fixture.send(http.MethodGet, "/strategies", "")
+
+		require.Equal(t, http.StatusOK, response.Code)
+		assert.NotContains(t, response.Body.String(), "func Calculate")
+	})
+
+	t.Run("answers with empty collections rather than nothing at all", func(t *testing.T) {
 		// A reader that gets null has to guard against it; one that gets [] can just
 		// read it, which is why holding none still answers with a collection.
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.Strategy{}, nil)
+		fixture.strategyRepository.EXPECT().
+			FindAllAdoptedBy(gomock.Any(), signedInViewerID).Return([]entities.PublishedStrategy{}, nil)
 
 		response := fixture.send(http.MethodGet, "/strategies", "")
 
 		require.Equal(t, http.StatusOK, response.Code)
-		assert.JSONEq(t, "[]", response.Body.String())
+		assert.JSONEq(t, `{"mine":[],"adopted":[]}`, response.Body.String())
 	})
 
 	t.Run("answers bad gateway when storage will not answer", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
-		fixture.strategyRepository.EXPECT().FindAll(gomock.Any()).Return(nil, errors.New("connection refused"))
+		fixture.strategyRepository.EXPECT().
+			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return(nil, errors.New("connection refused"))
 
 		response := fixture.send(http.MethodGet, "/strategies", "")
 
 		assert.Equal(t, http.StatusBadGateway, response.Code)
+	})
+
+	t.Run("turns away a request carrying no proof of identity", func(t *testing.T) {
+		// Nothing is stubbed on the repository: nothing may reach storage.
+		fixture := newStrategyRouterUnderTest(t)
+
+		request := httptest.NewRequest(http.MethodGet, "/strategies", nil)
+		recorder := httptest.NewRecorder()
+		fixture.engine.ServeHTTP(recorder, request)
+
+		assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 	})
 }
 
@@ -339,6 +396,8 @@ func TestStrategyRouterUpdateStrategy(t *testing.T) {
 func TestStrategyRouterDeleteStrategy(t *testing.T) {
 	t.Run("answers no content and says nothing more", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().Delete(gomock.Any(), uint(7)).Return(nil)
 
 		response := fixture.send(http.MethodDelete, "/strategies/7", "")
@@ -350,7 +409,7 @@ func TestStrategyRouterDeleteStrategy(t *testing.T) {
 	t.Run("answers not found when no strategy carries that identifier", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
 		fixture.strategyRepository.EXPECT().
-			Delete(gomock.Any(), uint(7)).Return(domains.ErrStrategyNotFound)
+			FindOne(gomock.Any(), uint(7)).Return(entities.Strategy{}, domains.ErrStrategyNotFound)
 
 		response := fixture.send(http.MethodDelete, "/strategies/7", "")
 
@@ -359,6 +418,8 @@ func TestStrategyRouterDeleteStrategy(t *testing.T) {
 
 	t.Run("answers bad gateway when storage will not answer", func(t *testing.T) {
 		fixture := newStrategyRouterUnderTest(t)
+		fixture.strategyRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyRow(7, "二十根均線"), nil)
 		fixture.strategyRepository.EXPECT().
 			Delete(gomock.Any(), uint(7)).Return(errors.New("connection refused"))
 

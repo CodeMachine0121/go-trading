@@ -11,10 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// strategyWriteOwnerID is who these strategies belong to. Every strategy has an
+// owner now, so a write without one is refused before any other rule is read —
+// which would make every case below fail for the wrong reason.
+const strategyWriteOwnerID = uint(1)
+
 // aStrategyWriteDto is a strategy that passes every rule, so that each test can
 // break exactly one thing and nothing else explains the outcome.
 func aStrategyWriteDto() dto.StrategyWriteDto {
 	return dto.StrategyWriteDto{
+		OwnerID:    strategyWriteOwnerID,
 		Name:       "二十根均線",
 		Script:     "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }",
 		ResultType: "floatList",

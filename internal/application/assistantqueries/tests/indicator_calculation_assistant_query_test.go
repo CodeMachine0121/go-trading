@@ -32,18 +32,21 @@ func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalcu
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	strategyRepository := mocks.NewMockIStrategyRepository(controller)
+	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
+	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(indicatorNow).AnyTimes()
 
 	return indicatorCalculationAssistantQueryUnderTest{
 		assistantQuery: assistantqueries.NewIndicatorCalculationAssistantQuery(
 			application.NewIndicatorCalculationApplication(
+				service.NewStrategyService(strategyRepository, publishedStrategyRepository),
 				service.NewIndicatorCalculationService(
 					kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 					domains.NewMarketCatalogDomain(
 						map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 					queryMaxResults)),
-			application.NewStrategyApplication(service.NewStrategyService(strategyRepository)),
 		),
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
@@ -72,7 +75,7 @@ func TestIndicatorCalculationAssistantQueryRunsAnAlgorithmTheAssistantBrought(t 
 		Execute(gomock.Any(), "func Calculate() {}", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	outcome, runError := fixture.assistantQuery.Run(t.Context(),
+	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","script":"func Calculate() {}"}`)
 
 	require.NoError(t, runError)
@@ -92,7 +95,7 @@ func TestIndicatorCalculationAssistantQueryRunsTheStrategyItNames(t *testing.T) 
 		Execute(gomock.Any(), aStoredStrategyWithKnobs(1, "二十根均線").Script, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	outcome, runError := fixture.assistantQuery.Run(t.Context(),
+	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,`+
 			`"parameterValues":[{"name":"lookback","value":30}]}`)
 
@@ -112,7 +115,7 @@ func TestIndicatorCalculationAssistantQueryPrefersTheNamedStrategyOverAnAlgorith
 		Execute(gomock.Any(), aStoredStrategyWithKnobs(1, "二十根均線").Script, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(),
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,"script":"func Other() {}"}`)
 
 	require.NoError(t, runError)
@@ -129,7 +132,7 @@ func TestIndicatorCalculationAssistantQueryReadsUpToTheMomentItWasGiven(t *testi
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(),
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T08:58:00Z","script":"func Calculate() {}",`+
 			`"endTime":"2026-08-29T09:00:00Z"}`)
 
@@ -141,7 +144,7 @@ func TestIndicatorCalculationAssistantQueryReportsAStrategyThatIsNotThere(t *tes
 	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(99)).
 		Return(entities.Strategy{}, domains.StrategyNotFound(99))
 
-	_, runError := fixture.assistantQuery.Run(t.Context(),
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":99}`)
 
 	require.ErrorIs(t, runError, domains.ErrStrategyNotFound)
@@ -150,7 +153,7 @@ func TestIndicatorCalculationAssistantQueryReportsAStrategyThatIsNotThere(t *tes
 func TestIndicatorCalculationAssistantQueryIsBoundByTheRulesTheCalculationAlreadyHas(t *testing.T) {
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(),
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:15:00Z","script":"func Calculate() {}"}`)
 
 	require.ErrorIs(t, runError, domains.ErrIndicatorCalculationValidation)
@@ -175,7 +178,7 @@ func TestIndicatorCalculationAssistantQueryRefusesArgumentsItCannotRead(t *testi
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
-			_, runError := fixture.assistantQuery.Run(t.Context(), testCase.arguments)
+			_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID, testCase.arguments)
 
 			require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 			assert.Contains(t, runError.Error(), testCase.expectedMessage)

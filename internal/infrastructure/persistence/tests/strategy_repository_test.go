@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"gorm.io/gorm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,18 +19,45 @@ import (
 // strategyNamed carries.
 const rewrittenScript = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return map[string]float64{\"x\": 1} }"
 
+// strategyRowOwnerID is whoever owns every strategy in this file unless a test says
+// otherwise. A strategy cannot exist without an owner any more, so one is planted
+// before each of these runs.
+const strategyRowOwnerID = uint(1)
+
 // strategyNamed is a strategy that differs from its siblings only by name, so that a
 // test about names is not also a test about anything else.
 func strategyNamed(name string) entities.Strategy {
 	return entities.Strategy{
+		OwnerID:    strategyRowOwnerID,
 		Name:       name,
 		Script:     "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }",
 		ResultType: "float",
 	}
 }
 
+// newStrategyTestDatabase is a cleared database with the owner these strategies
+// belong to already in it. Planting the person first is not scaffolding: the column
+// carries a foreign key, so a strategy owned by nobody is a row the schema refuses.
+func newStrategyTestDatabase(t *testing.T) *gorm.DB {
+	database := newTestDatabase(t)
+	require.NoError(t, database.WithContext(t.Context()).Create(&entities.User{
+		ID: strategyRowOwnerID, Email: "owner@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	return database
+}
+
+// aSecondOwner plants another person and answers with their identifier, for the
+// cases about two people's strategies not colliding.
+func aSecondOwner(t *testing.T, database *gorm.DB) uint {
+	secondOwner := entities.User{Email: "other@example.com", PasswordProof: "a-proof"}
+	require.NoError(t, database.WithContext(t.Context()).Create(&secondOwner).Error)
+
+	return secondOwner.ID
+}
+
 func TestStrategyRepositorySaveHandsBackTheStrategyAsStored(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 
@@ -41,7 +69,7 @@ func TestStrategyRepositorySaveHandsBackTheStrategyAsStored(t *testing.T) {
 }
 
 func TestStrategyRepositorySaveRefusesANameAlreadyHeld(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	_, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 
@@ -50,7 +78,7 @@ func TestStrategyRepositorySaveRefusesANameAlreadyHeld(t *testing.T) {
 	require.ErrorIs(t, conflictError, domains.ErrStrategyNameConflict)
 	assert.Contains(t, conflictError.Error(), "二十根均線")
 
-	strategies, findError := strategyRepository.FindAll(t.Context())
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 	require.NoError(t, findError)
 	assert.Len(t, strategies, 1, "拒絕的那一次不得留下任何東西，既有那一支也不得被動到")
 }
@@ -58,7 +86,7 @@ func TestStrategyRepositorySaveRefusesANameAlreadyHeld(t *testing.T) {
 func TestStrategyRepositorySaveTellsNamesApartByCase(t *testing.T) {
 	// A person may well use case to tell two versions apart, and deciding for them
 	// which spellings count as the same name gets in the way more often than it helps.
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 
 	_, upperCaseError := strategyRepository.Save(t.Context(), strategyNamed("MA20"))
 	_, lowerCaseError := strategyRepository.Save(t.Context(), strategyNamed("ma20"))
@@ -68,7 +96,7 @@ func TestStrategyRepositorySaveTellsNamesApartByCase(t *testing.T) {
 }
 
 func TestStrategyRepositorySaveFreesANameThatWasDeleted(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 	require.NoError(t, strategyRepository.Delete(t.Context(), savedStrategy.ID))
@@ -82,7 +110,7 @@ func TestStrategyRepositorySaveDoesNotBlameTheNameForOtherClashes(t *testing.T) 
 	// A restored dump can leave the identifier sequence behind the rows it restored,
 	// so the next save collides on the primary key. Answering "that name is taken"
 	// there would send whoever reads it hunting for a strategy that does not exist.
-	database := newTestDatabase(t)
+	database := newStrategyTestDatabase(t)
 	strategyRepository := persistence.NewStrategyRepository(database)
 	occupying := strategyNamed("二十根均線")
 	occupying.ID = 5000
@@ -103,7 +131,7 @@ func TestStrategyRepositorySaveDoesNotBlameTheNameForOtherClashes(t *testing.T) 
 func TestStrategyRepositoryUpdateHandsBackWhatThisCallStored(t *testing.T) {
 	// The rewrite and the read-back share one transaction, so the values coming back
 	// are this call's own rather than whatever the row happened to hold afterwards.
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 
@@ -123,7 +151,7 @@ func TestStrategyRepositoryUpdateHandsBackWhatThisCallStored(t *testing.T) {
 }
 
 func TestStrategyRepositoryFindOne(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 
@@ -148,11 +176,11 @@ func TestStrategyRepositoryFindOne(t *testing.T) {
 	})
 }
 
-func TestStrategyRepositoryFindAllOrdersByName(t *testing.T) {
+func TestStrategyRepositoryFindAllOwnedByOrdersByName(t *testing.T) {
 	// Named in plain letters on purpose: the point being made is that the order is
 	// the collection's and not the order they went in, and letters sort the same way
 	// under every collation the database might be running.
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	// The insertion order is neither the expected order nor its reverse, so an
 	// ordering taken from when a strategy was saved cannot pass by coincidence.
 	for _, name := range []string{"MA60", "RSI14", "MA20"} {
@@ -160,7 +188,7 @@ func TestStrategyRepositoryFindAllOrdersByName(t *testing.T) {
 		require.NoError(t, saveError)
 	}
 
-	strategies, findError := strategyRepository.FindAll(t.Context())
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 
 	require.NoError(t, findError)
 	foundNames := make([]string, 0, len(strategies))
@@ -170,17 +198,17 @@ func TestStrategyRepositoryFindAllOrdersByName(t *testing.T) {
 	assert.Equal(t, []string{"MA20", "MA60", "RSI14"}, foundNames)
 }
 
-func TestStrategyRepositoryFindAllOnAnEmptyCollection(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+func TestStrategyRepositoryFindAllOwnedByOnAnEmptyCollection(t *testing.T) {
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 
-	strategies, findError := strategyRepository.FindAll(t.Context())
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 
 	require.NoError(t, findError)
 	assert.Empty(t, strategies)
 }
 
 func TestStrategyRepositoryUpdateRewritesTheFiveThingsAStrategyRemembers(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 
@@ -200,7 +228,7 @@ func TestStrategyRepositoryUpdateRewritesTheFiveThingsAStrategyRemembers(t *test
 }
 
 func TestStrategyRepositoryUpdateLeavesTheIdentifierAndTheFirstSavedTimeAlone(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 
@@ -220,7 +248,7 @@ func TestStrategyRepositoryUpdateLeavesTheIdentifierAndTheFirstSavedTimeAlone(t 
 }
 
 func TestStrategyRepositoryUpdateToItsOwnNameIsNotAConflict(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, saveError)
 
@@ -235,7 +263,7 @@ func TestStrategyRepositoryUpdateToItsOwnNameIsNotAConflict(t *testing.T) {
 }
 
 func TestStrategyRepositoryUpdateRefusesAnotherStrategysName(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	_, firstError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, firstError)
 	secondStrategy, secondError := strategyRepository.Save(t.Context(), strategyNamed("六十根均線"))
@@ -248,7 +276,7 @@ func TestStrategyRepositoryUpdateRefusesAnotherStrategysName(t *testing.T) {
 
 	require.ErrorIs(t, conflictError, domains.ErrStrategyNameConflict)
 
-	strategies, findError := strategyRepository.FindAll(t.Context())
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 	require.NoError(t, findError)
 	foundNames := make([]string, 0, len(strategies))
 	for _, strategy := range strategies {
@@ -259,7 +287,7 @@ func TestStrategyRepositoryUpdateRefusesAnotherStrategysName(t *testing.T) {
 }
 
 func TestStrategyRepositoryUpdateReportsNotFound(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 
 	rewritten := strategyNamed("二十根均線")
 	rewritten.ID = 999999
@@ -269,13 +297,13 @@ func TestStrategyRepositoryUpdateReportsNotFound(t *testing.T) {
 	require.ErrorIs(t, updateError, domains.ErrStrategyNotFound)
 	assert.Contains(t, updateError.Error(), "找不到識別碼為 999999 的策略")
 
-	strategies, findError := strategyRepository.FindAll(t.Context())
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 	require.NoError(t, findError)
 	assert.Empty(t, strategies, "改一支不存在的策略不得因此建出一支新的")
 }
 
 func TestStrategyRepositoryDelete(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	deletedStrategy, firstError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	require.NoError(t, firstError)
 	keptStrategy, secondError := strategyRepository.Save(t.Context(), strategyNamed("六十根均線"))
@@ -290,7 +318,7 @@ func TestStrategyRepositoryDelete(t *testing.T) {
 	})
 
 	t.Run("it no longer appears in the collection", func(t *testing.T) {
-		strategies, findError := strategyRepository.FindAll(t.Context())
+		strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 
 		require.NoError(t, findError)
 		require.Len(t, strategies, 1)
@@ -305,7 +333,7 @@ func TestStrategyRepositoryDelete(t *testing.T) {
 }
 
 func TestStrategyRepositoryDeleteReportsNotFound(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 
 	deleteError := strategyRepository.Delete(t.Context(), 999999)
 
@@ -318,7 +346,7 @@ func TestStrategyRepositorySaysSoWhenItCannotReachTheDatabase(t *testing.T) {
 
 	_, saveError := strategyRepository.Save(t.Context(), strategyNamed("二十根均線"))
 	_, findOneError := strategyRepository.FindOne(t.Context(), 1)
-	_, findAllError := strategyRepository.FindAll(t.Context())
+	_, findAllError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 	_, updateError := strategyRepository.Update(t.Context(), strategyNamed("二十根均線"))
 	deleteError := strategyRepository.Delete(t.Context(), 1)
 
@@ -371,7 +399,7 @@ func knobsByName(strategy entities.Strategy) map[string]entities.StrategyParamet
 // A strategy read back without its knobs looks like a strategy that has none, and
 // every knob it declared would silently stop existing.
 func TestStrategyRepositoryKeepsTheKnobsAStrategyCarries(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), withParameters(
 		strategyNamed("布林通道"),
@@ -391,12 +419,12 @@ func TestStrategyRepositoryKeepsTheKnobsAStrategyCarries(t *testing.T) {
 }
 
 func TestStrategyRepositoryListsEveryStrategyWithItsKnobs(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	_, saveError := strategyRepository.Save(t.Context(), withParameters(
 		strategyNamed("布林通道"), lookbackCountKnob("期數", 20)))
 	require.NoError(t, saveError)
 
-	strategies, findError := strategyRepository.FindAll(t.Context())
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
 
 	require.NoError(t, findError)
 	require.Len(t, strategies, 1)
@@ -408,7 +436,7 @@ func TestStrategyRepositoryListsEveryStrategyWithItsKnobs(t *testing.T) {
 // strategy knobs it no longer declares, and the largest look-back — which decides
 // how many candles get read — would be computed from a knob nobody can see.
 func TestStrategyRepositoryReplacesTheWholeSetOfKnobsOnRewrite(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), withParameters(
 		strategyNamed("布林通道"), lookbackCountKnob("期數", 20), numberKnob("倍數", 2)))
 	require.NoError(t, saveError)
@@ -426,7 +454,7 @@ func TestStrategyRepositoryReplacesTheWholeSetOfKnobsOnRewrite(t *testing.T) {
 }
 
 func TestStrategyRepositoryLetsAStrategyDropEveryKnobItHad(t *testing.T) {
-	strategyRepository := persistence.NewStrategyRepository(newTestDatabase(t))
+	strategyRepository := persistence.NewStrategyRepository(newStrategyTestDatabase(t))
 	savedStrategy, saveError := strategyRepository.Save(t.Context(), withParameters(
 		strategyNamed("布林通道"), lookbackCountKnob("期數", 20)))
 	require.NoError(t, saveError)

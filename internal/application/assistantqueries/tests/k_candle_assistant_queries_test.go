@@ -92,7 +92,7 @@ func TestKCandleSeriesAssistantQueryReadsTheStretchAtTheCoarsenessAsked(t *testi
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(2), nil)
 
-	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(), seriesArguments)
+	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(), assistantViewerID, seriesArguments)
 
 	require.NoError(t, runError)
 	payload := readAssistantCandlePayload(t, outcome)
@@ -110,7 +110,7 @@ func TestKCandleSeriesAssistantQueryTellsTheAssistantWhenItIsSeeingLessThanTheSt
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(5), nil)
 
-	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(),
+	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:00:00Z","endTime":"2026-08-29T23:00:00Z"}`)
 
 	require.NoError(t, runError)
@@ -129,7 +129,7 @@ func TestKCandleSeriesAssistantQueryTreatsNamingNoCountAsTheCeiling(t *testing.T
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(3), nil)
 
-	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(),
+	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:00:00Z","endTime":"2026-08-29T23:00:00Z"}`)
 
 	require.NoError(t, runError)
@@ -144,7 +144,7 @@ func TestKCandleSeriesAssistantQuerySaysWhenTheStretchHeldNothing(t *testing.T) 
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]entities.KCandle{}, nil)
 
-	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(), seriesArguments)
+	outcome, runError := fixture.seriesAssistantQuery.Run(t.Context(), assistantViewerID, seriesArguments)
 
 	require.NoError(t, runError)
 	payload := readAssistantCandlePayload(t, outcome)
@@ -184,7 +184,7 @@ func TestKCandleSeriesAssistantQueryObeysTheRulesTheUnderlyingQueryAlreadyHas(t 
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newKCandleAssistantQueriesUnderTest(t)
 
-			_, runError := fixture.seriesAssistantQuery.Run(t.Context(), testCase.arguments)
+			_, runError := fixture.seriesAssistantQuery.Run(t.Context(), assistantViewerID, testCase.arguments)
 
 			require.Error(t, runError)
 			assert.Contains(t, runError.Error(), testCase.expectedMessage)
@@ -221,7 +221,7 @@ func TestKCandleSeriesAssistantQueryRefusesArgumentsItCannotRead(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newKCandleAssistantQueriesUnderTest(t)
 
-			_, runError := fixture.seriesAssistantQuery.Run(t.Context(), testCase.arguments)
+			_, runError := fixture.seriesAssistantQuery.Run(t.Context(), assistantViewerID, testCase.arguments)
 
 			require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 			assert.Contains(t, runError.Error(), testCase.expectedMessage)
@@ -234,7 +234,7 @@ func TestKCandleRangeAssistantQueryObeysTheSameCeiling(t *testing.T) {
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(5), nil)
 
-	outcome, runError := fixture.rangeAssistantQuery.Run(t.Context(),
+	outcome, runError := fixture.rangeAssistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:00:00Z","endTime":"2026-08-29T23:00:00Z",`+
 			`"candleCount":500}`)
 
@@ -250,7 +250,7 @@ func TestKCandleRangeAssistantQueryHandsOverWhatFitsWithinTheCeiling(t *testing.
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(2), nil)
 
-	outcome, runError := fixture.rangeAssistantQuery.Run(t.Context(),
+	outcome, runError := fixture.rangeAssistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:00:00Z","endTime":"2026-08-29T23:00:00Z",`+
 			`"candleCount":2}`)
 
@@ -289,7 +289,7 @@ func TestKCandleRangeAssistantQueryRefusesArgumentsItCannotRead(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newKCandleAssistantQueriesUnderTest(t)
 
-			_, runError := fixture.rangeAssistantQuery.Run(t.Context(), testCase.arguments)
+			_, runError := fixture.rangeAssistantQuery.Run(t.Context(), assistantViewerID, testCase.arguments)
 
 			require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 			assert.Contains(t, runError.Error(), testCase.expectedMessage)
@@ -300,7 +300,7 @@ func TestKCandleRangeAssistantQueryRefusesArgumentsItCannotRead(t *testing.T) {
 func TestKCandleRangeAssistantQueryObeysTheRulesTheUnderlyingQueryAlreadyHas(t *testing.T) {
 	fixture := newKCandleAssistantQueriesUnderTest(t)
 
-	_, runError := fixture.rangeAssistantQuery.Run(t.Context(),
+	_, runError := fixture.rangeAssistantQuery.Run(t.Context(), assistantViewerID,
 		`{"symbol":"","startTime":"2026-08-29T09:00:00Z","endTime":"2026-08-29T23:00:00Z"}`)
 
 	require.Error(t, runError)

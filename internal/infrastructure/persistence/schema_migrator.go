@@ -5,6 +5,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // SchemaMigrator syncs the database schema from the entity definitions, code first.
@@ -36,6 +37,25 @@ var retiredColumns = []retiredColumn{
 	// algorithm, not the algorithm; they moved onto the calculation request.
 	{entity: &entities.Strategy{}, name: "aggregation_interval"},
 	{entity: &entities.Strategy{}, name: "candle_count"},
+}
+
+// retiredIndex is an index an entity used to carry. AutoMigrate adds indexes but
+// never drops them, so an index that has been replaced stays behind and keeps
+// enforcing a rule nobody asked for — which is worse than a leftover column: a
+// column just sits there, whereas a leftover unique index refuses writes the system
+// now considers perfectly fine.
+type retiredIndex struct {
+	entity any
+	name   string
+}
+
+// retiredIndexes are the indexes to drop after the schema is synced. Dropping is
+// idempotent, so this list may be kept long after every database has caught up.
+var retiredIndexes = []retiredIndex{
+	// A strategy's name used to be unique across the whole system. It is now unique
+	// within one owner's collection, and the old index would keep the first person
+	// here holding "二十根均線" against everybody else forever.
+	{entity: &entities.Strategy{}, name: "idx_strategies_name"},
 }
 
 // Migrate creates or updates the table of every registered entity, drops the columns
@@ -72,6 +92,10 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, dropError
 	}
 
+	if dropError := schemaMigrator.dropRetiredIndexes(); dropError != nil {
+		return nil, dropError
+	}
+
 	migratedTables := make([]string, 0, len(migratedEntities))
 	for _, migratedEntity := range migratedEntities {
 		statement := &gorm.Statement{DB: schemaMigrator.database}
@@ -96,6 +120,34 @@ func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 
 		if dropError := migrator.DropColumn(column.entity, column.name); dropError != nil {
 			return fmt.Errorf("drop retired column %s: %w", column.name, dropError)
+		}
+	}
+
+	return nil
+}
+
+// dropRetiredIndexes removes every index no entity claims any more, skipping the
+// ones already gone so that running this twice is the same as running it once.
+func (schemaMigrator *SchemaMigrator) dropRetiredIndexes() error {
+	migrator := schemaMigrator.database.Migrator()
+
+	for _, index := range retiredIndexes {
+		if !migrator.HasIndex(index.entity, index.name) {
+			continue
+		}
+
+		// The ORM's own DropIndex is not usable here, and this is the one place in
+		// the codebase that writes a statement out by hand. On this driver it
+		// builds "DROP INDEX <schema>.<name>" and, on a connection that names no
+		// schema, fills the first blank with a function call — which is not valid
+		// there. The statement below is what it was trying to write.
+		//
+		// It carries no value from anywhere: the name is a constant in the list
+		// above, and it goes through the ORM's own identifier quoting rather than
+		// being pasted into the text.
+		dropped := schemaMigrator.database.Exec("DROP INDEX IF EXISTS ?", clause.Column{Name: index.name})
+		if dropped.Error != nil {
+			return fmt.Errorf("drop retired index %s: %w", index.name, dropped.Error)
 		}
 	}
 

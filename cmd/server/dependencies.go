@@ -255,7 +255,11 @@ func registerRoutes(
 	// a body.
 	engine.POST("/sessions/renewal", userController.RenewSession)
 	engine.POST("/sessions/revocation", userController.RevokeSession)
-	engine.GET("/users/me", requiresSignIn, userController.GetCurrentUser)
+	// "Who am I" reads the proof itself rather than sitting behind the door, and
+	// that is not an oversight: the door answers a rejected proof with the same
+	// sentence this route would, so putting one in front of the other would only
+	// mean reading the header twice to reach the same answer.
+	engine.GET("/users/me", userController.GetCurrentUser)
 
 	// Following a market live is an addition, not a replacement: the scheduled
 	// round keeps running, and it is what fills in every candle that closed while

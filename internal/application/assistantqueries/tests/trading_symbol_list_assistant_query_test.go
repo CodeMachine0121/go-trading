@@ -58,7 +58,7 @@ func TestTradingSymbolListAssistantQueryHandsOverEveryMarketTheSystemKnows(t *te
 		Return([]entities.TradingSymbol{{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"}}, nil)
 	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
 
-	outcome, runError := fixture.assistantQuery.Run(t.Context(), "{}")
+	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID, "{}")
 
 	require.NoError(t, runError)
 	assert.JSONEq(t, `{"symbols":["BTCUSDT","ETHUSDT"]}`, outcome)
@@ -72,7 +72,7 @@ func TestTradingSymbolListAssistantQueryAnswersKnowingNoneAsAnEmptyList(t *testi
 		Return([]entities.TradingSymbol{}, nil)
 	fixture.kCandleRepository.EXPECT().FindDistinctSymbols(gomock.Any()).Return([]string{}, nil)
 
-	outcome, runError := fixture.assistantQuery.Run(t.Context(), "{}")
+	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID, "{}")
 
 	require.NoError(t, runError)
 	assert.JSONEq(t, `{"symbols":[]}`, outcome)
@@ -83,7 +83,7 @@ func TestTradingSymbolListAssistantQueryReportsAFailureToRead(t *testing.T) {
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).
 		Return(nil, errors.New("storage unavailable"))
 
-	_, runError := fixture.assistantQuery.Run(t.Context(), "{}")
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID, "{}")
 
 	require.Error(t, runError)
 }
