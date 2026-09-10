@@ -97,6 +97,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.Session{},
 		&entities.PublishedStrategy{},
 		&entities.StrategyAdoption{},
+		&entities.TelegramDelivery{},
 	}
 
 	// Clearing has to happen before the schema is synced, not after: these tables
