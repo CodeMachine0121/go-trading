@@ -7,8 +7,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// marketClosureLedger remembers which markets have already been decided shut, and
-// for which of their own days.
+// kCandleIngestionMarketClosureLedger remembers which markets have already been
+// decided shut, and for which of their own days.
 //
 // It is the one place that memory lives, and it holds nothing else. Whether a market
 // looks shut is read from what a round saw; when the decision expires is the
@@ -20,17 +20,19 @@ import (
 // is a question about the market's calendar and not about how long ago it was: a
 // round at eleven at night in Taipei is the same trading day as one at ten in the
 // morning, and midnight somewhere else has nothing to do with it.
-type marketClosureLedger struct {
+type kCandleIngestionMarketClosureLedger struct {
 	mutex        sync.Mutex
 	closedOnDate map[vo.MarketVo]time.Time
 }
 
-func newMarketClosureLedger() *marketClosureLedger {
-	return &marketClosureLedger{closedOnDate: make(map[vo.MarketVo]time.Time)}
+func newKCandleIngestionMarketClosureLedger() *kCandleIngestionMarketClosureLedger {
+	return &kCandleIngestionMarketClosureLedger{
+		closedOnDate: make(map[vo.MarketVo]time.Time),
+	}
 }
 
 // presumeClosed records that this market is shut for the trading day given.
-func (marketClosureLedger *marketClosureLedger) presumeClosed(
+func (marketClosureLedger *kCandleIngestionMarketClosureLedger) presumeClosed(
 	market vo.MarketVo, tradingDate time.Time,
 ) {
 	marketClosureLedger.mutex.Lock()
@@ -47,7 +49,9 @@ func (marketClosureLedger *marketClosureLedger) presumeClosed(
 // a holiday. Somebody asking for a symbol by hand is somebody saying they want it
 // asked — so their request clears the decision rather than being turned away by it,
 // and a market that really is shut simply gets decided shut again.
-func (marketClosureLedger *marketClosureLedger) reconsider(market vo.MarketVo) {
+func (marketClosureLedger *kCandleIngestionMarketClosureLedger) reconsider(
+	market vo.MarketVo,
+) {
 	marketClosureLedger.mutex.Lock()
 	defer marketClosureLedger.mutex.Unlock()
 
@@ -56,7 +60,7 @@ func (marketClosureLedger *marketClosureLedger) reconsider(market vo.MarketVo) {
 
 // isPresumedClosed reports a market already decided shut for the trading day given.
 // Any other day is a fresh judgement — a holiday is one day off, not a verdict.
-func (marketClosureLedger *marketClosureLedger) isPresumedClosed(
+func (marketClosureLedger *kCandleIngestionMarketClosureLedger) isPresumedClosed(
 	market vo.MarketVo, tradingDate time.Time,
 ) bool {
 	marketClosureLedger.mutex.Lock()
