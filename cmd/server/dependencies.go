@@ -260,6 +260,12 @@ func registerRoutes(
 	// sentence this route would, so putting one in front of the other would only
 	// mean reading the header twice to reach the same answer.
 	engine.GET("/users/me", userController.GetCurrentUser)
+	// Changing a password does sit behind the door, unlike "who am I" above. The
+	// difference is what the two do with a rejected proof: reading who you are is
+	// the same refusal either way, whereas this one has a second refusal of its own
+	// ("that is not your current password") that must not be confused with the
+	// first — and the door is what keeps them apart.
+	engine.POST("/users/me/password", requiresSignIn, userController.ChangePassword)
 
 	// Following a market live is an addition, not a replacement: the scheduled
 	// round keeps running, and it is what fills in every candle that closed while

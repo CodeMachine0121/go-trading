@@ -78,6 +78,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /strategies",
 		"POST /strategies/:id/publication",
 		"POST /users",
+		// Replacing one's own password. It names nobody but the person asking —
+		// who that is comes from the proof on the request — so it cannot reach a
+		// symbol or anybody else's account.
+		"POST /users/me/password",
 		"POST /watchlist",
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategies/:id",
