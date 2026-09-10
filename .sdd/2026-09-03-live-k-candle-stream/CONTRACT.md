@@ -11,15 +11,15 @@
 
 | ID | 條款 | Oracle（實作前寫下） | 實作位置 | 測試 | 測試稽核 | 程式碼稽核 | 狀態 |
 |---|---|---|---|---|---|---|---|
-| AC-01.1 | 第一個觀看者讓系統開始跟盤 | 跟盤份數 0→1；他立刻收到目前進行中的那一根 | `k_candle_follow_service.go:88`（查無即開一份）、`symbol_follow.go:56`（join 順帶補上目前那一根） | `TestOneFollowPerSymbolNoMatterHowManyAreWatching`、`TestAViewerArrivingMidCandleIsGivenTheShapeSoFar` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.1 | 第一個觀看者讓系統開始跟盤 | 跟盤份數 0→1；他立刻收到目前進行中的那一根 | `k_candle_follow_service.go:88`（查無即開一份）、`k_candle_follow_symbol.go:join`（順帶補上目前那一根） | `TestOneFollowPerSymbolNoMatterHowManyAreWatching`、`TestAViewerArrivingMidCandleIsGivenTheShapeSoFar` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-01.2 | 同一標的多人在看時只跟一次 | 兩人收到**同一份**內容；份數仍為 1 | `k_candle_follow_service.go:86`（map 查有即加入） | `TestOneFollowPerSymbolNoMatterHowManyAreWatching` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-01.3 | 還有人在看就繼續跟 | 份數仍為 1；剩下那人照常收到更新 | `symbol_follow.go:80`（不是最後一個就不回報） | `TestTheFollowEndsOnlyWhenTheLastViewerLeaves` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.3 | 還有人在看就繼續跟 | 份數仍為 1；剩下那人照常收到更新 | `k_candle_follow_symbol.go:leave`（不是最後一個就不回報） | `TestTheFollowEndsOnlyWhenTheLastViewerLeaves` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-01.4 | 最後一個觀看者離開就停止跟盤 | 份數變 0 | `k_candle_follow_service.go:155`（回報是最後一個即移除並取消） | 同上 | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-01.5 | 不在觀察清單上的標的一樣跟得動 | 照樣開始跟；他收得到更新 | `k_candle_follow_service.go:78`（只認 symbol，完全不讀觀察清單） | `TestASymbolOffTheWatchlistIsStillFollowed` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-01.6 | 換看另一個就換跟另一個 | 舊的份數→0、新的→1；只收到新的更新 | 舊 context 結束→`leave`；新的 `WatchKCandles` | `TestChangingSymbolLeavesTheOldMarketBehind` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-01.7 | 連線斷掉就算離開 | 等同離開：份數變 0，無額外逾時判定 | `k_candle_follow_service.go:104`（等 context 結束即 leave） | `TestTheFollowEndsOnlyWhenTheLastViewerLeaves`（以 context 取消模擬）、`TestTheRequestEndsWhenTheViewerLeaves` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-02.1 | 剛跟上就先給目前進行中的那一根 | 立刻收到，不必等下一次變動 | `symbol_follow.go:66` | `TestAViewerArrivingMidCandleIsGivenTheShapeSoFar` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-02.2 | 剛跟上時那一根還沒有任何成交 | 沒有收到任何一根，且跟上本身成功 | `symbol_follow.go:65`（`hasLatest` 為否即不送） | `TestJoiningBeforeTheMarketHasTradedHandsOverNothingAndStillSucceeds` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-02.1 | 剛跟上就先給目前進行中的那一根 | 立刻收到，不必等下一次變動 | `k_candle_follow_symbol.go:join` | `TestAViewerArrivingMidCandleIsGivenTheShapeSoFar` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-02.2 | 剛跟上時那一根還沒有任何成交 | 沒有收到任何一根，且跟上本身成功 | `k_candle_follow_symbol.go:join`（`hasLatest` 為否即不送） | `TestJoiningBeforeTheMarketHasTradedHandsOverNothingAndStillSucceeds` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-02.3 | 送出的一律是五分鐘一根 | 即使畫面看一小時一根，送的仍是五分鐘一根 | `binance_live_market_data_proxy.go:113`（訂閱 `@kline_` + 既有的 `kCandleInterval`＝`5m`） | `TestTheFeedIsOpenedForFiveMinuteCandlesOfThatSymbol` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-03.1 | 十秒內成交上百筆也只送一次 | 這十秒內只送出一次 | `k_candle_follow_domain.go:78` | `TestAdmitLetsAFormingCandleThroughOncePerCeiling`／`十秒內成交上百筆只送一次` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-03.2 | 還沒滿十秒的變動先不送 | 不送；滿十秒才送當時的樣子 | 同上 | 同上／`距上次送出僅兩秒的變動先不送` | asserts-oracle | produces-oracle | ✅ conforms |

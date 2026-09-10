@@ -35,9 +35,9 @@
 | `ILiveMarketDataProxy` | **Modify** | 契約不變形狀（仍是一次呼叫、一個 channel、關閉即結束），只是 target 現在是一組交易標的 |
 | `marketdata.FugleLiveMarketDataProxy` | **Modify** | 握手時對每一檔各送一次訂閱；折疊器由一個變成**每檔一個**，依推送裡的代號分流 |
 | `marketdata.BinanceLiveMarketDataProxy` | **Modify** | 跟它拿到的那一檔。拿到超過一檔時**明確拒絕**並說明原因——加密貨幣的規則設定為一條一檔，這條路走不到，但走到了要吵而不是安靜地少跟幾檔 |
-| `service.followChannel` | **Add** | 一條通道的執行單位：它的重試迴圈、它承載哪幾檔、怎麼結束 |
-| `service.KCandleFollowService` | **Modify** | goroutine 與重試迴圈由「每檔一個」移到「每條通道一個」；收到的每一根依代號分給對應的 `symbolFollow` |
-| `service.symbolFollow` | **Modify** | 只剩觀看者登記與最新狀態（本來就幾乎只做這個）；不再擁有 `cancel`，通道才是被取消的東西 |
+| `service.kCandleFollowChannel` | **Add** | 一條通道的執行單位：它的重試迴圈、它承載哪幾檔、怎麼結束 |
+| `service.KCandleFollowService` | **Modify** | goroutine 與重試迴圈由「每檔一個」移到「每條通道一個」；收到的每一根依代號分給對應的 `kCandleFollowSymbol` |
+| `service.kCandleFollowSymbol` | **Modify** | 只剩觀看者登記與最新狀態（本來就幾乎只做這個）；不再擁有 `cancel`，通道才是被取消的東西 |
 | `config.TaiwanStockConfig` | **Modify** | `SimultaneousFollowCeiling` 換成 `SimultaneousChannelCeiling`（預設 1）與 `SymbolsPerLiveChannel`（預設 5） |
 | 觀看者收到的形狀（`dto.KCandleFollowUpdateDto`、狀態值） | **Not touched** | PRD §5：人看到的東西一個字都不變 |
 | 跟盤名單的挑選規則（登錄最早、非交易時段為空） | **Not touched** | PRD §1 Out of Scope |
@@ -53,7 +53,7 @@
 | `vo.LiveFollowChannelVo` | VO | 一條通道要跟哪些交易標的，以及**它的識別鍵**——市場加上排序後的代號集合。不可變、無行為。**同時取代 `FollowTargetVo`**：行情來源被要求的東西，就是一條通道 | — | US-05 全部（重建與不重建）、US-02 |
 | `domains.LiveChannelHealthDomain` | Domain Model | 一條通道隨時間的健康：多久沒收到就算死了、下一次重試等多久、什麼才算恢復 | — | US-04 全部 |
 | `domains.ViewerUpdateThrottleDomain` | Domain Model | 一檔交易標的的畫面多久可以更新一次；走完的那一根一律放行 | — | US-03 happy path（節流不變） |
-| `service.followChannel` | 執行單位（service 內部） | 一條通道的生命：它的重試迴圈、它承載哪幾檔、被要求結束時怎麼收尾 | `LiveChannelHealthDomain`、`ILiveMarketDataProxy`、`symbolFollow` | US-02、US-04 |
+| `service.kCandleFollowChannel` | 執行單位（service 內部） | 一條通道的生命：它的重試迴圈、它承載哪幾檔、被要求結束時怎麼收尾 | `LiveChannelHealthDomain`、`ILiveMarketDataProxy`、`kCandleFollowSymbol` | US-02、US-04 |
 
 ### 深度檢查
 
@@ -62,7 +62,7 @@
 - **複雜度藏在裡面嗎？** 名額分配與切通道都在裡面；外面看到的是「現在該跑哪幾條通道」。
 - **兩個改變理由嗎？** 不是。名額怎麼給、怎麼切通道，都是「這個市場的方案」這一件事。
 
-**`followChannel`**
+**`kCandleFollowChannel`**
 - **名字有 And / Then 嗎？** 沒有。它是一條通道。
 - **呼叫端要照順序呼叫多個方法嗎？** 不用：`start` 之後它自己跑到被 `end`。
 - **參數會長大嗎？** 不會。多跟一檔是集合多一個元素，不是多一個參數。
@@ -82,8 +82,8 @@
 | `vo.FollowTargetVo` | 一檔 + 市場 | 一組 + 市場。**排序**由建立處保證，讓識別鍵穩定 |
 | `marketdata.FugleLiveMarketDataProxy` | 握手訂閱一檔、折疊一檔 | 逐檔送訂閱；`formingKCandle` 由單一個改為 `map[symbol]*fugleFormingKCandle`，依推送裡的代號取用。折疊演算法本身**一行都不動** |
 | `marketdata.BinanceLiveMarketDataProxy` | 訂閱一檔 | 接受一組，跟它拿到的那一檔；超過一檔回明確錯誤（見 §8 取捨） |
-| `service.KCandleFollowService` | 每檔一個 goroutine + 重試迴圈 | 改為每條通道一個。`run` 收 `*followChannel`；`consume` 收到候選後依 `liveKCandle.Symbol` 找到 `symbolFollow` 再交給它。找不到對應的檔就丟掉——那是我們沒訂的東西 |
-| `service.symbolFollow` | 觀看者登記 + `cancel` | 拿掉 `cancel` 與 `isOnARoster`：誰被取消是通道的事，誰在名單上是 roster 的事 |
+| `service.KCandleFollowService` | 每檔一個 goroutine + 重試迴圈 | 改為每條通道一個。`run` 收 `*kCandleFollowChannel`；`consume` 收到候選後依 `liveKCandle.Symbol` 找到 `kCandleFollowSymbol` 再交給它。找不到對應的檔就丟掉——那是我們沒訂的東西 |
+| `service.kCandleFollowSymbol` | 觀看者登記 + `cancel` | 拿掉 `cancel` 與 `isOnARoster`：誰被取消是通道的事，誰在名單上是 roster 的事 |
 | `config.TaiwanStockConfig` / `marketRules` | 一個上限設定 | 兩個設定，直接對應方案說明上的兩個數字 |
 
 ---
@@ -103,8 +103,8 @@ flowchart TD
 
     subgraph Service["Domain Service（長駐）"]
         FS["KCandleFollowService<br/>通道與觀看者的登記處"]
-        FC["followChannel<br/>一條通道的重試迴圈"]
-        SF["symbolFollow<br/>一檔的觀看者"]
+        FC["kCandleFollowChannel<br/>一條通道的重試迴圈"]
+        SF["kCandleFollowSymbol<br/>一檔的觀看者"]
     end
 
     subgraph Infra["Infrastructure"]
@@ -136,7 +136,7 @@ flowchart TD
 - **Where it lands:**
   - 兩條通道 → **只有設定值**。`LiveFollowRosterDomain.Channels()` 已經是「依每條檔數切段」，切成兩段跟切成一段走同一段程式。
   - 加密貨幣共用通道 → `BinanceLiveMarketDataProxy` 改用 combined stream，加上它自己的 wire 型別；**服務層與領域層一行都不用動**，因為契約已經是「一組」。
-  - 不中斷增減訂閱 → 這是唯一會動到識別方式的方向：通道將不再由「它承載的名單」識別，而要帶著可變狀態。屆時 `LiveFollowChannelVo` 的鍵要改成市場本身，並在 `followChannel` 上多一個「調整訂閱」的行為。**本次刻意不預留**——預留一個可變狀態來服務一個還沒有的需求，正是現在這個 bug 的來源。
+  - 不中斷增減訂閱 → 這是唯一會動到識別方式的方向：通道將不再由「它承載的名單」識別，而要帶著可變狀態。屆時 `LiveFollowChannelVo` 的鍵要改成市場本身，並在 `kCandleFollowChannel` 上多一個「調整訂閱」的行為。**本次刻意不預留**——預留一個可變狀態來服務一個還沒有的需求，正是現在這個 bug 的來源。
 
 - **How to add it:**
   - 新增一個市場：`marketRules` 多一列（兩個數字），行情來源實作一個 `ILiveMarketDataProxy`。**沒有任何地方要 branch 市場名稱。**
@@ -169,11 +169,11 @@ flowchart TD
 | US-02 只有一檔時走的是同一條路 | `LiveFollowRosterDomain.Channels()` |
 | US-02 名單為空時不開通道 | `LiveFollowRosterDomain.Channels()`（回空）+ `RefreshFixedFollows` |
 | US-02 不限量的市場維持一檔一條 | `MarketDomain.SymbolsPerLiveChannel()`（零視為一）+ `LiveFollowRosterDomain.Channels()` |
-| US-03 收到自己那一檔的進行中 K 線 | `KCandleFollowService.consume`（依 `liveKCandle.Symbol` 分流）+ `symbolFollow.publish` |
+| US-03 收到自己那一檔的進行中 K 線 | `KCandleFollowService.consume`（依 `liveKCandle.Symbol` 分流）+ `kCandleFollowSymbol.publish` |
 | US-03 收不到別人那一檔的資料 | `KCandleFollowService.consume` 的分流 |
 | US-03 走完的那一根只算在自己頭上 | `KCandleFollowService.report` / `store`（以該根自己的代號建立） |
-| US-04 一條通道斷掉，上面每一檔的觀看者都被告知 | `followChannel`（一條通道結束 → 對它承載的每一檔 `publishStalled`） |
-| US-04 重新跟上時整份名單一起回來 | `followChannel` 的重試迴圈以 `LiveFollowChannelVo` 重新開啟 |
+| US-04 一條通道斷掉，上面每一檔的觀看者都被告知 | `kCandleFollowChannel`（一條通道結束 → 對它承載的每一檔 `publishStalled`） |
+| US-04 重新跟上時整份名單一起回來 | `kCandleFollowChannel` 的重試迴圈以 `LiveFollowChannelVo` 重新開啟 |
 | US-04 連得上但不送資料，重試間隔照樣拉長 | `LiveChannelHealthDomain`（`MarkConnected` 不重設間隔） |
 | US-04 真的收到資料才算恢復 | `LiveChannelHealthDomain.MarkReceived` |
 | US-05 加入一檔會重建通道 | `LiveFollowChannelVo` 的識別鍵改變 → `RefreshFixedFollows` 結束舊的、啟動新的 |

@@ -97,7 +97,7 @@
 | `registerRoutes`（組裝根） | 只回傳跟盤 | 改為回傳跟盤**與抓取**：路由與背景工作都要用到抓取，各自建一份會讓「今天休市」記成兩份 |
 | `KCandleIngestionDomain` | 視窗與「哪些算收完」 | 視窗多帶市場；回補視窗交給 `MarketDomain.ClampToTradingSession` 收窄 |
 | `KCandleFollowService` | 觀看者驅動的跟盤登記簿 | 多一組**固定跟盤**；`WatchKCandles` 先查市場，台股走名單、加密貨幣走原路；名單外回 `unavailable` |
-| `symbolFollow` | 一個市場與它的觀看者 | 多一個「這是固定跟盤」的標記——最後一個觀看者離開時不結束它 |
+| `kCandleFollowSymbol` | 一個市場與它的觀看者 | 多一個「這是固定跟盤」的標記——最後一個觀看者離開時不結束它 |
 | `KCandleIngestionJob` | 持有 `symbols` 並傳入 | **拿掉 `symbols`**。清單不再是啟動時凍結的東西 |
 | `KCandleFollowApplication` | 一個 use case | 多 `RefreshFixedFollows`——`LiveFollowRosterJob` 的唯一入口 |
 | `TradingSymbolController` | `GET /trading-symbols` | 多 `POST /watchlist`、`DELETE /watchlist/:symbol`；以哨兵錯誤對映 400／404／502 |
@@ -210,7 +210,7 @@ flowchart TD
 | US-05 休市推定／隔日重判 | `KCandleIngestionService` 的休市記錄 + `MarketDomain.TradingDateOf` |
 | US-05 來源不可用才算失敗 | `KCandleIngestionService.ingestSymbol` 區分「回覆零根」與「取不到回覆」 |
 | US-06 只跟最早登錄的那幾檔／不足不湊滿 | `KCandleFollowService.RefreshFixedFollows` + `MarketDomain.SimultaneousFollowCeiling` |
-| US-06 沒有人看也照跟 | `symbolFollow` 的固定跟盤標記 |
+| US-06 沒有人看也照跟 | `kCandleFollowSymbol` 的固定跟盤標記 |
 | US-06 名額之外被告知沒有即時更新 | `KCandleFollowStatusUnavailable` |
 | US-06 收盤不跟／開盤跟回來 | `LiveFollowRosterJob` + `MarketDomain.IsOpen` |
 | US-06 加密貨幣仍是有人看才跟 | `KCandleFollowService` 原路徑不變（`MarketDomain` 回報不限名額） |

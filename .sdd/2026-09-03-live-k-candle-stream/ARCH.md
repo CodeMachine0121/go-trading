@@ -148,7 +148,7 @@ Stop()
 沒有的話開始跟、把這位觀看者加進去、他走的時候怎麼收尾。
 呼叫端不必依序做四件事——這是 deep module 的判準。
 
-內部：`map[string]*symbolFollow` 加一把 mutex。每個 `symbolFollow` 有自己的 goroutine，
+內部：`map[string]*kCandleFollowSymbol` 加一把 mutex。每個 `kCandleFollowSymbol` 有自己的 goroutine，
 跑「連線 → 讀 → 問 `KCandleFollowDomain` 要不要送 → 送給每個觀看者 →
 走完的話存入」這個迴圈；連線結束就依 `NextRetryDelay()` 等待後重連。
 
@@ -288,7 +288,7 @@ Stop()
 | :--- | :--- |
 | US-01.1 第一個觀看者開始跟盤 | `KCandleFollowService.Watch`（map 查無 → 開一份） |
 | US-01.2 多人在看只跟一份 | `KCandleFollowService.Watch`（map 查有 → 加入） |
-| US-01.3 還有人在看就繼續跟 | `symbolFollow` 的觀看者集合非空即不收 |
+| US-01.3 還有人在看就繼續跟 | `kCandleFollowSymbol` 的觀看者集合非空即不收 |
 | US-01.4 最後一個離開就停 | 觀看者集合清空 → 取消 goroutine、從 map 移除 |
 | US-01.5 不在觀察清單上也跟得動 | `Watch` 只認 symbol，完全不讀觀察清單 |
 | US-01.6 換看另一個就換跟另一個 | 舊 context 結束 → 離開舊的；新的 `Watch` → 加入新的 |
@@ -303,7 +303,7 @@ Stop()
 | US-04.1 進行中的那一根查不到 | 不呼叫 `Save`——靠不存達成，不靠額外判斷 |
 | US-04.2 指標計算不使用它 | 同上；計算讀資料庫，資料庫沒有它 |
 | US-04.3 走完之後查得到 | `Closed` 時走既有存入路徑 |
-| US-05.1 走完的當下就存入 | `symbolFollow` 收到 `Closed` 即存 |
+| US-05.1 走完的當下就存入 | `kCandleFollowSymbol` 收到 `Closed` 即存 |
 | US-05.2 事後修正照樣覆蓋 | `KCandleRepository.Save` 的 upsert（既有，不改） |
 | US-05.3 沒人看時由自動抓取補上 | `KCandleIngestionJob`（既有，不改） |
 | US-05.4 違規不存並留下紀錄 | `NewKCandleDomain` 回錯 → 記錄後 continue |
@@ -347,11 +347,11 @@ service 本身只測生命週期（開／加入／離開／最後一個離開就
 
 實作完成後對本切片的檔案做了一次深模組檢視。
 
-**採納並做掉的：把「一個市場的觀看者」抽成 `symbolFollow` 自己的行為。**
+**採納並做掉的：把「一個市場的觀看者」抽成 `kCandleFollowSymbol` 自己的行為。**
 原本它只是一個有欄位沒有行為的 struct，service 到處伸手改它的欄位——
 正是專案規則說的「行為沒有住在它操作的資料旁邊」。更實際的代價是**鎖**：
 `publish` 得握住整個註冊表的鎖去對每個觀看者發送，於是一個熱門市場的每一次更新，
-都會擋住另一個人打開另一張圖。現在 `symbolFollow` 有自己的鎖，兩件事互不相干。
+都會擋住另一個人打開另一張圖。現在 `kCandleFollowSymbol` 有自己的鎖，兩件事互不相干。
 service 因此從 389 行降到 280 行左右，只剩註冊表與對來源的那一趟往返。
 
 **未採納，記為債：**
