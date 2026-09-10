@@ -1,11 +1,11 @@
-package controller_test
+package middlewares_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/CodeMachine0121/go-trading/internal/controller"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
@@ -79,7 +79,7 @@ func TestCorsMiddlewareAnswersThePreflightWithoutReachingARoute(t *testing.T) {
 func corsEngine(allowedOrigins []string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.Use(controller.NewCorsMiddleware(allowedOrigins).Handle)
+	engine.Use(middlewares.NewCorsMiddleware(allowedOrigins).Handle)
 	engine.GET("/health", func(context *gin.Context) {
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})
 	})

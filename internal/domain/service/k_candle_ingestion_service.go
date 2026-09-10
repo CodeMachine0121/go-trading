@@ -39,7 +39,7 @@ type KCandleIngestionService struct {
 	marketCatalogDomain     domains.MarketCatalogDomain
 	roundCandleCount        int
 	backfillLookback        time.Duration
-	marketClosureLedger     *marketClosureLedger
+	marketClosureLedger     *kCandleIngestionMarketClosureLedger
 }
 
 func NewKCandleIngestionService(
@@ -59,7 +59,7 @@ func NewKCandleIngestionService(
 		marketCatalogDomain:     marketCatalogDomain,
 		roundCandleCount:        roundCandleCount,
 		backfillLookback:        backfillLookback,
-		marketClosureLedger:     newMarketClosureLedger(),
+		marketClosureLedger:     newKCandleIngestionMarketClosureLedger(),
 	}
 }
 

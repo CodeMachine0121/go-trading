@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -31,7 +32,7 @@ import (
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
 ) (*application.KCandleFollowApplication, *application.KCandleIngestionApplication) {
-	engine.Use(controller.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
+	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
 	engine.GET("/health", func(context *gin.Context) {
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})

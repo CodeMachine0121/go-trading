@@ -6,7 +6,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// followChannel is one live channel being kept open, and the trading symbols
+// kCandleFollowChannel is one live channel being kept open, and the trading symbols
 // travelling on it.
 //
 // It exists because a channel is what actually breaks and comes back. The symbols on
@@ -25,22 +25,22 @@ import (
 // changes, leave it alone when it does not" a fact about identity rather than a
 // comparison somebody has to write: a different set is a different key, and a key
 // that is still there was never asked to change.
-type followChannel struct {
+type kCandleFollowChannel struct {
 	channel vo.LiveFollowChannelVo
 	// follows are the per-symbol viewer registries this channel feeds, held so that a
 	// candle arriving can be handed to the right one and an outage can be told to
 	// every one of them.
-	follows  map[string]*symbolFollow
+	follows  map[string]*kCandleFollowSymbol
 	cancel   context.CancelFunc
 	finished chan struct{}
 }
 
-func newFollowChannel(
+func newKCandleFollowChannel(
 	channel vo.LiveFollowChannelVo,
-	follows map[string]*symbolFollow,
+	follows map[string]*kCandleFollowSymbol,
 	cancel context.CancelFunc,
-) *followChannel {
-	return &followChannel{
+) *kCandleFollowChannel {
+	return &kCandleFollowChannel{
 		channel:  channel,
 		follows:  follows,
 		cancel:   cancel,
@@ -51,7 +51,9 @@ func newFollowChannel(
 // followOf is the viewer registry of one symbol on this channel, and whether this
 // channel carries it at all. A source restating something nobody subscribed to
 // belongs to nobody here.
-func (followChannel *followChannel) followOf(symbol string) (*symbolFollow, bool) {
+func (followChannel *kCandleFollowChannel) followOf(
+	symbol string,
+) (*kCandleFollowSymbol, bool) {
 	follow, isCarried := followChannel.follows[symbol]
 
 	return follow, isCarried
@@ -60,7 +62,7 @@ func (followChannel *followChannel) followOf(symbol string) (*symbolFollow, bool
 // isRostered reports a channel the system keeps up because a market's places were
 // handed to its symbols, rather than because somebody is watching. Only those are
 // the roster's to retire.
-func (followChannel *followChannel) isRostered() bool {
+func (followChannel *kCandleFollowChannel) isRostered() bool {
 	for _, follow := range followChannel.follows {
 		if follow.isOnARoster {
 			return true
@@ -77,7 +79,9 @@ func (followChannel *followChannel) isRostered() bool {
 // back, and a symbol whose place has gone is owed the truer reason instead; hearing
 // the promise first and the truth a moment later is two answers to one question.
 // A caller with nobody to leave out passes nothing.
-func (followChannel *followChannel) publishStalled(retiredSymbols map[string]bool) {
+func (followChannel *kCandleFollowChannel) publishStalled(
+	retiredSymbols map[string]bool,
+) {
 	for symbol, follow := range followChannel.follows {
 		if retiredSymbols[symbol] {
 			continue
@@ -94,7 +98,7 @@ func (followChannel *followChannel) publishStalled(retiredSymbols map[string]boo
 // finished with is a separate question with a separate answer — a line replaced
 // because the roster changed carries symbols that are still very much being followed
 // — and it is answered by whoever asked for the line to end.
-func (followChannel *followChannel) end() {
+func (followChannel *kCandleFollowChannel) end() {
 	followChannel.cancel()
 	<-followChannel.finished
 }

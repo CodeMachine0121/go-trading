@@ -58,8 +58,8 @@
 | AC-05.2 | 收盤後台股跳過、不留失敗紀錄，加密貨幣照常 | 不向台股來源取數；該標的無失敗原因；另一市場照常 | `market_domain.go:65`（`ClampToTradingSession` 收成空）＋`k_candle_ingestion_service.go:173` | `TestARoundSkipsAMarketThatCouldHoldNothing/the evening`、`TestAClosedMarketDoesNotStopAnotherOneBeingFetched` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-05.3 | 週末台股全部跳過 | 同上 | 同上（`tradesOn` 週一至週五） | `TestARoundSkipsAMarketThatCouldHoldNothing/sunday`、`TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles/a sunday round covers nothing` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-05.4 | 剛收盤那一輪存入最後一根 13:25 | 13:25 那一根被取到並存入 | `market_domain.go:65`（收窄成 `[13:05, 13:25]`，窗仍與時段重疊） | `TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles/the round just after the close still reaches the day's last candle`（domain 層直接斷言 13:25）；服務層 `TestARoundSkipsAMarketThatCouldHoldNothing/just after the close` 只斷言「有去問、沒失敗」 | asserts-oracle（domain 層） | produces-oracle | ✅ conforms |
-| AC-05.5 | 休市日由行情來源的回覆推定，當日剩餘輪次跳過 | 第一輪照問；來源正常回覆卻零根即當日不再問 | `k_candle_ingestion_service.go:251`（`presumeClosedMarkets`）＋`market_closure_ledger.go:33` | `TestAMarketThatAnswersWithNothingIsPresumedShutForItsOwnDay`（來源只准被問一次） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-05.6 | 隔日重新判定休市 | 隔天照常向來源取數 | `market_domain.go:106`（`TradingDateOf` 以市場本地日為界）＋`market_closure_ledger.go:44` | `TestAMarketPresumedShutIsAskedAgainTheFollowingDay` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-05.5 | 休市日由行情來源的回覆推定，當日剩餘輪次跳過 | 第一輪照問；來源正常回覆卻零根即當日不再問 | `k_candle_ingestion_service.go:251`（`presumeClosedMarkets`）＋`k_candle_ingestion_market_closure_ledger.go:presumeClosed` | `TestAMarketThatAnswersWithNothingIsPresumedShutForItsOwnDay`（來源只准被問一次） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-05.6 | 隔日重新判定休市 | 隔天照常向來源取數 | `market_domain.go:106`（`TradingDateOf` 以市場本地日為界）＋`k_candle_ingestion_market_closure_ledger.go:isPresumedClosed` | `TestAMarketPresumedShutIsAskedAgainTheFollowingDay` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-05.7 | 交易時段內來源不可用才算失敗，且不推定休市 | 留下失敗紀錄；下一輪照常重試 | `k_candle_ingestion_service.go:173`（取數失敗即 `FetchFailureReason`，`WasAsked` 維持假） | `TestASourceThatWillNotAnswerIsNeverReadAsAHoliday`（兩輪都問到、兩輪都有失敗原因） | asserts-oracle | produces-oracle | ✅ conforms |
 
 ## 6. Clauses — US-06 台股固定跟最早登錄的那幾檔
@@ -67,7 +67,7 @@
 | ID | 條款 | Oracle | 實作位置 | 測試 | 測試稽核 | 程式碼稽核 | 狀態 |
 |---|---|---|---|---|---|---|---|
 | AC-06.1 | 清單上的台股多於名額時只跟最前面那幾檔 | 跟盤份數等於上限；跟的是最早登錄的那幾檔 | `live_follow_roster_domain.go:36`＋`k_candle_follow_service.go:211` | `TestALimitedMarketFollowsItsEarliestRegisteredSymbolsAndNoMore`（份數＋實際開了哪幾條 feed 都驗） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-06.2 | 沒有人在看也照跟 | 沒有任何觀看者時份數仍大於零 | `symbol_follow.go:31`（`isOnARoster` 讓它不因最後一個觀看者離開而結束） | `TestALimitedMarketIsFollowedWithNobodyWatching`、`TestAFollowHeldUpByARosterOutlivesItsLastViewer`（用 `Never` 斷言不會掉） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-06.2 | 沒有人在看也照跟 | 沒有任何觀看者時份數仍大於零 | `k_candle_follow_symbol.go:isOnARoster`（讓它不因最後一個觀看者離開而結束） | `TestALimitedMarketIsFollowedWithNobodyWatching`、`TestAFollowHeldUpByARosterOutlivesItsLastViewer`（用 `Never` 斷言不會掉） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-06.3 | 台股不足名額時不去湊滿 | 有幾檔跟幾檔 | `live_follow_roster_domain.go:36` | `TestALimitedMarketFollowsFewerThanItsPlacesWhenThatIsAllThereIs` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-06.4 | 名額之內的觀看者立刻收到即時更新 | 加入既有那一份跟盤，份數不增加 | `k_candle_follow_service.go:86`（查有即 `join`） | `TestAViewerOfASymbolWithAPlaceJoinsTheFollowAlreadyRunning` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-06.5 | 名額之外的觀看者被告知沒有即時更新，仍查得到已存入的 K 線 | 收到「沒有即時更新」這一種訊息；且不佔用名額 | `k_candle_follow_service.go:240`（`unavailableUpdates`） | `TestAViewerOfASymbolWithNoPlaceIsToldSoRatherThanShownAFrozenPicture`（狀態＋份數未增） | asserts-oracle | produces-oracle | ✅ conforms |

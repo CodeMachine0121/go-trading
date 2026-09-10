@@ -39,7 +39,7 @@ Oracle: Acceptance Criteria（20 條）＋ Core Business Rules（12 條）＋ No
 
 | ID | Clause | Spec-expected (oracle) | Impl | Test | Test audit | Code audit | Status |
 |----|--------|------------------------|------|------|------------|------------|--------|
-| AC-12 | 一條通道斷掉，上面每一檔的觀看者都被告知 | 甲、乙、丙的觀看者都被告知即時更新已停止 | `k_candle_follow_service.go:436` → `follow_channel.go:publishStalled` | `k_candle_follow_service_test.go:1424 TestAChannelEndingTellsEverySymbolOnIt` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-12 | 一條通道斷掉，上面每一檔的觀看者都被告知 | 甲、乙、丙的觀看者都被告知即時更新已停止 | `k_candle_follow_service.go:436` → `k_candle_follow_channel.go:publishStalled` | `k_candle_follow_service_test.go:1424 TestAChannelEndingTellsEverySymbolOnIt` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-13 | 重新跟上時整份名單一起回來 | 開一條新通道，三檔全部掛在上面 | `k_candle_follow_service.go:run`（以同一個 `LiveFollowChannelVo` 重開） | `k_candle_follow_service_test.go:1444 TestAChannelThatComesBackCarriesTheWholeRosterAgain` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-14 | 連得上但不送資料，重試間隔照樣拉長 | 間隔逐次拉長到三十秒，不停在最短 | `live_channel_health_domain.go:MarkConnected`（不重設間隔） | `live_channel_health_domain_test.go:TestConnectingWithoutDeliveringNeverShortensTheRetryGap` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-15 | 真的收到資料才算恢復 | 下一次的重試間隔回到最短 | `live_channel_health_domain.go:MarkReceived`；`k_candle_follow_service.go:479` | `live_channel_health_domain_test.go:TestReceivingSomethingAgainPutsTheRetryGapBackToItsShortest` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -65,11 +65,11 @@ Oracle: Acceptance Criteria（20 條）＋ Core Business Rules（12 條）＋ No
 | BR-05 | 名單挑選規則完全不變 | 登錄最早的那幾檔，至多上限，非交易時段為空 | `live_follow_roster_domain.go:NewLiveFollowRosterDomain`（未改動） | `k_candle_follow_service_test.go:TestALimitedMarketFollowsItsEarliestRegisteredSymbolsAndNoMore` 等既有四支 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-06 | 名單整份掛上同一條通道，有幾檔跟幾檔 | 同 AC-05／AC-06 | `live_follow_roster_domain.go:118` | 同 AC-05／AC-06 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-07 | 同一條通道上每一檔各自收到自己的資料 | 同 AC-09～AC-11 | `k_candle_follow_service.go:483`；`fugle_live_market_data_proxy.go:161` | 同 AC-09～AC-11 | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-08 | 通道斷掉時每一檔都被告知，並重新跟上整條 | 同 AC-12／AC-13 | `follow_channel.go:publishStalled`；`k_candle_follow_service.go:run` | 同 AC-12／AC-13 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-08 | 通道斷掉時每一檔都被告知，並重新跟上整條 | 同 AC-12／AC-13 | `k_candle_follow_channel.go:publishStalled`；`k_candle_follow_service.go:run` | 同 AC-12／AC-13 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-09 | 重試間隔以通道為單位；只有收到資料才回到最短 | 同 AC-14／AC-15 | `live_channel_health_domain.go` | `live_channel_health_domain_test.go` 全套 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-10 | 名單改變時先結束舊的再開新的；沒變則不動 | 同 AC-16～AC-18 | `k_candle_follow_service.go:RefreshFixedFollows`（退場在前、啟動在後） | `k_candle_follow_service_test.go:1056 TestChannelsAreGivenUpBeforeNewOnesAreTaken`（高水位為一） | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-11 | 重建期間的空窗由每分鐘一輪的自動抓取補上 | 同 AC-20 | `k_candle_ingestion_job.go`（既有） | 同 AC-20 | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-12 | 觀看者看到的內容不變 | 進行中／走完／已停止的形狀與時機不變；名額外的一樣被告知沒有即時更新 | `dto.KCandleFollowUpdateDto`（未改動）；`symbol_follow.go` 的 publish 家族（未改動） | `k_candle_follow_service_test.go` 既有的觀看者相關測試全數未改斷言而通過 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-12 | 觀看者看到的內容不變 | 進行中／走完／已停止的形狀與時機不變；名額外的一樣被告知沒有即時更新 | `dto.KCandleFollowUpdateDto`（未改動）；`k_candle_follow_symbol.go` 的 publish 家族（未改動） | `k_candle_follow_service_test.go` 既有的觀看者相關測試全數未改斷言而通過 | asserts-oracle | produces-oracle | ✅ conforms |
 
 ### Non-Functional
 
