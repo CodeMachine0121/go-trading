@@ -125,6 +125,12 @@ func (strategyRepository *StrategyRepository) Update(
 // back without them looks like a strategy that has none.
 const strategyParametersAssociation = "Parameters"
 
+// strategyPublicationAssociation is how GORM is asked whether a strategy is on the
+// marketplace. It is read alongside an owner's own strategies because that is the
+// only place the answer is used — it decides whether the button in front of them
+// publishes or withdraws — and asking per strategy would be one query each.
+const strategyPublicationAssociation = "Publication"
+
 // The three associations a marketplace row is read with. A publication on its own
 // is an identifier and a moment; what a reader wants is the strategy behind it, the
 // knobs it declares and who published it.
@@ -206,6 +212,7 @@ func (strategyRepository *StrategyRepository) FindOne(executionContext context.C
 
 	result := strategyRepository.database.WithContext(executionContext).
 		Preload(strategyParametersAssociation).
+		Preload(strategyPublicationAssociation).
 		First(&strategy, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Strategy{}, domains.StrategyNotFound(id)
@@ -225,6 +232,7 @@ func (strategyRepository *StrategyRepository) FindAllOwnedBy(
 
 	result := strategyRepository.database.WithContext(executionContext).
 		Preload(strategyParametersAssociation).
+		Preload(strategyPublicationAssociation).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "name"}}).
 		Find(&strategies)

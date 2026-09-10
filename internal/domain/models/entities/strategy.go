@@ -67,9 +67,13 @@ func (strategy Strategy) ToDto() dto.StrategyDto {
 		Description: strategy.Description,
 		Script:      strategy.Script,
 		ResultType:  strategy.ResultType,
-		CreatedAt:   strategy.CreatedAt.UTC(),
-		UpdatedAt:   strategy.UpdatedAt.UTC(),
-		Parameters:  strategy.parameterDtos(),
+		// A publication read back with the strategy is what says it is out there.
+		// Asking the marketplace separately would be one more query per strategy,
+		// and the association is already declared right here.
+		Published:  strategy.Publication != nil,
+		CreatedAt:  strategy.CreatedAt.UTC(),
+		UpdatedAt:  strategy.UpdatedAt.UTC(),
+		Parameters: strategy.parameterDtos(),
 	}
 }
 

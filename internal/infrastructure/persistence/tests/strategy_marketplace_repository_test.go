@@ -420,3 +420,24 @@ func TestRewritingAPublishedStrategyLeavesItPublishedAndAdopted(t *testing.T) {
 	require.Len(t, onTheShelf, 1, "它仍然在市集上")
 	assert.Equal(t, "改過的說明", onTheShelf[0].ToDto().Description)
 }
+
+func TestAnOwnersOwnStrategiesSayWhetherTheyAreOnTheMarketplace(t *testing.T) {
+	// It is what decides whether the button in front of the owner publishes or
+	// withdraws, so getting it wrong shows them the opposite of what they can do.
+	database := newStrategyTestDatabase(t)
+	strategyRepository := persistence.NewStrategyRepository(database)
+	published := aPublishedStrategy(t, database)
+	kept, saveError := strategyRepository.Save(t.Context(), strategyNamed("沒發佈的"))
+	require.NoError(t, saveError)
+
+	strategies, findError := strategyRepository.FindAllOwnedBy(t.Context(), strategyRowOwnerID)
+
+	require.NoError(t, findError)
+	require.Len(t, strategies, 2)
+	byIdentifier := map[uint]bool{}
+	for _, strategy := range strategies {
+		byIdentifier[strategy.ID] = strategy.ToDto().Published
+	}
+	assert.True(t, byIdentifier[published])
+	assert.False(t, byIdentifier[kept.ID])
+}
