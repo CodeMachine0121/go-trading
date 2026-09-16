@@ -99,7 +99,7 @@ func aDueBot(lastSentSignal string) entities.StrategyBot {
 		RunState:               string(vo.StrategyBotRunning),
 		LastSentSignal:         lastSentSignal,
 		SignalSources: []entities.StrategyBotSignalSource{
-			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyID: 9, AggregationInterval: "5m"},
+			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyID: 9, AggregationInterval: "1h"},
 			{ID: 21, StrategyBotID: strategyBotID, Label: "B", StrategyID: 10, AggregationInterval: "5m"},
 		},
 		ConditionNodes: []entities.StrategyBotConditionNode{
@@ -705,4 +705,55 @@ func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
 	require.NoError(t, runError)
+}
+
+func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+
+	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
+			return entities.Strategy{
+				ID: id, OwnerID: strategyBotOwnerID,
+				Script: scriptOfStrategy(id), ResultType: "signal",
+			}, nil
+		}).AnyTimes()
+	underTest.indicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(map[string]vo.IndicatorValueVo{
+			vo.SignalIndicatorKey: {Signal: vo.SignalHold},
+		}, nil).AnyTimes()
+
+	// Each source stops at the start of the interval it is still inside: the hourly
+	// one at the top of this hour, the five-minute one at 09:15. Two sources sharing
+	// one coarseness could not tell an hourly average for direction from a
+	// five-minute oscillator for timing, which is the whole reason coarseness lives
+	// on the source and not on the bot.
+	cutoffs := make(chan time.Time, 8)
+	underTest.kCandleRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, cutoffTime time.Time, _ int,
+		) ([]entities.KCandle, error) {
+			cutoffs <- cutoffTime
+
+			return []entities.KCandle{kCandleAt(at(9, 10), "100")}, nil
+		}).AnyTimes()
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil)
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+	require.NoError(t, runError)
+
+	close(cutoffs)
+	readCutoffs := map[time.Time]bool{}
+	for cutoff := range cutoffs {
+		readCutoffs[cutoff.UTC()] = true
+	}
+
+	assert.True(t, readCutoffs[at(9, 0)], "the hourly source should stop at the top of the hour")
+	assert.True(t, readCutoffs[at(9, 15)], "the five-minute source should stop at 09:15")
 }

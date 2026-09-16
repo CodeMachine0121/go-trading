@@ -2,6 +2,7 @@ package entities_test
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -67,10 +68,17 @@ func TestStrategyBotToDtoCarriesWhatTheListIsReadFor(t *testing.T) {
 		LastSentSignal:         string(vo.SignalBuy),
 		HaltReason:             string(vo.StrategyBotHaltScriptFailed),
 		Conflicting:            true,
+		CreatedAt:              time.Date(2026, 9, 16, 8, 0, 0, 0, time.FixedZone("CST", 8*3600)),
+		UpdatedAt:              time.Date(2026, 9, 16, 9, 0, 0, 0, time.FixedZone("CST", 8*3600)),
 		ConditionNodes:         aStoredTree(),
 	}
 
 	botDto := strategyBot.ToDto()
+
+	// Both times are handed out in universal time whatever zone they were read back
+	// in, so two people in two places read the same moment.
+	assert.Equal(t, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC), botDto.CreatedAt)
+	assert.Equal(t, time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC), botDto.UpdatedAt)
 
 	// A list of bots is read to answer one question — which of these needs looking
 	// at — so every part of that answer travels with the bot.
