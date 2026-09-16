@@ -37,10 +37,24 @@ func NewTradingSymbolDomain(symbol string) (TradingSymbolDomain, error) {
 		return TradingSymbolDomain{}, errors.New("交易標的不得包含空字元（NUL）")
 	}
 
-	return TradingSymbolDomain{value: symbol}, nil
+	// Upper case, because a symbol is a name rather than text: btcusdt and BTCUSDT
+	// are the same instrument everywhere except in a comparison, and every store
+	// this system asks is case-sensitive. Normalising at the one place that both
+	// reads and writes pass through is what makes a write and a later read agree —
+	// anywhere further out, the two sides can be normalised differently, which is
+	// the only way this class of bug survives at all.
+	//
+	// It is not a refusal, and deliberately so. Lower case is not a mistake anybody
+	// can see: it looks exactly like the symbol it means, so a refusal would be the
+	// system insisting on a distinction that nothing downstream honours.
+	//
+	// Symbols that carry no case — a Taiwanese listing's digits, 0050 and 2330 —
+	// pass through unchanged, so this costs those venues nothing.
+	return TradingSymbolDomain{value: strings.ToUpper(symbol)}, nil
 }
 
-// Value is the symbol as it is stored and queried.
+// Value is the symbol as it is stored and queried, already normalised — so a caller
+// never has to remember to do it, and no caller can do it differently.
 func (tradingSymbolDomain TradingSymbolDomain) Value() string {
 	return tradingSymbolDomain.value
 }

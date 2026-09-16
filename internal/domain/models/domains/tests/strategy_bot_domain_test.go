@@ -239,3 +239,33 @@ func TestNewStrategyBotDomainLetsOneStrategyBeTwoSources(t *testing.T) {
 	assert.Equal(t, 20.0, signalSources[0].ParameterValues[0].Value)
 	assert.Equal(t, 60.0, signalSources[1].ParameterValues[0].Value)
 }
+
+// A bot's symbol is what its rounds later query with. Lower case is not a mistake
+// anybody can see — it reads as the instrument it means — so it is normalised rather
+// than refused, and normalised here so that what was written and what is later read
+// cannot disagree.
+func TestNewStrategyBotDomainStoresTheSymbolInOneCase(t *testing.T) {
+	testCases := []struct {
+		name           string
+		writtenSymbol  string
+		expectedSymbol string
+	}{
+		{name: "已經是大寫的原樣存起來", writtenSymbol: "BTCUSDT", expectedSymbol: "BTCUSDT"},
+		{name: "小寫的存成大寫", writtenSymbol: "btcusdt", expectedSymbol: "BTCUSDT"},
+		{name: "大小寫混著的也存成大寫", writtenSymbol: "BtcUsdt", expectedSymbol: "BTCUSDT"},
+		{name: "前後的空白照樣去掉", writtenSymbol: "  ethusdt  ", expectedSymbol: "ETHUSDT"},
+		{name: "沒有大小寫之分的台股代號原樣存起來", writtenSymbol: "0050", expectedSymbol: "0050"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aBotWriteDto()
+			writeDto.Symbol = testCase.writtenSymbol
+
+			strategyBot, buildError := domains.NewStrategyBotDomain(writeDto)
+			require.NoError(t, buildError)
+
+			assert.Equal(t, testCase.expectedSymbol, strategyBot.ToEntity().Symbol)
+		})
+	}
+}

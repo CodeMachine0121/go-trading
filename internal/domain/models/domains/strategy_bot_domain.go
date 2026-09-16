@@ -77,8 +77,14 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 機器人名稱長度上限為 %d 個字", ErrStrategyBotValidation, strategyBotNameMaxLength)
 	}
 
-	symbol := strings.TrimSpace(writeDto.Symbol)
-	if symbol == "" {
+	// Asked of the model every other path already asks, rather than trimmed here.
+	// What a bot stores is what its rounds later query with, so a symbol accepted
+	// under one set of rules and queried under another finds no candles at all —
+	// and a round that finds no candles is recorded as a hold, which reads exactly
+	// like a round that concluded hold. The mistake is therefore invisible in the
+	// history, which is why it is worth having only one rule about it.
+	tradingSymbol, symbolError := NewTradingSymbolDomain(strings.TrimSpace(writeDto.Symbol))
+	if symbolError != nil {
 		return StrategyBotDomain{}, fmt.Errorf(
 			"%w: 必須指定這台機器人要盯哪一個交易標的", ErrStrategyBotValidation)
 	}
@@ -118,7 +124,7 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		id:                     writeDto.ID,
 		ownerID:                writeDto.OwnerID,
 		name:                   name,
-		symbol:                 symbol,
+		symbol:                 tradingSymbol.Value(),
 		triggerIntervalMinutes: writeDto.TriggerIntervalMinutes,
 		signalSources:          signalSources,
 		buyCondition:           buyCondition,
