@@ -267,3 +267,37 @@ func TestRunningAnAlgorithmNobodySavedNeverTouchesTheStrategyStore(t *testing.T)
 
 	require.NoError(t, err)
 }
+
+func TestStrategyApplicationDoesNotAskTheMarketplaceAboutTheCallersOwnStrategy(t *testing.T) {
+	// 「跑得動」是「我的，或已發佈」——自己的那一支先短路，所以市集答什麼都
+	// 改變不了結果。問它是一次買不到東西的查詢。
+	//
+	// 它值得一個測試，是因為那個浪費會累積：一台常駐機器人每一輪都要解析它的
+	// 每一個信號來源，而那幾乎一律是擁有者自己的策略——一輪一個來源一次白問，
+	// 永遠。
+	fixture := newStrategyApplicationUnderTest(t)
+	fixture.strategyRepository.EXPECT().
+		FindOne(gomock.Any(), uint(7)).Return(aStoredStrategy(7, "我的"), nil)
+	fixture.publishedStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), gomock.Any()).Times(0)
+
+	_, runError := fixture.strategyApplication.ResolveRunnableStrategy(
+		t.Context(), strategyOwnerID, 7)
+
+	require.NoError(t, runError)
+}
+
+func TestStrategyApplicationStillAsksTheMarketplaceAboutSomebodyElsesStrategy(t *testing.T) {
+	// 別人的那一支就非問不可：第二道關卡沒開，第三道才是答案。
+	fixture := newStrategyApplicationUnderTest(t)
+	fixture.strategyRepository.EXPECT().
+		FindOne(gomock.Any(), uint(7)).Return(aStrangersStrategy(7), nil)
+	fixture.publishedStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), uint(7)).
+		Return(entities.PublishedStrategy{StrategyID: 7}, nil)
+
+	_, runError := fixture.strategyApplication.ResolveRunnableStrategy(
+		t.Context(), strategyOwnerID, 7)
+
+	require.NoError(t, runError)
+}

@@ -235,6 +235,21 @@
     {
       "key": "overlongTestMessage",
       "value": ""
+    },
+    {
+      "key": "botStrategyId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "strategyBotId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "strategyBotName",
+      "value": "",
+      "type": "string"
     }
   ],
   "event": [
@@ -8463,6 +8478,984 @@
                   "pm.test(\"回應 422\", function () {",
                   "    pm.response.to.have.status(422);",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "策略機器人",
+      "item": [
+        {
+          "name": "先存一支會吐信號的策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies"
+              ]
+            },
+            "description": "機器人只認得信號種類的策略。這一支帶一個旋鈕，好讓同一支算式當成兩個來源。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"機器人用的信號算式 {{$timestamp}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo, params map[string]float64) vo.SignalVo {\\n\\treturn vo.SignalHold\\n}\",\n  \"resultType\": \"signal\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 3\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"botStrategyId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "組起一台機器人",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人是幾支策略的信號，加上把它們合成一個結論的兩個條件。存起來一律是已停止——存下來不會讓它跑起來。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"存回來的就是組起來的那一台，而且是停著的\", function () {",
+                  "    const saved = pm.response.json();",
+                  "    pm.expect(saved.runState).to.eql(\"stopped\");",
+                  "    pm.expect(saved.signalSources).to.have.lengthOf(2);",
+                  "    pm.expect(saved.buyCondition.operator).to.eql(\"and\");",
+                  "    pm.expect(saved.buyCondition.conditions).to.have.lengthOf(2);",
+                  "    pm.expect(saved.sellCondition.sourceLabel).to.eql(\"A\");",
+                  "    pm.expect(saved.id).to.be.above(0);",
+                  "    pm.collectionVariables.set(\"strategyBotId\", saved.id);",
+                  "    pm.collectionVariables.set(\"strategyBotName\", saved.name);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀回來：巢狀的條件原樣回來",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}"
+              ]
+            },
+            "description": "條件是巢狀交出去的，不是一串節點——攤平了就等於要畫面自己組樹。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"兩棵條件樹與兩個來源都回來了，而且沒有算式\", function () {",
+                  "    const found = pm.response.json();",
+                  "    pm.expect(found.buyCondition.conditions[0].sourceLabel).to.eql(\"A\");",
+                  "    pm.expect(found.buyCondition.conditions[1].sourceLabel).to.eql(\"B\");",
+                  "    pm.expect(found.signalSources[0].aggregationInterval).to.eql(\"1h\");",
+                  "    pm.expect(found.signalSources[1].aggregationInterval).to.eql(\"5m\");",
+                  "    pm.expect(found.signalSources[0]).to.not.have.property(\"script\");",
+                  "    pm.expect(found).to.not.have.property(\"ownerId\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "我的機器人清單",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "清單是拿來回答「哪一台該管一下」的，所以執行狀態、上次訊號、停擺原因、有沒有打架都跟著回來。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"剛組的那一台在裡面，四個狀態欄位都在\", function () {",
+                  "    const listed = pm.response.json();",
+                  "    const mine = listed.find(b => b.id === Number(pm.collectionVariables.get(\"strategyBotId\")));",
+                  "    pm.expect(mine).to.not.be.undefined;",
+                  "    pm.expect(mine.runState).to.eql(\"stopped\");",
+                  "    pm.expect(mine).to.have.property(\"conflicting\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：條件指到一個沒宣告的來源",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "條件只能指名這台機器人自己宣告過的代號。放行的話它會安靜地永遠不成立。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"指錯代號 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"D\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出是哪一個代號對不上\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"沒有宣告的信號來源\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：兩個來源用同一個代號",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "兩個來源都叫 A，條件裡的 A 就有兩個意思。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"代號撞名 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出代號不得重複\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"重複了\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：條件群組只裝一個子條件",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一個子條件的群組跟那個子條件完全一樣，留著只會讓同一棵樹有無限多種寫法。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"空群組 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"or\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出群組的下限\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"至少要 2 個子條件\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：買入條件留白",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "少了任何一邊，這台機器人就只會說一種話。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"只有一邊 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {},\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出是哪一邊沒填\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"買入條件\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：觸發間隔超過一天",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "下限一分鐘（最細的 K 線就是一分鐘），上限一天。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"太久了 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 1441,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出上限是多少\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"1440\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：給了策略沒宣告的參數",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "現在擋掉，總比半夜三點以算式失敗的樣子停掉一台機器人好。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"旋鈕對不上 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"週期\",\n          \"value\": 14\n        }\n      ]\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出是哪一個參數名稱\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"沒有宣告這個名字\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：名稱已經有人用了",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "名稱只在同一位擁有者之間不得重複；別人的同名不算。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"說得出這個名字被佔走了\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"已被使用\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "按下播放",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "power"
+              ]
+            },
+            "description": "啟動就是立刻跑第一輪——等一個間隔的話，設六十分鐘的機器人按下去之後一小時毫無反應。要先設定好 Telegram。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200 或 400（沒設定 Telegram 就啟動不了）\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "});",
+                  "pm.test(\"啟動成功就是執行中，而且上次訊號被清空\", function () {",
+                  "    if (pm.response.code !== 200) { return; }",
+                  "    const started = pm.response.json();",
+                  "    pm.expect(started.runState).to.eql(\"running\");",
+                  "    pm.expect(started.lastSentSignal || \"\").to.eql(\"\");",
+                  "    pm.expect(started.haltReason || \"\").to.eql(\"\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再按一次播放，不算失敗",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "power"
+              ]
+            },
+            "description": "重複按沒有第二個效果，也不會把它已經送過的訊號清掉害它重送一次。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200 或 400\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "執行中改不動",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}"
+              ]
+            },
+            "description": "一台正在跑的機器人在半途換掉條件，沒有人說得出它那一輪用的是哪一版。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"執行中回 409，已停止則回 200\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
+                  "});",
+                  "pm.test(\"被擋下來時說得出要先停止\", function () {",
+                  "    if (pm.response.code !== 409) { return; }",
+                  "    pm.expect(pm.response.json().message).to.include(\"要先停止\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "按下停止",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "power"
+              ]
+            },
+            "description": "停止之後不再被排到；進行中的那一輪跑完為止。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"變成已停止\", function () {",
+                  "    pm.expect(pm.response.json().runState).to.eql(\"stopped\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再按一次停止，不算失敗",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "power"
+              ]
+            },
+            "description": "他要的狀態已經達成了，說他失敗只會讓他再按一次。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"仍然是已停止\", function () {",
+                  "    pm.expect(pm.response.json().runState).to.eql(\"stopped\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "停下來就改得動了",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}"
+              ]
+            },
+            "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"改到了，而且識別碼沒換\", function () {",
+                  "    const updated = pm.response.json();",
+                  "    pm.expect(updated.id).to.eql(Number(pm.collectionVariables.get(\"strategyBotId\")));",
+                  "    pm.expect(updated.triggerIntervalMinutes).to.eql(15);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀一台從未存在過的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/99999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "99999999"
+              ]
+            },
+            "description": "不存在的與別人的共用同一句「找不到」——分開講等於讓任何人逐一試探識別碼就問得出系統裡有哪些機器人。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：識別碼不是正整數",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "0"
+              ]
+            },
+            "description": "零不是任何一台機器人的識別碼，而它正是再往裡面走時「還不存在的那一台」的意思。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "立即跑一輪",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "runs"
+              ]
+            },
+            "description": "不等排程，現在就跑一輪。它走的是排程那一輪完全同一條路——不然按下去看到的，就不代表它自己跑會做的事。已停止的也跑得動：派它出去之前先試一次，是最普通的做法。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"跑一輪不會把它打開——那是電源鍵的事\", function () {",
+                  "    pm.expect(pm.response.json().runState).to.eql(\"stopped\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀它的執行紀錄",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "runs"
+              ]
+            },
+            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"還沒跑過就是空的，不是錯誤\", function () {",
+                  "    pm.expect(pm.response.json()).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀別人機器人的執行紀錄",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/99999999/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "99999999",
+                "runs"
+              ]
+            },
+            "description": "歷史與機器人本身同一條規則：看不到就是找不到。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪掉它",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}"
+              ]
+            },
+            "description": "執行中的也刪得掉，不要求先按停止：他要的結果是這台不在了，而不在了的東西不會再跑。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪掉之後就找不到了",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}"
+              ]
+            },
+            "description": "來源與條件也跟著一起消失。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉這一段用的策略",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategies/{{botStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategies",
+                "{{botStrategyId}}"
+              ]
+            },
+            "description": "收尾。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
                 ]
               }
             }

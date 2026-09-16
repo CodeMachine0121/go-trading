@@ -32,7 +32,11 @@ import (
 // and the routes each built their own.
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
-) (*application.KCandleFollowApplication, *application.KCandleIngestionApplication) {
+) (
+	*application.KCandleFollowApplication,
+	*application.KCandleIngestionApplication,
+	*application.StrategyBotRunApplication,
+) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
 	engine.GET("/health", func(context *gin.Context) {
@@ -74,15 +78,18 @@ func registerRoutes(
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
 
-	kCandleApplication := application.NewKCandleApplication(
-		service.NewKCandleService(
-			kCandleRepository,
-			persistence.NewTradingSymbolRepository(database),
-			clock.NewSystemClockProxy(),
-			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
-			applicationConfig.KCandleQueryMaxResults,
-		),
+	// Built once and shared, because a strategy bot quoting a reference price is
+	// asking the same question of the market as the chart is. Two instances would be
+	// two read ceilings, and the one a bot used would be the one nobody tuned.
+	kCandleService := service.NewKCandleService(
+		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.KCandleQueryMaxResults,
 	)
+
+	kCandleApplication := application.NewKCandleApplication(kCandleService)
 
 	kCandleController := controller.NewKCandleController(kCandleApplication)
 
@@ -176,16 +183,22 @@ func registerRoutes(
 	engine.POST("/marketplace/strategies/:id/adoption", requiresSignIn, strategyMarketplaceController.AdoptStrategy)
 	engine.DELETE("/marketplace/strategies/:id/adoption", requiresSignIn, strategyMarketplaceController.AbandonStrategy)
 
+	// Built once and shared, because a strategy bot asks exactly the same question
+	// of it as somebody sitting at the screen does. Two instances would be two
+	// script runners with two timeouts, and the one a bot used would be the one
+	// nobody ever tuned.
+	indicatorCalculationService := service.NewIndicatorCalculationService(
+		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
+		script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 		strategyService,
-		service.NewIndicatorCalculationService(
-			kCandleRepository,
-			persistence.NewTradingSymbolRepository(database),
-			script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
-			clock.NewSystemClockProxy(),
-			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
-			applicationConfig.KCandleQueryMaxResults,
-		),
+		indicatorCalculationService,
 	)
 
 	engine.POST("/indicator-calculations", requiresSignIn, controller.NewIndicatorCalculationController(
@@ -273,17 +286,17 @@ func registerRoutes(
 	// do rather than for who does them: locking a secret away, and delivering a
 	// message. Telegram is today's only carrier; a second one is a second
 	// implementation and one changed line here.
-	telegramDeliveryController := controller.NewTelegramDeliveryController(
-		application.NewTelegramDeliveryApplication(
-			service.NewTelegramDeliveryService(
-				persistence.NewTelegramDeliveryRepository(database),
-				security.NewAesSecretSealProxy(applicationConfig.Secrets.SealKey),
-				messaging.NewTelegramMessageDeliveryProxy(
-					applicationConfig.Telegram.ApiBaseUrl,
-					&http.Client{Timeout: applicationConfig.Telegram.RequestTimeout},
-				),
-			),
+	telegramDeliveryService := service.NewTelegramDeliveryService(
+		persistence.NewTelegramDeliveryRepository(database),
+		security.NewAesSecretSealProxy(applicationConfig.Secrets.SealKey),
+		messaging.NewTelegramMessageDeliveryProxy(
+			applicationConfig.Telegram.ApiBaseUrl,
+			&http.Client{Timeout: applicationConfig.Telegram.RequestTimeout},
 		),
+	)
+
+	telegramDeliveryController := controller.NewTelegramDeliveryController(
+		application.NewTelegramDeliveryApplication(telegramDeliveryService),
 	)
 
 	engine.GET("/users/me/telegram-delivery",
@@ -316,7 +329,63 @@ func registerRoutes(
 	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
 		kCandleFollowApplication).WatchKCandles)
 
-	return kCandleFollowApplication, kCandleIngestionApplication
+	// Standing bots: the first thing here that both decides something and says it
+	// without anybody asking. They are wired last because they lean on almost
+	// everything above — the strategy gates, the script runner, the candles and the
+	// way out to Telegram — and add only one store of their own.
+	//
+	// The run side and the managing side share one service but are two
+	// applications, because they answer to different callers. One is a person
+	// pressing a button and is refused when they may not; the other is a clock, and
+	// has no person whose permission could be asked.
+	strategyBotService := service.NewStrategyBotService(
+		persistence.NewStrategyBotRepository(database),
+		persistence.NewStrategyBotRunRecordRepository(database),
+		clock.NewSystemClockProxy(),
+	)
+
+	strategyBotRunApplication := application.NewStrategyBotRunApplication(
+		strategyBotService,
+		strategyService,
+		indicatorCalculationService,
+		telegramDeliveryService,
+		kCandleService,
+		clock.NewSystemClockProxy(),
+		application.NewStrategyBotRoundGuard(),
+		applicationConfig.StrategyBot.MaxConcurrentRounds,
+		applicationConfig.StrategyBot.RoundTimeout,
+	)
+
+	strategyBotController := controller.NewStrategyBotController(
+		application.NewStrategyBotApplication(
+			strategyBotService,
+			strategyService,
+			telegramDeliveryService,
+		),
+		strategyBotRunApplication,
+	)
+
+	engine.POST("/strategy-bots", requiresSignIn, strategyBotController.CreateStrategyBot)
+	engine.GET("/strategy-bots", requiresSignIn, strategyBotController.ListStrategyBots)
+	engine.GET("/strategy-bots/:id", requiresSignIn, strategyBotController.GetStrategyBot)
+	engine.PUT("/strategy-bots/:id", requiresSignIn, strategyBotController.UpdateStrategyBot)
+	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
+	// Being on is a subresource that either exists or does not, rather than two
+	// verbs. Pressing either button twice is then harmless because of the shape,
+	// not because something remembered to allow it.
+	//
+	// It is /power and not /run because a round is /runs, and two paths that differ
+	// by one letter while meaning completely different things is a mistake waiting
+	// to be made — by a reader, by a caller, and by whoever edits this next.
+	engine.POST("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StartStrategyBot)
+	engine.DELETE("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StopStrategyBot)
+	// 一台機器人跑過哪幾輪，是它自己的一份東西，所以掛在它底下而不是另開一條路徑。
+	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
+	// 立刻跑一輪。它與排程跑的那一輪走完全同一條路——不然「按下去看到的」
+	// 與「它自己跑出來的」就是兩件事，而那正是這顆按鈕要用來排除的東西。
+	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
+
+	return kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -354,6 +423,7 @@ func backgroundJobsFor(
 	applicationConfig config.ApplicationConfig,
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
+	strategyBotRunApplication *application.StrategyBotRunApplication,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
 		return []domaininterface.IBackgroundJob{}
@@ -368,7 +438,16 @@ func backgroundJobsFor(
 	liveFollowRosterJob := job.NewLiveFollowRosterJob(
 		kCandleFollowApplication, job.LiveFollowRosterInterval)
 
-	return []domaininterface.IBackgroundJob{kCandleIngestionJob, liveFollowRosterJob}
+	// One scan for every standing bot, rather than one goroutine per bot. What a bot
+	// is doing lives in the store, so this job asks rather than remembers — and a
+	// restart costs one scan interval instead of switching every bot off without
+	// telling anybody.
+	strategyBotScanJob := job.NewStrategyBotScanJob(
+		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
+
+	return []domaininterface.IBackgroundJob{
+		kCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
+	}
 }
 
 // marketDataProxyFor is where every market's candle source is named, and the only

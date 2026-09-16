@@ -71,3 +71,33 @@ func TestNewKCandleQueryDomainAcceptsValidQueries(t *testing.T) {
 		})
 	}
 }
+
+// The read side of the same rule the write side follows. Both go through the one
+// trading-symbol model, and this is what "what was written is what is later found"
+// rests on: a bot stored as BTCUSDT is queried as BTCUSDT however its owner typed it.
+func TestNewKCandleQueryDomainAsksInOneCase(t *testing.T) {
+	startTime := time.Date(2026, 8, 29, 9, 1, 0, 0, time.UTC)
+	endTime := time.Date(2026, 8, 29, 9, 9, 0, 0, time.UTC)
+
+	testCases := []struct {
+		name           string
+		askedSymbol    string
+		expectedSymbol string
+	}{
+		{name: "已經是大寫的原樣去問", askedSymbol: "BTCUSDT", expectedSymbol: "BTCUSDT"},
+		{name: "小寫的改成大寫去問", askedSymbol: "btcusdt", expectedSymbol: "BTCUSDT"},
+		{name: "大小寫混著的也改成大寫去問", askedSymbol: "BtcUsdt", expectedSymbol: "BTCUSDT"},
+		{name: "沒有大小寫之分的台股代號原樣去問", askedSymbol: "0050", expectedSymbol: "0050"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			queryDomain, buildError := domains.NewKCandleQueryDomain(dto.KCandleQueryDto{
+				Symbol: testCase.askedSymbol, StartTime: startTime, EndTime: endTime,
+			})
+
+			assert.NoError(t, buildError)
+			assert.Equal(t, testCase.expectedSymbol, queryDomain.Symbol())
+		})
+	}
+}
