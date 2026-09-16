@@ -9279,6 +9279,69 @@
           ]
         },
         {
+          "name": "讀它的執行紀錄",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "runs"
+              ]
+            },
+            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"還沒跑過就是空的，不是錯誤\", function () {",
+                  "    pm.expect(pm.response.json()).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：讀別人機器人的執行紀錄",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/99999999/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "99999999",
+                "runs"
+              ]
+            },
+            "description": "歷史與機器人本身同一條規則：看不到就是找不到。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "刪掉它",
           "request": {
             "method": "DELETE",
