@@ -3,6 +3,7 @@ package domains
 import (
 	"errors"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
@@ -73,6 +74,23 @@ func NewStrategyBotDeliveryFailureDomain(
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltDestinationNotFound}
 	default:
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltNone}
+	}
+}
+
+// ToOutcomeDto is this failure as the outcome it makes the round: halted with a
+// reason, or waiting for the next one.
+//
+// Handing out the outcome rather than the two halves is what stops a caller pairing
+// them wrongly — there is no way from here to produce a halt with no reason, or a
+// reason nobody halts for.
+func (strategyBotRoundFailureDomain StrategyBotRoundFailureDomain) ToOutcomeDto() dto.StrategyBotRoundOutcomeDto {
+	if !strategyBotRoundFailureDomain.HaltsTheBot() {
+		return dto.StrategyBotRoundOutcomeDto{Kind: strategyBotRoundSkipped}
+	}
+
+	return dto.StrategyBotRoundOutcomeDto{
+		Kind:       strategyBotRoundHalted,
+		HaltReason: string(strategyBotRoundFailureDomain.haltReason),
 	}
 }
 

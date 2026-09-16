@@ -355,3 +355,22 @@ entity 只能**被傳進**一個 domain 模型的建構子（既有的 `NewStrat
 一個新切片自己開一種注入方式，等於在既有紋理上多一條縫。
 `GetLatestKCandle` 加在 `KCandleService` 上也更對：那是一個關於 K 線的問題，
 而 K 線的問題本來就住在那裡。
+
+### 9.5 一輪的每一個領域判斷都回到 Domain Service
+
+設計把 `playRound` 放在 application 層，讓它自己建 `StrategyBotRoundFailureDomain`、
+`StrategyBotMessageDomain` 與三個 `RoundOutcome` 建構子。Code review 指出那違反
+`.claude/rules/architecture.md`：「**Application**：依賴 Domain，呼叫 Domain Service
+編排用例，拿回 **DTO**（全程不碰 entity / domain model）」。
+
+檢查之後確認它說得對：這個 codebase 裡另外兩個 import `domains` 的 application
+（`backtest`、`indicator_calculation`）都只是**收**一個傳進來的 `RunSubjectDomain`，
+沒有一個自己建。
+
+改法是把三件事移進 `StrategyBotService`：`ReadRoundFailure`、`ReadDeliveryFailure`、
+`WriteRoundMessage`，並讓 `RecordRound` 收一個 `StrategyBotRoundOutcomeDto` 而不是
+領域模型。`playRound` 現在只認得 DTO，`grep "domains\." internal/application/` 回零。
+
+值得注意的是**這不是純粹的形式主義**：`ReadRoundFailure` 現在是「哪些失敗沒救」
+這個問題**唯一**的答案處。原本它散在 application 的兩個分支裡，而那兩個分支
+已經開始長出不同的內容——送出失敗那一條漏掉了「投遞設定被移除」。

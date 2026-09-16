@@ -260,6 +260,34 @@ func (strategyBotService *StrategyBotService) DecideRound(
 	}, nil
 }
 
+// ReadRoundFailure says what a failure that happened during a round means: stop this
+// bot and say why, or wait for the next one.
+//
+// It is here rather than at the call site because it is a domain question, and
+// because it must have exactly one answer — a second place deciding it is a second
+// list of which failures are hopeless, and the two will disagree the day a new one
+// appears.
+func (strategyBotService *StrategyBotService) ReadRoundFailure(
+	roundError error,
+) dto.StrategyBotRoundOutcomeDto {
+	return domains.NewStrategyBotRoundFailureDomain(roundError).ToOutcomeDto()
+}
+
+// ReadDeliveryFailure says the same about a failure Telegram reported.
+func (strategyBotService *StrategyBotService) ReadDeliveryFailure(
+	failureReason string,
+) dto.StrategyBotRoundOutcomeDto {
+	return domains.NewStrategyBotDeliveryFailureDomain(
+		vo.DeliveryFailureReasonVo(failureReason)).ToOutcomeDto()
+}
+
+// WriteRoundMessage is this round as the message its owner reads.
+func (strategyBotService *StrategyBotService) WriteRoundMessage(
+	round dto.StrategyBotRoundDto,
+) string {
+	return domains.NewStrategyBotMessageDomain(round).Text()
+}
+
 // RecordRound books in whatever one round came to, and moves the bot on.
 //
 // One method for all three ways a round ends, rather than one each. A round has
@@ -268,8 +296,10 @@ func (strategyBotService *StrategyBotService) DecideRound(
 // and looking from the outside exactly like a bot that is working.
 func (strategyBotService *StrategyBotService) RecordRound(
 	executionContext context.Context, id uint, dueAt time.Time,
-	outcome domains.StrategyBotRoundOutcomeDomain,
+	outcomeDto dto.StrategyBotRoundOutcomeDto,
 ) error {
+	outcome := domains.NewStrategyBotRoundOutcomeDomainOf(outcomeDto)
+
 	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
 	if findError != nil {
 		return findError

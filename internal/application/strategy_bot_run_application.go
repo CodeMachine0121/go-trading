@@ -7,7 +7,6 @@ import (
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -153,7 +152,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 	scanContext context.Context, roundContext context.Context, botDto dto.StrategyBotDto,
 ) {
-	outcome := strategyBotRunApplication.playRound(roundContext, botDto)
+	outcomeDto := strategyBotRunApplication.playRound(roundContext, botDto)
 
 	// Booking the round in gets a fresh deadline of its own, taken from the scan
 	// rather than from the round. Written on the round's context, this one write
@@ -166,7 +165,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 	defer endRecord()
 
 	if recordError := strategyBotRunApplication.strategyBotService.RecordRound(
-		recordContext, botDto.ID, botDto.NextRunAt, outcome); recordError != nil {
+		recordContext, botDto.ID, botDto.NextRunAt, outcomeDto); recordError != nil {
 		// Said out loud rather than swallowed: this is the one failure whose
 		// symptom — a hot loop of identical messages — is invisible from the
 		// outside, so the log is the only place anybody could ever see it coming.
@@ -198,16 +197,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) roundDeadlineFor(
 // again.
 func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	executionContext context.Context, botDto dto.StrategyBotDto,
-) domains.StrategyBotRoundOutcomeDomain {
+) dto.StrategyBotRoundOutcomeDto {
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
 		executionContext, botDto)
 	if roundError != nil {
-		sourceFailure := domains.NewStrategyBotRoundFailureDomain(roundError)
-		if sourceFailure.HaltsTheBot() {
-			return domains.NewStrategyBotRoundHaltedOutcome(sourceFailure.HaltReason())
-		}
-
-		return domains.NewStrategyBotRoundSkippedOutcome()
+		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(roundError)
 	}
 
 	decision, decideError := strategyBotRunApplication.strategyBotService.DecideRound(
@@ -217,11 +211,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		// it is also not one of the four things a person can go and correct. It
 		// waits, on the same rule that covers anything unrecognised: stopping a bot
 		// is the destructive answer and is kept for failures that name their cure.
-		return domains.NewStrategyBotRoundSkippedOutcome()
+		return skippedRound()
 	}
 
 	if !decision.ShouldSend {
-		return domains.NewStrategyBotRoundConcludedOutcome("", decision.Conflicting)
+		return concludedRound("", decision.Conflicting)
 	}
 
 	// One last look before speaking. Working out this round may have taken a while,
@@ -229,7 +223,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	// somebody just deleted is the one thing a round must never send, because there
 	// is no longer anywhere for its owner to go and see where it came from.
 	if !strategyBotRunApplication.stillWaitingForThisRound(executionContext, botDto) {
-		return domains.NewStrategyBotRoundSkippedOutcome()
+		return skippedRound()
 	}
 
 	deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
@@ -238,28 +232,42 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		// Not Telegram refusing — this side failing to ask at all. Most of those
 		// are worth waiting out, but one is not: the owner having removed their
 		// delivery setting. The same model tells them apart here as everywhere else.
-		deliveryPathFailure := domains.NewStrategyBotRoundFailureDomain(deliverError)
-		if deliveryPathFailure.HaltsTheBot() {
-			return domains.NewStrategyBotRoundHaltedOutcome(deliveryPathFailure.HaltReason())
-		}
-
-		return domains.NewStrategyBotRoundSkippedOutcome()
+		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(deliverError)
 	}
 
-	failureDomain := domains.NewStrategyBotDeliveryFailureDomain(deliveryFailure)
-	if failureDomain.HaltsTheBot() {
-		return domains.NewStrategyBotRoundHaltedOutcome(failureDomain.HaltReason())
+	deliveryOutcome := strategyBotRunApplication.strategyBotService.ReadDeliveryFailure(
+		string(deliveryFailure))
+	if deliveryOutcome.Kind != roundSkipped {
+		return deliveryOutcome
 	}
 
 	// Only a message that arrived counts as said. One Telegram could not take leaves
 	// the last sent signal where it was, so the next round offers it again instead of
 	// assuming it got through.
 	if deliveryFailure != vo.DeliveryFailureNone {
-		return domains.NewStrategyBotRoundConcludedOutcome("", decision.Conflicting)
+		return concludedRound("", decision.Conflicting)
 	}
 
-	return domains.NewStrategyBotRoundConcludedOutcome(
-		vo.SignalVo(decision.Verdict), decision.Conflicting)
+	return concludedRound(decision.Verdict, decision.Conflicting)
+}
+
+// roundSkipped is the outcome kind that changes nothing but when the bot is next
+// due. It is named here because this file both produces it and compares against it.
+const roundSkipped = "skipped"
+
+// skippedRound and concludedRound build the two outcomes this file produces itself.
+// They exist so that no return statement has to spell out which fields belong to
+// which kind — that pairing is the one thing about an outcome that can be got wrong.
+func skippedRound() dto.StrategyBotRoundOutcomeDto {
+	return dto.StrategyBotRoundOutcomeDto{Kind: roundSkipped}
+}
+
+func concludedRound(sentSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
+	return dto.StrategyBotRoundOutcomeDto{
+		Kind:        "concluded",
+		SentSignal:  sentSignal,
+		Conflicting: conflicting,
+	}
 }
 
 // stillWaitingForThisRound says whether the bot is still there and still waiting for
@@ -388,5 +396,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	}
 
 	return strategyBotRunApplication.telegramDeliveryService.SendMessage(
-		executionContext, botDto.OwnerID, domains.NewStrategyBotMessageDomain(round).Text())
+		executionContext,
+		botDto.OwnerID,
+		strategyBotRunApplication.strategyBotService.WriteRoundMessage(round))
 }

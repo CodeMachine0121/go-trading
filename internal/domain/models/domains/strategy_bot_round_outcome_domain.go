@@ -3,8 +3,18 @@ package domains
 import (
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+)
+
+// The three kinds a round can end in, as the application layer names them on its
+// way back in. They are strings on a DTO because a DTO is the only shape that layer
+// may hold; which of the three this is, and what it does to a bot, is read here.
+const (
+	strategyBotRoundSkipped   = "skipped"
+	strategyBotRoundHalted    = "halted"
+	strategyBotRoundConcluded = "concluded"
 )
 
 // StrategyBotRoundOutcomeDomain is what one round came to, in the only three forms
@@ -24,6 +34,27 @@ type StrategyBotRoundOutcomeDomain struct {
 	haltReason  vo.StrategyBotHaltReasonVo
 	sentSignal  vo.SignalVo
 	conflicting bool
+}
+
+// NewStrategyBotRoundOutcomeDomainOf reads an outcome that came back from the
+// application layer.
+//
+// Anything it does not recognise is read as a skipped round: that is the harmless
+// reading — the bot moves on to its next round and nothing else about it changes —
+// and the alternative would be inventing a halt nobody asked for.
+func NewStrategyBotRoundOutcomeDomainOf(
+	outcomeDto dto.StrategyBotRoundOutcomeDto,
+) StrategyBotRoundOutcomeDomain {
+	switch outcomeDto.Kind {
+	case strategyBotRoundHalted:
+		return NewStrategyBotRoundHaltedOutcome(
+			vo.StrategyBotHaltReasonVo(outcomeDto.HaltReason))
+	case strategyBotRoundConcluded:
+		return NewStrategyBotRoundConcludedOutcome(
+			vo.SignalVo(outcomeDto.SentSignal), outcomeDto.Conflicting)
+	default:
+		return NewStrategyBotRoundSkippedOutcome()
+	}
 }
 
 // NewStrategyBotRoundSkippedOutcome is a round that could not reach a conclusion for
