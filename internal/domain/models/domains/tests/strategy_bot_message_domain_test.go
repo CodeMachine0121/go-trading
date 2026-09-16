@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -32,8 +33,56 @@ func TestStrategyBotMessageSaysTheSignalTheBotAndTheSymbolFirst(t *testing.T) {
 
 	// A phone's notification list shows the first line and maybe the second, so the
 	// three things that decide whether to open it go first.
-	firstLine := message[:len("【賣出】早盤突破 · BTCUSDT")]
-	assert.Equal(t, "【賣出】早盤突破 · BTCUSDT", firstLine)
+	firstLine := strings.Split(message, "\n")[0]
+	assert.Equal(t, "🔴【賣出】早盤突破 · BTCUSDT", firstLine)
+}
+
+// The mark is there to be skimmed, so what it must never do is be the only thing
+// saying which way this went — a reader who cannot see colour, or whose device draws
+// these differently, reads the words.
+func TestStrategyBotMessageMarksTheDirectionWithoutRelyingOnTheMark(t *testing.T) {
+	testCases := []struct {
+		verdict           string
+		expectedFirstLine string
+	}{
+		{verdict: string(vo.SignalBuy), expectedFirstLine: "🟢【買入】早盤突破 · BTCUSDT"},
+		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【賣出】早盤突破 · BTCUSDT"},
+		{verdict: string(vo.SignalHold), expectedFirstLine: "⚪【持有】早盤突破 · BTCUSDT"},
+		// Nothing the system recognised, so nothing it is willing to colour.
+		{verdict: "shrug", expectedFirstLine: "⚪【shrug】早盤突破 · BTCUSDT"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.verdict, func(t *testing.T) {
+			botRound := aBotRound()
+			botRound.Verdict = testCase.verdict
+
+			message := domains.NewStrategyBotMessageDomain(botRound).Text()
+
+			assert.Equal(t, testCase.expectedFirstLine, strings.Split(message, "\n")[0])
+		})
+	}
+}
+
+// The failure this whole layout exists to stop: a source reading 持有 under a
+// headline reading 買入 is the working, not a contradiction, and without a label
+// saying so the last line a reader's eye lands on looks like the answer.
+func TestStrategyBotMessageSaysOutLoudThatTheSourceLinesAreTheWorking(t *testing.T) {
+	botRound := aBotRound()
+	botRound.Verdict = string(vo.SignalBuy)
+	botRound.SourceSignals = []dto.StrategyBotSourceSignalDto{
+		{Label: "A", AggregationInterval: "1m", Signal: string(vo.SignalHold)},
+	}
+
+	message := domains.NewStrategyBotMessageDomain(botRound).Text()
+
+	headlineIndex := strings.Index(message, "【買入】")
+	labelIndex := strings.Index(message, "各來源怎麼說")
+	sourceIndex := strings.Index(message, "A（1m）：持有")
+
+	assert.NotEqual(t, -1, labelIndex, "沒有那句標題的話，底下那行看起來就是答案")
+	assert.Less(t, headlineIndex, labelIndex, "結論在最前面")
+	assert.Less(t, labelIndex, sourceIndex, "標題要在它說明的那幾行之前")
 }
 
 func TestStrategyBotMessageCarriesEverythingAReaderNeedsToJudgeIt(t *testing.T) {
