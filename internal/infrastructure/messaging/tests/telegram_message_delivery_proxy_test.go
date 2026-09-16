@@ -109,6 +109,16 @@ func TestTelegramMessageDeliveryProxySortsEveryRefusalIntoOneOfTheFourReasons(t 
 			expectedReason: vo.DeliveryFailureDestinationNotFound,
 		},
 		{
+			// The likeliest first-run failure of all: a correct token, a correct
+			// chat, and nobody has said hello to the bot yet. Reported as the
+			// service being unreachable, somebody retries forever; reported as the
+			// chat, they are pointed at the one thing that fixes it.
+			name:           "a person who has never started the bot",
+			statusCode:     http.StatusForbidden,
+			body:           `{"ok":false,"error_code":403,"description":"Forbidden: bot can't initiate conversation with a user"}`,
+			expectedReason: vo.DeliveryFailureDestinationNotFound,
+		},
+		{
 			name:           "a chat with no identifier at all",
 			statusCode:     http.StatusBadRequest,
 			body:           `{"ok":false,"error_code":400,"description":"Bad Request: chat_id is empty"}`,

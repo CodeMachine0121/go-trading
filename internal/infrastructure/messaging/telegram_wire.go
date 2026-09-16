@@ -33,6 +33,12 @@ type telegramSendMessageResponse struct {
 // this file ever sees a description.
 var unknownChatDescriptions = []string{
 	"chat not found",
+	// Nobody has ever messaged this bot, so Telegram will not let it speak first.
+	// It is the likeliest thing to go wrong on the very first send, and it is the
+	// chat's problem rather than the token's: the token is fine, and no amount of
+	// retrying helps — somebody has to open Telegram and say hello.
+	"can't initiate conversation",
+	"bot can't send messages to bots",
 	"chat_id is empty",
 	"group chat was upgraded",
 	"bot was blocked by the user",
