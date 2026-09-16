@@ -340,3 +340,51 @@ func (userService *UserService) IdentifyUser(
 
 	return user.ToDto(), nil
 }
+
+// ChangePassword replaces the password of the user this identifier names, and ends
+// every session they have open.
+//
+// The order of the checks is chosen rather than incidental. Whether the new password
+// is acceptable, and whether it merely repeats the old one, are questions that need
+// no secret to answer and cost nothing to ask; whether the current password is the
+// current password costs a bcrypt comparison, which is deliberately slow. Asking the
+// cheap questions first means a request that simply filled a box in wrongly does not
+// wait for the expensive one.
+//
+// The identifier does not come from anything the caller sent. It comes from the
+// proof of identity the request carried, which is why there is no path here for
+// changing somebody else's password: PasswordChangeDto has nowhere to name one.
+func (userService *UserService) ChangePassword(
+	executionContext context.Context, userID uint, passwordChangeDto dto.PasswordChangeDto,
+) error {
+	passwordChange, validationError := domains.NewPasswordChangeDomain(passwordChangeDto)
+	if validationError != nil {
+		return validationError
+	}
+
+	user, findError := userService.userRepository.FindOne(executionContext, userID)
+	if errors.Is(findError, domains.ErrUserNotFound) {
+		return domains.ErrAuthenticationRequired
+	}
+	if findError != nil {
+		return findError
+	}
+
+	// No decoy work is spent when this fails, unlike signing in. There, refusing
+	// faster than a real comparison would say "no account holds that address"; here
+	// the person has already been recognised, so there is no list a timing
+	// difference could describe.
+	if !userService.passwordProofProxy.Matches(
+		passwordChange.CurrentPassword(), user.PasswordProof) {
+		return domains.ErrCurrentPasswordRejected
+	}
+
+	newPasswordProof, proveError := userService.passwordProofProxy.Prove(
+		passwordChange.NewPassword())
+	if proveError != nil {
+		return proveError
+	}
+
+	return userService.userRepository.ChangePasswordProof(
+		executionContext, userID, newPasswordProof)
+}

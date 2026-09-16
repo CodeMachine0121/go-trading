@@ -106,3 +106,54 @@ func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *
 		assert.Equal(t, 30*time.Second, applicationConfig.LiveFollow.QuietTimeout)
 	})
 }
+
+// The sealing key has no default and must not grow one. A default key is a key
+// everybody running this code knows, and a secret locked with it is a secret in the
+// open that looks locked.
+func TestLoadLeavesTheSealingKeyEmptyWhenNothingIsSet(t *testing.T) {
+	applicationConfig := config.Load()
+
+	assert.Empty(t, applicationConfig.Secrets.SealKey)
+}
+
+func TestLoadReadsTheSealingKey(t *testing.T) {
+	t.Setenv("SECRET_SEAL_KEY", "a-base64-key")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t, "a-base64-key", applicationConfig.Secrets.SealKey)
+}
+
+func TestLoadAppliesTelegramDefaultsWhenNothingIsSet(t *testing.T) {
+	applicationConfig := config.Load()
+
+	assert.Equal(t, "https://api.telegram.org", applicationConfig.Telegram.ApiBaseUrl)
+	assert.Equal(t, 10*time.Second, applicationConfig.Telegram.RequestTimeout)
+}
+
+func TestLoadReadsHowLongItWillWaitForTelegram(t *testing.T) {
+	testCases := []struct {
+		name            string
+		waitSeconds     string
+		expectedTimeout time.Duration
+	}{
+		{name: "a usable wait is taken as given", waitSeconds: "3", expectedTimeout: 3 * time.Second},
+		{name: "an unreadable wait falls back", waitSeconds: "soon", expectedTimeout: 10 * time.Second},
+		// A wait of nothing is not a wait, it is a system that never reaches
+		// Telegram at all — so it falls back rather than being honoured.
+		{name: "zero falls back", waitSeconds: "0", expectedTimeout: 10 * time.Second},
+		{name: "a negative wait falls back", waitSeconds: "-1", expectedTimeout: 10 * time.Second},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("TELEGRAM_API_BASE_URL", "http://localhost:9999")
+			t.Setenv("TELEGRAM_REQUEST_TIMEOUT_SECONDS", testCase.waitSeconds)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, "http://localhost:9999", applicationConfig.Telegram.ApiBaseUrl)
+			assert.Equal(t, testCase.expectedTimeout, applicationConfig.Telegram.RequestTimeout)
+		})
+	}
+}

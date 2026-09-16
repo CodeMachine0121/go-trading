@@ -39,6 +39,9 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /marketplace/strategies/:id/adoption",
 		"DELETE /strategies/:id",
 		"DELETE /strategies/:id/publication",
+		// Taking away the place this system was told to speak to. It names nobody
+		// but the person asking, so it cannot reach a symbol either.
+		"DELETE /users/me/telegram-delivery",
 		// Stopping and starting the watching of one market. Neither reaches ingestion
 		// itself: a caller can say what to keep up to date, never when to do it.
 		"DELETE /watchlist/:symbol",
@@ -64,6 +67,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// Recognising a person reads and writes only users. None of these three can
 		// name a symbol, so the boundary this test holds is intact.
 		"GET /users/me",
+		"GET /users/me/telegram-delivery",
 		// Replaying a strategy reads the market and stores nothing at all, so it
 		// cannot reach the watchlist either.
 		"POST /backtests",
@@ -78,8 +82,16 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /strategies",
 		"POST /strategies/:id/publication",
 		"POST /users",
+		// Replacing one's own password. It names nobody but the person asking —
+		// who that is comes from the proof on the request — so it cannot reach a
+		// symbol or anybody else's account.
+		"POST /users/me/password",
+		// Sending one message to one's own Telegram. It reads the setting already
+		// stored and writes nothing, so it widens nothing.
+		"POST /users/me/telegram-delivery/test-message",
 		"POST /watchlist",
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategies/:id",
+		"PUT /users/me/telegram-delivery",
 	}, mountedRoutes)
 }

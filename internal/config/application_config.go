@@ -162,6 +162,31 @@ type AuthenticationConfig struct {
 	RefreshTokenLifetime time.Duration
 }
 
+// SecretsConfig holds what this system locks away secrets with.
+//
+// The key has no default and cannot have one, for the same reason the access token
+// signing key cannot: a default key is a key everybody running this code knows, and
+// a secret locked with a key everybody knows is a secret in the open that looks
+// locked. Leaving it unset means no secret can be stored — which is the correct
+// thing for a system with no key to do, and is why the paths that need it say so out
+// loud instead of quietly working in a way that guards nothing.
+type SecretsConfig struct {
+	// SealKey is thirty-two bytes, written as base64. Anything else is treated as
+	// no key at all rather than padded or truncated into one.
+	SealKey string
+}
+
+// TelegramConfig holds what reaching Telegram runs on.
+//
+// Both are settings rather than constants because both are facts about somebody
+// else's service: where it answers, and how long this system is willing to wait for
+// it. A test points the first at a stand-in; an impatient deployment shortens the
+// second.
+type TelegramConfig struct {
+	ApiBaseUrl     string
+	RequestTimeout time.Duration
+}
+
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
@@ -178,6 +203,8 @@ type ApplicationConfig struct {
 	MarketRules    map[vo.MarketVo]vo.MarketRulesVo
 	Assistant      AssistantConfig
 	Authentication AuthenticationConfig
+	Secrets        SecretsConfig
+	Telegram       TelegramConfig
 	Database       DatabaseConfig
 }
 
@@ -245,6 +272,17 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("AUTH_ACCESS_TOKEN_LIFETIME_MINUTES", 15)) * time.Minute,
 			RefreshTokenLifetime: time.Duration(
 				positiveIntWithDefault("AUTH_REFRESH_TOKEN_LIFETIME_DAYS", 30)) * 24 * time.Hour,
+		},
+		Secrets: SecretsConfig{
+			SealKey: stringWithDefault("SECRET_SEAL_KEY", ""),
+		},
+		Telegram: TelegramConfig{
+			ApiBaseUrl: stringWithDefault("TELEGRAM_API_BASE_URL", "https://api.telegram.org"),
+			// Ten seconds is long enough for a message that is going to arrive and
+			// short enough that somebody pressing a button to find out whether the
+			// route works is not left wondering.
+			RequestTimeout: time.Duration(
+				positiveIntWithDefault("TELEGRAM_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

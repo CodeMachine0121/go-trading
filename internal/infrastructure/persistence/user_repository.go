@@ -107,3 +107,45 @@ func (userRepository *UserRepository) isEmailAlreadyHeld(writeError error) bool 
 	return postgresError.Code == uniqueViolationCode &&
 		postgresError.ConstraintName == UserEmailIndex
 }
+
+// ChangePasswordProof replaces a user's password proof and ends every session they
+// still have open, both inside one transaction.
+//
+// One transaction is the whole point. The half-done state this avoids is not merely
+// untidy — it is the new password in force while sessions opened with the old one
+// keep working, which is precisely the situation somebody changes their password to
+// end. A caller sequencing two writes would have to know which order avoids it, and
+// would still be exposed to the second one failing.
+//
+// Sessions already ended keep the moment they were ended, for the same reason
+// RevokeChain leaves them alone: the first answer to "when did this stop" is the
+// true one, and overwriting it erases the trail.
+func (userRepository *UserRepository) ChangePasswordProof(
+	executionContext context.Context, userID uint, newPasswordProof string,
+) error {
+	return userRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			replaced := transaction.Model(&entities.User{}).
+				Where(clause.Eq{Column: "id", Value: userID}).
+				Update("password_proof", newPasswordProof)
+			if replaced.Error != nil {
+				return fmt.Errorf("change password proof: %w", replaced.Error)
+			}
+			// No rows updated means there is nobody by that identifier. Returning
+			// an error rolls the transaction back, so a change that reached nobody
+			// never gets to sign anybody out either.
+			if replaced.RowsAffected == 0 {
+				return domains.ErrUserNotFound
+			}
+
+			revoked := transaction.Model(&entities.Session{}).
+				Where(clause.Eq{Column: "user_id", Value: userID}).
+				Where(clause.Eq{Column: "revoked_at", Value: nil}).
+				Update("revoked_at", gorm.Expr("now()"))
+			if revoked.Error != nil {
+				return fmt.Errorf("revoke sessions after password change: %w", revoked.Error)
+			}
+
+			return nil
+		})
+}

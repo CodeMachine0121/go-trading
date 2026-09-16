@@ -41,6 +41,20 @@ func (m *MockIUserRepository) EXPECT() *MockIUserRepositoryMockRecorder {
 	return m.recorder
 }
 
+// ChangePasswordProof mocks base method.
+func (m *MockIUserRepository) ChangePasswordProof(executionContext context.Context, userID uint, newPasswordProof string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChangePasswordProof", executionContext, userID, newPasswordProof)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ChangePasswordProof indicates an expected call of ChangePasswordProof.
+func (mr *MockIUserRepositoryMockRecorder) ChangePasswordProof(executionContext, userID, newPasswordProof any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangePasswordProof", reflect.TypeOf((*MockIUserRepository)(nil).ChangePasswordProof), executionContext, userID, newPasswordProof)
+}
+
 // FindOne mocks base method.
 func (m *MockIUserRepository) FindOne(executionContext context.Context, id uint) (entities.User, error) {
 	m.ctrl.T.Helper()

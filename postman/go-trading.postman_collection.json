@@ -203,6 +203,38 @@
     {
       "key": "refusalForSomebodyElses",
       "value": ""
+    },
+    {
+      "key": "passwordChangeEmail",
+      "value": ""
+    },
+    {
+      "key": "passwordChangeOldPassword",
+      "value": "postman-only-password"
+    },
+    {
+      "key": "passwordChangeNewPassword",
+      "value": "postman-only-new-password"
+    },
+    {
+      "key": "passwordChangeAccessToken",
+      "value": ""
+    },
+    {
+      "key": "passwordChangeRefreshToken",
+      "value": ""
+    },
+    {
+      "key": "telegramBotToken",
+      "value": "123456:POSTMAN-ONLY-NOT-A-REAL-TOKEN-1234"
+    },
+    {
+      "key": "telegramChatId",
+      "value": "987654321"
+    },
+    {
+      "key": "overlongTestMessage",
+      "value": ""
     }
   ],
   "event": [
@@ -213,6 +245,17 @@
         "exec": [
           "// 每次執行都用一個當下產生的電子郵件，整包才重複跑得起來——",
           "// 固定一個的話，第二次執行的「建立使用者」永遠是 409。",
+          "// 換密碼那一段用它自己的一位使用者，理由與上面同一條，外加一條：",
+          "// 換密碼會把那個人每一台裝置的登入階段全部撤掉，共用的話後面每一段都得重新登入。",
+          "if (!pm.collectionVariables.get('passwordChangeEmail')) {",
+          "    pm.collectionVariables.set(",
+          "        'passwordChangeEmail', `postman-password-${Date.now()}@example.com`);",
+          "}",
+          "",
+          "// 一則超過上限的訊息。寫在這裡而不是寫成一個四千多字的常數，",
+          "// 因為那樣的常數沒有人讀得出它是幾個字。",
+          "pm.collectionVariables.set('overlongTestMessage', '字'.repeat(4097));",
+          "",
           "if (!pm.collectionVariables.get('userEmail')) {",
           "    pm.collectionVariables.set('userEmail', `postman-${Date.now()}@example.com`);",
           "}",
@@ -1065,6 +1108,1149 @@
                 "exec": [
                   "pm.test(\"回應 204：目的已經達成，沒有東西需要被撤掉\", function () {",
                   "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "變更密碼",
+      "item": [
+        {
+          "name": "建立一位只給這一段用的使用者",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{passwordChangeEmail}}\",\n    \"password\": \"{{passwordChangeOldPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "換密碼會把這個人每一台裝置的登入階段全部撤掉，所以它不能用上一段那位使用者——撤掉之後，後面每一段都得重新登入。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "登入拿一對憑證",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{passwordChangeEmail}}\",\n    \"password\": \"{{passwordChangeOldPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const session = pm.response.json();",
+                  "pm.collectionVariables.set(\"passwordChangeAccessToken\", session.accessToken);",
+                  "pm.collectionVariables.set(\"passwordChangeRefreshToken\", session.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換密碼 — 目前的密碼不正確",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"currentPassword\": \"definitely-not-it\",\n    \"newPassword\": \"{{passwordChangeNewPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "403 而不是 401。401 在這個系統裡只有一個意思——這一段登入不算數了，去重新登入——而這個人的登入好得很，錯的只是一格。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 403，不是 401\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"明說是目前的密碼不正確\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"目前的密碼\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換密碼 — 新密碼太短",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"currentPassword\": \"{{passwordChangeOldPassword}}\",\n    \"newPassword\": \"short\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明至少要 8 個字元\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"8\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換密碼 — 新的與目前那一組一樣",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"currentPassword\": \"{{passwordChangeOldPassword}}\",\n    \"newPassword\": \"{{passwordChangeOldPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明不得與目前的密碼相同\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"相同\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換密碼 — 沒帶憑證",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"currentPassword\": \"{{passwordChangeOldPassword}}\",\n    \"newPassword\": \"{{passwordChangeNewPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換密碼 — 成功",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"currentPassword\": \"{{passwordChangeOldPassword}}\",\n    \"newPassword\": \"{{passwordChangeNewPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204：沒有東西要交回去\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "pm.test(\"回覆不含任何一組密碼\", function () {",
+                  "    const body = pm.response.text();",
+                  "    pm.expect(body).to.not.include(pm.collectionVariables.get(\"passwordChangeOldPassword\"));",
+                  "    pm.expect(body).to.not.include(pm.collectionVariables.get(\"passwordChangeNewPassword\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "舊密碼登不進去了",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{passwordChangeEmail}}\",\n    \"password\": \"{{passwordChangeOldPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換完之後，舊的續用憑證也換不到東西",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sessions/renewal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sessions",
+                "renewal"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"refreshToken\": \"{{passwordChangeRefreshToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "換密碼多半是因為舊的那一組可能已經落在別人手上。留著任何一段舊的登入階段，等於那個人照樣還在裡面。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新密碼登得進去",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{passwordChangeEmail}}\",\n    \"password\": \"{{passwordChangeNewPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.collectionVariables.set(\"passwordChangeAccessToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Telegram 投遞",
+      "item": [
+        {
+          "name": "讀取設定 — 還沒設定過",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "沒設定過不是 404。它是這份設定的正常狀態，回 404 會讓呼叫端得去判斷哪些 404 其實沒事。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"說自己還沒設定\", function () {",
+                  "    pm.expect(pm.response.json().configured).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定 — 金鑰只有空白",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"botToken\": \"   \",\n    \"chatId\": \"{{telegramChatId}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明必須給一組機器人金鑰\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"機器人金鑰\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定 — 聊天室代號只有空白",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"botToken\": \"{{telegramBotToken}}\",\n    \"chatId\": \"\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明必須給一個聊天室代號\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"聊天室代號\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"botToken\": \"  {{telegramBotToken}}  \",\n    \"chatId\": \"  {{telegramChatId}}  \"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "沒設定 SECRET_SEAL_KEY 時這一則會回 503，並明說是系統存不了金鑰——它刻意不改用不上鎖的方式存。設一組 base64 的 32 位元組再跑。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200（回 503 代表沒設 SECRET_SEAL_KEY）\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"只回得出金鑰結尾，回不出完整金鑰\", function () {",
+                  "    const setting = pm.response.json();",
+                  "    const botToken = pm.collectionVariables.get(\"telegramBotToken\");",
+                  "    pm.expect(setting.configured).to.eql(true);",
+                  "    pm.expect(setting.botTokenTail).to.eql(botToken.slice(-4));",
+                  "    pm.expect(pm.response.text()).to.not.include(botToken);",
+                  "});",
+                  "pm.test(\"前後空白不予保留\", function () {",
+                  "    pm.expect(pm.response.json().chatId)",
+                  "        .to.eql(pm.collectionVariables.get(\"telegramChatId\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀回設定",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"完整金鑰沒有任何一條讀得回來的路\", function () {",
+                  "    pm.expect(pm.response.text())",
+                  "        .to.not.include(pm.collectionVariables.get(\"telegramBotToken\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再設定一次是覆蓋，不是多一份",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"botToken\": \"{{telegramBotToken}}5678\",\n    \"chatId\": \"{{telegramChatId}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"看到的是新的那一份的結尾\", function () {",
+                  "    pm.expect(pm.response.json().botTokenTail).to.eql(\"5678\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送測試訊息 — 訊息只有空白",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery/test-message",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery",
+                "test-message"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"   \"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明訊息不得為空白\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"空白\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送測試訊息 — 超過一則的字數上限",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery/test-message",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery",
+                "test-message"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"{{overlongTestMessage}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "上限是拒絕而不是截斷：被截短的人不會知道自己送出去的是半則。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說明上限是 4096 個字元\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"4096\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送測試訊息 — 用一組假金鑰，看它說得出是哪一種失敗",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery/test-message",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery",
+                "test-message"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"這是一則來自 go-trading 的測試訊息\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "送不出去仍然回 200：這一次請求做的就是「試著送、然後回報」，而它做到了。四種失敗原因靠回應帶的那個值分辨，不讀訊息文字。要真的看到訊息送達，把 telegramBotToken 與 telegramChatId 換成自己的再跑一次。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200，即使送不出去\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"說得出是四種原因的哪一種\", function () {",
+                  "    const result = pm.response.json();",
+                  "    if (result.delivered) {",
+                  "        pm.expect(result).to.not.have.property(\"failureReason\");",
+                  "        return;",
+                  "    }",
+                  "    pm.expect([\"credentialRejected\", \"destinationNotFound\", \"unreachable\", \"timedOut\"])",
+                  "        .to.include(result.failureReason);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送測試訊息 — 沒帶憑證",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery/test-message",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery",
+                "test-message"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"哈囉\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "移除設定",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "移除設定 — 沒有設定也不算失敗",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "要的狀態已經達成了，說它失敗只會讓人再按一次。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "送測試訊息 — 還沒設定就送不了",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/telegram-delivery/test-message",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "telegram-delivery",
+                "test-message"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"哈囉\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{passwordChangeAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "409 而不是 400：沒有一格填錯，是少了一個步驟。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"說明要先完成設定\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"Telegram\");",
                   "});"
                 ]
               }

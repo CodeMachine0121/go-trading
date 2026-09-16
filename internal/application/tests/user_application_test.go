@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -904,5 +905,187 @@ func TestUserApplicationRevokeSession(t *testing.T) {
 		fixture.sessionRepository.EXPECT().RevokeChain(gomock.Any(), gomock.Any()).Return(revokeFailure)
 
 		require.ErrorIs(t, fixture.userApplication.RevokeSession(t.Context(), aRenewal()), revokeFailure)
+	})
+}
+
+func TestUserApplicationChangePassword(t *testing.T) {
+	const userID = uint(7)
+
+	// The stored user, read back so that the current password can be checked
+	// against the proof that is actually on file.
+	storedUser := entities.User{
+		ID:            userID,
+		Email:         "james@example.com",
+		PasswordProof: "the-stored-proof",
+	}
+
+	t.Run("the right current password replaces the proof and ends every session", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().FindOne(gomock.Any(), userID).Return(storedUser, nil)
+		fixture.passwordProofProxy.EXPECT().
+			Matches("correct horse", "the-stored-proof").
+			Return(true)
+		fixture.passwordProofProxy.EXPECT().
+			Prove("battery staple").
+			Return("the-new-proof", nil)
+		fixture.userRepository.EXPECT().
+			ChangePasswordProof(gomock.Any(), userID, "the-new-proof").
+			Return(nil)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("the wrong current password is refused and nothing is written", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().FindOne(gomock.Any(), userID).Return(storedUser, nil)
+		fixture.passwordProofProxy.EXPECT().
+			Matches("wrong horse", "the-stored-proof").
+			Return(false)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "wrong horse", NewPassword: "battery staple"})
+
+		// No Prove and no ChangePasswordProof are set up, so the mock controller
+		// fails the test if either is reached. That is the assertion that nothing
+		// was written, and it is stronger than checking a flag afterwards.
+		require.ErrorIs(t, err, domains.ErrCurrentPasswordRejected)
+	})
+
+	// The refusal must not be the one signing in gives. They mean different things
+	// and lead to different places: one back to the sign-in screen, one back to the
+	// box that was filled in wrongly.
+	t.Run("a wrong current password is not the refusal a failed sign-in gives", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().FindOne(gomock.Any(), userID).Return(storedUser, nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "wrong horse", NewPassword: "battery staple"})
+
+		assert.NotErrorIs(t, err, domains.ErrCredentialsRejected)
+		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	t.Run("a user the identifier matches nobody is told to sign in again", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), userID).
+			Return(entities.User{}, domains.ErrUserNotFound)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
+
+		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	// Storage being broken is not somebody's password being wrong. Dressing it up
+	// as one would have them retyping a password that was right.
+	t.Run("storage failing to answer is reported as itself", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		storageFailure := errors.New("the database is not there")
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), userID).
+			Return(entities.User{}, storageFailure)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
+
+		require.ErrorIs(t, err, storageFailure)
+		assert.NotErrorIs(t, err, domains.ErrCurrentPasswordRejected)
+	})
+
+	t.Run("a proof that cannot be derived fails the change", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		proveFailure := errors.New("the password is longer than the scheme reads")
+		fixture.userRepository.EXPECT().FindOne(gomock.Any(), userID).Return(storedUser, nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
+		fixture.passwordProofProxy.EXPECT().
+			Prove("battery staple").
+			Return("", proveFailure)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
+
+		require.ErrorIs(t, err, proveFailure)
+	})
+
+	t.Run("a write that fails is reported and leaves the change undone", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		writeFailure := errors.New("the transaction rolled back")
+		fixture.userRepository.EXPECT().FindOne(gomock.Any(), userID).Return(storedUser, nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
+		fixture.passwordProofProxy.EXPECT().Prove(gomock.Any()).Return("the-new-proof", nil)
+		fixture.userRepository.EXPECT().
+			ChangePasswordProof(gomock.Any(), userID, "the-new-proof").
+			Return(writeFailure)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), userID,
+			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
+
+		require.ErrorIs(t, err, writeFailure)
+	})
+
+	// A new password that breaks a rule is refused before anything is read, and
+	// long before the expensive comparison. No repository or proxy call is set up,
+	// so reaching one fails the test.
+	t.Run("an unacceptable new password is refused without touching anything", func(t *testing.T) {
+		testCases := []struct {
+			name            string
+			newPassword     string
+			expectedMessage string
+		}{
+			{name: "too short", newPassword: "1234567", expectedMessage: "密碼至少要 8 個字元"},
+			{name: "empty", newPassword: "", expectedMessage: "必須給一組密碼"},
+			{
+				name:            "too long in bytes",
+				newPassword:     strings.Repeat("密", 25),
+				expectedMessage: "密碼長度上限為 72 個位元組",
+			},
+			{
+				name:            "the same as the current one",
+				newPassword:     "correct horse",
+				expectedMessage: "新密碼不得與目前的密碼相同",
+			},
+		}
+
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+
+				err := fixture.userApplication.ChangePassword(context.Background(), userID,
+					dto.PasswordChangeDto{
+						CurrentPassword: "correct horse",
+						NewPassword:     testCase.newPassword,
+					})
+
+				require.ErrorIs(t, err, domains.ErrUserValidation)
+				assert.Contains(t, err.Error(), testCase.expectedMessage)
+			})
+		}
+	})
+
+	// The identifier decides whose password changes, and it comes from the proof of
+	// identity rather than from anything the caller sent.
+	t.Run("the password changed is the one belonging to the identifier given", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		const otherUserID = uint(9)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), otherUserID).
+			Return(entities.User{ID: otherUserID, PasswordProof: "another-proof"}, nil)
+		fixture.passwordProofProxy.EXPECT().
+			Matches("correct horse", "another-proof").
+			Return(true)
+		fixture.passwordProofProxy.EXPECT().Prove(gomock.Any()).Return("the-new-proof", nil)
+		fixture.userRepository.EXPECT().
+			ChangePasswordProof(gomock.Any(), otherUserID, "the-new-proof").
+			Return(nil)
+
+		err := fixture.userApplication.ChangePassword(context.Background(), otherUserID,
+			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
+
+		require.NoError(t, err)
 	})
 }

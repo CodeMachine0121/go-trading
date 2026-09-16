@@ -32,6 +32,11 @@ type User struct {
 	// that "a user who is gone has no sessions" is something the schema enforces
 	// rather than something a piece of code has to remember to do.
 	Sessions []Session `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	// TelegramDelivery is where this person asked to be spoken to, and it holds a
+	// key that can send messages as their bot. It is declared here for the same
+	// reason the sessions are, only more sharply: a key that outlives the person
+	// it belongs to is a key nobody is watching, still able to speak as them.
+	TelegramDelivery *TelegramDelivery `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 // TableName pins the table to Users instead of GORM's default users.
