@@ -7,6 +7,7 @@ import (
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -141,6 +142,46 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	waitGroup.Wait()
 
 	return roundsRun, nil
+}
+
+// RunRoundNow runs one round for this person's bot, right now.
+//
+// It goes down **exactly the same path** as a scheduled round — same signals, same
+// conditions, same message, same history — because a button whose answer differs
+// from what the bot does on its own is a button that cannot be used to find out what
+// the bot does on its own, which is the only reason to have it.
+//
+// It works on a stopped bot too. Trying one before putting it to work is the
+// ordinary way to find out whether it says what you meant, and refusing until it is
+// running would mean the only way to test a bot is to leave it running.
+func (strategyBotRunApplication *StrategyBotRunApplication) RunRoundNow(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.StrategyBotDto, error) {
+	// Read as this person, so somebody else's bot answers the same "not found" as
+	// one that is not there — the same door every other thing about a bot goes
+	// through.
+	botDto, findError := strategyBotRunApplication.strategyBotService.GetStrategyBot(
+		executionContext, viewerID, id)
+	if findError != nil {
+		return dto.StrategyBotDto{}, findError
+	}
+
+	// The same claim the scan takes. A hand-pressed round and a scheduled one must
+	// not both be in flight: they would read the same candles, reach the same
+	// answer, and the second would arrive to find the bot already moved on.
+	if !strategyBotRunApplication.roundGuard.TryEnter(id) {
+		return dto.StrategyBotDto{}, domains.StrategyBotAlreadyRunningARound()
+	}
+	defer strategyBotRunApplication.roundGuard.Leave(id)
+
+	roundContext, endRound := context.WithTimeout(
+		executionContext, strategyBotRunApplication.roundDeadlineFor(botDto))
+	defer endRound()
+
+	strategyBotRunApplication.runOneRound(executionContext, roundContext, botDto)
+
+	return strategyBotRunApplication.strategyBotService.GetStrategyBot(
+		executionContext, viewerID, id)
 }
 
 // runOneRound is one bot's turn, start to finish.

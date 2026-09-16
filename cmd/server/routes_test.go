@@ -40,7 +40,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /strategies/:id",
 		"DELETE /strategies/:id/publication",
 		"DELETE /strategy-bots/:id",
-		"DELETE /strategy-bots/:id/run",
+		"DELETE /strategy-bots/:id/power",
 		// Taking away the place this system was told to speak to. It names nobody
 		// but the person asking, so it cannot reach a symbol either.
 		"DELETE /users/me/telegram-delivery",
@@ -87,7 +87,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /strategies",
 		"POST /strategies/:id/publication",
 		"POST /strategy-bots",
-		"POST /strategy-bots/:id/run",
+		"POST /strategy-bots/:id/power",
+		"POST /strategy-bots/:id/runs",
 		"POST /users",
 		// Replacing one's own password. It names nobody but the person asking —
 		// who that is comes from the proof on the request — so it cannot reach a

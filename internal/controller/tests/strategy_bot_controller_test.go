@@ -57,15 +57,41 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(vo.DeliveryFailureNone, nil).AnyTimes()
 
+	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
+	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
+		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
+	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	marketCatalog := domains.NewMarketCatalogDomain(
+		map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
+
+	// 兩邊共用同一組 service：一台機器人只有一份狀態，兩份會讓這幾個測試
+	// 在「按了按鈕之後那台變成什麼樣」上對不起來。
+	strategyBotService := service.NewStrategyBotService(
+		strategyBotRepository, strategyBotRunRecordRepository, clockProxy)
+	strategyService := service.NewStrategyService(strategyRepository, publishedStrategyRepository)
+	// 啟動與停止會讓機器人說一句它自己的動靜；這幾個測試問的是路由與狀態碼，
+	// 所以整條投遞路徑一律放行。
+	telegramDeliveryService := service.NewTelegramDeliveryService(
+		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
+
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
-			service.NewStrategyBotService(
-				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
-			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
-			// 啟動與停止會讓機器人說一句它自己的動靜；這幾個測試問的是路由與狀態碼，
-			// 所以整條投遞路徑一律放行。
-			service.NewTelegramDeliveryService(
-				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
+			strategyBotService, strategyService, telegramDeliveryService),
+		// 「立即運算」那一條走時鐘那一側，而它走的必須是同一條路。
+		application.NewStrategyBotRunApplication(
+			strategyBotService,
+			strategyService,
+			service.NewIndicatorCalculationService(
+				kCandleRepository, tradingSymbolRepository,
+				mocks.NewMockIIndicatorScriptProxy(mockController),
+				clockProxy, marketCatalog, 1000),
+			telegramDeliveryService,
+			service.NewKCandleService(
+				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, 1000),
+			clockProxy,
+			application.NewStrategyBotRoundGuard(),
+			4,
+			time.Minute,
 		))
 
 	engine := gin.New()
@@ -75,8 +101,9 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	engine.GET("/strategy-bots/:id", requiresSignIn, strategyBotController.GetStrategyBot)
 	engine.PUT("/strategy-bots/:id", requiresSignIn, strategyBotController.UpdateStrategyBot)
 	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
-	engine.POST("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StartStrategyBot)
-	engine.DELETE("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StopStrategyBot)
+	engine.POST("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StartStrategyBot)
+	engine.DELETE("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StopStrategyBot)
+	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 
 	return strategyBotRouterUnderTest{
 		engine:                     engine,
@@ -218,7 +245,7 @@ func TestStrategyBotRouterStartsAndStops(t *testing.T) {
 		CountRunningByOwner(gomock.Any(), signedInViewerID).Return(0, nil)
 	fixture.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
-	startResponse := fixture.send(http.MethodPost, "/strategy-bots/3/run", "")
+	startResponse := fixture.send(http.MethodPost, "/strategy-bots/3/power", "")
 	require.Equal(t, http.StatusOK, startResponse.Code)
 	assert.Contains(t, startResponse.Body.String(), string(vo.StrategyBotRunning))
 
@@ -226,7 +253,7 @@ func TestStrategyBotRouterStartsAndStops(t *testing.T) {
 		Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
 	fixture.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
-	stopResponse := fixture.send(http.MethodDelete, "/strategy-bots/3/run", "")
+	stopResponse := fixture.send(http.MethodDelete, "/strategy-bots/3/power", "")
 	require.Equal(t, http.StatusOK, stopResponse.Code)
 	assert.Contains(t, stopResponse.Body.String(), string(vo.StrategyBotStopped))
 }
@@ -289,7 +316,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 					CountRunningByOwner(gomock.Any(), signedInViewerID).Return(0, nil)
 			},
 			method:         http.MethodPost,
-			target:         "/strategy-bots/3/run",
+			target:         "/strategy-bots/3/power",
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
@@ -328,7 +355,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 					CountRunningByOwner(gomock.Any(), signedInViewerID).Return(10, nil)
 			},
 			method:         http.MethodPost,
-			target:         "/strategy-bots/3/run",
+			target:         "/strategy-bots/3/power",
 			expectedStatus: http.StatusConflict,
 		},
 		{
@@ -368,8 +395,8 @@ func TestStrategyBotRouterRefusesEveryRouteWithoutProofOfIdentity(t *testing.T) 
 		{http.MethodGet, "/strategy-bots/3"},
 		{http.MethodPut, "/strategy-bots/3"},
 		{http.MethodDelete, "/strategy-bots/3"},
-		{http.MethodPost, "/strategy-bots/3/run"},
-		{http.MethodDelete, "/strategy-bots/3/run"},
+		{http.MethodPost, "/strategy-bots/3/power"},
+		{http.MethodDelete, "/strategy-bots/3/power"},
 	}
 
 	for _, target := range targets {
@@ -394,12 +421,12 @@ func TestStrategyBotRouterRefusesAnUnreadableIdentifierOnEveryRouteThatTakesOne(
 		{http.MethodGet, "/strategy-bots/abc", ""},
 		{http.MethodPut, "/strategy-bots/abc", aStrategyBotBody},
 		{http.MethodDelete, "/strategy-bots/abc", ""},
-		{http.MethodPost, "/strategy-bots/abc/run", ""},
-		{http.MethodDelete, "/strategy-bots/abc/run", ""},
+		{http.MethodPost, "/strategy-bots/abc/power", ""},
+		{http.MethodDelete, "/strategy-bots/abc/power", ""},
 		{http.MethodPut, "/strategy-bots/0", aStrategyBotBody},
 		{http.MethodDelete, "/strategy-bots/0", ""},
-		{http.MethodPost, "/strategy-bots/0/run", ""},
-		{http.MethodDelete, "/strategy-bots/0/run", ""},
+		{http.MethodPost, "/strategy-bots/0/power", ""},
+		{http.MethodDelete, "/strategy-bots/0/power", ""},
 	}
 
 	for _, target := range targets {
@@ -465,7 +492,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
-			method: http.MethodPost, target: "/strategy-bots/3/run",
+			method: http.MethodPost, target: "/strategy-bots/3/power",
 		},
 		{
 			name: "stopping one",
@@ -476,7 +503,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 					UpdateRunState(gomock.Any(), gomock.Any()).
 					Return(errors.New("the database went away"))
 			},
-			method: http.MethodDelete, target: "/strategy-bots/3/run",
+			method: http.MethodDelete, target: "/strategy-bots/3/power",
 		},
 	}
 

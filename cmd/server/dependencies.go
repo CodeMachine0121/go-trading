@@ -344,27 +344,6 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 	)
 
-	strategyBotController := controller.NewStrategyBotController(
-		application.NewStrategyBotApplication(
-			strategyBotService,
-			strategyService,
-			telegramDeliveryService,
-		),
-	)
-
-	engine.POST("/strategy-bots", requiresSignIn, strategyBotController.CreateStrategyBot)
-	engine.GET("/strategy-bots", requiresSignIn, strategyBotController.ListStrategyBots)
-	engine.GET("/strategy-bots/:id", requiresSignIn, strategyBotController.GetStrategyBot)
-	engine.PUT("/strategy-bots/:id", requiresSignIn, strategyBotController.UpdateStrategyBot)
-	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
-	// Running is a subresource that either exists or does not, rather than two
-	// verbs. Pressing either button twice is then harmless because of the shape,
-	// not because something remembered to allow it.
-	engine.POST("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StartStrategyBot)
-	engine.DELETE("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StopStrategyBot)
-	// 一台機器人跑過哪幾輪，是它自己的一份東西，所以掛在它底下而不是另開一條路徑。
-	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
-
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,
 		strategyService,
@@ -376,6 +355,35 @@ func registerRoutes(
 		applicationConfig.StrategyBot.MaxConcurrentRounds,
 		applicationConfig.StrategyBot.RoundTimeout,
 	)
+
+	strategyBotController := controller.NewStrategyBotController(
+		application.NewStrategyBotApplication(
+			strategyBotService,
+			strategyService,
+			telegramDeliveryService,
+		),
+		strategyBotRunApplication,
+	)
+
+	engine.POST("/strategy-bots", requiresSignIn, strategyBotController.CreateStrategyBot)
+	engine.GET("/strategy-bots", requiresSignIn, strategyBotController.ListStrategyBots)
+	engine.GET("/strategy-bots/:id", requiresSignIn, strategyBotController.GetStrategyBot)
+	engine.PUT("/strategy-bots/:id", requiresSignIn, strategyBotController.UpdateStrategyBot)
+	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
+	// Being on is a subresource that either exists or does not, rather than two
+	// verbs. Pressing either button twice is then harmless because of the shape,
+	// not because something remembered to allow it.
+	//
+	// It is /power and not /run because a round is /runs, and two paths that differ
+	// by one letter while meaning completely different things is a mistake waiting
+	// to be made — by a reader, by a caller, and by whoever edits this next.
+	engine.POST("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StartStrategyBot)
+	engine.DELETE("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StopStrategyBot)
+	// 一台機器人跑過哪幾輪，是它自己的一份東西，所以掛在它底下而不是另開一條路徑。
+	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
+	// 立刻跑一輪。它與排程跑的那一輪走完全同一條路——不然「按下去看到的」
+	// 與「它自己跑出來的」就是兩件事，而那正是這顆按鈕要用來排除的東西。
+	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 
 	return kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication
 }

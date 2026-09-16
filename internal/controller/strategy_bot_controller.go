@@ -16,12 +16,22 @@ import (
 // StrategyBotController exposes the strategy bot use cases over HTTP.
 type StrategyBotController struct {
 	strategyBotApplication *application.StrategyBotApplication
+	// strategyBotRunApplication is the clock's side of a bot, and this controller
+	// reaches it for exactly one route: the button that runs a round by hand. It
+	// deliberately goes down the same path the scan does — a button whose answer
+	// differed from what the bot does on its own could not be used to find out what
+	// the bot does on its own.
+	strategyBotRunApplication *application.StrategyBotRunApplication
 }
 
 func NewStrategyBotController(
 	strategyBotApplication *application.StrategyBotApplication,
+	strategyBotRunApplication *application.StrategyBotRunApplication,
 ) *StrategyBotController {
-	return &StrategyBotController{strategyBotApplication: strategyBotApplication}
+	return &StrategyBotController{
+		strategyBotApplication:    strategyBotApplication,
+		strategyBotRunApplication: strategyBotRunApplication,
+	}
 }
 
 // CreateStrategyBot handles POST /strategy-bots.
@@ -191,12 +201,34 @@ func (strategyBotController *StrategyBotController) respondWithError(
 	}
 	if errors.Is(err, domains.ErrStrategyBotNameConflict) ||
 		errors.Is(err, domains.ErrStrategyBotRunning) ||
+		errors.Is(err, domains.ErrStrategyBotAlreadyRunningARound) ||
 		errors.Is(err, domains.ErrStrategyBotRunningLimitReached) {
 		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return
 	}
 
 	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+}
+
+// RunRoundNow handles POST /strategy-bots/:id/runs: run one round right now.
+//
+// It answers with the bot as it now stands rather than with the round, because what
+// somebody wants to see after pressing it is what changed — and the round itself is
+// one row in a history they can open.
+func (strategyBotController *StrategyBotController) RunRoundNow(ginContext *gin.Context) {
+	id, idIsReadable := strategyBotController.readID(ginContext)
+	if !idIsReadable {
+		return
+	}
+
+	strategyBotDto, err := strategyBotController.strategyBotRunApplication.RunRoundNow(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
+	if err != nil {
+		strategyBotController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, strategyBotDto)
 }
 
 // ListRunRecords handles GET /strategy-bots/:id/runs: what this bot has been doing.

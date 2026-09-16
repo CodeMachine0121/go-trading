@@ -42,3 +42,18 @@ var ErrStrategyBotDeliveryNotConfigured = errors.New("strategy bot delivery not 
 // has as many running bots as they may have. Nothing of theirs is stopped to make
 // room: they asked for one more, not for a swap.
 var ErrStrategyBotRunningLimitReached = errors.New("strategy bot running limit reached")
+
+// ErrStrategyBotAlreadyRunningARound is a hand-pressed round arriving while one is
+// already in flight for that bot.
+//
+// It is refused rather than queued, for the reason the scan skips a busy bot: the
+// waiting round would read the same candles and reach the same answer, and the
+// second one to finish would arrive to find the bot already moved on.
+var ErrStrategyBotAlreadyRunningARound = errors.New("strategy bot is already running a round")
+
+// StrategyBotAlreadyRunningARound is that refusal. It names no identifier, because
+// the person pressing the button is looking at the bot it is about.
+func StrategyBotAlreadyRunningARound() error {
+	return fmt.Errorf(
+		"%w: 這台機器人正在跑一輪，等它跑完再試一次", ErrStrategyBotAlreadyRunningARound)
+}

@@ -8992,14 +8992,14 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/run",
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "strategy-bots",
                 "{{strategyBotId}}",
-                "run"
+                "power"
               ]
             },
             "description": "啟動就是立刻跑第一輪——等一個間隔的話，設六十分鐘的機器人按下去之後一小時毫無反應。要先設定好 Telegram。"
@@ -9031,14 +9031,14 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/run",
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "strategy-bots",
                 "{{strategyBotId}}",
-                "run"
+                "power"
               ]
             },
             "description": "重複按沒有第二個效果，也不會把它已經送過的訊號清掉害它重送一次。"
@@ -9112,14 +9112,14 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/run",
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "strategy-bots",
                 "{{strategyBotId}}",
-                "run"
+                "power"
               ]
             },
             "description": "停止之後不再被排到；進行中的那一輪跑完為止。"
@@ -9145,14 +9145,14 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/run",
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/power",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "strategy-bots",
                 "{{strategyBotId}}",
-                "run"
+                "power"
               ]
             },
             "description": "他要的狀態已經達成了，說他失敗只會讓他再按一次。"
@@ -9273,6 +9273,39 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "立即跑一輪",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/runs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "runs"
+              ]
+            },
+            "description": "不等排程，現在就跑一輪。它走的是排程那一輪完全同一條路——不然按下去看到的，就不代表它自己跑會做的事。已停止的也跑得動：派它出去之前先試一次，是最普通的做法。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"跑一輪不會把它打開——那是電源鍵的事\", function () {",
+                  "    pm.expect(pm.response.json().runState).to.eql(\"stopped\");",
+                  "});"
                 ]
               }
             }

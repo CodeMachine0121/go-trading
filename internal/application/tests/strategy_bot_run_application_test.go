@@ -30,6 +30,7 @@ type strategyBotRunUnderTest struct {
 	messageDeliveryProxy       *mocks.MockIMessageDeliveryProxy
 	strategyRepository         *mocks.MockIStrategyRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
+	roundGuard                 *application.StrategyBotRoundGuard
 	t                          *testing.T
 }
 
@@ -52,6 +53,9 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(botRunNow).AnyTimes()
+
+	// 測試拿得到那把鎖，才問得出「正在跑的時候按下去會怎樣」。
+	roundGuard := application.NewStrategyBotRoundGuard()
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
@@ -82,7 +86,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				queryMaxResults),
 			clockProxy,
-			application.NewStrategyBotRoundGuard(),
+			roundGuard,
 			4,
 			time.Minute,
 		),
@@ -92,6 +96,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		messageDeliveryProxy:       messageDeliveryProxy,
 		strategyRepository:         strategyRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
+		roundGuard:                 roundGuard,
 		t:                          t,
 	}
 }
@@ -890,4 +895,95 @@ func TestStrategyBotRunApplicationHaltsWhenTheDeliverySettingIsGone(t *testing.T
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
 	require.NoError(t, runError)
+}
+
+func TestStrategyBotRunApplicationRunsARoundByHandDownTheSamePath(t *testing.T) {
+	// 按下去看到的，必須就是它自己跑會做的事——不然這顆鍵沒辦法用來確認任何事。
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil).AnyTimes()
+
+	delivered := ""
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			delivered = message
+
+			return vo.DeliveryFailureNone, nil
+		})
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunRoundNow(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, runError)
+	assert.Contains(t, delivered, "【買入】")
+}
+
+func TestStrategyBotRunApplicationRunsAStoppedBotByHand(t *testing.T) {
+	// 派它出去之前先試一次，是確認它說的是不是你要的意思最普通的做法。
+	// 非要執行中才試得動的話，唯一的測法就是讓它一直跑著。
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+
+	stoppedBot := aDueBot("")
+	stoppedBot.RunState = string(vo.StrategyBotStopped)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(stoppedBot, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil).AnyTimes()
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(vo.DeliveryFailureNone, nil)
+
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updated entities.StrategyBot) error {
+			// 跑一輪不會把它打開——那是電源鍵的事。
+			assert.Equal(t, string(vo.StrategyBotStopped), updated.RunState)
+
+			return nil
+		})
+
+	_, runError := underTest.strategyBotRunApplication.RunRoundNow(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, runError)
+}
+
+func TestStrategyBotRunApplicationRefusesAHandPressedRoundWhileOneIsInFlight(t *testing.T) {
+	// 排隊的那一輪會讀到同樣的 K 線、得到同樣的答案，而後跑完的那一個會發現
+	// 這台機器人已經往前走了。
+	underTest := newStrategyBotRunUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil).AnyTimes()
+	require.True(t, underTest.roundGuard.TryEnter(strategyBotID))
+
+	_, runError := underTest.strategyBotRunApplication.RunRoundNow(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.ErrorIs(t, runError, domains.ErrStrategyBotAlreadyRunningARound)
+}
+
+func TestStrategyBotRunApplicationRefusesToRunSomebodyElsesBotByHand(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunRoundNow(
+		context.Background(), strategyBotOwnerID+99, strategyBotID)
+
+	require.ErrorIs(t, runError, domains.ErrStrategyBotNotFound)
 }
