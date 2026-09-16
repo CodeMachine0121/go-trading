@@ -1,0 +1,481 @@
+package controller_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/controller"
+	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+)
+
+type strategyBotRouterUnderTest struct {
+	engine                     *gin.Engine
+	strategyBotRepository      *mocks.MockIStrategyBotRepository
+	strategyRepository         *mocks.MockIStrategyRepository
+	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
+}
+
+func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
+	gin.SetMode(gin.TestMode)
+	mockController := gomock.NewController(t)
+
+	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
+	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
+	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(mockController)
+
+	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
+	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
+
+	strategyBotController := controller.NewStrategyBotController(
+		application.NewStrategyBotApplication(
+			service.NewStrategyBotService(strategyBotRepository, clockProxy),
+			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			service.NewTelegramDeliveryService(
+				telegramDeliveryRepository,
+				mocks.NewMockISecretSealProxy(mockController),
+				mocks.NewMockIMessageDeliveryProxy(mockController),
+			),
+		))
+
+	engine := gin.New()
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
+	engine.POST("/strategy-bots", requiresSignIn, strategyBotController.CreateStrategyBot)
+	engine.GET("/strategy-bots", requiresSignIn, strategyBotController.ListStrategyBots)
+	engine.GET("/strategy-bots/:id", requiresSignIn, strategyBotController.GetStrategyBot)
+	engine.PUT("/strategy-bots/:id", requiresSignIn, strategyBotController.UpdateStrategyBot)
+	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
+	engine.POST("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StartStrategyBot)
+	engine.DELETE("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StopStrategyBot)
+
+	return strategyBotRouterUnderTest{
+		engine:                     engine,
+		strategyBotRepository:      strategyBotRepository,
+		strategyRepository:         strategyRepository,
+		telegramDeliveryRepository: telegramDeliveryRepository,
+	}
+}
+
+func (fixture strategyBotRouterUnderTest) send(
+	method string, target string, body string,
+) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
+	recorder := httptest.NewRecorder()
+	fixture.engine.ServeHTTP(recorder, request)
+
+	return recorder
+}
+
+// aStrategyBotBody is one bot with a nested buy condition, so that the nesting a
+// person builds on screen is proven to survive the journey in.
+const aStrategyBotBody = `{
+	"name": "早盤突破",
+	"symbol": "BTCUSDT",
+	"triggerIntervalMinutes": 5,
+	"signalSources": [
+		{"label": "A", "strategyId": 9, "aggregationInterval": "1h",
+		 "parameterValues": [{"name": "回看根數", "value": 20}]},
+		{"label": "B", "strategyId": 9, "aggregationInterval": "5m"}
+	],
+	"buyCondition": {
+		"operator": "and",
+		"conditions": [
+			{"sourceLabel": "A", "signal": "buy"},
+			{"sourceLabel": "B", "signal": "buy"}
+		]
+	},
+	"sellCondition": {"sourceLabel": "A", "signal": "sell"}
+}`
+
+func (fixture strategyBotRouterUnderTest) expectResolvableStrategy() {
+	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(entities.Strategy{
+			ID: 9, OwnerID: signedInViewerID, Name: "均線", Script: "//", ResultType: "signal",
+			Parameters: []entities.StrategyParameter{
+				{StrategyID: 9, Name: "回看根數", Kind: "lookbackCount", DefaultValue: 20},
+			},
+		}, nil).AnyTimes()
+}
+
+func aStoredStrategyBotRow(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
+	return entities.StrategyBot{
+		ID: 3, OwnerID: signedInViewerID, Name: "早盤突破", Symbol: "BTCUSDT",
+		TriggerIntervalMinutes: 5,
+		RunState:               string(runState),
+		SignalSources: []entities.StrategyBotSignalSource{
+			{ID: 20, StrategyBotID: 3, Label: "A", StrategyID: 9, AggregationInterval: "1h"},
+		},
+		ConditionNodes: []entities.StrategyBotConditionNode{
+			{ID: 10, StrategyBotID: 3, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
+			{ID: 11, StrategyBotID: 3, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
+		},
+	}
+}
+
+func TestStrategyBotRouterCreatesABotAndAnswersWithIt(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableStrategy()
+
+	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+			// The nesting a person built on screen arrived intact.
+			require.Len(t, bot.ConditionNodes, 2)
+			assert.Equal(t, string(vo.ConditionOperatorAnd), bot.ConditionNodes[0].Operator)
+			require.Len(t, bot.ConditionNodes[0].Children, 2)
+			// The owner comes from the proof of identity, never from the body.
+			assert.Equal(t, signedInViewerID, bot.OwnerID)
+
+			return aStoredStrategyBotRow(vo.StrategyBotStopped), nil
+		})
+
+	response := fixture.send(http.MethodPost, "/strategy-bots", aStrategyBotBody)
+
+	require.Equal(t, http.StatusCreated, response.Code)
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.Equal(t, "早盤突破", answer["name"])
+	assert.Equal(t, string(vo.StrategyBotStopped), answer["runState"])
+	// A bot's owner is nothing a person reading their own bots learns from.
+	assert.NotContains(t, answer, "ownerId")
+}
+
+func TestStrategyBotRouterListsAndReadsBots(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+
+	fixture.strategyBotRepository.EXPECT().FindAllByOwner(gomock.Any(), signedInViewerID).
+		Return([]entities.StrategyBot{aStoredStrategyBotRow(vo.StrategyBotRunning)}, nil)
+	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+		Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
+
+	listResponse := fixture.send(http.MethodGet, "/strategy-bots", "")
+	require.Equal(t, http.StatusOK, listResponse.Code)
+	listed := []map[string]any{}
+	require.NoError(t, json.Unmarshal(listResponse.Body.Bytes(), &listed))
+	require.Len(t, listed, 1)
+	assert.Equal(t, string(vo.StrategyBotRunning), listed[0]["runState"])
+
+	getResponse := fixture.send(http.MethodGet, "/strategy-bots/3", "")
+	assert.Equal(t, http.StatusOK, getResponse.Code)
+}
+
+func TestStrategyBotRouterRewritesAndDeletes(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableStrategy()
+
+	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil).Times(2)
+	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+	fixture.strategyBotRepository.EXPECT().Delete(gomock.Any(), uint(3)).Return(nil)
+
+	updateResponse := fixture.send(http.MethodPut, "/strategy-bots/3", aStrategyBotBody)
+	assert.Equal(t, http.StatusOK, updateResponse.Code)
+
+	deleteResponse := fixture.send(http.MethodDelete, "/strategy-bots/3", "")
+	assert.Equal(t, http.StatusNoContent, deleteResponse.Code)
+}
+
+func TestStrategyBotRouterStartsAndStops(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+
+	fixture.telegramDeliveryRepository.EXPECT().FindOneByUser(gomock.Any(), signedInViewerID).
+		Return(entities.TelegramDelivery{UserID: signedInViewerID}, nil).AnyTimes()
+	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+	fixture.strategyBotRepository.EXPECT().
+		CountRunningByOwner(gomock.Any(), signedInViewerID).Return(0, nil)
+	fixture.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	startResponse := fixture.send(http.MethodPost, "/strategy-bots/3/run", "")
+	require.Equal(t, http.StatusOK, startResponse.Code)
+	assert.Contains(t, startResponse.Body.String(), string(vo.StrategyBotRunning))
+
+	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+		Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
+	fixture.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	stopResponse := fixture.send(http.MethodDelete, "/strategy-bots/3/run", "")
+	require.Equal(t, http.StatusOK, stopResponse.Code)
+	assert.Contains(t, stopResponse.Body.String(), string(vo.StrategyBotStopped))
+}
+
+func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
+	testCases := []struct {
+		name           string
+		arrange        func(fixture strategyBotRouterUnderTest)
+		method         string
+		target         string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name:           "an identifier that is not a positive number",
+			arrange:        func(strategyBotRouterUnderTest) {},
+			method:         http.MethodGet,
+			target:         "/strategy-bots/0",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "a body that is not readable",
+			arrange:        func(strategyBotRouterUnderTest) {},
+			method:         http.MethodPost,
+			target:         "/strategy-bots",
+			body:           "{",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "a bot that breaks a rule",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.expectResolvableStrategy()
+			},
+			method:         http.MethodPost,
+			target:         "/strategy-bots",
+			body:           `{"name": "", "symbol": "BTCUSDT", "triggerIntervalMinutes": 5}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "a bot that is not this person's",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				strangersBot := aStoredStrategyBotRow(vo.StrategyBotStopped)
+				strangersBot.OwnerID = signedInViewerID + 1
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(strangersBot, nil)
+			},
+			method:         http.MethodGet,
+			target:         "/strategy-bots/3",
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name: "starting with nowhere to be spoken to",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.telegramDeliveryRepository.EXPECT().
+					FindOneByUser(gomock.Any(), signedInViewerID).
+					Return(entities.TelegramDelivery{}, domains.ErrTelegramDeliveryNotConfigured)
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+				fixture.strategyBotRepository.EXPECT().
+					CountRunningByOwner(gomock.Any(), signedInViewerID).Return(0, nil)
+			},
+			method:         http.MethodPost,
+			target:         "/strategy-bots/3/run",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "rewriting a bot that is running",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.expectResolvableStrategy()
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
+			},
+			method:         http.MethodPut,
+			target:         "/strategy-bots/3",
+			body:           aStrategyBotBody,
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "a name this person already uses",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.expectResolvableStrategy()
+				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+					Return(entities.StrategyBot{}, domains.ErrStrategyBotNameConflict)
+			},
+			method:         http.MethodPost,
+			target:         "/strategy-bots",
+			body:           aStrategyBotBody,
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "starting at the running limit",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.telegramDeliveryRepository.EXPECT().
+					FindOneByUser(gomock.Any(), signedInViewerID).
+					Return(entities.TelegramDelivery{UserID: signedInViewerID}, nil)
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+				fixture.strategyBotRepository.EXPECT().
+					CountRunningByOwner(gomock.Any(), signedInViewerID).Return(10, nil)
+			},
+			method:         http.MethodPost,
+			target:         "/strategy-bots/3/run",
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "storage that could not answer",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.strategyBotRepository.EXPECT().
+					FindAllByOwner(gomock.Any(), signedInViewerID).
+					Return(nil, errors.New("the database went away"))
+			},
+			method:         http.MethodGet,
+			target:         "/strategy-bots",
+			expectedStatus: http.StatusBadGateway,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			testCase.arrange(fixture)
+
+			response := fixture.send(testCase.method, testCase.target, testCase.body)
+
+			assert.Equal(t, testCase.expectedStatus, response.Code)
+		})
+	}
+}
+
+func TestStrategyBotRouterRefusesEveryRouteWithoutProofOfIdentity(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+
+	targets := []struct {
+		method string
+		target string
+	}{
+		{http.MethodPost, "/strategy-bots"},
+		{http.MethodGet, "/strategy-bots"},
+		{http.MethodGet, "/strategy-bots/3"},
+		{http.MethodPut, "/strategy-bots/3"},
+		{http.MethodDelete, "/strategy-bots/3"},
+		{http.MethodPost, "/strategy-bots/3/run"},
+		{http.MethodDelete, "/strategy-bots/3/run"},
+	}
+
+	for _, target := range targets {
+		t.Run(target.method+" "+target.target, func(t *testing.T) {
+			request := httptest.NewRequest(target.method, target.target, strings.NewReader(""))
+			recorder := httptest.NewRecorder()
+			fixture.engine.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
+}
+
+func TestStrategyBotRouterRefusesAnUnreadableIdentifierOnEveryRouteThatTakesOne(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+
+	targets := []struct {
+		method string
+		target string
+		body   string
+	}{
+		{http.MethodGet, "/strategy-bots/abc", ""},
+		{http.MethodPut, "/strategy-bots/abc", aStrategyBotBody},
+		{http.MethodDelete, "/strategy-bots/abc", ""},
+		{http.MethodPost, "/strategy-bots/abc/run", ""},
+		{http.MethodDelete, "/strategy-bots/abc/run", ""},
+		{http.MethodPut, "/strategy-bots/0", aStrategyBotBody},
+		{http.MethodDelete, "/strategy-bots/0", ""},
+		{http.MethodPost, "/strategy-bots/0/run", ""},
+		{http.MethodDelete, "/strategy-bots/0/run", ""},
+	}
+
+	for _, target := range targets {
+		t.Run(target.method+" "+target.target, func(t *testing.T) {
+			response := fixture.send(target.method, target.target, target.body)
+
+			assert.Equal(t, http.StatusBadRequest, response.Code)
+		})
+	}
+}
+
+func TestStrategyBotRouterRefusesAnUnreadableBodyOnARewrite(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+
+	response := fixture.send(http.MethodPut, "/strategy-bots/3", "{")
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+}
+
+func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testing.T) {
+	testCases := []struct {
+		name    string
+		arrange func(fixture strategyBotRouterUnderTest)
+		method  string
+		target  string
+		body    string
+	}{
+		{
+			name: "reading one",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(entities.StrategyBot{}, errors.New("the database went away"))
+			},
+			method: http.MethodGet, target: "/strategy-bots/3",
+		},
+		{
+			name: "deleting one",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+				fixture.strategyBotRepository.EXPECT().Delete(gomock.Any(), uint(3)).
+					Return(errors.New("the database went away"))
+			},
+			method: http.MethodDelete, target: "/strategy-bots/3",
+		},
+		{
+			name: "rewriting one",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.expectResolvableStrategy()
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+					Return(entities.StrategyBot{}, errors.New("the database went away"))
+			},
+			method: http.MethodPut, target: "/strategy-bots/3", body: aStrategyBotBody,
+		},
+		{
+			name: "starting one",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.telegramDeliveryRepository.EXPECT().
+					FindOneByUser(gomock.Any(), signedInViewerID).
+					Return(entities.TelegramDelivery{UserID: signedInViewerID}, nil)
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(entities.StrategyBot{}, errors.New("the database went away"))
+			},
+			method: http.MethodPost, target: "/strategy-bots/3/run",
+		},
+		{
+			name: "stopping one",
+			arrange: func(fixture strategyBotRouterUnderTest) {
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
+				fixture.strategyBotRepository.EXPECT().
+					UpdateRunState(gomock.Any(), gomock.Any()).
+					Return(errors.New("the database went away"))
+			},
+			method: http.MethodDelete, target: "/strategy-bots/3/run",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyBotRouterUnderTest(t)
+			testCase.arrange(fixture)
+
+			response := fixture.send(testCase.method, testCase.target, testCase.body)
+
+			assert.Equal(t, http.StatusBadGateway, response.Code)
+		})
+	}
+}
