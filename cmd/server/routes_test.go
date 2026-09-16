@@ -39,6 +39,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /marketplace/strategies/:id/adoption",
 		"DELETE /strategies/:id",
 		"DELETE /strategies/:id/publication",
+		"DELETE /strategy-bots/:id",
+		"DELETE /strategy-bots/:id/run",
 		// Taking away the place this system was told to speak to. It names nobody
 		// but the person asking, so it cannot reach a symbol either.
 		"DELETE /users/me/telegram-delivery",
@@ -63,6 +65,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /marketplace/strategies",
 		"GET /strategies",
 		"GET /strategies/:id",
+		"GET /strategy-bots",
+		"GET /strategy-bots/:id",
 		"GET /trading-symbols",
 		// Recognising a person reads and writes only users. None of these three can
 		// name a symbol, so the boundary this test holds is intact.
@@ -81,6 +85,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /sessions/revocation",
 		"POST /strategies",
 		"POST /strategies/:id/publication",
+		"POST /strategy-bots",
+		"POST /strategy-bots/:id/run",
 		"POST /users",
 		// Replacing one's own password. It names nobody but the person asking —
 		// who that is comes from the proof on the request — so it cannot reach a
@@ -92,6 +98,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /watchlist",
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategies/:id",
+		"PUT /strategy-bots/:id",
 		"PUT /users/me/telegram-delivery",
 	}, mountedRoutes)
 }

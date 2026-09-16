@@ -187,6 +187,27 @@ type TelegramConfig struct {
 	RequestTimeout time.Duration
 }
 
+// StrategyBotConfig is how the standing bots are run.
+//
+// All three are settings rather than constants because all three are about this
+// deployment's appetite rather than about what a bot means. The limits that *are*
+// about what a bot means — how deep a condition may nest, how many sources it may
+// have, how many bots one person may run at once — are written in the domain, where
+// changing one is a change to the rules and not to a machine.
+type StrategyBotConfig struct {
+	// ScanInterval is how often the due bots are looked for. A minute matches the
+	// shortest trigger interval a bot may have, so nothing waits longer for its
+	// round than it asked to.
+	ScanInterval time.Duration
+	// MaxConcurrentRounds caps both how many bots one scan pulls out of the store
+	// and how many run side by side. One number rather than two: a round that is
+	// read and then not run is a read that bought nothing.
+	MaxConcurrentRounds int
+	// RoundTimeout is how long one bot's round may take before it is abandoned. A
+	// round that outlives its own trigger interval has stopped being about now.
+	RoundTimeout time.Duration
+}
+
 // ApplicationConfig holds every setting the binaries read from the environment.
 type ApplicationConfig struct {
 	ServerPort             string
@@ -205,6 +226,7 @@ type ApplicationConfig struct {
 	Authentication AuthenticationConfig
 	Secrets        SecretsConfig
 	Telegram       TelegramConfig
+	StrategyBot    StrategyBotConfig
 	Database       DatabaseConfig
 }
 
@@ -283,6 +305,13 @@ func Load() ApplicationConfig {
 			// route works is not left wondering.
 			RequestTimeout: time.Duration(
 				positiveIntWithDefault("TELEGRAM_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		},
+		StrategyBot: StrategyBotConfig{
+			ScanInterval: time.Duration(
+				positiveIntWithDefault("STRATEGY_BOT_SCAN_INTERVAL_SECONDS", 60)) * time.Second,
+			MaxConcurrentRounds: positiveIntWithDefault("STRATEGY_BOT_MAX_CONCURRENT_ROUNDS", 4),
+			RoundTimeout: time.Duration(
+				positiveIntWithDefault("STRATEGY_BOT_ROUND_TIMEOUT_SECONDS", 120)) * time.Second,
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

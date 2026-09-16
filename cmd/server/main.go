@@ -28,7 +28,7 @@ func main() {
 	}
 
 	engine := gin.Default()
-	kCandleFollowApplication, kCandleIngestionApplication := registerRoutes(
+	kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication := registerRoutes(
 		engine, database, applicationConfig)
 
 	// The signals are listened for before anything is started, so an interrupt
@@ -52,7 +52,10 @@ func main() {
 		server,
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
-				applicationConfig, kCandleFollowApplication, kCandleIngestionApplication)),
+				applicationConfig,
+				kCandleFollowApplication,
+				kCandleIngestionApplication,
+				strategyBotRunApplication)),
 		kCandleFollowApplication.Stop,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)
