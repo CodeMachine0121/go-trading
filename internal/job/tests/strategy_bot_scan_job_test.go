@@ -36,6 +36,10 @@ func newStrategyBotScanJobUnderTest(
 	clockProxy.EXPECT().Now().Return(scanNow).AnyTimes()
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
+	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
+	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
+	strategyBotRunRecordRepository.EXPECT().
+		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	strategyBotRepository.EXPECT().FindDue(gomock.Any(), scanNow, gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ time.Time, _ int,
@@ -60,7 +64,8 @@ func newStrategyBotScanJobUnderTest(
 
 	return job.NewStrategyBotScanJob(
 		application.NewStrategyBotRunApplication(
-			service.NewStrategyBotService(strategyBotRepository, clockProxy),
+			service.NewStrategyBotService(
+				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
 			service.NewStrategyService(
 				mocks.NewMockIStrategyRepository(mockController), publishedStrategyRepository),
 			service.NewIndicatorCalculationService(

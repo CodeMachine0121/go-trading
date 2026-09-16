@@ -198,3 +198,24 @@ func (strategyBotController *StrategyBotController) respondWithError(
 
 	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
 }
+
+// ListRunRecords handles GET /strategy-bots/:id/runs: what this bot has been doing.
+//
+// It is a route of its own rather than another field on the bot, because the two are
+// read at different moments and at different sizes: the list of bots is opened to
+// see which one needs looking at, and a history is opened about one of them.
+func (strategyBotController *StrategyBotController) ListRunRecords(ginContext *gin.Context) {
+	id, idIsReadable := strategyBotController.readID(ginContext)
+	if !idIsReadable {
+		return
+	}
+
+	runRecordDtos, err := strategyBotController.strategyBotApplication.ListRunRecords(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
+	if err != nil {
+		strategyBotController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, runRecordDtos)
+}

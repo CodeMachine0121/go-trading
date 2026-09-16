@@ -226,7 +226,7 @@ func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
 		{
 			name: "a concluded round that sent something records it",
 			outcome: domains.NewStrategyBotRoundConcludedOutcome(
-				vo.SignalSell, false),
+				vo.StrategyBotVerdictSell, vo.SignalSell, false),
 			expectedRunState:       vo.StrategyBotRunning,
 			expectedLastSentSignal: string(vo.SignalSell),
 			expectedConflicting:    false,
@@ -234,7 +234,7 @@ func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
 		},
 		{
 			name:                   "a concluded round that sent nothing leaves the last signal alone",
-			outcome:                domains.NewStrategyBotRoundConcludedOutcome("", false),
+			outcome:                domains.NewStrategyBotRoundConcludedOutcome(vo.StrategyBotVerdictBuy, "", false),
 			expectedRunState:       vo.StrategyBotRunning,
 			expectedLastSentSignal: string(vo.SignalBuy),
 			expectedConflicting:    false,
@@ -261,6 +261,66 @@ func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
 			if testCase.expectsTheClockMoved {
 				assert.Equal(t, now.Add(5*time.Minute), endedBot.NextRunAt)
 			}
+		})
+	}
+}
+
+func TestStrategyBotRoundOutcomeRecordedResult(t *testing.T) {
+	testCases := []struct {
+		name           string
+		outcome        domains.StrategyBotRoundOutcomeDomain
+		expectedResult vo.SignalVo
+	}{
+		{
+			name: "買入就記買入",
+			outcome: domains.NewStrategyBotRoundConcludedOutcome(
+				vo.StrategyBotVerdictBuy, vo.SignalBuy, false),
+			expectedResult: vo.SignalBuy,
+		},
+		{
+			// 記的是這一輪**想的**，不是送出去的那個：一台連續十二輪都認為該買的機器人
+			// 只送了一則訊息，而那十二輪它都想著買入。
+			name: "想了買入但沒送出去，還是記買入",
+			outcome: domains.NewStrategyBotRoundConcludedOutcome(
+				vo.StrategyBotVerdictBuy, "", false),
+			expectedResult: vo.SignalBuy,
+		},
+		{
+			name: "賣出就記賣出",
+			outcome: domains.NewStrategyBotRoundConcludedOutcome(
+				vo.StrategyBotVerdictSell, vo.SignalSell, false),
+			expectedResult: vo.SignalSell,
+		},
+		{
+			name: "沒有結論記成持有",
+			outcome: domains.NewStrategyBotRoundConcludedOutcome(
+				vo.StrategyBotVerdictNone, "", false),
+			expectedResult: vo.SignalHold,
+		},
+		{
+			// 打架、跳過、停擺，從讀的人那一側都是同一件事：它沒有叫我做什麼。
+			// 為什麼沒有，在機器人自己身上——那裡才處理得了。
+			name: "打架記成持有",
+			outcome: domains.NewStrategyBotRoundConcludedOutcome(
+				vo.StrategyBotVerdictConflict, "", true),
+			expectedResult: vo.SignalHold,
+		},
+		{
+			name:           "跳過記成持有",
+			outcome:        domains.NewStrategyBotRoundSkippedOutcome(),
+			expectedResult: vo.SignalHold,
+		},
+		{
+			name: "停擺記成持有",
+			outcome: domains.NewStrategyBotRoundHaltedOutcome(
+				vo.StrategyBotHaltScriptFailed),
+			expectedResult: vo.SignalHold,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedResult, testCase.outcome.RecordedResult())
 		})
 	}
 }

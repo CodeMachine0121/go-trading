@@ -164,12 +164,28 @@ func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 	recordContext, endRecord := context.WithTimeout(scanContext, strategyBotRecordTimeout)
 	defer endRecord()
 
-	if recordError := strategyBotRunApplication.strategyBotService.RecordRound(
-		recordContext, botDto.ID, botDto.NextRunAt, outcomeDto); recordError != nil {
+	endedBot, applied, recordError := strategyBotRunApplication.strategyBotService.RecordRound(
+		recordContext, botDto.ID, botDto.NextRunAt, outcomeDto)
+	if recordError != nil {
 		// Said out loud rather than swallowed: this is the one failure whose
 		// symptom — a hot loop of identical messages — is invisible from the
 		// outside, so the log is the only place anybody could ever see it coming.
 		log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
+
+		return
+	}
+
+	// A bot the system just stopped says so, if it still can. Two of the five halt
+	// reasons are the message path itself being broken, so those attempts fail —
+	// but the other three are exactly the case where somebody would otherwise find
+	// out weeks later, by wondering why they had heard nothing.
+	//
+	// Only when this round was the one that stopped it: a round that arrived to
+	// find the bot already moved on has nothing to announce.
+	if applied && endedBot.HaltReason != "" {
+		_, _ = strategyBotRunApplication.telegramDeliveryService.SendMessage(
+			recordContext, endedBot.OwnerID,
+			strategyBotRunApplication.strategyBotService.WriteStoppedMessage(endedBot))
 	}
 }
 
@@ -215,7 +231,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	}
 
 	if !decision.ShouldSend {
-		return concludedRound("", decision.Conflicting)
+		return concludedRound(decision.Verdict, "", decision.Conflicting)
 	}
 
 	// One last look before speaking. Working out this round may have taken a while,
@@ -245,10 +261,10 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	// the last sent signal where it was, so the next round offers it again instead of
 	// assuming it got through.
 	if deliveryFailure != vo.DeliveryFailureNone {
-		return concludedRound("", decision.Conflicting)
+		return concludedRound(decision.Verdict, "", decision.Conflicting)
 	}
 
-	return concludedRound(decision.Verdict, decision.Conflicting)
+	return concludedRound(decision.Verdict, decision.Verdict, decision.Conflicting)
 }
 
 // roundSkipped is the outcome kind that changes nothing but when the bot is next
@@ -262,9 +278,10 @@ func skippedRound() dto.StrategyBotRoundOutcomeDto {
 	return dto.StrategyBotRoundOutcomeDto{Kind: roundSkipped}
 }
 
-func concludedRound(sentSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
+func concludedRound(verdict string, sentSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
 	return dto.StrategyBotRoundOutcomeDto{
 		Kind:        "concluded",
+		Verdict:     verdict,
 		SentSignal:  sentSignal,
 		Conflicting: conflicting,
 	}

@@ -67,6 +67,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /strategies/:id",
 		"GET /strategy-bots",
 		"GET /strategy-bots/:id",
+		"GET /strategy-bots/:id/runs",
 		"GET /trading-symbols",
 		// Recognising a person reads and writes only users. None of these three can
 		// name a symbol, so the boundary this test holds is intact.

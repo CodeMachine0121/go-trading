@@ -16,6 +16,15 @@ type StrategyBotRoundOutcomeDto struct {
 	Kind string
 	// HaltReason is set only on a halted round.
 	HaltReason string
+	// Verdict is what the round concluded, on a concluded round: "buy", "sell",
+	// "none" or "conflict".
+	//
+	// It is kept apart from SentSignal because they answer different questions.
+	// SentSignal decides what the bot remembers saying; Verdict is what it actually
+	// thought this round, whether or not that was worth repeating — and a history
+	// built from SentSignal would show one "buy" where a bot held that view for
+	// twelve rounds running.
+	Verdict string
 	// SentSignal is what actually reached Telegram, on a concluded round. Empty
 	// when nothing was sent — a conclusion nobody received has not been said.
 	SentSignal string

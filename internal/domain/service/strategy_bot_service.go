@@ -20,17 +20,20 @@ import (
 // the application layer's job. A dependency that is not here cannot be reached for
 // by accident later.
 type StrategyBotService struct {
-	strategyBotRepository domaininterface.IStrategyBotRepository
-	clockProxy            domaininterface.IClockProxy
+	strategyBotRepository          domaininterface.IStrategyBotRepository
+	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository
+	clockProxy                     domaininterface.IClockProxy
 }
 
 func NewStrategyBotService(
 	strategyBotRepository domaininterface.IStrategyBotRepository,
+	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *StrategyBotService {
 	return &StrategyBotService{
-		strategyBotRepository: strategyBotRepository,
-		clockProxy:            clockProxy,
+		strategyBotRepository:          strategyBotRepository,
+		strategyBotRunRecordRepository: strategyBotRunRecordRepository,
+		clockProxy:                     clockProxy,
 	}
 }
 
@@ -147,56 +150,65 @@ func (strategyBotService *StrategyBotService) DeleteStrategyBot(
 // setting is not this service's to read. Starting an already running bot changes
 // nothing and is not a failure — including not clearing what it has already sent,
 // which a second press must not turn into a repeat message.
+// The second return value says whether **this call** was the one that changed it.
+// Pressing the button twice must not announce twice: the second press asks for a
+// state the bot is already in, and a message saying so would be a message about
+// nothing.
 func (strategyBotService *StrategyBotService) StartStrategyBot(
 	executionContext context.Context, viewerID uint, id uint, hasDeliverySetting bool,
-) (dto.StrategyBotDto, error) {
+) (dto.StrategyBotDto, bool, error) {
 	storedBot, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id)
 	if findError != nil {
-		return dto.StrategyBotDto{}, findError
+		return dto.StrategyBotDto{}, false, findError
 	}
 
 	runStateDomain := domains.NewStrategyBotRunStateDomain(storedBot)
 	if runStateDomain.IsRunning() {
-		return storedBot.ToDto(), nil
+		return storedBot.ToDto(), false, nil
 	}
 
 	runningBotCount, countError := strategyBotService.strategyBotRepository.CountRunningByOwner(
 		executionContext, storedBot.OwnerID)
 	if countError != nil {
-		return dto.StrategyBotDto{}, countError
+		return dto.StrategyBotDto{}, false, countError
 	}
 
 	if startableError := runStateDomain.RequireStartable(
 		hasDeliverySetting, runningBotCount); startableError != nil {
-		return dto.StrategyBotDto{}, startableError
+		return dto.StrategyBotDto{}, false, startableError
 	}
 
 	startedBot := runStateDomain.Start(strategyBotService.clockProxy.Now())
 	if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
 		executionContext, startedBot); updateError != nil {
-		return dto.StrategyBotDto{}, updateError
+		return dto.StrategyBotDto{}, false, updateError
 	}
 
-	return startedBot.ToDto(), nil
+	return startedBot.ToDto(), true, nil
 }
 
 // StopStrategyBot takes the viewer's own bot off duty. Stopping one that is already
 // stopped is not a failure: the state they asked for is the state it is in.
+// The second return value says whether this call was the one that stopped it, for
+// the same reason as starting: a second press asks for a state it is already in.
 func (strategyBotService *StrategyBotService) StopStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
-) (dto.StrategyBotDto, error) {
+) (dto.StrategyBotDto, bool, error) {
 	storedBot, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id)
 	if findError != nil {
-		return dto.StrategyBotDto{}, findError
+		return dto.StrategyBotDto{}, false, findError
 	}
 
-	stoppedBot := domains.NewStrategyBotRunStateDomain(storedBot).Stop()
+	runStateDomain := domains.NewStrategyBotRunStateDomain(storedBot)
+	wasRunning := runStateDomain.IsRunning()
+
+	stoppedBot := runStateDomain.Stop()
 	if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
 		executionContext, stoppedBot); updateError != nil {
-		return dto.StrategyBotDto{}, updateError
+		return dto.StrategyBotDto{}, false, updateError
 	}
 
-	return stoppedBot.ToDto(), nil
+	return stoppedBot.ToDto(), wasRunning, nil
 }
 
 // FindDueStrategyBots returns running bots whose next round has come, oldest first
@@ -294,15 +306,18 @@ func (strategyBotService *StrategyBotService) WriteRoundMessage(
 // several exits, and with a method per exit the one that forgets to call its own
 // leaves a bot due forever — running flat out against the database and Telegram,
 // and looking from the outside exactly like a bot that is working.
+// It hands back the bot as it now stands, and whether this round's outcome was
+// applied at all — a round that arrives to find the bot has moved on writes nothing,
+// and whoever called must not then announce something that did not happen.
 func (strategyBotService *StrategyBotService) RecordRound(
 	executionContext context.Context, id uint, dueAt time.Time,
 	outcomeDto dto.StrategyBotRoundOutcomeDto,
-) error {
+) (dto.StrategyBotDto, bool, error) {
 	outcome := domains.NewStrategyBotRoundOutcomeDomainOf(outcomeDto)
 
 	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
 	if findError != nil {
-		return findError
+		return dto.StrategyBotDto{}, false, findError
 	}
 
 	// This bot has to still be waiting for *this* round. Between a round starting
@@ -315,13 +330,74 @@ func (strategyBotService *StrategyBotService) RecordRound(
 	// The due time is the token. Nothing else moves it, so a different one means
 	// something else has already spoken for this bot.
 	if !storedBot.NextRunAt.UTC().Equal(dueAt.UTC()) {
-		return nil
+		return storedBot.ToDto(), false, nil
 	}
 
-	endedBot := outcome.ApplyTo(
-		domains.NewStrategyBotRunStateDomain(storedBot), strategyBotService.clockProxy.Now())
+	ranAt := strategyBotService.clockProxy.Now()
+	endedBot := outcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), ranAt)
 
-	return strategyBotService.strategyBotRepository.UpdateRunState(executionContext, endedBot)
+	if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
+		executionContext, endedBot); updateError != nil {
+		return dto.StrategyBotDto{}, false, updateError
+	}
+
+	// The history is written after the bot, and its failure is reported. Writing it
+	// first would leave a round remembered that never happened; not reporting it
+	// would let a bot's history quietly stop growing while the bot carried on, and
+	// somebody would open it next month to find it ends in August.
+	if appendError := strategyBotService.strategyBotRunRecordRepository.Append(
+		executionContext, id, ranAt, string(outcome.RecordedResult())); appendError != nil {
+		return dto.StrategyBotDto{}, false, appendError
+	}
+
+	return endedBot.ToDto(), true, nil
+}
+
+// WriteStartedMessage and WriteStoppedMessage are the two things a bot says about
+// itself, rather than about the market.
+//
+// They are here because writing them is a domain decision — which words, and whether
+// a halt says why — and because the layer that sends them may not build a model to
+// ask.
+func (strategyBotService *StrategyBotService) WriteStartedMessage(
+	botDto dto.StrategyBotDto,
+) string {
+	return domains.NewStrategyBotLifecycleMessageDomain(
+		botDto.Name, botDto.Symbol, vo.StrategyBotHaltNone).StartedText()
+}
+
+func (strategyBotService *StrategyBotService) WriteStoppedMessage(
+	botDto dto.StrategyBotDto,
+) string {
+	return domains.NewStrategyBotLifecycleMessageDomain(
+		botDto.Name, botDto.Symbol,
+		vo.StrategyBotHaltReasonVo(botDto.HaltReason)).StoppedText()
+}
+
+// ListRunRecords is what this bot has been doing: its remembered rounds, newest
+// first.
+//
+// It serves owners only, like everything else about a bot. A stranger is owed the
+// same sentence as a bot that is not there.
+func (strategyBotService *StrategyBotService) ListRunRecords(
+	executionContext context.Context, viewerID uint, id uint,
+) ([]dto.StrategyBotRunRecordDto, error) {
+	if _, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id); findError != nil {
+		return nil, findError
+	}
+
+	runRecords, listError := strategyBotService.strategyBotRunRecordRepository.FindLatestByBot(
+		executionContext, id)
+	if listError != nil {
+		return nil, listError
+	}
+
+	runRecordDtos := make([]dto.StrategyBotRunRecordDto, 0, len(runRecords))
+	for _, runRecord := range runRecords {
+		runRecordDtos = append(runRecordDtos, runRecord.ToDto())
+	}
+
+	return runRecordDtos, nil
 }
 
 // findOwnedBot is the two steps in front of everything a person does to a bot: find

@@ -32,6 +32,7 @@ const (
 type StrategyBotRoundOutcomeDomain struct {
 	skipped     bool
 	haltReason  vo.StrategyBotHaltReasonVo
+	verdict     vo.StrategyBotVerdictVo
 	sentSignal  vo.SignalVo
 	conflicting bool
 }
@@ -51,7 +52,9 @@ func NewStrategyBotRoundOutcomeDomainOf(
 			vo.StrategyBotHaltReasonVo(outcomeDto.HaltReason))
 	case strategyBotRoundConcluded:
 		return NewStrategyBotRoundConcludedOutcome(
-			vo.SignalVo(outcomeDto.SentSignal), outcomeDto.Conflicting)
+			vo.StrategyBotVerdictVo(outcomeDto.Verdict),
+			vo.SignalVo(outcomeDto.SentSignal),
+			outcomeDto.Conflicting)
 	default:
 		return NewStrategyBotRoundSkippedOutcome()
 	}
@@ -76,9 +79,32 @@ func NewStrategyBotRoundHaltedOutcome(
 // what actually reached Telegram, and is empty when nothing was sent — a conclusion
 // nobody received has not been said.
 func NewStrategyBotRoundConcludedOutcome(
-	sentSignal vo.SignalVo, conflicting bool,
+	verdict vo.StrategyBotVerdictVo, sentSignal vo.SignalVo, conflicting bool,
 ) StrategyBotRoundOutcomeDomain {
-	return StrategyBotRoundOutcomeDomain{sentSignal: sentSignal, conflicting: conflicting}
+	return StrategyBotRoundOutcomeDomain{
+		verdict: verdict, sentSignal: sentSignal, conflicting: conflicting}
+}
+
+// RecordedResult is this round as its history remembers it: buy, sell, or hold.
+//
+// Everything that is not a position is one thing from a reader's side — conflicted,
+// concluded nothing, skipped, halted the bot. Why it was none of those is on the bot
+// itself, in its halt reason and its conflict mark, where it can actually be acted
+// on; a history spelling out four kinds of silence would be four columns answering a
+// question nobody asked of it.
+//
+// It reads the verdict and not the signal that was sent. A bot holding the same view
+// for twelve rounds sent one message and thought "buy" twelve times, and the history
+// is about what it thought.
+func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResult() vo.SignalVo {
+	switch strategyBotRoundOutcomeDomain.verdict {
+	case vo.StrategyBotVerdictBuy:
+		return vo.SignalBuy
+	case vo.StrategyBotVerdictSell:
+		return vo.SignalSell
+	default:
+		return vo.SignalHold
+	}
 }
 
 // ApplyTo is this outcome written onto the bot it happened to, handing back the

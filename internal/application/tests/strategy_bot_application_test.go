@@ -27,12 +27,15 @@ const (
 )
 
 type strategyBotApplicationUnderTest struct {
-	strategyBotApplication      *application.StrategyBotApplication
-	strategyBotRepository       *mocks.MockIStrategyBotRepository
-	strategyRepository          *mocks.MockIStrategyRepository
-	publishedStrategyRepository *mocks.MockIPublishedStrategyRepository
-	telegramDeliveryRepository  *mocks.MockITelegramDeliveryRepository
-	clockProxy                  *mocks.MockIClockProxy
+	strategyBotApplication         *application.StrategyBotApplication
+	strategyBotRepository          *mocks.MockIStrategyBotRepository
+	strategyBotRunRecordRepository *mocks.MockIStrategyBotRunRecordRepository
+	messageDeliveryProxy           *mocks.MockIMessageDeliveryProxy
+	announcements                  *[]string
+	strategyRepository             *mocks.MockIStrategyRepository
+	publishedStrategyRepository    *mocks.MockIPublishedStrategyRepository
+	telegramDeliveryRepository     *mocks.MockITelegramDeliveryRepository
+	clockProxy                     *mocks.MockIClockProxy
 }
 
 // newStrategyBotApplicationUnderTest wires the real domain services and the real
@@ -43,6 +46,10 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	controller := gomock.NewController(t)
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
+	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
+	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
+	strategyBotRunRecordRepository.EXPECT().
+		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	strategyRepository := mocks.NewMockIStrategyRepository(controller)
 	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
@@ -50,21 +57,37 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
 
+	// 啟動與停止現在會讓機器人說一句它自己的動靜。送不送得出去不是這幾個測試在問的事，
+	// 所以整條路一律放行。
+	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
+	secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("the-token", nil).AnyTimes()
+	announcements := &[]string{}
+	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(controller)
+	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			*announcements = append(*announcements, message)
+
+			return vo.DeliveryFailureNone, nil
+		}).AnyTimes()
+
 	return strategyBotApplicationUnderTest{
 		strategyBotApplication: application.NewStrategyBotApplication(
-			service.NewStrategyBotService(strategyBotRepository, clockProxy),
+			service.NewStrategyBotService(
+				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
 			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
 			service.NewTelegramDeliveryService(
-				telegramDeliveryRepository,
-				mocks.NewMockISecretSealProxy(controller),
-				mocks.NewMockIMessageDeliveryProxy(controller),
-			),
+				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
 		),
-		strategyBotRepository:       strategyBotRepository,
-		strategyRepository:          strategyRepository,
-		publishedStrategyRepository: publishedStrategyRepository,
-		telegramDeliveryRepository:  telegramDeliveryRepository,
-		clockProxy:                  clockProxy,
+		strategyBotRepository:          strategyBotRepository,
+		strategyBotRunRecordRepository: strategyBotRunRecordRepository,
+		messageDeliveryProxy:           messageDeliveryProxy,
+		announcements:                  announcements,
+		strategyRepository:             strategyRepository,
+		publishedStrategyRepository:    publishedStrategyRepository,
+		telegramDeliveryRepository:     telegramDeliveryRepository,
+		clockProxy:                     clockProxy,
 	}
 }
 
@@ -85,6 +108,11 @@ func (underTest strategyBotApplicationUnderTest) expectMarketplaceQuestion() {
 	underTest.publishedStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+}
+
+// announced is every message this bot said about itself so far.
+func (underTest strategyBotApplicationUnderTest) announced() []string {
+	return *underTest.announcements
 }
 
 // ownedStrategy is a strategy belonging to whoever these tests act as, declaring one
@@ -275,7 +303,7 @@ func TestStrategyBotApplicationStartRefusesAtTheRunningLimitWithoutStoppingAnyth
 
 	underTest.telegramDeliveryRepository.EXPECT().
 		FindOneByUser(gomock.Any(), strategyBotOwnerID).
-		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil)
+		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(storedBot(vo.StrategyBotStopped), nil)
 	underTest.strategyBotRepository.EXPECT().
@@ -296,8 +324,8 @@ func TestStrategyBotApplicationStartPutsTheBotToWorkDueImmediately(t *testing.T)
 
 	underTest.telegramDeliveryRepository.EXPECT().
 		FindOneByUser(gomock.Any(), strategyBotOwnerID).
-		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stopped, nil)
+		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stopped, nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().
 		CountRunningByOwner(gomock.Any(), strategyBotOwnerID).Return(0, nil)
 	underTest.strategyBotRepository.EXPECT().
@@ -327,7 +355,7 @@ func TestStrategyBotApplicationStartingAlreadyRunningChangesNothing(t *testing.T
 	underTest.telegramDeliveryRepository.EXPECT().
 		FindOneByUser(gomock.Any(), strategyBotOwnerID).
 		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(running, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(running, nil).AnyTimes()
 
 	botDto, startError := underTest.strategyBotApplication.StartStrategyBot(
 		context.Background(), strategyBotOwnerID, strategyBotID)
@@ -551,4 +579,98 @@ func TestStrategyBotApplicationRewriteRefusesAStrategyThisPersonCannotSee(t *tes
 	// The gates are walked on a rewrite exactly as on a create: a bot must not be
 	// able to acquire a source it could not have been built with.
 	require.ErrorIs(t, updateError, domains.ErrStrategyNotFound)
+}
+
+func TestStrategyBotApplicationTellsItsOwnerWhenABotStartsAndStops(t *testing.T) {
+	// 按下播放然後走開，是機器人的全部重點——而在此之前，第一件證實那一走開有效的事
+	// 是一個可能好幾個小時之後才出現的交易訊號。
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.telegramDeliveryRepository.EXPECT().
+		FindOneByUser(gomock.Any(), strategyBotOwnerID).
+		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotStopped), nil)
+	underTest.strategyBotRepository.EXPECT().
+		CountRunningByOwner(gomock.Any(), strategyBotOwnerID).Return(0, nil)
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, startError := underTest.strategyBotApplication.StartStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, startError)
+	require.Len(t, underTest.announced(), 1)
+	assert.Contains(t, underTest.announced()[0], "【已啟動】早盤突破")
+}
+
+func TestStrategyBotApplicationSaysNothingWhenTheButtonChangedNothing(t *testing.T) {
+	// 第二次按的是一個它已經在的狀態，而一則說明那件事的訊息是一則關於沒發生的事的訊息。
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.telegramDeliveryRepository.EXPECT().
+		FindOneByUser(gomock.Any(), strategyBotOwnerID).
+		Return(entities.TelegramDelivery{UserID: strategyBotOwnerID}, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	_, startError := underTest.strategyBotApplication.StartStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, startError)
+	assert.Empty(t, underTest.announced())
+}
+
+func TestStrategyBotApplicationStopsEvenWhenItCannotSaySo(t *testing.T) {
+	// 按下停止不會因為 Telegram 忙就被收回：那台**已經**停了，按鈕做了它說的事。
+	// 回報失敗只會讓人對著一台已經關掉的機器人再按一次。
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+	underTest.telegramDeliveryRepository.EXPECT().
+		FindOneByUser(gomock.Any(), strategyBotOwnerID).
+		Return(entities.TelegramDelivery{}, domains.ErrTelegramDeliveryNotConfigured)
+
+	stoppedBot, stopError := underTest.strategyBotApplication.StopStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, stopError)
+	assert.Equal(t, string(vo.StrategyBotStopped), stoppedBot.RunState)
+}
+
+func TestStrategyBotApplicationListsWhatABotHasBeenDoing(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	underTest.strategyBotRunRecordRepository.EXPECT().
+		FindLatestByBot(gomock.Any(), strategyBotID).
+		Return([]entities.StrategyBotRunRecord{
+			{RunNumber: 2, RanAt: time.Date(2026, 9, 16, 13, 5, 0, 0, time.UTC), Result: "buy"},
+			{RunNumber: 1, RanAt: time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC), Result: "hold"},
+		}, nil)
+
+	runRecords, listError := underTest.strategyBotApplication.ListRunRecords(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, listError)
+	require.Len(t, runRecords, 2)
+	assert.Equal(t, 2, runRecords[0].RunNumber)
+	assert.Equal(t, "buy", runRecords[0].Result)
+	assert.Equal(t, time.Date(2026, 9, 16, 13, 5, 0, 0, time.UTC), runRecords[0].RanAt)
+}
+
+func TestStrategyBotApplicationRefusesSomebodyElsesHistory(t *testing.T) {
+	// 歷史與機器人本身同一條規則：看不到就是找不到。
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+
+	_, listError := underTest.strategyBotApplication.ListRunRecords(
+		context.Background(), strategyBotStrangerID, strategyBotID)
+
+	require.ErrorIs(t, listError, domains.ErrStrategyBotNotFound)
 }

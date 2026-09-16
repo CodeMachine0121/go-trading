@@ -35,6 +35,12 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	mockController := gomock.NewController(t)
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
+	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
+	strategyBotRunRecordRepository.EXPECT().
+		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	strategyBotRunRecordRepository.EXPECT().
+		FindLatestByBot(gomock.Any(), gomock.Any()).
+		Return([]entities.StrategyBotRunRecord{}, nil).AnyTimes()
 	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(mockController)
 
@@ -45,15 +51,21 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
 
+	secretSealProxy := mocks.NewMockISecretSealProxy(mockController)
+	secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("the-token", nil).AnyTimes()
+	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(mockController)
+	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(vo.DeliveryFailureNone, nil).AnyTimes()
+
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
-			service.NewStrategyBotService(strategyBotRepository, clockProxy),
+			service.NewStrategyBotService(
+				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
 			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			// 啟動與停止會讓機器人說一句它自己的動靜；這幾個測試問的是路由與狀態碼，
+			// 所以整條投遞路徑一律放行。
 			service.NewTelegramDeliveryService(
-				telegramDeliveryRepository,
-				mocks.NewMockISecretSealProxy(mockController),
-				mocks.NewMockIMessageDeliveryProxy(mockController),
-			),
+				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
 		))
 
 	engine := gin.New()

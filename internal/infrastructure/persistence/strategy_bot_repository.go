@@ -48,6 +48,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 			botRow := bot
 			botRow.SignalSources = nil
 			botRow.ConditionNodes = nil
+			botRow.RunRecords = nil
 
 			if botRow.ID == 0 {
 				if createError := transaction.Omit(clause.Associations).Create(&botRow).Error; createError != nil {

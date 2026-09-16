@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ type strategyBotRunUnderTest struct {
 	messageDeliveryProxy       *mocks.MockIMessageDeliveryProxy
 	strategyRepository         *mocks.MockIStrategyRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
+	t                          *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services and models a round goes
@@ -39,6 +41,10 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	controller := gomock.NewController(t)
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
+	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
+	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
+	strategyBotRunRecordRepository.EXPECT().
+		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(controller)
@@ -62,7 +68,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 
 	return strategyBotRunUnderTest{
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
-			service.NewStrategyBotService(strategyBotRepository, clockProxy),
+			service.NewStrategyBotService(
+				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
 			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
@@ -85,6 +92,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		messageDeliveryProxy:       messageDeliveryProxy,
 		strategyRepository:         strategyRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
+		t:                          t,
 	}
 }
 
@@ -92,6 +100,23 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 //
 // 它不是預設就有的：有沒有設定是這一段少數幾個**改得動結果**的前提之一——
 // 設定被移除時機器人要停擺，而不是靜靜跳過。
+// expectNoRoundMessage 說的是「這一輪不對市場說話」。
+//
+// 它不是「一則都不送」：機器人**關於它自己**的動靜——被系統停下來了——是另一回事，
+// 而那一則正是使用者最需要收到的。兩者用開頭那個括號分得出來。
+func (underTest strategyBotRunUnderTest) expectNoRoundMessage() {
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.NotContains(underTest.t, message, "參考價",
+				"這一輪不該對市場說話")
+
+			return vo.DeliveryFailureNone, nil
+		}).AnyTimes()
+}
+
 func (underTest strategyBotRunUnderTest) expectDeliverySetting() {
 	underTest.telegramDeliveryRepository.EXPECT().FindOneByUser(gomock.Any(), gomock.Any()).
 		Return(entities.TelegramDelivery{
@@ -227,8 +252,7 @@ func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *t
 
 	// A bot waking every five minutes on a condition that holds for an hour reaches
 	// the same conclusion twelve times. Sending all twelve gets the bot muted.
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
@@ -256,8 +280,7 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 		Return([]entities.StrategyBot{conflictingBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(conflictingBot, nil)
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -291,6 +314,7 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
+			underTest.expectDeliverySetting()
 
 			underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 				Return(entities.Strategy{}, testCase.strategyFindError).AnyTimes()
@@ -298,8 +322,7 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 				Return(aDueBot(""), nil).AnyTimes()
-			underTest.messageDeliveryProxy.EXPECT().
-				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+			underTest.expectNoRoundMessage()
 
 			underTest.strategyBotRepository.EXPECT().
 				UpdateRunState(gomock.Any(), gomock.Any()).
@@ -319,6 +342,7 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 
 func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
@@ -333,6 +357,7 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 	underTest.indicatorScriptProxy.EXPECT().
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, domains.ErrIndicatorScriptFailed).AnyTimes()
+	underTest.expectNoRoundMessage()
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
@@ -354,6 +379,7 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 
 func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
@@ -372,8 +398,7 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 		Return([]entities.StrategyBot{aDueBot(string(vo.SignalBuy))}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(string(vo.SignalBuy)), nil)
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -434,9 +459,18 @@ func TestStrategyBotRunApplicationReadsTelegramsRefusalTheWayItWasMeant(t *testi
 				Return(aDueBot(""), nil).AnyTimes()
 			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 				Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+			// 這一輪的那一則回它指定的失敗；如果因此停擺，機器人自己的那一則照樣送得出去。
 			underTest.messageDeliveryProxy.EXPECT().
 				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-				Return(testCase.failureReason, nil)
+				DoAndReturn(func(
+					_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+				) (vo.DeliveryFailureReasonVo, error) {
+					if strings.Contains(message, "已停擺") {
+						return vo.DeliveryFailureNone, nil
+					}
+
+					return testCase.failureReason, nil
+				}).AnyTimes()
 
 			underTest.strategyBotRepository.EXPECT().
 				UpdateRunState(gomock.Any(), gomock.Any()).
@@ -544,8 +578,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t
 		Return([]entities.StrategyBot{brokenBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(brokenBot, nil)
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
@@ -690,8 +723,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 		Return([]entities.StrategyBot{brokenBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(brokenBot, nil)
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -732,6 +764,7 @@ func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing
 
 func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
@@ -794,8 +827,7 @@ func TestStrategyBotRunApplicationSaysNothingForABotDeletedMidRound(t *testing.T
 
 	// 一則來自剛被刪掉的機器人的訊息是一輪絕對不能送的東西：
 	// 它的擁有者已經沒有任何地方可以回去看它是從哪來的。
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
@@ -821,8 +853,7 @@ func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *tes
 	// 而被清空的上次訊號會復活，把啟動後的第一個結論吃掉。
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).Times(0)
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.expectNoRoundMessage()
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 

@@ -67,6 +67,11 @@ type StrategyBot struct {
 	// which is why no Go code can forget to.
 	SignalSources  []StrategyBotSignalSource  `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 	ConditionNodes []StrategyBotConditionNode `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
+	// RunRecords is declared for the cascade and for nothing else: a history is read
+	// on its own, through its own repository, and never travels with the bot. What
+	// it buys here is that deleting a bot takes its rounds with it — otherwise they
+	// stay in the table for ever, belonging to something nobody can reach.
+	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
 // TableName pins the table to StrategyBots instead of GORM's default.

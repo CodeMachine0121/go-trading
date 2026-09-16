@@ -340,6 +340,7 @@ func registerRoutes(
 	// has no person whose permission could be asked.
 	strategyBotService := service.NewStrategyBotService(
 		persistence.NewStrategyBotRepository(database),
+		persistence.NewStrategyBotRunRecordRepository(database),
 		clock.NewSystemClockProxy(),
 	)
 
@@ -361,6 +362,8 @@ func registerRoutes(
 	// not because something remembered to allow it.
 	engine.POST("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StartStrategyBot)
 	engine.DELETE("/strategy-bots/:id/run", requiresSignIn, strategyBotController.StopStrategyBot)
+	// 一台機器人跑過哪幾輪，是它自己的一份東西，所以掛在它底下而不是另開一條路徑。
+	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
 
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,

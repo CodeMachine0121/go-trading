@@ -96,16 +96,59 @@ func (strategyBotApplication *StrategyBotApplication) StartStrategyBot(
 		return dto.StrategyBotDto{}, deliveryError
 	}
 
-	return strategyBotApplication.strategyBotService.StartStrategyBot(
+	startedBot, justStarted, startError := strategyBotApplication.strategyBotService.StartStrategyBot(
 		executionContext, viewerID, id, deliverySetting.Configured)
+	if startError != nil {
+		return dto.StrategyBotDto{}, startError
+	}
+
+	if justStarted {
+		strategyBotApplication.announce(
+			executionContext, viewerID,
+			strategyBotApplication.strategyBotService.WriteStartedMessage(startedBot))
+	}
+
+	return startedBot, nil
 }
 
 // StopStrategyBot takes one of this person's bots off duty.
 func (strategyBotApplication *StrategyBotApplication) StopStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyBotDto, error) {
-	return strategyBotApplication.strategyBotService.StopStrategyBot(
+	stoppedBot, justStopped, stopError := strategyBotApplication.strategyBotService.StopStrategyBot(
 		executionContext, viewerID, id)
+	if stopError != nil {
+		return dto.StrategyBotDto{}, stopError
+	}
+
+	if justStopped {
+		strategyBotApplication.announce(
+			executionContext, viewerID,
+			strategyBotApplication.strategyBotService.WriteStoppedMessage(stoppedBot))
+	}
+
+	return stoppedBot, nil
+}
+
+// ListRunRecords is what this bot has been doing.
+func (strategyBotApplication *StrategyBotApplication) ListRunRecords(
+	executionContext context.Context, viewerID uint, id uint,
+) ([]dto.StrategyBotRunRecordDto, error) {
+	return strategyBotApplication.strategyBotService.ListRunRecords(
+		executionContext, viewerID, id)
+}
+
+// announce sends a bot's own news, and lets it fail.
+//
+// Pressing stop is not undone because Telegram was busy: the bot **is** stopped,
+// the button did what it said, and reporting a failure would leave somebody pressing
+// it again at a bot that is already off. The message is a courtesy on top of an
+// action that has already happened.
+func (strategyBotApplication *StrategyBotApplication) announce(
+	executionContext context.Context, viewerID uint, message string,
+) {
+	_, _ = strategyBotApplication.telegramDeliveryService.SendMessage(
+		executionContext, viewerID, message)
 }
 
 // withResolvedStrategies fills each source in with what only its strategy can say:
