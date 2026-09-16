@@ -22,12 +22,13 @@ import (
 var botRunNow = at(9, 15)
 
 type strategyBotRunUnderTest struct {
-	strategyBotRunApplication *application.StrategyBotRunApplication
-	strategyBotRepository     *mocks.MockIStrategyBotRepository
-	kCandleRepository         *mocks.MockIKCandleRepository
-	indicatorScriptProxy      *mocks.MockIIndicatorScriptProxy
-	messageDeliveryProxy      *mocks.MockIMessageDeliveryProxy
-	strategyRepository        *mocks.MockIStrategyRepository
+	strategyBotRunApplication  *application.StrategyBotRunApplication
+	strategyBotRepository      *mocks.MockIStrategyBotRepository
+	kCandleRepository          *mocks.MockIKCandleRepository
+	indicatorScriptProxy       *mocks.MockIIndicatorScriptProxy
+	messageDeliveryProxy       *mocks.MockIMessageDeliveryProxy
+	strategyRepository         *mocks.MockIStrategyRepository
+	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
 }
 
 // newStrategyBotRunUnderTest wires the real services and models a round goes
@@ -55,10 +56,6 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
 
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
-	telegramDeliveryRepository.EXPECT().FindOneByUser(gomock.Any(), gomock.Any()).
-		Return(entities.TelegramDelivery{
-			UserID: strategyBotOwnerID, SealedBotToken: "sealed", ChatID: "987654",
-		}, nil).AnyTimes()
 
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
 	secretSealProxy.EXPECT().Unseal("sealed").Return("the-token", nil).AnyTimes()
@@ -82,12 +79,24 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			4,
 			time.Minute,
 		),
-		strategyBotRepository: strategyBotRepository,
-		kCandleRepository:     kCandleRepository,
-		indicatorScriptProxy:  indicatorScriptProxy,
-		messageDeliveryProxy:  messageDeliveryProxy,
-		strategyRepository:    strategyRepository,
+		strategyBotRepository:      strategyBotRepository,
+		kCandleRepository:          kCandleRepository,
+		indicatorScriptProxy:       indicatorScriptProxy,
+		messageDeliveryProxy:       messageDeliveryProxy,
+		strategyRepository:         strategyRepository,
+		telegramDeliveryRepository: telegramDeliveryRepository,
 	}
+}
+
+// expectDeliverySetting 讓這位使用者有一個講得出話的地方。
+//
+// 它不是預設就有的：有沒有設定是這一段少數幾個**改得動結果**的前提之一——
+// 設定被移除時機器人要停擺，而不是靜靜跳過。
+func (underTest strategyBotRunUnderTest) expectDeliverySetting() {
+	underTest.telegramDeliveryRepository.EXPECT().FindOneByUser(gomock.Any(), gomock.Any()).
+		Return(entities.TelegramDelivery{
+			UserID: strategyBotOwnerID, SealedBotToken: "sealed", ChatID: "987654",
+		}, nil).AnyTimes()
 }
 
 // aDueBot is one running bot with two sources and the conditions
@@ -97,7 +106,9 @@ func aDueBot(lastSentSignal string) entities.StrategyBot {
 		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", Symbol: "BTCUSDT",
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotRunning),
-		LastSentSignal:         lastSentSignal,
+		// 這一輪是憑這個時刻被領走的。送出前與寫回前都會再確認它沒有被別人動過。
+		NextRunAt:      botRunNow.Add(-time.Minute),
+		LastSentSignal: lastSentSignal,
 		SignalSources: []entities.StrategyBotSignalSource{
 			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyID: 9, AggregationInterval: "1h"},
 			{ID: 21, StrategyBotID: strategyBotID, Label: "B", StrategyID: 10, AggregationInterval: "5m"},
@@ -165,12 +176,13 @@ func scriptOfStrategy(id uint) string {
 
 func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil)
+		Return(aDueBot(""), nil).AnyTimes()
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
 
@@ -204,6 +216,7 @@ func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 
 func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
@@ -236,6 +249,7 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 			SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
 	}
 
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalSell, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
@@ -283,7 +297,7 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-				Return(aDueBot(""), nil)
+				Return(aDueBot(""), nil).AnyTimes()
 			underTest.messageDeliveryProxy.EXPECT().
 				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 
@@ -323,7 +337,7 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil)
+		Return(aDueBot(""), nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
@@ -411,12 +425,13 @@ func TestStrategyBotRunApplicationReadsTelegramsRefusalTheWayItWasMeant(t *testi
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
+			underTest.expectDeliverySetting()
 			underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-				Return(aDueBot(""), nil)
+				Return(aDueBot(""), nil).AnyTimes()
 			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 				Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
 			underTest.messageDeliveryProxy.EXPECT().
@@ -444,12 +459,13 @@ func TestStrategyBotRunApplicationReadsTelegramsRefusalTheWayItWasMeant(t *testi
 
 func TestStrategyBotRunApplicationStillSendsWhenThereIsNoPriceToQuote(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil)
+		Return(aDueBot(""), nil).AnyTimes()
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return(nil, errors.New("the database went away"))
 
@@ -510,6 +526,7 @@ func TestStrategyBotRoundGuardKeepsOneBotToOneRoundAtATime(t *testing.T) {
 
 func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	// A condition naming a label this bot no longer declares. It is not one of the
@@ -545,12 +562,13 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t
 
 func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil)
+		Return(aDueBot(""), nil).AnyTimes()
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
 	// Not Telegram refusing — this side failing to ask at all. It is not one of the
@@ -582,6 +600,7 @@ func TestStrategyBotRunApplicationLeavesABotThatIsAlreadyMidRound(t *testing.T) 
 	// skipped. Anything else would send the same message twice.
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).Times(1)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalHold, vo.SignalHold)
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil).Times(1)
@@ -600,6 +619,7 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 		{
 			name: "the bot cannot be read back to record the round",
 			arrange: func(underTest strategyBotRunUnderTest) {
+				underTest.expectDeliverySetting()
 				underTest.expectSources(vo.SignalHold, vo.SignalHold)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
@@ -608,9 +628,10 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 		{
 			name: "the round cannot be written back",
 			arrange: func(underTest strategyBotRunUnderTest) {
+				underTest.expectDeliverySetting()
 				underTest.expectSources(vo.SignalHold, vo.SignalHold)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-					Return(aDueBot(""), nil)
+					Return(aDueBot(""), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().
 					UpdateRunState(gomock.Any(), gomock.Any()).
 					Return(errors.New("the database went away"))
@@ -622,7 +643,7 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 					Return(entities.Strategy{}, domains.StrategyNotFound(9)).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-					Return(aDueBot(""), nil)
+					Return(aDueBot(""), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().
 					UpdateRunState(gomock.Any(), gomock.Any()).
 					Return(errors.New("the database went away"))
@@ -651,6 +672,7 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 
 func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerReads(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	// The sell tree is checked as thoroughly as the buy one. Checked only on one
@@ -679,12 +701,13 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 
 func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil)
+		Return(aDueBot(""), nil).AnyTimes()
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{}, nil)
 
@@ -742,7 +765,7 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil)
+		Return(aDueBot(""), nil).AnyTimes()
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -756,4 +779,84 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 
 	assert.True(t, readCutoffs[at(9, 0)], "the hourly source should stop at the top of the hour")
 	assert.True(t, readCutoffs[at(9, 15)], "the five-minute source should stop at 09:15")
+}
+
+func TestStrategyBotRunApplicationSaysNothingForABotDeletedMidRound(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	// 這一輪算完之後它就不在了。
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(entities.StrategyBot{}, domains.StrategyBotNotFound(strategyBotID)).AnyTimes()
+
+	// 一則來自剛被刪掉的機器人的訊息是一輪絕對不能送的東西：
+	// 它的擁有者已經沒有任何地方可以回去看它是從哪來的。
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+}
+
+func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+
+	// 這一輪開始之後，擁有者停了又啟動——啟動把 NextRunAt 設成現在、把上次訊號清空。
+	restarted := aDueBot("")
+	restarted.NextRunAt = botRunNow
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(restarted, nil).AnyTimes()
+
+	// 這一輪講的已經不是這台機器人現在的狀態了，所以它一個字都不寫回去——
+	// 寫回去的話，剛按下的那個「立刻跑第一輪」會被推遲一個間隔，
+	// 而被清空的上次訊號會復活，把啟動後的第一個結論吃掉。
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Times(0)
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+}
+
+func TestStrategyBotRunApplicationHaltsWhenTheDeliverySettingIsGone(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+
+	underTest.telegramDeliveryRepository.EXPECT().
+		FindOneByUser(gomock.Any(), gomock.Any()).
+		Return(entities.TelegramDelivery{}, domains.ErrTelegramDeliveryNotConfigured).AnyTimes()
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil).AnyTimes()
+
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+			// 沒地方講話的機器人，執行中與已停止之間沒有任何差別——
+			// 而這正是當初拒絕啟動它的理由。跳過這一輪的話，它會永遠靜靜地
+			// 保持「執行中」、沒有原因、什麼都不說。
+			assert.Equal(t, string(vo.StrategyBotStopped), bot.RunState)
+			assert.Equal(t, string(vo.StrategyBotHaltDeliveryNotConfigured), bot.HaltReason)
+
+			return nil
+		})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
 }

@@ -211,6 +211,27 @@ func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
 	assert.Len(t, readBot.ConditionNodes, 4)
 }
 
+func TestStrategyBotRepositoryUpdateRunStateLeavesTheLastModifiedTimeAlone(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+
+	savedBot, saveError := repository.Save(t.Context(), aBotRow("早盤突破"))
+	require.NoError(t, saveError)
+
+	savedBot.RunState = string(vo.StrategyBotRunning)
+	savedBot.NextRunAt = time.Now().UTC()
+	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
+
+	readBot, findError := repository.FindOne(t.Context(), savedBot.ID)
+	require.NoError(t, findError)
+
+	// 「最後修改時間」是交給擁有者看的，就擺在建立時間旁邊。一台執行中的機器人
+	// 每個觸發間隔都把它往前推一次、而沒有人改過任何東西的話，那一格就不再說得出
+	// 任何事——一輪跑完不是一次修改。
+	assert.Equal(t, savedBot.UpdatedAt.UTC(), readBot.UpdatedAt.UTC())
+	assert.Equal(t, savedBot.CreatedAt.UTC(), readBot.CreatedAt.UTC())
+}
+
 func TestStrategyBotRepositoryUpdateRunStateClearsRatherThanSkippingEmptyValues(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)

@@ -121,3 +121,11 @@ func TestNewStrategyBotDeliveryFailureDomainSeparatesRetypingFromWaiting(t *test
 		})
 	}
 }
+
+func TestNewStrategyBotRoundFailureDomainHaltsWhenThereIsNowhereToSpeak(t *testing.T) {
+	// 它與另外三種「等一等就好」的失敗不同：沒有設定不會自己出現。
+	failure := domains.NewStrategyBotRoundFailureDomain(domains.ErrTelegramDeliveryNotConfigured)
+
+	assert.True(t, failure.HaltsTheBot())
+	assert.Equal(t, vo.StrategyBotHaltDeliveryNotConfigured, failure.HaltReason())
+}

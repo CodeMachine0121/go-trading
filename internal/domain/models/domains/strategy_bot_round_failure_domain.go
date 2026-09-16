@@ -43,6 +43,14 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltScriptFailed}
 
+	// The owner removed their delivery setting while this bot was running. Nothing
+	// is broken, and waiting fixes nothing either — a bot with nowhere to speak is
+	// one for which running and stopped are the same state, which is exactly why
+	// starting one in this state is refused.
+	case errors.Is(roundError, ErrTelegramDeliveryNotConfigured):
+		return StrategyBotRoundFailureDomain{
+			haltReason: vo.StrategyBotHaltDeliveryNotConfigured}
+
 	default:
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltNone}
 	}

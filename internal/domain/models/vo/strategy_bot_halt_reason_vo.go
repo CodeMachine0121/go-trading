@@ -32,4 +32,13 @@ const (
 	// StrategyBotHaltDestinationNotFound is Telegram not knowing the chat. Only a
 	// different chat identifier fixes it.
 	StrategyBotHaltDestinationNotFound StrategyBotHaltReasonVo = "destinationNotFound"
+	// StrategyBotHaltDeliveryNotConfigured is the owner having removed their
+	// delivery setting while the bot was running.
+	//
+	// It is a halt and not a skipped round, even though nothing is broken: a bot
+	// with nowhere to speak is a bot for which running and stopped are the same
+	// state, and that is the very reason starting one is refused. Without it, a
+	// person who removes their setting is left with bots that stay "running",
+	// carry no reason, say nothing, and never will.
+	StrategyBotHaltDeliveryNotConfigured StrategyBotHaltReasonVo = "deliveryNotConfigured"
 )

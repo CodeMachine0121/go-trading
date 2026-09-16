@@ -245,7 +245,12 @@ func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: bot.ID}).
 		Select("run_state", "next_run_at", "last_sent_signal", "halt_reason", "conflicting").
-		Updates(entities.StrategyBot{
+		// UpdateColumns rather than Updates, because Updates also touches the
+		// auto-managed UpdatedAt even under a Select. A bot's last-modified time is
+		// handed to its owner next to its creation time; advancing it every
+		// trigger interval, for ever, with nobody having modified anything, leaves
+		// the field saying nothing at all.
+		UpdateColumns(entities.StrategyBot{
 			RunState:       bot.RunState,
 			NextRunAt:      bot.NextRunAt,
 			LastSentSignal: bot.LastSentSignal,

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -19,6 +20,13 @@ import (
 // whatever the source's interval, the answer is the newest finished candle of it and
 // nothing more.
 const strategyBotObservationWindowLength = time.Minute
+
+// strategyBotRecordTimeout is how long booking one round in may take.
+//
+// It is short and fixed because it is three small statements against the database,
+// and it is separate from the round's own deadline because it must not inherit time
+// the round has already spent — see runOneRound.
+const strategyBotRecordTimeout = 15 * time.Second
 
 // StrategyBotRunApplication runs the rounds that are due, and is the only thing that
 // does.
@@ -82,6 +90,18 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 		return 0, findError
 	}
 
+	// A full batch means there were at least this many bots due and some of them
+	// are waiting for the next scan. Said out loud because the symptom is otherwise
+	// invisible: every bot still reports the interval it asked for, and every bot
+	// is quietly running less often than that. Nothing here slows down — the cap is
+	// what keeps one scan from pulling every bot it owns into memory — but somebody
+	// reading the log can see it is time to raise it.
+	if len(dueBots) == strategyBotRunApplication.maxConcurrentRounds {
+		log.Printf(
+			"strategy bot scan filled its batch of %d; some due bots wait for the next scan",
+			strategyBotRunApplication.maxConcurrentRounds)
+	}
+
 	waitGroup := sync.WaitGroup{}
 	roundsRun := 0
 	roundsRunMutex := sync.Mutex{}
@@ -102,15 +122,16 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 			defer waitGroup.Done()
 			defer strategyBotRunApplication.roundGuard.Leave(botDto.ID)
 
-			// Each round gets its own deadline rather than sharing the scan's.
-			// A round that outlives its own trigger interval has stopped being
-			// about now, and one source that will not answer must not be able to
-			// hold the whole scan open behind it.
+			// Each round gets its own deadline rather than sharing the scan's, and
+			// that deadline is the shorter of its own trigger interval and the
+			// configured ceiling. A round that outlives the interval it belongs to
+			// has stopped being about now, and it is still holding one of the few
+			// slots the scan has to give.
 			roundContext, endRound := context.WithTimeout(
-				executionContext, strategyBotRunApplication.roundTimeout)
+				executionContext, strategyBotRunApplication.roundDeadlineFor(botDto))
 			defer endRound()
 
-			strategyBotRunApplication.runOneRound(roundContext, botDto)
+			strategyBotRunApplication.runOneRound(executionContext, roundContext, botDto)
 
 			roundsRunMutex.Lock()
 			defer roundsRunMutex.Unlock()
@@ -130,12 +151,44 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 // nothing — and a round that records nothing leaves its bot due forever, hammering
 // the database and Telegram while looking perfectly healthy from outside.
 func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
-	executionContext context.Context, botDto dto.StrategyBotDto,
+	scanContext context.Context, roundContext context.Context, botDto dto.StrategyBotDto,
 ) {
-	outcome := strategyBotRunApplication.playRound(executionContext, botDto)
+	outcome := strategyBotRunApplication.playRound(roundContext, botDto)
 
-	_ = strategyBotRunApplication.strategyBotService.RecordRound(
-		executionContext, botDto.ID, outcome)
+	// Booking the round in gets a fresh deadline of its own, taken from the scan
+	// rather than from the round. Written on the round's context, this one write
+	// would be most likely to fail exactly when the round was slow — and a round
+	// that fails to record leaves its bot due forever, re-running and re-sending
+	// the same message every scan while the list shows it perfectly healthy.
+	// That is the failure this whole split exists to prevent, so it must not
+	// depend on time the round has already spent.
+	recordContext, endRecord := context.WithTimeout(scanContext, strategyBotRecordTimeout)
+	defer endRecord()
+
+	if recordError := strategyBotRunApplication.strategyBotService.RecordRound(
+		recordContext, botDto.ID, botDto.NextRunAt, outcome); recordError != nil {
+		// Said out loud rather than swallowed: this is the one failure whose
+		// symptom — a hot loop of identical messages — is invisible from the
+		// outside, so the log is the only place anybody could ever see it coming.
+		log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
+	}
+}
+
+// roundDeadlineFor is how long this bot's round may take: the shorter of its own
+// trigger interval and the configured ceiling.
+//
+// A one-minute bot allowed two minutes would sit in a single round across two of
+// its own intervals, holding a slot the whole time — and it is exactly the slow
+// rounds that are most likely to end up unable to book themselves in.
+func (strategyBotRunApplication *StrategyBotRunApplication) roundDeadlineFor(
+	botDto dto.StrategyBotDto,
+) time.Duration {
+	triggerInterval := time.Duration(botDto.TriggerIntervalMinutes) * time.Minute
+	if triggerInterval > 0 && triggerInterval < strategyBotRunApplication.roundTimeout {
+		return triggerInterval
+	}
+
+	return strategyBotRunApplication.roundTimeout
 }
 
 // playRound works out what this round comes to, and writes nothing down.
@@ -171,9 +224,25 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		return domains.NewStrategyBotRoundConcludedOutcome("", decision.Conflicting)
 	}
 
+	// One last look before speaking. Working out this round may have taken a while,
+	// and its owner may have deleted the bot in the meantime — a message from a bot
+	// somebody just deleted is the one thing a round must never send, because there
+	// is no longer anywhere for its owner to go and see where it came from.
+	if !strategyBotRunApplication.stillWaitingForThisRound(executionContext, botDto) {
+		return domains.NewStrategyBotRoundSkippedOutcome()
+	}
+
 	deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
 		executionContext, botDto, decision, sourceSignals)
 	if deliverError != nil {
+		// Not Telegram refusing — this side failing to ask at all. Most of those
+		// are worth waiting out, but one is not: the owner having removed their
+		// delivery setting. The same model tells them apart here as everywhere else.
+		deliveryPathFailure := domains.NewStrategyBotRoundFailureDomain(deliverError)
+		if deliveryPathFailure.HaltsTheBot() {
+			return domains.NewStrategyBotRoundHaltedOutcome(deliveryPathFailure.HaltReason())
+		}
+
 		return domains.NewStrategyBotRoundSkippedOutcome()
 	}
 
@@ -191,6 +260,24 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 
 	return domains.NewStrategyBotRoundConcludedOutcome(
 		vo.SignalVo(decision.Verdict), decision.Conflicting)
+}
+
+// stillWaitingForThisRound says whether the bot is still there and still waiting for
+// the round that is about to speak for it.
+//
+// A read that itself fails answers no. Staying quiet when this system cannot tell
+// whether a bot still exists is the cautious way round: the round is booked in as
+// skipped, and the next one says the same thing a minute later.
+func (strategyBotRunApplication *StrategyBotRunApplication) stillWaitingForThisRound(
+	executionContext context.Context, botDto dto.StrategyBotDto,
+) bool {
+	current, findError := strategyBotRunApplication.strategyBotService.GetStrategyBot(
+		executionContext, botDto.OwnerID, botDto.ID)
+	if findError != nil {
+		return false
+	}
+
+	return current.NextRunAt.Equal(botDto.NextRunAt)
 }
 
 // readSignals asks every one of this bot's sources what it says, all at once.

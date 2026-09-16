@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -266,11 +267,25 @@ func (strategyBotService *StrategyBotService) DecideRound(
 // leaves a bot due forever — running flat out against the database and Telegram,
 // and looking from the outside exactly like a bot that is working.
 func (strategyBotService *StrategyBotService) RecordRound(
-	executionContext context.Context, id uint, outcome domains.StrategyBotRoundOutcomeDomain,
+	executionContext context.Context, id uint, dueAt time.Time,
+	outcome domains.StrategyBotRoundOutcomeDomain,
 ) error {
 	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
 	if findError != nil {
 		return findError
+	}
+
+	// This bot has to still be waiting for *this* round. Between a round starting
+	// and finishing, its owner may have stopped and started it again — and starting
+	// rewrites the very columns this write is about to touch, so putting the round's
+	// values back would quietly undo the restart: the bot would not run immediately
+	// as a start promises, and the signal it was told to forget would come back and
+	// suppress the first conclusion after it.
+	//
+	// The due time is the token. Nothing else moves it, so a different one means
+	// something else has already spoken for this bot.
+	if !storedBot.NextRunAt.UTC().Equal(dueAt.UTC()) {
+		return nil
 	}
 
 	endedBot := outcome.ApplyTo(

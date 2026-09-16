@@ -87,6 +87,7 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		Name:                   strategyBot.Name,
 		Symbol:                 strategyBot.Symbol,
 		TriggerIntervalMinutes: strategyBot.TriggerIntervalMinutes,
+		NextRunAt:              strategyBot.NextRunAt.UTC(),
 		SignalSources:          strategyBot.signalSourceDtos(),
 		BuyCondition:           strategyBot.conditionDto(vo.StrategyBotConditionSideBuy),
 		SellCondition:          strategyBot.conditionDto(vo.StrategyBotConditionSideSell),

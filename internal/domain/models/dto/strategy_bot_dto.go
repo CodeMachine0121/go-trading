@@ -21,11 +21,20 @@ type StrategyBotDto struct {
 	Name    string `json:"name"`
 	Symbol  string `json:"symbol"`
 	// TriggerIntervalMinutes is how often a running bot wakes up.
-	TriggerIntervalMinutes int                          `json:"triggerIntervalMinutes"`
-	SignalSources          []StrategyBotSignalSourceDto `json:"signalSources"`
-	BuyCondition           StrategyBotConditionDto      `json:"buyCondition"`
-	SellCondition          StrategyBotConditionDto      `json:"sellCondition"`
-	RunState               string                       `json:"runState"`
+	TriggerIntervalMinutes int `json:"triggerIntervalMinutes"`
+	// NextRunAt is when this bot was next due, and it never leaves in a response —
+	// nobody reading their own bots has any use for it.
+	//
+	// A round carries it so that booking the round in can check the bot is still
+	// waiting for *this* round. Between a round starting and finishing, its owner
+	// may have stopped and started it again, and starting rewrites exactly the
+	// columns the round is about to write; without this check the finishing round
+	// would put the old values back and quietly undo the restart.
+	NextRunAt     time.Time                    `json:"-"`
+	SignalSources []StrategyBotSignalSourceDto `json:"signalSources"`
+	BuyCondition  StrategyBotConditionDto      `json:"buyCondition"`
+	SellCondition StrategyBotConditionDto      `json:"sellCondition"`
+	RunState      string                       `json:"runState"`
 	// LastSentSignal is the last signal that actually reached Telegram, and it is
 	// what the next round is compared against. Empty means nothing has been sent
 	// since this bot was last started, which is why the first conclusion after
