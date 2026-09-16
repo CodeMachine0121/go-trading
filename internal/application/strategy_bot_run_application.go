@@ -33,7 +33,7 @@ type StrategyBotRunApplication struct {
 	strategyService             *service.StrategyService
 	indicatorCalculationService *service.IndicatorCalculationService
 	telegramDeliveryService     *service.TelegramDeliveryService
-	kCandleRepository           domaininterface.IKCandleRepository
+	kCandleService              *service.KCandleService
 	clockProxy                  domaininterface.IClockProxy
 	roundGuard                  *StrategyBotRoundGuard
 	maxConcurrentRounds         int
@@ -45,7 +45,7 @@ func NewStrategyBotRunApplication(
 	strategyService *service.StrategyService,
 	indicatorCalculationService *service.IndicatorCalculationService,
 	telegramDeliveryService *service.TelegramDeliveryService,
-	kCandleRepository domaininterface.IKCandleRepository,
+	kCandleService *service.KCandleService,
 	clockProxy domaininterface.IClockProxy,
 	roundGuard *StrategyBotRoundGuard,
 	maxConcurrentRounds int,
@@ -56,7 +56,7 @@ func NewStrategyBotRunApplication(
 		strategyService:             strategyService,
 		indicatorCalculationService: indicatorCalculationService,
 		telegramDeliveryService:     telegramDeliveryService,
-		kCandleRepository:           kCandleRepository,
+		kCandleService:              kCandleService,
 		clockProxy:                  clockProxy,
 		roundGuard:                  roundGuard,
 		maxConcurrentRounds:         maxConcurrentRounds,
@@ -125,86 +125,72 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 
 // runOneRound is one bot's turn, start to finish.
 //
-// Every way out of it books the round in, which is what keeps a bot that failed from
-// being due again immediately and failing again at the same rate. The three ways out
-// are the three things a round can be: it halted the bot, it was skipped, or it
-// reached a conclusion.
+// It works out what the round came to and then books it in, in that order and once.
+// Splitting the two is what makes it impossible to leave by a path that recorded
+// nothing — and a round that records nothing leaves its bot due forever, hammering
+// the database and Telegram while looking perfectly healthy from outside.
 func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 ) {
+	outcome := strategyBotRunApplication.playRound(executionContext, botDto)
+
+	_ = strategyBotRunApplication.strategyBotService.RecordRound(
+		executionContext, botDto.ID, outcome)
+}
+
+// playRound works out what this round comes to, and writes nothing down.
+//
+// Every return is an outcome, including the failures: what a failure means — wait,
+// or stop — was already decided by the failure model, and nothing here decides it
+// again.
+func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
+	executionContext context.Context, botDto dto.StrategyBotDto,
+) domains.StrategyBotRoundOutcomeDomain {
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
 		executionContext, botDto)
 	if roundError != nil {
-		strategyBotRunApplication.endRoundAfterFailure(
-			executionContext, botDto.ID, domains.NewStrategyBotRoundFailureDomain(roundError))
+		sourceFailure := domains.NewStrategyBotRoundFailureDomain(roundError)
+		if sourceFailure.HaltsTheBot() {
+			return domains.NewStrategyBotRoundHaltedOutcome(sourceFailure.HaltReason())
+		}
 
-		return
+		return domains.NewStrategyBotRoundSkippedOutcome()
 	}
 
 	decision, decideError := strategyBotRunApplication.strategyBotService.DecideRound(
 		botDto, signalsByLabel)
 	if decideError != nil {
-		// A stored condition that no longer validates is not something time fixes,
-		// but it is also not one of the four things a person can go and correct. It
-		// skips, on the same rule that covers anything unrecognised: halting is the
-		// destructive answer and is reserved for failures that name their own cure.
-		_ = strategyBotRunApplication.strategyBotService.RecordRoundSkipped(
-			executionContext, botDto.ID)
-
-		return
+		// A stored condition that no longer reads is not something time fixes, but
+		// it is also not one of the four things a person can go and correct. It
+		// waits, on the same rule that covers anything unrecognised: stopping a bot
+		// is the destructive answer and is kept for failures that name their cure.
+		return domains.NewStrategyBotRoundSkippedOutcome()
 	}
 
-	sentSignal := ""
-
-	if decision.ShouldSend {
-		deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
-			executionContext, botDto, decision, sourceSignals)
-		if deliverError != nil {
-			_ = strategyBotRunApplication.strategyBotService.RecordRoundSkipped(
-				executionContext, botDto.ID)
-
-			return
-		}
-
-		failureDomain := domains.NewStrategyBotDeliveryFailureDomain(deliveryFailure)
-		if failureDomain.HaltsTheBot() {
-			strategyBotRunApplication.endRoundAfterFailure(
-				executionContext, botDto.ID, failureDomain)
-
-			return
-		}
-
-		// Only a message that arrived counts as said. One Telegram could not take
-		// leaves the last sent signal where it was, so the next round offers it
-		// again instead of assuming it got through.
-		if deliveryFailure == vo.DeliveryFailureNone {
-			sentSignal = decision.Verdict
-		}
+	if !decision.ShouldSend {
+		return domains.NewStrategyBotRoundConcludedOutcome("", decision.Conflicting)
 	}
 
-	_ = strategyBotRunApplication.strategyBotService.RecordRoundFinished(
-		executionContext, botDto.ID, sentSignal, decision.Conflicting)
-}
-
-// endRoundAfterFailure halts the bot when the failure names something somebody has
-// to go and fix, and otherwise books the round in as skipped.
-//
-// It is one method because the two are one decision, already made by the failure
-// model. Split across the call sites, the call site added next year is the one that
-// halts a bot for a closed market.
-func (strategyBotRunApplication *StrategyBotRunApplication) endRoundAfterFailure(
-	executionContext context.Context, strategyBotID uint,
-	failureDomain domains.StrategyBotRoundFailureDomain,
-) {
-	if !failureDomain.HaltsTheBot() {
-		_ = strategyBotRunApplication.strategyBotService.RecordRoundSkipped(
-			executionContext, strategyBotID)
-
-		return
+	deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
+		executionContext, botDto, decision, sourceSignals)
+	if deliverError != nil {
+		return domains.NewStrategyBotRoundSkippedOutcome()
 	}
 
-	_ = strategyBotRunApplication.strategyBotService.HaltStrategyBot(
-		executionContext, strategyBotID, string(failureDomain.HaltReason()))
+	failureDomain := domains.NewStrategyBotDeliveryFailureDomain(deliveryFailure)
+	if failureDomain.HaltsTheBot() {
+		return domains.NewStrategyBotRoundHaltedOutcome(failureDomain.HaltReason())
+	}
+
+	// Only a message that arrived counts as said. One Telegram could not take leaves
+	// the last sent signal where it was, so the next round offers it again instead of
+	// assuming it got through.
+	if deliveryFailure != vo.DeliveryFailureNone {
+		return domains.NewStrategyBotRoundConcludedOutcome("", decision.Conflicting)
+	}
+
+	return domains.NewStrategyBotRoundConcludedOutcome(
+		vo.SignalVo(decision.Verdict), decision.Conflicting)
 }
 
 // readSignals asks every one of this bot's sources what it says, all at once.
@@ -306,11 +292,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		SourceSignals: sourceSignals,
 	}
 
-	latestCandles, candleError := strategyBotRunApplication.kCandleRepository.FindLatest(
-		executionContext, botDto.Symbol, 1)
-	if candleError == nil && len(latestCandles) > 0 {
-		round.ReferencePrice = latestCandles[0].Close
-		round.ReferenceTime = latestCandles[0].OpenTime
+	latestCandle, hasLatestCandle, candleError := strategyBotRunApplication.kCandleService.GetLatestKCandle(
+		executionContext, botDto.Symbol)
+	if candleError == nil && hasLatestCandle {
+		round.ReferencePrice = latestCandle.Close
+		round.ReferenceTime = latestCandle.OpenTime
 		round.HasReference = true
 	}
 

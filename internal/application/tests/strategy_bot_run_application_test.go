@@ -73,7 +73,10 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				queryMaxResults),
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
-			kCandleRepository,
+			service.NewKCandleService(
+				kCandleRepository, tradingSymbolRepository, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				queryMaxResults),
 			clockProxy,
 			application.NewStrategyBotRoundGuard(),
 			4,
@@ -667,6 +670,36 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 		Return(brokenBot, nil)
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+}
+
+func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{}, nil)
+
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			// Nothing stored is an ordinary state, not a failure — and the message
+			// still goes out, because the conclusion is the part somebody acts on.
+			assert.Contains(t, message, "【買入】")
+			assert.Contains(t, message, "讀不到這個交易標的的最新 K 線")
+
+			return vo.DeliveryFailureNone, nil
+		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())

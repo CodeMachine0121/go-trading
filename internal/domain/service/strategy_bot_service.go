@@ -259,54 +259,24 @@ func (strategyBotService *StrategyBotService) DecideRound(
 	}, nil
 }
 
-// RecordRoundFinished books in a round that reached a conclusion, and moves the bot
-// on to its next one. The signal is what actually reached Telegram, and is empty
-// when nothing was sent.
-func (strategyBotService *StrategyBotService) RecordRoundFinished(
-	executionContext context.Context, id uint, sentSignal string, conflicting bool,
+// RecordRound books in whatever one round came to, and moves the bot on.
+//
+// One method for all three ways a round ends, rather than one each. A round has
+// several exits, and with a method per exit the one that forgets to call its own
+// leaves a bot due forever — running flat out against the database and Telegram,
+// and looking from the outside exactly like a bot that is working.
+func (strategyBotService *StrategyBotService) RecordRound(
+	executionContext context.Context, id uint, outcome domains.StrategyBotRoundOutcomeDomain,
 ) error {
 	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
 	if findError != nil {
 		return findError
 	}
 
-	finishedBot := domains.NewStrategyBotRunStateDomain(storedBot).RoundFinished(
-		strategyBotService.clockProxy.Now(), vo.SignalVo(sentSignal), conflicting)
+	endedBot := outcome.ApplyTo(
+		domains.NewStrategyBotRunStateDomain(storedBot), strategyBotService.clockProxy.Now())
 
-	return strategyBotService.strategyBotRepository.UpdateRunState(executionContext, finishedBot)
-}
-
-// RecordRoundSkipped books in a round that could not reach a conclusion for a reason
-// that may have gone by the next one, and moves the bot on. Nothing else about it
-// changes: a closed weekend must not read as a change of mind on Monday.
-func (strategyBotService *StrategyBotService) RecordRoundSkipped(
-	executionContext context.Context, id uint,
-) error {
-	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
-	if findError != nil {
-		return findError
-	}
-
-	skippedBot := domains.NewStrategyBotRunStateDomain(storedBot).RoundSkipped(
-		strategyBotService.clockProxy.Now())
-
-	return strategyBotService.strategyBotRepository.UpdateRunState(executionContext, skippedBot)
-}
-
-// HaltStrategyBot stops a bot the system cannot go on running, and records what
-// somebody has to go and fix.
-func (strategyBotService *StrategyBotService) HaltStrategyBot(
-	executionContext context.Context, id uint, haltReason string,
-) error {
-	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
-	if findError != nil {
-		return findError
-	}
-
-	haltedBot := domains.NewStrategyBotRunStateDomain(storedBot).Halt(
-		vo.StrategyBotHaltReasonVo(haltReason))
-
-	return strategyBotService.strategyBotRepository.UpdateRunState(executionContext, haltedBot)
+	return strategyBotService.strategyBotRepository.UpdateRunState(executionContext, endedBot)
 }
 
 // findOwnedBot is the two steps in front of everything a person does to a bot: find

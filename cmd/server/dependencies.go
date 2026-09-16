@@ -78,15 +78,18 @@ func registerRoutes(
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
 
-	kCandleApplication := application.NewKCandleApplication(
-		service.NewKCandleService(
-			kCandleRepository,
-			persistence.NewTradingSymbolRepository(database),
-			clock.NewSystemClockProxy(),
-			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
-			applicationConfig.KCandleQueryMaxResults,
-		),
+	// Built once and shared, because a strategy bot quoting a reference price is
+	// asking the same question of the market as the chart is. Two instances would be
+	// two read ceilings, and the one a bot used would be the one nobody tuned.
+	kCandleService := service.NewKCandleService(
+		kCandleRepository,
+		persistence.NewTradingSymbolRepository(database),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.KCandleQueryMaxResults,
 	)
+
+	kCandleApplication := application.NewKCandleApplication(kCandleService)
 
 	kCandleController := controller.NewKCandleController(kCandleApplication)
 
@@ -364,7 +367,7 @@ func registerRoutes(
 		strategyService,
 		indicatorCalculationService,
 		telegramDeliveryService,
-		kCandleRepository,
+		kCandleService,
 		clock.NewSystemClockProxy(),
 		application.NewStrategyBotRoundGuard(),
 		applicationConfig.StrategyBot.MaxConcurrentRounds,

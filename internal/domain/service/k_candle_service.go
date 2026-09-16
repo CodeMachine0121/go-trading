@@ -141,6 +141,38 @@ func (kCandleService *KCandleService) GetKCandle(
 	return kCandle.ToDto(), nil
 }
 
+// GetLatestKCandle returns the newest K candle stored for this symbol, and whether
+// there was one at all.
+//
+// Nothing stored is an answer rather than a failure: a symbol nobody has ingested
+// yet is an ordinary state, and a caller told it was a failure would have to work
+// out which failures are really nothing.
+//
+// It is a question of its own rather than a range read with a count of one. "The
+// latest" has no time to name, and a caller handed a range would have to invent two
+// moments that could only be wrong.
+func (kCandleService *KCandleService) GetLatestKCandle(
+	executionContext context.Context, symbol string,
+) (dto.KCandleDto, bool, error) {
+	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
+	if symbolError != nil {
+		return dto.KCandleDto{}, false, fmt.Errorf(
+			"%w: %w", domains.ErrKCandleValidation, symbolError)
+	}
+
+	kCandles, findError := kCandleService.kCandleRepository.FindLatest(
+		executionContext, tradingSymbol.Value(), 1)
+	if findError != nil {
+		return dto.KCandleDto{}, false, findError
+	}
+
+	if len(kCandles) == 0 {
+		return dto.KCandleDto{}, false, nil
+	}
+
+	return kCandles[0].ToDto(), true, nil
+}
+
 // UpdateKCandle replaces the figures of an existing K candle. The candle it acts on
 // is the one named by the trading symbol and open time carried in the input.
 func (kCandleService *KCandleService) UpdateKCandle(

@@ -72,7 +72,10 @@ func newStrategyBotScanJobUnderTest(
 				mocks.NewMockITelegramDeliveryRepository(mockController),
 				mocks.NewMockISecretSealProxy(mockController),
 				mocks.NewMockIMessageDeliveryProxy(mockController)),
-			kCandleRepository,
+			service.NewKCandleService(
+				kCandleRepository, tradingSymbolRepository, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				1000),
 			clockProxy,
 			application.NewStrategyBotRoundGuard(),
 			4,

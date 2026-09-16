@@ -191,3 +191,76 @@ func TestStrategyBotRunStateIsRunning(t *testing.T) {
 	assert.False(t,
 		domains.NewStrategyBotRunStateDomain(aStoredBot(vo.StrategyBotStopped)).IsRunning())
 }
+
+func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
+	now := time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)
+
+	testCases := []struct {
+		name                   string
+		outcome                domains.StrategyBotRoundOutcomeDomain
+		expectedRunState       vo.StrategyBotRunStateVo
+		expectedHaltReason     vo.StrategyBotHaltReasonVo
+		expectedLastSentSignal string
+		expectedConflicting    bool
+		expectsTheClockMoved   bool
+	}{
+		{
+			name:                   "a skipped round moves the clock and nothing else",
+			outcome:                domains.NewStrategyBotRoundSkippedOutcome(),
+			expectedRunState:       vo.StrategyBotRunning,
+			expectedLastSentSignal: string(vo.SignalBuy),
+			expectedConflicting:    true,
+			expectsTheClockMoved:   true,
+		},
+		{
+			// A halted bot is stopped, so it is never picked up again and when it
+			// would next have been due means nothing. Starting it sets that afresh.
+			name: "a halted round stops the bot and says why",
+			outcome: domains.NewStrategyBotRoundHaltedOutcome(
+				vo.StrategyBotHaltCredentialRejected),
+			expectedRunState:       vo.StrategyBotStopped,
+			expectedHaltReason:     vo.StrategyBotHaltCredentialRejected,
+			expectedLastSentSignal: string(vo.SignalBuy),
+			expectedConflicting:    true,
+		},
+		{
+			name: "a concluded round that sent something records it",
+			outcome: domains.NewStrategyBotRoundConcludedOutcome(
+				vo.SignalSell, false),
+			expectedRunState:       vo.StrategyBotRunning,
+			expectedLastSentSignal: string(vo.SignalSell),
+			expectedConflicting:    false,
+			expectsTheClockMoved:   true,
+		},
+		{
+			name:                   "a concluded round that sent nothing leaves the last signal alone",
+			outcome:                domains.NewStrategyBotRoundConcludedOutcome("", false),
+			expectedRunState:       vo.StrategyBotRunning,
+			expectedLastSentSignal: string(vo.SignalBuy),
+			expectedConflicting:    false,
+			expectsTheClockMoved:   true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			storedBot := aStoredBot(vo.StrategyBotRunning)
+			storedBot.LastSentSignal = string(vo.SignalBuy)
+			storedBot.Conflicting = true
+
+			endedBot := testCase.outcome.ApplyTo(
+				domains.NewStrategyBotRunStateDomain(storedBot), now)
+
+			assert.Equal(t, string(testCase.expectedRunState), endedBot.RunState)
+			assert.Equal(t, string(testCase.expectedHaltReason), endedBot.HaltReason)
+			assert.Equal(t, testCase.expectedLastSentSignal, endedBot.LastSentSignal)
+			assert.Equal(t, testCase.expectedConflicting, endedBot.Conflicting)
+			// Every outcome that leaves the bot running moves it on, which is what
+			// stops a failed round becoming due again immediately and failing again
+			// at full speed.
+			if testCase.expectsTheClockMoved {
+				assert.Equal(t, now.Add(5*time.Minute), endedBot.NextRunAt)
+			}
+		})
+	}
+}
