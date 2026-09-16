@@ -296,3 +296,62 @@ sequenceDiagram
     既有的 `DeliveryFailureReasonVo.ToDto()` 已經示範過這個判準。
   - 條件樹在 DTO 上的 JSON 形狀（巢狀物件 vs 扁平節點清單）留給實作時決定，
     但**前端拿到的必須是巢狀的**——扁平清單等於要求前端自己組樹。
+
+---
+
+## 9. 實作時與本設計的出入
+
+實作過程中有三處偏離了上面的設計。三處都在當下判斷過，記在這裡而不是回頭改寫設計，
+是因為**為什麼改**比改成什麼更值得留下。
+
+### 9.1 領域模型從六個變成七個
+
+設計把「一台機器人的規則」與「它的狀態轉換」合併在 `StrategyBotDomain`。
+實作拆成兩個：`StrategyBotDomain`（寫入時的驗證，由 `StrategyBotWriteDto` 建構）與
+`StrategyBotRunStateDomain`（一台已存在的機器人的生老病死，由 entity 建構）。
+
+**逼出這個拆分的是 import 方向**：`domains` 會 import `entities`（為了 `ToEntity`），
+所以 `entities` 不能反過來 import `domains`——`entity.toDomain()` 這條路走不通，
+entity 只能**被傳進**一個 domain 模型的建構子（既有的 `NewStrategyAccessDomain` 正是如此）。
+一個模型同時要能從 WriteDto 與從 entity 建構，在 Go 裡就是兩個建構子、兩組欄位、
+兩種半空的狀態。拆成兩個之後，每個都只有一種建構方式，而且「存一台機器人」
+這條路上再也沒有任何地方碰得到執行狀態。
+
+### 9.2 信號來源不留策略名稱的副本
+
+設計讓 `StrategyBotSignalSource` 帶一份 `StrategyName` 供清單顯示。實作拿掉了。
+
+**理由是拿不到一份可信的副本**：既有的 `ResolveRunnableStrategy` 交出的
+`RunnableStrategyDto` 只有算式、參數與種類，沒有名稱——它是為了「跑」而存在的形狀。
+要填這個欄位，只能信呼叫端送來的字串，那就是一份**會過期、而且沒有人驗證過**的副本。
+替代方案是為了顯示去擴 `RunnableStrategyDto`，那會把一個「跑」的形狀污染成
+「跑＋顯示」的形狀。
+
+拿掉之後也沒有損失：**來源代號本身就是名字**，它必填、同一台機器人內唯一、最長 32 字，
+而且是**擁有者自己取的**——訊息裡寫「均線黃金交叉（1h）：賣出」比寫一份可能過期的
+策略名稱更準確。
+
+### 9.3 多一個 `StrategyBotRoundOutcomeDomain`，三個記錄方法併成一個
+
+設計讓 `StrategyBotService` 有 `RecordRoundOutcome`／`HaltStrategyBot` 等數個方法，
+並把確切形狀留給實作。第一版做成三個方法（finished／skipped／halted），
+`/improve-codebase` 那一輪改成一個。
+
+**改的理由是一種看不見的失敗**：一輪有四個出口，三個各自「記得」要把這一輪寫回去。
+忘記任何一個，那台機器人的 `NextRunAt` 就不會前進——它會**立刻又到期**，
+每秒對資料庫與 Telegram 全速重試，而從外面看它一切正常。
+現在 `runOneRound` 只有一句「算出結果」加一句「寫回去」，寫不出一條沒有記錄的路徑。
+
+`StrategyBotRoundOutcomeDomain` 的三個建構子則兌現了設計第 8 節留下的判準：
+**不要出現兩個欄位可以互相矛盾**——一個帶旗標的結構說得出「跳過了，而這是它送出的信號」，
+三個建構子說不出來。
+
+### 9.4 參考價改走 `KCandleService`
+
+設計把 `IKCandleRepository` 直接注入 `StrategyBotRunApplication`。
+`/improve-codebase` 那一輪改成注入 `KCandleService`。
+
+**理由是這個 codebase 裡沒有第二個 application 直接注入 repository**。
+一個新切片自己開一種注入方式，等於在既有紋理上多一條縫。
+`GetLatestKCandle` 加在 `KCandleService` 上也更對：那是一個關於 K 線的問題，
+而 K 線的問題本來就住在那裡。

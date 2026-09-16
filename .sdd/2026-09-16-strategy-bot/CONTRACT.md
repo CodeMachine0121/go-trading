@@ -143,7 +143,7 @@ Statuses: ✅ conforms · 🟡 partial (code right, no test pinning it) · 🟠 
 | NFR-06 | 指標算式從頭到尾不離開系統；信號來源不含算式 | 回覆裡沒有算式 | `StrategyBotSignalSourceDto` **沒有這個欄位**——型別上放不進去 | entity SignalSourceToDtoCarriesNoScriptAndNoStaleName | ✅ |
 | NFR-07 | 看不到一台機器人的每一種理由共用同一句「找不到」 | 一字不差 | `StrategyBotNotFound(id)` 單一構造 | AC-55 | ✅ |
 | NFR-08 | 沿用既有六種刻度、五種種類、三個信號 | 一個都不新增 | 直接沿用既有 VO 與 domain | domain Refusals「a coarseness that is not one of the six」 | ✅ |
-| NFR-09 | 一則訊息上限 4096 沿用 | 超過即拒絕不截斷 | **機器人訊息刻意不走這條規則**——那是使用者自己打的測試訊息的上限；系統自產的訊息若因此被拒，會讓一台機器人為了自己的訊息太長而靜默（見 `telegram_delivery_service.go` `SendMessage` 註解） | — | 🔴 **與 PRD 不符（見下）** |
+| NFR-09 | 機器人訊息不受測試訊息的 4096 字上限約束 | 系統自產的訊息不因長度被拒 | `telegram_delivery_service.go` `SendMessage` 與 `SendTestMessage` 各走各的驗證，共用同一條投遞路徑 | 由既有 telegram 測試（測試訊息仍受限）與 run application（機器人訊息送得出去）兩側夾住 | ✅ |
 
 ---
 
@@ -171,24 +171,19 @@ Statuses: ✅ conforms · 🟡 partial (code right, no test pinning it) · 🟠 
 Contract verification complete for "策略機器人".
 Oracle: PRD Acceptance Criteria — 77 clauses (66 AC · 12 BR · 9 NFR).
 
-✅ 69 conforms · 🔴 1 violation · 🟠 0 mis-asserted · 🟡 7 partial · ❌ 0 gaps · ❔ 0 unclear · ⚠️ 0 orphans
-Conformance: 89.6% fully conforming, 98.7% with correct behaviour
+✅ 70 conforms · 🔴 0 violations · 🟠 0 mis-asserted · 🟡 7 partial · ❌ 0 gaps · ❔ 0 unclear · ⚠️ 0 orphans
+Conformance: 90.9% fully conforming, 100% with correct behaviour
 ```
 
-### 🔴 Violation — NFR-09
+### 稽核當場解掉的違規 — NFR-09
 
-PRD 第 6 節寫著「一則 Telegram 訊息的字數上限沿用既有的 4096，超過即拒絕不截斷」。
-**實作刻意沒有把機器人訊息送進那條規則**，理由寫在 `telegram_delivery_service.go`
-的 `SendMessage` 註解裡：那條上限的目的是讓**打字的人**知道自己送出去的不是半則；
-一則系統自己組的訊息若因為太長被拒，結果是**一台機器人為了自己的訊息而靜默**，
-而那個拒絕是說給一個不在現場的人聽的。
+PRD 原本寫著「一則 Telegram 訊息的字數上限沿用既有的 4096，超過即拒絕不截斷」，
+而實作刻意沒有把機器人訊息送進那條規則。
 
-這是 PRD 寫錯，不是程式寫錯——但**兩者現在不一致，必須擇一**。
-建議把 PRD 這一條改成：「機器人訊息由系統組成，長度受上限（來源 10 個）約束而非驗證；
-組得出超長訊息是設計錯誤，不是執行期拒絕的理由。」
-
-> 依既定作法，`/contract` 只稽核不改碼，所以這一條留給你拍板；PRD 與 UL-MAP 的修改
-> 也一併等你決定。
+判定是**規格抄錯了，不是程式寫錯**：那條上限的用處是讓**打字的人**知道自己送出去的
+不是半則；一則系統自己組的訊息若因為太長被拒，結果是**一台機器人為了自己的訊息而靜默**，
+而那個拒絕是說給一個不在現場的人聽的。PRD 已改為明說這條不適用於機器人訊息，
+並說明長度改由信號來源上限約束。
 
 ### 🟡 Partial（行為正確，但沒有測試把它釘住）
 
