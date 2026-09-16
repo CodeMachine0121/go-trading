@@ -217,12 +217,24 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
 		executionContext, botDto)
 	if roundError != nil {
+		// Said out loud, always. A round that ends here leaves one word in its
+		// history — "hold" — which is the same word a round that ran fine and
+		// decided nothing leaves. Without this line the two are indistinguishable
+		// from outside, and somebody watching a bot say "hold" for a week has no
+		// way to find out whether their conditions are wrong or their candles
+		// never arrived.
+		log.Printf("strategy bot %d: round could not read its signals: %v",
+			botDto.ID, roundError)
+
 		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(roundError)
 	}
 
 	decision, decideError := strategyBotRunApplication.strategyBotService.DecideRound(
 		botDto, signalsByLabel)
 	if decideError != nil {
+		log.Printf("strategy bot %d: round could not read its conditions: %v",
+			botDto.ID, decideError)
+
 		// A stored condition that no longer reads is not something time fixes, but
 		// it is also not one of the four things a person can go and correct. It
 		// waits, on the same rule that covers anything unrecognised: stopping a bot
@@ -231,6 +243,12 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	}
 
 	if !decision.ShouldSend {
+		// Also said out loud. A bot that concluded something and stayed quiet —
+		// because it said the same thing last round, or because its two conditions
+		// contradicted each other — looks exactly like a bot that never ran.
+		log.Printf("strategy bot %d: round concluded %q and said nothing (last sent %q)",
+			botDto.ID, decision.Verdict, botDto.LastSentSignal)
+
 		return concludedRound(decision.Verdict, "", decision.Conflicting)
 	}
 
@@ -239,6 +257,9 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	// somebody just deleted is the one thing a round must never send, because there
 	// is no longer anywhere for its owner to go and see where it came from.
 	if !strategyBotRunApplication.stillWaitingForThisRound(executionContext, botDto) {
+		log.Printf("strategy bot %d: round abandoned — it is no longer waiting for this one",
+			botDto.ID)
+
 		return skippedRound()
 	}
 
