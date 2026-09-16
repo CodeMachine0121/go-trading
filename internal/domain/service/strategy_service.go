@@ -181,6 +181,21 @@ func (strategyService *StrategyService) ResolveRunnableStrategy(
 		return dto.RunnableStrategyDto{}, findError
 	}
 
+	// The third gate is only asked when the second one did not already open. The
+	// model says so itself — being runnable is "mine, or published" — so for the
+	// owner's own strategy the marketplace cannot change the answer, and reading it
+	// is a query that buys nothing. Reading a strategy already works this way
+	// (see GetStrategy); running it now does too.
+	//
+	// It is not a micro-optimisation. A standing bot resolves every one of its
+	// signal sources on every round, for ever, and those are almost always its
+	// owner's own strategies — so this is one wasted query per source per round,
+	// each of which also logged a "record not found" that meant nothing.
+	access := domains.NewStrategyAccessDomain(strategy, viewerID, false)
+	if access.IsOwnedByViewer() {
+		return access.ToRunnableDto()
+	}
+
 	isPublished, publicationError := strategyService.isPublished(executionContext, id)
 	if publicationError != nil {
 		return dto.RunnableStrategyDto{}, publicationError

@@ -68,6 +68,25 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	}
 }
 
+// expectNoMarketplaceQuestion pins the other half of resolving a strategy: when it
+// is the caller's own, the marketplace is never asked.
+//
+// It is an expectation rather than an absence, because the saving is the point — a
+// standing bot resolves every signal source on every round, for ever, and those are
+// almost always its owner's own strategies.
+func (underTest strategyBotApplicationUnderTest) expectNoMarketplaceQuestion() {
+	underTest.publishedStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), gomock.Any()).Times(0)
+}
+
+// expectMarketplaceQuestion is the other case: somebody else's strategy, where the
+// third gate is the only one that can still open.
+func (underTest strategyBotApplicationUnderTest) expectMarketplaceQuestion() {
+	underTest.publishedStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+}
+
 // ownedStrategy is a strategy belonging to whoever these tests act as, declaring one
 // knob so that "a value set on a knob nobody declared" has something to fail against.
 func ownedStrategy(id uint) entities.Strategy {
@@ -117,8 +136,6 @@ func TestStrategyBotApplicationCreateResolvesEveryNamedStrategyThroughTheGates(t
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 		Return(ownedStrategy(9), nil)
-	underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
 	underTest.strategyBotRepository.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
@@ -146,8 +163,7 @@ func TestStrategyBotApplicationCreateRefusesAStrategyThisPersonCannotSee(t *test
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 		Return(strangersStrategy, nil)
-	underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
+	underTest.expectMarketplaceQuestion()
 
 	_, createError := underTest.strategyBotApplication.CreateStrategyBot(
 		context.Background(), strategyBotOwnerID, aBotWrite())
@@ -162,8 +178,6 @@ func TestStrategyBotApplicationCreateRefusesAValueOnAKnobNobodyDeclared(t *testi
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 		Return(ownedStrategy(9), nil)
-	underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
 
 	writeDto := aBotWrite()
 	writeDto.SignalSources[0].ParameterValues = []dto.StrategyParameterValueDto{
@@ -214,8 +228,6 @@ func TestStrategyBotApplicationUpdateRefusesWhileTheBotIsRunning(t *testing.T) {
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 		Return(ownedStrategy(9), nil)
-	underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(storedBot(vo.StrategyBotRunning), nil)
 
@@ -459,8 +471,6 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			arrange: func(underTest strategyBotApplicationUnderTest) {
 				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 					Return(ownedStrategy(9), nil)
-				underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-					Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
 				underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
@@ -476,8 +486,6 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			arrange: func(underTest strategyBotApplicationUnderTest) {
 				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 					Return(ownedStrategy(9), nil)
-				underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-					Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
@@ -495,8 +503,6 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			arrange: func(underTest strategyBotApplicationUnderTest) {
 				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 					Return(ownedStrategy(9), nil)
-				underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-					Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(storedBot(vo.StrategyBotStopped), nil)
 				underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
@@ -534,8 +540,7 @@ func TestStrategyBotApplicationRewriteRefusesAStrategyThisPersonCannotSee(t *tes
 
 	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 		Return(strangersStrategy, nil)
-	underTest.publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished)
+	underTest.expectMarketplaceQuestion()
 
 	writeDto := aBotWrite()
 	writeDto.ID = strategyBotID
