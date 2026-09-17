@@ -221,13 +221,13 @@ func (kCandleIngestionService *KCandleIngestionService) StartHistorySyncFor(
 		return dto.KCandleHistorySyncRunDto{}, saveError
 	}
 
-	go kCandleHistorySyncRunner{
+	go (&kCandleHistorySyncRunner{
 		kCandleIngestionService: kCandleIngestionService,
 		syncRun:                 syncRun,
 		registeredSymbol:        registeredSymbol,
 		ingestionDomain:         ingestionDomain,
 		chunks:                  chunks,
-	}.run()
+	}).run()
 
 	return syncRun.ToDto(), nil
 }
@@ -290,7 +290,7 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 	ingestionDomain domains.KCandleIngestionDomain,
 	chunks []vo.KCandleFetchWindowVo,
 	recordProgress func(completedChunks int, symbolReport dto.KCandleSymbolIngestionReportDto),
-) (dto.KCandleSymbolIngestionReportDto, error) {
+) error {
 	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
 	symbolReport := dto.KCandleSymbolIngestionReportDto{
 		Symbol:          registeredSymbol.Symbol,
@@ -298,6 +298,11 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 		SkippedKCandles: make([]dto.SkippedKCandleDto, 0),
 	}
 
+	// Everything this walk has to say travels back through recordProgress rather than
+	// through the return, so that **whatever it managed before it stopped is already
+	// written down**. A walk that gives up at chunk five of fifteen hundred has still
+	// stored five chunks' worth, and a caller handed an error and nothing else would
+	// have to report that as zero.
 	for chunkIndex, chunk := range chunks {
 		recordProgress(chunkIndex, symbolReport)
 
@@ -310,7 +315,9 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			executionContext, registeredSymbol.Symbol,
 			tradableChunk.StartTime, tradableChunk.EndTime)
 		if countError != nil {
-			return dto.KCandleSymbolIngestionReportDto{}, countError
+			recordProgress(chunkIndex, symbolReport)
+
+			return countError
 		}
 
 		if alreadyHeld >= marketDomain.TradingKCandleCountBetween(
@@ -327,8 +334,9 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			// stored before this point stays stored — it is correct, and running
 			// again resumes from it.
 			symbolReport.FetchFailureReason = fetchError.Error()
+			recordProgress(chunkIndex, symbolReport)
 
-			break
+			return nil
 		}
 
 		symbolReport.WasAsked = true
@@ -341,9 +349,13 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			executionContext, judgedKCandles)
 		if saveError != nil {
 			// Storage breaking is this system's own fault, not this chunk's, so it
-			// ends the request rather than being written down as something the
-			// candles did wrong.
-			return dto.KCandleSymbolIngestionReportDto{}, saveError
+			// ends the run rather than being written down as something the candles
+			// did wrong. What the earlier chunks stored is reported on the way out:
+			// it is in the database, and a run claiming otherwise would send somebody
+			// back to fetch it all again.
+			recordProgress(chunkIndex, symbolReport)
+
+			return saveError
 		}
 
 		symbolReport.StoredCount += storedCount
@@ -351,7 +363,7 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 
 	recordProgress(len(chunks), symbolReport)
 
-	return symbolReport, nil
+	return nil
 }
 
 // reachSymbolOnDemand is everything the two hand-driven fetches do before they differ:

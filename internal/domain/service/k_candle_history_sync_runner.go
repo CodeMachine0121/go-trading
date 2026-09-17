@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"runtime/debug"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -21,6 +22,18 @@ var ErrKCandleHistorySyncRunNotFound = errors.New("k candle history sync run not
 // looking at it can do is ask for the stretch again — and asking again is cheap, since
 // everything already stored is never fetched twice.
 const kCandleHistorySyncInterrupted = "interrupted by restart"
+
+// progressWriteAttempts and endingWriteAttempts are how hard each kind of write tries.
+//
+// A progress figure is worth one go: the next chunk writes it again a moment later,
+// and a run that stopped to retry a number nobody is reading yet is a run spending its
+// source allowance on nothing. The closing write is the last thing that will ever be
+// said about this run, so it is worth waiting on.
+const (
+	progressWriteAttempts = 1
+	endingWriteAttempts   = 3
+	betweenWriteAttempts  = 2 * time.Second
+)
 
 // kCandleHistorySyncRunner is one history sync being fetched: which run it is filling
 // in, whose history, and the chunks still to walk.
@@ -43,6 +56,11 @@ type kCandleHistorySyncRunner struct {
 	registeredSymbol entities.TradingSymbol
 	ingestionDomain  domains.KCandleIngestionDomain
 	chunks           []vo.KCandleFetchWindowVo
+	// completedChunks and symbolReport are how far the walk actually got, kept here
+	// rather than read off the return so that an ending — including one nobody
+	// planned, like a panic — reports what really happened instead of nothing.
+	completedChunks int
+	symbolReport    dto.KCandleSymbolIngestionReportDto
 }
 
 // run walks the stretch to an end and records it, either way.
@@ -55,7 +73,7 @@ type kCandleHistorySyncRunner struct {
 //
 // Neither ending returns anything. There is nobody left to return to: the request was
 // answered with a place to look, and this is what fills that place in.
-func (kCandleHistorySyncRunner kCandleHistorySyncRunner) run() {
+func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) run() {
 	executionContext := context.Background()
 
 	// A panic out here has nothing above it to contain it, so it would stop the API,
@@ -71,11 +89,10 @@ func (kCandleHistorySyncRunner kCandleHistorySyncRunner) run() {
 		log.Printf("k candle history sync %d panicked: %v\n%s",
 			kCandleHistorySyncRunner.syncRun.ID, panicValue, debug.Stack())
 
-		kCandleHistorySyncRunner.recordEnding(
-			executionContext, dto.KCandleSymbolIngestionReportDto{}, "k candle history sync broke down")
+		kCandleHistorySyncRunner.recordEnding(executionContext, "k candle history sync broke down")
 	}()
 
-	symbolReport, syncError := kCandleHistorySyncRunner.kCandleIngestionService.syncSymbolHistory(
+	syncError := kCandleHistorySyncRunner.kCandleIngestionService.syncSymbolHistory(
 		executionContext,
 		kCandleHistorySyncRunner.registeredSymbol,
 		kCandleHistorySyncRunner.ingestionDomain,
@@ -83,13 +100,12 @@ func (kCandleHistorySyncRunner kCandleHistorySyncRunner) run() {
 		kCandleHistorySyncRunner.recordProgress,
 	)
 	if syncError != nil {
-		kCandleHistorySyncRunner.recordEnding(
-			executionContext, symbolReport, syncError.Error())
+		kCandleHistorySyncRunner.recordEnding(executionContext, syncError.Error())
 
 		return
 	}
 
-	kCandleHistorySyncRunner.recordEnding(executionContext, symbolReport, "")
+	kCandleHistorySyncRunner.recordEnding(executionContext, "")
 }
 
 // recordProgress brings the run up to date after each chunk, so that somebody looking
@@ -98,32 +114,43 @@ func (kCandleHistorySyncRunner kCandleHistorySyncRunner) run() {
 // A write per chunk is deliberate. It is one small statement against thousands of
 // paced requests, and a progress figure that arrives in batches is a figure nobody can
 // tell from a run that has stalled.
-func (kCandleHistorySyncRunner kCandleHistorySyncRunner) recordProgress(
+func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) recordProgress(
 	completedChunks int, symbolReport dto.KCandleSymbolIngestionReportDto,
 ) {
+	kCandleHistorySyncRunner.completedChunks = completedChunks
+	kCandleHistorySyncRunner.symbolReport = symbolReport
+
 	syncRun := kCandleHistorySyncRunner.syncRun
 	syncRun.CompletedChunks = completedChunks
 	syncRun.StoredCount = symbolReport.StoredCount
 	syncRun.SkippedCount = symbolReport.SkippedCount
 
-	kCandleHistorySyncRunner.save(context.Background(), syncRun)
+	kCandleHistorySyncRunner.save(context.Background(), syncRun, progressWriteAttempts)
 }
 
-// recordEnding closes the run. An empty failure reason is a run that walked the whole
-// stretch; the source having refused is carried separately, because a source refusing
-// is something the run found out rather than something the run did wrong.
-func (kCandleHistorySyncRunner kCandleHistorySyncRunner) recordEnding(
-	executionContext context.Context,
-	symbolReport dto.KCandleSymbolIngestionReportDto,
-	failureReason string,
+// recordEnding closes the run at wherever the walk actually reached.
+//
+// **The chunk count is the one it got to, not the one it was given.** A run that gave
+// up at chunk five of fifteen hundred reporting 1500 of 1500 would be worse than no
+// figure at all: it reads as finished, and the pair exists precisely so that a long
+// run can be told apart from a stalled one.
+//
+// An empty failure reason is a run that walked the whole stretch. The source having
+// refused is carried separately, because a source refusing is something the run found
+// out rather than something the run did wrong.
+func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) recordEnding(
+	executionContext context.Context, failureReason string,
 ) {
-	finishedAt := kCandleHistorySyncRunner.ingestionDomain.CurrentTime()
+	// Read now, not when the run was accepted. The moment it started is already on the
+	// row; taking the ending from the same reading would make every run, however long,
+	// look instantaneous.
+	finishedAt := kCandleHistorySyncRunner.kCandleIngestionService.clockProxy.Now()
 
 	syncRun := kCandleHistorySyncRunner.syncRun
-	syncRun.CompletedChunks = len(kCandleHistorySyncRunner.chunks)
-	syncRun.StoredCount = symbolReport.StoredCount
-	syncRun.SkippedCount = symbolReport.SkippedCount
-	syncRun.FetchFailureReason = symbolReport.FetchFailureReason
+	syncRun.CompletedChunks = kCandleHistorySyncRunner.completedChunks
+	syncRun.StoredCount = kCandleHistorySyncRunner.symbolReport.StoredCount
+	syncRun.SkippedCount = kCandleHistorySyncRunner.symbolReport.SkippedCount
+	syncRun.FetchFailureReason = kCandleHistorySyncRunner.symbolReport.FetchFailureReason
 	syncRun.FailureReason = failureReason
 	syncRun.FinishedAt = &finishedAt
 	syncRun.Status = string(vo.KCandleHistorySyncSucceeded)
@@ -131,19 +158,33 @@ func (kCandleHistorySyncRunner kCandleHistorySyncRunner) recordEnding(
 		syncRun.Status = string(vo.KCandleHistorySyncFailed)
 	}
 
-	kCandleHistorySyncRunner.save(executionContext, syncRun)
+	kCandleHistorySyncRunner.save(executionContext, syncRun, endingWriteAttempts)
 }
 
-// save writes the run and swallows nothing quietly: there is nobody to return an
-// error to out here, so a write that will not land is logged and the walk carries on.
-// Losing a progress figure is not worth abandoning a fetch that is working.
-func (kCandleHistorySyncRunner kCandleHistorySyncRunner) save(
-	executionContext context.Context, syncRun entities.KCandleHistorySyncRun,
+// save writes the run, trying again as many times as the caller thinks the write is
+// worth, and giving up loudly rather than silently.
+//
+// **A progress write and the closing write are not worth the same.** Losing a progress
+// figure costs one stale number until the next chunk lands; losing the closing write
+// leaves the row saying running for as long as this process lives — nothing retries
+// it, and the sweep that would catch it only happens at start-up. So somebody polling
+// that run waits for an ending that has already happened and will never be written.
+func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) save(
+	executionContext context.Context, syncRun entities.KCandleHistorySyncRun, attempts int,
 ) {
-	_, saveError := kCandleHistorySyncRunner.kCandleIngestionService.
-		kCandleHistorySyncRunRepository.Save(executionContext, syncRun)
-	if saveError != nil {
+	for attempt := range attempts {
+		_, saveError := kCandleHistorySyncRunner.kCandleIngestionService.
+			kCandleHistorySyncRunRepository.Save(executionContext, syncRun)
+		if saveError == nil {
+			return
+		}
+
 		log.Printf("k candle history sync %d could not be brought up to date: %v",
 			syncRun.ID, saveError)
+
+		if attempt+1 < attempts {
+			kCandleHistorySyncRunner.kCandleIngestionService.clockProxy.Sleep(
+				betweenWriteAttempts)
+		}
 	}
 }
