@@ -40,3 +40,16 @@ func (kCandleIngestionApplication *KCandleIngestionApplication) RunScheduledRoun
 ) (dto.KCandleIngestionReportDto, error) {
 	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(executionContext)
 }
+
+// SyncSymbolHistory fetches a named stretch of one trading symbol's history and
+// stores it over whatever was there.
+//
+// The ceiling travels through rather than being held anywhere in the middle: it is an
+// operator's decision, settled once at the composition root, and a layer that
+// remembered a copy would be a second place for it to drift.
+func (kCandleIngestionApplication *KCandleIngestionApplication) SyncSymbolHistory(
+	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, lookbackCeilingDays int,
+) (dto.KCandleIngestionReportDto, error) {
+	return kCandleIngestionApplication.kCandleIngestionService.SyncHistoryFor(
+		executionContext, syncDto, lookbackCeilingDays)
+}
