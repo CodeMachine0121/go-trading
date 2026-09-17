@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,6 +30,10 @@ type chatRouterUnderTest struct {
 	engine                 *gin.Engine
 	conversationRepository *mocks.MockIConversationRepository
 	assistantProxy         *mocks.MockIAssistantProxy
+	// completedTurns carries whatever was written back over the reserved exchange.
+	// A case that lets the answer start has to wait for it, or the mock controller
+	// will still be receiving calls while the test is being torn down.
+	completedTurns chan entities.AssistantTurn
 }
 
 // newChatRouterUnderTest wires the real service and real domain models, mocking only
@@ -41,6 +46,14 @@ func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 	assistantProxy := mocks.NewMockIAssistantProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(chatAskedAt).AnyTimes()
+
+	completedTurns := make(chan entities.AssistantTurn, 1)
+	conversationRepository.EXPECT().CompleteTurn(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, turn entities.AssistantTurn) error {
+			completedTurns <- turn
+
+			return nil
+		}).AnyTimes()
 
 	assistantConversationController := controller.NewAssistantConversationController(
 		application.NewAssistantConversationApplication(
@@ -68,6 +81,22 @@ func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 		engine:                 engine,
 		conversationRepository: conversationRepository,
 		assistantProxy:         assistantProxy,
+		completedTurns:         completedTurns,
+	}
+}
+
+// awaitCompletedTurn waits for the answer to be written back, which happens off the
+// request that asked for it.
+func (fixture chatRouterUnderTest) awaitCompletedTurn(t *testing.T) entities.AssistantTurn {
+	t.Helper()
+
+	select {
+	case completedTurn := <-fixture.completedTurns:
+		return completedTurn
+	case <-time.After(2 * time.Second):
+		t.Fatal("答案沒有被寫回那一列——它應該在請求結束之後才補上")
+
+		return entities.AssistantTurn{}
 	}
 }
 
@@ -90,24 +119,38 @@ func (fixture chatRouterUnderTest) expectUsageToday(usageToday int) {
 		Return(usageToday, nil)
 }
 
-func TestChatAskAnswersWithTheConversationItLandedIn(t *testing.T) {
+func TestChatAskAcceptsTheQuestionAndSaysWhereTheAnswerWillAppear(t *testing.T) {
+	// 202 rather than 200, because nothing has been answered yet. A 200 with no
+	// answer in it is the one reading a client could not recover from — it would
+	// render an empty reply and move on.
 	fixture := newChatRouterUnderTest(t)
 	fixture.expectUsageToday(0)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 		Return(vo.AssistantReplyVo{Answer: "最近在盤整", Usage: 500}, nil)
 	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		Return(entities.Conversation{ID: 42}, nil)
+		DoAndReturn(func(
+			_ context.Context, conversation entities.Conversation,
+		) (entities.Conversation, error) {
+			conversation.ID = 42
+			conversation.Turns[0].ID = 77
+
+			return conversation, nil
+		})
 
 	recorder := fixture.send(http.MethodPost, "/chat", `{"question":"BTCUSDT 最近走勢如何"}`)
 
-	require.Equal(t, http.StatusOK, recorder.Code)
-	answer := struct {
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	started := struct {
 		ConversationID uint   `json:"conversationId"`
-		Answer         string `json:"answer"`
+		TurnID         uint   `json:"turnId"`
+		Status         string `json:"status"`
 	}{}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &answer))
-	assert.Equal(t, uint(42), answer.ConversationID)
-	assert.Equal(t, "最近在盤整", answer.Answer)
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &started))
+	assert.Equal(t, uint(42), started.ConversationID)
+	assert.Equal(t, uint(77), started.TurnID)
+	assert.Equal(t, "running", started.Status)
+
+	assert.Equal(t, "最近在盤整", fixture.awaitCompletedTurn(t).Answer)
 }
 
 func TestChatAskReportsABodyItCannotRead(t *testing.T) {
@@ -153,13 +196,21 @@ func TestChatAskMapsEachRefusalOntoWhatTheReaderMustDoAboutIt(t *testing.T) {
 			},
 		},
 		{
-			name:               "the assistant did not answer",
-			body:               `{"question":"BTCUSDT 最近走勢如何"}`,
-			expectedStatusCode: http.StatusServiceUnavailable,
+			// Waiting a moment is what this reader has to do, and it is unlike all the
+			// others: not rewrite, not wait until tomorrow — just let the answer
+			// already being written finish.
+			name:               "an answer on that conversation is still being written",
+			body:               `{"conversationId":7,"question":"再問一句"}`,
+			expectedStatusCode: http.StatusConflict,
 			arrange: func(fixture chatRouterUnderTest) {
 				fixture.expectUsageToday(0)
-				fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
-					Return(vo.AssistantReplyVo{}, errors.New("dial tcp: connection refused"))
+				fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+					Return(entities.Conversation{
+						ID: 7, OwnerID: signedInViewerID,
+						Turns: []entities.AssistantTurn{
+							{ID: 1, Ask: "前一句", Status: "running", CreatedAt: chatAskedAt},
+						},
+					}, nil)
 			},
 		},
 		{

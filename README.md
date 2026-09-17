@@ -155,7 +155,7 @@ curl localhost:8080/health
 | `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
-| `POST` | `/chat` | 問行情助手一句話；不指名對話即開一段新的，回覆一段回答與這段對話的識別碼 |
+| `POST` | `/chat` | 問行情助手一句話；不指名對話即開一段新的。**回 202，不回答案**——收下問題、回覆對話識別碼與這次回答的識別碼，答案在連線之外寫完 |
 | `GET` | `/chat/conversations` | 列出每一段對話，最近有動靜的排前面 |
 | `GET` | `/chat/conversations/{id}` | 讀一段對話的每一則訊息，依時間由早到晚 |
 | `POST` | `/users` | 用電子郵件與密碼建立一位使用者；回覆識別碼與電子郵件，**永遠不含密碼或由它算出來的任何東西** |
@@ -340,14 +340,42 @@ curl -i -X POST localhost:8080/sessions/revocation -H 'Content-Type: application
 ```bash
 curl -X POST localhost:8080/chat -H 'Content-Type: application/json' \
   -d '{"question":"BTCUSDT 最近一天每小時的形狀？"}'
-# {"conversationId":1,"answer":"...","queryCount":2,"stoppedAtQueryLimit":false,"usage":3184}
+# 202 {"conversationId":1,"turnId":9,"status":"running"}
+
+# 答案不在上面那個回應裡。隔一會兒回來讀這段對話，看最後一則的 status。
+curl localhost:8080/chat/conversations/1
+# {"messages":[{"role":"ask","content":"BTCUSDT…","status":"running"}]}          ← 還在寫
+# {"messages":[…,{"role":"answer","content":"…","status":"answered"}]}          ← 寫完了
+# {"messages":[{"role":"ask","content":"…","status":"failed","failureReason":"…"}]} ← 壞了
 
 curl -X POST localhost:8080/chat -H 'Content-Type: application/json' \
   -d '{"conversationId":1,"question":"那 ETHUSDT 呢？"}'
 
 curl localhost:8080/chat/conversations
-curl localhost:8080/chat/conversations/1
 ```
+
+### 一次回答在寫的時候就看得見
+
+助手一次回答可能來回四十趟——拼一份交易策略、重演、不滿意再改——**那可能是好幾分鐘**。
+所以提問與答案是分開的兩件事：
+
+- 通過檢查（不空白、還有額度、那段對話是自己的、上一則不在跑）之後，
+  **立刻留下一則狀態為進行中的回答**並回 202。
+- 真正去問助手的那段**跑在連線之外**。關掉分頁、重新整理、斷線，它照樣跑完。
+- 講完話轉成 `answered`；助手不可用、逾時、中途壞掉轉成 `failed` 並留下一句原因。
+
+**失敗會留下痕跡，這是刻意改掉的舊規則。** 原本「助手不可用就整則不留」很合理——
+前提是使用者正看著畫面，送出、失敗、重打都在幾秒內。一次回答變成好幾分鐘之後前提就沒了：
+他人不在，回來時要能自己分辨「我沒送出去」「送了但失敗了」「送了還在跑」。
+一則都不留會讓三者長得一模一樣。失敗的那一則**用量不計入今日**——沒有答案的東西不收錢。
+
+**同一段對話一次只跑一則。** 前一則還在寫的時候再送會收到 `409`。兩則同時寫進同一段，
+誰都說不出最後那段記錄的是哪一則；而使用者會這麼做的時機幾乎只有一個——
+他以為前一則沒送出去，而那正是這整套設計要消滅的誤會。
+
+**啟動時把殘留的收乾淨。** 一則正在寫的回答只活在這個行程裡，所以上次關機時全死了，
+但列還寫著進行中。啟動時一律轉成失敗、原因寫「被重新啟動中斷」——
+不這樣做的話那些列會永遠停在進行中，畫面上就是一個永遠轉不完的圈。
 
 ### 一則帶著查詢請求的回覆不是答案
 

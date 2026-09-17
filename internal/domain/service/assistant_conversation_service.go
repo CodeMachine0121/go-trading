@@ -13,7 +13,7 @@ import (
 // AssistantConversationService is the application layer's only entry point for
 // talking to the assistant. Its public use-case methods never call one another.
 //
-// Asking is one call in and one answer out. Whoever calls it does not check the
+// Asking is one call in and a place to look out. Whoever calls it does not check the
 // day's allowance, does not trim the conversation, does not drive the round trips and
 // does not decide when to store anything — all of that is in here, because all of it
 // is rules about what an answer may cost, and rules that leak out to callers are
@@ -70,7 +70,14 @@ func NewAssistantConversationService(
 	}
 }
 
-// Ask answers one question and stores the exchange.
+// Ask takes one question, reserves the place its answer will go, and sets the answer
+// being written somewhere the caller is not waiting.
+//
+// **It does not return an answer, and that is the change this design turns on.** The
+// assistant may go round dozens of times — building a set of rules, replaying it,
+// adjusting it, replaying again — and holding the asker on a connection for that is
+// what makes a refresh lose everything and a closed tab kill work already done. What
+// comes back instead is where the answer will appear.
 //
 // The order of the first three checks is the order the refusals cost least in. A
 // question with nothing in it is refused before the day's usage is read, and the
@@ -79,15 +86,17 @@ func NewAssistantConversationService(
 // blank question sent to a conversation that does not exist is answered as a blank
 // question, which is the thing the sender can actually fix.
 //
-// Nothing is stored until the assistant has answered. That is what makes "an
-// assistant that never answered leaves nothing behind" a property of this method
-// rather than a cleanup somebody has to remember.
+// **Nothing is stored until all four checks pass.** That is what keeps "a question
+// that was never accepted leaves nothing behind" true — the guarantee that used to
+// cover a failed answer as well, and no longer does. A failed answer now leaves a row
+// saying so, deliberately: somebody who was not watching has to be able to tell it
+// apart from one still running and from one they never sent.
 func (assistantConversationService *AssistantConversationService) Ask(
 	executionContext context.Context, askDto dto.AssistantAskDto,
-) (dto.AssistantAnswerDto, error) {
+) (dto.AssistantAnswerStartedDto, error) {
 	ask, askError := domains.NewAssistantAskDomain(askDto.Question)
 	if askError != nil {
-		return dto.AssistantAnswerDto{}, askError
+		return dto.AssistantAnswerStartedDto{}, askError
 	}
 
 	now := assistantConversationService.clockProxy.Now()
@@ -97,18 +106,18 @@ func (assistantConversationService *AssistantConversationService) Ask(
 	usageToday, sumError := assistantConversationService.conversationRepository.SumUsageBetween(
 		executionContext, allowance.StartOfDay(), allowance.ResetsAt())
 	if sumError != nil {
-		return dto.AssistantAnswerDto{}, sumError
+		return dto.AssistantAnswerStartedDto{}, sumError
 	}
 
 	if allowance.Exhausted(usageToday) {
-		return dto.AssistantAnswerDto{}, domains.DailyUsageAllowanceExhausted(
+		return dto.AssistantAnswerStartedDto{}, domains.DailyUsageAllowanceExhausted(
 			allowance.Allowance(), allowance.ResetsAt())
 	}
 
 	recentMessages, recentMessagesError := assistantConversationService.recentMessagesOf(
 		executionContext, askDto.ViewerID, askDto.ConversationID)
 	if recentMessagesError != nil {
-		return dto.AssistantAnswerDto{}, recentMessagesError
+		return dto.AssistantAnswerStartedDto{}, recentMessagesError
 	}
 
 	exchange := domains.NewAssistantExchangeDomain(
@@ -119,15 +128,27 @@ func (assistantConversationService *AssistantConversationService) Ask(
 		assistantConversationService.answerLengthLimit,
 	)
 
-	answeredExchange, answer, exchangeError := assistantConversationService.writeAnswer(
-		executionContext, askDto.ViewerID, exchange)
-	if exchangeError != nil {
-		return dto.AssistantAnswerDto{}, exchangeError
+	startedConversation, startError := assistantConversationService.start(
+		executionContext, askDto.ViewerID, askDto.ConversationID, exchange.ToStartedTurn(now))
+	if startError != nil {
+		return dto.AssistantAnswerStartedDto{}, startError
 	}
 
-	return assistantConversationService.store(
-		executionContext, askDto.ViewerID, askDto.ConversationID,
-		answeredExchange.ToTurn(answer, now))
+	startedConversationDomain := domains.NewConversationDomain(startedConversation)
+	turnID := startedConversationDomain.NewestTurnID()
+
+	go assistantAnswerWriter{
+		assistantConversationService: assistantConversationService,
+		viewerID:                     askDto.ViewerID,
+		turnID:                       turnID,
+		exchange:                     exchange,
+	}.write()
+
+	return dto.AssistantAnswerStartedDto{
+		ConversationID: startedConversation.ID,
+		TurnID:         turnID,
+		Status:         string(vo.AssistantTurnRunning),
+	}, nil
 }
 
 // ListConversations returns this person's conversations, the most recently active
@@ -177,13 +198,17 @@ func (assistantConversationService *AssistantConversationService) GetConversatio
 // recentMessagesOf is what the assistant is allowed to remember of the conversation
 // this question belongs to. A question that names no conversation remembers nothing,
 // because there is nothing yet to remember — and it must not be answered by inventing
-// a conversation first, since an assistant that never answers must leave none behind.
+// a conversation first, since a question that was never accepted must leave none
+// behind.
 //
 // This is also where a question aimed at somebody else's conversation is turned away,
-// and it is the right place for two reasons: it is the first thing the ask does with
-// the identifier, so the refusal costs no answer, and it is the only read of that
-// conversation before the exchange is appended to it — so passing here is what makes
-// the append safe, rather than a second check that could disagree with this one.
+// and where one arriving while the previous answer is still being written is. Both
+// belong here for the same reason: this is the only read of that conversation before
+// the exchange is appended to it, so passing here is what makes the append safe,
+// rather than a second check that could disagree with this one.
+//
+// A conversation that has not been started yet can have nothing in flight, so the
+// question does not arise on that path.
 func (assistantConversationService *AssistantConversationService) recentMessagesOf(
 	executionContext context.Context, viewerID uint, conversationId uint,
 ) ([]vo.AssistantMessageVo, error) {
@@ -200,6 +225,12 @@ func (assistantConversationService *AssistantConversationService) recentMessages
 	conversationDomain := domains.NewConversationDomain(conversation)
 	if ownershipError := conversationDomain.RequireOwnership(viewerID); ownershipError != nil {
 		return nil, ownershipError
+	}
+
+	// Asked after ownership, so that somebody probing a stranger's conversation is
+	// told it does not exist rather than told it is busy.
+	if conversationDomain.HasAnswerInFlight() {
+		return nil, domains.AssistantAnswerInProgress()
 	}
 
 	return conversationDomain.RecentMessages(
@@ -301,42 +332,47 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 	return "系統沒有「" + call.Name + "」這個能力。請改用已提供的能力，或告知使用者這件事辦不到。", true
 }
 
-// store puts the finished exchange away — as a new conversation when the question
-// named none, as an addition when it did — and reports the answer with the
-// conversation it now belongs to.
+// start reserves the place an answer will go — as a new conversation when the
+// question named none, as an addition when it did — and hands back the conversation
+// as it now stands.
 //
-// Both ways of writing it are a single statement, which is what keeps "an assistant
-// that never answered leaves nothing behind" free rather than a rollback somebody has
-// to remember. The identifier is reported whether or not the caller supplied one, so
-// that a question which started a conversation can be followed up without the caller
-// going looking for where it landed.
-func (assistantConversationService *AssistantConversationService) store(
+// Both ways of writing it are a single statement, so a question never lands half
+// stored: a conversation with no exchange under it would show up in somebody's list
+// as an empty thread they never started.
+//
+// This runs on the asker's own context rather than a detached one, unlike the writing
+// that follows. Reserving the place is the part they are waiting on, so a caller who
+// gives up before it lands should take it with them.
+func (assistantConversationService *AssistantConversationService) start(
 	executionContext context.Context, viewerID uint, conversationId uint, turn entities.AssistantTurn,
-) (dto.AssistantAnswerDto, error) {
-	storedConversation, storeError := entities.Conversation{}, error(nil)
-
+) (entities.Conversation, error) {
 	if conversationId == 0 {
-		storedConversation, storeError = assistantConversationService.conversationRepository.Save(
+		return assistantConversationService.conversationRepository.Save(
 			executionContext,
 			entities.Conversation{
 				OwnerID:      viewerID,
 				LastActiveAt: turn.CreatedAt,
 				Turns:        []entities.AssistantTurn{turn},
 			})
-	} else {
-		storedConversation, storeError = assistantConversationService.conversationRepository.AppendTurn(
-			executionContext, conversationId, turn)
 	}
 
-	if storeError != nil {
-		return dto.AssistantAnswerDto{}, storeError
-	}
+	return assistantConversationService.conversationRepository.AppendTurn(
+		executionContext, conversationId, turn)
+}
 
-	return dto.AssistantAnswerDto{
-		ConversationID:      storedConversation.ID,
-		Answer:              turn.Answer,
-		QueryCount:          turn.QueryCount,
-		StoppedAtQueryLimit: turn.StoppedAtQueryLimit,
-		Usage:               turn.Usage,
-	}, nil
+// FailInterruptedAnswers marks every answer left mid-write by the last shutdown as
+// failed, and says how many there were.
+//
+// It belongs on this service rather than in a job of its own because the rule it
+// enforces is this service's: an answer being written lives in this process and
+// nowhere else, so a row still saying running is a claim about a process that no
+// longer exists. Left alone it is a wait nobody can end, on a conversation nobody can
+// add to.
+//
+// It is a public use case and calls none of the others, as every method here does.
+func (assistantConversationService *AssistantConversationService) FailInterruptedAnswers(
+	executionContext context.Context,
+) (int, error) {
+	return assistantConversationService.conversationRepository.FailAllRunningTurns(
+		executionContext, domains.AssistantAnswerInterruptedByRestart())
 }

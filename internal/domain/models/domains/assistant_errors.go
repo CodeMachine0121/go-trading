@@ -25,6 +25,14 @@ var ErrDailyUsageAllowanceExhausted = errors.New("daily usage allowance exhauste
 // answered by trying again later.
 var ErrAssistantUnavailable = errors.New("assistant unavailable")
 
+// ErrAssistantAnswerInProgress marks a question sent to a conversation whose previous
+// answer is still being written.
+//
+// It is its own refusal rather than one of the others because what the reader has to
+// do about it is unlike all of them: not rewrite, not wait until tomorrow, not try a
+// different assistant — just wait a moment for the one already running.
+var ErrAssistantAnswerInProgress = errors.New("assistant answer in progress")
+
 // ErrAssistantQueryArgument marks an assistant query whose arguments broke a rule.
 // It travels back to the assistant as the reason, not up to the caller as a failure:
 // the assistant asked for something it may not have, and asking differently is
@@ -57,8 +65,25 @@ func AssistantUnavailable(cause error) error {
 
 // AssistantAnsweredNothing is the refusal a reader gets when the assistant came back
 // with a blank answer. It is the same refusal as an assistant that never answered,
-// because a blank answer is not an answer — and recording it would put a question
-// with nothing under it into the conversation for good.
+// because a blank answer is not an answer.
 func AssistantAnsweredNothing() error {
 	return fmt.Errorf("%w: 助手回了空白的答案，請稍後再試", ErrAssistantUnavailable)
+}
+
+// AssistantAnswerInProgress is the refusal a reader gets for asking again while the
+// previous answer on that conversation is still being written.
+func AssistantAnswerInProgress() error {
+	return fmt.Errorf(
+		"%w: 這段對話上還有一則回答正在進行中，請等它結束再問下一句",
+		ErrAssistantAnswerInProgress)
+}
+
+// AssistantAnswerInterruptedByRestart is what is left on an answer the system was
+// still writing when it was shut down.
+//
+// It is written on the way up rather than on the way down, because a shutdown is not
+// always given the chance to tidy up — and an answer stuck at running forever is a
+// wait nobody can end and a conversation nobody can ask anything else.
+func AssistantAnswerInterruptedByRestart() string {
+	return "系統重新啟動時中斷了這則回答，請再問一次"
 }

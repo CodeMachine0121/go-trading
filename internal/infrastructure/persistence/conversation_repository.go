@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -100,6 +101,91 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 	}
 
 	return appendedConversation, nil
+}
+
+// CompleteTurn writes an answer, or a failure, over the exchange this turn names.
+//
+// The columns are listed rather than the struct handed over, because an ending
+// settles only some of them: GORM writing the whole struct would blank the question
+// and reset the moment it was asked, both of which were settled when the exchange
+// began.
+//
+// The lookups it made are created alongside, in the same transaction as the update.
+// A record of what an answer read that outlived the answer failing to save would
+// describe reasoning behind an answer nobody has.
+func (conversationRepository *ConversationRepository) CompleteTurn(
+	executionContext context.Context, turn entities.AssistantTurn,
+) error {
+	transactionError := conversationRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			completed := transaction.
+				Model(&entities.AssistantTurn{ID: turn.ID}).
+				Select(
+					"answer", "status", "failure_reason",
+					"usage", "query_count", "stopped_at_query_limit",
+				).
+				Updates(entities.AssistantTurn{
+					Answer:              turn.Answer,
+					Status:              turn.Status,
+					FailureReason:       turn.FailureReason,
+					Usage:               turn.Usage,
+					QueryCount:          turn.QueryCount,
+					StoppedAtQueryLimit: turn.StoppedAtQueryLimit,
+				})
+			if completed.Error != nil {
+				return completed.Error
+			}
+			if completed.RowsAffected == 0 {
+				return domains.ConversationNotFound(turn.ConversationID)
+			}
+
+			if len(turn.Queries) == 0 {
+				return nil
+			}
+
+			queries := make([]entities.AssistantQueryRecord, 0, len(turn.Queries))
+			for _, query := range turn.Queries {
+				query.AssistantTurnID = turn.ID
+				queries = append(queries, query)
+			}
+
+			return transaction.Create(&queries).Error
+		})
+
+	// A conversation that is no longer there is the one refusal this method owes the
+	// caller in its own words; everything else is a storage failure and is said so.
+	if transactionError != nil {
+		if errors.Is(transactionError, domains.ErrConversationNotFound) {
+			return transactionError
+		}
+
+		return fmt.Errorf("complete conversation turn: %w", transactionError)
+	}
+
+	return nil
+}
+
+// FailAllRunningTurns marks every exchange still recorded as running as failed.
+//
+// It is one statement rather than a read followed by writes, because there is no
+// decision to make per row: every one of them is stale by definition, since the
+// process that was writing it no longer exists.
+func (conversationRepository *ConversationRepository) FailAllRunningTurns(
+	executionContext context.Context, reason string,
+) (int, error) {
+	swept := conversationRepository.database.WithContext(executionContext).
+		Model(&entities.AssistantTurn{}).
+		Where(clause.Eq{Column: "status", Value: string(vo.AssistantTurnRunning)}).
+		Select("status", "failure_reason").
+		Updates(entities.AssistantTurn{
+			Status:        string(vo.AssistantTurnFailed),
+			FailureReason: reason,
+		})
+	if swept.Error != nil {
+		return 0, fmt.Errorf("fail running conversation turns: %w", swept.Error)
+	}
+
+	return int(swept.RowsAffected), nil
 }
 
 // FindOne returns the conversation carrying this identifier with every exchange under

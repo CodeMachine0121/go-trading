@@ -36,6 +36,7 @@ func registerRoutes(
 	*application.KCandleFollowApplication,
 	*application.KCandleIngestionApplication,
 	*application.StrategyBotRunApplication,
+	*application.AssistantConversationApplication,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
@@ -346,34 +347,35 @@ func registerRoutes(
 	// because it is now handed them: it assembles a set of rules out of the scripts
 	// it writes and replays it to see what it would have done. Everything it reaches
 	// for has to exist by the time this list is built.
-	assistantConversationController := controller.NewAssistantConversationController(
-		application.NewAssistantConversationApplication(
-			service.NewAssistantConversationService(
-				persistence.NewConversationRepository(database),
-				assistant.NewClaudeAssistantProxy(
-					applicationConfig.Assistant.ApiKey,
-					applicationConfig.Assistant.Model,
-					applicationConfig.Assistant.Effort,
-					applicationConfig.Assistant.BaseUrl,
-					applicationConfig.Assistant.ResponseTimeout,
-				),
-				assistantQueriesFor(
-					tradingSymbolApplication,
-					kCandleApplication,
-					indicatorCalculationApplication,
-					strategyScriptApplication,
-					tradingStrategyApplication,
-					tradingStrategyBacktestApplication,
-					applicationConfig.Assistant.CandleLimit,
-				),
-				clock.NewSystemClockProxy(),
-				applicationConfig.Assistant.RecentMessageLimit,
-				applicationConfig.Assistant.QueryLimit,
-				applicationConfig.Assistant.DailyUsageAllowance,
-				applicationConfig.Assistant.AnswerLengthLimit,
+	assistantConversationApplication := application.NewAssistantConversationApplication(
+		service.NewAssistantConversationService(
+			persistence.NewConversationRepository(database),
+			assistant.NewClaudeAssistantProxy(
+				applicationConfig.Assistant.ApiKey,
+				applicationConfig.Assistant.Model,
+				applicationConfig.Assistant.Effort,
+				applicationConfig.Assistant.BaseUrl,
+				applicationConfig.Assistant.ResponseTimeout,
 			),
+			assistantQueriesFor(
+				tradingSymbolApplication,
+				kCandleApplication,
+				indicatorCalculationApplication,
+				strategyScriptApplication,
+				tradingStrategyApplication,
+				tradingStrategyBacktestApplication,
+				applicationConfig.Assistant.CandleLimit,
+			),
+			clock.NewSystemClockProxy(),
+			applicationConfig.Assistant.RecentMessageLimit,
+			applicationConfig.Assistant.QueryLimit,
+			applicationConfig.Assistant.DailyUsageAllowance,
+			applicationConfig.Assistant.AnswerLengthLimit,
 		),
 	)
+
+	assistantConversationController := controller.NewAssistantConversationController(
+		assistantConversationApplication)
 
 	// The assistant acts as whoever asked it, so it is behind the door like anything
 	// else that touches a strategy script. Without that, a strategy script it saved would belong
@@ -424,7 +426,8 @@ func registerRoutes(
 	// 與「它自己跑出來的」就是兩件事，而那正是這顆按鈕要用來排除的東西。
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 
-	return kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication
+	return kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication,
+		assistantConversationApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.

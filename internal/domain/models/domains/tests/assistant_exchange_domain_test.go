@@ -12,6 +12,10 @@ import (
 
 // anExchange is an exchange that has just started, so that each test advances exactly
 // one thing about it.
+// theTurnID is the exchange every completion below writes back over. Which row it is
+// does not matter to these cases — only that the completion carries it.
+const theTurnID = uint(7)
+
 func anExchange(queryLimit int) domains.AssistantExchangeDomain {
 	return domains.NewAssistantExchangeDomain(
 		"BTCUSDT 最近走勢如何",
@@ -101,7 +105,7 @@ func TestAssistantExchangeCountsEveryLookupInARound(t *testing.T) {
 	assert.Len(t, exchange.AllowedCalls([]vo.AssistantQueryCallVo{
 		aCall("d"), aCall("e"), aCall("f"), aCall("g"), aCall("h"), aCall("i"),
 	}), 5)
-	assert.Equal(t, 3, exchange.ToTurn("答完了", time.Now()).QueryCount)
+	assert.Equal(t, 3, exchange.ToAnsweredTurn(theTurnID, "答完了").QueryCount)
 }
 
 func TestAssistantExchangeRecordsNothingForARoundThatLookedAtNothing(t *testing.T) {
@@ -109,7 +113,7 @@ func TestAssistantExchangeRecordsNothingForARoundThatLookedAtNothing(t *testing.
 	exchange := anExchange(8).RecordRound("只是說說話", aRound())
 
 	assert.Empty(t, exchange.Request().Rounds)
-	assert.Equal(t, 0, exchange.ToTurn("答完了", time.Now()).QueryCount)
+	assert.Equal(t, 0, exchange.ToAnsweredTurn(theTurnID, "答完了").QueryCount)
 }
 
 func TestAssistantExchangeTellsTheAssistantWhenItsQueriesAreSpent(t *testing.T) {
@@ -147,12 +151,44 @@ func TestAssistantExchangeAddsUpWhatEveryRoundTripCost(t *testing.T) {
 	// could not see those trips would be one a long exchange walks straight through.
 	exchange := anExchange(8).RecordUsage(100).RecordUsage(150).RecordUsage(50)
 
-	turn := exchange.ToTurn("答完了", time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC))
+	turn := exchange.ToAnsweredTurn(theTurnID, "答完了")
 
 	assert.Equal(t, 300, turn.Usage)
 }
 
-func TestAssistantExchangeToTurnIsWhatWillBeStored(t *testing.T) {
+func TestAssistantExchangeToStartedTurnReservesThePlaceTheAnswerWillGo(t *testing.T) {
+	// It is written before the assistant has been asked anything, which is what makes
+	// an answer visible while it is still being written — and what a restart can
+	// sweep up after.
+	exchange := anExchange(8)
+
+	turn := exchange.ToStartedTurn(time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC))
+
+	assert.Equal(t, "BTCUSDT 最近走勢如何", turn.Ask)
+	assert.Equal(t, string(vo.AssistantTurnRunning), turn.Status)
+	assert.Empty(t, turn.Answer)
+	assert.Equal(t, 0, turn.Usage)
+	assert.Equal(t, time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC), turn.CreatedAt)
+}
+
+func TestAssistantExchangeToFailedTurnChargesNobodyForAnAnswerTheyNeverGot(t *testing.T) {
+	// Round trips were paid for, and the usage is still zero. The day's allowance is
+	// settled off that column, so recording what a failure really cost would let a
+	// run of them spend somebody's whole day without ever telling them anything.
+	exchange := anExchange(8).RecordUsage(120).RecordRound("", aRound(
+		anOutcome("list_trading_symbols", "{}", false)))
+
+	turn := exchange.ToFailedTurn(theTurnID, "助手目前沒有回應，請稍後再試")
+
+	assert.Equal(t, theTurnID, turn.ID)
+	assert.Equal(t, string(vo.AssistantTurnFailed), turn.Status)
+	assert.Equal(t, "助手目前沒有回應，請稍後再試", turn.FailureReason)
+	assert.Equal(t, 0, turn.Usage)
+	assert.Empty(t, turn.Answer)
+	assert.Empty(t, turn.Queries)
+}
+
+func TestAssistantExchangeToAnsweredTurnIsWhatWillBeStored(t *testing.T) {
 	exchange := anExchange(8).
 		RecordUsage(120).
 		RecordRound("", aRound(
@@ -160,14 +196,17 @@ func TestAssistantExchangeToTurnIsWhatWillBeStored(t *testing.T) {
 		RecordRound("", aRound(
 			anOutcome("get_k_candle_series", "彙總刻度只接受 5m、15m、1h、4h、1d", true)))
 
-	turn := exchange.ToTurn("最近在盤整", time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC))
+	turn := exchange.ToAnsweredTurn(theTurnID, "最近在盤整")
 
-	assert.Equal(t, "BTCUSDT 最近走勢如何", turn.Ask)
+	assert.Equal(t, theTurnID, turn.ID)
 	assert.Equal(t, "最近在盤整", turn.Answer)
+	assert.Equal(t, string(vo.AssistantTurnAnswered), turn.Status)
 	assert.Equal(t, 120, turn.Usage)
 	assert.Equal(t, 2, turn.QueryCount)
 	assert.False(t, turn.StoppedAtQueryLimit)
-	assert.Equal(t, time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC), turn.CreatedAt)
+	// The question is not written again. It was settled when the exchange began, and
+	// rewriting it would only be a second chance to get it wrong.
+	assert.Empty(t, turn.Ask)
 
 	require.Len(t, turn.Queries, 2)
 	assert.Equal(t, 1, turn.Queries[0].Sequence)
@@ -178,23 +217,23 @@ func TestAssistantExchangeToTurnIsWhatWillBeStored(t *testing.T) {
 	assert.True(t, turn.Queries[1].Rejected)
 }
 
-func TestAssistantExchangeToTurnMarksAnAnswerThatRanOutOfQueries(t *testing.T) {
+func TestAssistantExchangeToAnsweredTurnMarksAnAnswerThatRanOutOfQueries(t *testing.T) {
 	// An answer that stopped early is a different thing from a poor one, and the
 	// record is the only place that difference survives.
 	exchange := anExchange(2).
 		RecordRound("", aRound(anOutcome("list_trading_symbols", "{}", false))).
 		RecordRound("", aRound(anOutcome("get_k_candles", "{}", false)))
 
-	turn := exchange.ToTurn("只查到這些", time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC))
+	turn := exchange.ToAnsweredTurn(theTurnID, "只查到這些")
 
 	assert.True(t, turn.StoppedAtQueryLimit)
 	assert.Equal(t, 2, turn.QueryCount)
 }
 
-func TestAssistantExchangeToTurnStoresTheMomentInUniversalTime(t *testing.T) {
+func TestAssistantExchangeToStartedTurnStoresTheMomentInUniversalTime(t *testing.T) {
 	elsewhere := time.FixedZone("UTC+8", 8*60*60)
 
-	turn := anExchange(8).ToTurn("答完了", time.Date(2026, 9, 4, 18, 0, 0, 0, elsewhere))
+	turn := anExchange(8).ToStartedTurn(time.Date(2026, 9, 4, 18, 0, 0, 0, elsewhere))
 
 	assert.Equal(t, time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC), turn.CreatedAt.UTC())
 	assert.Equal(t, time.UTC, turn.CreatedAt.Location())
@@ -207,6 +246,6 @@ func TestAssistantExchangeLeavesTheValueItWasAskedFromAlone(t *testing.T) {
 		anOutcome("list_trading_symbols", "{}", false)))
 
 	assert.Empty(t, exchange.Request().Rounds)
-	assert.Equal(t, 0, exchange.ToTurn("x", time.Now()).Usage)
+	assert.Equal(t, 0, exchange.ToAnsweredTurn(theTurnID, "x").Usage)
 	assert.Len(t, recorded.Request().Rounds, 1)
 }

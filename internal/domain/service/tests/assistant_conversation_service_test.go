@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -31,11 +32,20 @@ var (
 // prove that the offered set is what gets reached.
 const theQueryName = "list_trading_symbols"
 
+// startedTurnID is the exchange every accepted question reserves. Which row it is
+// does not matter to any case here — only that the answer is written back over that
+// one.
+const startedTurnID = uint(77)
+
 type assistantConversationServiceUnderTest struct {
 	assistantConversationService *service.AssistantConversationService
 	conversationRepository       *mocks.MockIConversationRepository
 	assistantProxy               *mocks.MockIAssistantProxy
 	assistantQuery               *mocks.MockIAssistantQuery
+	// completedTurns carries whatever was written back over the reserved row. The
+	// answer is written from a goroutine the ask does not wait on, so a case has to
+	// wait for it rather than read straight after asking.
+	completedTurns chan entities.AssistantTurn
 }
 
 // newAssistantConversationServiceUnderTest wires the service with every ceiling it
@@ -55,6 +65,16 @@ func newAssistantConversationServiceUnderTest(
 	assistantQuery.EXPECT().ArgumentSchema().Return(`{"type":"object"}`).AnyTimes()
 	clockProxy.EXPECT().Now().Return(askedAt).AnyTimes()
 
+	// Every ending is captured, whichever it is. Cases that expect one wait for it;
+	// cases refused before anything started never produce one.
+	completedTurns := make(chan entities.AssistantTurn, 1)
+	conversationRepository.EXPECT().CompleteTurn(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, turn entities.AssistantTurn) error {
+			completedTurns <- turn
+
+			return nil
+		}).AnyTimes()
+
 	return assistantConversationServiceUnderTest{
 		assistantConversationService: service.NewAssistantConversationService(
 			conversationRepository,
@@ -69,6 +89,69 @@ func newAssistantConversationServiceUnderTest(
 		conversationRepository: conversationRepository,
 		assistantProxy:         assistantProxy,
 		assistantQuery:         assistantQuery,
+		completedTurns:         completedTurns,
+	}
+}
+
+// expectNewConversation accepts a question that named no conversation, storing it as
+// the first exchange of a new one, and hands back what was stored for a case to read.
+func (fixture assistantConversationServiceUnderTest) expectNewConversation(
+	conversationID uint,
+) *entities.Conversation {
+	startedConversation := &entities.Conversation{}
+
+	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, conversation entities.Conversation,
+		) (entities.Conversation, error) {
+			*startedConversation = conversation
+			conversation.ID = conversationID
+			conversation.Turns[0].ID = startedTurnID
+
+			return conversation, nil
+		})
+
+	return startedConversation
+}
+
+// expectAppendedTurn accepts a question aimed at a conversation that already exists,
+// and hands back the exchange that was reserved for its answer.
+func (fixture assistantConversationServiceUnderTest) expectAppendedTurn(
+	conversationID uint,
+) *entities.AssistantTurn {
+	startedTurn := &entities.AssistantTurn{}
+
+	fixture.conversationRepository.EXPECT().AppendTurn(gomock.Any(), conversationID, gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, id uint, turn entities.AssistantTurn,
+		) (entities.Conversation, error) {
+			*startedTurn = turn
+			turn.ID = startedTurnID
+
+			return entities.Conversation{ID: id, Turns: []entities.AssistantTurn{turn}}, nil
+		})
+
+	return startedTurn
+}
+
+// awaitCompletedTurn waits for the answer to be written back over the reserved row.
+//
+// The wait is real rather than a peek at some flag: the answer is written from a
+// goroutine the ask deliberately does not wait on, so a case reading straight after
+// asking would be reading a row nothing has touched yet. Two seconds is far longer
+// than any of these need and short enough to fail rather than hang.
+func (fixture assistantConversationServiceUnderTest) awaitCompletedTurn(
+	t *testing.T,
+) entities.AssistantTurn {
+	t.Helper()
+
+	select {
+	case completedTurn := <-fixture.completedTurns:
+		return completedTurn
+	case <-time.After(2 * time.Second):
+		t.Fatal("答案沒有被寫回那一列——它應該在連線之外跑完再補上")
+
+		return entities.AssistantTurn{}
 	}
 }
 
@@ -99,32 +182,35 @@ func TestAskStartsAConversationWhenTheQuestionNamesNone(t *testing.T) {
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 		Return(answeredReply("最近在盤整", 500), nil)
 
-	savedConversation := entities.Conversation{}
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ any, conversation entities.Conversation) (entities.Conversation, error) {
-			savedConversation = conversation
-			conversation.ID = 42
+	savedConversation := fixture.expectNewConversation(42)
 
-			return conversation, nil
-		})
-
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	startedDto, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{ViewerID: 3, Question: "BTCUSDT 最近走勢如何"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, uint(42), answerDto.ConversationID)
-	assert.Equal(t, "最近在盤整", answerDto.Answer)
-	assert.Equal(t, 500, answerDto.Usage)
-	assert.Equal(t, 0, answerDto.QueryCount)
-	assert.False(t, answerDto.StoppedAtQueryLimit)
+	assert.Equal(t, uint(42), startedDto.ConversationID)
+	assert.Equal(t, startedTurnID, startedDto.TurnID)
+	assert.Equal(t, string(vo.AssistantTurnRunning), startedDto.Status)
 
 	// It belongs to whoever asked from the moment it is written. A conversation
 	// stored without an owner would be readable by everybody.
 	assert.Equal(t, uint(3), savedConversation.OwnerID)
 	require.Len(t, savedConversation.Turns, 1)
 	assert.Equal(t, "BTCUSDT 最近走勢如何", savedConversation.Turns[0].Ask)
-	assert.Equal(t, "最近在盤整", savedConversation.Turns[0].Answer)
 	assert.Equal(t, askedAt, savedConversation.LastActiveAt)
+
+	// The question is stored before the assistant has said anything, which is what
+	// makes it findable while the answer is still being written.
+	assert.Equal(t, string(vo.AssistantTurnRunning), savedConversation.Turns[0].Status)
+	assert.Empty(t, savedConversation.Turns[0].Answer)
+
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, startedTurnID, completedTurn.ID)
+	assert.Equal(t, string(vo.AssistantTurnAnswered), completedTurn.Status)
+	assert.Equal(t, "最近在盤整", completedTurn.Answer)
+	assert.Equal(t, 500, completedTurn.Usage)
+	assert.Equal(t, 0, completedTurn.QueryCount)
+	assert.False(t, completedTurn.StoppedAtQueryLimit)
 }
 
 func TestAskAddsToTheConversationTheQuestionNames(t *testing.T) {
@@ -136,15 +222,17 @@ func TestAskAddsToTheConversationTheQuestionNames(t *testing.T) {
 		}}, nil)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 		Return(answeredReply("ETHUSDT 在漲", 400), nil)
-	fixture.conversationRepository.EXPECT().AppendTurn(gomock.Any(), uint(7), gomock.Any()).
-		Return(entities.Conversation{ID: 7}, nil)
+	startedTurn := fixture.expectAppendedTurn(7)
 
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	startedDto, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "那 ETHUSDT 呢"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, uint(7), answerDto.ConversationID)
-	assert.Equal(t, "ETHUSDT 在漲", answerDto.Answer)
+	assert.Equal(t, uint(7), startedDto.ConversationID)
+	assert.Equal(t, "那 ETHUSDT 呢", startedTurn.Ask)
+	assert.Equal(t, string(vo.AssistantTurnRunning), startedTurn.Status)
+
+	assert.Equal(t, "ETHUSDT 在漲", fixture.awaitCompletedTurn(t).Answer)
 }
 
 func TestAskShowsTheAssistantWhatTheConversationAlreadySaid(t *testing.T) {
@@ -162,13 +250,13 @@ func TestAskShowsTheAssistantWhatTheConversationAlreadySaid(t *testing.T) {
 
 			return answeredReply("ETHUSDT 在漲", 400), nil
 		})
-	fixture.conversationRepository.EXPECT().AppendTurn(gomock.Any(), uint(7), gomock.Any()).
-		Return(entities.Conversation{ID: 7}, nil)
+	fixture.expectAppendedTurn(7)
 
 	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "那 ETHUSDT 呢"})
 
 	require.NoError(t, askError)
+	fixture.awaitCompletedTurn(t)
 	require.Len(t, sentRequest.Messages, 3)
 	assert.Equal(t, "BTCUSDT 最近走勢如何", sentRequest.Messages[0].Content)
 	assert.Equal(t, "在盤整", sentRequest.Messages[1].Content)
@@ -186,13 +274,13 @@ func TestAskTellsTheAssistantEverythingItMayDoAndNothingMore(t *testing.T) {
 
 			return answeredReply("你好", 100), nil
 		})
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		Return(entities.Conversation{ID: 1}, nil)
+	fixture.expectNewConversation(1)
 
 	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "你好"})
 
 	require.NoError(t, askError)
+	fixture.awaitCompletedTurn(t)
 	require.Len(t, sentRequest.Declarations, 1)
 	assert.Equal(t, theQueryName, sentRequest.Declarations[0].Name)
 	assert.Equal(t, "列出交易標的", sentRequest.Declarations[0].Description)
@@ -254,14 +342,13 @@ func TestAskAnswersInFullWhenTheAllowanceIsOnlySpentAfterwards(t *testing.T) {
 	fixture.expectUsageToday(299999)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 		Return(answeredReply("最近在盤整", 5000), nil)
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		Return(entities.Conversation{ID: 1}, nil)
+	fixture.expectNewConversation(1)
 
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "BTCUSDT 最近走勢如何"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, 5000, answerDto.Usage)
+	assert.Equal(t, 5000, fixture.awaitCompletedTurn(t).Usage)
 }
 
 func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
@@ -285,25 +372,19 @@ func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 			}),
 	)
 
-	storedTurn := entities.AssistantTurn{}
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ any, conversation entities.Conversation) (entities.Conversation, error) {
-			storedTurn = conversation.Turns[0]
-			conversation.ID = 1
+	fixture.expectNewConversation(1)
 
-			return conversation, nil
-		})
-
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "有哪些交易標的"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, "有 BTCUSDT", answerDto.Answer)
-	assert.Equal(t, 1, answerDto.QueryCount)
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, "有 BTCUSDT", completedTurn.Answer)
+	assert.Equal(t, 1, completedTurn.QueryCount)
 	// Every round trip is paid for, not just the one that answered.
-	assert.Equal(t, 300, answerDto.Usage)
-	require.Len(t, storedTurn.Queries, 1)
-	assert.Equal(t, theQueryName, storedTurn.Queries[0].QueryName)
+	assert.Equal(t, 300, completedTurn.Usage)
+	require.Len(t, completedTurn.Queries, 1)
+	assert.Equal(t, theQueryName, completedTurn.Queries[0].QueryName)
 }
 
 func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) {
@@ -336,23 +417,17 @@ func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) 
 			}),
 	)
 
-	storedTurn := entities.AssistantTurn{}
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ any, conversation entities.Conversation) (entities.Conversation, error) {
-			storedTurn = conversation.Turns[0]
-			conversation.ID = 1
+	fixture.expectNewConversation(1)
 
-			return conversation, nil
-		})
-
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "請給我一份布林通道的腳本"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, "這是一份布林通道的算式：…", answerDto.Answer)
-	assert.NotContains(t, answerDto.Answer, "我先看一下")
-	assert.Equal(t, 1, answerDto.QueryCount)
-	assert.Len(t, storedTurn.Queries, 1)
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, "這是一份布林通道的算式：…", completedTurn.Answer)
+	assert.NotContains(t, completedTurn.Answer, "我先看一下")
+	assert.Equal(t, 1, completedTurn.QueryCount)
+	assert.Len(t, completedTurn.Queries, 1)
 }
 
 func TestAskAnswersWithWhatItSaidWhenItsQueriesAreSpent(t *testing.T) {
@@ -373,15 +448,15 @@ func TestAskAnswersWithWhatItSaidWhenItsQueriesAreSpent(t *testing.T) {
 				Usage:      100,
 			}, nil),
 	)
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		Return(entities.Conversation{ID: 1}, nil)
+	fixture.expectNewConversation(1)
 
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "查到底"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, "只查到這些，還缺歷史資料。", answerDto.Answer)
-	assert.True(t, answerDto.StoppedAtQueryLimit)
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, "只查到這些，還缺歷史資料。", completedTurn.Answer)
+	assert.True(t, completedTurn.StoppedAtQueryLimit)
 }
 
 func TestAskRunsEveryCapabilityAskedForAtOnce(t *testing.T) {
@@ -401,14 +476,13 @@ func TestAskRunsEveryCapabilityAskedForAtOnce(t *testing.T) {
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 			Return(answeredReply("查完了", 100), nil),
 	)
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		Return(entities.Conversation{ID: 1}, nil)
+	fixture.expectNewConversation(1)
 
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "查兩次"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, 2, answerDto.QueryCount)
+	assert.Equal(t, 2, fixture.awaitCompletedTurn(t).QueryCount)
 }
 
 func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
@@ -460,22 +534,16 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 					}),
 			)
 
-			storedTurn := entities.AssistantTurn{}
-			fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ any, conversation entities.Conversation) (entities.Conversation, error) {
-					storedTurn = conversation.Turns[0]
-					conversation.ID = 1
+			fixture.expectNewConversation(1)
 
-					return conversation, nil
-				})
-
-			answerDto, askError := fixture.assistantConversationService.Ask(
+			_, askError := fixture.assistantConversationService.Ask(
 				t.Context(), dto.AssistantAskDto{Question: "幫我做那件事"})
 
 			require.NoError(t, askError)
-			assert.Equal(t, "這件事辦不到", answerDto.Answer)
-			require.Len(t, storedTurn.Queries, 1)
-			assert.True(t, storedTurn.Queries[0].Rejected)
+			completedTurn := fixture.awaitCompletedTurn(t)
+			assert.Equal(t, "這件事辦不到", completedTurn.Answer)
+			require.Len(t, completedTurn.Queries, 1)
+			assert.True(t, completedTurn.Queries[0].Rejected)
 		})
 	}
 }
@@ -499,23 +567,16 @@ func TestAskStopsRunningCapabilitiesOnceTheirLimitIsSpent(t *testing.T) {
 			}),
 	)
 
-	storedTurn := entities.AssistantTurn{}
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ any, conversation entities.Conversation) (entities.Conversation, error) {
-			storedTurn = conversation.Turns[0]
-			conversation.ID = 1
+	fixture.expectNewConversation(1)
 
-			return conversation, nil
-		})
-
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "查到底"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, "只查到這些", answerDto.Answer)
-	assert.Equal(t, 2, answerDto.QueryCount)
-	assert.True(t, answerDto.StoppedAtQueryLimit)
-	assert.True(t, storedTurn.StoppedAtQueryLimit)
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, "只查到這些", completedTurn.Answer)
+	assert.Equal(t, 2, completedTurn.QueryCount)
+	assert.True(t, completedTurn.StoppedAtQueryLimit)
 }
 
 func TestAskStopsPartWayThroughARoundThatWouldOverspend(t *testing.T) {
@@ -538,24 +599,25 @@ func TestAskStopsPartWayThroughARoundThatWouldOverspend(t *testing.T) {
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 			Return(answeredReply("只查到一次", 100), nil),
 	)
-	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		Return(entities.Conversation{ID: 1}, nil)
+	fixture.expectNewConversation(1)
 
-	answerDto, askError := fixture.assistantConversationService.Ask(
+	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "一次查三個"})
 
 	require.NoError(t, askError)
-	assert.Equal(t, 1, answerDto.QueryCount)
-	assert.True(t, answerDto.StoppedAtQueryLimit)
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, 1, completedTurn.QueryCount)
+	assert.True(t, completedTurn.StoppedAtQueryLimit)
 }
 
-func TestAskGivesUpWhenTheAssistantAsksForMoreItCannotHave(t *testing.T) {
+func TestAskRecordsAFailureWhenTheAssistantAsksForMoreItCannotHave(t *testing.T) {
 	// Its queries are spent and it was told so, and it still asked instead of
-	// speaking. There is nothing left to run and no answer to store, so this is the
-	// same nothing as an assistant that never answered.
+	// speaking. There is no answer to write, so the exchange is closed as failed —
+	// which is what the asker sees when they come back to it.
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil)
+	fixture.expectNewConversation(1)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -567,10 +629,13 @@ func TestAskGivesUpWhenTheAssistantAsksForMoreItCannotHave(t *testing.T) {
 	_, askError := fixture.assistantConversationService.Ask(
 		t.Context(), dto.AssistantAskDto{Question: "查到底"})
 
-	require.ErrorIs(t, askError, domains.ErrAssistantUnavailable)
+	require.NoError(t, askError)
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, string(vo.AssistantTurnFailed), completedTurn.Status)
+	assert.NotEmpty(t, completedTurn.FailureReason)
 }
 
-func TestAskLeavesNothingBehindWhenTheAssistantDoesNotAnswer(t *testing.T) {
+func TestAskRecordsAFailureWhenTheAssistantDoesNotAnswer(t *testing.T) {
 	testCases := []struct {
 		name  string
 		reply vo.AssistantReplyVo
@@ -583,21 +648,152 @@ func TestAskLeavesNothingBehindWhenTheAssistantDoesNotAnswer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			// Nothing is stored, so a question with no answer under it never enters
-			// the record — and the conversation it was aimed at is untouched.
+			// It used to leave nothing behind, and that was right while somebody was
+			// watching the screen: send, fail, see the error, retype, all within
+			// seconds. An answer that takes minutes breaks that — the asker is not
+			// there — so a row saying it failed is the only way they can tell it
+			// apart from one still running and one they never sent.
 			fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 			fixture.expectUsageToday(0)
 			fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
 				Return(entities.Conversation{ID: 7, OwnerID: 3}, nil)
 			fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 				Return(testCase.reply, testCase.err)
+			fixture.expectAppendedTurn(7)
 
 			_, askError := fixture.assistantConversationService.Ask(
 				t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "BTCUSDT 最近走勢如何"})
 
-			require.ErrorIs(t, askError, domains.ErrAssistantUnavailable)
+			// Accepting the question succeeded; it is the answer that failed, and
+			// that is a fact about the exchange rather than about the ask.
+			require.NoError(t, askError)
+
+			completedTurn := fixture.awaitCompletedTurn(t)
+			assert.Equal(t, startedTurnID, completedTurn.ID)
+			assert.Equal(t, string(vo.AssistantTurnFailed), completedTurn.Status)
+			assert.Contains(t, completedTurn.FailureReason, "請稍後再試")
+			// Nobody is charged for an answer they never got.
+			assert.Equal(t, 0, completedTurn.Usage)
 		})
 	}
+}
+
+func TestAskRefusesASecondQuestionWhileTheFirstAnswerIsStillBeingWritten(t *testing.T) {
+	// Two answers written into one conversation at once leaves nobody able to say
+	// which of them the record belongs to. The moment somebody would do it is almost
+	// always the one this whole design removes: believing the first never sent.
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.expectUsageToday(0)
+	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+		Return(entities.Conversation{ID: 7, OwnerID: 3, Turns: []entities.AssistantTurn{
+			{ID: 1, Ask: "前一句", Status: string(vo.AssistantTurnRunning), CreatedAt: askedAt},
+		}}, nil)
+
+	_, askError := fixture.assistantConversationService.Ask(
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "再問一句"})
+
+	require.ErrorIs(t, askError, domains.ErrAssistantAnswerInProgress)
+}
+
+func TestAskAcceptsTheNextQuestionOnceTheExchangeBeforeItHasEnded(t *testing.T) {
+	testCases := []struct {
+		name          string
+		previousState string
+	}{
+		{name: "the one before it was answered", previousState: string(vo.AssistantTurnAnswered)},
+		// A failed exchange is not in flight. Nothing is still being written, so
+		// there is nothing a second question could collide with — and making somebody
+		// wait on a failure would leave the conversation permanently unusable.
+		{name: "the one before it failed", previousState: string(vo.AssistantTurnFailed)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+			fixture.expectUsageToday(0)
+			fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+				Return(entities.Conversation{ID: 7, OwnerID: 3, Turns: []entities.AssistantTurn{
+					{ID: 1, Ask: "前一句", Answer: "上次的答案",
+						Status: testCase.previousState, CreatedAt: askedAt},
+				}}, nil)
+			fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+				Return(answeredReply("這次的答案", 100), nil)
+			fixture.expectAppendedTurn(7)
+
+			_, askError := fixture.assistantConversationService.Ask(
+				t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "再問一句"})
+
+			require.NoError(t, askError)
+			assert.Equal(t, "這次的答案", fixture.awaitCompletedTurn(t).Answer)
+		})
+	}
+}
+
+func TestAskDoesNotShowTheAssistantAQuestionThatWasNeverAnswered(t *testing.T) {
+	// A question with nothing under it reads to the assistant as one it declined to
+	// answer, and it will go on to explain why it declined — which is not what
+	// happened.
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.expectUsageToday(0)
+	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+		Return(entities.Conversation{ID: 7, OwnerID: 3, Turns: []entities.AssistantTurn{
+			{ID: 1, Ask: "答得出來的那句", Answer: "答案", CreatedAt: askedAt,
+				Status: string(vo.AssistantTurnAnswered)},
+			{ID: 2, Ask: "壞掉的那句", CreatedAt: askedAt,
+				Status: string(vo.AssistantTurnFailed), FailureReason: "助手沒有回應"},
+		}}, nil)
+
+	sentRequest := vo.AssistantTurnRequestVo{}
+	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
+			sentRequest = request
+
+			return answeredReply("好的", 100), nil
+		})
+	fixture.expectAppendedTurn(7)
+
+	_, askError := fixture.assistantConversationService.Ask(
+		t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "再問一句"})
+
+	require.NoError(t, askError)
+	fixture.awaitCompletedTurn(t)
+
+	require.Len(t, sentRequest.Messages, 3)
+	assert.Equal(t, "答得出來的那句", sentRequest.Messages[0].Content)
+	assert.Equal(t, "答案", sentRequest.Messages[1].Content)
+	assert.Equal(t, "再問一句", sentRequest.Messages[2].Content)
+}
+
+func TestFailInterruptedAnswersClearsWhatTheLastShutdownCutOff(t *testing.T) {
+	// An answer being written lives in this process and nowhere else, so every one
+	// left at running is stale the moment this one starts. Left alone each is a wait
+	// nobody can end, on a conversation nobody can add to.
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+
+	sweptReason := ""
+	fixture.conversationRepository.EXPECT().FailAllRunningTurns(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, reason string) (int, error) {
+			sweptReason = reason
+
+			return 3, nil
+		})
+
+	interruptedCount, sweepError := fixture.assistantConversationService.FailInterruptedAnswers(
+		t.Context())
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 3, interruptedCount)
+	assert.Contains(t, sweptReason, "重新啟動")
+}
+
+func TestFailInterruptedAnswersReportsAFailureToSweep(t *testing.T) {
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.conversationRepository.EXPECT().FailAllRunningTurns(gomock.Any(), gomock.Any()).
+		Return(0, errors.New("storage unavailable"))
+
+	_, sweepError := fixture.assistantConversationService.FailInterruptedAnswers(t.Context())
+
+	require.Error(t, sweepError)
 }
 
 func TestAskReportsAFailureToReadTodaysUsage(t *testing.T) {
@@ -614,11 +810,12 @@ func TestAskReportsAFailureToReadTodaysUsage(t *testing.T) {
 	assert.Contains(t, askError.Error(), "storage unavailable")
 }
 
-func TestAskReportsAFailureToStoreTheExchange(t *testing.T) {
+func TestAskReportsAFailureToReserveThePlaceTheAnswerWouldGo(t *testing.T) {
+	// The assistant is never asked. Reserving the place is what the asker is waiting
+	// on, so failing it is a failure of the ask itself rather than of an answer.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
-	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
-		Return(answeredReply("最近在盤整", 500), nil)
+	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).Times(0)
 	fixture.conversationRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(entities.Conversation{}, errors.New("storage unavailable"))
 
