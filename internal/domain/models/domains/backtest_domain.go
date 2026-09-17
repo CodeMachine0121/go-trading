@@ -150,6 +150,10 @@ func (backtestDomain BacktestDomain) Parameters() StrategyScriptParametersDomain
 // signal kind: a replay reads an opinion off every candle, so a script that produces
 // anything else — a number, an answer — is one a replay cannot act on and is refused.
 // There is nothing here for a caller to declare, and nothing to get wrong.
+//
+// Replaying a whole trading strategy asks nothing extra of this: its sources may
+// only name strategy scripts declared as signals, settled when it was saved, so
+// what arrives here already agrees with what is returned here.
 func (backtestDomain BacktestDomain) ResultType() IndicatorResultTypeDomain {
 	return IndicatorResultTypeDomain{value: vo.IndicatorResultTypeSignal}
 }
