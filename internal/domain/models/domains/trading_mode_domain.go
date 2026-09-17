@@ -73,12 +73,23 @@ func (tradingModeDomain TradingModeDomain) TargetFor(signal SignalDomain) vo.Tar
 		return vo.TargetPositionLong
 	}
 
-	if signal.Value() == vo.SignalSell {
-		if tradingModeDomain.value == vo.TradingModeSpot {
-			return vo.TargetPositionFlat
-		}
+	if signal.Value() != vo.SignalSell {
+		return vo.TargetPositionUnchanged
+	}
 
+	// Every mode is named here rather than one being the fall-through. A mode this
+	// does not recognise — a zero value that never went through the constructor, or a
+	// third one added to the selectable set and forgotten here — asks for nothing at
+	// all, so the replay makes no trades.
+	//
+	// That is the loud failure of the two available. Falling through to a short would
+	// produce a complete, entirely plausible long-short report card for a mode nobody
+	// meant to replay, and nothing about it would look wrong.
+	switch tradingModeDomain.value {
+	case vo.TradingModeLongShort:
 		return vo.TargetPositionShort
+	case vo.TradingModeSpot:
+		return vo.TargetPositionFlat
 	}
 
 	return vo.TargetPositionUnchanged

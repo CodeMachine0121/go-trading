@@ -5,6 +5,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,4 +160,34 @@ func TestTargetPositionWantedDirection(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A mode this model does not recognise asks for nothing, so a replay under it makes
+// no trades at all.
+//
+// The alternative — letting anything that is not spot fall through to a short — hands
+// back a complete, entirely plausible long-short report card for a mode nobody meant
+// to replay. A replay that visibly does nothing is the failure somebody notices; one
+// that quietly did the wrong thing convincingly is not.
+func TestTradingModeDomainAsksForNothingWhenItDoesNotRecogniseTheMode(t *testing.T) {
+	// A zero value never went through the constructor — the exported account and
+	// simulation models both take a mode by parameter, so one can reach them.
+	unrecognizedMode := domains.TradingModeDomain{}
+
+	assert.Equal(t, vo.TargetPositionUnchanged, unrecognizedMode.TargetFor(signalOf(vo.SignalSell)))
+	assert.Equal(t, vo.TargetPositionUnchanged, unrecognizedMode.TargetFor(signalOf(vo.SignalHold)))
+}
+
+// An account handed a mode it cannot read never opens anything, rather than replaying
+// the whole stretch as long-short.
+func TestBacktestAccountDomainTradesNothingUnderAnUnrecognisedMode(t *testing.T) {
+	positionSizing, err := domains.NewPositionSizingDomain("allIn", decimal.Zero)
+	require.NoError(t, err)
+	account := domains.NewBacktestAccountDomain(
+		decimal.NewFromInt(10000), positionSizing, domains.TradingModeDomain{})
+
+	account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
+
+	assert.Equal(t, 0, account.PositionOpenCount())
+	assert.Empty(t, account.ClosedTradeDtos())
 }
