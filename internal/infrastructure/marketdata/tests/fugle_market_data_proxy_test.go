@@ -139,7 +139,7 @@ func (source *fugleSourceUnderTest) proxyAt(
 
 	return marketdata.NewFugleMarketDataProxy(
 		source.server.URL+"/intraday", source.server.URL+"/historical",
-		"a-key", taipeiMarket(), clockProxy, requestTimeout)
+		"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced)
 }
 
 func fugleWindow(t *testing.T, startTime string, endTime string) vo.KCandleFetchWindowVo {
@@ -337,7 +337,7 @@ func TestFugleReportsASourceThatWillNotAnswer(t *testing.T) {
 			clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-08T10:07:00+08:00")).AnyTimes()
 			fugleMarketDataProxy := marketdata.NewFugleMarketDataProxy(
 				server.URL+"/intraday", server.URL+"/historical",
-				"a-key", taipeiMarket(), clockProxy, requestTimeout)
+				"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced)
 
 			_, fetchError := fugleMarketDataProxy.FetchKCandles(
 				t.Context(), fugleWindow(t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
@@ -442,7 +442,7 @@ func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
 
 	_, fetchError := marketdata.NewFugleMarketDataProxy(
 		"http://\x7f/intraday", "http://\x7f/historical",
-		"a-key", taipeiMarket(), clockProxy, requestTimeout,
+		"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced,
 	).FetchKCandles(t.Context(), fugleWindow(
 		t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
 

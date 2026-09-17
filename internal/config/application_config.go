@@ -64,6 +64,10 @@ type IngestionConfig struct {
 	// a source is free to answer them at different places.
 	SymbolCatalogUrl         string
 	MarketDataRequestTimeout time.Duration
+	// MarketDataRequestsPerMinute is how fast this source is asked. It is a setting
+	// rather than a constant because it is the venue's allowance, and a venue is free
+	// to change what it allows without this system changing.
+	MarketDataRequestsPerMinute int
 }
 
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
@@ -109,6 +113,10 @@ type TaiwanStockConfig struct {
 	SimultaneousChannelCeiling int
 	SymbolsPerLiveChannel      int
 	RequestTimeout             time.Duration
+	// RequestsPerMinute is how fast this source is asked. It matters more here than
+	// it does for the crypto venue: this one answers about one local day per request,
+	// so a stretch of years is thousands of them in a row.
+	RequestsPerMinute int
 }
 
 // AssistantConfig holds what the market chat assistant runs under: which assistant to
@@ -273,6 +281,12 @@ func Load() ApplicationConfig {
 				"MARKET_DATA_SYMBOL_CATALOG_URL", "https://api.binance.com/api/v3/exchangeInfo"),
 			MarketDataRequestTimeout: time.Duration(
 				positiveIntWithDefault("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+			// Comfortably inside what this venue allows a candle request. The
+			// headroom is deliberate: the allowance is shared with everything else
+			// this system asks the venue, and being throttled costs more than
+			// being slower.
+			MarketDataRequestsPerMinute: positiveIntWithDefault(
+				"MARKET_DATA_REQUESTS_PER_MINUTE", 600),
 		},
 		LiveFollow: LiveFollowConfig{
 			UpdateIntervalCeiling: time.Duration(
@@ -392,6 +406,7 @@ func loadTaiwanStockConfig() TaiwanStockConfig {
 			"TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL", 5),
 		RequestTimeout: time.Duration(
 			positiveIntWithDefault("TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		RequestsPerMinute: positiveIntWithDefault("TAIWAN_STOCK_REQUESTS_PER_MINUTE", 55),
 	}
 }
 

@@ -51,6 +51,7 @@ type FugleMarketDataProxy struct {
 	marketDomain      domains.MarketDomain
 	clockProxy        _interface.IClockProxy
 	httpClient        *http.Client
+	pacer             requestPacer
 }
 
 func NewFugleMarketDataProxy(
@@ -60,6 +61,7 @@ func NewFugleMarketDataProxy(
 	marketDomain domains.MarketDomain,
 	clockProxy _interface.IClockProxy,
 	requestTimeout time.Duration,
+	requestsPerMinute int,
 ) *FugleMarketDataProxy {
 	return &FugleMarketDataProxy{
 		intradayBaseUrl:   intradayBaseUrl,
@@ -68,6 +70,7 @@ func NewFugleMarketDataProxy(
 		marketDomain:      marketDomain,
 		clockProxy:        clockProxy,
 		httpClient:        &http.Client{Timeout: requestTimeout},
+		pacer:             newRequestPacer(requestsPerMinute),
 	}
 }
 
@@ -114,6 +117,10 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 	localDay time.Time,
 	today time.Time,
 ) ([]vo.MarketKCandleVo, error) {
+	if waitError := fugleMarketDataProxy.pacer.waitForTurn(executionContext); waitError != nil {
+		return nil, waitError
+	}
+
 	queryValues := url.Values{}
 	queryValues.Set("timeframe", fugleTimeframe)
 	// Oldest first, said out loud: the historical address answers newest first unless

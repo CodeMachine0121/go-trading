@@ -17,6 +17,10 @@ import (
 
 const requestTimeout = 2 * time.Second
 
+// unpaced is the rate the cases that are not about pacing run at: none, so nothing
+// waits. Pacing has its own case, which names its own rate.
+const unpaced = 0
+
 func at(hour int, minute int) time.Time {
 	return time.Date(2026, 8, 30, hour, minute, 0, 0, time.UTC)
 }
@@ -43,7 +47,7 @@ func servedBy(t *testing.T, body string) string {
 
 func TestFetchKCandlesMapsEveryPositionOfTheSourceArray(t *testing.T) {
 	baseUrl := servedBy(t, `[[1788019500000,"1","2","0.5","1.5","10",1788019799999,"2000",7007,"4","800","0"]]`)
-	proxy := marketdata.NewBinanceMarketDataProxy(baseUrl, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(baseUrl, requestTimeout, unpaced)
 
 	reportedOpenTime := time.Unix(1788019500, 0).UTC()
 
@@ -77,7 +81,7 @@ func TestFetchKCandlesAsksTheSourceForTheWindow(t *testing.T) {
 		_, _ = writer.Write([]byte(`[]`))
 	}))
 	t.Cleanup(server.Close)
-	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, unpaced)
 
 	_, fetchError := proxy.FetchKCandles(t.Context(), vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(8, 40), at(9, 0)))
 
@@ -108,7 +112,7 @@ func TestFetchKCandlesKeepsAskingUntilTheWindowIsCovered(t *testing.T) {
 		_, _ = writer.Write([]byte("[" + strings.Join(page, ",") + "]"))
 	}))
 	t.Cleanup(server.Close)
-	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(8, 40), at(9, 0)))
@@ -116,6 +120,49 @@ func TestFetchKCandlesKeepsAskingUntilTheWindowIsCovered(t *testing.T) {
 	require.NoError(t, fetchError)
 	assert.Equal(t, available, openTimesOf(marketKCandles))
 	assert.Greater(t, requestCount, 1)
+}
+
+func TestFetchKCandlesHoldsItselfToTheRateTheSourceAllows(t *testing.T) {
+	// One call here becomes as many requests as the window needs, and the venue
+	// counts requests. A long fetch that sends them as fast as it can is throttled
+	// partway through and, on some venues, locked out of the address entirely — so
+	// the pace is kept here, where the requests are actually made.
+	available := []time.Time{at(8, 40), at(8, 45), at(8, 50)}
+	const pageSize = 1
+	const requestsPerMinute = 1200
+
+	requestTimes := make([]time.Time, 0)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestTimes = append(requestTimes, time.Now())
+		startTimeMilliseconds, _ := strconv.ParseInt(request.URL.Query().Get("startTime"), 10, 64)
+		startTime := time.UnixMilli(startTimeMilliseconds).UTC()
+
+		page := make([]string, 0, pageSize)
+		for _, openTime := range available {
+			if !openTime.Before(startTime) && len(page) < pageSize {
+				page = append(page, kLineJson(openTime))
+			}
+		}
+		_, _ = writer.Write([]byte("[" + strings.Join(page, ",") + "]"))
+	}))
+	t.Cleanup(server.Close)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, requestsPerMinute)
+
+	_, fetchError := proxy.FetchKCandles(t.Context(),
+		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(8, 40), at(8, 50)))
+
+	require.NoError(t, fetchError)
+	require.Greater(t, len(requestTimes), 2)
+	// A hair under is the runtime's timer landing early, not the pacer letting a
+	// request through. What this case is about is the difference between waiting
+	// and not waiting at all, and that is three orders of magnitude away.
+	const timerSlack = 2 * time.Millisecond
+	shortestGapAllowed := time.Minute/requestsPerMinute - timerSlack
+	for index := 1; index < len(requestTimes); index++ {
+		assert.GreaterOrEqual(t,
+			requestTimes[index].Sub(requestTimes[index-1]), shortestGapAllowed,
+			"兩次請求之間不可以比來源允許的節奏還快")
+	}
 }
 
 func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
@@ -129,7 +176,7 @@ func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
 		_, _ = writer.Write([]byte("[" + kLineJson(at(8, 40)) + "," + kLineJson(at(8, 45)) + "]"))
 	}))
 	t.Cleanup(server.Close)
-	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(8, 40), at(9, 0)))
@@ -139,7 +186,7 @@ func TestFetchKCandlesAcceptsFewerCandlesThanTheWindowCovers(t *testing.T) {
 }
 
 func TestFetchKCandlesTreatsNothingAvailableAsAnEmptyResult(t *testing.T) {
-	proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, `[]`), requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, `[]`), requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(8, 40), at(9, 0)))
@@ -197,7 +244,7 @@ func TestFetchKCandlesReportsAnUnusableAnswer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, testCase.body), requestTimeout)
+			proxy := marketdata.NewBinanceMarketDataProxy(servedBy(t, testCase.body), requestTimeout, unpaced)
 
 			marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 				vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(9, 0), at(9, 0)))
@@ -214,7 +261,7 @@ func TestFetchKCandlesReportsASourceThatWillNotServe(t *testing.T) {
 		writer.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(9, 0), at(9, 0)))
@@ -228,7 +275,7 @@ func TestFetchKCandlesReportsASourceItCannotReach(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {}))
 	unreachableUrl := server.URL
 	server.Close()
-	proxy := marketdata.NewBinanceMarketDataProxy(unreachableUrl, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(unreachableUrl, requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(9, 0), at(9, 0)))
@@ -244,7 +291,7 @@ func TestFetchKCandlesReportsAnAnswerItCannotFinishReading(t *testing.T) {
 		_, _ = writer.Write([]byte(`[`))
 	}))
 	t.Cleanup(server.Close)
-	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(9, 0), at(9, 0)))
@@ -270,7 +317,7 @@ func TestFetchKCandlesDiscardsCandlesOutsideTheWindowAndStopsAsking(t *testing.T
 		_, _ = writer.Write([]byte("[" + kLineJson(at(9, 30)) + "]"))
 	}))
 	t.Cleanup(server.Close)
-	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout)
+	proxy := marketdata.NewBinanceMarketDataProxy(server.URL, requestTimeout, unpaced)
 
 	marketKCandles, fetchError := proxy.FetchKCandles(t.Context(),
 		vo.NewKCandleFetchWindowVo("BTCUSDT", vo.MarketCrypto, at(8, 40), at(9, 0)))

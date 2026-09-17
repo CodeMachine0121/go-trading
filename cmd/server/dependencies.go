@@ -523,6 +523,7 @@ func marketDataProxyFor(
 			vo.MarketCrypto: marketdata.NewBinanceMarketDataProxy(
 				applicationConfig.Ingestion.MarketDataBaseUrl,
 				applicationConfig.Ingestion.MarketDataRequestTimeout,
+				applicationConfig.Ingestion.MarketDataRequestsPerMinute,
 			),
 			vo.MarketTaiwanStock: marketdata.NewFugleMarketDataProxy(
 				applicationConfig.TaiwanStock.IntradayCandlesUrl,
@@ -535,6 +536,7 @@ func marketDataProxyFor(
 					MarketOf(string(vo.MarketTaiwanStock)),
 				clock.NewSystemClockProxy(),
 				applicationConfig.TaiwanStock.RequestTimeout,
+				applicationConfig.TaiwanStock.RequestsPerMinute,
 			),
 		})
 }
