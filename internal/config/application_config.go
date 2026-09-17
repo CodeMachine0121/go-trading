@@ -52,11 +52,14 @@ type IngestionConfig struct {
 	// reach. It is days rather than a duration because that is the unit the request
 	// is made in, and the refusal has to quote it back.
 	//
-	// It exists to bound what one request costs. At one candle a minute, ninety days
-	// is about a hundred and thirty thousand candles and well over a hundred round
-	// trips to the source — and the whole stretch is held in memory before it is
-	// stored. Wanting more than this is a sign the fetch should store as it goes,
-	// not a sign the number should be larger.
+	// It is deliberately generous. What used to keep it small — the whole stretch
+	// held in memory, one connection held open for the duration — is gone: the fetch
+	// walks a chunk at a time, stores as it goes, and answers straight away with a run
+	// to watch. So the ceiling is no longer about what the system can survive.
+	//
+	// What is left is a typo guard. Ten years is more history than any of these
+	// sources will answer for, so a request inside it is a request somebody meant;
+	// a request past it is a slipped digit, and the refusal says what the ceiling is.
 	HistorySyncMaxLookbackDays int
 	MarketDataBaseUrl          string
 	// SymbolCatalogUrl is where a source is asked whether it lists a symbol at all.
@@ -274,7 +277,7 @@ func Load() ApplicationConfig {
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			HistorySyncMaxLookbackDays: positiveIntWithDefault(
-				"KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 90),
+				"KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
 			SymbolCatalogUrl: stringWithDefault(
