@@ -303,7 +303,7 @@ flowchart TD
 
 - 需求共識：[BRIEF.md](BRIEF.md)
 - 通用語言：[../UL-MAP.md](../UL-MAP.md)
-- 相依切片：`.sdd/2026-09-02-indicator-result-type`、`.sdd/2026-09-05-strategyScript-backtest`、`.sdd/2026-09-03-trading-strategyScript-management`、`.sdd/2026-08-29-indicator-calculation`
+- 相依切片：`.sdd/2026-09-02-indicator-result-type`、`.sdd/2026-09-05-strategy-script-backtest`、`.sdd/2026-09-03-strategy-script-management`、`.sdd/2026-08-29-indicator-calculation`
 
 ### Open Decisions（交給 architecture 裁決）
 

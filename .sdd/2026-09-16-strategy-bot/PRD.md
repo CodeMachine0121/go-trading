@@ -702,8 +702,8 @@ C 量能異常（5 分鐘）：持有
 
 - `.sdd/2026-09-16-strategy-bot/BRIEF.md` — 本切片的需求共識
 - `.sdd/2026-09-10-telegram-delivery/PRD.md` — 投遞路徑、四種投遞失敗原因
-- `.sdd/2026-09-10-strategyScript-ownership-and-marketplace/PRD.md` — 擁有者、可用策略腳本、三道關卡
+- `.sdd/2026-09-10-strategy-script-ownership-and-marketplace/PRD.md` — 擁有者、可用策略腳本、三道關卡
 - `.sdd/2026-09-06-signal-result-type/PRD.md` — 信號的三個值與產生方式
-- `.sdd/2026-09-03-strategyScript-execution-parameters/PRD.md` — 彙總刻度與參數不記在策略腳本身上
-- `.sdd/2026-09-04-strategyScript-parameters/PRD.md` — 策略腳本參數與參數值
+- `.sdd/2026-09-03-strategy-script-execution-parameters/PRD.md` — 彙總刻度與參數不記在策略腳本身上
+- `.sdd/2026-09-04-strategy-script-parameters/PRD.md` — 策略腳本參數與參數值
 - `.sdd/UL-MAP.md` — 通用語言地圖

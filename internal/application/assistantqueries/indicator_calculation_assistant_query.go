@@ -29,7 +29,7 @@ type indicatorCalculationAssistantArguments struct {
 	ParameterValues []strategyScriptParameterValueAssistantArgument `json:"parameterValues"`
 }
 
-// strategy scriptParameterValueAssistantArgument is what one knob is worth this run.
+// strategyScriptParameterValueAssistantArgument is what one knob is worth this run.
 type strategyScriptParameterValueAssistantArgument struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
@@ -68,7 +68,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Na
 
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Description() string {
 	return "算一次指標。可以指名一支既有策略腳本（strategyScriptId），或自己帶一段算式（script）；" +
-		"兩者都給時以 strategy scriptId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
+		"兩者都給時以 strategyScriptId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
 		"startTime 與 endTime 是要看哪一段行情；會收盤的市場只數有交易的那些時間，" +
 		"所以整段落在台股收盤時間裡的區間會被拒絕。回傳的是指標值，不是 K 線。" +
 		"存下來的行情不夠長時不會被拒絕，而是用手上有的算：回傳的 requiredCandleCount 是填滿要幾根、" +

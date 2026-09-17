@@ -13,7 +13,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// strategy scriptStrangerID is somebody who owns none of the strategy scripts in this file.
+// strategyScriptStrangerID is somebody who owns none of the strategy scripts in this file.
 const strategyScriptStrangerID = uint(2)
 
 // aStrangersStrategyScript is a stored strategy script belonging to somebody who is not the

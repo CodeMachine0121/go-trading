@@ -1,7 +1,7 @@
 # 策略腳本與執行參數分離 — Architecture Design
 
 **Status:** Confirmed
-**Source PRD:** `.sdd/2026-09-03-strategyScript-execution-parameters/PRD.md`
+**Source PRD:** `.sdd/2026-09-03-strategy-script-execution-parameters/PRD.md`
 **Tech context:** Go · Clean / Onion Architecture · Gin · GORM · PostgreSQL · yaegi 指標算式沙箱
 
 ---

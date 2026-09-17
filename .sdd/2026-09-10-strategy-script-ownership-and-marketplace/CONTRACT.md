@@ -1,7 +1,7 @@
 # 策略腳本歸屬與策略腳本市集 — Contract Verification
 
-**Contract source:** `.sdd/2026-09-10-strategyScript-ownership-and-marketplace/PRD.md`
-**Design map:** `.sdd/2026-09-10-strategyScript-ownership-and-marketplace/ARCH.md`
+**Contract source:** `.sdd/2026-09-10-strategy-script-ownership-and-marketplace/PRD.md`
+**Design map:** `.sdd/2026-09-10-strategy-script-ownership-and-marketplace/ARCH.md`
 **Glossary:** `.sdd/UL-MAP.md`
 **Kind:** static conformance audit — each clause's expected outcome was written from
 the spec first, then the test and the code were judged against it independently. The

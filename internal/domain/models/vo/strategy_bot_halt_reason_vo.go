@@ -22,7 +22,12 @@ const (
 	// marketplace and since withdrawn. The two are one reason on purpose: not being
 	// able to see a strategy script is one fact, and telling them apart would say whether
 	// somebody else's strategy script still exists.
-	StrategyBotHaltStrategyScriptUnavailable StrategyBotHaltReasonVo = "strategyScriptUnavailable"
+	//
+	// The stored value stays as it was written before a strategy became a strategy
+	// script. It is read straight back out of the bot it halted and handed to
+	// whoever asks, so renaming it would leave every bot halted before the rename
+	// reporting one spelling and every bot halted after it reporting another.
+	StrategyBotHaltStrategyScriptUnavailable StrategyBotHaltReasonVo = "strategyUnavailable"
 	// StrategyBotHaltScriptFailed is a script that would not run, or that reached
 	// for a parameter name nobody declared.
 	StrategyBotHaltScriptFailed StrategyBotHaltReasonVo = "scriptFailed"

@@ -141,7 +141,7 @@
 ## Context / Background
 
 - 「目前登入者」「一位使用者只碰得到自己的東西」沿用 `2026-09-05-user-authentication`
-  與 `2026-09-10-strategyScript-ownership-and-marketplace` 已經談定的意思，一字不改。
+  與 `2026-09-10-strategy-script-ownership-and-marketplace` 已經談定的意思，一字不改。
 - 「系統缺少一把它非有不可的鑰匙時，寧可拒絕也不假裝能做」這條，
   沿用 `2026-09-05-user-authentication` 對簽章金鑰的處理方式：那裡是「簽不出來就不簽」，
   這裡是「鎖不起來就不存」。

@@ -28,7 +28,7 @@ const StrategyScriptNameIndex = "idx_strategies_owner_name"
 // uniqueViolationCode is what PostgreSQL calls a broken unique constraint.
 const uniqueViolationCode = "23505"
 
-// strategy scriptWritableColumns are the only columns a rewrite may touch. Naming them is
+// strategyScriptWritableColumns are the only columns a rewrite may touch. Naming them is
 // what makes "the identifier and the time it was first saved never change" true:
 // they are not on the list, so no update can reach them however the entity handed in
 // was filled.
@@ -120,12 +120,12 @@ func (strategyScriptRepository *StrategyScriptRepository) Update(
 	return updatedStrategyScript, nil
 }
 
-// strategy scriptParametersAssociation is how GORM is asked for a strategy script's knobs. It is
+// strategyScriptParametersAssociation is how GORM is asked for a strategy script's knobs. It is
 // written once here so that every read fetches them the same way — a strategy script read
 // back without them looks like a strategy script that has none.
 const strategyScriptParametersAssociation = "Parameters"
 
-// strategy scriptPublicationAssociation is how GORM is asked whether a strategy script is on the
+// strategyScriptPublicationAssociation is how GORM is asked whether a strategy script is on the
 // marketplace. It is read alongside an owner's own strategy scripts because that is the
 // only place the answer is used — it decides whether the button in front of them
 // publishes or withdraws — and asking per strategy script would be one query each.
@@ -237,7 +237,7 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllOwnedBy(
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "name"}}).
 		Find(&strategyScripts)
 	if result.Error != nil {
-		return nil, fmt.Errorf("find strategy scriptScripts: %w", result.Error)
+		return nil, fmt.Errorf("find strategy scripts: %w", result.Error)
 	}
 
 	return strategyScripts, nil
@@ -261,7 +261,7 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllPublished(
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "published_at"}, Desc: true}).
 		Find(&publications)
 	if result.Error != nil {
-		return nil, fmt.Errorf("find published strategy scriptScripts: %w", result.Error)
+		return nil, fmt.Errorf("find published strategy scripts: %w", result.Error)
 	}
 
 	return publications, nil
@@ -290,7 +290,7 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllAdoptedBy(
 		Order(clause.OrderByColumn{Column: clause.Column{Table: "Strategies", Name: "name"}}).
 		Find(&publications)
 	if result.Error != nil {
-		return nil, fmt.Errorf("find adopted strategy scriptScripts: %w", result.Error)
+		return nil, fmt.Errorf("find adopted strategy scripts: %w", result.Error)
 	}
 
 	return publications, nil

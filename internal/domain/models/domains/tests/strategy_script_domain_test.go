@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// strategy scriptWriteOwnerID is who these strategy scripts belong to. Every strategy script has an
+// strategyScriptWriteOwnerID is who these strategy scripts belong to. Every strategy script has an
 // owner now, so a write without one is refused before any other rule is read —
 // which would make every case below fail for the wrong reason.
 const strategyScriptWriteOwnerID = uint(1)

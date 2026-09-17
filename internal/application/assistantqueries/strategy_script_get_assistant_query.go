@@ -10,7 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// strategy scriptGetAssistantArguments is what the assistant sends to read one strategy script.
+// strategyScriptGetAssistantArguments is what the assistant sends to read one strategy script.
 type strategyScriptGetAssistantArguments struct {
 	StrategyScriptID uint `json:"strategyScriptId"`
 }

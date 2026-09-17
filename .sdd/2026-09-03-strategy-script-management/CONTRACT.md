@@ -1,6 +1,6 @@
 # 交易策略腳本管理 — Contract Verification
 
-**Contract source:** `.sdd/2026-09-03-trading-strategyScript-management/PRD.md`（Section 3 Acceptance Criteria 為 oracle）
+**Contract source:** `.sdd/2026-09-03-strategy-script-management/PRD.md`（Section 3 Acceptance Criteria 為 oracle）
 **Design map:** `ARCH.md`（Traceability 表用來定位程式碼，非契約本身）
 **Glossary:** `.sdd/UL-MAP.md`
 **Ceiling:** 這是**靜態一致性稽核**——逐條把「測試斷言的東西」與「程式碼實際產出的東西」分別對照規格推導出的 oracle，

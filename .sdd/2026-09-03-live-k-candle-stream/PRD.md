@@ -347,5 +347,5 @@ flowchart TD
 - 需求共識：`BRIEF.md`（同一資料夾）
 - 既有的每五分鐘抓取：`.sdd/2026-08-30-k-candle-auto-ingestion/`
 - 「進行中 K 線不存入」的由來：同上切片
-- 指標只用走完的刻度區間：`.sdd/2026-09-03-strategyScript-execution-parameters/`
+- 指標只用走完的刻度區間：`.sdd/2026-09-03-strategy-script-execution-parameters/`
 - 通用語言：`.sdd/UL-MAP.md`

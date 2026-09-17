@@ -2,14 +2,14 @@ package assistantqueries
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 
-// strategy scriptParameterAssistantArgument is one knob as the assistant declares it.
+// strategyScriptParameterAssistantArgument is one knob as the assistant declares it.
 type strategyScriptParameterAssistantArgument struct {
 	Name         string  `json:"name"`
 	Kind         string  `json:"kind"`
 	DefaultValue float64 `json:"defaultValue"`
 }
 
-// strategy scriptWriteAssistantArguments is what the assistant sends to save or rewrite a
+// strategyScriptWriteAssistantArguments is what the assistant sends to save or rewrite a
 // strategy script.
 //
 // One shape serves both, exactly as it does for a person: a rewrite replaces
@@ -50,7 +50,7 @@ func (strategyScriptWriteAssistantArguments strategyScriptWriteAssistantArgument
 	}
 }
 
-// strategy scriptWriteArgumentSchema is the arguments both writing capabilities take. It is
+// strategyScriptWriteArgumentSchema is the arguments both writing capabilities take. It is
 // written once because they take the same ones — the only difference is whether the
 // identifier is required, and each says that for itself.
 const strategyScriptWriteArgumentSchema = `` +

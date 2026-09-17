@@ -36,7 +36,7 @@ func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Argume
 	return `{"type":"object","properties":{},"additionalProperties":false}`
 }
 
-// strategy scriptDigest is a strategy script as it appears in a list: enough to pick one by,
+// strategyScriptDigest is a strategy script as it appears in a list: enough to pick one by,
 // without the algorithm itself.
 type strategyScriptDigest struct {
 	ID             uint     `json:"id"`
@@ -101,7 +101,7 @@ func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Run(
 		StrategyScripts []strategyScriptDigest `json:"strategyScripts"`
 	}{StrategyScripts: digests})
 	if marshalError != nil {
-		return "", fmt.Errorf("render strategy scriptScripts: %w", marshalError)
+		return "", fmt.Errorf("render strategy scripts: %w", marshalError)
 	}
 
 	return string(payload), nil

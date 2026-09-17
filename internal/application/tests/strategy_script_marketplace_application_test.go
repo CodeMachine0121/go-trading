@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The two people on the marketplace. strategy scriptOwnerID owns things; marketplaceGuestID
+// The two people on the marketplace. strategyScriptOwnerID owns things; marketplaceGuestID
 // only ever looks at them.
 const marketplaceGuestID = uint(2)
 

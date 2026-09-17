@@ -4,7 +4,7 @@
 **Version:** v1.0
 **Owner:** James Hsueh
 **Stakeholders:** Engineering, QA
-**Source brief:** `.sdd/2026-09-05-strategyScript-backtest/BRIEF.md`
+**Source brief:** `.sdd/2026-09-05-strategy-script-backtest/BRIEF.md`
 
 ---
 
@@ -458,8 +458,8 @@ N/A — 本切片是後端能力。畫面在前端專案的同名切片。對外
 
 ## 8. Appendix
 
-- 來源需求：`.sdd/2026-09-05-strategyScript-backtest/BRIEF.md`
-- 相依切片：`.sdd/2026-08-29-indicator-calculation`、`.sdd/2026-09-02-k-candle-aggregated-series`、`.sdd/2026-09-03-strategyScript-execution-parameters`、`.sdd/2026-09-04-strategyScript-parameters`
+- 來源需求：`.sdd/2026-09-05-strategy-script-backtest/BRIEF.md`
+- 相依切片：`.sdd/2026-08-29-indicator-calculation`、`.sdd/2026-09-02-k-candle-aggregated-series`、`.sdd/2026-09-03-strategy-script-execution-parameters`、`.sdd/2026-09-04-strategy-script-parameters`
 - 詞彙：`.sdd/UL-MAP.md`（本切片新增：信號、倉位、多倉、空倉、初始資金、倉位大小模式、資金曲線、最大回撤、勝率、成績單、已平倉交易、開倉次數）
 
 ### 來自 BRIEF 的待定事項，本 PRD 的定案

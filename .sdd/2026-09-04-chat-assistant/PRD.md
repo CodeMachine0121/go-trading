@@ -522,8 +522,8 @@ N/A — 本切片只交付後端能力，沒有畫面。回覆內容的形狀（
   - `.sdd/2026-08-29-k-candle-management/` — K 線讀寫與單次查詢上限
   - `.sdd/2026-09-02-k-candle-aggregated-series/` — 彙總刻度與彙總 K 線序列
   - `.sdd/2026-08-29-indicator-calculation/` — 指標計算
-  - `.sdd/2026-09-03-trading-strategyScript-management/` — 策略腳本的建立/讀取/修改/刪除
-  - `.sdd/2026-09-04-strategyScript-parameters/` — 策略腳本參數
+  - `.sdd/2026-09-03-strategy-script-management/` — 策略腳本的建立/讀取/修改/刪除
+  - `.sdd/2026-09-04-strategy-script-parameters/` — 策略腳本參數
 
 **PRD 階段拍板的五個數字**（BRIEF 的 Open Decisions）：
 

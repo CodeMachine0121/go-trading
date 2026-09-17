@@ -276,7 +276,7 @@ flowchart TD
 
 **與「策略腳本不記取數計畫」那條既有決定的關係：**
 
-`.sdd/2026-09-03-strategyScript-execution-parameters/` 刻意把**彙總刻度**與**計算根數**
+`.sdd/2026-09-03-strategy-script-execution-parameters/` 刻意把**彙總刻度**與**計算根數**
 從策略腳本身上拿掉，理由是它們描述「這一次要怎麼算」。**那條決定完全不變，一個字都沒有被推翻。**
 
 本切片放回策略腳本的**不是**它們，而是**這支算式自己的旋鈕**：
@@ -306,5 +306,5 @@ flowchart TD
 ## 8. Appendix
 
 - 需求共識：`BRIEF.md`（同一資料夾）
-- 不衝突的既有決定：`.sdd/2026-09-03-strategyScript-execution-parameters/`
+- 不衝突的既有決定：`.sdd/2026-09-03-strategy-script-execution-parameters/`
 - 通用語言：`.sdd/UL-MAP.md`

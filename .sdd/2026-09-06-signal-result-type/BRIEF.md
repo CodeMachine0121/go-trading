@@ -129,4 +129,4 @@ Items the PRD author should resolve:
 - 選擇「回測只吃信號種類、移除數字正負號」是使用者的決定（一次做到位），代價是既有的數字型信號算式與回測測試都要改寫，這是已知且接受的。
 - 「信號用系統提供的方式產生」的重點是防呆：使用者不必記信號長什麼樣子，也不會因為拼錯而產出一個「合法但無意義」的信號。
 - 回測看 K 線的方式（逐根、看得到第一根到當根、不設固定視窗）在討論中確認過，維持既有回測切片的規則，本切片不碰。
-- 相依切片：`.sdd/2026-09-02-indicator-result-type`（四種種類）、`.sdd/2026-09-05-strategyScript-backtest`（信號的讀法與模擬）、`.sdd/2026-09-03-trading-strategyScript-management`（策略腳本存種類）、`.sdd/2026-08-29-indicator-calculation`（單純算指標）。
+- 相依切片：`.sdd/2026-09-02-indicator-result-type`（四種種類）、`.sdd/2026-09-05-strategy-script-backtest`（信號的讀法與模擬）、`.sdd/2026-09-03-strategy-script-management`（策略腳本存種類）、`.sdd/2026-08-29-indicator-calculation`（單純算指標）。

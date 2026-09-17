@@ -84,7 +84,7 @@
 ### 信號來源：一支上線的策略腳本，加上它怎麼跑
 
 一支策略腳本本身不知道自己要吃多粗的 K 線、參數要調到多少——
-`2026-09-03-strategyScript-execution-parameters` 已經把那些從策略腳本身上拿掉了。
+`2026-09-03-strategy-script-execution-parameters` 已經把那些從策略腳本身上拿掉了。
 所以機器人要用一支策略腳本，就得**當場把那些補齊**。補齊之後的那一整包，叫一個**信號來源**：
 
 - **策略腳本**——指名一支**可用策略腳本**（自己的，或採用過且仍在市集上的）。
@@ -343,7 +343,7 @@ Each example lists **only** the data that affects the behavior — nothing more.
   **策略機器人**——一台把好幾支策略腳本的信號組起來的常駐機器人。
   兩者一律分開講，不得混用，UL-MAP 須同步。
 - 「目前登入者」「一位使用者只碰得到自己的東西」「看不到就回找不到」沿用
-  `2026-09-05-user-authentication` 與 `2026-09-10-strategyScript-ownership-and-marketplace`
+  `2026-09-05-user-authentication` 與 `2026-09-10-strategy-script-ownership-and-marketplace`
   已經談定的意思，一字不改。
 - 「可用策略腳本」「三道關卡」「彙總刻度」「策略腳本參數」「信號」「投遞失敗原因」
   全部沿用既有定義，這一刀不重新定義任何一個。

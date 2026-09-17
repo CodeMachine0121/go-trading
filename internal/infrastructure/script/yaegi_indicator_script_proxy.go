@@ -238,7 +238,7 @@ func (preparedScript *preparedScript) runOver(
 	return preparedScript.shape.readValues(calculated)
 }
 
-// strategy scriptParameterReader is what a script reaches a knob through.
+// strategyScriptParameterReader is what a script reaches a knob through.
 //
 // A name nobody declared is recorded and then panicked on rather than answered with
 // a zero. A zero looks like an answer: a loop reaching back zero candles still

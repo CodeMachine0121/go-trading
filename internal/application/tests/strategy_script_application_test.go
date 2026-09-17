@@ -17,7 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// strategy scriptOwnerID is whoever these tests act as. Every strategy script they save belongs
+// strategyScriptOwnerID is whoever these tests act as. Every strategy script they save belongs
 // to them, and every strategy script they read back is their own — which is what makes
 // these tests about saving and rewriting rather than about who may see what.
 const strategyScriptOwnerID = uint(1)
@@ -281,7 +281,7 @@ func TestStrategyScriptApplicationGetStrategyScript(t *testing.T) {
 }
 
 func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
-	t.Run("hands back the caller's own strategy scriptScripts in the order it was given them", func(t *testing.T) {
+	t.Run("hands back the caller's own strategy scripts in the order it was given them", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), strategyScriptOwnerID).Return([]entities.StrategyScript{
@@ -311,7 +311,7 @@ func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
 		}
 	})
 
-	t.Run("hands back adopted strategy scriptScripts after the caller's own, and without their scripts", func(t *testing.T) {
+	t.Run("hands back adopted strategy scripts after the caller's own, and without their scripts", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), strategyScriptOwnerID).

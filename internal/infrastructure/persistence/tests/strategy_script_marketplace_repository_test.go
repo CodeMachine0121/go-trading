@@ -339,7 +339,7 @@ func TestEveryMarketplaceOperationReportsAnUnusableStore(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("read one person's strategy scriptScripts", func(t *testing.T) {
+	t.Run("read one person's strategy scripts", func(t *testing.T) {
 		_, err := strategyScriptRepository.FindAllOwnedBy(t.Context(), strategyScriptRowOwnerID)
 		assert.Error(t, err)
 	})

@@ -1,7 +1,7 @@
 # 策略腳本歸屬與策略腳本市集 — Architecture Design
 
 **Status:** Draft
-**Source PRD:** `.sdd/2026-09-10-strategyScript-ownership-and-marketplace/PRD.md`
+**Source PRD:** `.sdd/2026-09-10-strategy-script-ownership-and-marketplace/PRD.md`
 **Tech context:** Go · Gin · GORM · PostgreSQL · Clean/Onion（`internal/{controller,application,domain,infrastructure}`）
 
 ---

@@ -8,11 +8,11 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// strategy scriptNameMaxLength is how long a strategy script name may be, counted after the blanks
+// strategyScriptNameMaxLength is how long a strategy script name may be, counted after the blanks
 // around it are dropped. It is the single place this limit is written down.
 const strategyScriptNameMaxLength = 128
 
-// strategy scriptDescriptionMaxLength is how long a strategy script's description may be, counted
+// strategyScriptDescriptionMaxLength is how long a strategy script's description may be, counted
 // after the blanks around it are dropped. It is generous because on the marketplace
 // it is the only thing a reader has to go on — the script is never handed out — but
 // it is bounded because a description is a paragraph, not a document.

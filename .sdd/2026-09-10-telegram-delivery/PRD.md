@@ -343,7 +343,7 @@ Scenario: 移除的是自己的
     可能改變它的拒絕方式。系統對它的每一種回答都要有歸屬（見 Edge Cases 最後一列）。
 - **Internal Dependencies:**
   - `2026-09-05-user-authentication`：目前登入者。
-  - `2026-09-10-strategyScript-ownership-and-marketplace`：「只碰得到自己的東西」這條規則的既有寫法。
+  - `2026-09-10-strategy-script-ownership-and-marketplace`：「只碰得到自己的東西」這條規則的既有寫法。
 - **Known Risks:**
   - **開鎖的東西沒設定時，整個功能不能用。** 這是刻意的（R5），但它與登入簽章金鑰一樣，
     會在第一次部署時絆倒人。緩解：拒絕的那句話要**明說是哪一項系統設定沒給**。

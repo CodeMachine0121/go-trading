@@ -705,9 +705,9 @@ flowchart TD
 
 ## 8. Appendix
 
-- 需求共識：`.sdd/2026-09-10-strategyScript-ownership-and-marketplace/BRIEF.md`
+- 需求共識：`.sdd/2026-09-10-strategy-script-ownership-and-marketplace/BRIEF.md`
 - 通用語言地圖：`.sdd/UL-MAP.md`（本切片新增策略腳本擁有者、策略腳本說明、策略腳本市集、已發佈策略腳本、市集策略腳本、
   策略腳本採用、可用策略腳本等詞彙，並改寫策略腳本、策略腳本名稱、使用者、目前登入者、執行指標計算、執行回測等既有條目）
-- 相關切片：`2026-09-03-trading-strategyScript-management`（策略腳本的建立與保存）、
-  `2026-09-04-strategyScript-parameters`（策略腳本參數）、`2026-09-05-user-authentication`（登入與身分）、
-  `2026-09-05-strategyScript-backtest`（回測）、`2026-08-29-indicator-calculation`（指標計算）
+- 相關切片：`2026-09-03-strategy-script-management`（策略腳本的建立與保存）、
+  `2026-09-04-strategy-script-parameters`（策略腳本參數）、`2026-09-05-user-authentication`（登入與身分）、
+  `2026-09-05-strategy-script-backtest`（回測）、`2026-08-29-indicator-calculation`（指標計算）

@@ -16,15 +16,15 @@ import (
 
 // rewrittenScript stands in for "the algorithm was changed" wherever a test needs to
 // prove a rewrite reached the row. It is deliberately different from the script
-// strategy scriptNamed carries.
+// strategyScriptNamed carries.
 const rewrittenScript = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return map[string]float64{\"x\": 1} }"
 
-// strategy scriptRowOwnerID is whoever owns every strategy script in this file unless a test says
+// strategyScriptRowOwnerID is whoever owns every strategy script in this file unless a test says
 // otherwise. A strategy script cannot exist without an owner any more, so one is planted
 // before each of these runs.
 const strategyScriptRowOwnerID = uint(1)
 
-// strategy scriptNamed is a strategy script that differs from its siblings only by name, so that a
+// strategyScriptNamed is a strategy script that differs from its siblings only by name, so that a
 // test about names is not also a test about anything else.
 func strategyScriptNamed(name string) entities.StrategyScript {
 	return entities.StrategyScript{

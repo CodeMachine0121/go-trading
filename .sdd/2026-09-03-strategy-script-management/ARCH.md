@@ -1,7 +1,7 @@
 # 交易策略腳本管理 — Architecture Design
 
 **Status:** Confirmed
-**Source PRD:** `.sdd/2026-09-03-trading-strategyScript-management/PRD.md`
+**Source PRD:** `.sdd/2026-09-03-strategy-script-management/PRD.md`
 **Tech context:** Go · Gin · GORM · PostgreSQL · Clean Architecture（Controller → Application → Domain ← Infrastructure）
 
 ---

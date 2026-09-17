@@ -229,7 +229,7 @@ func TestStrategyScriptRouterSavesNothingForARequestCarryingNoProof(t *testing.T
 }
 
 func TestStrategyScriptRouterListAvailableStrategyScripts(t *testing.T) {
-	t.Run("answers with the caller's own strategy scriptScripts and the ones they adopted", func(t *testing.T) {
+	t.Run("answers with the caller's own strategy scripts and the ones they adopted", func(t *testing.T) {
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{

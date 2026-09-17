@@ -1,6 +1,6 @@
 # 策略腳本與執行參數分離 — Contract Verification
 
-**Contract source:** `.sdd/2026-09-03-strategyScript-execution-parameters/PRD.md`（Section 3 驗收條件）
+**Contract source:** `.sdd/2026-09-03-strategy-script-execution-parameters/PRD.md`（Section 3 驗收條件）
 **Design map:** `ARCH.md`（同資料夾）
 **Verified:** 2026-09-03
 **Ceiling:** 靜態一致性稽核——逐條把**測試的斷言**與**程式碼路徑**各自對照 PRD 導出的預期結果，

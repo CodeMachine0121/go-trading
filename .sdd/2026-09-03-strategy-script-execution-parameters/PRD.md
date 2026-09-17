@@ -381,7 +381,7 @@ N/A — 本切片不含任何操作介面。
 ## 8. Appendix
 
 - 需求共識：`BRIEF.md`（同一資料夾）
-- 前一個切片預告了本切片：`.sdd/2026-09-03-trading-strategyScript-management/BRIEF.md` 的 Out of Scope
+- 前一個切片預告了本切片：`.sdd/2026-09-03-strategy-script-management/BRIEF.md` 的 Out of Scope
   已寫明「指標計算目前的兩個缺口（不彙總、排除最新一根在較粗刻度下不夠用）都真的要處理，但不在該切片」。
 - 彙總的切格規則與詞彙：`.sdd/2026-09-02-k-candle-aggregated-series/PRD.md`
 - 通用語言：`.sdd/UL-MAP.md`
