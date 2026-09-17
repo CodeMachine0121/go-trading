@@ -125,6 +125,13 @@ type AssistantConfig struct {
 	// the conversation.
 	RecentMessageLimit int
 	// QueryLimit is how many assistant queries one answer may spend.
+	//
+	// It is forty rather than a handful because the assistant now closes a loop
+	// inside one answer: it assembles a set of rules, replays it, reads the report
+	// card, changes something and replays again. One turn of that costs about five
+	// queries, so a ceiling of eight cuts it off mid-thought — right after it has
+	// discovered the return is not good enough and before it can do anything about
+	// it, which is the least useful place to stop.
 	QueryLimit int
 	// CandleLimit is how many K candles one assistant query may hand over. It is
 	// deliberately far below KCandleQueryMaxResults: that one is about what a
@@ -276,7 +283,7 @@ func Load() ApplicationConfig {
 			Effort:              stringWithDefault("ASSISTANT_EFFORT", "low"),
 			BaseUrl:             stringWithDefault("ASSISTANT_BASE_URL", ""),
 			RecentMessageLimit:  positiveIntWithDefault("ASSISTANT_RECENT_MESSAGE_LIMIT", 20),
-			QueryLimit:          positiveIntWithDefault("ASSISTANT_QUERY_LIMIT", 8),
+			QueryLimit:          positiveIntWithDefault("ASSISTANT_QUERY_LIMIT", 40),
 			CandleLimit:         positiveIntWithDefault("ASSISTANT_CANDLE_LIMIT", 200),
 			DailyUsageAllowance: positiveIntWithDefault("ASSISTANT_DAILY_USAGE_ALLOWANCE", 300000),
 			AnswerLengthLimit:   positiveIntWithDefault("ASSISTANT_ANSWER_LENGTH_LIMIT", 2000),

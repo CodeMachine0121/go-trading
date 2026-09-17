@@ -224,40 +224,6 @@ func registerRoutes(
 	engine.POST("/backtests", requiresSignIn, controller.NewBacktestController(
 		application.NewBacktestApplication(strategyScriptService, backtestService)).RunBacktest)
 
-	assistantConversationController := controller.NewAssistantConversationController(
-		application.NewAssistantConversationApplication(
-			service.NewAssistantConversationService(
-				persistence.NewConversationRepository(database),
-				assistant.NewClaudeAssistantProxy(
-					applicationConfig.Assistant.ApiKey,
-					applicationConfig.Assistant.Model,
-					applicationConfig.Assistant.Effort,
-					applicationConfig.Assistant.BaseUrl,
-					applicationConfig.Assistant.ResponseTimeout,
-				),
-				assistantQueriesFor(
-					tradingSymbolApplication,
-					kCandleApplication,
-					indicatorCalculationApplication,
-					strategyScriptApplication,
-					applicationConfig.Assistant.CandleLimit,
-				),
-				clock.NewSystemClockProxy(),
-				applicationConfig.Assistant.RecentMessageLimit,
-				applicationConfig.Assistant.QueryLimit,
-				applicationConfig.Assistant.DailyUsageAllowance,
-				applicationConfig.Assistant.AnswerLengthLimit,
-			),
-		),
-	)
-
-	// The assistant acts as whoever asked it, so it is behind the door like anything
-	// else that touches a strategy script. Without that, a strategy script it saved would belong
-	// to nobody, and "every strategy script has an owner" would have its one exception.
-	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
-	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
-	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
-
 	// Creating a user and signing in are open, and have to be: a system holding no
 	// users has nobody who could be allowed to create the first one. "Who am I" is
 	// the one route here that reads the proof through the same door as everything
@@ -352,27 +318,69 @@ func registerRoutes(
 		persistence.NewTradingStrategyRepository(database),
 	)
 
-	tradingStrategyController := controller.NewTradingStrategyController(
-		application.NewTradingStrategyApplication(
-			tradingStrategyService,
-			strategyScriptService,
-			strategyBotService,
-		),
+	tradingStrategyApplication := application.NewTradingStrategyApplication(
+		tradingStrategyService,
+		strategyScriptService,
+		strategyBotService,
 	)
+
+	tradingStrategyController := controller.NewTradingStrategyController(tradingStrategyApplication)
 
 	engine.POST("/trading-strategies", requiresSignIn, tradingStrategyController.CreateTradingStrategy)
 	engine.GET("/trading-strategies", requiresSignIn, tradingStrategyController.ListTradingStrategies)
 	engine.GET("/trading-strategies/:id", requiresSignIn, tradingStrategyController.GetTradingStrategy)
 	engine.PUT("/trading-strategies/:id", requiresSignIn, tradingStrategyController.UpdateTradingStrategy)
 	engine.DELETE("/trading-strategies/:id", requiresSignIn, tradingStrategyController.DeleteTradingStrategy)
+	tradingStrategyBacktestApplication := application.NewTradingStrategyBacktestApplication(
+		tradingStrategyService,
+		strategyScriptService,
+		backtestService,
+	)
+
 	// 重演是對某一份交易策略做的事，所以掛在它底下——與機器人的輪次同一個形狀。
 	engine.POST("/trading-strategies/:id/backtests", requiresSignIn,
 		controller.NewTradingStrategyBacktestController(
-			application.NewTradingStrategyBacktestApplication(
-				tradingStrategyService,
-				strategyScriptService,
-				backtestService,
-			)).RunTradingStrategyBacktest)
+			tradingStrategyBacktestApplication).RunTradingStrategyBacktest)
+
+	// The assistant is wired after the trading strategies rather than before,
+	// because it is now handed them: it assembles a set of rules out of the scripts
+	// it writes and replays it to see what it would have done. Everything it reaches
+	// for has to exist by the time this list is built.
+	assistantConversationController := controller.NewAssistantConversationController(
+		application.NewAssistantConversationApplication(
+			service.NewAssistantConversationService(
+				persistence.NewConversationRepository(database),
+				assistant.NewClaudeAssistantProxy(
+					applicationConfig.Assistant.ApiKey,
+					applicationConfig.Assistant.Model,
+					applicationConfig.Assistant.Effort,
+					applicationConfig.Assistant.BaseUrl,
+					applicationConfig.Assistant.ResponseTimeout,
+				),
+				assistantQueriesFor(
+					tradingSymbolApplication,
+					kCandleApplication,
+					indicatorCalculationApplication,
+					strategyScriptApplication,
+					tradingStrategyApplication,
+					tradingStrategyBacktestApplication,
+					applicationConfig.Assistant.CandleLimit,
+				),
+				clock.NewSystemClockProxy(),
+				applicationConfig.Assistant.RecentMessageLimit,
+				applicationConfig.Assistant.QueryLimit,
+				applicationConfig.Assistant.DailyUsageAllowance,
+				applicationConfig.Assistant.AnswerLengthLimit,
+			),
+		),
+	)
+
+	// The assistant acts as whoever asked it, so it is behind the door like anything
+	// else that touches a strategy script. Without that, a strategy script it saved would belong
+	// to nobody, and "every strategy script has an owner" would have its one exception.
+	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
+	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
+	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
 
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,
@@ -422,9 +430,10 @@ func registerRoutes(
 // assistantQueriesFor is everything the assistant is allowed to do.
 //
 // It is assembled here and only here, which is what makes "it cannot delete a
-// strategy script" a fact about the system rather than a check somebody could remove: there
-// is no deleting capability to reach for, and no K candle writing one either. Adding
-// a capability is adding one line to this list.
+// strategy script" — or a trading strategy, or touch a bot — a fact about the system
+// rather than a check somebody could remove: there is no deleting capability to reach
+// for, and no K candle writing one either. Adding a capability is adding one line to
+// this list.
 //
 // Each capability calls the very same use case a person calls, so no rule is relaxed
 // for the assistant and none had to be written twice.
@@ -433,6 +442,8 @@ func assistantQueriesFor(
 	kCandleApplication *application.KCandleApplication,
 	indicatorCalculationApplication *application.IndicatorCalculationApplication,
 	strategyScriptApplication *application.StrategyScriptApplication,
+	tradingStrategyApplication *application.TradingStrategyApplication,
+	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication,
 	candleLimit int,
 ) []domaininterface.IAssistantQuery {
 	return []domaininterface.IAssistantQuery{
@@ -444,6 +455,11 @@ func assistantQueriesFor(
 		assistantqueries.NewStrategyScriptGetAssistantQuery(strategyScriptApplication),
 		assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication),
 		assistantqueries.NewStrategyScriptUpdateAssistantQuery(strategyScriptApplication),
+		assistantqueries.NewTradingStrategyListAssistantQuery(tradingStrategyApplication),
+		assistantqueries.NewTradingStrategyGetAssistantQuery(tradingStrategyApplication),
+		assistantqueries.NewTradingStrategyCreateAssistantQuery(tradingStrategyApplication),
+		assistantqueries.NewTradingStrategyUpdateAssistantQuery(tradingStrategyApplication),
+		assistantqueries.NewTradingStrategyBacktestAssistantQuery(tradingStrategyBacktestApplication),
 	}
 }
 
