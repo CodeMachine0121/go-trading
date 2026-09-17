@@ -69,6 +69,7 @@ func NewTradingStrategyBacktestDomain(
 		InitialCapital:      requestDto.InitialCapital,
 		PositionSizingMode:  requestDto.PositionSizingMode,
 		PositionSizingValue: requestDto.PositionSizingValue,
+		TradingMode:         requestDto.TradingMode,
 	}, maxCandleCount, now)
 	if backtestError != nil {
 		return TradingStrategyBacktestDomain{}, backtestError

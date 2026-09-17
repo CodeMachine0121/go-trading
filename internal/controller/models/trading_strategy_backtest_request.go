@@ -26,6 +26,9 @@ type TradingStrategyBacktestRequest struct {
 	// chose it may leave the figure out entirely.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
+	// TradingMode is which set of rules this replay trades by. Leaving it out means
+	// always being in the market.
+	TradingMode string `json:"tradingMode"`
 }
 
 // ToRequestDto turns the request into the shape the domain accepts. The signal
@@ -39,5 +42,6 @@ func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategy
 		InitialCapital:      request.InitialCapital,
 		PositionSizingMode:  request.PositionSizingMode,
 		PositionSizingValue: request.PositionSizingValue,
+		TradingMode:         request.TradingMode,
 	}
 }

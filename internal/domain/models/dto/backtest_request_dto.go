@@ -35,4 +35,7 @@ type BacktestRequestDto struct {
 	// Staking everything needs no figure and ignores it.
 	PositionSizingMode  string
 	PositionSizingValue decimal.Decimal
+	// TradingMode is which set of rules the replay trades by, exactly as declared.
+	// Reading it — including leaving it out — is the domain's job.
+	TradingMode string
 }

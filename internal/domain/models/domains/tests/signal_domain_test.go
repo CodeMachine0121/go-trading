@@ -32,38 +32,3 @@ func TestNewSignalDomainCarriesTheSignalItWasGiven(t *testing.T) {
 		})
 	}
 }
-
-func TestSignalDomainWantedDirection(t *testing.T) {
-	testCases := []struct {
-		name                string
-		signal              vo.SignalVo
-		expectedDirection   vo.PositionDirectionVo
-		expectsAnyDirection bool
-	}{
-		{
-			name:                "buy wants a long position",
-			signal:              vo.SignalBuy,
-			expectedDirection:   vo.PositionDirectionLong,
-			expectsAnyDirection: true,
-		},
-		{
-			name:                "sell wants a short position",
-			signal:              vo.SignalSell,
-			expectedDirection:   vo.PositionDirectionShort,
-			expectsAnyDirection: true,
-		},
-		{name: "hold wants nothing", signal: vo.SignalHold, expectsAnyDirection: false},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			wantedDirection, wantsPosition :=
-				domains.NewSignalDomain(signalResultOf(testCase.signal)).WantedDirection()
-
-			assert.Equal(t, testCase.expectsAnyDirection, wantsPosition)
-			if testCase.expectsAnyDirection {
-				assert.Equal(t, testCase.expectedDirection, wantedDirection)
-			}
-		})
-	}
-}

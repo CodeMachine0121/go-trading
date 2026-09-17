@@ -362,3 +362,109 @@ func TestTradingStrategyBacktestAssistantQuerySaysNothingAboutTruncationWhenNoth
 
 	assert.NotContains(t, outcome, "closedTradesTruncated")
 }
+
+// aSpotReplayArgument replays the same stretch the way an account that cannot short
+// would actually have traded it.
+const aSpotReplayArgument = `{
+  "tradingStrategyId": 11,
+  "symbol": "BTCUSDT",
+  "startTime": "2026-09-10T00:00:00Z",
+  "endTime": "2026-09-10T04:00:00Z",
+  "initialCapital": "10000",
+  "positionSizingMode": "allIn",
+  "tradingMode": "spot"
+}`
+
+// The assistant converges by replaying, reading and adjusting. Handing it only the
+// mode that can short would have it tune a set of rules against trades the person's
+// account can never place — and nothing in the report card would say so.
+func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheAccountTrades(t *testing.T) {
+	t.Run("naming the long only mode keeps every round trip long", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(aReplayableTradingStrategy("1h"), nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
+
+		report, _ := fixture.replay(t, aSpotReplayArgument)
+
+		// Sold at 120 and stood aside for the fall to 90.
+		assert.Equal(t, "12000", report.Summary.FinalEquity)
+		assert.Equal(t, 1, report.Summary.PositionOpenCount)
+		require.Len(t, report.ClosedTrades, 1)
+		assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
+	})
+
+	t.Run("naming no mode replays the way it always has", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(aReplayableTradingStrategy("1h"), nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
+
+		report, _ := fixture.replay(t, aReplayArgument)
+
+		// The 12,000 went straight back out as a short at 120, and the fall paid it.
+		assert.Equal(t, "15000", report.Summary.FinalEquity)
+		assert.Equal(t, 2, report.Summary.PositionOpenCount)
+	})
+
+	t.Run("a mode nobody offers is refused rather than replayed", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(aReplayableTradingStrategy("1h"), nil)
+
+		outcome, runError := fixture.backtestAssistantQuery.Run(
+			t.Context(), assistantViewerID, `{
+  "tradingStrategyId": 11,
+  "symbol": "BTCUSDT",
+  "startTime": "2026-09-10T00:00:00Z",
+  "endTime": "2026-09-10T04:00:00Z",
+  "initialCapital": "10000",
+  "positionSizingMode": "allIn",
+  "tradingMode": "dayTrade"
+}`)
+
+		require.Error(t, runError)
+		assert.ErrorIs(t, runError, domains.ErrBacktestValidation)
+		// Nothing partial reaches the assistant: half a report card would be read as
+		// a whole one.
+		assert.Empty(t, outcome)
+	})
+}
+
+// The assistant can only pick the right mode if it is told what the two mean and
+// which one it gets by saying nothing.
+func TestTradingStrategyBacktestAssistantQueryExplainsTheTwoWaysToTrade(t *testing.T) {
+	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+
+	argumentSchema := fixture.backtestAssistantQuery.ArgumentSchema()
+	description := fixture.backtestAssistantQuery.Description()
+
+	assert.Contains(t, argumentSchema, "tradingMode")
+	assert.Contains(t, argumentSchema, string(vo.TradingModeLongShort))
+	assert.Contains(t, argumentSchema, string(vo.TradingModeSpot))
+	// Not required: saying nothing has to stay a legitimate thing to do, or every
+	// existing answer would start failing.
+	requiredArguments := struct {
+		Required []string `json:"required"`
+	}{}
+	require.NoError(t, json.Unmarshal([]byte(argumentSchema), &requiredArguments))
+	assert.NotContains(t, requiredArguments.Required, "tradingMode")
+
+	assert.Contains(t, description, string(vo.TradingModeLongShort))
+	assert.Contains(t, description, string(vo.TradingModeSpot))
+}

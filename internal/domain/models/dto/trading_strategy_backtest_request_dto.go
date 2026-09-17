@@ -31,6 +31,8 @@ type TradingStrategyBacktestRequestDto struct {
 	// PositionSizingValue the figure that goes with it.
 	PositionSizingMode  string
 	PositionSizingValue decimal.Decimal
+	// TradingMode is which set of rules the replay trades by, exactly as declared.
+	TradingMode string
 }
 
 // ResolvedSignalSourceDto is one signal source with the script it names already

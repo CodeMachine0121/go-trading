@@ -242,3 +242,28 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	assert.Contains(t, answer["message"], "1h")
 	assert.Contains(t, answer["message"], "5m")
 }
+
+// Replaying a whole set of rules reads the trading mode from the very same gate a
+// single script does, so the two endpoints refuse it in the same words.
+func TestTradingStrategyBacktestRouterRefusesATradingModeNobodyOffers(t *testing.T) {
+	fixture := newTradingStrategyBacktestRouterUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), uint(11)).Return(aRoutedTradingStrategy("1h"), nil)
+
+	response := fixture.send("/trading-strategies/11/backtests", `{
+		"symbol":"BTCUSDT",
+		"startTime":"2026-08-29T00:00:00Z",
+		"endTime":"2026-08-29T04:00:00Z",
+		"initialCapital":"10000",
+		"positionSizingMode":"allIn",
+		"tradingMode":"dayTrade"
+	}`)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.Equal(t, "tradingMode", answer["field"])
+	assert.Contains(t, answer["message"], "longShort")
+	assert.Contains(t, answer["message"], "spot")
+}

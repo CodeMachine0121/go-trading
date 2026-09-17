@@ -8,9 +8,10 @@ import "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 // carries one of the three — the runner rejects anything else as a script failure
 // before a replay ever sees it.
 //
-// Two things a replay needs to know about an opinion can only be answered together —
-// whether it asks for a position at all, and which way — so WantedDirection answers
-// both in one call.
+// It stops at what the opinion says. What that opinion then asks an account to be
+// holding is the trading mode's answer, not this one's — a sell means face the other
+// way to one mode and get out into cash to the other, and a signal that answered it
+// itself would be a second opinion nobody could overrule.
 type SignalDomain struct {
 	value vo.SignalVo
 }
@@ -24,20 +25,4 @@ func NewSignalDomain(indicatorValues map[string]vo.IndicatorValueVo) SignalDomai
 
 func (signalDomain SignalDomain) Value() vo.SignalVo {
 	return signalDomain.value
-}
-
-// WantedDirection is which way this opinion asks the account to face, and whether it
-// asks for anything at all. Hold asks for nothing; buy and sell ask for the two
-// directions. Answering both in one call is what keeps the caller from asking "is it
-// hold" and then asking again which way — two questions that can only ever be
-// answered together.
-func (signalDomain SignalDomain) WantedDirection() (vo.PositionDirectionVo, bool) {
-	if signalDomain.value == vo.SignalBuy {
-		return vo.PositionDirectionLong, true
-	}
-	if signalDomain.value == vo.SignalSell {
-		return vo.PositionDirectionShort, true
-	}
-
-	return "", false
 }

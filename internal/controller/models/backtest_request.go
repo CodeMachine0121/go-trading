@@ -34,6 +34,10 @@ type BacktestRequest struct {
 	// chose it may leave the figure out entirely.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
+	// TradingMode is which set of rules this replay trades by. Leaving it out means
+	// always being in the market, which is what a replay did before there was
+	// anything to declare.
+	TradingMode string `json:"tradingMode"`
 }
 
 // ToParameterWriteDtos hands on the knobs an unsaved algorithm declares.
@@ -57,6 +61,7 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 		InitialCapital:      backtestRequest.InitialCapital,
 		PositionSizingMode:  backtestRequest.PositionSizingMode,
 		PositionSizingValue: backtestRequest.PositionSizingValue,
+		TradingMode:         backtestRequest.TradingMode,
 	}
 }
 
