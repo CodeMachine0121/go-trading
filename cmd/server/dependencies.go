@@ -118,6 +118,15 @@ func registerRoutes(
 	engine.POST("/k-candles/backfill",
 		controller.NewKCandleBackfillController(kCandleIngestionApplication).CatchUpSymbol)
 
+	// 補缺口與同步一段歷史是兩條路，因為它們對「要回溯多久」的答案相反：
+	// 前者由系統決定（那句話寫在它的請求物件上當理由），後者由要求的人說。
+	// 在前者身上加一個選填欄位，會讓那句話變成半真的。
+	engine.POST("/k-candles/history",
+		controller.NewKCandleHistorySyncController(
+			kCandleIngestionApplication,
+			applicationConfig.Ingestion.HistorySyncMaxLookbackDays,
+		).SyncSymbolHistory)
+
 	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		service.NewTradingSymbolService(

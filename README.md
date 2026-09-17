@@ -100,6 +100,7 @@ curl localhost:8080/health
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
+| `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `90` | `POST /k-candles/history` 一次最多往回抓幾天 |
 | `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 加密貨幣的行情來源位址 |
 | `MARKET_DATA_SYMBOL_CATALOG_URL` | Binance 公開交易對清單網址 | 加密貨幣確認「這個代號存不存在」的位址 |
 | `MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向行情來源請求的逾時 |
@@ -151,6 +152,7 @@ curl localhost:8080/health
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
 | `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、行情來源給的名稱、現在是不是交易時段、這個市場會不會收盤、有沒有即時更新、是不是追蹤中 |
 | `POST` | `/k-candles/backfill` | 手動補齊一個交易標的的歷史（body 給 `symbol`），補到回補上限為止。給還沒登錄過的代號回 `404` |
+| `POST` | `/k-candles/history` | 同步一段歷史（body 給 `symbol` 與 `lookbackDays`）：從現在往回推那麼多天，**整段重抓並覆蓋**。粒度固定一分鐘一根。回溯天數不在 1 到上限之間回 `400` 並說出上限，沒登錄過的代號回 `404` |
 | `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在並記下它給的名稱，**加完立刻補齊那一檔的歷史** |
 | `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
@@ -214,6 +216,35 @@ curl -X POST localhost:8080/k-candles/backfill \
 
 它**不會**推定市場休市：那是問過該市場**每一檔**觀察中的標的、全都沒回東西才有資格下的結論。
 一檔的沉默就只是那一檔的。
+
+### 同步一段指定的歷史
+
+```bash
+curl -X POST localhost:8080/k-candles/history \
+  -H 'Content-Type: application/json' -d '{"symbol":"BTCUSDT","lookbackDays":30}'
+```
+
+**它與上面那一支是兩件事，差別有兩處，而兩處都是重點。**
+
+第一，**回溯多久由你說**。上面那一支刻意不讓你說（理由見上）；這一支的整個存在理由
+就是說出你要多少歷史。所以它們是兩條路，而不是一個選填欄位——加上去會讓上面那句話
+變成半真的，而半真的規則比沒有規則更難維護。
+
+第二，**整段重抓並覆蓋**，不是只補缺口。這是它唯一多出來的能力：一段當初抓錯的歷史、
+或來源事後修正過的資料，今天沒有別的手修得了。
+
+粒度固定**一分鐘一根**，請求裡沒有地方可以指定——系統存的只有這一種粗細，更粗的是算出來的。
+
+回溯天數必須在 1 到 `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS`（預設 90）之間，
+超過會被擋下來**並告訴你上限是多少**：被擋的人要知道該改成什麼，而不是自己一個個試。
+沒給回溯天數也是拒絕——這一支沒有預設值。
+
+**它會跑很久，而且就讓它跑。** 三十天是四萬三千根，來源要分四十幾次才給得完；
+九十天約一百三十次，可能好幾分鐘。這是手動工具，按的是 Postman 或一個人，
+沒有畫面在等——那套「先收下、之後再問進度」的複雜度是為了畫面上的等待而存在的。
+
+回的報告與上面那一支**完全相同**：存了幾根、跳過哪幾根與為什麼、來源有沒有答話。
+同一件事不該有兩種說法。
 
 沒登錄過的代號回 `404`（那是呼叫的人要改的），代號空白回 `400`，
 行情來源或儲存問不到回 `502`（那值得晚點再試一次）。

@@ -45,10 +45,20 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 // candle covers, so the way to switch ingestion off is BackgroundJobsEnabled or an
 // empty watchlist.
 type IngestionConfig struct {
-	Symbols           []string
-	RoundCandleCount  int
-	BackfillLookback  time.Duration
-	MarketDataBaseUrl string
+	Symbols          []string
+	RoundCandleCount int
+	BackfillLookback time.Duration
+	// HistorySyncMaxLookbackDays is how far back one on-demand history sync may
+	// reach. It is days rather than a duration because that is the unit the request
+	// is made in, and the refusal has to quote it back.
+	//
+	// It exists to bound what one request costs. At one candle a minute, ninety days
+	// is about a hundred and thirty thousand candles and well over a hundred round
+	// trips to the source — and the whole stretch is held in memory before it is
+	// stored. Wanting more than this is a sign the fetch should store as it goes,
+	// not a sign the number should be larger.
+	HistorySyncMaxLookbackDays int
+	MarketDataBaseUrl          string
 	// SymbolCatalogUrl is where a source is asked whether it lists a symbol at all.
 	// It is separate from the candle address because they are separate questions, and
 	// a source is free to answer them at different places.
@@ -255,6 +265,8 @@ func Load() ApplicationConfig {
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
+			HistorySyncMaxLookbackDays: positiveIntWithDefault(
+				"KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 90),
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
 			SymbolCatalogUrl: stringWithDefault(

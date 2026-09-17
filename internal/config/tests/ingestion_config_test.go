@@ -165,3 +165,33 @@ func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 	assert.Equal(t, 9*time.Hour, taiwanStockRules.TradingSession.DailyStart)
 	assert.Len(t, taiwanStockRules.TradingSession.Weekdays, 5)
 }
+
+func TestLoadBoundsHowFarBackOneHistorySyncMayReach(t *testing.T) {
+	// The ceiling is what stops one request costing hours. At one candle a minute,
+	// ninety days is about a hundred and thirty thousand candles held in memory and
+	// well over a hundred round trips to the source.
+	testCases := []struct {
+		name         string
+		lookbackDays string
+		expectedDays int
+	}{
+		{name: "nothing set leaves room for a quarter", lookbackDays: "", expectedDays: 90},
+		{name: "a usable ceiling is taken as given", lookbackDays: "30", expectedDays: 30},
+		// A ceiling of nothing is not a ceiling, it is a route that can never be
+		// called — so it falls back rather than being honoured.
+		{name: "zero falls back", lookbackDays: "0", expectedDays: 90},
+		{name: "a negative ceiling falls back", lookbackDays: "-1", expectedDays: 90},
+		{name: "an unreadable ceiling falls back", lookbackDays: "a quarter", expectedDays: 90},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", testCase.lookbackDays)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expectedDays,
+				applicationConfig.Ingestion.HistorySyncMaxLookbackDays)
+		})
+	}
+}
