@@ -16,10 +16,10 @@ import (
 )
 
 type indicatorCalculationAssistantQueryUnderTest struct {
-	assistantQuery       *assistantqueries.IndicatorCalculationAssistantQuery
-	kCandleRepository    *mocks.MockIKCandleRepository
-	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
-	strategyRepository   *mocks.MockIStrategyRepository
+	assistantQuery           *assistantqueries.IndicatorCalculationAssistantQuery
+	kCandleRepository        *mocks.MockIKCandleRepository
+	indicatorScriptProxy     *mocks.MockIIndicatorScriptProxy
+	strategyScriptRepository *mocks.MockIStrategyScriptRepository
 }
 
 // newIndicatorCalculationAssistantQueryUnderTest wires the real domain services and
@@ -31,31 +31,31 @@ func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalcu
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
-	strategyRepository := mocks.NewMockIStrategyRepository(controller)
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(indicatorNow).AnyTimes()
 
 	return indicatorCalculationAssistantQueryUnderTest{
 		assistantQuery: assistantqueries.NewIndicatorCalculationAssistantQuery(
 			application.NewIndicatorCalculationApplication(
-				service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+				service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 				service.NewIndicatorCalculationService(
 					kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 					domains.NewMarketCatalogDomain(
 						map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 					queryMaxResults)),
 		),
-		kCandleRepository:    kCandleRepository,
-		indicatorScriptProxy: indicatorScriptProxy,
-		strategyRepository:   strategyRepository,
+		kCandleRepository:        kCandleRepository,
+		indicatorScriptProxy:     indicatorScriptProxy,
+		strategyScriptRepository: strategyScriptRepository,
 	}
 }
 
 // expectMarketRead answers with this many candles, newest first, which is the order a
-// read as of a moment comes back in. It is generous by default because a strategy that
+// read as of a moment comes back in. It is generous by default because a strategy script that
 // declares a lookback needs that many more candles than the count asked for.
 func (fixture indicatorCalculationAssistantQueryUnderTest) expectMarketRead(candleCount int) {
 	kCandles := make([]entities.KCandle, 0, candleCount)
@@ -83,30 +83,30 @@ func TestIndicatorCalculationAssistantQueryRunsAnAlgorithmTheAssistantBrought(t 
 	assert.Contains(t, outcome, `"usedCandleCount":2`)
 }
 
-func TestIndicatorCalculationAssistantQueryRunsTheStrategyItNames(t *testing.T) {
-	// Naming a strategy is how the question is actually asked. Making the assistant
+func TestIndicatorCalculationAssistantQueryRunsTheStrategyScriptItNames(t *testing.T) {
+	// Naming a strategy script is how the question is actually asked. Making the assistant
 	// read it and send the algorithm back would cost a round trip and put the whole
 	// script through the conversation twice for nothing.
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
-	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
-		Return(aStoredStrategyWithKnobs(1, "二十根均線"), nil)
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
+		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil)
 	fixture.expectMarketRead(40)
 	fixture.indicatorScriptProxy.EXPECT().
-		Execute(gomock.Any(), aStoredStrategyWithKnobs(1, "二十根均線").Script, gomock.Any(), gomock.Any(), gomock.Any()).
+		Execute(gomock.Any(), aStoredStrategyScriptWithKnobs(1, "二十根均線").Script, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
 	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
-		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,`+
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":1,`+
 			`"parameterValues":[{"name":"lookback","value":30}]}`)
 
 	require.NoError(t, runError)
 	assert.Contains(t, outcome, `"ma"`)
-	// The value kind that runs is the strategy's own, whatever arrived alongside it.
+	// The value kind that runs is the strategy script's own, whatever arrived alongside it.
 	assert.Contains(t, outcome, `"resultType":"floatList"`)
 }
 
-func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyAndSendingAnAlgorithm(t *testing.T) {
-	// The two used to have a winner: the named strategy quietly beat the algorithm
+func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyScriptAndSendingAnAlgorithm(t *testing.T) {
+	// The two used to have a winner: the named strategy script quietly beat the algorithm
 	// sent with it. Picking a winner is a decision nobody asked for, and the loser
 	// disappears without a word — so both together is now refused outright, the
 	// same way the K candle series refuses two ways of saying how coarse to look.
@@ -115,12 +115,12 @@ func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyAndSendingAnAlg
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
-		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":1,"script":"func Other() {}"}`)
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":1,"script":"func Other() {}"}`)
 
 	require.ErrorIs(t, runError, domains.ErrRunSubjectAmbiguous)
 }
 
-func TestIndicatorCalculationAssistantQueryRefusesNeitherAStrategyNorAnAlgorithm(t *testing.T) {
+func TestIndicatorCalculationAssistantQueryRefusesNeitherAStrategyScriptNorAnAlgorithm(t *testing.T) {
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
@@ -147,15 +147,15 @@ func TestIndicatorCalculationAssistantQueryReadsUpToTheMomentItWasGiven(t *testi
 	require.NoError(t, runError)
 }
 
-func TestIndicatorCalculationAssistantQueryReportsAStrategyThatIsNotThere(t *testing.T) {
+func TestIndicatorCalculationAssistantQueryReportsAStrategyScriptThatIsNotThere(t *testing.T) {
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
-	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(99)).
-		Return(entities.Strategy{}, domains.StrategyNotFound(99))
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(99)).
+		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(99))
 
 	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
-		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":99}`)
+		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":99}`)
 
-	require.ErrorIs(t, runError, domains.ErrStrategyNotFound)
+	require.ErrorIs(t, runError, domains.ErrStrategyScriptNotFound)
 }
 
 func TestIndicatorCalculationAssistantQueryIsBoundByTheRulesTheCalculationAlreadyHas(t *testing.T) {

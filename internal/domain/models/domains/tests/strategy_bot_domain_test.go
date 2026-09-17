@@ -13,12 +13,12 @@ import (
 
 // sourceNamed is one signal source declaring one knob, which is enough for every
 // rule about sources to have something to bite on.
-func sourceNamed(label string, strategyID uint) dto.StrategyBotSignalSourceWriteDto {
+func sourceNamed(label string, strategyScriptID uint) dto.StrategyBotSignalSourceWriteDto {
 	return dto.StrategyBotSignalSourceWriteDto{
 		Label:               label,
-		StrategyID:          strategyID,
+		StrategyScriptID:    strategyScriptID,
 		AggregationInterval: string(vo.AggregationIntervalOneHour),
-		DeclaredParameters:  []dto.StrategyParameterWriteDto{{Name: "回看根數", Kind: "lookbackCount"}},
+		DeclaredParameters:  []dto.StrategyScriptParameterWriteDto{{Name: "回看根數", Kind: "lookbackCount"}},
 	}
 }
 
@@ -147,11 +147,11 @@ func TestNewStrategyBotDomainRefusals(t *testing.T) {
 			expectedMessage: "代號 \"A\" 重複了",
 		},
 		{
-			name: "a source naming no strategy",
+			name: "a source naming no strategy script",
 			mutate: func(writeDto *dto.StrategyBotWriteDto) {
-				writeDto.SignalSources[0].StrategyID = 0
+				writeDto.SignalSources[0].StrategyScriptID = 0
 			},
-			expectedMessage: "必須指名一支策略",
+			expectedMessage: "必須指名一支策略腳本",
 		},
 		{
 			name: "a coarseness that is not one of the six",
@@ -163,9 +163,9 @@ func TestNewStrategyBotDomainRefusals(t *testing.T) {
 		{
 			// Caught now rather than at three in the morning, when the same mistake
 			// would come back as a script failure and stop the bot.
-			name: "a value set on a knob the strategy never declared",
+			name: "a value set on a knob the strategy script never declared",
 			mutate: func(writeDto *dto.StrategyBotWriteDto) {
-				writeDto.SignalSources[0].ParameterValues = []dto.StrategyParameterValueDto{
+				writeDto.SignalSources[0].ParameterValues = []dto.StrategyScriptParameterValueDto{
 					{Name: "週期", Value: 20},
 				}
 			},
@@ -221,21 +221,21 @@ func TestNewStrategyBotDomainRefusesMoreSignalSourcesThanAllowed(t *testing.T) {
 	assert.ErrorContains(t, buildError, "信號來源上限是 10 個")
 }
 
-func TestNewStrategyBotDomainLetsOneStrategyBeTwoSources(t *testing.T) {
+func TestNewStrategyBotDomainLetsOneStrategyScriptBeTwoSources(t *testing.T) {
 	writeDto := aBotWriteDto()
 	writeDto.SignalSources = []dto.StrategyBotSignalSourceWriteDto{
 		sourceNamed("A", 1), sourceNamed("B", 1),
 	}
-	writeDto.SignalSources[0].ParameterValues = []dto.StrategyParameterValueDto{{Name: "回看根數", Value: 20}}
-	writeDto.SignalSources[1].ParameterValues = []dto.StrategyParameterValueDto{{Name: "回看根數", Value: 60}}
+	writeDto.SignalSources[0].ParameterValues = []dto.StrategyScriptParameterValueDto{{Name: "回看根數", Value: 20}}
+	writeDto.SignalSources[1].ParameterValues = []dto.StrategyScriptParameterValueDto{{Name: "回看根數", Value: 60}}
 
 	strategyBot, buildError := domains.NewStrategyBotDomain(writeDto)
 	require.NoError(t, buildError)
 
 	signalSources := strategyBot.ToEntity().SignalSources
 	require.Len(t, signalSources, 2)
-	assert.Equal(t, uint(1), signalSources[0].StrategyID)
-	assert.Equal(t, uint(1), signalSources[1].StrategyID)
+	assert.Equal(t, uint(1), signalSources[0].StrategyScriptID)
+	assert.Equal(t, uint(1), signalSources[1].StrategyScriptID)
 	assert.Equal(t, 20.0, signalSources[0].ParameterValues[0].Value)
 	assert.Equal(t, 60.0, signalSources[1].ParameterValues[0].Value)
 }

@@ -27,15 +27,15 @@ const (
 )
 
 type strategyBotApplicationUnderTest struct {
-	strategyBotApplication         *application.StrategyBotApplication
-	strategyBotRepository          *mocks.MockIStrategyBotRepository
-	strategyBotRunRecordRepository *mocks.MockIStrategyBotRunRecordRepository
-	messageDeliveryProxy           *mocks.MockIMessageDeliveryProxy
-	announcements                  *[]string
-	strategyRepository             *mocks.MockIStrategyRepository
-	publishedStrategyRepository    *mocks.MockIPublishedStrategyRepository
-	telegramDeliveryRepository     *mocks.MockITelegramDeliveryRepository
-	clockProxy                     *mocks.MockIClockProxy
+	strategyBotApplication            *application.StrategyBotApplication
+	strategyBotRepository             *mocks.MockIStrategyBotRepository
+	strategyBotRunRecordRepository    *mocks.MockIStrategyBotRunRecordRepository
+	messageDeliveryProxy              *mocks.MockIMessageDeliveryProxy
+	announcements                     *[]string
+	strategyScriptRepository          *mocks.MockIStrategyScriptRepository
+	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
+	telegramDeliveryRepository        *mocks.MockITelegramDeliveryRepository
+	clockProxy                        *mocks.MockIClockProxy
 }
 
 // newStrategyBotApplicationUnderTest wires the real domain services and the real
@@ -50,8 +50,8 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
 	strategyBotRunRecordRepository.EXPECT().
 		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	strategyRepository := mocks.NewMockIStrategyRepository(controller)
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 
@@ -76,38 +76,38 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 		strategyBotApplication: application.NewStrategyBotApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
-			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
 		),
-		strategyBotRepository:          strategyBotRepository,
-		strategyBotRunRecordRepository: strategyBotRunRecordRepository,
-		messageDeliveryProxy:           messageDeliveryProxy,
-		announcements:                  announcements,
-		strategyRepository:             strategyRepository,
-		publishedStrategyRepository:    publishedStrategyRepository,
-		telegramDeliveryRepository:     telegramDeliveryRepository,
-		clockProxy:                     clockProxy,
+		strategyBotRepository:             strategyBotRepository,
+		strategyBotRunRecordRepository:    strategyBotRunRecordRepository,
+		messageDeliveryProxy:              messageDeliveryProxy,
+		announcements:                     announcements,
+		strategyScriptRepository:          strategyScriptRepository,
+		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
+		telegramDeliveryRepository:        telegramDeliveryRepository,
+		clockProxy:                        clockProxy,
 	}
 }
 
-// expectNoMarketplaceQuestion pins the other half of resolving a strategy: when it
+// expectNoMarketplaceQuestion pins the other half of resolving a strategy script: when it
 // is the caller's own, the marketplace is never asked.
 //
 // It is an expectation rather than an absence, because the saving is the point — a
 // standing bot resolves every signal source on every round, for ever, and those are
-// almost always its owner's own strategies.
+// almost always its owner's own strategy scripts.
 func (underTest strategyBotApplicationUnderTest) expectNoMarketplaceQuestion() {
-	underTest.publishedStrategyRepository.EXPECT().
+	underTest.publishedStrategyScriptRepository.EXPECT().
 		FindOne(gomock.Any(), gomock.Any()).Times(0)
 }
 
-// expectMarketplaceQuestion is the other case: somebody else's strategy, where the
+// expectMarketplaceQuestion is the other case: somebody else's strategy script, where the
 // third gate is the only one that can still open.
 func (underTest strategyBotApplicationUnderTest) expectMarketplaceQuestion() {
-	underTest.publishedStrategyRepository.EXPECT().
+	underTest.publishedStrategyScriptRepository.EXPECT().
 		FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 }
 
 // announced is every message this bot said about itself so far.
@@ -115,13 +115,13 @@ func (underTest strategyBotApplicationUnderTest) announced() []string {
 	return *underTest.announcements
 }
 
-// ownedStrategy is a strategy belonging to whoever these tests act as, declaring one
+// ownedStrategyScript is a strategy script belonging to whoever these tests act as, declaring one
 // knob so that "a value set on a knob nobody declared" has something to fail against.
-func ownedStrategy(id uint) entities.Strategy {
-	return entities.Strategy{
+func ownedStrategyScript(id uint) entities.StrategyScript {
+	return entities.StrategyScript{
 		ID: id, OwnerID: strategyBotOwnerID, Name: "均線", Script: "//", ResultType: "signal",
-		Parameters: []entities.StrategyParameter{
-			{StrategyID: id, Name: "回看根數", Kind: "lookbackCount", DefaultValue: 20},
+		Parameters: []entities.StrategyScriptParameter{
+			{StrategyScriptID: id, Name: "回看根數", Kind: "lookbackCount", DefaultValue: 20},
 		},
 	}
 }
@@ -132,7 +132,7 @@ func aBotWrite() dto.StrategyBotWriteDto {
 		Symbol:                 "BTCUSDT",
 		TriggerIntervalMinutes: 5,
 		SignalSources: []dto.StrategyBotSignalSourceWriteDto{
-			{Label: "A", StrategyID: 9, AggregationInterval: "1h"},
+			{Label: "A", StrategyScriptID: 9, AggregationInterval: "1h"},
 		},
 		BuyCondition:  dto.StrategyBotConditionDto{SourceLabel: "A", Signal: string(vo.SignalBuy)},
 		SellCondition: dto.StrategyBotConditionDto{SourceLabel: "A", Signal: string(vo.SignalSell)},
@@ -148,7 +148,7 @@ func storedBot(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 		TriggerIntervalMinutes: 5,
 		RunState:               string(runState),
 		SignalSources: []entities.StrategyBotSignalSource{
-			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyID: 9, AggregationInterval: "1h"},
+			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyScriptID: 9, AggregationInterval: "1h"},
 		},
 		ConditionNodes: []entities.StrategyBotConditionNode{
 			{ID: parentID, StrategyBotID: strategyBotID, Side: "buy",
@@ -159,11 +159,11 @@ func storedBot(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	}
 }
 
-func TestStrategyBotApplicationCreateResolvesEveryNamedStrategyThroughTheGates(t *testing.T) {
+func TestStrategyBotApplicationCreateResolvesEveryNamedStrategyScriptThroughTheGates(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(ownedStrategy(9), nil)
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(ownedStrategyScript(9), nil)
 	underTest.strategyBotRepository.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
@@ -183,32 +183,32 @@ func TestStrategyBotApplicationCreateResolvesEveryNamedStrategyThroughTheGates(t
 	assert.Equal(t, string(vo.StrategyBotStopped), botDto.RunState)
 }
 
-func TestStrategyBotApplicationCreateRefusesAStrategyThisPersonCannotSee(t *testing.T) {
+func TestStrategyBotApplicationCreateRefusesAStrategyScriptThisPersonCannotSee(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 
-	strangersStrategy := ownedStrategy(9)
-	strangersStrategy.OwnerID = strategyBotStrangerID
+	strangersStrategyScript := ownedStrategyScript(9)
+	strangersStrategyScript.OwnerID = strategyBotStrangerID
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(strangersStrategy, nil)
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(strangersStrategyScript, nil)
 	underTest.expectMarketplaceQuestion()
 
 	_, createError := underTest.strategyBotApplication.CreateStrategyBot(
 		context.Background(), strategyBotOwnerID, aBotWrite())
 
-	// The same sentence as naming a strategy that does not exist, which is what
-	// stops a bot's sources becoming a way to probe for other people's strategies.
-	require.ErrorIs(t, createError, domains.ErrStrategyNotFound)
+	// The same sentence as naming a strategy script that does not exist, which is what
+	// stops a bot's sources becoming a way to probe for other people's strategy scripts.
+	require.ErrorIs(t, createError, domains.ErrStrategyScriptNotFound)
 }
 
 func TestStrategyBotApplicationCreateRefusesAValueOnAKnobNobodyDeclared(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(ownedStrategy(9), nil)
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(ownedStrategyScript(9), nil)
 
 	writeDto := aBotWrite()
-	writeDto.SignalSources[0].ParameterValues = []dto.StrategyParameterValueDto{
+	writeDto.SignalSources[0].ParameterValues = []dto.StrategyScriptParameterValueDto{
 		{Name: "週期", Value: 14},
 	}
 
@@ -254,8 +254,8 @@ func TestStrategyBotApplicationListHandsBackAnEmptyListRatherThanARefusal(t *tes
 func TestStrategyBotApplicationUpdateRefusesWhileTheBotIsRunning(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(ownedStrategy(9), nil)
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(ownedStrategyScript(9), nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(storedBot(vo.StrategyBotRunning), nil)
 
@@ -497,8 +497,8 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 		{
 			name: "creating when the write fails",
 			arrange: func(underTest strategyBotApplicationUnderTest) {
-				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-					Return(ownedStrategy(9), nil)
+				underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+					Return(ownedStrategyScript(9), nil)
 				underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
@@ -512,8 +512,8 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 		{
 			name: "rewriting when the bot cannot be read",
 			arrange: func(underTest strategyBotApplicationUnderTest) {
-				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-					Return(ownedStrategy(9), nil)
+				underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+					Return(ownedStrategyScript(9), nil)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
 			},
@@ -529,8 +529,8 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 		{
 			name: "rewriting when the write fails",
 			arrange: func(underTest strategyBotApplicationUnderTest) {
-				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-					Return(ownedStrategy(9), nil)
+				underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+					Return(ownedStrategyScript(9), nil)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(storedBot(vo.StrategyBotStopped), nil)
 				underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
@@ -560,14 +560,14 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 	}
 }
 
-func TestStrategyBotApplicationRewriteRefusesAStrategyThisPersonCannotSee(t *testing.T) {
+func TestStrategyBotApplicationRewriteRefusesAStrategyScriptThisPersonCannotSee(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 
-	strangersStrategy := ownedStrategy(9)
-	strangersStrategy.OwnerID = strategyBotStrangerID
+	strangersStrategyScript := ownedStrategyScript(9)
+	strangersStrategyScript.OwnerID = strategyBotStrangerID
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(strangersStrategy, nil)
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(strangersStrategyScript, nil)
 	underTest.expectMarketplaceQuestion()
 
 	writeDto := aBotWrite()
@@ -578,7 +578,7 @@ func TestStrategyBotApplicationRewriteRefusesAStrategyThisPersonCannotSee(t *tes
 
 	// The gates are walked on a rewrite exactly as on a create: a bot must not be
 	// able to acquire a source it could not have been built with.
-	require.ErrorIs(t, updateError, domains.ErrStrategyNotFound)
+	require.ErrorIs(t, updateError, domains.ErrStrategyScriptNotFound)
 }
 
 func TestStrategyBotApplicationTellsItsOwnerWhenABotStartsAndStops(t *testing.T) {

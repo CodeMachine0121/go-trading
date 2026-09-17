@@ -55,7 +55,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 func TestExecuteProducesIndicatorValues(t *testing.T) {
 	t.Run("produces a single named value", func(t *testing.T) {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120), noStrategyParameters(t))
+			Execute(t.Context(), averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 1)
@@ -83,7 +83,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), highestAndLowestScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120), noStrategyParameters(t))
+			Execute(t.Context(), highestAndLowestScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 2)
@@ -102,7 +102,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), emptyScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+			Execute(t.Context(), emptyScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Empty(t, indicatorValues)
@@ -119,7 +119,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), nothingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+			Execute(t.Context(), nothingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.NotNil(t, indicatorValues)
@@ -140,7 +140,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), repeatedNameScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+			Execute(t.Context(), repeatedNameScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Len(t, indicatorValues, 1)
@@ -166,7 +166,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(t.Context(),
 			readEverythingScript,
 			resultTypeOf(t, "float"),
-			[]vo.KCandleVo{{Close: 110.5, High: 120.25, Volume: 11.5, OpenTimeUnixSeconds: 1700000000}}, noStrategyParameters(t))
+			[]vo.KCandleVo{{Close: 110.5, High: 120.25, Volume: 11.5, OpenTimeUnixSeconds: 1700000000}}, noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Equal(t, 110.5, numberOf(indicatorValues, "close"))
@@ -194,7 +194,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), medianScript, resultTypeOf(t, "float"), candlesWithClosePrices(120, 100, 110), noStrategyParameters(t))
+			Execute(t.Context(), medianScript, resultTypeOf(t, "float"), candlesWithClosePrices(120, 100, 110), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Equal(t, 110.0, numberOf(indicatorValues, "median"))
@@ -214,7 +214,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), squareRootScript, resultTypeOf(t, "float"), candlesWithClosePrices(144), noStrategyParameters(t))
+			Execute(t.Context(), squareRootScript, resultTypeOf(t, "float"), candlesWithClosePrices(144), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Equal(t, 12.0, numberOf(indicatorValues, "root"))
@@ -371,7 +371,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-				Execute(t.Context(), testCase.script, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+				Execute(t.Context(), testCase.script, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 			assert.Contains(t, err.Error(), testCase.expectedReason)
@@ -398,7 +398,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 	startedAt := time.Now()
 	indicatorValues, err := script.NewYaegiIndicatorScriptProxy(allowance).
-		Execute(t.Context(), neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+		Execute(t.Context(), neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 	elapsed := time.Since(startedAt)
 
 	assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
@@ -423,10 +423,10 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 	indicatorScriptProxy := script.NewYaegiIndicatorScriptProxy(300 * time.Millisecond)
-	_, abandonedError := indicatorScriptProxy.Execute(t.Context(), neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+	_, abandonedError := indicatorScriptProxy.Execute(t.Context(), neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 	assert.ErrorIs(t, abandonedError, domains.ErrIndicatorScriptFailed)
 
-	indicatorValues, err := indicatorScriptProxy.Execute(t.Context(), averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120), noStrategyParameters(t))
+	indicatorValues, err := indicatorScriptProxy.Execute(t.Context(), averageCloseScript, resultTypeOf(t, "float"), candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
 
 	assert.NoError(t, err)
 	assert.Equal(t, 110.0, numberOf(indicatorValues, "ma"))
@@ -448,7 +448,7 @@ func Calculate(data []indicator.KCandle) map[string][]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), movingAverageScript, resultTypeOf(t, "floatList"), candlesWithClosePrices(100, 105, 110), noStrategyParameters(t))
+			Execute(t.Context(), movingAverageScript, resultTypeOf(t, "floatList"), candlesWithClosePrices(100, 105, 110), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.True(t, indicatorValues["line"].IsList)
@@ -467,7 +467,7 @@ func Calculate(data []indicator.KCandle) map[string]bool {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), crossScript, resultTypeOf(t, "bool"), candlesWithClosePrices(100, 120), noStrategyParameters(t))
+			Execute(t.Context(), crossScript, resultTypeOf(t, "bool"), candlesWithClosePrices(100, 120), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.False(t, indicatorValues["crossed"].IsList)
@@ -486,7 +486,7 @@ func Calculate(data []indicator.KCandle) map[string]bool {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), neverCrossScript, resultTypeOf(t, "bool"), candlesWithClosePrices(100), noStrategyParameters(t))
+			Execute(t.Context(), neverCrossScript, resultTypeOf(t, "bool"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Contains(t, indicatorValues, "crossed")
@@ -508,7 +508,7 @@ func Calculate(data []indicator.KCandle) map[string][]bool {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), eachCandleRedScript, resultTypeOf(t, "boolList"), candlesWithClosePrices(110, 90, 120), noStrategyParameters(t))
+			Execute(t.Context(), eachCandleRedScript, resultTypeOf(t, "boolList"), candlesWithClosePrices(110, 90, 120), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.True(t, indicatorValues["red"].IsList)
@@ -534,7 +534,7 @@ func Calculate(data []indicator.KCandle) map[string][]float64 {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(t.Context(),
 			twoSeriesScript,
 			resultTypeOf(t, "floatList"),
-			[]vo.KCandleVo{{High: 120, Low: 100}, {High: 130, Low: 110}}, noStrategyParameters(t))
+			[]vo.KCandleVo{{High: 120, Low: 100}, {High: 130, Low: 110}}, noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.True(t, indicatorValues["highs"].IsList)
@@ -554,7 +554,7 @@ func Calculate(data []indicator.KCandle) map[string][]float64 {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), emptySeriesScript, resultTypeOf(t, "floatList"), candlesWithClosePrices(100), noStrategyParameters(t))
+			Execute(t.Context(), emptySeriesScript, resultTypeOf(t, "floatList"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.Contains(t, indicatorValues, "line")
@@ -573,7 +573,7 @@ func Calculate(data []indicator.KCandle) map[string][]bool {
 }
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-			Execute(t.Context(), nothingScript, resultTypeOf(t, "boolList"), candlesWithClosePrices(100), noStrategyParameters(t))
+			Execute(t.Context(), nothingScript, resultTypeOf(t, "boolList"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 
 		assert.NoError(t, err)
 		assert.NotNil(t, indicatorValues)
@@ -607,7 +607,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 		t.Run(testCase.pick, func(t *testing.T) {
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
 				Execute(t.Context(), signalScript(testCase.pick), resultTypeOf(t, "signal"),
-					candlesWithClosePrices(100, 110), noStrategyParameters(t))
+					candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
 
 			require.NoError(t, err)
 			require.Len(t, indicatorValues, 1)
@@ -630,7 +630,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 `
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
 			Execute(t.Context(), choosingScript, resultTypeOf(t, "signal"),
-				candlesWithClosePrices(100, 90), noStrategyParameters(t))
+				candlesWithClosePrices(100, 90), noStrategyScriptParameters(t))
 
 		require.NoError(t, err)
 		assert.Equal(t, vo.SignalSell, indicatorValues[vo.SignalIndicatorKey].Signal)
@@ -689,7 +689,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 		t.Run(testCase.name, func(t *testing.T) {
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
 				Execute(t.Context(), testCase.script, resultTypeOf(t, "signal"),
-					candlesWithClosePrices(100, 110), noStrategyParameters(t))
+					candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
 
 			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 			assert.Contains(t, err.Error(), testCase.expectedReason)
@@ -700,7 +700,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 	t.Run("the shape message names the signal form when a number script is declared as signal", func(t *testing.T) {
 		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
 			Execute(t.Context(), averageCloseScript, resultTypeOf(t, "signal"),
-				candlesWithClosePrices(100, 110), noStrategyParameters(t))
+				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "indicator.Signal")
@@ -763,7 +763,7 @@ func Calculate(data []indicator.KCandle) map[string]bool {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
-				Execute(t.Context(), testCase.script, resultTypeOf(t, testCase.declared), candlesWithClosePrices(100, 110), noStrategyParameters(t))
+				Execute(t.Context(), testCase.script, resultTypeOf(t, testCase.declared), candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
 
 			assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 			assert.Contains(t, err.Error(), "Calculate 的形式必須是")
@@ -802,7 +802,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 	startedAt := time.Now()
 	indicatorValues, err := script.NewYaegiIndicatorScriptProxy(generousAllowance).
-		Execute(callerWentAway, neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyParameters(t))
+		Execute(callerWentAway, neverEndingScript, resultTypeOf(t, "float"), candlesWithClosePrices(100), noStrategyScriptParameters(t))
 	elapsed := time.Since(startedAt)
 
 	assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
@@ -812,12 +812,12 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	assert.Less(t, elapsed, generousAllowance)
 }
 
-// noStrategyParameters is an algorithm with no knobs — every algorithm written
+// noStrategyScriptParameters is an algorithm with no knobs — every algorithm written
 // before knobs existed. Tests that are not about knobs say so with this.
-func noStrategyParameters(t *testing.T) domains.StrategyParametersDomain {
+func noStrategyScriptParameters(t *testing.T) domains.StrategyScriptParametersDomain {
 	t.Helper()
 
-	parameters, buildError := domains.NewStrategyParametersDomain(nil)
+	parameters, buildError := domains.NewStrategyScriptParametersDomain(nil)
 	require.NoError(t, buildError)
 
 	return parameters
@@ -857,10 +857,10 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-func parametersOf(t *testing.T, declared ...dto.StrategyParameterWriteDto) domains.StrategyParametersDomain {
+func parametersOf(t *testing.T, declared ...dto.StrategyScriptParameterWriteDto) domains.StrategyScriptParametersDomain {
 	t.Helper()
 
-	parameters, buildError := domains.NewStrategyParametersDomain(declared)
+	parameters, buildError := domains.NewStrategyScriptParametersDomain(declared)
 	require.NoError(t, buildError)
 
 	return parameters
@@ -870,8 +870,8 @@ func parametersOf(t *testing.T, declared ...dto.StrategyParameterWriteDto) domai
 // 拿到別的東西，算式就得自己判斷，而判斷失敗會變成算式崩潰。
 func TestAScriptReadsItsParametersByName(t *testing.T) {
 	parameters := parametersOf(t,
-		dto.StrategyParameterWriteDto{Name: "期數", Kind: "lookbackCount", DefaultValue: 2},
-		dto.StrategyParameterWriteDto{Name: "倍數", Kind: "number", DefaultValue: 2.5})
+		dto.StrategyScriptParameterWriteDto{Name: "期數", Kind: "lookbackCount", DefaultValue: 2},
+		dto.StrategyScriptParameterWriteDto{Name: "倍數", Kind: "number", DefaultValue: 2.5})
 
 	indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 		t.Context(), parameterisedAverageScript, resultTypeOf(t, "float"),
@@ -890,7 +890,7 @@ func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 	t.Run("是的時候走這一邊", func(t *testing.T) {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
-			parametersOf(t, dto.StrategyParameterWriteDto{
+			parametersOf(t, dto.StrategyScriptParameterWriteDto{
 				Name: "看最舊那一根", Kind: "boolean", DefaultValue: 1,
 			}))
 
@@ -901,7 +901,7 @@ func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 	t.Run("否的時候走另一邊", func(t *testing.T) {
 		indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
-			parametersOf(t, dto.StrategyParameterWriteDto{
+			parametersOf(t, dto.StrategyScriptParameterWriteDto{
 				Name: "看最舊那一根", Kind: "boolean", DefaultValue: 0,
 			}))
 
@@ -913,7 +913,7 @@ func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 		// 否是一個合法的答案，所以「拿不到」絕不能長得跟「答案是否」一樣。
 		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
-			parametersOf(t, dto.StrategyParameterWriteDto{
+			parametersOf(t, dto.StrategyScriptParameterWriteDto{
 				Name: "看最舊", Kind: "boolean", DefaultValue: 1,
 			}))
 
@@ -927,8 +927,8 @@ func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 // 是很容易犯、而且完全看不出來的錯。它必須被說成「名字對不上」，不是「你的算式壞了」。
 func TestReachingForAParameterNobodyDeclaredBlamesTheName(t *testing.T) {
 	parameters := parametersOf(t,
-		dto.StrategyParameterWriteDto{Name: "週期", Kind: "lookbackCount", DefaultValue: 2},
-		dto.StrategyParameterWriteDto{Name: "倍數", Kind: "number", DefaultValue: 2.5})
+		dto.StrategyScriptParameterWriteDto{Name: "週期", Kind: "lookbackCount", DefaultValue: 2},
+		dto.StrategyScriptParameterWriteDto{Name: "倍數", Kind: "number", DefaultValue: 2.5})
 
 	_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 		t.Context(), parameterisedAverageScript, resultTypeOf(t, "float"),
@@ -944,8 +944,8 @@ func TestReachingForAParameterNobodyDeclaredBlamesTheName(t *testing.T) {
 // 同樣會讓算式拿到零然後算出一個看起來正常的答案。
 func TestReachingForAnUndeclaredNumberBlamesTheNameToo(t *testing.T) {
 	parameters := parametersOf(t,
-		dto.StrategyParameterWriteDto{Name: "期數", Kind: "lookbackCount", DefaultValue: 2},
-		dto.StrategyParameterWriteDto{Name: "係數", Kind: "number", DefaultValue: 2.5})
+		dto.StrategyScriptParameterWriteDto{Name: "期數", Kind: "lookbackCount", DefaultValue: 2},
+		dto.StrategyScriptParameterWriteDto{Name: "係數", Kind: "number", DefaultValue: 2.5})
 
 	_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).Execute(
 		t.Context(), parameterisedAverageScript, resultTypeOf(t, "float"),

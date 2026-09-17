@@ -26,7 +26,7 @@ const spareBucketCount = 1
 // how coarse they are, how many, up to when, and that a bucket still running is
 // never one of them.
 //
-// A strategy holds none of this. How coarse and how many describe one run rather
+// A strategy script holds none of this. How coarse and how many describe one run rather
 // than the algorithm, so they arrive here — which is what lets one algorithm be run
 // at any coarseness over any stretch of market.
 type IndicatorCalculationDomain struct {
@@ -36,7 +36,7 @@ type IndicatorCalculationDomain struct {
 	// window holds. It is what the read is sized for and what a full answer holds; a
 	// short stretch answers with fewer, never with an error.
 	candleCount int
-	parameters  StrategyParametersDomain
+	parameters  StrategyScriptParametersDomain
 	resultType  IndicatorResultTypeDomain
 	interval    AggregationIntervalDomain
 	// endTime is the moment this calculation reaches up to, already settled: never
@@ -68,7 +68,7 @@ func NewIndicatorCalculationDomain(
 			fmt.Errorf("%w: %w", ErrIndicatorCalculationValidation, symbolError)
 	}
 
-	declaredParameters, parametersError := NewStrategyParametersDomain(requestDto.Parameters)
+	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
 	if parametersError != nil {
 		return IndicatorCalculationDomain{}, fmt.Errorf(
 			"%w: %w", ErrIndicatorCalculationValidation, parametersError)
@@ -245,7 +245,7 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	// reaches back, never zero — a calculation over no market at all has no answer,
 	// and the alternative is handing an empty batch to a script to fail inside.
 	//
-	// It reads only what the strategy *declares*. What an algorithm actually reaches
+	// It reads only what the strategy script *declares*. What an algorithm actually reaches
 	// for stays the algorithm's own business to guard, which is why a script
 	// hard-coding a period it never declared comes back as a script failure rather
 	// than as a shortfall: the system does not guess how many an algorithm needs.
@@ -278,6 +278,6 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) CandleCount() int {
 
 // Parameters are this run's knobs, already settled: every declared one carries the
 // value it will be read with, whether that came from the run or from the declaration.
-func (indicatorCalculationDomain IndicatorCalculationDomain) Parameters() StrategyParametersDomain {
+func (indicatorCalculationDomain IndicatorCalculationDomain) Parameters() StrategyScriptParametersDomain {
 	return indicatorCalculationDomain.parameters
 }

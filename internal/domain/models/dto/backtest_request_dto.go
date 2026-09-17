@@ -7,10 +7,10 @@ import (
 )
 
 // BacktestRequestDto is the shape the application hands the domain to replay one
-// strategy over one stretch of market.
+// strategy script over one stretch of market.
 //
 // How coarse the candles are and which stretch to read are here rather than on the
-// strategy, for the same reason an indicator calculation carries them: they describe
+// strategy script, for the same reason an indicator calculation carries them: they describe
 // one run, so the same algorithm can be replayed at any coarseness over any stretch.
 type BacktestRequestDto struct {
 	Symbol string
@@ -25,8 +25,8 @@ type BacktestRequestDto struct {
 	// Parameters are the algorithm's knobs as declared, and ParameterValues what they
 	// are worth this time. Both arrive with the run, because what is replayed is a
 	// script that may never have been saved.
-	Parameters      []StrategyParameterWriteDto
-	ParameterValues []StrategyParameterValueDto
+	Parameters      []StrategyScriptParameterWriteDto
+	ParameterValues []StrategyScriptParameterValueDto
 	// InitialCapital is what the account starts with. It must be above zero: with no
 	// capital there is nothing to stake.
 	InitialCapital decimal.Decimal

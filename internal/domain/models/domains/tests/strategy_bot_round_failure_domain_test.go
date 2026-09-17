@@ -18,19 +18,19 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 		expectedHaltReason vo.StrategyBotHaltReasonVo
 	}{
 		{
-			name:               "a strategy that was deleted stops the bot",
-			roundError:         domains.StrategyNotFound(7),
+			name:               "a strategy script that was deleted stops the bot",
+			roundError:         domains.StrategyScriptNotFound(7),
 			expectedToHalt:     true,
-			expectedHaltReason: vo.StrategyBotHaltStrategyUnavailable,
+			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
 		{
 			// Withdrawn from the marketplace reads as exactly the same halt as
 			// deleted. Told apart, a halt reason would say whether somebody else's
-			// strategy still exists.
-			name:               "a strategy withdrawn from the marketplace stops it the same way",
-			roundError:         fmt.Errorf("%w", domains.ErrStrategyNotPublished),
+			// strategy script still exists.
+			name:               "a strategy script withdrawn from the marketplace stops it the same way",
+			roundError:         fmt.Errorf("%w", domains.ErrStrategyScriptNotPublished),
 			expectedToHalt:     true,
-			expectedHaltReason: vo.StrategyBotHaltStrategyUnavailable,
+			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
 		{
 			name:               "a script that will not run stops the bot",

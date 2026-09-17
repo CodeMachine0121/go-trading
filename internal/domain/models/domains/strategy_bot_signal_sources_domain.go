@@ -9,7 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// strategyBotSignalSourceMaxCount is how many strategies one bot may run.
+// strategyBotSignalSourceMaxCount is how many strategy scripts one bot may run.
 //
 // Every source is a whole indicator calculation of its own — a script interpreted
 // over freshly read candles — and they all happen again every trigger interval, for
@@ -23,11 +23,11 @@ const strategyBotSignalSourceLabelMaxLength = 32
 
 // StrategyBotSignalSourcesDomain is everything one bot's signal sources have to be
 // true of together: distinct labels, a bounded number of them, and values that the
-// strategies they name actually declared.
+// strategy scripts they name actually declared.
 //
 // It is a model of the set rather than of one source, because every rule here is
 // about the set. A label is unique *among these*; the count is a count *of these*;
-// and the one rule that is about a single source — does this strategy declare this
+// and the one rule that is about a single source — does this strategy script declare this
 // knob — is checked here too, because that is where the labels are already being
 // walked.
 type StrategyBotSignalSourcesDomain struct {
@@ -76,9 +76,9 @@ func NewStrategyBotSignalSourcesDomain(
 				ErrStrategyBotValidation, label)
 		}
 
-		if source.StrategyID == 0 {
+		if source.StrategyScriptID == 0 {
 			return StrategyBotSignalSourcesDomain{}, fmt.Errorf(
-				"%w: 信號來源 %q 必須指名一支策略", ErrStrategyBotValidation, label)
+				"%w: 信號來源 %q 必須指名一支策略腳本", ErrStrategyBotValidation, label)
 		}
 
 		aggregationInterval, intervalError := NewAggregationIntervalDomain(source.AggregationInterval)
@@ -87,19 +87,19 @@ func NewStrategyBotSignalSourcesDomain(
 				"%w: 信號來源 %q 的彙總刻度不對：%w", ErrStrategyBotValidation, label, intervalError)
 		}
 
-		// Setting a knob the strategy never declared is caught now rather than at
+		// Setting a knob the strategy script never declared is caught now rather than at
 		// three in the morning, when the same mistake would come back as a script
 		// failure and stop the bot.
 		for _, parameterValue := range source.ParameterValues {
 			parameterName := strings.TrimSpace(parameterValue.Name)
 			declaresIt := slices.ContainsFunc(
 				source.DeclaredParameters,
-				func(declaredParameter dto.StrategyParameterWriteDto) bool {
+				func(declaredParameter dto.StrategyScriptParameterWriteDto) bool {
 					return strings.TrimSpace(declaredParameter.Name) == parameterName
 				})
 			if !declaresIt {
 				return StrategyBotSignalSourcesDomain{}, fmt.Errorf(
-					"%w: 信號來源 %q 給了參數 %q 的值，但它指名的那支策略沒有宣告這個名字",
+					"%w: 信號來源 %q 給了參數 %q 的值，但它指名的那支策略腳本沒有宣告這個名字",
 					ErrStrategyBotValidation, label, parameterValue.Name)
 			}
 		}
@@ -136,7 +136,7 @@ func (strategyBotSignalSourcesDomain StrategyBotSignalSourcesDomain) ToEntities(
 
 		signalSources = append(signalSources, entities.StrategyBotSignalSource{
 			Label:               source.Label,
-			StrategyID:          source.StrategyID,
+			StrategyScriptID:    source.StrategyScriptID,
 			AggregationInterval: source.AggregationInterval,
 			ParameterValues:     parameterValues,
 		})

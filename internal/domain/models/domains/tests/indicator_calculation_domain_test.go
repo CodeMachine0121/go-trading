@@ -138,7 +138,7 @@ func hourlyOpenTimesEndingBefore(hoursBackLimit int, untradedHoursBack ...int) [
 	return openTimes
 }
 
-// calculationWithLookback builds a calculation over the given span whose strategy
+// calculationWithLookback builds a calculation over the given span whose strategy script
 // declares one look-back knob, which is the only thing that moves the floor. A
 // look-back of zero declares no knob at all.
 func calculationWithLookback(
@@ -148,7 +148,7 @@ func calculationWithLookback(
 
 	requestDto := calculationRequest("1h", requestedSpan, time.Time{})
 	if lookbackCount > 0 {
-		requestDto.Parameters = []dto.StrategyParameterWriteDto{
+		requestDto.Parameters = []dto.StrategyScriptParameterWriteDto{
 			{Name: "期數", Kind: "lookbackCount", DefaultValue: lookbackCount}}
 	}
 
@@ -615,18 +615,18 @@ func TestSelectInputCandlesAnswersAtExactlyTheFloor(t *testing.T) {
 }
 
 func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
-	// The floor moves with what the strategy declares, and these cases pin it through
+	// The floor moves with what the strategy script declares, and these cases pin it through
 	// the refusal rather than by asking for the number: what matters is which stretch
 	// gets turned away, and the count it names is how a caller says why.
 	testCases := []struct {
 		name            string
-		parameters      []dto.StrategyParameterWriteDto
+		parameters      []dto.StrategyScriptParameterWriteDto
 		availableHours  int
 		expectedMinimum int
 	}{
 		{
 			name: "several declared look-backs take the hungriest",
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "短期", Kind: "lookbackCount", DefaultValue: 5},
 				{Name: "長期", Kind: "lookbackCount", DefaultValue: 60},
 			},
@@ -634,7 +634,7 @@ func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
 		},
 		{
 			name: "a plain number declares no reach at all, so one candle is enough",
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "倍數", Kind: "number", DefaultValue: 60},
 			},
 			availableHours: 0, expectedMinimum: 1,
@@ -670,7 +670,7 @@ func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
 	// covered above; only a hole inside the span tells "no market in that hour" apart
 	// from it, and only it would break if empty buckets were ever filled in.
 	requestDto := calculationRequest("1h", 100, time.Time{})
-	requestDto.Parameters = []dto.StrategyParameterWriteDto{
+	requestDto.Parameters = []dto.StrategyScriptParameterWriteDto{
 		{Name: "期數", Kind: "lookbackCount", DefaultValue: 60}}
 	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
 		requestDto, cryptoMarket(), maxCandleCount, calculationNow)
@@ -775,7 +775,7 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredResultType(t *testing.T) {
 }
 
 func TestSelectInputCandlesHandsOverExactlyWhatWasAskedForAndNeverGuessesAMinimum(t *testing.T) {
-	// A strategy no longer records how many candles its algorithm needs, and nothing
+	// A strategy script no longer records how many candles its algorithm needs, and nothing
 	// took that job over: an algorithm that needs fifty to be worth anything is
 	// handed ten if ten is what was asked for. The calculation never sees the script,
 	// so it has nothing to work a minimum out from — this test pins that absence,
@@ -803,13 +803,13 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 	testCases := []struct {
 		name          string
 		requestedSpan int
-		parameters    []dto.StrategyParameterWriteDto
+		parameters    []dto.StrategyScriptParameterWriteDto
 		expectedInput int
 	}{
 		{
 			name:          "要看 12 格、最大回看 20 → 拿 31 根",
 			requestedSpan: 12,
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
 			expectedInput: 31,
 		},
@@ -822,14 +822,14 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 		{
 			name:          "只有數值也一樣——數值跟拿幾根無關",
 			requestedSpan: 12,
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "倍數", Kind: "number", DefaultValue: 2}},
 			expectedInput: 12,
 		},
 		{
 			name:          "好幾個回看根數只看最大的",
 			requestedSpan: 12,
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "快線", Kind: "lookbackCount", DefaultValue: 20},
 				{Name: "中線", Kind: "lookbackCount", DefaultValue: 50},
 				{Name: "慢線", Kind: "lookbackCount", DefaultValue: 100}},
@@ -838,14 +838,14 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 		{
 			name:          "只看一格也拿滿回看所需",
 			requestedSpan: 1,
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 100}},
 			expectedInput: 100,
 		},
 		{
 			name:          "回看一根不多花任何一根",
 			requestedSpan: 12,
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 1}},
 			expectedInput: 12,
 		},
@@ -883,7 +883,7 @@ func TestTheCeilingIsJudgedAgainstWhatWillActuallyBeFed(t *testing.T) {
 				Add(-10 * 5 * time.Minute),
 			AggregationInterval: "5m",
 			ResultType:          "float",
-			Parameters: []dto.StrategyParameterWriteDto{
+			Parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 100}},
 		}, cryptoMarket(), 50, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
 
@@ -896,7 +896,7 @@ func TestTheCeilingIsJudgedAgainstWhatWillActuallyBeFed(t *testing.T) {
 // are exactly the thing that no longer agree.
 func taiwanCalculationRequest(
 	t *testing.T, declaredInterval string, startTime string, endTime string,
-	parameters []dto.StrategyParameterWriteDto,
+	parameters []dto.StrategyScriptParameterWriteDto,
 ) dto.IndicatorCalculationRequestDto {
 	t.Helper()
 
@@ -994,13 +994,13 @@ func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 		name                string
 		startTime           string
 		endTime             string
-		parameters          []dto.StrategyParameterWriteDto
+		parameters          []dto.StrategyScriptParameterWriteDto
 		expectedCandleCount int
 	}{
 		{
 			name:      "a whole session with a twenty-bar look-back",
 			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
 			expectedCandleCount: 54 + 19,
 		},
@@ -1008,7 +1008,7 @@ func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 			// 09:00 到 10:00 在五分鐘刻度上是 13 格（兩端都算），不是 12 格。
 			name:      "the first hour of a session with a twenty-bar look-back",
 			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T10:00:00+08:00",
-			parameters: []dto.StrategyParameterWriteDto{
+			parameters: []dto.StrategyScriptParameterWriteDto{
 				{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}},
 			expectedCandleCount: 13 + 19,
 		},

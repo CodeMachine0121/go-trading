@@ -12,7 +12,7 @@ import (
 
 // minimumBacktestKCandleCount is the fewest candles a replay can say anything with.
 //
-// One candle has no "before" and no "after": whatever the strategy decides on it, the
+// One candle has no "before" and no "after": whatever the strategy script decides on it, the
 // account never reaches a second price to be judged at. Two is the first number where
 // a decision has a consequence.
 const minimumBacktestKCandleCount = 2
@@ -27,7 +27,7 @@ const minimumBacktestKCandleCount = 2
 type BacktestDomain struct {
 	symbol         string
 	interval       AggregationIntervalDomain
-	parameters     StrategyParametersDomain
+	parameters     StrategyScriptParametersDomain
 	initialCapital decimal.Decimal
 	positionSizing PositionSizingDomain
 	startTime      time.Time
@@ -81,7 +81,7 @@ func NewBacktestDomain(
 		return BacktestDomain{}, positionSizingError
 	}
 
-	declaredParameters, parametersError := NewStrategyParametersDomain(requestDto.Parameters)
+	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
 	if parametersError != nil {
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, parametersError)
 	}
@@ -135,7 +135,7 @@ func (backtestDomain BacktestDomain) Interval() AggregationIntervalDomain {
 
 // Parameters are this run's knobs, already settled: every declared one carries the
 // value it will be read with, whether that came from the run or from the declaration.
-func (backtestDomain BacktestDomain) Parameters() StrategyParametersDomain {
+func (backtestDomain BacktestDomain) Parameters() StrategyScriptParametersDomain {
 	return backtestDomain.parameters
 }
 

@@ -10,23 +10,23 @@ import (
 // StrategyBotApplication orchestrates everything a person does to a strategy bot.
 //
 // It joins three domain services, which is this layer's job and not theirs. A bot
-// names strategies, so saving one has to ask the strategy rules whether those may be
+// names strategy scripts, so saving one has to ask the strategy script rules whether those may be
 // seen and what knobs they declare; starting one has to ask the delivery setting
 // whether its owner can be spoken to at all. Neither question belongs to the bots.
 type StrategyBotApplication struct {
 	strategyBotService      *service.StrategyBotService
-	strategyService         *service.StrategyService
+	strategyScriptService   *service.StrategyScriptService
 	telegramDeliveryService *service.TelegramDeliveryService
 }
 
 func NewStrategyBotApplication(
 	strategyBotService *service.StrategyBotService,
-	strategyService *service.StrategyService,
+	strategyScriptService *service.StrategyScriptService,
 	telegramDeliveryService *service.TelegramDeliveryService,
 ) *StrategyBotApplication {
 	return &StrategyBotApplication{
 		strategyBotService:      strategyBotService,
-		strategyService:         strategyService,
+		strategyScriptService:   strategyScriptService,
 		telegramDeliveryService: telegramDeliveryService,
 	}
 }
@@ -37,7 +37,7 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 ) (dto.StrategyBotDto, error) {
 	writeDto.OwnerID = viewerID
 
-	resolvedWriteDto, resolveError := strategyBotApplication.withResolvedStrategies(
+	resolvedWriteDto, resolveError := strategyBotApplication.withResolvedStrategyScripts(
 		executionContext, viewerID, writeDto)
 	if resolveError != nil {
 		return dto.StrategyBotDto{}, resolveError
@@ -51,7 +51,7 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
-	resolvedWriteDto, resolveError := strategyBotApplication.withResolvedStrategies(
+	resolvedWriteDto, resolveError := strategyBotApplication.withResolvedStrategyScripts(
 		executionContext, viewerID, writeDto)
 	if resolveError != nil {
 		return dto.StrategyBotDto{}, resolveError
@@ -151,33 +151,33 @@ func (strategyBotApplication *StrategyBotApplication) announce(
 		executionContext, viewerID, message)
 }
 
-// withResolvedStrategies fills each source in with what only its strategy can say:
+// withResolvedStrategyScripts fills each source in with what only its strategy script can say:
 // the name to show, and the knobs it declares.
 //
-// Resolving is also the gate. Naming a strategy that is not this person's and not on
+// Resolving is also the gate. Naming a strategy script that is not this person's and not on
 // the marketplace fails here with the same sentence as naming one that does not
-// exist, which is what stops a bot's sources becoming a way to probe for strategies.
+// exist, which is what stops a bot's sources becoming a way to probe for strategy scripts.
 //
 // Both creating and rewriting need every step of this, which is what earns it a
 // name of its own.
-func (strategyBotApplication *StrategyBotApplication) withResolvedStrategies(
+func (strategyBotApplication *StrategyBotApplication) withResolvedStrategyScripts(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotWriteDto, error) {
 	resolvedSources := make(
 		[]dto.StrategyBotSignalSourceWriteDto, 0, len(writeDto.SignalSources))
 
 	for _, signalSource := range writeDto.SignalSources {
-		runnableStrategy, resolveError := strategyBotApplication.strategyService.ResolveRunnableStrategy(
-			executionContext, viewerID, signalSource.StrategyID)
+		runnableStrategyScript, resolveError := strategyBotApplication.strategyScriptService.ResolveRunnableStrategyScript(
+			executionContext, viewerID, signalSource.StrategyScriptID)
 		if resolveError != nil {
 			return dto.StrategyBotWriteDto{}, resolveError
 		}
 
 		// Only the declared knobs are taken. The script is deliberately left
-		// behind: what a bot stores about a source is which strategy it names, so
-		// that a strategy adopted from the marketplace is run without ever being
+		// behind: what a bot stores about a source is which strategy script it names, so
+		// that a strategy script adopted from the marketplace is run without ever being
 		// copied somewhere its adopter could read it.
-		signalSource.DeclaredParameters = runnableStrategy.Parameters
+		signalSource.DeclaredParameters = runnableStrategyScript.Parameters
 		resolvedSources = append(resolvedSources, signalSource)
 	}
 

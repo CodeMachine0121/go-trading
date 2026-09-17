@@ -21,16 +21,16 @@ type StrategyBotWriteDto struct {
 }
 
 // StrategyBotSignalSourceWriteDto is one signal source as it arrives, plus the one
-// thing only the strategy itself can say: which knobs it declares.
+// thing only the strategy script itself can say: which knobs it declares.
 //
-// DeclaredParameters is filled in by the application from the resolved strategy, not
-// by the caller. It is here so that "this bot sets a knob that strategy never
+// DeclaredParameters is filled in by the application from the resolved strategy script, not
+// by the caller. It is here so that "this bot sets a knob that strategy script never
 // declared" is caught by the same model that checks everything else about a source,
 // rather than surfacing much later as a script failure in the middle of the night.
 type StrategyBotSignalSourceWriteDto struct {
 	Label               string
-	StrategyID          uint
+	StrategyScriptID    uint
 	AggregationInterval string
-	ParameterValues     []StrategyParameterValueDto
-	DeclaredParameters  []StrategyParameterWriteDto
+	ParameterValues     []StrategyScriptParameterValueDto
+	DeclaredParameters  []StrategyScriptParameterWriteDto
 }

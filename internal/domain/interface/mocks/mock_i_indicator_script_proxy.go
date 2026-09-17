@@ -43,7 +43,7 @@ func (m *MockIIndicatorScriptProxy) EXPECT() *MockIIndicatorScriptProxyMockRecor
 }
 
 // Execute mocks base method.
-func (m *MockIIndicatorScriptProxy) Execute(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo, parameters domains.StrategyParametersDomain) (map[string]vo.IndicatorValueVo, error) {
+func (m *MockIIndicatorScriptProxy) Execute(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo, parameters domains.StrategyScriptParametersDomain) (map[string]vo.IndicatorValueVo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Execute", executionContext, script, resultType, kCandles, parameters)
 	ret0, _ := ret[0].(map[string]vo.IndicatorValueVo)
@@ -58,7 +58,7 @@ func (mr *MockIIndicatorScriptProxyMockRecorder) Execute(executionContext, scrip
 }
 
 // ExecuteForEachCandle mocks base method.
-func (m *MockIIndicatorScriptProxy) ExecuteForEachCandle(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo, parameters domains.StrategyParametersDomain) ([]map[string]vo.IndicatorValueVo, error) {
+func (m *MockIIndicatorScriptProxy) ExecuteForEachCandle(executionContext context.Context, script string, resultType domains.IndicatorResultTypeDomain, kCandles []vo.KCandleVo, parameters domains.StrategyScriptParametersDomain) ([]map[string]vo.IndicatorValueVo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ExecuteForEachCandle", executionContext, script, resultType, kCandles, parameters)
 	ret0, _ := ret[0].([]map[string]vo.IndicatorValueVo)

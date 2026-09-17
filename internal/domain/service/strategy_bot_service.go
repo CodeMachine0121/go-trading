@@ -14,8 +14,8 @@ import (
 // StrategyBotService is the application layer's only entry point for strategy bots.
 // Its public use-case methods never call one another.
 //
-// It is given no way to reach a strategy, a K candle or Telegram, and that is the
-// point. Whether a bot may name a strategy is the strategy rules' question; whether
+// It is given no way to reach a strategy script, a K candle or Telegram, and that is the
+// point. Whether a bot may name a strategy script is the strategy script rules' question; whether
 // its owner can be spoken to is the delivery setting's; and joining those to this is
 // the application layer's job. A dependency that is not here cannot be reached for
 // by accident later.

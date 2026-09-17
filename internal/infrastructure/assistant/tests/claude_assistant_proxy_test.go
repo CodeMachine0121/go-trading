@@ -298,9 +298,9 @@ func TestClaudeAssistantProxyReplaysOneRoundAsOneTurn(t *testing.T) {
 
 	request := aTurnRequest()
 	request.Rounds = []vo.AssistantQueryRoundVo{{
-		Narration: "我先看一下系統裡既有策略的算式寫法。",
+		Narration: "我先看一下系統裡既有策略腳本的算式寫法。",
 		Exchanges: []vo.AssistantQueryExchangeVo{
-			{Call: vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_strategies", Arguments: `{}`}, Outcome: "{}"},
+			{Call: vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_strategy_scripts", Arguments: `{}`}, Outcome: "{}"},
 			{Call: vo.AssistantQueryCallVo{CallID: "call_2", Name: "list_trading_symbols", Arguments: `{}`}, Outcome: "{}"},
 			{Call: vo.AssistantQueryCallVo{CallID: "call_3", Name: "get_k_candles", Arguments: `{}`}, Outcome: "{}"},
 		},
@@ -317,7 +317,7 @@ func TestClaudeAssistantProxyReplaysOneRoundAsOneTurn(t *testing.T) {
 	// 那句旁白在最前面，三個請求接在後面：助手下一輪才看得到自己剛才在想什麼。
 	require.Len(t, assistantTurn.Content, 4)
 	assert.Equal(t, "text", assistantTurn.Content[0].Type)
-	assert.Equal(t, "我先看一下系統裡既有策略的算式寫法。", assistantTurn.Content[0].Text)
+	assert.Equal(t, "我先看一下系統裡既有策略腳本的算式寫法。", assistantTurn.Content[0].Text)
 	assert.Equal(t, "tool_use", assistantTurn.Content[1].Type)
 	assert.Equal(t, "tool_use", assistantTurn.Content[3].Type)
 
@@ -336,7 +336,7 @@ func TestClaudeAssistantProxyLeavesOutANarrationThatWasNotThere(t *testing.T) {
 	request := aTurnRequest()
 	request.Rounds = []vo.AssistantQueryRoundVo{{
 		Exchanges: []vo.AssistantQueryExchangeVo{
-			{Call: vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_strategies", Arguments: `{}`}, Outcome: "{}"},
+			{Call: vo.AssistantQueryCallVo{CallID: "call_1", Name: "list_strategy_scripts", Arguments: `{}`}, Outcome: "{}"},
 		},
 	}}
 

@@ -33,14 +33,14 @@ const backtestBody = `{
 	"aggregationInterval":"1h",
 	"startTime":"2026-08-29T00:00:00Z",
 	"endTime":"2026-08-29T04:00:00Z",
-	"strategyId":9,
+	"strategyScriptId":9,
 	"initialCapital":"10000",
 	"positionSizingMode":"allIn"
 }`
 
-// backtestRouterStrategyID is the strategy every replay below names. It belongs to
+// backtestRouterStrategyScriptID is the strategy script every replay below names. It belongs to
 // the signed-in viewer and holds "the script".
-const backtestRouterStrategyID = uint(9)
+const backtestRouterStrategyScriptID = uint(9)
 
 type backtestRouterUnderTest struct {
 	engine               *gin.Engine
@@ -56,18 +56,18 @@ func newBacktestRouterUnderTest(t *testing.T) backtestRouterUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(backtestRouterNow).AnyTimes()
 
-	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
-	strategyRepository.EXPECT().FindOne(gomock.Any(), backtestRouterStrategyID).
-		Return(entities.Strategy{
-			ID: backtestRouterStrategyID, OwnerID: signedInViewerID, Script: "the script",
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(mockController)
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), backtestRouterStrategyScriptID).
+		Return(entities.StrategyScript{
+			ID: backtestRouterStrategyScriptID, OwnerID: signedInViewerID, Script: "the script",
 		}, nil).AnyTimes()
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
 	backtestController := controller.NewBacktestController(
 		application.NewBacktestApplication(
-			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
 				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)))
 
@@ -176,7 +176,7 @@ func TestRunBacktestEndpoint(t *testing.T) {
 			"aggregationInterval":"1h",
 			"startTime":"2026-08-29T00:00:00Z",
 			"endTime":"2026-08-29T04:00:00Z",
-			"strategyId":9,
+			"strategyScriptId":9,
 			"initialCapital":"0",
 			"positionSizingMode":"allIn"
 		}`)
@@ -207,7 +207,7 @@ func TestRunBacktestEndpoint(t *testing.T) {
 			"aggregationInterval":"1h",
 			"startTime":"2026-08-29T00:00:00Z",
 			"endTime":"2026-08-29T04:00:00Z",
-			"strategyId":9,
+			"strategyScriptId":9,
 			"initialCapital":"10000",
 			"positionSizingMode":"percentage",
 			"positionSizingValue":"0"

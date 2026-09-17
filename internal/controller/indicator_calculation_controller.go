@@ -36,7 +36,7 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 	}
 
 	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
-		indicatorCalculationRequest.StrategyID,
+		indicatorCalculationRequest.StrategyScriptID,
 		indicatorCalculationRequest.Script,
 		indicatorCalculationRequest.ResultType,
 		indicatorCalculationRequest.ToParameterWriteDtos())
@@ -67,10 +67,10 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
-	// A strategy that is not there, one belonging to somebody else, and one that is
+	// A strategy script that is not there, one belonging to somebody else, and one that is
 	// not on the marketplace all arrive as this single refusal, and all leave as the
 	// same 404. Telling them apart would let a caller learn which identifiers exist.
-	if errors.Is(err, domains.ErrStrategyNotFound) {
+	if errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}

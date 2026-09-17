@@ -183,10 +183,10 @@ func (strategyBotController *StrategyBotController) readID(ginContext *gin.Conte
 
 // respondWithError maps a domain error onto the status code that reports it.
 //
-// A strategy that cannot be seen comes back as this feature's own not-found, not as
-// the strategy one. A caller naming a strategy they may not use is told the same
+// A strategy script that cannot be seen comes back as this feature's own not-found, not as
+// the strategy script one. A caller naming a strategy script they may not use is told the same
 // thing whichever way they reached it, and nothing about the answer says whether
-// that strategy exists.
+// that strategy script exists.
 func (strategyBotController *StrategyBotController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
@@ -195,7 +195,7 @@ func (strategyBotController *StrategyBotController) respondWithError(
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	if errors.Is(err, domains.ErrStrategyBotNotFound) || errors.Is(err, domains.ErrStrategyNotFound) {
+	if errors.Is(err, domains.ErrStrategyBotNotFound) || errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}

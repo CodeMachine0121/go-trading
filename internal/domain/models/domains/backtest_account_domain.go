@@ -63,7 +63,7 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	}
 
 	// An opening the account cannot afford simply does not happen: the replay carries
-	// on flat, nothing is counted and nothing is reported. A strategy that outgrows
+	// on flat, nothing is counted and nothing is reported. A strategy script that outgrows
 	// its own account is behaving, not failing.
 	stake, canStake := backtestAccountDomain.positionSizing.StakeFor(
 		backtestAccountDomain.availableCash)

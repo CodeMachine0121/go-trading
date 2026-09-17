@@ -22,10 +22,10 @@ type StrategyBotRequest struct {
 	SellCondition          StrategyBotConditionRequest      `json:"sellCondition"`
 }
 
-// StrategyBotSignalSourceRequest is one strategy as it is to run inside this bot.
+// StrategyBotSignalSourceRequest is one strategy script as it is to run inside this bot.
 type StrategyBotSignalSourceRequest struct {
 	Label               string                             `json:"label"`
-	StrategyID          uint                               `json:"strategyId"`
+	StrategyScriptID    uint                               `json:"strategyScriptId"`
 	AggregationInterval string                             `json:"aggregationInterval"`
 	ParameterValues     []StrategyBotParameterValueRequest `json:"parameterValues"`
 }
@@ -74,9 +74,9 @@ func (strategyBotRequest StrategyBotRequest) signalSourceWriteDtos() []dto.Strat
 
 	for _, signalSource := range strategyBotRequest.SignalSources {
 		parameterValues := make(
-			[]dto.StrategyParameterValueDto, 0, len(signalSource.ParameterValues))
+			[]dto.StrategyScriptParameterValueDto, 0, len(signalSource.ParameterValues))
 		for _, parameterValue := range signalSource.ParameterValues {
-			parameterValues = append(parameterValues, dto.StrategyParameterValueDto{
+			parameterValues = append(parameterValues, dto.StrategyScriptParameterValueDto{
 				Name:  parameterValue.Name,
 				Value: parameterValue.Value,
 			})
@@ -84,7 +84,7 @@ func (strategyBotRequest StrategyBotRequest) signalSourceWriteDtos() []dto.Strat
 
 		signalSourceWriteDtos = append(signalSourceWriteDtos, dto.StrategyBotSignalSourceWriteDto{
 			Label:               signalSource.Label,
-			StrategyID:          signalSource.StrategyID,
+			StrategyScriptID:    signalSource.StrategyScriptID,
 			AggregationInterval: signalSource.AggregationInterval,
 			ParameterValues:     parameterValues,
 		})

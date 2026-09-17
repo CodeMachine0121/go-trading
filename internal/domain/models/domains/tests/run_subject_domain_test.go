@@ -11,23 +11,23 @@ import (
 
 func TestRunSubjectDomainTakesOneOrTheOther(t *testing.T) {
 	testCases := []struct {
-		name       string
-		strategyID uint
-		ownScript  string
-		refused    bool
+		name             string
+		strategyScriptID uint
+		ownScript        string
+		refused          bool
 	}{
-		{name: "naming a saved strategy", strategyID: 7, ownScript: "", refused: false},
-		{name: "carrying an algorithm nobody saved", strategyID: 0, ownScript: "func Calculate() {}", refused: false},
+		{name: "naming a saved strategy script", strategyScriptID: 7, ownScript: "", refused: false},
+		{name: "carrying an algorithm nobody saved", strategyScriptID: 0, ownScript: "func Calculate() {}", refused: false},
 		// Both at once can disagree about what actually ran, and picking a winner
 		// makes the loser vanish without a word.
-		{name: "both at once", strategyID: 7, ownScript: "func Calculate() {}", refused: true},
-		{name: "neither", strategyID: 0, ownScript: "", refused: true},
+		{name: "both at once", strategyScriptID: 7, ownScript: "func Calculate() {}", refused: true},
+		{name: "neither", strategyScriptID: 0, ownScript: "", refused: true},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, subjectError := domains.NewRunSubjectDomain(
-				testCase.strategyID, testCase.ownScript, "", nil)
+				testCase.strategyScriptID, testCase.ownScript, "", nil)
 
 			if testCase.refused {
 				require.ErrorIs(t, subjectError, domains.ErrRunSubjectAmbiguous)
@@ -39,30 +39,30 @@ func TestRunSubjectDomainTakesOneOrTheOther(t *testing.T) {
 	}
 }
 
-func TestRunSubjectDomainSaysWhichStrategyWasNamed(t *testing.T) {
+func TestRunSubjectDomainSaysWhichStrategyScriptWasNamed(t *testing.T) {
 	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(7, "", "", nil)
 	require.NoError(t, subjectError)
 
-	strategyID, namesAStrategy := runSubjectDomain.NamedStrategyID()
+	strategyScriptID, namesAStrategyScript := runSubjectDomain.NamedStrategyScriptID()
 
-	assert.True(t, namesAStrategy)
-	assert.Equal(t, uint(7), strategyID)
+	assert.True(t, namesAStrategyScript)
+	assert.Equal(t, uint(7), strategyScriptID)
 }
 
 func TestRunSubjectDomainHandsOverAnUnsavedAlgorithmToRun(t *testing.T) {
 	// The kind of value and the knobs come from the caller, because there is no
-	// strategy to have declared them.
+	// strategy script to have declared them.
 	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
 		0, "func Calculate() {}", "floatList",
-		[]dto.StrategyParameterWriteDto{{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}})
+		[]dto.StrategyScriptParameterWriteDto{{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}})
 	require.NoError(t, subjectError)
 
-	_, namesAStrategy := runSubjectDomain.NamedStrategyID()
-	runnableStrategyDto := runSubjectDomain.ToRunnableDto()
+	_, namesAStrategyScript := runSubjectDomain.NamedStrategyScriptID()
+	runnableStrategyScriptDto := runSubjectDomain.ToRunnableDto()
 
-	assert.False(t, namesAStrategy)
-	assert.Equal(t, "func Calculate() {}", runnableStrategyDto.Script)
-	assert.Equal(t, "floatList", runnableStrategyDto.ResultType)
-	require.Len(t, runnableStrategyDto.Parameters, 1)
-	assert.Equal(t, "期數", runnableStrategyDto.Parameters[0].Name)
+	assert.False(t, namesAStrategyScript)
+	assert.Equal(t, "func Calculate() {}", runnableStrategyScriptDto.Script)
+	assert.Equal(t, "floatList", runnableStrategyScriptDto.ResultType)
+	require.Len(t, runnableStrategyScriptDto.Parameters, 1)
+	assert.Equal(t, "期數", runnableStrategyScriptDto.Parameters[0].Name)
 }

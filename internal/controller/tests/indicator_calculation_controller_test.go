@@ -22,33 +22,33 @@ import (
 
 // indicatorBody asks about the two minutes of market ending at the moment the suite
 // answers at, which at one-minute coarseness is two slots.
-const indicatorBody = `{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyId":9}`
+const indicatorBody = `{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":9}`
 
 // indicatorRouterNow is the moment every request below is answered at, so that "up
 // to when" is decided by the request rather than by whenever the suite runs.
 var indicatorRouterNow = at(9, 15)
 
-// indicatorRouterStrategyID is the strategy every calculation below names. It
+// indicatorRouterStrategyScriptID is the strategy script every calculation below names. It
 // belongs to the signed-in viewer and holds "the script".
-const indicatorRouterStrategyID = uint(9)
+const indicatorRouterStrategyScriptID = uint(9)
 
-// indicatorRouterStrategyStore is a strategy store that answers with that one
-// strategy. The gates it goes through are a different feature's tests; here it only
+// indicatorRouterStrategyScriptStore is a strategy script store that answers with that one
+// strategy script. The gates it goes through are a different feature's tests; here it only
 // has to resolve.
-func indicatorRouterStrategyStore(
+func indicatorRouterStrategyScriptStore(
 	mockController *gomock.Controller, declaredResultType string,
-) *service.StrategyService {
-	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
-	strategyRepository.EXPECT().FindOne(gomock.Any(), indicatorRouterStrategyID).
-		Return(entities.Strategy{
-			ID: indicatorRouterStrategyID, OwnerID: signedInViewerID, Script: "the script",
+) *service.StrategyScriptService {
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(mockController)
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), indicatorRouterStrategyScriptID).
+		Return(entities.StrategyScript{
+			ID: indicatorRouterStrategyScriptID, OwnerID: signedInViewerID, Script: "the script",
 			ResultType: declaredResultType,
 		}, nil).AnyTimes()
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
-	return service.NewStrategyService(strategyRepository, publishedStrategyRepository)
+	return service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 }
 
 type indicatorRouterUnderTest struct {
@@ -57,15 +57,15 @@ type indicatorRouterUnderTest struct {
 	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
 }
 
-// newIndicatorRouterUnderTest runs a strategy that declares nothing, which is what
+// newIndicatorRouterUnderTest runs a strategy script that declares nothing, which is what
 // most of these cases are about.
 func newIndicatorRouterUnderTest(t *testing.T) indicatorRouterUnderTest {
 	return newIndicatorRouterRunning(t, "")
 }
 
-// newIndicatorRouterRunning runs a strategy that declares this kind of value. The
-// declaration lives on the strategy now, not on the request, so a case about kinds
-// varies the strategy rather than the body.
+// newIndicatorRouterRunning runs a strategy script that declares this kind of value. The
+// declaration lives on the strategy script now, not on the request, so a case about kinds
+// varies the strategy script rather than the body.
 func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicatorRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
@@ -81,7 +81,7 @@ func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicato
 
 	indicatorCalculationController := controller.NewIndicatorCalculationController(
 		application.NewIndicatorCalculationApplication(
-			indicatorRouterStrategyStore(mockController, declaredResultType),
+			indicatorRouterStrategyScriptStore(mockController, declaredResultType),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(
@@ -150,7 +150,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 
 		recorder := fixture.post(`{"symbol":"BTCUSDT","aggregationInterval":"1h",` +
 			`"startTime":"2025-03-01T12:30:00Z","endTime":"2025-03-01T14:30:00Z",` +
-			`"strategyId":9}`)
+			`"strategyScriptId":9}`)
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), `"interval":"1h"`)
@@ -163,7 +163,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 
 		recorder := fixture.post(
 			`{"symbol":"BTCUSDT","aggregationInterval":"7m",` +
-				`"startTime":"2026-08-29T09:13:00Z","strategyId":9}`)
+				`"startTime":"2026-08-29T09:13:00Z","strategyScriptId":9}`)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "彙總刻度只能是")
@@ -186,7 +186,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 
 		recorder := fixture.post(
-			`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:15:00Z","strategyId":9}`)
+			`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:15:00Z","strategyScriptId":9}`)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "起點必須早於終點")
@@ -232,7 +232,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		fixture := newIndicatorRouterUnderTest(t)
 
 		recorder := fixture.post(
-			`{"symbol":"BTCUSDT","startTime":"2020-01-01T00:00:00Z","strategyId":9}`)
+			`{"symbol":"BTCUSDT","startTime":"2020-01-01T00:00:00Z","strategyScriptId":9}`)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), `"field":"startTime"`)
@@ -299,7 +299,7 @@ func TestCalculateIndicatorNamesTheInputWhenTheSpanNeedsMoreCandlesThanOneCallMa
 		`{"symbol":"BTCUSDT","startTime":"` +
 			indicatorRouterNow.Add(-time.Duration(queryMaxResults+1)*time.Minute).
 				Format(time.RFC3339) +
-			`","strategyId":9}`)
+			`","strategyScriptId":9}`)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code,
 		"這是呼叫端要的太多了，不是這個系統壞了")
@@ -369,7 +369,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 	})
 
 	t.Run("reports a kind that is not on offer as a bad request", func(t *testing.T) {
-		// The kind can no longer arrive from a caller — it comes off the strategy,
+		// The kind can no longer arrive from a caller — it comes off the strategy script,
 		// which was judged when it was saved. A stored row holding a kind nobody
 		// offers is therefore a corrupt row, and it is still refused rather than run.
 		fixture := newIndicatorRouterRunning(t, "string")
@@ -390,7 +390,7 @@ func TestIndicatorCalculationRouterRefusesAnUnstorableSymbol(t *testing.T) {
 	fixture := newIndicatorRouterUnderTest(t)
 
 	recorder := fixture.post(
-		`{"symbol":"BTC\u0000USDT","startTime":"2026-08-29T09:12:00Z","strategyId":9}`)
+		`{"symbol":"BTC\u0000USDT","startTime":"2026-08-29T09:12:00Z","strategyScriptId":9}`)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "NUL")
@@ -409,7 +409,7 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 
 	indicatorCalculationController := controller.NewIndicatorCalculationController(
 		application.NewIndicatorCalculationApplication(
-			indicatorRouterStrategyStore(mockController, ""),
+			indicatorRouterStrategyScriptStore(mockController, ""),
 			service.NewIndicatorCalculationService(
 				mocks.NewMockIKCandleRepository(mockController), tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController), clockProxy,
@@ -434,7 +434,7 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 	// 2026-09-12 是週六，整天都沒有交易。
 	request := httptest.NewRequest(http.MethodPost, "/indicator-calculations", strings.NewReader(
 		`{"symbol":"2330","startTime":"2026-09-12T00:00:00+08:00",`+
-			`"endTime":"2026-09-13T00:00:00+08:00","strategyId":9}`))
+			`"endTime":"2026-09-13T00:00:00+08:00","strategyScriptId":9}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
@@ -450,7 +450,7 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 
 func TestCalculateIndicatorTurnsAwayARequestCarryingNoProof(t *testing.T) {
 	// Nothing is stubbed on the market store: an unproven request must not reach
-	// the strategy, let alone the candles behind it.
+	// the strategy script, let alone the candles behind it.
 	fixture := newIndicatorRouterUnderTest(t)
 
 	request := httptest.NewRequest(http.MethodPost, "/indicator-calculations",

@@ -32,13 +32,13 @@ const strategyBotRecordTimeout = 15 * time.Second
 // does.
 //
 // It offers one method. Whoever calls it — today a scan on a timer — sequences
-// nothing and knows none of the names below: resolving strategies, running scripts
+// nothing and knows none of the names below: resolving strategy scripts, running scripts
 // side by side, reading conditions, sending a message and deciding what a failure
 // means all happen behind it. That is deliberate, because everything on that list is
 // a step somebody would otherwise be able to leave out.
 type StrategyBotRunApplication struct {
 	strategyBotService          *service.StrategyBotService
-	strategyService             *service.StrategyService
+	strategyScriptService       *service.StrategyScriptService
 	indicatorCalculationService *service.IndicatorCalculationService
 	telegramDeliveryService     *service.TelegramDeliveryService
 	kCandleService              *service.KCandleService
@@ -50,7 +50,7 @@ type StrategyBotRunApplication struct {
 
 func NewStrategyBotRunApplication(
 	strategyBotService *service.StrategyBotService,
-	strategyService *service.StrategyService,
+	strategyScriptService *service.StrategyScriptService,
 	indicatorCalculationService *service.IndicatorCalculationService,
 	telegramDeliveryService *service.TelegramDeliveryService,
 	kCandleService *service.KCandleService,
@@ -61,7 +61,7 @@ func NewStrategyBotRunApplication(
 ) *StrategyBotRunApplication {
 	return &StrategyBotRunApplication{
 		strategyBotService:          strategyBotService,
-		strategyService:             strategyService,
+		strategyScriptService:       strategyScriptService,
 		indicatorCalculationService: indicatorCalculationService,
 		telegramDeliveryService:     telegramDeliveryService,
 		kCandleService:              kCandleService,
@@ -80,7 +80,7 @@ func NewStrategyBotRunApplication(
 // a handful of them. The ones it leaves are due again a minute later.
 //
 // One bot failing never stops the others: each round keeps its own failure, and a
-// bot halted for a deleted strategy has nothing to do with the bot beside it.
+// bot halted for a deleted strategy script has nothing to do with the bot beside it.
 func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	executionContext context.Context,
 ) (int, error) {
@@ -398,8 +398,8 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 		go func() {
 			defer waitGroup.Done()
 
-			runnableStrategy, resolveError := strategyBotRunApplication.strategyService.ResolveRunnableStrategy(
-				executionContext, botDto.OwnerID, signalSource.StrategyID)
+			runnableStrategyScript, resolveError := strategyBotRunApplication.strategyScriptService.ResolveRunnableStrategyScript(
+				executionContext, botDto.OwnerID, signalSource.StrategyScriptID)
 			if resolveError != nil {
 				sourceErrors[resultIndex] = resolveError
 
@@ -411,14 +411,14 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 					Symbol:              botDto.Symbol,
 					StartTime:           startTime,
 					EndTime:             endTime,
-					Script:              runnableStrategy.Script,
+					Script:              runnableStrategyScript.Script,
 					AggregationInterval: signalSource.AggregationInterval,
-					// The signal kind is this system's, not the strategy's. A bot
-					// reads opinions, so a strategy saved as a number is run for
+					// The signal kind is this system's, not the strategy script's. A bot
+					// reads opinions, so a strategy script saved as a number is run for
 					// the one thing a bot can use — and refused by the calculation
 					// if it cannot produce it.
 					ResultType:      string(vo.IndicatorResultTypeSignal),
-					Parameters:      runnableStrategy.Parameters,
+					Parameters:      runnableStrategyScript.Parameters,
 					ParameterValues: signalSource.ParameterValues,
 				})
 			if calculateError != nil {

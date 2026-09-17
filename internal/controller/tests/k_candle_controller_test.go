@@ -452,7 +452,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 	})
 }
 
-// The same refusal a strategy's name gets, for the same reason: carried through to
+// The same refusal a strategy script's name gets, for the same reason: carried through to
 // the database this is a storage failure, and a storage failure is reported as the
 // system having broken rather than as an answer about what was asked for.
 func TestKCandleRouterRefusesATradingSymbolThatCannotBeStored(t *testing.T) {

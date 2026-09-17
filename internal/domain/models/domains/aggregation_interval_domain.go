@@ -61,7 +61,7 @@ type AggregationIntervalDomain struct {
 // The refusal carries the reason alone, with no sentinel of its own. Which kind of
 // validation an unrecognised interval counts as is the caller's question, not the
 // interval's: the same bad spelling is a K candle query problem in one place and a
-// strategy problem in another. Each caller wraps this reason in its own sentinel.
+// strategy script problem in another. Each caller wraps this reason in its own sentinel.
 func NewAggregationIntervalDomain(declared string) (AggregationIntervalDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {

@@ -10,7 +10,7 @@ import (
 )
 
 // strategyBotNameMaxLength is how long a bot's name may be, counted after the blanks
-// around it are dropped. It matches a strategy's limit rather than picking a second
+// around it are dropped. It matches a strategy script's limit rather than picking a second
 // number, because there is no reason the two would ever want to differ and two
 // numbers are two things to keep in step.
 const strategyBotNameMaxLength = 128

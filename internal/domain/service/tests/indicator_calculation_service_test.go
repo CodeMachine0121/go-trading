@@ -138,7 +138,7 @@ func TestCalculateIndicator(t *testing.T) {
 				script string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
-				_ domains.StrategyParametersDomain,
+				_ domains.StrategyScriptParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Len(t, kCandleVos, 3)
 				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)
@@ -279,7 +279,7 @@ func TestCalculateIndicator(t *testing.T) {
 				_ string,
 				_ domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
-				_ domains.StrategyParametersDomain,
+				_ domains.StrategyScriptParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Len(t, kCandleVos, 3, "手上那三根照樣交給算式")
 
@@ -335,7 +335,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 				script string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
-				_ domains.StrategyParametersDomain,
+				_ domains.StrategyScriptParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Equal(t, vo.IndicatorResultTypeFloatList, resultType.Value())
 				return map[string]vo.IndicatorValueVo{}, nil
@@ -375,7 +375,7 @@ func TestCalculateIndicatorCarriesTheDeclaredResultType(t *testing.T) {
 				_ string,
 				resultType domains.IndicatorResultTypeDomain,
 				_ []vo.KCandleVo,
-				_ domains.StrategyParametersDomain,
+				_ domains.StrategyScriptParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.True(t, resultType.IsSignal())
 				return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil
@@ -465,7 +465,7 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 				script string,
 				resultType domains.IndicatorResultTypeDomain,
 				kCandleVos []vo.KCandleVo,
-				_ domains.StrategyParametersDomain,
+				_ domains.StrategyScriptParametersDomain,
 			) (map[string]vo.IndicatorValueVo, error) {
 				assert.Len(t, kCandleVos, 3)
 				assert.Equal(t, storedCandleAt(5).OpenTime.Unix(), kCandleVos[0].OpenTimeUnixSeconds)

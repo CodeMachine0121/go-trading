@@ -3,8 +3,8 @@ package vo
 // StrategyBotRoundResultVo is one round as its history remembers it.
 //
 // It is **not** a signal, and that is why it is its own type rather than a reuse of
-// SignalVo. A signal is what a strategy read off the market; this is what a whole
-// round came to, and one of its values — conflicted — is something no strategy can
+// SignalVo. A signal is what a strategy script read off the market; this is what a whole
+// round came to, and one of its values — conflicted — is something no strategy script can
 // ever say.
 //
 // Four values rather than three. Conflicted used to be recorded as hold, on the

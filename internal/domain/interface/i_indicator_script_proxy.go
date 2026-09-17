@@ -19,7 +19,7 @@ type IIndicatorScriptProxy interface {
 		script string,
 		resultType domains.IndicatorResultTypeDomain,
 		kCandles []vo.KCandleVo,
-		parameters domains.StrategyParametersDomain,
+		parameters domains.StrategyScriptParametersDomain,
 	) (map[string]vo.IndicatorValueVo, error)
 	// ExecuteForEachCandle runs one script once per K candle: the nth run sees the
 	// candles from the first up to and including the nth, and the results come back
@@ -37,6 +37,6 @@ type IIndicatorScriptProxy interface {
 		script string,
 		resultType domains.IndicatorResultTypeDomain,
 		kCandles []vo.KCandleVo,
-		parameters domains.StrategyParametersDomain,
+		parameters domains.StrategyScriptParametersDomain,
 	) ([]map[string]vo.IndicatorValueVo, error)
 }

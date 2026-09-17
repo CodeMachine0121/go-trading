@@ -21,9 +21,9 @@ const currentUserKey = "currentUserID"
 // AuthenticationMiddleware turns a proof of identity into a user on the request,
 // and turns everything else away.
 //
-// It exists because ownership arrived. Until strategies belonged to people, one
+// It exists because ownership arrived. Until strategy scripts belonged to people, one
 // endpoint read the header for itself and that was enough; now every path that
-// touches a strategy has to know who is asking, and asking each of them to read the
+// touches a strategy script has to know who is asking, and asking each of them to read the
 // header would be the same six lines written six times — six places for one of them
 // to be forgotten, which is the only kind of mistake that matters here.
 //

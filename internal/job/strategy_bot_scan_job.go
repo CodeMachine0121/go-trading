@@ -17,7 +17,7 @@ import (
 // is asked of the store every time, so a restart costs at most one scan interval and
 // nobody has to press play again.
 //
-// It sequences nothing and knows nothing about strategies, scripts, conditions or
+// It sequences nothing and knows nothing about strategy scripts, scripts, conditions or
 // Telegram. Whether a round halts a bot or waits for the next one is decided far
 // behind this, which is why nothing here can decide it differently.
 type StrategyBotScanJob struct {

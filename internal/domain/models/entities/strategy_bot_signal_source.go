@@ -2,23 +2,23 @@ package entities
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 
-// StrategyBotSignalSource is one strategy as it runs inside one bot.
+// StrategyBotSignalSource is one strategy script as it runs inside one bot.
 //
 // The label carries a unique index spanning the bot, because a label is how a
 // condition names a source and two sources answering to "A" would make a condition
 // mean two things. The index — not a read-then-write check — is what makes it true.
 //
-// There is no copy of the strategy's name. A copy would be wrong the first time
-// somebody renamed the strategy, and nothing needs it: the label is already this
+// There is no copy of the strategy script's name. A copy would be wrong the first time
+// somebody renamed the strategy script, and nothing needs it: the label is already this
 // source's name, chosen by the person who reads the conditions.
 type StrategyBotSignalSource struct {
 	ID            uint   `gorm:"primaryKey"`
 	StrategyBotID uint   `gorm:"not null;index:idx_strategy_bot_signal_sources_bot;uniqueIndex:idx_strategy_bot_signal_sources_bot_label"`
 	Label         string `gorm:"size:32;not null;uniqueIndex:idx_strategy_bot_signal_sources_bot_label"`
-	// StrategyID is not a declared association, and that is deliberate. A cascade
-	// from the strategy would make deleting a strategy silently gut every bot that
+	// StrategyScriptID is not a declared association, and that is deliberate. A cascade
+	// from the strategy script would make deleting a strategy script silently gut every bot that
 	// used it; the bot is supposed to halt with a reason its owner can read instead.
-	StrategyID          uint   `gorm:"not null;index:idx_strategy_bot_signal_sources_strategy"`
+	StrategyScriptID    uint   `gorm:"column:strategy_id;not null;index:idx_strategy_bot_signal_sources_strategy"`
 	AggregationInterval string `gorm:"size:16;not null"`
 
 	ParameterValues []StrategyBotSignalSourceParameterValue `gorm:"foreignKey:StrategyBotSignalSourceID;constraint:OnDelete:CASCADE"`
@@ -34,7 +34,7 @@ func (strategyBotSignalSource StrategyBotSignalSource) TableName() string {
 func (strategyBotSignalSource StrategyBotSignalSource) ToDto() dto.StrategyBotSignalSourceDto {
 	return dto.StrategyBotSignalSourceDto{
 		Label:               strategyBotSignalSource.Label,
-		StrategyID:          strategyBotSignalSource.StrategyID,
+		StrategyScriptID:    strategyBotSignalSource.StrategyScriptID,
 		AggregationInterval: strategyBotSignalSource.AggregationInterval,
 		ParameterValues:     strategyBotSignalSource.parameterValueDtos(),
 	}
@@ -42,9 +42,9 @@ func (strategyBotSignalSource StrategyBotSignalSource) ToDto() dto.StrategyBotSi
 
 // parameterValueDtos hands out this source's values, always as a list rather than
 // sometimes nothing: a source with no values set has an empty list, not an absence.
-func (strategyBotSignalSource StrategyBotSignalSource) parameterValueDtos() []dto.StrategyParameterValueDto {
+func (strategyBotSignalSource StrategyBotSignalSource) parameterValueDtos() []dto.StrategyScriptParameterValueDto {
 	parameterValueDtos := make(
-		[]dto.StrategyParameterValueDto, 0, len(strategyBotSignalSource.ParameterValues))
+		[]dto.StrategyScriptParameterValueDto, 0, len(strategyBotSignalSource.ParameterValues))
 	for _, parameterValue := range strategyBotSignalSource.ParameterValues {
 		parameterValueDtos = append(parameterValueDtos, parameterValue.ToDto())
 	}

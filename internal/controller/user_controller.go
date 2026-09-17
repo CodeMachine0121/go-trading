@@ -182,7 +182,7 @@ func (userController *UserController) readAccessToken(ginContext *gin.Context) s
 
 // respondWithError maps a domain error onto the status code that reports it. It
 // knows only this feature's own errors: a caller must not have to recognise a
-// strategy's failure to find out their password was wrong.
+// strategy script's failure to find out their password was wrong.
 func (userController *UserController) respondWithError(ginContext *gin.Context, err error) {
 	if errors.Is(err, domains.ErrUserValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})

@@ -59,14 +59,14 @@ func (messageDomain StrategyBotLifecycleMessageDomain) StoppedText() string {
 }
 
 // haltReasonInWords is the reason as a person reads it. It says what happened, not
-// what to do: what to do depends on which of their strategies or settings it was,
+// what to do: what to do depends on which of their strategy scripts or settings it was,
 // and only they know that.
 func (messageDomain StrategyBotLifecycleMessageDomain) haltReasonInWords() string {
 	switch messageDomain.haltReason {
-	case vo.StrategyBotHaltStrategyUnavailable:
-		return "原因：它用到的某一支策略找不到了。"
+	case vo.StrategyBotHaltStrategyScriptUnavailable:
+		return "原因：它用到的某一支策略腳本找不到了。"
 	case vo.StrategyBotHaltScriptFailed:
-		return "原因：它用到的某一支策略算不出來。"
+		return "原因：它用到的某一支策略腳本算不出來。"
 	case vo.StrategyBotHaltCredentialRejected:
 		return "原因：機器人金鑰不被接受。"
 	case vo.StrategyBotHaltDestinationNotFound:

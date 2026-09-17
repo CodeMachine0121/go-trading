@@ -15,7 +15,7 @@ type StrategyBotDto struct {
 	// OwnerID is who this bot belongs to, and never leaves in a response — a
 	// person reading their own bots learns nothing from being told they are theirs.
 	// It is here because a round has no signed-in caller to ask: the clock started
-	// it, and resolving this bot's strategies and sending its message both have to
+	// it, and resolving this bot's strategy scripts and sending its message both have to
 	// be done as the person who owns it.
 	OwnerID uint   `json:"-"`
 	Name    string `json:"name"`

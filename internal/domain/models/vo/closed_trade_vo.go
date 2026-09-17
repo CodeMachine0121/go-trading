@@ -22,7 +22,7 @@ type ClosedTradeVo struct {
 
 // IsWin says whether this trade made money. Breaking exactly even is not a win — it
 // returned the stake and nothing else, and counting it as one would flatter every
-// strategy that trades a lot and earns nothing.
+// strategy script that trades a lot and earns nothing.
 func (closedTradeVo ClosedTradeVo) IsWin() bool {
 	return closedTradeVo.Profit.IsPositive()
 }

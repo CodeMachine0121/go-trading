@@ -26,7 +26,7 @@ import (
 type strategyBotRouterUnderTest struct {
 	engine                     *gin.Engine
 	strategyBotRepository      *mocks.MockIStrategyBotRepository
-	strategyRepository         *mocks.MockIStrategyRepository
+	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
 }
 
@@ -41,12 +41,12 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotRunRecordRepository.EXPECT().
 		FindLatestByBot(gomock.Any(), gomock.Any()).
 		Return([]entities.StrategyBotRunRecord{}, nil).AnyTimes()
-	strategyRepository := mocks.NewMockIStrategyRepository(mockController)
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(mockController)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(mockController)
 
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
@@ -68,7 +68,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	// 在「按了按鈕之後那台變成什麼樣」上對不起來。
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository, clockProxy)
-	strategyService := service.NewStrategyService(strategyRepository, publishedStrategyRepository)
+	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	// 啟動與停止會讓機器人說一句它自己的動靜；這幾個測試問的是路由與狀態碼，
 	// 所以整條投遞路徑一律放行。
 	telegramDeliveryService := service.NewTelegramDeliveryService(
@@ -76,11 +76,11 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
-			strategyBotService, strategyService, telegramDeliveryService),
+			strategyBotService, strategyScriptService, telegramDeliveryService),
 		// 「立即運算」那一條走時鐘那一側，而它走的必須是同一條路。
 		application.NewStrategyBotRunApplication(
 			strategyBotService,
-			strategyService,
+			strategyScriptService,
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController),
@@ -108,7 +108,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	return strategyBotRouterUnderTest{
 		engine:                     engine,
 		strategyBotRepository:      strategyBotRepository,
-		strategyRepository:         strategyRepository,
+		strategyScriptRepository:   strategyScriptRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
 	}
 }
@@ -132,9 +132,9 @@ const aStrategyBotBody = `{
 	"symbol": "BTCUSDT",
 	"triggerIntervalMinutes": 5,
 	"signalSources": [
-		{"label": "A", "strategyId": 9, "aggregationInterval": "1h",
+		{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h",
 		 "parameterValues": [{"name": "回看根數", "value": 20}]},
-		{"label": "B", "strategyId": 9, "aggregationInterval": "5m"}
+		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "5m"}
 	],
 	"buyCondition": {
 		"operator": "and",
@@ -146,12 +146,12 @@ const aStrategyBotBody = `{
 	"sellCondition": {"sourceLabel": "A", "signal": "sell"}
 }`
 
-func (fixture strategyBotRouterUnderTest) expectResolvableStrategy() {
-	fixture.strategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.Strategy{
+func (fixture strategyBotRouterUnderTest) expectResolvableStrategyScript() {
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(entities.StrategyScript{
 			ID: 9, OwnerID: signedInViewerID, Name: "均線", Script: "//", ResultType: "signal",
-			Parameters: []entities.StrategyParameter{
-				{StrategyID: 9, Name: "回看根數", Kind: "lookbackCount", DefaultValue: 20},
+			Parameters: []entities.StrategyScriptParameter{
+				{StrategyScriptID: 9, Name: "回看根數", Kind: "lookbackCount", DefaultValue: 20},
 			},
 		}, nil).AnyTimes()
 }
@@ -162,7 +162,7 @@ func aStoredStrategyBotRow(runState vo.StrategyBotRunStateVo) entities.StrategyB
 		TriggerIntervalMinutes: 5,
 		RunState:               string(runState),
 		SignalSources: []entities.StrategyBotSignalSource{
-			{ID: 20, StrategyBotID: 3, Label: "A", StrategyID: 9, AggregationInterval: "1h"},
+			{ID: 20, StrategyBotID: 3, Label: "A", StrategyScriptID: 9, AggregationInterval: "1h"},
 		},
 		ConditionNodes: []entities.StrategyBotConditionNode{
 			{ID: 10, StrategyBotID: 3, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
@@ -173,7 +173,7 @@ func aStoredStrategyBotRow(runState vo.StrategyBotRunStateVo) entities.StrategyB
 
 func TestStrategyBotRouterCreatesABotAndAnswersWithIt(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
-	fixture.expectResolvableStrategy()
+	fixture.expectResolvableStrategyScript()
 
 	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
@@ -219,7 +219,7 @@ func TestStrategyBotRouterListsAndReadsBots(t *testing.T) {
 
 func TestStrategyBotRouterRewritesAndDeletes(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
-	fixture.expectResolvableStrategy()
+	fixture.expectResolvableStrategyScript()
 
 	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil).Times(2)
@@ -285,7 +285,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 		{
 			name: "a bot that breaks a rule",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategy()
+				fixture.expectResolvableStrategyScript()
 			},
 			method:         http.MethodPost,
 			target:         "/strategy-bots",
@@ -322,7 +322,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 		{
 			name: "rewriting a bot that is running",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategy()
+				fixture.expectResolvableStrategyScript()
 				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 					Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
 			},
@@ -334,7 +334,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 		{
 			name: "a name this person already uses",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategy()
+				fixture.expectResolvableStrategyScript()
 				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.StrategyBot{}, domains.ErrStrategyBotNameConflict)
 			},
@@ -475,7 +475,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 		{
 			name: "rewriting one",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategy()
+				fixture.expectResolvableStrategyScript()
 				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
 				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).

@@ -9,13 +9,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// StrategyBot is one standing bot: a few strategies' signals, two conditions that
+// StrategyBot is one standing bot: a few strategy scripts' signals, two conditions that
 // turn them into one conclusion, and how often to ask.
 //
 // It is a plain data model: fields, persistence mapping and shape conversion only,
 // no business rules.
 //
-// The name carries a unique index spanning the owner, for the reason a strategy's
+// The name carries a unique index spanning the owner, for the reason a strategy script's
 // does: a name is what its owner recognises a bot by, nobody recognises a
 // stranger's, and an index — not a read-then-write check — is what actually makes it
 // unique.

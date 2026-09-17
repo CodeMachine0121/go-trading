@@ -59,7 +59,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
 	kCandles []vo.KCandleVo,
-	parameters domains.StrategyParametersDomain,
+	parameters domains.StrategyScriptParametersDomain,
 ) (map[string]vo.IndicatorValueVo, error) {
 	preparedScript, prepareError := yaegiIndicatorScriptProxy.prepare(script, resultType, parameters)
 	if prepareError != nil {
@@ -87,7 +87,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) ExecuteForEachCandle
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
 	kCandles []vo.KCandleVo,
-	parameters domains.StrategyParametersDomain,
+	parameters domains.StrategyScriptParametersDomain,
 ) ([]map[string]vo.IndicatorValueVo, error) {
 	preparedScript, prepareError := yaegiIndicatorScriptProxy.prepare(script, resultType, parameters)
 	if prepareError != nil {
@@ -118,7 +118,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) ExecuteForEachCandle
 func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) prepare(
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
-	parameters domains.StrategyParametersDomain,
+	parameters domains.StrategyScriptParametersDomain,
 ) (*preparedScript, error) {
 	// The reader records the first knob a script reaches for that nobody declared.
 	// It is consulted before the error the script came back with, so the answer does
@@ -127,7 +127,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) prepare(
 	preparedScript := &preparedScript{
 		interpreter:      interp.New(interp.Options{}),
 		shape:            indicatorScriptShape{resultType: resultType},
-		parameterReader:  &strategyParameterReader{parameters: parameters},
+		parameterReader:  &strategyScriptParameterReader{parameters: parameters},
 		executionTimeout: yaegiIndicatorScriptProxy.executionTimeout,
 	}
 
@@ -183,7 +183,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) prepare(
 
 // preparedScript is one script that has already been read and accepted, waiting to be
 // run over some candles. Holding the interpreter open between runs is what makes
-// replaying a strategy affordable; holding the candles in a field is what makes those
+// replaying a strategy script affordable; holding the candles in a field is what makes those
 // runs see different data.
 type preparedScript struct {
 	interpreter *interp.Interpreter
@@ -192,7 +192,7 @@ type preparedScript struct {
 	// symbol table, so assigning to it changes the script's input without re-reading
 	// a single line of the script.
 	visibleKCandles  []vo.KCandleVo
-	parameterReader  *strategyParameterReader
+	parameterReader  *strategyScriptParameterReader
 	executionTimeout time.Duration
 }
 
@@ -238,7 +238,7 @@ func (preparedScript *preparedScript) runOver(
 	return preparedScript.shape.readValues(calculated)
 }
 
-// strategyParameterReader is what a script reaches a knob through.
+// strategy scriptParameterReader is what a script reaches a knob through.
 //
 // A name nobody declared is recorded and then panicked on rather than answered with
 // a zero. A zero looks like an answer: a loop reaching back zero candles still
@@ -248,13 +248,13 @@ func (preparedScript *preparedScript) runOver(
 //
 // The panic is caught by the interpreter and comes back as an ordinary error; what
 // makes the report correct is the recorded name, not the panic.
-type strategyParameterReader struct {
-	parameters domains.StrategyParametersDomain
+type strategyScriptParameterReader struct {
+	parameters domains.StrategyScriptParametersDomain
 	missing    string
 	hasMissing bool
 }
 
-func (reader *strategyParameterReader) lookbackCount(name string) int {
+func (reader *strategyScriptParameterReader) lookbackCount(name string) int {
 	lookbackCount, isDeclared := reader.parameters.LookbackCountOf(name)
 	if !isDeclared {
 		reader.recordMissing(name)
@@ -263,7 +263,7 @@ func (reader *strategyParameterReader) lookbackCount(name string) int {
 	return lookbackCount
 }
 
-func (reader *strategyParameterReader) number(name string) float64 {
+func (reader *strategyScriptParameterReader) number(name string) float64 {
 	number, isDeclared := reader.parameters.NumberOf(name)
 	if !isDeclared {
 		reader.recordMissing(name)
@@ -272,7 +272,7 @@ func (reader *strategyParameterReader) number(name string) float64 {
 	return number
 }
 
-func (reader *strategyParameterReader) boolean(name string) bool {
+func (reader *strategyScriptParameterReader) boolean(name string) bool {
 	isTrue, isDeclared := reader.parameters.BooleanOf(name)
 	if !isDeclared {
 		reader.recordMissing(name)
@@ -284,7 +284,7 @@ func (reader *strategyParameterReader) boolean(name string) bool {
 // recordMissing keeps the first name that did not match. The first is the one worth
 // reporting: the ones after it are usually the same mistake spreading, and a list of
 // them would bury the one line the reader has to go and fix.
-func (reader *strategyParameterReader) recordMissing(name string) {
+func (reader *strategyScriptParameterReader) recordMissing(name string) {
 	if !reader.hasMissing {
 		reader.missing = name
 		reader.hasMissing = true
@@ -293,7 +293,7 @@ func (reader *strategyParameterReader) recordMissing(name string) {
 	panic(errParameterNotDeclared)
 }
 
-func (reader *strategyParameterReader) missingName() (string, bool) {
+func (reader *strategyScriptParameterReader) missingName() (string, bool) {
 	return reader.missing, reader.hasMissing
 }
 

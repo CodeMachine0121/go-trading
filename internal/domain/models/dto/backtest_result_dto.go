@@ -18,7 +18,7 @@ type BacktestResultDto struct {
 	UsedCandleCount int                `json:"usedCandleCount"`
 	Summary         BacktestSummaryDto `json:"summary"`
 	// ClosedTrades holds only round trips that finished, earliest first. It is empty
-	// rather than absent when a strategy never traded, which is a legitimate answer.
+	// rather than absent when a strategy script never traded, which is a legitimate answer.
 	ClosedTrades []ClosedTradeDto `json:"closedTrades"`
 	// EquityCurve holds one point per replayed candle, earliest first.
 	EquityCurve []EquityPointDto `json:"equityCurve"`

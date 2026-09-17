@@ -98,7 +98,7 @@ func (positionSizingDomain PositionSizingDomain) Mode() vo.PositionSizingModeVo 
 // The second answer is not an error. A fixed amount the account cannot currently
 // cover means this one opening does not happen — the replay carries on, and the
 // account may well afford the next one. Reporting it as a failure would end a run
-// over something that is a perfectly ordinary way for a strategy to behave.
+// over something that is a perfectly ordinary way for a strategy script to behave.
 func (positionSizingDomain PositionSizingDomain) StakeFor(
 	availableCash decimal.Decimal,
 ) (decimal.Decimal, bool) {

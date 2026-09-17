@@ -124,7 +124,7 @@ func (telegramDeliveryController *TelegramDeliveryController) SendTestMessage(
 
 // respondWithError maps this feature's own errors onto the status codes that report
 // them. It knows only this feature's: a caller must not have to recognise a
-// strategy's failure to find out their message was blank.
+// strategy script's failure to find out their message was blank.
 func (telegramDeliveryController *TelegramDeliveryController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
