@@ -43,10 +43,10 @@ func (m *MockIConversationRepository) EXPECT() *MockIConversationRepositoryMockR
 }
 
 // AppendTurn mocks base method.
-func (m *MockIConversationRepository) AppendTurn(executionContext context.Context, conversationId uint, turn entities.AssistantTurn) (entities.Conversation, error) {
+func (m *MockIConversationRepository) AppendTurn(executionContext context.Context, conversationId uint, turn entities.AssistantTurn) (entities.AssistantTurn, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AppendTurn", executionContext, conversationId, turn)
-	ret0, _ := ret[0].(entities.Conversation)
+	ret0, _ := ret[0].(entities.AssistantTurn)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -55,6 +55,35 @@ func (m *MockIConversationRepository) AppendTurn(executionContext context.Contex
 func (mr *MockIConversationRepositoryMockRecorder) AppendTurn(executionContext, conversationId, turn any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendTurn", reflect.TypeOf((*MockIConversationRepository)(nil).AppendTurn), executionContext, conversationId, turn)
+}
+
+// CompleteTurn mocks base method.
+func (m *MockIConversationRepository) CompleteTurn(executionContext context.Context, turn entities.AssistantTurn) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteTurn", executionContext, turn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CompleteTurn indicates an expected call of CompleteTurn.
+func (mr *MockIConversationRepositoryMockRecorder) CompleteTurn(executionContext, turn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteTurn", reflect.TypeOf((*MockIConversationRepository)(nil).CompleteTurn), executionContext, turn)
+}
+
+// FailAllRunningTurns mocks base method.
+func (m *MockIConversationRepository) FailAllRunningTurns(executionContext context.Context, reason string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailAllRunningTurns", executionContext, reason)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FailAllRunningTurns indicates an expected call of FailAllRunningTurns.
+func (mr *MockIConversationRepositoryMockRecorder) FailAllRunningTurns(executionContext, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailAllRunningTurns", reflect.TypeOf((*MockIConversationRepository)(nil).FailAllRunningTurns), executionContext, reason)
 }
 
 // FindAllOwnedBy mocks base method.

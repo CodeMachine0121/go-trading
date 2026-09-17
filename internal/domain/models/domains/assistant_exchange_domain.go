@@ -147,17 +147,59 @@ func (assistantExchangeDomain AssistantExchangeDomain) RecordRound(
 	return recorded
 }
 
-// ToTurn is this exchange as it will be stored, once the assistant has answered.
-func (assistantExchangeDomain AssistantExchangeDomain) ToTurn(
-	answer string, at time.Time,
+// ToStartedTurn is this exchange as it is first stored: the question, and nothing
+// answered yet.
+//
+// It is written before the assistant has been asked anything, which is what makes an
+// answer visible while it is still being written. Nothing about cost is filled in —
+// none has been incurred — and nothing about queries, for the same reason.
+func (assistantExchangeDomain AssistantExchangeDomain) ToStartedTurn(
+	at time.Time,
 ) entities.AssistantTurn {
 	return entities.AssistantTurn{
-		Ask:                 assistantExchangeDomain.ask,
+		Ask:       assistantExchangeDomain.ask,
+		Status:    string(vo.AssistantTurnRunning),
+		CreatedAt: at.UTC(),
+	}
+}
+
+// ToAnsweredTurn is what gets written back over the started row once the assistant
+// has spoken: the answer, the bill, and everything it looked at on the way.
+//
+// The question is not among them. It was stored when the exchange began and nothing
+// since could have changed it, so rewriting it would only be a second chance to get
+// it wrong.
+func (assistantExchangeDomain AssistantExchangeDomain) ToAnsweredTurn(
+	turnID uint, answer string,
+) entities.AssistantTurn {
+	return entities.AssistantTurn{
+		ID:                  turnID,
 		Answer:              answer,
+		Status:              string(vo.AssistantTurnAnswered),
 		Usage:               assistantExchangeDomain.usage,
 		QueryCount:          assistantExchangeDomain.queryRounds.Used(),
 		StoppedAtQueryLimit: assistantExchangeDomain.queryRounds.ReachedLimit(),
-		CreatedAt:           at.UTC(),
 		Queries:             assistantExchangeDomain.records,
+	}
+}
+
+// ToFailedTurn is what gets written back when the answer will never come: why, and
+// nothing else.
+//
+// **The usage is deliberately left at zero even though round trips were paid for.**
+// Somebody who got no answer is not billed for the attempt, and the day's allowance
+// is what that billing feeds. Writing what it really cost would let a run of
+// failures spend somebody's whole day without ever telling them anything.
+//
+// What it looked at on the way is dropped too. Those lookups explain an answer, and
+// there is no answer for them to explain.
+func (assistantExchangeDomain AssistantExchangeDomain) ToFailedTurn(
+	turnID uint, reason string,
+) entities.AssistantTurn {
+	return entities.AssistantTurn{
+		ID:            turnID,
+		Status:        string(vo.AssistantTurnFailed),
+		FailureReason: reason,
+		QueryCount:    assistantExchangeDomain.queryRounds.Used(),
 	}
 }

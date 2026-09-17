@@ -82,16 +82,25 @@ func TestConversationRepositoryAppendTurnAddsToWhatIsAlreadyThere(t *testing.T) 
 	})
 	require.NoError(t, saveError)
 
-	appendedConversation, appendError := conversationRepository.AppendTurn(
+	appendedTurn, appendError := conversationRepository.AppendTurn(
 		t.Context(), savedConversation.ID, turnAt(momentAt(11, 0), "問 2", 200))
 
 	require.NoError(t, appendError)
-	require.Len(t, appendedConversation.Turns, 2)
-	assert.Equal(t, "問 1", appendedConversation.Turns[0].Ask)
-	assert.Equal(t, "問 2", appendedConversation.Turns[1].Ask)
+	// The exchange names itself, so an answer written later lands on this row and no
+	// other — even if a second question arrived at the same moment.
+	assert.Equal(t, "問 2", appendedTurn.Ask)
+	assert.Positive(t, appendedTurn.ID)
+	assert.NotEqual(t, savedConversation.Turns[0].ID, appendedTurn.ID)
+
+	readBackConversation, findError := conversationRepository.FindOne(
+		t.Context(), savedConversation.ID)
+	require.NoError(t, findError)
+	require.Len(t, readBackConversation.Turns, 2)
+	assert.Equal(t, "問 1", readBackConversation.Turns[0].Ask)
+	assert.Equal(t, "問 2", readBackConversation.Turns[1].Ask)
 	// When it was last active is the moment of the exchange that moved it — the same
 	// fact, not a second one to keep in step.
-	assert.Equal(t, momentAt(11, 0), appendedConversation.LastActiveAt.UTC())
+	assert.Equal(t, momentAt(11, 0), readBackConversation.LastActiveAt.UTC())
 }
 
 func TestConversationRepositoryAppendTurnReportsAConversationThatIsNotThere(t *testing.T) {
@@ -284,4 +293,195 @@ func TestConversationRepositoryReportsAnExchangeTheStoreWillNotAccept(t *testing
 	require.Error(t, appendError)
 	assert.NotErrorIs(t, appendError, domains.ErrConversationNotFound)
 	assert.ErrorContains(t, appendError, "append conversation turn")
+}
+
+func TestConversationRepositoryCompleteTurnWritesTheAnswerOverTheReservedRow(t *testing.T) {
+	// The place was reserved when the question arrived; this is the second half of
+	// that, and what a screen finds when it comes back to look.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+		LastActiveAt: momentAt(10, 0),
+		Turns: []entities.AssistantTurn{{
+			Ask: "BTCUSDT 最近走勢如何", Status: "running", CreatedAt: momentAt(10, 0),
+		}},
+	})
+	require.NoError(t, saveError)
+
+	completeError := conversationRepository.CompleteTurn(t.Context(), entities.AssistantTurn{
+		ID:         savedConversation.Turns[0].ID,
+		Answer:     "最近在盤整",
+		Status:     "answered",
+		Usage:      500,
+		QueryCount: 1,
+		Queries: []entities.AssistantQueryRecord{
+			{Sequence: 1, QueryName: "list_trading_symbols", Arguments: `{}`, Outcome: `{}`},
+		},
+	})
+
+	require.NoError(t, completeError)
+
+	readBackConversation, findError := conversationRepository.FindOne(t.Context(), savedConversation.ID)
+	require.NoError(t, findError)
+	require.Len(t, readBackConversation.Turns, 1)
+	assert.Equal(t, "最近在盤整", readBackConversation.Turns[0].Answer)
+	assert.Equal(t, "answered", readBackConversation.Turns[0].Status)
+	assert.Equal(t, 500, readBackConversation.Turns[0].Usage)
+	// The question and the moment it was asked were settled when the place was
+	// reserved, and completing it must not be a second chance to get them wrong.
+	assert.Equal(t, "BTCUSDT 最近走勢如何", readBackConversation.Turns[0].Ask)
+	assert.Equal(t, momentAt(10, 0).UTC(), readBackConversation.Turns[0].CreatedAt.UTC())
+	require.Len(t, readBackConversation.Turns[0].Queries, 1)
+}
+
+func TestConversationRepositoryCompleteTurnRecordsAFailureWithItsReason(t *testing.T) {
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+		LastActiveAt: momentAt(10, 0),
+		Turns: []entities.AssistantTurn{{
+			Ask: "BTCUSDT 最近走勢如何", Status: "running", CreatedAt: momentAt(10, 0),
+		}},
+	})
+	require.NoError(t, saveError)
+
+	completeError := conversationRepository.CompleteTurn(t.Context(), entities.AssistantTurn{
+		ID:            savedConversation.Turns[0].ID,
+		Status:        "failed",
+		FailureReason: "助手目前沒有回應，請稍後再試",
+	})
+
+	require.NoError(t, completeError)
+
+	readBackConversation, findError := conversationRepository.FindOne(t.Context(), savedConversation.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "failed", readBackConversation.Turns[0].Status)
+	assert.Equal(t, "助手目前沒有回應，請稍後再試", readBackConversation.Turns[0].FailureReason)
+	assert.Empty(t, readBackConversation.Turns[0].Answer)
+	// Nobody is charged for an answer they never got.
+	assert.Equal(t, 0, readBackConversation.Turns[0].Usage)
+}
+
+func TestConversationRepositoryCompleteTurnReportsAnExchangeThatIsNotThere(t *testing.T) {
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	completeError := conversationRepository.CompleteTurn(t.Context(), entities.AssistantTurn{
+		ID: 9999, Status: "answered", Answer: "答案",
+	})
+
+	require.ErrorIs(t, completeError, domains.ErrConversationNotFound)
+}
+
+func TestConversationRepositoryFailAllRunningTurnsSweepsWhatAShutdownCutOff(t *testing.T) {
+	// An answer being written lives in one process and nowhere else, so a row left
+	// at running after a restart is a wait nobody can end.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+		LastActiveAt: momentAt(10, 0),
+		Turns: []entities.AssistantTurn{
+			{Ask: "答完的", Answer: "答案", Status: "answered", Usage: 100, CreatedAt: momentAt(10, 0)},
+			{Ask: "還在跑的", Status: "running", CreatedAt: momentAt(10, 1)},
+		},
+	})
+	require.NoError(t, saveError)
+
+	sweptCount, sweepError := conversationRepository.FailAllRunningTurns(
+		t.Context(), "系統重新啟動時中斷了這則回答，請再問一次")
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 1, sweptCount)
+
+	readBackConversation, findError := conversationRepository.FindOne(t.Context(), savedConversation.ID)
+	require.NoError(t, findError)
+	require.Len(t, readBackConversation.Turns, 2)
+	// The one that had already finished is left exactly as it was.
+	assert.Equal(t, "answered", readBackConversation.Turns[0].Status)
+	assert.Equal(t, "答案", readBackConversation.Turns[0].Answer)
+	assert.Equal(t, "failed", readBackConversation.Turns[1].Status)
+	assert.Contains(t, readBackConversation.Turns[1].FailureReason, "重新啟動")
+}
+
+func TestConversationRepositoryFailAllRunningTurnsFindsNothingToSweepOnACleanStart(t *testing.T) {
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	sweptCount, sweepError := conversationRepository.FailAllRunningTurns(t.Context(), "中斷了")
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 0, sweptCount)
+}
+
+func TestConversationRepositoryRefusesASecondRunningTurnOnOneConversation(t *testing.T) {
+	// The rule is asked before a question is accepted, but asking and appending are
+	// two statements: two requests arriving together both read a conversation with
+	// nothing in flight, both pass, and both start writing into it. The store is what
+	// makes the second one impossible rather than merely unlikely.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+		LastActiveAt: momentAt(10, 0),
+		Turns: []entities.AssistantTurn{{
+			Ask: "第一句", Status: "running", CreatedAt: momentAt(10, 0),
+		}},
+	})
+	require.NoError(t, saveError)
+
+	_, appendError := conversationRepository.AppendTurn(
+		t.Context(), savedConversation.ID,
+		entities.AssistantTurn{Ask: "趁它還在寫再問一句", Status: "running", CreatedAt: momentAt(10, 1)})
+
+	// The person who was a moment slower gets the same sentence as the one who was
+	// merely told to wait.
+	require.ErrorIs(t, appendError, domains.ErrAssistantAnswerInProgress)
+}
+
+func TestConversationRepositoryAcceptsTheNextQuestionOnceTheOneBeforeItHasEnded(t *testing.T) {
+	// The index covers only the exchanges still being written. A conversation with a
+	// hundred finished ones is still free to take another question.
+	testCases := []struct {
+		name          string
+		previousState string
+	}{
+		{name: "the one before it was answered", previousState: "answered"},
+		{name: "the one before it failed", previousState: "failed"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+			savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+				LastActiveAt: momentAt(10, 0),
+				Turns: []entities.AssistantTurn{{
+					Ask: "第一句", Answer: "答案", Status: testCase.previousState,
+					CreatedAt: momentAt(10, 0),
+				}},
+			})
+			require.NoError(t, saveError)
+
+			appendedTurn, appendError := conversationRepository.AppendTurn(
+				t.Context(), savedConversation.ID,
+				entities.AssistantTurn{Ask: "下一句", Status: "running", CreatedAt: momentAt(10, 1)})
+
+			require.NoError(t, appendError)
+			assert.Positive(t, appendedTurn.ID)
+		})
+	}
+}
+
+func TestConversationRepositoryLetsTwoConversationsBeWrittenAtOnce(t *testing.T) {
+	// The rule is about one conversation, not one person: two exchanges in two
+	// different conversations have nothing to interleave.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	for range 2 {
+		_, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+			OwnerID:      1,
+			LastActiveAt: momentAt(10, 0),
+			Turns: []entities.AssistantTurn{{
+				Ask: "問一句", Status: "running", CreatedAt: momentAt(10, 0),
+			}},
+		})
+		require.NoError(t, saveError)
+	}
 }

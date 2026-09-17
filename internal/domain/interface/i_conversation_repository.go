@@ -11,9 +11,10 @@ import (
 
 // IConversationRepository stores and retrieves conversations.
 //
-// One exchange is one write. A question and the answer to it live and die together —
-// an assistant that never answers must leave nothing behind — and that guarantee is
-// only free while storing them is a single statement.
+// An exchange is written twice: once when the question is accepted, and once when
+// the answer is finished or has failed. That is not a lost guarantee but the point of
+// the design — the first write is what makes an answer visible while it is still
+// being written, and what a restart can sweep up after.
 //
 // When a conversation was last active is the moment of the exchange that moved it.
 // Adding an exchange therefore does not take that moment as a separate argument:
@@ -28,11 +29,17 @@ type IConversationRepository interface {
 	// back as stored, identifier and times filled in.
 	Save(executionContext context.Context, conversation entities.Conversation) (entities.Conversation, error)
 	// AppendTurn adds one exchange to the conversation this identifier names and
-	// hands the conversation back as it now stands. Refuses with
+	// hands back that exchange as stored, its identifier filled in. Refuses with
 	// ErrConversationNotFound when there is no such conversation.
+	//
+	// **The exchange itself comes back, not the conversation it joined.** Naming the
+	// row this way is the only way that survives two questions arriving at once:
+	// reading the conversation back and taking the last exchange would hand both
+	// askers whichever row committed second, and one answer would be written over
+	// the other.
 	AppendTurn(
 		executionContext context.Context, conversationId uint, turn entities.AssistantTurn,
-	) (entities.Conversation, error)
+	) (entities.AssistantTurn, error)
 	// FindOne returns the conversation carrying this identifier with every exchange
 	// under it, earliest first, or ErrConversationNotFound.
 	FindOne(executionContext context.Context, id uint) (entities.Conversation, error)
@@ -42,8 +49,29 @@ type IConversationRepository interface {
 	// was somewhere in memory in full, and one forgotten narrowing away from being
 	// handed over.
 	FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.Conversation, error)
+	// CompleteTurn writes an answer, or a failure, over the exchange the turn's
+	// identifier names.
+	//
+	// Only what an ending settles is written: the answer, where it got to, what it
+	// cost, how many lookups it ran and why it failed. The question and the moment it
+	// was asked are left alone — they were settled when the exchange began, and
+	// rewriting them would be a second chance to get them wrong.
+	//
+	// Refuses with ErrConversationNotFound when no exchange carries that identifier,
+	// which is what a conversation deleted mid-answer looks like from here.
+	CompleteTurn(executionContext context.Context, turn entities.AssistantTurn) error
+	// FailAllRunningTurns marks every exchange still recorded as running as failed,
+	// carrying this reason, and says how many it touched.
+	//
+	// It runs at startup. An answer being written lives in this system's memory and
+	// nowhere else, so every one of them died with the last shutdown — and a row left
+	// at running is a wait nobody can end and a conversation nobody can add to.
+	FailAllRunningTurns(executionContext context.Context, reason string) (int, error)
 	// SumUsageBetween totals the usage of every exchange stored in this stretch,
 	// start included and end excluded. Holding none is a total of zero rather than a
 	// failure.
+	//
+	// Exchanges that failed contribute nothing because nothing was recorded against
+	// them: nobody is charged for an answer they never got.
 	SumUsageBetween(executionContext context.Context, from time.Time, to time.Time) (int, error)
 }

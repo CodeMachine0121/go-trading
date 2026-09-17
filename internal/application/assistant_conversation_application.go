@@ -20,10 +20,25 @@ func NewAssistantConversationApplication(
 	return &AssistantConversationApplication{assistantConversationService: assistantConversationService}
 }
 
+// Ask hands the question over and gets back where its answer will appear. The answer
+// itself is written afterwards, off this call.
 func (assistantConversationApplication *AssistantConversationApplication) Ask(
 	executionContext context.Context, askDto dto.AssistantAskDto,
-) (dto.AssistantAnswerDto, error) {
+) (dto.AssistantAnswerStartedDto, error) {
 	return assistantConversationApplication.assistantConversationService.Ask(executionContext, askDto)
+}
+
+// FailInterruptedAnswers clears out the answers the last shutdown cut off, and says
+// how many there were so that whoever starts the system can say it out loud.
+//
+// It is called on the way up rather than on the way down, because a shutdown is not
+// always given the chance to tidy up — a power cut and a crash leave the same rows
+// behind as a clean stop, and only the next start is guaranteed to happen.
+func (assistantConversationApplication *AssistantConversationApplication) FailInterruptedAnswers(
+	executionContext context.Context,
+) (int, error) {
+	return assistantConversationApplication.assistantConversationService.FailInterruptedAnswers(
+		executionContext)
 }
 
 func (assistantConversationApplication *AssistantConversationApplication) ListConversations(

@@ -7405,20 +7405,69 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
-                  "    pm.response.to.have.status(200);",
+                  "pm.test(\"回應 202——問題收下了，答案還沒寫完\", function () {",
+                  "    pm.response.to.have.status(202);",
                   "});",
-                  "const answer = pm.response.json();",
-                  "pm.test(\"回了一段話\", function () {",
-                  "    pm.expect(answer.answer).to.be.a(\"string\").and.not.empty;",
-                  "});",
+                  "const started = pm.response.json();",
                   "pm.test(\"附上這段對話的識別碼\", function () {",
-                  "    pm.expect(answer.conversationId).to.be.above(0);",
+                  "    pm.expect(started.conversationId).to.be.above(0);",
                   "});",
-                  "pm.test(\"回報這次動用的份量\", function () {",
-                  "    pm.expect(answer.usage).to.be.above(0);",
+                  "pm.test(\"附上這一次回答的識別碼\", function () {",
+                  "    pm.expect(started.turnId).to.be.above(0);",
                   "});",
-                  "pm.collectionVariables.set(\"conversationId\", answer.conversationId);"
+                  "pm.test(\"狀態是進行中\", function () {",
+                  "    pm.expect(started.status).to.eql(\"running\");",
+                  "});",
+                  "// 答案不在這個回應裡。助手可能來回幾十趟，要讀答案請隔一會兒再打",
+                  "// 「讀一段對話的每一則訊息」，看最後一則的 status 變成 answered 沒有。",
+                  "pm.collectionVariables.set(\"conversationId\", started.conversationId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：同一段對話上還有一則回答在跑",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chat"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversationId\": {{conversationId}},\n  \"question\": \"趁前一則還在跑再問一句\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "緊接在「問一句」之後送出才會看到 409：兩則回答同時寫進同一段對話，沒有人說得出最後那段記錄的是哪一則。前一則寫完之後再送就會通過。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"說明前一則還在跑\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"進行中\");",
+                  "});"
                 ]
               }
             }
@@ -7459,12 +7508,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
-                  "    pm.response.to.have.status(200);",
+                  "pm.test(\"回應 202\", function () {",
+                  "    pm.response.to.have.status(202);",
                   "});",
-                  "pm.test(\"追加在同一段對話裡\", function () {",
-                  "    pm.expect(pm.response.json().conversationId).to.eql(",
-                  "        Number(pm.collectionVariables.get(\"conversationId\")));",
+                  "const started = pm.response.json();",
+                  "pm.test(\"接在同一段對話上\", function () {",
+                  "    pm.expect(started.conversationId).to.eql(Number(pm.collectionVariables.get(\"conversationId\")));",
+                  "});",
+                  "pm.test(\"狀態是進行中\", function () {",
+                  "    pm.expect(started.status).to.eql(\"running\");",
                   "});"
                 ]
               }
@@ -7534,6 +7586,13 @@
                   "    const messages = pm.response.json().messages;",
                   "    pm.expect(messages.length).to.be.above(0);",
                   "    pm.expect(messages[0].role).to.eql(\"ask\");",
+                  "});",
+                  "",
+                  "pm.test(\"每一則都說得出自己的狀態\", function () {",
+                  "    const conversation = pm.response.json();",
+                  "    conversation.messages.forEach(function (message) {",
+                  "        pm.expect([\"running\", \"answered\", \"failed\"]).to.include(message.status);",
+                  "    });",
                   "});"
                 ]
               }

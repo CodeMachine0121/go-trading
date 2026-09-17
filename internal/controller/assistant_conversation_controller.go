@@ -27,6 +27,11 @@ func NewAssistantConversationController(
 }
 
 // Ask handles POST /chat.
+//
+// It answers 202 rather than 200 because nothing has been answered yet: the question
+// was accepted and a place for its answer reserved, and the body says where to look
+// for it. Answering 200 with no answer in it would be the one reading a client could
+// not recover from — it would render an empty reply and move on.
 func (assistantConversationController *AssistantConversationController) Ask(ginContext *gin.Context) {
 	var assistantAskRequest models.AssistantAskRequest
 
@@ -35,14 +40,14 @@ func (assistantConversationController *AssistantConversationController) Ask(ginC
 		return
 	}
 
-	answerDto, err := assistantConversationController.assistantConversationApplication.Ask(
+	answerStartedDto, err := assistantConversationController.assistantConversationApplication.Ask(
 		ginContext.Request.Context(), assistantAskRequest.ToAskDto(middlewares.CurrentUserID(ginContext)))
 	if err != nil {
 		assistantConversationController.respondWithError(ginContext, err)
 		return
 	}
 
-	ginContext.JSON(http.StatusOK, answerDto)
+	ginContext.JSON(http.StatusAccepted, answerStartedDto)
 }
 
 // ListConversations handles GET /chat/conversations.
@@ -96,8 +101,13 @@ func (assistantConversationController *AssistantConversationController) readID(
 //
 // The four are deliberately four different codes, because what the reader has to do
 // about them differs: fix the question, name a conversation that exists, wait for
-// tomorrow, or try again shortly. Collapsing the last two into one would leave
-// somebody retrying a refusal that will still be there in an hour.
+// tomorrow, or wait a moment for the answer already being written. Collapsing any two
+// would leave somebody retrying a refusal that will still be there in an hour, or
+// giving up on one that will clear itself in seconds.
+//
+// **An assistant that did not answer is no longer among them.** It cannot be: by the
+// time that is known, this request is long finished and answered 202. A reader learns
+// it from the exchange itself, which comes back marked failed with the reason on it.
 func (assistantConversationController *AssistantConversationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
@@ -113,8 +123,8 @@ func (assistantConversationController *AssistantConversationController) respondW
 		ginContext.JSON(http.StatusTooManyRequests, gin.H{"message": err.Error()})
 		return
 	}
-	if errors.Is(err, domains.ErrAssistantUnavailable) {
-		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"message": err.Error()})
+	if errors.Is(err, domains.ErrAssistantAnswerInProgress) {
+		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return
 	}
 
