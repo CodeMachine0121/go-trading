@@ -124,39 +124,11 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
 	executionContext context.Context, symbol string,
 ) (dto.KCandleIngestionReportDto, error) {
-	tradingSymbolDomain, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(symbol))
-	if symbolError != nil {
-		return dto.KCandleIngestionReportDto{}, fmt.Errorf("%w: %w",
-			domains.ErrTradingSymbolNamed, symbolError)
+	registeredSymbol, ingestionDomain, reachError := kCandleIngestionService.reachSymbolOnDemand(
+		executionContext, symbol)
+	if reachError != nil {
+		return dto.KCandleIngestionReportDto{}, reachError
 	}
-
-	ingestionDomain, buildError := kCandleIngestionService.buildIngestionDomain()
-	if buildError != nil {
-		return dto.KCandleIngestionReportDto{}, buildError
-	}
-
-	registeredSymbol, isRegistered, findError := kCandleIngestionService.tradingSymbolRepository.
-		FindBySymbol(executionContext, tradingSymbolDomain.Value())
-	if findError != nil {
-		return dto.KCandleIngestionReportDto{}, findError
-	}
-
-	// Without a registration there is no market, and without a market there is no
-	// source to ask. Guessing one from the shape of the name is the rule this system
-	// deliberately does not have.
-	if !isRegistered {
-		return dto.KCandleIngestionReportDto{}, fmt.Errorf("%w: %s",
-			domains.ErrTradingSymbolNotRegistered, tradingSymbolDomain.Value())
-	}
-
-	// Somebody asking by hand is somebody saying they want the source asked. Obeying a
-	// presumed holiday here would answer them with a report saying nothing was
-	// collected — indistinguishable from a market that genuinely had nothing — and
-	// leave them no way to correct a decision that may have been wrong in the first
-	// place. So the decision is dropped rather than obeyed; if the market really is
-	// shut, the window narrows to nothing and the next round decides it shut again.
-	kCandleIngestionService.marketClosureLedger.reconsider(
-		kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market).Value())
 
 	return kCandleIngestionService.ingestSymbols(
 		executionContext,
@@ -164,6 +136,99 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
 		ingestionDomain,
 		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain),
 	), nil
+}
+
+// SyncHistoryFor fetches a stretch of one trading symbol's history that somebody
+// named, and stores it over whatever was there.
+//
+// It is not a backfill with an argument. A backfill closes a gap — it starts wherever
+// the stored data left off, and a symbol already up to date is left alone. This
+// starts where the caller said, every time, which means it **refetches what is
+// already stored**. That is the only capability it adds and the only reason it
+// exists: a stretch fetched wrongly today has no other way to be put right.
+//
+// It shares every gate with the on-demand catch-up — the name, the registration, the
+// dropped closure decision — because those are questions about the symbol rather than
+// about the stretch, and a symbol is a symbol whichever way it is being fetched.
+//
+// The ceiling arrives as an argument rather than being held by this service, for the
+// same reason every other ceiling here does not: how far this system is willing to
+// reach in one request is an operator's decision, and a service that remembered it
+// would be a second place for it to be wrong.
+func (kCandleIngestionService *KCandleIngestionService) SyncHistoryFor(
+	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, ceilingDays int,
+) (dto.KCandleIngestionReportDto, error) {
+	// Judged before anything is read. A request that cannot work should not reach
+	// storage first, and the caller with a lookback of nothing is told about the
+	// lookback rather than about a symbol they spelled perfectly well.
+	lookback, lookbackError := domains.NewKCandleHistoryLookbackDomain(
+		syncDto.LookbackDays, ceilingDays)
+	if lookbackError != nil {
+		return dto.KCandleIngestionReportDto{}, lookbackError
+	}
+
+	registeredSymbol, ingestionDomain, reachError := kCandleIngestionService.reachSymbolOnDemand(
+		executionContext, syncDto.Symbol)
+	if reachError != nil {
+		return dto.KCandleIngestionReportDto{}, reachError
+	}
+
+	return kCandleIngestionService.ingestSymbols(
+		executionContext,
+		[]entities.TradingSymbol{registeredSymbol},
+		ingestionDomain,
+		func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error) {
+			return ingestionDomain.HistoryWindow(
+				watchedSymbol.Symbol, market, lookback.Duration()), nil
+		},
+	), nil
+}
+
+// reachSymbolOnDemand is everything the two hand-driven fetches do before they differ:
+// judge the name, settle the rules, find the registration, and drop any standing
+// decision that the symbol's market is shut for the day.
+//
+// It is shared because both of them need every step, and because the steps are about
+// the symbol rather than about the stretch — the two differ only in which window they
+// end up asking for.
+//
+// **Dropping the closure decision is the deliberate part.** Somebody asking by hand is
+// somebody saying they want the source asked. Obeying a presumed holiday would answer
+// them with a report saying nothing was collected — indistinguishable from a market
+// that genuinely had nothing — and leave them no way to correct a decision that may
+// have been wrong in the first place.
+func (kCandleIngestionService *KCandleIngestionService) reachSymbolOnDemand(
+	executionContext context.Context, symbol string,
+) (entities.TradingSymbol, domains.KCandleIngestionDomain, error) {
+	tradingSymbolDomain, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(symbol))
+	if symbolError != nil {
+		return entities.TradingSymbol{}, domains.KCandleIngestionDomain{}, fmt.Errorf("%w: %w",
+			domains.ErrTradingSymbolNamed, symbolError)
+	}
+
+	ingestionDomain, buildError := kCandleIngestionService.buildIngestionDomain()
+	if buildError != nil {
+		return entities.TradingSymbol{}, domains.KCandleIngestionDomain{}, buildError
+	}
+
+	registeredSymbol, isRegistered, findError := kCandleIngestionService.tradingSymbolRepository.
+		FindBySymbol(executionContext, tradingSymbolDomain.Value())
+	if findError != nil {
+		return entities.TradingSymbol{}, domains.KCandleIngestionDomain{}, findError
+	}
+
+	// Without a registration there is no market, and without a market there is no
+	// source to ask. Guessing one from the shape of the name is the rule this system
+	// deliberately does not have.
+	if !isRegistered {
+		return entities.TradingSymbol{}, domains.KCandleIngestionDomain{}, fmt.Errorf("%w: %s",
+			domains.ErrTradingSymbolNotRegistered, tradingSymbolDomain.Value())
+	}
+
+	kCandleIngestionService.marketClosureLedger.reconsider(
+		kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market).Value())
+
+	return registeredSymbol, ingestionDomain, nil
 }
 
 // backfillWindowOf is how far back one symbol has to be asked about: from wherever

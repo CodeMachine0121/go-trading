@@ -146,6 +146,29 @@ func (kCandleIngestionDomain KCandleIngestionDomain) BackfillWindow(
 		symbol, market, startTime, kCandleIngestionDomain.LatestClosedOpenTime())
 }
 
+// HistoryWindow covers a stretch somebody named, reaching back from now by the
+// lookback they gave.
+//
+// **It never looks at what is already stored, and that is the whole of what separates
+// it from a backfill.** A backfill asks "what am I missing" and starts wherever the
+// stored data left off; this asks "is that stretch here and correct", which can only
+// be answered by fetching it again. It is the one way a stretch fetched wrongly can
+// ever be put right.
+//
+// The start is rounded down to a bucket edge for the same reason every other
+// lookback-derived start is: a stretch beginning mid-bucket makes the oldest bucket
+// of every coarseness begin part way through itself, and nothing downstream can tell
+// that apart from a market that simply traded little. See BackfillWindow.
+func (kCandleIngestionDomain KCandleIngestionDomain) HistoryWindow(
+	symbol string, market vo.MarketVo, lookback time.Duration,
+) vo.KCandleFetchWindowVo {
+	startTime := NewCoarsestAggregationIntervalDomain().BucketStart(
+		kCandleIngestionDomain.currentTime.Add(-lookback))
+
+	return vo.NewKCandleFetchWindowVo(
+		symbol, market, startTime, kCandleIngestionDomain.LatestClosedOpenTime())
+}
+
 // SelectClosed drops any candle the source handed over whose interval has not
 // finished yet, however the source chose to report it.
 func (kCandleIngestionDomain KCandleIngestionDomain) SelectClosed(

@@ -1118,3 +1118,169 @@ func TestARoundInFlightWorksFromTheListItStartedWith(t *testing.T) {
 	<-changedMidRound
 	assert.Len(t, report.SymbolReports, 1)
 }
+
+// historyCeilingDays is the ceiling the history-sync cases are written against.
+const historyCeilingDays = 90
+
+func historySyncOf(symbol string, lookbackDays int) dto.KCandleHistorySyncDto {
+	return dto.KCandleHistorySyncDto{Symbol: symbol, LookbackDays: lookbackDays}
+}
+
+func TestSyncingHistoryAsksForTheWholeStretchTheCallerNamed(t *testing.T) {
+	// The window's start comes from the lookback and nothing else. That is the whole
+	// difference from a backfill, which starts wherever the stored data left off.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
+		"BTCUSDT", vo.MarketCrypto,
+		// Two days back from 2026-08-30 09:07, rounded down to a bucket edge.
+		time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+		ingestionAt(9, 6, 0),
+	)).Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil)
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+}
+
+func TestSyncingHistoryRefetchesWhatIsAlreadyStored(t *testing.T) {
+	// This is the one thing a backfill cannot do, and the reason this exists: a
+	// stretch fetched wrongly has no other way to be corrected. So the stored data is
+	// never consulted — the store is not even asked what it already holds.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	askedWindow := vo.KCandleFetchWindowVo{}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedWindow = window
+
+			return []vo.MarketKCandleVo{}, nil
+		})
+
+	_, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), askedWindow.StartTime)
+}
+
+func TestSyncingHistoryRefusesALookbackThatIsNotAStretch(t *testing.T) {
+	testCases := []struct {
+		name         string
+		lookbackDays int
+	}{
+		{name: "no days at all", lookbackDays: 0},
+		{name: "backwards", lookbackDays: -1},
+		{name: "past the ceiling", lookbackDays: historyCeilingDays + 1},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Refused before the store is touched: a request that cannot work should
+			// not read anything first.
+			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+			underTest.tradingSymbolRepository.EXPECT().
+				FindBySymbol(gomock.Any(), gomock.Any()).Times(0)
+
+			_, syncError := underTest.service.SyncHistoryFor(
+				t.Context(), historySyncOf("BTCUSDT", testCase.lookbackDays), historyCeilingDays)
+
+			assert.ErrorIs(t, syncError, domains.ErrKCandleHistoryLookback)
+		})
+	}
+}
+
+func TestSyncingHistoryRefusesASymbolNobodyRegistered(t *testing.T) {
+	// Same rule as the on-demand catch-up: without a registration there is no market,
+	// and without a market there is no source to ask.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "9999").
+		Return(entities.TradingSymbol{}, false, nil)
+
+	_, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("9999", 2), historyCeilingDays)
+
+	assert.ErrorIs(t, syncError, domains.ErrTradingSymbolNotRegistered)
+}
+
+func TestSyncingHistoryRefusesNothingAsAName(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+
+	_, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("   ", 2), historyCeilingDays)
+
+	assert.ErrorIs(t, syncError, domains.ErrTradingSymbolNamed)
+	assert.NotErrorIs(t, syncError, domains.ErrTradingSymbolNotRegistered)
+}
+
+func TestSyncingHistoryReachesASymbolNobodyIsWatching(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: false,
+		}, true, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+
+	_, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+}
+
+func TestSyncingHistoryReportsTheCandlesItCouldNotStore(t *testing.T) {
+	// The report is the same shape a backfill produces, down to naming the candle
+	// that broke a rule. One thing should not have two ways of being described.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{
+			validReportedKCandle(ingestionAt(9, 4, 0)),
+			reportedKCandle(ingestionAt(9, 5, 0), "90", "120"),
+		}, nil)
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	assert.True(t, report.SymbolReports[0].WasAsked)
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+	require.Len(t, report.SymbolReports[0].SkippedKCandles, 1)
+	assert.Equal(t, ingestionAt(9, 5, 0), report.SymbolReports[0].SkippedKCandles[0].OpenTime)
+}
+
+func TestSyncingHistoryReportsASourceThatWouldNotAnswer(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return(nil, sourceUnreachable)
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	assert.Contains(t, report.SymbolReports[0].FetchFailureReason, "unreachable")
+}
