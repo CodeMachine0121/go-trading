@@ -161,11 +161,13 @@ func (tradingStrategyApplication *TradingStrategyApplication) withResolvedStrate
 			return dto.TradingStrategyWriteDto{}, resolveError
 		}
 
-		// Only the declared knobs are taken. The script is deliberately left
-		// behind: what a trading strategy stores about a source is which strategy
-		// script it names, so that a script adopted from the marketplace is run
-		// without ever being copied somewhere its adopter could read it.
+		// Only the declared knobs and the kind of value it produces are taken. The
+		// script is deliberately left behind: what a trading strategy stores about a
+		// source is which strategy script it names, so that a script adopted from the
+		// marketplace is run without ever being copied somewhere its adopter could
+		// read it.
 		signalSource.DeclaredParameters = runnableStrategyScript.Parameters
+		signalSource.DeclaredResultType = runnableStrategyScript.ResultType
 		resolvedSources = append(resolvedSources, signalSource)
 	}
 

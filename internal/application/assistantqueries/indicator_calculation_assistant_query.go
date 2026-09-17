@@ -83,7 +83,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ar
 		`"startTime":{"type":"string","description":"要看哪一段行情的起點，RFC3339"},` +
 		`"strategyScriptId":{"type":"integer","description":"要用哪一支既有策略腳本"},` +
 		`"script":{"type":"string","description":"自帶的指標算式，未指名策略腳本時使用"},` +
-		`"resultType":{"type":"string","enum":["float","floatList","bool","boolList"],"description":"自帶算式的指標值種類"},` +
+		`"resultType":{"type":"string","enum":["float","floatList","bool","boolList","signal"],"description":"自帶算式的指標值種類"},` +
 		`"endTime":{"type":"string","description":"算到哪個時間為止，RFC3339，未給視為現在"},` +
 		`"parameterValues":{"type":"array","description":"這次每個參數是多少","items":{"type":"object","properties":{` +
 		`"name":{"type":"string"},"value":{"type":"number"}},"required":["name","value"],"additionalProperties":false}}` +

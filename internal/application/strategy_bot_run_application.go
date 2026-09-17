@@ -434,10 +434,17 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 					EndTime:             endTime,
 					Script:              runnableStrategyScript.Script,
 					AggregationInterval: signalSource.AggregationInterval,
-					// The signal kind is this system's, not the strategy script's. A bot
-					// reads opinions, so a strategy script saved as a number is run for
-					// the one thing a bot can use — and refused by the calculation
-					// if it cannot produce it.
+					// A source always speaks in signals. That is settled when the
+					// trading strategy is saved — a source may only name a strategy
+					// script declared as one — so this is not overriding what the
+					// script said; it is the same rule, restated where the script
+					// actually runs.
+					//
+					// Restated rather than read off the source, because a round that
+					// began before that rule existed still has to say something a bot
+					// can act on, and because a script whose declaration and body
+					// disagree should fail on the calculation rather than quietly
+					// produce a number nobody can trade on.
 					ResultType:      string(vo.IndicatorResultTypeSignal),
 					Parameters:      runnableStrategyScript.Parameters,
 					ParameterValues: signalSource.ParameterValues,

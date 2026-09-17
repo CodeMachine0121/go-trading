@@ -40,6 +40,15 @@ const assistantSystemPrompt = `你是一個台灣使用者的加密貨幣行情�
 resultType 決定 T：float → float64；floatList → []float64；bool → bool；boolList → []bool。
 未給 resultType 預設 float。
 
+resultType 給 signal 時進入點**換一個形狀**——不是 map，是單一個信號：
+  func Calculate(data []indicator.KCandle) indicator.Signal
+回傳值只能是 indicator.Buy、indicator.Sell、indicator.Hold 其中一個；不設方向會當場失敗。
+
+**要被交易策略當信號來源的腳本，resultType 一律給 signal。** 交易策略的條件比對的是
+買入／賣出／持有，只有 signal 這一種說得出那三個值；宣告成 float 卻回傳 indicator.Signal
+的腳本存得進去、但接不上任何一份交易策略，而且跑起來就失敗。兩者必須一起改：
+換進入點形狀時就換 resultType，換 resultType 時就換進入點形狀。
+
 KCandle 可用欄位（全是 float64，除了 OpenTimeUnixSeconds 是 int64）：
   Open、High、Low、Close、Volume、QuoteVolume、TakerBuyBaseVolume、TakerBuyQuoteVolume、OpenTimeUnixSeconds
 
