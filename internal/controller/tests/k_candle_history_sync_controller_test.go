@@ -73,19 +73,42 @@ func (underTest historySyncRouterUnderTest) post(body string) *httptest.Response
 }
 
 // registersCrypto is a symbol the system knows about, which is what makes a market —
-// and therefore a source — available for it.
+// and therefore a source — available for it. Nothing is stored for it yet, so every
+// chunk of the stretch is one this run has to go and ask about.
 func (underTest historySyncRouterUnderTest) registersCrypto(symbol string) {
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), symbol).
 		Return(entities.TradingSymbol{
 			Symbol: symbol, Market: string(vo.MarketCrypto), IsWatched: true,
 		}, true, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+}
+
+// answersNothingForEveryChunk is a source that is reachable and simply has nothing to
+// give. The stretch is walked a chunk at a time, so it is asked once per chunk.
+func (underTest historySyncRouterUnderTest) answersNothingForEveryChunk() *vo.KCandleFetchWindowVo {
+	firstAskedWindow := &vo.KCandleFetchWindowVo{}
+	asked := false
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			if !asked {
+				*firstAskedWindow = window
+				asked = true
+			}
+
+			return []vo.MarketKCandleVo{}, nil
+		}).AnyTimes()
+
+	return firstAskedWindow
 }
 
 func TestSyncingHistoryReportsWhatItCollected(t *testing.T) {
 	underTest := newHistorySyncRouterUnderTest(t)
 	underTest.registersCrypto("BTCUSDT")
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
-		Return([]vo.MarketKCandleVo{}, nil)
+	underTest.answersNothingForEveryChunk()
 
 	recorder := underTest.post(`{"symbol":"BTCUSDT","lookbackDays":30}`)
 
@@ -99,17 +122,11 @@ func TestSyncingHistoryReachesBackAsFarAsAsked(t *testing.T) {
 	underTest := newHistorySyncRouterUnderTest(t)
 	underTest.registersCrypto("BTCUSDT")
 
-	askedWindow := vo.KCandleFetchWindowVo{}
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ any, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
-			askedWindow = window
-
-			return []vo.MarketKCandleVo{}, nil
-		})
+	firstAskedWindow := underTest.answersNothingForEveryChunk()
 
 	underTest.post(`{"symbol":"BTCUSDT","lookbackDays":3}`)
 
-	assert.Equal(t, time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), askedWindow.StartTime)
+	assert.Equal(t, time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), firstAskedWindow.StartTime)
 }
 
 func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.T) {
@@ -191,7 +208,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 				underTest.registersCrypto("BTCUSDT")
 				underTest.marketDataProxy.EXPECT().
 					FetchKCandles(gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("market source unreachable"))
+					Return(nil, errors.New("market source unreachable")).AnyTimes()
 			},
 		},
 		{
@@ -224,17 +241,11 @@ func TestSyncingHistoryOffersNoWayToChooseTheCoarseness(t *testing.T) {
 	underTest := newHistorySyncRouterUnderTest(t)
 	underTest.registersCrypto("BTCUSDT")
 
-	askedWindow := vo.KCandleFetchWindowVo{}
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ any, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
-			askedWindow = window
-
-			return []vo.MarketKCandleVo{}, nil
-		})
+	firstAskedWindow := underTest.answersNothingForEveryChunk()
 
 	underTest.post(`{"symbol":"BTCUSDT","lookbackDays":1,"interval":"1h"}`)
 
 	// The window still ends on a whole minute: the extra field was not read at all.
-	assert.Equal(t, 0, askedWindow.EndTime.Second())
-	assert.Equal(t, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), askedWindow.StartTime)
+	assert.Equal(t, 0, firstAskedWindow.EndTime.Second())
+	assert.Equal(t, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), firstAskedWindow.StartTime)
 }

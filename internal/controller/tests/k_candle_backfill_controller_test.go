@@ -85,7 +85,7 @@ func TestCatchingUpASymbolReportsWhatItCollected(t *testing.T) {
 	// StoredCount reads nothing at all, and finds out only when it goes to add the
 	// counts up — a page-breaking error about a field, one layer away from the field.
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":true,"storedCount":0,"skippedKCandles":[],"fetchFailureReason":""}]}`, response.Body.String())
+	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":true,"storedCount":0,"skippedCount":0,"skippedKCandles":[],"skippedKCandlesTruncated":false,"fetchFailureReason":""}]}`, response.Body.String())
 }
 
 func TestCatchingUpAnswersWithASkippedListEvenWhenTheSourceWillNotAnswer(t *testing.T) {
@@ -105,7 +105,7 @@ func TestCatchingUpAnswersWithASkippedListEvenWhenTheSourceWillNotAnswer(t *test
 	response := underTest.post(`{"symbol":"BTCUSDT"}`)
 
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":false,"storedCount":0,"skippedKCandles":[],"fetchFailureReason":"source unavailable"}]}`, response.Body.String())
+	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":false,"storedCount":0,"skippedCount":0,"skippedKCandles":[],"skippedKCandlesTruncated":false,"fetchFailureReason":"source unavailable"}]}`, response.Body.String())
 }
 
 func TestCatchingUpASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {

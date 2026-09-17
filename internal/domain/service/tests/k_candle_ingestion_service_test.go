@@ -148,17 +148,25 @@ func (underTest ingestionUnderTest) watchingInMarket(market vo.MarketVo, symbols
 		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
 }
 
-// acceptEveryFirstTimeSave lets every candle through on the path that never
-// overwrites, as though the store held none of them yet. It is separate from
-// acceptEverySave because which of the two a run reaches is itself the thing several
-// cases are about.
-func (underTest ingestionUnderTest) acceptEveryFirstTimeSave() *savedOpenTimes {
-	saved := &savedOpenTimes{openTimes: []time.Time{}}
-	underTest.kCandleRepository.EXPECT().SaveIfAbsent(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, kCandle entities.KCandle) (bool, error) {
-			saved.record(kCandle)
+// syncingFromEmptyStorage is a store holding nothing yet: every chunk counts as
+// having no candles, and every batch of absent ones is written whole.
+//
+// It is separate from acceptEverySave because which of the two a run reaches is
+// itself the thing several cases are about — one path replaces what it collected,
+// the other must never touch what is already there.
+func (underTest ingestionUnderTest) syncingFromEmptyStorage() *savedOpenTimes {
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
 
-			return true, nil
+	saved := &savedOpenTimes{openTimes: []time.Time{}}
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			for _, kCandle := range kCandles {
+				saved.record(kCandle)
+			}
+
+			return len(kCandles), nil
 		}).AnyTimes()
 
 	return saved
@@ -1146,24 +1154,50 @@ func TestSyncingHistoryAsksForTheWholeStretchTheCallerNamed(t *testing.T) {
 	// The window's start comes from the lookback and nothing else. That is the whole
 	// difference from a backfill, which starts wherever the stored data left off.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEveryFirstTimeSave()
+	underTest.syncingFromEmptyStorage()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
 		}, true, nil)
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), vo.NewKCandleFetchWindowVo(
-		"BTCUSDT", vo.MarketCrypto,
-		// Two days back from 2026-08-30 09:07, rounded down to a bucket edge.
-		time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
-		ingestionAt(9, 6, 0),
-	)).Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil)
+
+	askedWindows := underTest.recordEveryWindowAskedAbout(
+		[]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))})
 
 	report, syncError := underTest.service.SyncHistoryFor(
 		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
 
 	require.NoError(t, syncError)
+	// The stretch is covered a day at a time, so what matters is that the pieces
+	// together span exactly what was asked for and leave no minute between them.
+	require.NotEmpty(t, *askedWindows)
+	// Two days back from 2026-08-30 09:07, rounded down to a bucket edge.
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), (*askedWindows)[0].StartTime)
+	assert.Equal(t, ingestionAt(9, 6, 0), (*askedWindows)[len(*askedWindows)-1].EndTime)
+	for index := 1; index < len(*askedWindows); index++ {
+		assert.Equal(t,
+			(*askedWindows)[index-1].EndTime.Add(time.Minute),
+			(*askedWindows)[index].StartTime,
+			"一段接一段之間不可以漏掉任何一分鐘")
+	}
 	require.Len(t, report.SymbolReports, 1)
-	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+	assert.Equal(t, len(*askedWindows), report.SymbolReports[0].StoredCount)
+}
+
+// recordEveryWindowAskedAbout answers every chunk with the same candles and keeps the
+// windows in the order they were asked for, so a case can check the stretch they
+// cover between them.
+func (underTest ingestionUnderTest) recordEveryWindowAskedAbout(
+	answer []vo.MarketKCandleVo,
+) *[]vo.KCandleFetchWindowVo {
+	askedWindows := &[]vo.KCandleFetchWindowVo{}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			*askedWindows = append(*askedWindows, window)
+
+			return answer, nil
+		}).AnyTimes()
+
+	return askedWindows
 }
 
 func TestSyncingHistoryAsksAboutTheWholeStretchEvenWhereItAlreadyHasData(t *testing.T) {
@@ -1172,26 +1206,166 @@ func TestSyncingHistoryAsksAboutTheWholeStretchEvenWhereItAlreadyHasData(t *test
 	// that is what lets a hole be filled at all — the store is not consulted to narrow
 	// the window.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEveryFirstTimeSave()
+	underTest.syncingFromEmptyStorage()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
 		}, true, nil)
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 
-	askedWindow := vo.KCandleFetchWindowVo{}
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
-			askedWindow = window
-
-			return []vo.MarketKCandleVo{}, nil
-		})
+	askedWindows := underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
 
 	_, syncError := underTest.service.SyncHistoryFor(
 		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
 
 	require.NoError(t, syncError)
-	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), askedWindow.StartTime)
+	require.NotEmpty(t, *askedWindows)
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), (*askedWindows)[0].StartTime)
+}
+
+func TestSyncingHistorySkipsAStretchItAlreadyHoldsEveryCandleOf(t *testing.T) {
+	// Over a long stretch nearly every day is already complete, and asking the source
+	// about one is a round trip that can only answer with what is already held. The
+	// counting read that establishes it costs a fraction of that.
+	//
+	// This is the one place stored data is consulted, and it decides whether to ask —
+	// never where to start. Starting from what is stored is what leaves a hole in the
+	// middle unreachable, which is the whole reason this use case exists.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+
+	// The first whole day back is complete; nothing else is.
+	completeDay := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, startTime time.Time, _ time.Time) (int, error) {
+			if startTime.Equal(completeDay) {
+				return 24 * 60, nil
+			}
+
+			return 0, nil
+		}).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+	askedWindows := underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
+
+	_, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.NotEmpty(t, *askedWindows)
+	for _, askedWindow := range *askedWindows {
+		assert.False(t, askedWindow.StartTime.Equal(completeDay),
+			"已經齊全的那一天不應該再去問來源")
+	}
+}
+
+func TestSyncingHistoryKeepsWhatItAlreadyStoredWhenTheSourceGivesUpPartWay(t *testing.T) {
+	// Storing chunk by chunk is what makes a long stretch survivable: a source that
+	// stops answering halfway leaves the first half stored and correct, and running
+	// again picks up from there because nothing already held is written twice.
+	//
+	// The rest of the stretch is abandoned rather than attempted, because a source
+	// that just refused one chunk will refuse the next thousand the same way.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+
+	storedBatches := 0
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			storedBatches++
+
+			return len(kCandles), nil
+		}).AnyTimes()
+
+	askedTimes := 0
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedTimes++
+			if askedTimes > 1 {
+				return nil, sourceUnreachable
+			}
+
+			return []vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil
+		}).AnyTimes()
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	// The first chunk is stored before the second is even asked for.
+	assert.Equal(t, 1, storedBatches)
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+	assert.Contains(t, report.SymbolReports[0].FetchFailureReason, "unreachable")
+	// It stopped at the refusal instead of walking the rest of the stretch into it.
+	assert.Equal(t, 2, askedTimes)
+}
+
+func TestSyncingHistoryCountsEverySkippedKCandleButOnlyNamesSoMany(t *testing.T) {
+	// A source answering with rubbish for years turns an unbounded list into a report
+	// nobody can open. The count stays honest either way.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+	brokenKCandles := make([]vo.MarketKCandleVo, 0, 300)
+	for minute := range 300 {
+		brokenKCandles = append(brokenKCandles,
+			reportedKCandle(ingestionAt(0, minute, 0), "90", "120"))
+	}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return(brokenKCandles, nil).Times(1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	assert.Equal(t, 300, report.SymbolReports[0].SkippedCount)
+	assert.Len(t, report.SymbolReports[0].SkippedKCandles, 200)
+	assert.True(t, report.SymbolReports[0].SkippedKCandlesTruncated)
+}
+
+func TestSyncingHistoryFailsOutrightWhenStorageBreaks(t *testing.T) {
+	// Storage breaking is this system's own fault rather than anything the candles
+	// did, so it ends the request instead of being written down as a skipped candle.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		Return(0, errors.New("storage unavailable")).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil).AnyTimes()
+
+	_, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.Error(t, syncError)
 }
 
 func TestSyncingHistoryLeavesAlreadyStoredKCandlesAlone(t *testing.T) {
@@ -1203,19 +1377,28 @@ func TestSyncingHistoryLeavesAlreadyStoredKCandlesAlone(t *testing.T) {
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
 		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return([]vo.MarketKCandleVo{
 			validReportedKCandle(ingestionAt(9, 4, 0)),
 			validReportedKCandle(ingestionAt(9, 5, 0)),
-		}, nil)
+		}, nil).Times(1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
 
-	// The store reports the second one as already held, so only the first is new.
+	// The store reports one of the two as already held, so only the other is new.
 	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 	underTest.kCandleRepository.EXPECT().
-		SaveIfAbsent(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, kCandle entities.KCandle) (bool, error) {
-			return kCandle.OpenTime.Equal(ingestionAt(9, 4, 0)), nil
-		}).Times(2)
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			if len(kCandles) == 0 {
+				return 0, nil
+			}
+
+			return 1, nil
+		}).AnyTimes()
 
 	report, syncError := underTest.service.SyncHistoryFor(
 		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
@@ -1237,7 +1420,7 @@ func TestTheOtherIngestionPathsStillOverwriteWhatTheyCollected(t *testing.T) {
 	underTest.watchingInMarket(vo.MarketCrypto, "BTCUSDT")
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil)
-	underTest.kCandleRepository.EXPECT().SaveIfAbsent(gomock.Any(), gomock.Any()).Times(0)
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Times(0)
 	saved := underTest.acceptEverySave()
 
 	_, roundError := underTest.service.RunScheduledRound(t.Context())
@@ -1297,13 +1480,12 @@ func TestSyncingHistoryRefusesNothingAsAName(t *testing.T) {
 
 func TestSyncingHistoryReachesASymbolNobodyIsWatching(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEveryFirstTimeSave()
+	underTest.syncingFromEmptyStorage()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: false,
 		}, true, nil)
-	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
-		Return([]vo.MarketKCandleVo{}, nil)
+	underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
 
 	_, syncError := underTest.service.SyncHistoryFor(
 		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
@@ -1315,7 +1497,7 @@ func TestSyncingHistoryReportsTheCandlesItCouldNotStore(t *testing.T) {
 	// The report is the same shape a backfill produces, down to naming the candle
 	// that broke a rule. One thing should not have two ways of being described.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEveryFirstTimeSave()
+	underTest.syncingFromEmptyStorage()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
@@ -1324,7 +1506,9 @@ func TestSyncingHistoryReportsTheCandlesItCouldNotStore(t *testing.T) {
 		Return([]vo.MarketKCandleVo{
 			validReportedKCandle(ingestionAt(9, 4, 0)),
 			reportedKCandle(ingestionAt(9, 5, 0), "90", "120"),
-		}, nil)
+		}, nil).Times(1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
 
 	report, syncError := underTest.service.SyncHistoryFor(
 		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
@@ -1343,6 +1527,9 @@ func TestSyncingHistoryReportsASourceThatWouldNotAnswer(t *testing.T) {
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
 		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return(nil, sourceUnreachable)
 
@@ -1363,7 +1550,7 @@ func TestSyncingHistoryDropsAStandingDecisionThatTheMarketIsShut(t *testing.T) {
 	// Same rule as the on-demand catch-up, and the same code; this pins that going in
 	// through the history sync reaches it too.
 	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T10:00:00+08:00"))
-	underTest.acceptEveryFirstTimeSave()
+	underTest.syncingFromEmptyStorage()
 	underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
 		[]entities.TradingSymbol{{
 			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
@@ -1388,7 +1575,7 @@ func TestSyncingHistoryDropsAStandingDecisionThatTheMarketIsShut(t *testing.T) {
 			askedAgain = true
 
 			return []vo.MarketKCandleVo{}, nil
-		})
+		}).AnyTimes()
 
 	report, syncError := underTest.service.SyncHistoryFor(
 		t.Context(), historySyncOf("2330", 2), historyCeilingDays)
@@ -1410,6 +1597,9 @@ func TestSyncingHistoryOverAClosedMarketIsNotAFailure(t *testing.T) {
 			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
 		}, true, nil)
 	// The whole window falls on a weekend, so the source is never even reached.
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
 
 	report, syncError := underTest.service.SyncHistoryFor(
