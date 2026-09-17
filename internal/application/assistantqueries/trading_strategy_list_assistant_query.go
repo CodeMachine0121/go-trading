@@ -29,9 +29,10 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Name
 }
 
 func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Description() string {
-	return "列出使用者自己的每一份交易策略：識別碼、名稱、來源代號與各來源的彙總刻度。" +
+	return "列出使用者自己的每一份交易策略：識別碼、名稱、交易模式、來源代號與各來源的彙總刻度。" +
 		"不含條件樹與參數值——要看完整內容請用 get_trading_strategy 指名一份。" +
-		"刻度帶在這裡，是為了讓你一眼看出哪一份的來源刻度不一致、因而重演不了。"
+		"刻度帶在這裡，是為了讓你一眼看出哪一份的來源刻度不一致、因而重演不了；" +
+		"交易模式帶在這裡，是為了讓使用者說「我的帳戶不能放空」時，你一眼看出該去改哪幾份。"
 }
 
 func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) ArgumentSchema() string {
@@ -41,8 +42,13 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Argu
 // tradingStrategyDigest is a trading strategy as it appears in a list: enough to pick
 // one by, and enough to see which ones cannot be replayed, without the trees.
 type tradingStrategyDigest struct {
-	ID           uint     `json:"id"`
-	Name         string   `json:"name"`
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	// TradingMode is which kind of account this one is written for. It is in the list
+	// rather than left to a read of each one, because "my account cannot short" is a
+	// sentence about every set of rules at once, and answering it one get at a time
+	// spends the query budget on something a list can say in a word.
+	TradingMode  string   `json:"tradingMode"`
 	SourceLabels []string `json:"sourceLabels"`
 	// AggregationIntervals is every coarseness this one's sources read, in source
 	// order. More than one distinct value means it cannot be replayed — saying so
@@ -73,6 +79,7 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Run(
 		digests = append(digests, tradingStrategyDigest{
 			ID:                   tradingStrategyDto.ID,
 			Name:                 tradingStrategyDto.Name,
+			TradingMode:          tradingStrategyDto.TradingMode,
 			SourceLabels:         sourceLabels,
 			AggregationIntervals: aggregationIntervals,
 		})

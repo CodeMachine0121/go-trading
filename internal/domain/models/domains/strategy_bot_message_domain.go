@@ -73,10 +73,26 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		headlineMark = "🔴"
 	}
 
+	// The verb beside the mark, and the one thing the trading mode decides about a
+	// message: a conclusion is read as an instruction. It starts as the signal's own
+	// word, which is already the act for an account that cannot short, and is replaced
+	// only where the two part company. An opinion nobody can read keeps its own
+	// wording — a message is the last place to invent a direction.
+	headlineVerb := strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict)
+
+	if strategyBotMessageDomain.tradingMode.CanGoShort() {
+		switch vo.SignalVo(strategyBotMessageDomain.round.Verdict) {
+		case vo.SignalBuy:
+			headlineVerb = "做多"
+		case vo.SignalSell:
+			headlineVerb = "做空"
+		}
+	}
+
 	lines := []string{
 		fmt.Sprintf("%s【%s】%s · %s",
 			headlineMark,
-			strategyBotMessageDomain.verdictInWords(),
+			headlineVerb,
 			strategyBotMessageDomain.round.BotName,
 			strategyBotMessageDomain.round.Symbol),
 		"",
@@ -125,31 +141,12 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	return strings.Join(lines, "\n")
 }
 
-// verdictInWords is this round's conclusion as the act its reader has to perform.
-//
-// It is two vocabularies rather than one, and they are not the same function in two
-// languages: signalInWords translates what a strategy script said, of which there are
-// only ever three; this translates what somebody has to go and do.
-func (strategyBotMessageDomain StrategyBotMessageDomain) verdictInWords() string {
-	if !strategyBotMessageDomain.tradingMode.CanGoShort() {
-		return strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict)
-	}
-
-	switch vo.SignalVo(strategyBotMessageDomain.round.Verdict) {
-	case vo.SignalBuy:
-		return "做多"
-	case vo.SignalSell:
-		return "做空"
-	}
-
-	// Anything else — including a conclusion this does not recognise — is left to the
-	// signal's own wording, which writes an unrecognised value out as it stands. There
-	// is no direction to name for an opinion nobody can read.
-	return strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict)
-}
-
 // signalInWords is a signal as a person reads it. Both the headline and every source
 // line need it, which is what earns it a name of its own.
+//
+// It stays the signal's own vocabulary — buy, sell, hold — whatever mode is reading.
+// What somebody has to go and do about one is the headline's business, above, and
+// rewriting these words to match it would put them in the strategy scripts' mouths.
 //
 // An unrecognised value is written out as it stands rather than replaced with a
 // guess: a message is the last place to quietly turn something the system did not

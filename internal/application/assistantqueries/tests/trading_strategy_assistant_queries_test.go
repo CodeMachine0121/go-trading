@@ -274,13 +274,18 @@ func TestTradingStrategyGetAssistantQueryAnswersSomebodyElsesAsNotFound(t *testi
 
 func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testing.T) {
 	// The coarseness travels with the digest so the assistant can tell at a glance
-	// which of these it cannot replay, without reading each one in full first.
+	// which of these it cannot replay, without reading each one in full first. The
+	// trading mode travels with it for the same kind of reason: "my account cannot
+	// short" is a sentence about every set of rules at once, and answering it one
+	// read at a time spends the query budget on something a list says in a word.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
+
+	spotRules := aStoredTradingStrategy(assistantTradingStrategyID, "動能追蹤", assistantViewerID)
+	spotRules.TradingMode = string(vo.TradingModeSpot)
+
 	fixture.tradingStrategyRepository.EXPECT().
 		FindAllByOwner(gomock.Any(), assistantViewerID).
-		Return([]entities.TradingStrategy{
-			aStoredTradingStrategy(assistantTradingStrategyID, "動能追蹤", assistantViewerID),
-		}, nil)
+		Return([]entities.TradingStrategy{spotRules}, nil)
 
 	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantViewerID, "")
 
@@ -290,6 +295,7 @@ func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testi
 		TradingStrategies []struct {
 			ID                   uint     `json:"id"`
 			Name                 string   `json:"name"`
+			TradingMode          string   `json:"tradingMode"`
 			SourceLabels         []string `json:"sourceLabels"`
 			AggregationIntervals []string `json:"aggregationIntervals"`
 		} `json:"tradingStrategies"`
@@ -298,6 +304,7 @@ func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testi
 	require.Len(t, digests.TradingStrategies, 1)
 	assert.Equal(t, assistantTradingStrategyID, digests.TradingStrategies[0].ID)
 	assert.Equal(t, "動能追蹤", digests.TradingStrategies[0].Name)
+	assert.Equal(t, string(vo.TradingModeSpot), digests.TradingStrategies[0].TradingMode)
 	assert.Equal(t, []string{"A"}, digests.TradingStrategies[0].SourceLabels)
 	assert.Equal(t, []string{"1h"}, digests.TradingStrategies[0].AggregationIntervals)
 }
