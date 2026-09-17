@@ -11,14 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sourceNamed is one signal source declaring one knob, which is enough for every
-// rule about sources to have something to bite on.
+// sourceNamed is one signal source declaring one knob and naming a strategy script
+// that speaks in signals, which is enough for every rule about sources to have
+// something to bite on.
 func sourceNamed(label string, strategyScriptID uint) dto.TradingStrategySignalSourceWriteDto {
 	return dto.TradingStrategySignalSourceWriteDto{
 		Label:               label,
 		StrategyScriptID:    strategyScriptID,
 		AggregationInterval: string(vo.AggregationIntervalOneHour),
 		DeclaredParameters:  []dto.StrategyScriptParameterWriteDto{{Name: "回看根數", Kind: "lookbackCount"}},
+		DeclaredResultType:  string(vo.IndicatorResultTypeSignal),
 	}
 }
 
@@ -231,6 +233,36 @@ func TestNewTradingStrategyDomainLetsOneStrategyScriptBeTwoSources(t *testing.T)
 	assert.Equal(t, uint(1), signalSources[1].StrategyScriptID)
 	assert.Equal(t, 20.0, signalSources[0].ParameterValues[0].Value)
 	assert.Equal(t, 60.0, signalSources[1].ParameterValues[0].Value)
+}
+
+// A condition compares a source against buy, sell or hold, and only a strategy script
+// declared as a signal ever produces those. Naming any other kind builds a set of
+// rules whose every sentence has nothing on the other side of it — and nothing would
+// say so until the bot woke up in the night and stopped on a script failure.
+func TestNewTradingStrategyDomainRefusesASourceThatDoesNotSpeakInSignals(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		resultType string
+	}{
+		{name: "一個數字", resultType: string(vo.IndicatorResultTypeFloat)},
+		{name: "一串數字", resultType: string(vo.IndicatorResultTypeFloatList)},
+		{name: "一個是非", resultType: string(vo.IndicatorResultTypeBool)},
+		{name: "一串是非", resultType: string(vo.IndicatorResultTypeBoolList)},
+		{name: "什麼都沒宣告", resultType: ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aTradingStrategyWriteDto()
+			writeDto.SignalSources[0].DeclaredResultType = testCase.resultType
+
+			_, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+			require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
+			// The refusal names the source, because a trading strategy may hold ten
+			// of them and "one of them is wrong" is not something anybody can act on.
+			assert.ErrorContains(t, buildError, "A")
+			assert.ErrorContains(t, buildError, "signal")
+		})
+	}
 }
 
 // A trading strategy whose sources read different coarsenesses cannot do anything:

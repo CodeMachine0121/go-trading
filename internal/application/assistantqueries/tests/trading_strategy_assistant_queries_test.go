@@ -12,6 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,7 @@ func newTradingStrategyAssistantQueriesUnderTest(t *testing.T) tradingStrategyAs
 		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
 			return entities.StrategyScript{
 				ID: id, OwnerID: assistantViewerID, Name: "均線", Script: "the script",
+				ResultType: string(vo.IndicatorResultTypeSignal),
 				Parameters: []entities.StrategyScriptParameter{
 					{Name: "lookback", Kind: "lookbackCount", DefaultValue: 20},
 				},

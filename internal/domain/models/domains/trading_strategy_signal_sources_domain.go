@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // strategyBotSignalSourceMaxCount is how many strategy scripts one bot may run.
@@ -85,6 +86,30 @@ func NewTradingStrategySignalSourcesDomain(
 		if intervalError != nil {
 			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
 				"%w: 信號來源 %q 的彙總刻度不對：%w", ErrTradingStrategyValidation, label, intervalError)
+		}
+
+		// A condition compares a source against buy, sell or hold. A strategy script
+		// that hands back numbers or true/false answers has none of those to give, so
+		// every condition naming this source would be a sentence with nothing on the
+		// other side of it — and nothing would say so until the bot woke up at three in
+		// the morning and stopped on a script failure.
+		//
+		// Refused here rather than filtered out of the picker, because the picker is
+		// one of several ways a source is named: the screen, the assistant, and a
+		// request written by hand all arrive at this model.
+		declaredResultType, resultTypeError := NewIndicatorResultTypeDomain(source.DeclaredResultType)
+		if resultTypeError != nil {
+			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
+				"%w: 信號來源 %q 指名的那支策略腳本的指標值種類不對：%w",
+				ErrTradingStrategyValidation, label, resultTypeError)
+		}
+
+		if !declaredResultType.IsSignal() {
+			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
+				"%w: 信號來源 %q 指名的那支策略腳本不吐訊號——它的指標值種類是 %q，"+
+					"而條件比對的是買入／賣出／持有，只有 %q 這一種說得出那三個值",
+				ErrTradingStrategyValidation, label,
+				string(declaredResultType.Value()), string(vo.IndicatorResultTypeSignal))
 		}
 
 		// Setting a knob the strategy script never declared is caught now rather than at

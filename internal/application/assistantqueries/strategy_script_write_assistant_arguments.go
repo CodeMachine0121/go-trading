@@ -57,7 +57,8 @@ const strategyScriptWriteArgumentSchema = `` +
 	`"description":{"type":"string","description":"這支策略腳本在做什麼，發佈到市集時別人只看得到這一段"},` +
 	`"name":{"type":"string","description":"策略腳本名稱，不得空白、不得與既有策略腳本重複，上限 128 字"},` +
 	`"script":{"type":"string","description":"指標算式（Go 函式本文），不得空白"},` +
-	`"resultType":{"type":"string","enum":["float","floatList","bool","boolList"],"description":"指標值種類，未給視為 float"},` +
+	`"resultType":{"type":"string","enum":["float","floatList","bool","boolList","signal"],` +
+	`"description":"指標值種類，未給視為 float。要給交易策略當信號來源的腳本一律用 signal"},` +
 	`"parameters":{"type":"array","description":"這支策略腳本自己的參數","items":{"type":"object","properties":{` +
 	`"description":{"type":"string","description":"這支策略腳本在做什麼，發佈到市集時別人只看得到這一段"},` +
 	`"name":{"type":"string"},` +

@@ -20,17 +20,24 @@ type TradingStrategyWriteDto struct {
 }
 
 // TradingStrategySignalSourceWriteDto is one signal source as it arrives, plus the
-// one thing only the strategy script itself can say: which knobs it declares.
+// two things only the strategy script itself can say: which knobs it declares, and
+// what kind of value it produces.
 //
-// DeclaredParameters is filled in by the application from the resolved strategy
-// script, not by the caller. It is here so that "this source sets a knob that
-// strategy script never declared" is caught by the same model that checks everything
-// else about a source, rather than surfacing much later as a script failure in the
-// middle of the night.
+// DeclaredParameters and DeclaredResultType are filled in by the application from the
+// resolved strategy script, not by the caller. They are here so that "this source
+// sets a knob that strategy script never declared" and "this source listens to a
+// strategy script that never speaks in signals" are both caught by the same model
+// that checks everything else about a source, rather than surfacing much later as a
+// script failure in the middle of the night.
 type TradingStrategySignalSourceWriteDto struct {
 	Label               string
 	StrategyScriptID    uint
 	AggregationInterval string
 	ParameterValues     []StrategyScriptParameterValueDto
 	DeclaredParameters  []StrategyScriptParameterWriteDto
+	// DeclaredResultType is the kind of value the named strategy script declares.
+	// A condition compares a source against buy, sell or hold, and only one kind of
+	// strategy script ever produces those — so this is the only field that decides
+	// whether a source can mean anything at all.
+	DeclaredResultType string
 }
