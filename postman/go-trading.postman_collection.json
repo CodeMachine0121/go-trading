@@ -8741,7 +8741,7 @@
             "description": "存起來只是被記住，不會因此被執行——執行是機器人的事。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"spot\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8762,6 +8762,7 @@
                   "    pm.expect(saved.buyCondition.operator).to.eql(\"and\");",
                   "    pm.expect(saved.sellCondition.sourceLabel).to.eql(\"A\");",
                   "});",
+                  "pm.test(\"交易模式跟著這一份存起來了\", function () {\n    pm.expect(pm.response.json().tradingMode).to.eql(\"spot\");\n});",
                   "pm.collectionVariables.set(\"tradingStrategyId\", pm.response.json().id);"
                 ]
               }
@@ -8800,7 +8801,8 @@
                   "    pm.expect(found.signalSources[1].aggregationInterval).to.eql(\"1h\");",
                   "    pm.expect(found.signalSources[0]).to.not.have.property(\"script\");",
                   "    pm.expect(found).to.not.have.property(\"ownerId\");",
-                  "});"
+                  "});",
+                  "pm.test(\"交易模式一起回來，畫面才填得出現值\", function () {\n    pm.expect(pm.response.json().tradingMode).to.eql(\"spot\");\n});"
                 ]
               }
             }
@@ -9173,6 +9175,53 @@
                   "});",
                   "pm.test(\"成績單說得出打架了幾棒\", function () {",
                   "    pm.expect(pm.response.json().summary.conflictedCandleCount).to.be.a(\"number\");",
+                  "});",
+                  "pm.test(\"沒給交易模式，卻照這一份記著的現貨走：每一筆都是做多\", function () {\n    pm.response.json().closedTrades.forEach(function (trade) {\n        pm.expect(trade.direction).to.eql(\"long\");\n    });\n});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "改成多空反手：交易模式改得動",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{tradingStrategyId}}"
+              ]
+            },
+            "description": "存起來只是被記住，不會因此被執行——執行是機器人的事。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"longShort\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"交易模式換過來了\", function () {",
+                  "    pm.expect(pm.response.json().tradingMode).to.eql(\"longShort\");",
                   "});"
                 ]
               }
@@ -9180,7 +9229,7 @@
           ]
         },
         {
-          "name": "重演這一份交易策略：現貨模式",
+          "name": "重演：交易模式跟著那一份走，不必再講一次",
           "request": {
             "method": "POST",
             "header": [
@@ -9203,7 +9252,7 @@
             "description": "**與上一發同一份交易策略、同一段歷史，只換了交易模式。**\n\n交易模式走的是與重演一支策略腳本完全相同的那一道關卡，所以留白即多空反手、認不得即整次拒絕，兩條路一字不差。現貨模式下賣出只平倉回現金，因此交易明細裡不可能出現空倉。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"spot\"\n}",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -9217,14 +9266,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"現貨模式下每一筆交易都是做多\", function () {",
-                  "    pm.response.json().closedTrades.forEach(function (trade) {",
-                  "        pm.expect(trade.direction).to.eql(\"long\");",
-                  "    });",
-                  "});",
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "// 這一次沒有交易模式可以給——請求裡根本沒有那個欄位。改的是那一份交易策略，",
+                  "// 重演就跟著改，而使用者一次都不必重講。",
                   "pm.test(\"成績單、資金曲線、交易明細照舊交出來\", function () {",
                   "    pm.expect(pm.response.json().summary).to.be.an(\"object\");",
                   "    pm.expect(pm.response.json().equityCurve).to.be.an(\"array\");",
@@ -9277,6 +9321,53 @@
                   "pm.test(\"說得出是哪一格要改，以及現在有哪幾種\", function () {",
                   "    pm.expect(pm.response.json().field).to.eql(\"signalSources\");",
                   "    pm.expect(pm.response.json().message).to.include(\"彙總刻度\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：交易模式認不得",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies"
+              ]
+            },
+            "description": "存起來只是被記住，不會因此被執行——執行是機器人的事。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"dayTrade\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "// 不默默退回預設：退回去的話，使用者會拿著一份性質與他以為的不一樣的交易策略去上線。",
+                  "pm.test(\"說出現在有哪兩種可選\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(\"longShort\");",
+                  "    pm.expect(pm.response.text()).to.include(\"spot\");",
                   "});"
                 ]
               }
