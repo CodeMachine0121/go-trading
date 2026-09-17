@@ -84,7 +84,12 @@ func NewBacktestDomain(
 
 	tradingMode, tradingModeError := NewTradingModeDomain(requestDto.TradingMode)
 	if tradingModeError != nil {
-		return BacktestDomain{}, tradingModeError
+		// The sentence comes from the mode; naming which input it is about is this
+		// replay's business, because "tradingMode" is what a replay calls the thing a
+		// caller has to go and change. A set of rules being saved wraps the same
+		// sentence in its own sentinel instead.
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestTradingModeField, tradingModeError.Error())
 	}
 
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)

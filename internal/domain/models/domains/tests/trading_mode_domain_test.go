@@ -57,12 +57,10 @@ func TestTradingModeDomainRefusesWhatItCannotRead(t *testing.T) {
 	_, err := domains.NewTradingModeDomain("dayTrade")
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, domains.ErrBacktestValidation)
-	// The refusal names the input, so whoever asked can put the sentence beside the
-	// box the person has to change rather than at the top of a page.
-	fieldName, namesField := domains.BacktestFieldName(err)
-	require.True(t, namesField)
-	assert.Equal(t, domains.BacktestTradingModeField, fieldName)
+	// The refusal carries the sentence alone, with no sentinel of its own. Two worlds
+	// ask this question — a replay and a set of rules being saved — and each wraps the
+	// sentence in the sentinel its own controller already maps. That a replay's refusal
+	// names the input is asserted where a replay is: backtest_domain_test.go.
 	// Both spellings are offered back; a refusal that does not say what is allowed
 	// leaves the caller guessing at a string.
 	assert.Contains(t, err.Error(), string(vo.TradingModeLongShort))
@@ -190,4 +188,49 @@ func TestBacktestAccountDomainTradesNothingUnderAnUnrecognisedMode(t *testing.T)
 
 	assert.Equal(t, 0, account.PositionOpenCount())
 	assert.Empty(t, account.ClosedTradeDtos())
+}
+
+func TestTradingModeDomainCanGoShort(t *testing.T) {
+	testCases := []struct {
+		name            string
+		declaredMode    string
+		expectedInWords string
+		canGoShort      bool
+	}{
+		{
+			name:            "long-short can hold a position that gains when the price falls",
+			declaredMode:    "longShort",
+			expectedInWords: "多空反手",
+			canGoShort:      true,
+		},
+		{
+			name:            "spot cannot",
+			declaredMode:    "spot",
+			expectedInWords: "現貨",
+			canGoShort:      false,
+		},
+		{
+			name:            "declaring nothing reads as long-short, and so can short",
+			declaredMode:    "",
+			expectedInWords: "多空反手",
+			canGoShort:      true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.canGoShort, tradingMode.CanGoShort())
+			assert.Equal(t, testCase.expectedInWords, tradingMode.InWords())
+		})
+	}
+}
+
+func TestTradingModeDomainZeroValueCannotGoShort(t *testing.T) {
+	// One that never went through the constructor answers no, by the same rule
+	// TargetFor answers "unchanged": a mode this does not recognise is the last place
+	// to guess which way somebody should trade.
+	assert.False(t, domains.TradingModeDomain{}.CanGoShort())
 }

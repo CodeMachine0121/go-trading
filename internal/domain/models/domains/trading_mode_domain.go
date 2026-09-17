@@ -52,13 +52,49 @@ func NewTradingModeDomain(declaredMode string) (TradingModeDomain, error) {
 		selectableSpellings = append(selectableSpellings, string(selectableMode))
 	}
 
-	return TradingModeDomain{}, BacktestValidationFailure(
-		BacktestTradingModeField,
-		fmt.Sprintf("交易模式只能是 %s 其中之一", strings.Join(selectableSpellings, "、")))
+	// The refusal carries the sentence and nothing else. Two worlds ask this
+	// question now — a replay and a set of rules being saved — and each has its own
+	// sentinel to wrap it in so that its own controller keeps mapping it. Writing
+	// the sentence here once is what keeps the two from drifting into two different
+	// lists of what a trading mode may be.
+	return TradingModeDomain{}, fmt.Errorf(
+		"交易模式只能是 %s 其中之一", strings.Join(selectableSpellings, "、"))
 }
 
 func (tradingModeDomain TradingModeDomain) Value() vo.TradingModeVo {
 	return tradingModeDomain.value
+}
+
+// CanGoShort is what the two modes actually differ by: whether these rules may hold
+// a position that gains when the price falls.
+//
+// It is named after the mode rather than after what any caller does with the answer.
+// A message asks it to decide whether its headline says "sell" or "open a short", and
+// a message's wording is the kind of thing that gains a second form next month —
+// whereas "can these rules short" is settled for as long as the mode exists.
+//
+// A zero value — one that never went through the constructor — answers no, by the same
+// rule TargetFor answers "unchanged": a mode this does not recognise is the last place
+// to guess which way somebody should trade.
+func (tradingModeDomain TradingModeDomain) CanGoShort() bool {
+	return tradingModeDomain.value == vo.TradingModeLongShort
+}
+
+// InWords is this mode as a person reads it.
+//
+// Every mode is named rather than one being the fall-through, for the reason TargetFor
+// names them all: a third mode added to the selectable set and forgotten here comes out
+// as its own stored spelling, which is odd to read but true — not as one of the two
+// this does recognise.
+func (tradingModeDomain TradingModeDomain) InWords() string {
+	switch tradingModeDomain.value {
+	case vo.TradingModeLongShort:
+		return "多空反手"
+	case vo.TradingModeSpot:
+		return "現貨"
+	}
+
+	return string(tradingModeDomain.value)
 }
 
 // TargetFor is what this opinion asks the account to be holding once the candle is
