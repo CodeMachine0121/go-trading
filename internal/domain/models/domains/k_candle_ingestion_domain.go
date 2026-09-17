@@ -146,6 +146,80 @@ func (kCandleIngestionDomain KCandleIngestionDomain) BackfillWindow(
 		symbol, market, startTime, kCandleIngestionDomain.LatestClosedOpenTime())
 }
 
+// HistoryWindow covers a stretch somebody named, reaching back from now by the
+// lookback they gave.
+//
+// **It never looks at what is already stored, and that is the whole of what separates
+// it from a backfill.** A backfill starts wherever the stored data left off, so a
+// minute missing from the *middle* of a stretch is one it never comes back for:
+// holding day one and day thirty, it begins after day thirty and the twenty-eight
+// days between are gone for good. Asking about the whole stretch is the only way that
+// hole ever gets filled.
+//
+// Asking is not writing. What comes back is stored under whichever rule the run was
+// given, and the run that uses this window keeps what it already holds.
+//
+// The start is rounded down to a bucket edge for the same reason every other
+// lookback-derived start is: a stretch beginning mid-bucket makes the oldest bucket
+// of every coarseness begin part way through itself, and nothing downstream can tell
+// that apart from a market that simply traded little. See BackfillWindow.
+func (kCandleIngestionDomain KCandleIngestionDomain) HistoryWindow(
+	symbol string, market vo.MarketVo, lookback time.Duration,
+) vo.KCandleFetchWindowVo {
+	startTime := NewCoarsestAggregationIntervalDomain().BucketStart(
+		kCandleIngestionDomain.currentTime.Add(-lookback))
+
+	return vo.NewKCandleFetchWindowVo(
+		symbol, market, startTime, kCandleIngestionDomain.LatestClosedOpenTime())
+}
+
+// HistoryChunks is the same stretch HistoryWindow covers, cut into one day each,
+// oldest first.
+//
+// **Cutting it up is what makes the length of the stretch stop mattering.** Asked for
+// four years in one window, everything the source answers with has to be held at once
+// before a single candle is stored — two million of them, which is not a slow request
+// but a dead one. A day at a time is fetched, stored and let go of, so four years
+// costs exactly what one day costs, over and over.
+//
+// **Oldest first is deliberate.** A run that dies part way then leaves one continuous
+// block of old candles with the gap at the recent end, and that gap is precisely the
+// shape the ordinary backfill closes. Newest first would leave the gap in the middle,
+// and nothing in this system fills those.
+//
+// The days are the aggregation bucket's days, not the market's: the point of the cut
+// is a bounded amount of work, and a market's own day would make the boundary move
+// with the market for no gain. Each chunk ends on the last open time of its day, and
+// the final one on the last minute that has actually closed — so the chunks meet end
+// to end with no gap and no overlap, and together cover exactly what HistoryWindow
+// covers.
+func (kCandleIngestionDomain KCandleIngestionDomain) HistoryChunks(
+	symbol string, market vo.MarketVo, lookback time.Duration,
+) []vo.KCandleFetchWindowVo {
+	wholeWindow := kCandleIngestionDomain.HistoryWindow(symbol, market, lookback)
+	if wholeWindow.IsEmpty() {
+		return []vo.KCandleFetchWindowVo{}
+	}
+
+	coarsestInterval := NewCoarsestAggregationIntervalDomain()
+
+	chunks := make([]vo.KCandleFetchWindowVo, 0)
+	for chunkStart := wholeWindow.StartTime; !chunkStart.After(wholeWindow.EndTime); {
+		chunkEnd := coarsestInterval.BucketStart(chunkStart).
+			Add(coarsestInterval.duration).Add(-kCandleIngestionDomain.interval())
+		if chunkEnd.After(wholeWindow.EndTime) {
+			chunkEnd = wholeWindow.EndTime
+		}
+
+		chunks = append(chunks,
+			vo.NewKCandleFetchWindowVo(symbol, market, chunkStart, chunkEnd))
+
+		chunkStart = chunkEnd.Add(kCandleIngestionDomain.interval())
+	}
+
+	return chunks
+}
+
 // SelectClosed drops any candle the source handed over whose interval has not
 // finished yet, however the source chose to report it.
 func (kCandleIngestionDomain KCandleIngestionDomain) SelectClosed(

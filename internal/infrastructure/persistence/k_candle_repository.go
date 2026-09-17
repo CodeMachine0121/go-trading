@@ -54,6 +54,56 @@ func (kCandleRepository *KCandleRepository) Save(
 	return kCandle, nil
 }
 
+// SaveAllIfAbsent stores every K candle nothing is held for yet, in one statement,
+// and says how many it stored.
+//
+// One statement rather than one per candle: a day of a round-the-clock market is over
+// a thousand of them, and four years is two million — at which point the round trips
+// are most of what the run costs.
+//
+// An empty batch is answered without touching the store at all, because the driver
+// refuses a statement with no rows and a day the market was shut on legitimately
+// produces one.
+func (kCandleRepository *KCandleRepository) SaveAllIfAbsent(
+	executionContext context.Context, kCandles []entities.KCandle,
+) (int, error) {
+	if len(kCandles) == 0 {
+		return 0, nil
+	}
+
+	result := kCandleRepository.database.WithContext(executionContext).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
+			DoNothing: true,
+		}).
+		Create(&kCandles)
+	if result.Error != nil {
+		return 0, fmt.Errorf("save k candles if absent: %w", result.Error)
+	}
+
+	return int(result.RowsAffected), nil
+}
+
+// CountInRange is how many K candles are held for this symbol across the stretch,
+// both ends included.
+func (kCandleRepository *KCandleRepository) CountInRange(
+	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+) (int, error) {
+	heldCount := int64(0)
+
+	result := kCandleRepository.database.WithContext(executionContext).
+		Model(&entities.KCandle{}).
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
+		Where(clause.Gte{Column: "open_time", Value: startTime.UTC()}).
+		Where(clause.Lte{Column: "open_time", Value: endTime.UTC()}).
+		Count(&heldCount)
+	if result.Error != nil {
+		return 0, fmt.Errorf("count k candles: %w", result.Error)
+	}
+
+	return int(heldCount), nil
+}
+
 // Update replaces the figures of an existing K candle, reporting not found when the
 // trading symbol and open time name no candle.
 func (kCandleRepository *KCandleRepository) Update(

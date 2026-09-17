@@ -144,6 +144,32 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 	return tradingBucketCount
 }
 
+// TradingKCandleCountBetween is how many K candles this market should hold across the
+// stretch, **both ends included**.
+//
+// It answers "how many should be there", which is the question asked of a stretch
+// before deciding whether it is worth fetching at all: equal to what storage holds
+// means that stretch is already complete and the source need not be troubled for it.
+//
+// It is its own method rather than a call to TradingBucketCountBetween, because that
+// one answers one short for a market that never closes — a documented reading its
+// callers and the bars they draw all depend on, and one this must not take. For a
+// market that does close, that walk is already inclusive, so this defers to it rather
+// than keeping a second copy of the session arithmetic.
+func (marketDomain MarketDomain) TradingKCandleCountBetween(
+	startTime time.Time, endTime time.Time,
+) int {
+	if !marketDomain.neverCloses() {
+		return marketDomain.TradingBucketCountBetween(startTime, endTime, KCandleInterval)
+	}
+
+	if endTime.Before(startTime) {
+		return 0
+	}
+
+	return int(endTime.Sub(startTime)/KCandleInterval) + 1
+}
+
 // HoldsTrading reports whether the market is open at any point of the stretch.
 //
 // It is asked out loud rather than derived from a bucket count being zero, because a
@@ -250,6 +276,23 @@ func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 		localMoment.Year(), localMoment.Month(), localMoment.Day(),
 		0, 0, 0, 0, marketDomain.rules.TradingSession.Location,
 	).UTC()
+}
+
+// Zone is the zone this market says its own days in, and nil for one that never
+// closes and therefore has none.
+//
+// It is given out for one purpose: a source whose address takes a local date has to
+// *name* a day to somebody else, which needs the zone both to write it down and to
+// step to the next one. TradingDateOf cannot serve that — it answers in universal
+// time, which is the right answer for comparing days and the wrong one for spelling
+// them.
+//
+// Nothing else should reach for it. Whether a market is open, whether a stretch holds
+// trading, which day a moment falls in — all of those are questions this model
+// already answers, and answering them from the zone outside would be a second copy
+// of rules that live here.
+func (marketDomain MarketDomain) Zone() *time.Location {
+	return marketDomain.rules.TradingSession.Location
 }
 
 // NeverCloses reports a market that trades round the clock.

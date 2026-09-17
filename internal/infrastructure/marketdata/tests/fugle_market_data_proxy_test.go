@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,24 @@ import (
 // taipei is the zone this source states its times in, fixed so that these rules hold
 // on any machine whatever time zone database it ships with.
 var taipei = time.FixedZone("Asia/Taipei", 8*60*60)
+
+// taipeiMarket is the market this source answers for. The proxy is handed the market
+// itself rather than just its zone, because it is asked one local day at a time and
+// "does this market trade that day" is the market's question, not the source's.
+func taipeiMarket() domains.MarketDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   taipei,
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+		},
+	}).MarketOf(string(vo.MarketTaiwanStock))
+}
 
 // taipeiAt is a moment said in Taipei time, which is how the requirements for this
 // market are written.
@@ -120,7 +139,7 @@ func (source *fugleSourceUnderTest) proxyAt(
 
 	return marketdata.NewFugleMarketDataProxy(
 		source.server.URL+"/intraday", source.server.URL+"/historical",
-		"a-key", taipei, clockProxy, requestTimeout)
+		"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced())
 }
 
 func fugleWindow(t *testing.T, startTime string, endTime string) vo.KCandleFetchWindowVo {
@@ -318,7 +337,7 @@ func TestFugleReportsASourceThatWillNotAnswer(t *testing.T) {
 			clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-08T10:07:00+08:00")).AnyTimes()
 			fugleMarketDataProxy := marketdata.NewFugleMarketDataProxy(
 				server.URL+"/intraday", server.URL+"/historical",
-				"a-key", taipei, clockProxy, requestTimeout)
+				"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced())
 
 			_, fetchError := fugleMarketDataProxy.FetchKCandles(
 				t.Context(), fugleWindow(t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
@@ -354,7 +373,7 @@ func TestFugleAnswersWhetherASymbolExists(t *testing.T) {
 			t.Cleanup(server.Close)
 
 			listing, lookupError := marketdata.NewFugleSymbolLookupProxy(
-				server.URL+"/ticker", "a-key", requestTimeout).
+				server.URL+"/ticker", "a-key", requestTimeout, unpaced()).
 				LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 			if testCase.expectedError {
@@ -381,7 +400,7 @@ func TestFugleCarriesTheCompanyNameOutOfTheSameAnswer(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	listing, lookupError := marketdata.NewFugleSymbolLookupProxy(
-		server.URL+"/ticker", "a-key", requestTimeout).
+		server.URL+"/ticker", "a-key", requestTimeout, unpaced()).
 		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.NoError(t, lookupError)
@@ -399,7 +418,7 @@ func TestFugleStillWatchesASymbolWhoseNameItCouldNotRead(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	listing, lookupError := marketdata.NewFugleSymbolLookupProxy(
-		server.URL+"/ticker", "a-key", requestTimeout).
+		server.URL+"/ticker", "a-key", requestTimeout, unpaced()).
 		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.NoError(t, lookupError)
@@ -409,7 +428,7 @@ func TestFugleStillWatchesASymbolWhoseNameItCouldNotRead(t *testing.T) {
 
 func TestFugleReportsALookupItCannotReach(t *testing.T) {
 	_, lookupError := marketdata.NewFugleSymbolLookupProxy(
-		"http://127.0.0.1:1/ticker", "a-key", 50*time.Millisecond).
+		"http://127.0.0.1:1/ticker", "a-key", 50*time.Millisecond, unpaced()).
 		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.Error(t, lookupError)
@@ -423,7 +442,7 @@ func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
 
 	_, fetchError := marketdata.NewFugleMarketDataProxy(
 		"http://\x7f/intraday", "http://\x7f/historical",
-		"a-key", taipei, clockProxy, requestTimeout,
+		"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced(),
 	).FetchKCandles(t.Context(), fugleWindow(
 		t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
 
@@ -431,8 +450,36 @@ func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
 }
 
 func TestFugleReportsALookupAddressItCannotEvenAskAt(t *testing.T) {
-	_, lookupError := marketdata.NewFugleSymbolLookupProxy("http://\x7f/ticker", "a-key", requestTimeout).
+	_, lookupError := marketdata.NewFugleSymbolLookupProxy("http://\x7f/ticker", "a-key", requestTimeout, unpaced()).
 		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
 
 	require.Error(t, lookupError)
+}
+
+func TestFugleNeverAsksAboutADayTheMarketCannotTradeOn(t *testing.T) {
+	// This source is asked one local day at a time, which was cheap while the only
+	// lookback-driven window was a day or two. A history sync can now hand it ninety,
+	// and a quarter of those are weekends that can only ever answer empty — paid for
+	// in sequential, API-keyed requests, on a plan that answers 429 when pushed.
+	//
+	// The days a market cannot trade on are the market's own knowledge, which is why
+	// the session comes in rather than the zone alone.
+	source := newFugleSourceUnderTest(t)
+	source.answersWith("", fugleAnswerJson("2330"))
+
+	// Friday through Monday: four calendar days, two of them a weekend. "Now" is the
+	// Tuesday after, so every one of them goes to the historical address rather than
+	// the intraday one — which is what makes the requests countable in one place.
+	_, fetchError := source.proxyAt(t, taipeiAt(t, "2026-09-15T20:00:00+08:00")).
+		FetchKCandles(t.Context(), fugleWindow(
+			t, "2026-09-11T09:00:00+08:00", "2026-09-14T13:29:00+08:00"))
+
+	require.NoError(t, fetchError)
+
+	askedDays := make([]string, 0)
+	for _, request := range source.askedHistorical() {
+		askedDays = append(askedDays, request.URL.Query().Get("from"))
+	}
+	assert.Equal(t, []string{"2026-09-11", "2026-09-14"}, askedDays,
+		"週六與週日這個市場不可能有資料，不該為它們各打一次")
 }

@@ -40,3 +40,34 @@ func (kCandleIngestionApplication *KCandleIngestionApplication) RunScheduledRoun
 ) (dto.KCandleIngestionReportDto, error) {
 	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(executionContext)
 }
+
+// StartSymbolHistorySync accepts a request to fill in the minutes missing from a
+// named stretch of one trading symbol's history, and answers with the run to watch.
+// What is already held is left exactly as it is.
+//
+// The ceiling travels through rather than being held anywhere in the middle: it is an
+// operator's decision, settled once at the composition root, and a layer that
+// remembered a copy would be a second place for it to drift.
+func (kCandleIngestionApplication *KCandleIngestionApplication) StartSymbolHistorySync(
+	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, lookbackCeilingDays int,
+) (dto.KCandleHistorySyncRunDto, error) {
+	return kCandleIngestionApplication.kCandleIngestionService.StartHistorySyncFor(
+		executionContext, syncDto, lookbackCeilingDays)
+}
+
+// GetSymbolHistorySync answers with where one history sync has got to.
+func (kCandleIngestionApplication *KCandleIngestionApplication) GetSymbolHistorySync(
+	executionContext context.Context, id uint,
+) (dto.KCandleHistorySyncRunDto, error) {
+	return kCandleIngestionApplication.kCandleIngestionService.GetHistorySyncRun(
+		executionContext, id)
+}
+
+// FailInterruptedHistorySyncs clears out the runs the last shutdown cut off, and says
+// how many there were so that whoever starts the system can say it out loud.
+func (kCandleIngestionApplication *KCandleIngestionApplication) FailInterruptedHistorySyncs(
+	executionContext context.Context,
+) (int, error) {
+	return kCandleIngestionApplication.kCandleIngestionService.FailInterruptedHistorySyncs(
+		executionContext)
+}

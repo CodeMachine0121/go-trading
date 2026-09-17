@@ -53,3 +53,15 @@ func (mr *MockIClockProxyMockRecorder) Now() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Now", reflect.TypeOf((*MockIClockProxy)(nil).Now))
 }
+
+// Sleep mocks base method.
+func (m *MockIClockProxy) Sleep(duration time.Duration) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Sleep", duration)
+}
+
+// Sleep indicates an expected call of Sleep.
+func (mr *MockIClockProxyMockRecorder) Sleep(duration any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sleep", reflect.TypeOf((*MockIClockProxy)(nil).Sleep), duration)
+}

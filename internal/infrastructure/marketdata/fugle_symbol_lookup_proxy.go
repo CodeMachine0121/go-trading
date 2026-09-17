@@ -21,15 +21,19 @@ type FugleSymbolLookupProxy struct {
 	tickerBaseUrl string
 	apiKey        string
 	httpClient    *http.Client
+	// pacer is the venue's, shared with every other proxy that reaches it. The
+	// allowance is counted per venue rather than per kind of question.
+	pacer RequestPacer
 }
 
 func NewFugleSymbolLookupProxy(
-	tickerBaseUrl string, apiKey string, requestTimeout time.Duration,
+	tickerBaseUrl string, apiKey string, requestTimeout time.Duration, pacer RequestPacer,
 ) *FugleSymbolLookupProxy {
 	return &FugleSymbolLookupProxy{
 		tickerBaseUrl: tickerBaseUrl,
 		apiKey:        apiKey,
 		httpClient:    &http.Client{Timeout: requestTimeout},
+		pacer:         pacer,
 	}
 }
 
@@ -57,6 +61,10 @@ type fugleTicker struct {
 func (fugleSymbolLookupProxy *FugleSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
 ) (vo.SymbolListingVo, error) {
+	if waitError := fugleSymbolLookupProxy.pacer.WaitForTurn(executionContext); waitError != nil {
+		return vo.SymbolListingVo{}, waitError
+	}
+
 	request, buildError := http.NewRequestWithContext(executionContext, http.MethodGet,
 		fugleSymbolLookupProxy.tickerBaseUrl+"/"+url.PathEscape(symbol), nil)
 	if buildError != nil {

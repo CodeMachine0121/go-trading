@@ -59,6 +59,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /k-candles/:symbol/:openTime",
 		// Following a market live reads; it names the symbol the viewer is looking at
 		// and cannot touch the watchlist, so the boundary this test holds is intact.
+		"GET /k-candles/history/:id",
 		"GET /k-candles/live",
 		"GET /k-candles/series",
 		// The shared shelf. It hands out names, descriptions and knobs, never an
@@ -84,6 +85,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"POST /k-candles/backfill",
+		"POST /k-candles/history",
 		"POST /marketplace/strategy-scripts/:id/adoption",
 		"POST /sessions",
 		"POST /sessions/renewal",

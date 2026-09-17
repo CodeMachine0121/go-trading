@@ -82,6 +82,10 @@ func registerRoutes(
 	// Built once and shared, because a strategy bot quoting a reference price is
 	// asking the same question of the market as the chart is. Two instances would be
 	// two read ceilings, and the one a bot used would be the one nobody tuned.
+	// 每個來源一個節奏，所有打到那個來源的 proxy 共用——額度是照來源算的，
+	// 不是照問什麼問題算的。
+	venuePacers := newVenuePacers(applicationConfig)
+
 	kCandleService := service.NewKCandleService(
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
@@ -106,8 +110,9 @@ func registerRoutes(
 	// 否則「今天休市」會各記各的。
 	kCandleIngestionService := service.NewKCandleIngestionService(
 		kCandleRepository,
+		persistence.NewKCandleHistorySyncRunRepository(database),
 		persistence.NewTradingSymbolRepository(database),
-		marketDataProxyFor(applicationConfig),
+		marketDataProxyFor(applicationConfig, venuePacers),
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.Ingestion.RoundCandleCount,
@@ -118,12 +123,26 @@ func registerRoutes(
 	engine.POST("/k-candles/backfill",
 		controller.NewKCandleBackfillController(kCandleIngestionApplication).CatchUpSymbol)
 
+	// 補缺口與同步一段歷史是兩條路，因為它們對「要回溯多久」的答案相反：
+	// 前者由系統決定（那句話寫在它的請求物件上當理由），後者由要求的人說。
+	// 在前者身上加一個選填欄位，會讓那句話變成半真的。
+	//
+	// 它先回 202 與一筆輪次，而不是等抓完才回：四年的一分鐘 K 線是幾千次照節奏發出的
+	// 請求，沒有哪一條連線值得開那麼久。抓取由活得比這個請求久的東西推動，
+	// 所以下面這條查詢路由才是它真正的答案。
+	kCandleHistorySyncController := controller.NewKCandleHistorySyncController(
+		kCandleIngestionApplication,
+		applicationConfig.Ingestion.HistorySyncMaxLookbackDays,
+	)
+	engine.POST("/k-candles/history", kCandleHistorySyncController.StartSymbolHistorySync)
+	engine.GET("/k-candles/history/:id", kCandleHistorySyncController.GetSymbolHistorySync)
+
 	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
 			kCandleRepository,
-			symbolLookupProxyFor(applicationConfig),
+			symbolLookupProxyFor(applicationConfig, venuePacers),
 			clock.NewSystemClockProxy(),
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		),
@@ -506,22 +525,49 @@ func backgroundJobsFor(
 // Recognising a third market is one more entry in each of these three, plus its
 // rules in the settings. Nothing else in the system changes: everything above these
 // asks for a window of candles and never learns which venue answered.
+// venuePacers is one pacer per venue, shared by every proxy that spends that venue's
+// allowance.
+//
+// **The allowance is counted per venue, not per kind of question.** Asking whether a
+// symbol is listed and asking for a day of candles both spend it, so a pacer each
+// would let the two of them together go at twice the rate either was allowed — and
+// the one being paced is the one doing thousands of requests in a row.
+type venuePacers struct {
+	crypto      marketdata.RequestPacer
+	taiwanStock marketdata.RequestPacer
+}
+
+func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
+	return venuePacers{
+		crypto: marketdata.NewRequestPacer(
+			applicationConfig.Ingestion.MarketDataRequestsPerMinute),
+		taiwanStock: marketdata.NewRequestPacer(
+			applicationConfig.TaiwanStock.RequestsPerMinute),
+	}
+}
+
 func marketDataProxyFor(
-	applicationConfig config.ApplicationConfig,
+	applicationConfig config.ApplicationConfig, venuePacers venuePacers,
 ) domaininterface.IMarketDataProxy {
 	return marketdata.NewMarketRoutedMarketDataProxy(
 		map[vo.MarketVo]domaininterface.IMarketDataProxy{
 			vo.MarketCrypto: marketdata.NewBinanceMarketDataProxy(
 				applicationConfig.Ingestion.MarketDataBaseUrl,
 				applicationConfig.Ingestion.MarketDataRequestTimeout,
+				venuePacers.crypto,
 			),
 			vo.MarketTaiwanStock: marketdata.NewFugleMarketDataProxy(
 				applicationConfig.TaiwanStock.IntradayCandlesUrl,
 				applicationConfig.TaiwanStock.HistoricalCandlesUrl,
 				applicationConfig.TaiwanStock.ApiKey,
-				applicationConfig.TaiwanStock.TimeZone,
+				// 這個來源是一天打一次，所以它要問得到「哪幾天這個市場根本不開」——
+				// 把窗口收進交易時段只動得到頭尾，中間那些休市日還留在裡面。
+				// 給的是市場本身而不是時段，那個問題才不會在這裡被回答第二次。
+				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
+					MarketOf(string(vo.MarketTaiwanStock)),
 				clock.NewSystemClockProxy(),
 				applicationConfig.TaiwanStock.RequestTimeout,
+				venuePacers.taiwanStock,
 			),
 		})
 }
@@ -543,16 +589,18 @@ func liveMarketDataProxyFor(
 
 // symbolLookupProxyFor is where every market is asked whether it has heard of a code.
 func symbolLookupProxyFor(
-	applicationConfig config.ApplicationConfig,
+	applicationConfig config.ApplicationConfig, venuePacers venuePacers,
 ) domaininterface.ISymbolLookupProxy {
 	return marketdata.NewMarketRoutedSymbolLookupProxy(
 		map[vo.MarketVo]domaininterface.ISymbolLookupProxy{
 			vo.MarketCrypto: marketdata.NewBinanceSymbolLookupProxy(
 				applicationConfig.Ingestion.SymbolCatalogUrl,
-				applicationConfig.Ingestion.MarketDataRequestTimeout),
+				applicationConfig.Ingestion.MarketDataRequestTimeout,
+				venuePacers.crypto),
 			vo.MarketTaiwanStock: marketdata.NewFugleSymbolLookupProxy(
 				applicationConfig.TaiwanStock.TickerUrl,
 				applicationConfig.TaiwanStock.ApiKey,
-				applicationConfig.TaiwanStock.RequestTimeout),
+				applicationConfig.TaiwanStock.RequestTimeout,
+				venuePacers.taiwanStock),
 		})
 }

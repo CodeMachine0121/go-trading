@@ -181,18 +181,53 @@ func nextLiveKCandle(t *testing.T, liveKCandles <-chan vo.LiveKCandleVo) vo.Live
 // read before they have been accepted and refused. The line then stays open and
 // silent, which reads exactly like a market with nothing to say.
 func TestNothingIsAskedForUntilTheCredentialsHaveBeenAccepted(t *testing.T) {
+	// The stand-in is held silent for this one. Letting it answer the credentials by
+	// itself would leave the case racing its own set-up: the acceptance and the
+	// subscription that follows it can both land before the assertion below runs, and
+	// then a proxy doing exactly the right thing fails whenever the machine is busy.
 	stream := newFugleStreamUnderTest(t)
+	stream.answersNothing = true
 
-	stream.followChannel(t, "2330")
+	// Opening the line waits for the credentials to be accepted, so with the stand-in
+	// silent it cannot be waited on from here — by the time it returned, both
+	// instructions would already be out and there would be nothing left to observe.
+	followContext, stopFollowing := context.WithCancel(t.Context())
+	t.Cleanup(stopFollowing)
+	followed := make(chan error, 1)
+	go func() {
+		_, followError := marketdata.NewFugleLiveMarketDataProxy(
+			"ws"+stream.server.URL[len("http"):], "a-key", 2*time.Second).
+			FollowKCandles(followContext,
+				vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
+		followed <- followError
+	}()
 
 	authentication := stream.nextInstruction(t)
 	require.Equal(t, "auth", authentication["event"])
-	assert.Empty(t, stream.instructions,
-		"還沒收到 authenticated 之前，不該送出任何訂閱")
 
-	// The stand-in answers the credentials only now; the subscription must follow it.
+	// Nothing else may be sent while the credentials are still unanswered. Waiting is
+	// the only way to ask that question: "nothing has arrived yet" is also true a
+	// nanosecond before it does.
+	stream.assertNothingMoreIsSaid(t)
+
+	// Only now are the credentials accepted; the subscription must follow that.
+	stream.push(`{"event":"authenticated","data":{"message":"Authenticated successfully"}}`)
+
 	subscription := stream.nextInstruction(t)
 	assert.Equal(t, "subscribe", subscription["event"])
+	require.NoError(t, <-followed)
+}
+
+// assertNothingMoreIsSaid gives the proxy long enough to say something wrong, then
+// checks that it did not.
+func (stream *fugleStreamUnderTest) assertNothingMoreIsSaid(t *testing.T) {
+	t.Helper()
+
+	select {
+	case instruction := <-stream.instructions:
+		t.Fatalf("還沒收到 authenticated 之前，不該送出任何指令，卻送了 %v", instruction)
+	case <-time.After(200 * time.Millisecond):
+	}
 }
 
 // Credentials the source refuses are not a feed that ended — they are a feed that

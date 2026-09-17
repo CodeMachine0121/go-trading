@@ -22,10 +22,17 @@ type KCandleSymbolIngestionReportDto struct {
 	//
 	// It exists because "asked and told nothing" and "never asked" look identical from
 	// the counts alone, and only the first of them says anything about the market.
-	WasAsked           bool                `json:"wasAsked"`
-	StoredCount        int                 `json:"storedCount"`
-	SkippedKCandles    []SkippedKCandleDto `json:"skippedKCandles"`
-	FetchFailureReason string              `json:"fetchFailureReason"`
+	WasAsked    bool `json:"wasAsked"`
+	StoredCount int  `json:"storedCount"`
+	// SkippedCount is how many candles did not make it in. SkippedKCandles names
+	// them, but stops at a limit — a run covering years can turn up more broken
+	// candles than anybody will read, and a report nobody can open says less than a
+	// short one. The count is the honest total either way, and
+	// SkippedKCandlesTruncated says when the two stopped agreeing.
+	SkippedCount             int                 `json:"skippedCount"`
+	SkippedKCandles          []SkippedKCandleDto `json:"skippedKCandles"`
+	SkippedKCandlesTruncated bool                `json:"skippedKCandlesTruncated"`
+	FetchFailureReason       string              `json:"fetchFailureReason"`
 }
 
 // SkippedKCandleDto names one K candle that did not make it in, and why. It is

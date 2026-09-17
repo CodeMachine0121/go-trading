@@ -42,9 +42,8 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 			service.NewTradingSymbolService(
 				tradingSymbolRepository, kCandleRepository,
 				mocks.NewMockISymbolLookupProxy(mockController), tradingSymbolClockProxy(mockController),
-				tradingSymbolMarketCatalog()),
-			service.NewKCandleIngestionService(
-				kCandleRepository, tradingSymbolRepository,
+				tradingSymbolMarketCatalog()), service.NewKCandleIngestionService(
+				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository,
 				mocks.NewMockIMarketDataProxy(mockController), tradingSymbolClockProxy(mockController),
 				tradingSymbolMarketCatalog(), 5, time.Hour)))
 

@@ -58,10 +58,9 @@ func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTes
 	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7)).AnyTimes()
 
 	return ingestionApplicationUnderTest{
-		application: application.NewKCandleIngestionApplication(
-			service.NewKCandleIngestionService(
-				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
-				ingestionMarketCatalog(), ingestionRoundCandleCount, ingestionLookback)),
+		application: application.NewKCandleIngestionApplication(service.NewKCandleIngestionService(
+			kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
+			ingestionMarketCatalog(), ingestionRoundCandleCount, ingestionLookback)),
 		kCandleRepository:       kCandleRepository,
 		tradingSymbolRepository: tradingSymbolRepository,
 		marketDataProxy:         marketDataProxy,

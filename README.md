@@ -100,9 +100,11 @@ curl localhost:8080/health
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
+| `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /k-candles/history` 一次最多往回抓幾天。打錯字的防線，不是成本上限 |
 | `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 加密貨幣的行情來源位址 |
 | `MARKET_DATA_SYMBOL_CATALOG_URL` | Binance 公開交易對清單網址 | 加密貨幣確認「這個代號存不存在」的位址 |
 | `MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向行情來源請求的逾時 |
+| `MARKET_DATA_REQUESTS_PER_MINUTE` | `600` | 每分鐘最多向幣安打幾次（K 線與代號查詢共用這份額度）。超過來源允許的量會被擋，甚至被鎖 |
 | `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
 | `LIVE_FEED_QUIET_TIMEOUT_SECONDS` | `30` | 多久沒收到任何東西就當成跟不動。寧可誤判：白重連一次的代價，遠低於讓人盯著停格的圖 |
@@ -118,6 +120,7 @@ curl localhost:8080/health
 | `TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING` | `1` | 台股同時開得了幾條即時通道。行情方案的限制，換方案就改。**舊的 `TAIWAN_STOCK_SIMULTANEOUS_FOLLOW_CEILING` 已不再讀取**——它被誤讀成「可以開幾條線」，而方案賣的是「幾條線」與「一條線幾檔」兩個數字；沿用舊名會讓寫著 `5` 的設定安靜地退回預設的 `1 × 5` |
 | `TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL` | `5` | 一條即時通道跟得動幾檔。**同時跟得動的檔數是這兩個數字相乘**，不另外設定 |
 | `TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向台股來源請求的逾時 |
+| `TAIWAN_STOCK_REQUESTS_PER_MINUTE` | `55` | 每分鐘最多向 Fugle 打幾次（K 線與代號查詢共用這份額度）。這個來源一天一次請求，長區間就是幾千次 |
 | `AUTH_ACCESS_TOKEN_SIGNING_KEY` | 空 | 簽發登入憑證的鑰匙。**沒有預設值也不該有**——有預設值就是所有人共用一把，那樣的憑證誰都能自己偽造。沒設時：`POST /sessions` 與 `POST /sessions/renewal` 回 `503`，`GET /users/me` 一律 `401`（沒有鑰匙就誰的憑證都認不得）；只有 `POST /users` 與 `POST /sessions/revocation` 照常。產生一把：`openssl rand -base64 48` |
 | `AUTH_ACCESS_TOKEN_LIFETIME_MINUTES` | `15` | 一份**登入憑證**能用多久（分鐘）。它仍然不留存、撤不掉，所以這個數字就等於「登出之後那一張還通得過多久」。**舊的 `AUTH_ACCESS_TOKEN_LIFETIME_HOURS` 已不再讀取**——單位換了，沿用舊名會讓寫著 `24` 的設定安靜地從一天變成 24 分鐘 |
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
@@ -151,6 +154,8 @@ curl localhost:8080/health
 | `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
 | `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、行情來源給的名稱、現在是不是交易時段、這個市場會不會收盤、有沒有即時更新、是不是追蹤中 |
 | `POST` | `/k-candles/backfill` | 手動補齊一個交易標的的歷史（body 給 `symbol`），補到回補上限為止。給還沒登錄過的代號回 `404` |
+| `POST` | `/k-candles/history` | 同步一段歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。向來源問整段、**一天一段抓一段存一段**，**只補系統沒有的，已經有的不覆蓋**，已經齊全的那幾天不問。粒度固定一分鐘一根。回溯天數不在 1 到上限之間回 `400` 並說出上限，沒登錄過的代號回 `404` |
+| `GET` | `/k-candles/history/:id` | 那一趟歷史同步走到哪：`status`、`completedChunks` / `totalChunks`、`storedCount`、`skippedCount` |
 | `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在並記下它給的名稱，**加完立刻補齊那一檔的歷史** |
 | `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
@@ -215,8 +220,57 @@ curl -X POST localhost:8080/k-candles/backfill \
 它**不會**推定市場休市：那是問過該市場**每一檔**觀察中的標的、全都沒回東西才有資格下的結論。
 一檔的沉默就只是那一檔的。
 
-沒登錄過的代號回 `404`（那是呼叫的人要改的），代號空白回 `400`，
-行情來源或儲存問不到回 `502`（那值得晚點再試一次）。
+### 同步一段指定的歷史
+
+```bash
+curl -X POST localhost:8080/k-candles/history \
+  -H 'Content-Type: application/json' -d '{"symbol":"BTCUSDT","lookbackDays":1460}'
+
+# 回 202 與一筆輪次；拿那個 id 回來看進度
+curl localhost:8080/k-candles/history/1
+```
+
+**它與上面那一支是兩件事，差別有兩處，而兩處都是重點。**
+
+第一，**回溯多久由你說**。上面那一支刻意不讓你說（理由見上）；這一支的整個存在理由
+就是說出你要多少歷史。所以它們是兩條路，而不是一個選填欄位——加上去會讓上面那句話
+變成半真的，而半真的規則比沒有規則更難維護。
+
+第二，**向來源問的是整段**，而不是從「已存最新那根之後」開始。那個起點意味著
+**中間的破洞永遠補不到**：手上有第 1 天與第 30 天時，補缺口從第 30 天之後開始，
+中間那 28 天再也回不來。問整段是唯一填得了洞的問法。
+
+但**寫進去的只有沒有的那幾根**——已經有的原封不動。所以報告裡的「存了幾根」講的是
+**這一次新增了幾根**：整段本來就齊全時它是 0，而那是實話，這一次什麼都沒改。
+
+粒度固定**一分鐘一根**，請求裡沒有地方可以指定——系統存的只有這一種粗細，更粗的是算出來的。
+
+回溯天數必須在 1 到 `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS`（預設 3650）之間，
+超過會被擋下來**並告訴你上限是多少**：被擋的人要知道該改成什麼，而不是自己一個個試。
+沒給回溯天數也是拒絕——這一支沒有預設值。那個上限是**打錯字的防線**，不是成本上限：
+四年是正常的要求，四萬年不是。
+
+**它會跑很久，所以它不等你。** POST 回的是 `202` 與一筆輪次，不是抓完的結果：
+四年的一分鐘 K 線是幾千次照節奏發出的請求，幣安那邊十來分鐘、台股那邊更久，
+沒有哪一條連線值得開那麼久（中間的 proxy、load balancer、闔上的筆電都會把它切斷）。
+
+抓取切成**一天一段，抓一段存一段**：記憶體不會越吃越多，斷在中途也已經存了前半段，
+而且**已經有的絕不覆蓋**，所以再跑一次就是從斷掉的地方接下去。
+**已經齊全的那幾天連問都不問**——長區間裡幾乎每一天都是，先數一下比多打一次便宜太多。
+
+`GET /k-candles/history/{id}` 看它走到哪：`status`（`running`/`succeeded`/`failed`）、
+`completedChunks` / `totalChunks`、`storedCount`、`skippedCount`。
+服務重啟會把還掛在 `running` 的輪次掃成 `failed`，寫上 `interrupted by restart`。
+
+**一個標的同時只跑一趟。** 再按一次同一個標的回 `409`——兩趟會互搶同一份來源額度、
+寫同一批列，而且誰都不會比較早結束。別的標的不受影響。
+
+沒登錄過的代號回 `404`（那是呼叫的人要改的），代號空白或回溯天數說不通回 `400`，
+**這個系統自己**問不到（連輪次都記不下來之類）回 `502`（那值得晚點再試一次）。
+
+**行情來源問不到不是整次失敗。** 請求照樣 `202`，輪次收尾時 `status` 仍是
+`succeeded`，而 `fetchFailureReason` 寫著來源說了什麼。來源不答話是這趟**查到的事**，
+不是這趟做錯了事；`failureReason` 那一格才是這個系統自己壞掉時寫的。
 
 **加進觀察清單時會自動補一次**，所以正常情況下不必按這顆按鈕：
 `POST /watchlist` 成功之後就會立刻補齊那一檔。補失敗不會讓加入失敗——

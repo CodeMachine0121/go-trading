@@ -80,11 +80,12 @@ func (clock *movingClock) moveTo(currentTime time.Time) {
 }
 
 type ingestionUnderTest struct {
-	clock                   *movingClock
-	service                 *service.KCandleIngestionService
-	kCandleRepository       *mocks.MockIKCandleRepository
-	tradingSymbolRepository *mocks.MockITradingSymbolRepository
-	marketDataProxy         *mocks.MockIMarketDataProxy
+	clock                    *movingClock
+	service                  *service.KCandleIngestionService
+	kCandleRepository        *mocks.MockIKCandleRepository
+	historySyncRunRepository *mocks.MockIKCandleHistorySyncRunRepository
+	tradingSymbolRepository  *mocks.MockITradingSymbolRepository
+	marketDataProxy          *mocks.MockIMarketDataProxy
 }
 
 func newIngestionUnderTest(t *testing.T, currentTime time.Time) ingestionUnderTest {
@@ -92,20 +93,24 @@ func newIngestionUnderTest(t *testing.T, currentTime time.Time) ingestionUnderTe
 
 	mockController := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	historySyncRunRepository := mocks.NewMockIKCandleHistorySyncRunRepository(mockController)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
 	movingClock := &movingClock{currentTime: currentTime}
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().DoAndReturn(movingClock.now).AnyTimes()
+	// Waiting is stubbed out rather than slept through: a backoff a test sits out is
+	// a test nobody runs, and none of these cases are about how long it waited.
+	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
 
 	return ingestionUnderTest{
-		clock: movingClock,
-		service: service.NewKCandleIngestionService(
-			kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+		clock: movingClock, service: service.NewKCandleIngestionService(
+			kCandleRepository, historySyncRunRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
 			ingestionMarketCatalog(), roundCandleCount, lookback),
-		kCandleRepository:       kCandleRepository,
-		tradingSymbolRepository: tradingSymbolRepository,
-		marketDataProxy:         marketDataProxy,
+		kCandleRepository:        kCandleRepository,
+		historySyncRunRepository: historySyncRunRepository,
+		tradingSymbolRepository:  tradingSymbolRepository,
+		marketDataProxy:          marketDataProxy,
 	}
 }
 
@@ -146,6 +151,30 @@ func (underTest ingestionUnderTest) watchingInMarket(market vo.MarketVo, symbols
 
 	underTest.tradingSymbolRepository.EXPECT().
 		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
+}
+
+// syncingFromEmptyStorage is a store holding nothing yet: every chunk counts as
+// having no candles, and every batch of absent ones is written whole.
+//
+// It is separate from acceptEverySave because which of the two a run reaches is
+// itself the thing several cases are about — one path replaces what it collected,
+// the other must never touch what is already there.
+func (underTest ingestionUnderTest) syncingFromEmptyStorage() *savedOpenTimes {
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+
+	saved := &savedOpenTimes{openTimes: []time.Time{}}
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			for _, kCandle := range kCandles {
+				saved.record(kCandle)
+			}
+
+			return len(kCandles), nil
+		}).AnyTimes()
+
+	return saved
 }
 
 // savedOpenTimes records what actually reached storage, safely across the
@@ -552,6 +581,7 @@ func TestBothUseCasesRefuseToRunOnAnUnusableCandleCount(t *testing.T) {
 			// has no business reading a list it is about to throw away.
 			ingestionService := service.NewKCandleIngestionService(
 				mocks.NewMockIKCandleRepository(mockController),
+				mocks.NewMockIKCandleHistorySyncRunRepository(mockController),
 				mocks.NewMockITradingSymbolRepository(mockController),
 				mocks.NewMockIMarketDataProxy(mockController),
 				clockProxy, ingestionMarketCatalog(), 0, lookback)
@@ -590,10 +620,10 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 		}, nil)
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
-	underTest := ingestionUnderTest{
-		service: service.NewKCandleIngestionService(
-			kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
-			ingestionMarketCatalog(), roundCandleCount, lookback),
+	historySyncRunRepository := mocks.NewMockIKCandleHistorySyncRunRepository(mockController)
+	underTest := ingestionUnderTest{service: service.NewKCandleIngestionService(
+		kCandleRepository, historySyncRunRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+		ingestionMarketCatalog(), roundCandleCount, lookback),
 		kCandleRepository:       kCandleRepository,
 		tradingSymbolRepository: tradingSymbolRepository,
 		marketDataProxy:         marketDataProxy,
@@ -1117,4 +1147,867 @@ func TestARoundInFlightWorksFromTheListItStartedWith(t *testing.T) {
 	require.NoError(t, runError)
 	<-changedMidRound
 	assert.Len(t, report.SymbolReports, 1)
+}
+
+// historyCeilingDays is the ceiling the history-sync cases are written against.
+const historyCeilingDays = 90
+
+func historySyncOf(symbol string, lookbackDays int) dto.KCandleHistorySyncDto {
+	return dto.KCandleHistorySyncDto{Symbol: symbol, LookbackDays: lookbackDays}
+}
+
+// historySyncRuns is the run rows a sync writes as it goes, and the way a case waits
+// for the one that closes it.
+//
+// The fetching outlives the request that asked for it, so there is nothing to return
+// to and nothing to block on. What a case can do is exactly what a person does: watch
+// the run until it stops saying running.
+type historySyncRuns struct {
+	mutex      sync.Mutex
+	written    []entities.KCandleHistorySyncRun
+	ended      chan entities.KCandleHistorySyncRun
+	endedOnce  sync.Once
+	nextRunID  uint
+	saveFailed error
+}
+
+func (runs *historySyncRuns) record(
+	syncRun entities.KCandleHistorySyncRun,
+) (entities.KCandleHistorySyncRun, error) {
+	runs.mutex.Lock()
+	if syncRun.ID == 0 {
+		runs.nextRunID++
+		syncRun.ID = runs.nextRunID
+	}
+	runs.written = append(runs.written, syncRun)
+	runs.mutex.Unlock()
+
+	if vo.NewKCandleHistorySyncRunStatusVo(syncRun.Status) != vo.KCandleHistorySyncRunning {
+		runs.endedOnce.Do(func() { runs.ended <- syncRun })
+	}
+
+	return syncRun, runs.saveFailed
+}
+
+// awaitEnding is the run as it was finally written. The wait is bounded so that a sync
+// that never ends fails the case instead of hanging the suite.
+func (runs *historySyncRuns) awaitEnding(t *testing.T) entities.KCandleHistorySyncRun {
+	t.Helper()
+
+	select {
+	case endedRun := <-runs.ended:
+		return endedRun
+	case <-time.After(5 * time.Second):
+		t.Fatal("歷史同步沒有收尾")
+
+		return entities.KCandleHistorySyncRun{}
+	}
+}
+
+// progressFigures is how far along each write said the run was, in order.
+func (runs *historySyncRuns) progressFigures() []int {
+	runs.mutex.Lock()
+	defer runs.mutex.Unlock()
+
+	figures := make([]int, 0, len(runs.written))
+	for _, syncRun := range runs.written {
+		figures = append(figures, syncRun.CompletedChunks)
+	}
+
+	return figures
+}
+
+// recordsEveryHistorySyncRun accepts the run as it is written and keeps every version
+// of it, so a case can read both the progress and the ending off one place.
+func (underTest ingestionUnderTest) recordsEveryHistorySyncRun() *historySyncRuns {
+	runs := &historySyncRuns{ended: make(chan entities.KCandleHistorySyncRun, 1)}
+	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, syncRun entities.KCandleHistorySyncRun,
+		) (entities.KCandleHistorySyncRun, error) {
+			return runs.record(syncRun)
+		}).AnyTimes()
+
+	return runs
+}
+
+func TestSyncingHistoryAsksForTheWholeStretchTheCallerNamed(t *testing.T) {
+	// The window's start comes from the lookback and nothing else. That is the whole
+	// difference from a backfill, which starts wherever the stored data left off.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+
+	askedWindows := underTest.recordEveryWindowAskedAbout(
+		[]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))})
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+
+	// The stretch is covered a chunk at a time, so what matters is that the pieces
+	// together span exactly what was asked for and leave no minute between them.
+	require.NotEmpty(t, *askedWindows)
+	// Two days back from 2026-08-30 09:07, rounded down to a bucket edge.
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), (*askedWindows)[0].StartTime)
+	assert.Equal(t, ingestionAt(9, 6, 0), (*askedWindows)[len(*askedWindows)-1].EndTime)
+	for index := 1; index < len(*askedWindows); index++ {
+		assert.Equal(t,
+			(*askedWindows)[index-1].EndTime.Add(time.Minute),
+			(*askedWindows)[index].StartTime,
+			"一段接一段之間不可以漏掉任何一分鐘")
+	}
+	assert.Equal(t, len(*askedWindows), endedRun.StoredCount)
+}
+
+// recordEveryWindowAskedAbout answers every chunk with the same candles and keeps the
+// windows in the order they were asked for, so a case can check the stretch they
+// cover between them.
+func (underTest ingestionUnderTest) recordEveryWindowAskedAbout(
+	answer []vo.MarketKCandleVo,
+) *[]vo.KCandleFetchWindowVo {
+	askedWindows := &[]vo.KCandleFetchWindowVo{}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			*askedWindows = append(*askedWindows, window)
+
+			return answer, nil
+		}).AnyTimes()
+
+	return askedWindows
+}
+
+func TestSyncingHistoryAnswersBeforeItHasFetchedAnything(t *testing.T) {
+	// Years of one-minute candles is thousands of paced requests. No connection is
+	// worth holding open that long, so the run is recorded and handed back while the
+	// fetching is still ahead of it — that run is the whole answer.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+
+	letGo := make(chan struct{})
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			<-letGo
+
+			return []vo.MarketKCandleVo{}, nil
+		}).AnyTimes()
+
+	startedRun, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	// It came back while the source is still being held at the door.
+	require.NoError(t, startError)
+	assert.NotZero(t, startedRun.ID)
+	assert.Equal(t, string(vo.KCandleHistorySyncRunning), startedRun.Status)
+	assert.Positive(t, startedRun.TotalChunks, "回覆裡就要說出這一趟總共有幾段")
+
+	close(letGo)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.NotNil(t, endedRun.FinishedAt, "收尾的輪次要說得出它什麼時候收的")
+}
+
+func TestSyncingHistoryMovesItsProgressAlongAsItGoes(t *testing.T) {
+	// A figure that only appears at the end is a figure nobody can tell from a run
+	// that has stalled, and these runs last long enough for that to matter.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+
+	assert.Equal(t, endedRun.TotalChunks, endedRun.CompletedChunks)
+	assert.Equal(t, []int{0, 0, 1, 2, 3, 3}, runs.progressFigures(),
+		"進度要一段一段往前，不是只在收尾時才出現")
+}
+
+func TestSyncingHistoryAsksAboutTheWholeStretchEvenWhereItAlreadyHasData(t *testing.T) {
+	// A backfill starts after the newest candle it holds, so a hole in the middle of
+	// a stretch is one it never comes back for. This asks about the whole stretch, and
+	// that is what lets a hole be filled at all — the store is not consulted to narrow
+	// the window.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	askedWindows := underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	runs.awaitEnding(t)
+	require.NotEmpty(t, *askedWindows)
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), (*askedWindows)[0].StartTime)
+}
+
+func TestSyncingHistorySkipsAStretchItAlreadyHoldsEveryCandleOf(t *testing.T) {
+	// Over a long stretch nearly every chunk is already complete, and asking the
+	// source about one is a round trip that can only answer with what is already held.
+	// The counting read that establishes it costs a fraction of that.
+	//
+	// This is the one place stored data is consulted, and it decides whether to ask —
+	// never where to start. Starting from what is stored is what leaves a hole in the
+	// middle unreachable, which is the whole reason this use case exists.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+
+	// The first whole day back is complete; nothing else is. One candle short of
+	// complete is not complete — that is the off-by-one this predicate lives or dies
+	// on, so the case next door pins it.
+	completeDay := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, startTime time.Time, _ time.Time) (int, error) {
+			if startTime.Equal(completeDay) {
+				return 24 * 60, nil
+			}
+
+			return 0, nil
+		}).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+	askedWindows := underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	runs.awaitEnding(t)
+	require.NotEmpty(t, *askedWindows)
+	for _, askedWindow := range *askedWindows {
+		assert.False(t, askedWindow.StartTime.Equal(completeDay),
+			"已經齊全的那一天不應該再去問來源")
+	}
+}
+
+func TestSyncingHistoryStillAsksAboutAStretchItIsOneCandleShortOf(t *testing.T) {
+	// The skip is only safe while "complete" means every minute. One short is a hole,
+	// and a hole nobody asks about is a hole that never gets filled — which is the one
+	// thing this whole use case exists to do.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+
+	wholeDay := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, startTime time.Time, _ time.Time) (int, error) {
+			if startTime.Equal(wholeDay) {
+				return 24*60 - 1, nil
+			}
+
+			return 0, nil
+		}).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+	askedWindows := underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	runs.awaitEnding(t)
+
+	askedAboutThatDay := false
+	for _, askedWindow := range *askedWindows {
+		if askedWindow.StartTime.Equal(wholeDay) {
+			askedAboutThatDay = true
+		}
+	}
+	assert.True(t, askedAboutThatDay, "差一根就不算齊全，那一段還是要問")
+}
+
+func TestSyncingHistorySkipsACompleteStretchOnAMarketThatCloses(t *testing.T) {
+	// On a market with a session the stretch asked about is the session, not the whole
+	// day — so what counts as complete is the session's worth of minutes. Getting that
+	// pairing wrong means either never skipping anything, or skipping a day that only
+	// holds its morning.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T14:00:00+08:00"))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+
+	// Every session asked about is answered as held in full.
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, startTime time.Time, endTime time.Time,
+		) (int, error) {
+			return int(endTime.Sub(startTime)/time.Minute) + 1, nil
+		}).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("2330", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), runs.awaitEnding(t).Status)
+}
+
+func TestSyncingHistoryKeepsWhatItAlreadyStoredWhenTheSourceGivesUpPartWay(t *testing.T) {
+	// Storing chunk by chunk is what makes a long stretch survivable: a source that
+	// stops answering halfway leaves the first half stored and correct, and running
+	// again picks up from there because nothing already held is written twice.
+	//
+	// The rest of the stretch is abandoned rather than attempted, because a source
+	// that just refused one chunk will refuse the next thousand the same way.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+
+	storedBatches := 0
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			storedBatches++
+
+			return len(kCandles), nil
+		}).AnyTimes()
+
+	askedTimes := 0
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedTimes++
+			if askedTimes > 1 {
+				return nil, sourceUnreachable
+			}
+
+			return []vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+
+	// The first chunk is stored before the second is even asked for.
+	assert.Equal(t, 1, storedBatches)
+	assert.Equal(t, 1, endedRun.StoredCount)
+	assert.Contains(t, endedRun.FetchFailureReason, "unreachable")
+	// It stopped at the refusal instead of walking the rest of the stretch into it.
+	assert.Equal(t, 2, askedTimes)
+}
+
+func TestSyncingHistoryCountsEverySkippedKCandle(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+	brokenKCandles := make([]vo.MarketKCandleVo, 0, 300)
+	for minute := range 300 {
+		brokenKCandles = append(brokenKCandles,
+			reportedKCandle(ingestionAt(0, minute, 0), "90", "120"))
+	}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return(brokenKCandles, nil).Times(1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	assert.Equal(t, 300, runs.awaitEnding(t).SkippedCount)
+}
+
+func TestAnAbortedHistorySyncReportsTheChunkItReachedRatherThanTheWholeStretch(t *testing.T) {
+	// The pair exists so that a long run can be told apart from a stalled one. A run
+	// that gave up at chunk two of three reporting three of three reads as finished,
+	// which is worse than no figure at all — and at the scale this feature is for,
+	// that is "1461 of 1461" on a run that stopped in the first minute.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(7, nil).AnyTimes()
+
+	askedTimes := 0
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedTimes++
+			if askedTimes > 1 {
+				return nil, sourceUnreachable
+			}
+
+			return []vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+
+	assert.Equal(t, 3, endedRun.TotalChunks)
+	assert.Equal(t, 1, endedRun.CompletedChunks, "只走完一段就停了，不能說三段都走完")
+	// What the first chunk stored is still in the database, so the run has to say so.
+	assert.Equal(t, 7, endedRun.StoredCount)
+}
+
+func TestAHistorySyncSaysWhenItFinished(t *testing.T) {
+	// The moment it started is already on the row. Taking the ending from that same
+	// reading would make every run, however long, look instantaneous.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+
+	// An hour of fetching goes by between being accepted and being finished.
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			underTest.clock.moveTo(ingestionAt(10, 7, 30))
+
+			return []vo.MarketKCandleVo{}, nil
+		}).AnyTimes()
+
+	startedRun, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+
+	require.NotNil(t, endedRun.FinishedAt)
+	assert.True(t, endedRun.FinishedAt.After(startedRun.StartedAt),
+		"收尾時間要是收尾當下讀的，不是接下這一趟時讀的")
+}
+
+func TestAHistorySyncTriesAgainWhenTheClosingWriteWillNotLand(t *testing.T) {
+	// Losing a progress figure costs one stale number until the next chunk lands.
+	// Losing the closing write leaves the row saying running for as long as this
+	// process lives: nothing retries it, and the sweep that would catch it only
+	// happens at start-up, so somebody polling waits for an ending that already
+	// happened.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
+
+	runs := &historySyncRuns{ended: make(chan entities.KCandleHistorySyncRun, 1)}
+	closingAttempts := 0
+	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, syncRun entities.KCandleHistorySyncRun,
+		) (entities.KCandleHistorySyncRun, error) {
+			if vo.NewKCandleHistorySyncRunStatusVo(syncRun.Status) == vo.KCandleHistorySyncRunning {
+				return runs.record(syncRun)
+			}
+
+			// The first go at closing it does not land.
+			closingAttempts++
+			if closingAttempts == 1 {
+				return entities.KCandleHistorySyncRun{}, errors.New("storage unavailable")
+			}
+
+			return runs.record(syncRun)
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 2, closingAttempts, "收尾那一筆要再試一次，不能讓輪次一直掛在 running")
+}
+
+func TestSyncingHistoryEndsAsFailedWhenStorageBreaks(t *testing.T) {
+	// Storage breaking is this system's own fault rather than anything the candles
+	// did, so it ends the run instead of being written down as a skipped candle — and
+	// it is told apart from a source refusing, which the run merely found out about.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	// The first chunk lands; storage breaks on the second.
+	storedBatches := 0
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ []entities.KCandle) (int, error) {
+			storedBatches++
+			if storedBatches > 1 {
+				return 0, errors.New("storage unavailable")
+			}
+
+			return 5, nil
+		}).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncFailed), endedRun.Status)
+	assert.Contains(t, endedRun.FailureReason, "storage unavailable")
+	assert.Empty(t, endedRun.FetchFailureReason)
+	// What the first chunk stored is in the database. A failed run reporting zero
+	// would send somebody back to fetch the whole stretch again.
+	assert.Equal(t, 5, endedRun.StoredCount)
+	assert.Equal(t, 1, endedRun.CompletedChunks)
+}
+
+func TestSyncingHistoryRefusesToStartWhenTheRunCannotBeRecorded(t *testing.T) {
+	// A run nobody can find is work nobody can ask about and a restart cannot sweep
+	// up, which is worse than not having begun.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		Return(entities.KCandleHistorySyncRun{}, errors.New("storage unavailable"))
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.Error(t, startError)
+}
+
+func TestSyncingHistoryLeavesAlreadyStoredKCandlesAlone(t *testing.T) {
+	// It fills in what is missing. A candle already held is not written over, which is
+	// what separates this from every other path here: the scheduled round legitimately
+	// replaces a candle it collected while it was still forming, and this must not.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{
+			validReportedKCandle(ingestionAt(9, 4, 0)),
+			validReportedKCandle(ingestionAt(9, 5, 0)),
+		}, nil).Times(1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil).AnyTimes()
+
+	// The store reports one of the two as already held, so only the other is new.
+	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+	underTest.kCandleRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			if len(kCandles) == 0 {
+				return 0, nil
+			}
+
+			return 1, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	// The count is what was newly stored. Everything already held is silently left
+	// as it was — a stretch that was complete already reports nothing stored, which
+	// is the truth about what this run did.
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 1, endedRun.StoredCount)
+	assert.Equal(t, 0, endedRun.SkippedCount)
+}
+
+func TestTheOtherIngestionPathsStillOverwriteWhatTheyCollected(t *testing.T) {
+	// A scheduled round collects the candle of the minute that just closed, and the
+	// next round collects it again once the source has settled its figures. Refusing
+	// to overwrite there would freeze the first, roughest version of every candle.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.watchingInMarket(vo.MarketCrypto, "BTCUSDT")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil)
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Times(0)
+	saved := underTest.acceptEverySave()
+
+	_, roundError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.Equal(t, []time.Time{ingestionAt(9, 5, 0)}, saved.all())
+}
+
+func TestSyncingHistoryRefusesALookbackThatIsNotAStretch(t *testing.T) {
+	testCases := []struct {
+		name         string
+		lookbackDays int
+	}{
+		{name: "no days at all", lookbackDays: 0},
+		{name: "backwards", lookbackDays: -1},
+		{name: "past the ceiling", lookbackDays: historyCeilingDays + 1},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Refused before the store is touched: a request that cannot work should
+			// not read anything first, and must not leave a run behind either.
+			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+			underTest.tradingSymbolRepository.EXPECT().
+				FindBySymbol(gomock.Any(), gomock.Any()).Times(0)
+			underTest.historySyncRunRepository.EXPECT().
+				Save(gomock.Any(), gomock.Any()).Times(0)
+
+			_, startError := underTest.service.StartHistorySyncFor(
+				t.Context(), historySyncOf("BTCUSDT", testCase.lookbackDays), historyCeilingDays)
+
+			assert.ErrorIs(t, startError, domains.ErrKCandleHistoryLookback)
+		})
+	}
+}
+
+func TestSyncingHistoryRefusesASymbolNobodyRegistered(t *testing.T) {
+	// Same rule as the on-demand catch-up: without a registration there is no market,
+	// and without a market there is no source to ask.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "9999").
+		Return(entities.TradingSymbol{}, false, nil)
+	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("9999", 2), historyCeilingDays)
+
+	assert.ErrorIs(t, startError, domains.ErrTradingSymbolNotRegistered)
+}
+
+func TestSyncingHistoryRefusesNothingAsAName(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("   ", 2), historyCeilingDays)
+
+	assert.ErrorIs(t, startError, domains.ErrTradingSymbolNamed)
+	assert.NotErrorIs(t, startError, domains.ErrTradingSymbolNotRegistered)
+}
+
+func TestSyncingHistoryReachesASymbolNobodyIsWatching(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: false,
+		}, true, nil)
+	underTest.recordEveryWindowAskedAbout([]vo.MarketKCandleVo{})
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), runs.awaitEnding(t).Status)
+}
+
+func TestSyncingHistoryReportsASourceThatWouldNotAnswer(t *testing.T) {
+	// A source refusing is something the run found out, not something the run did
+	// wrong — so the run still finishes, carrying what it was told.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return(nil, sourceUnreachable)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Contains(t, endedRun.FetchFailureReason, "unreachable")
+	assert.Empty(t, endedRun.FailureReason)
+}
+
+func TestSyncingHistoryDropsAStandingDecisionThatTheMarketIsShut(t *testing.T) {
+	// Somebody asking by hand is somebody saying they want the source asked. Obeying
+	// a presumed holiday would answer them with a run saying nothing was collected —
+	// indistinguishable from a market that genuinely had nothing — and leave them no
+	// way to correct a decision that may have been wrong.
+	//
+	// Same rule as the on-demand catch-up, and the same code; this pins that going in
+	// through the history sync reaches it too.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T10:00:00+08:00"))
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+		[]entities.TradingSymbol{{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}}, nil).AnyTimes()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil).AnyTimes()
+
+	// A scheduled round that hears nothing from every watched symbol of a market is
+	// what earns the "shut for the day" conclusion in the first place.
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+	_, roundError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, roundError)
+
+	// The next scheduled round obeys that decision and never reaches the source.
+	// The history sync, arriving right after it, must.
+	askedAgain := make(chan struct{}, 1)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			select {
+			case askedAgain <- struct{}{}:
+			default:
+			}
+
+			return []vo.MarketKCandleVo{}, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("2330", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	runs.awaitEnding(t)
+	assert.Len(t, askedAgain, 1, "手動同步必須真的去問來源，而不是沿用「今天休市」那個判斷")
+}
+
+func TestSyncingHistoryOverAClosedMarketIsNotAFailure(t *testing.T) {
+	// A stretch that lies entirely outside a market's session holds no candle, and
+	// that is a fact about the market rather than a failed run. It has to be told
+	// apart from a source that would not answer: one is normal, the other is worth
+	// chasing.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-13T10:00:00+08:00"))
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+	// The whole window falls on a weekend, so the source is never even reached.
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("2330", 1), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Empty(t, endedRun.FetchFailureReason)
+	assert.Equal(t, 0, endedRun.StoredCount)
+}
+
+func TestGettingAHistorySyncAnswersWithWhereItGotTo(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.historySyncRunRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(
+		entities.KCandleHistorySyncRun{
+			ID: 7, Symbol: "BTCUSDT", LookbackDays: 30,
+			Status:      string(vo.KCandleHistorySyncRunning),
+			TotalChunks: 30, CompletedChunks: 11, StoredCount: 15840,
+			StartedAt: ingestionAt(9, 0, 0),
+		}, true, nil)
+
+	syncRun, findError := underTest.service.GetHistorySyncRun(t.Context(), 7)
+
+	require.NoError(t, findError)
+	assert.Equal(t, 11, syncRun.CompletedChunks)
+	assert.Equal(t, 30, syncRun.TotalChunks)
+	assert.Nil(t, syncRun.FinishedAt)
+}
+
+func TestGettingAHistorySyncNobodyStartedIsToldApartFromOneThatBroke(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.historySyncRunRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(
+		entities.KCandleHistorySyncRun{}, false, nil)
+
+	_, findError := underTest.service.GetHistorySyncRun(t.Context(), 7)
+
+	assert.ErrorIs(t, findError, service.ErrKCandleHistorySyncRunNotFound)
+}
+
+func TestClearingInterruptedHistorySyncsSaysHowManyThereWere(t *testing.T) {
+	// A run being fetched lives in this process and nowhere else, so every one still
+	// recorded as running is one nothing is fetching for.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.historySyncRunRepository.EXPECT().
+		FailAllRunning(gomock.Any(), gomock.Any(), gomock.Any()).Return(3, nil)
+
+	clearedCount, sweepError := underTest.service.FailInterruptedHistorySyncs(t.Context())
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 3, clearedCount)
 }

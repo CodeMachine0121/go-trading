@@ -80,7 +80,7 @@ func newJobUnderTest(t *testing.T, symbols []string) jobUnderTest {
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback)),
 		testInterval)
@@ -225,7 +225,7 @@ func newSlowJobUnderTest(t *testing.T) slowJobUnderTest {
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback)),
 		testInterval)

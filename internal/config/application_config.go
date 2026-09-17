@@ -45,15 +45,32 @@ func (databaseConfig DatabaseConfig) DataSourceName() string {
 // candle covers, so the way to switch ingestion off is BackgroundJobsEnabled or an
 // empty watchlist.
 type IngestionConfig struct {
-	Symbols           []string
-	RoundCandleCount  int
-	BackfillLookback  time.Duration
-	MarketDataBaseUrl string
+	Symbols          []string
+	RoundCandleCount int
+	BackfillLookback time.Duration
+	// HistorySyncMaxLookbackDays is how far back one on-demand history sync may
+	// reach. It is days rather than a duration because that is the unit the request
+	// is made in, and the refusal has to quote it back.
+	//
+	// It is deliberately generous. What used to keep it small — the whole stretch
+	// held in memory, one connection held open for the duration — is gone: the fetch
+	// walks a chunk at a time, stores as it goes, and answers straight away with a run
+	// to watch. So the ceiling is no longer about what the system can survive.
+	//
+	// What is left is a typo guard. Ten years is more history than any of these
+	// sources will answer for, so a request inside it is a request somebody meant;
+	// a request past it is a slipped digit, and the refusal says what the ceiling is.
+	HistorySyncMaxLookbackDays int
+	MarketDataBaseUrl          string
 	// SymbolCatalogUrl is where a source is asked whether it lists a symbol at all.
 	// It is separate from the candle address because they are separate questions, and
 	// a source is free to answer them at different places.
 	SymbolCatalogUrl         string
 	MarketDataRequestTimeout time.Duration
+	// MarketDataRequestsPerMinute is how fast this source is asked. It is a setting
+	// rather than a constant because it is the venue's allowance, and a venue is free
+	// to change what it allows without this system changing.
+	MarketDataRequestsPerMinute int
 }
 
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
@@ -99,6 +116,10 @@ type TaiwanStockConfig struct {
 	SimultaneousChannelCeiling int
 	SymbolsPerLiveChannel      int
 	RequestTimeout             time.Duration
+	// RequestsPerMinute is how fast this source is asked. It matters more here than
+	// it does for the crypto venue: this one answers about one local day per request,
+	// so a stretch of years is thousands of them in a row.
+	RequestsPerMinute int
 }
 
 // AssistantConfig holds what the market chat assistant runs under: which assistant to
@@ -255,12 +276,20 @@ func Load() ApplicationConfig {
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
+			HistorySyncMaxLookbackDays: positiveIntWithDefault(
+				"KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
 			SymbolCatalogUrl: stringWithDefault(
 				"MARKET_DATA_SYMBOL_CATALOG_URL", "https://api.binance.com/api/v3/exchangeInfo"),
 			MarketDataRequestTimeout: time.Duration(
 				positiveIntWithDefault("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+			// Comfortably inside what this venue allows a candle request. The
+			// headroom is deliberate: the allowance is shared with everything else
+			// this system asks the venue, and being throttled costs more than
+			// being slower.
+			MarketDataRequestsPerMinute: positiveIntWithDefault(
+				"MARKET_DATA_REQUESTS_PER_MINUTE", 600),
 		},
 		LiveFollow: LiveFollowConfig{
 			UpdateIntervalCeiling: time.Duration(
@@ -380,6 +409,7 @@ func loadTaiwanStockConfig() TaiwanStockConfig {
 			"TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL", 5),
 		RequestTimeout: time.Duration(
 			positiveIntWithDefault("TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		RequestsPerMinute: positiveIntWithDefault("TAIWAN_STOCK_REQUESTS_PER_MINUTE", 55),
 	}
 }
 

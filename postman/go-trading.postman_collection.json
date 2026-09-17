@@ -10612,6 +10612,311 @@
               }
             }
           ]
+        },
+        {
+          "name": "同步一段歷史（回 202 與一筆輪次，抓取在背景跑）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 1460\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "回溯天數由你說（補缺口那一支刻意不讓）。向來源問整段——那是唯一填得了中間破洞的問法——但只寫沒有的，已經有的原封不動。\n\n它不等抓完才回答：四年的一分鐘 K 線是幾千次照節奏發出的請求，回的是 202 與一筆輪次。拿回來的 id 去下面那一支看進度。\n\n整段切成一天一段，抓一段存一段；已經齊全的那幾段連問都不問。\n\n一個標的同時只跑一趟：同一個代號再按一次會回 409。別的標的不受影響。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('收下了，回的是一筆輪次', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    const run = pm.response.json();",
+                  "    pm.expect(run.status).to.eql('running');",
+                  "    pm.expect(run.totalChunks).to.be.above(0);",
+                  "    pm.collectionVariables.set('historySyncRunId', run.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "看那一趟走到哪",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history/{{historySyncRunId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history",
+                "{{historySyncRunId}}"
+              ]
+            },
+            "description": "status 是 running / succeeded / failed；completedChunks / totalChunks 是走到第幾段。\n\n來源不答話時 status 仍是 succeeded，原因寫在 fetchFailureReason——那是這一趟查到的事。failureReason 那一格才是這個系統自己壞掉時寫的。\n\n服務重啟會把還掛在 running 的輪次掃成 failed，寫上 interrupted by restart。"
+          },
+          "response": []
+        },
+        {
+          "name": "找不到：查一個沒人開過的輪次",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history",
+                "999999"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "拒絕：同一個標的已經有一趟在跑",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 1460\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "description": "上面那一發還在跑的時候送這一發，會回 409。兩趟會互搶同一份來源額度、寫同一批列，而且誰都不會比較早結束。"
+          },
+          "response": []
+        },
+        {
+          "name": "拒絕：回溯天數超過上限",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 99999\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "上限是打錯字的防線，不是成本上限——四年是正常的要求。被擋下來的那句話會說出上限是多少。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說得出上限是多少\", function () {",
+                  "    // 被擋下來的人要知道該改成什麼，而不是自己一個個試。",
+                  "    pm.expect(pm.response.json().message).to.match(/最多 \\d+ 天/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒說要回溯幾天",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "**沒有預設值**：說出要回溯多久正是這一支存在的理由，替人填一個等於回答他沒問的問題。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"講的是回溯天數\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"回溯天數\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：回溯天數是 0",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "零天不是一個小的要求，是一個不成立的要求——沒有任何一段時間要抓。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：同步一個沒登錄過的代號",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"NOPE_NOT_REGISTERED\",\n  \"lookbackDays\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "從代號長相猜一個市場，是這個系統刻意不做的事。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    // 沒登錄就沒有市場，沒有市場就沒有來源可以問。",
+                  "    // 這與「來源不答話」是兩件事：一個要你去登錄，一個要你稍後再試。",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

@@ -43,6 +43,21 @@ func (m *MockIKCandleRepository) EXPECT() *MockIKCandleRepositoryMockRecorder {
 	return m.recorder
 }
 
+// CountInRange mocks base method.
+func (m *MockIKCandleRepository) CountInRange(executionContext context.Context, symbol string, startTime, endTime time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInRange", executionContext, symbol, startTime, endTime)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInRange indicates an expected call of CountInRange.
+func (mr *MockIKCandleRepositoryMockRecorder) CountInRange(executionContext, symbol, startTime, endTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInRange", reflect.TypeOf((*MockIKCandleRepository)(nil).CountInRange), executionContext, symbol, startTime, endTime)
+}
+
 // Delete mocks base method.
 func (m *MockIKCandleRepository) Delete(executionContext context.Context, symbol string, openTime time.Time) error {
 	m.ctrl.T.Helper()
@@ -145,6 +160,21 @@ func (m *MockIKCandleRepository) Save(executionContext context.Context, kCandle 
 func (mr *MockIKCandleRepositoryMockRecorder) Save(executionContext, kCandle any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIKCandleRepository)(nil).Save), executionContext, kCandle)
+}
+
+// SaveAllIfAbsent mocks base method.
+func (m *MockIKCandleRepository) SaveAllIfAbsent(executionContext context.Context, kCandles []entities.KCandle) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveAllIfAbsent", executionContext, kCandles)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SaveAllIfAbsent indicates an expected call of SaveAllIfAbsent.
+func (mr *MockIKCandleRepositoryMockRecorder) SaveAllIfAbsent(executionContext, kCandles any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAllIfAbsent", reflect.TypeOf((*MockIKCandleRepository)(nil).SaveAllIfAbsent), executionContext, kCandles)
 }
 
 // Update mocks base method.

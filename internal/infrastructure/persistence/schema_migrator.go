@@ -105,6 +105,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.TradingStrategySignalSourceParameterValue{},
 		&entities.TradingStrategyConditionNode{},
 		&entities.StrategyBotRunRecord{},
+		&entities.KCandleHistorySyncRun{},
 	}
 
 	// Renaming has to happen before the schema is synced, not after. These three
@@ -204,6 +205,19 @@ func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 // specifically: it is a person asking twice, not a fault.
 const AssistantTurnOneRunningPerConversationIndex = "idx_assistant_turns_one_running_per_conversation"
 
+// KCandleHistorySyncOneRunningPerSymbolIndex keeps one symbol from being fetched by
+// two history syncs at once.
+//
+// Two runs over the same symbol race each other through the same source allowance and
+// the same rows, and neither finishes any sooner for it; at the length these runs
+// reach, a double-clicked request costs hours of somebody else's quota. Asking first
+// and starting afterwards would let two requests arriving together both find the
+// symbol free, so the database decides.
+//
+// It is named here because the write path has to recognise this one specifically: it
+// is a person asking twice, not a fault.
+const KCandleHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_history_sync_runs_one_running_per_symbol"
+
 // createPartialIndexes adds the indexes the ORM's own tags cannot express.
 //
 // A unique index over part of a table has no tag: "unique" there would mean one
@@ -231,6 +245,18 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	if created.Error != nil {
 		return fmt.Errorf("create index %s: %w",
 			AssistantTurnOneRunningPerConversationIndex, created.Error)
+	}
+
+	createdHistorySyncIndex := schemaMigrator.database.Exec(
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (symbol) WHERE status = '%s'",
+			vo.KCandleHistorySyncRunning),
+		clause.Column{Name: KCandleHistorySyncOneRunningPerSymbolIndex},
+		clause.Table{Name: entities.KCandleHistorySyncRun{}.TableName()},
+	)
+	if createdHistorySyncIndex.Error != nil {
+		return fmt.Errorf("create index %s: %w",
+			KCandleHistorySyncOneRunningPerSymbolIndex, createdHistorySyncIndex.Error)
 	}
 
 	return nil
