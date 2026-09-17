@@ -382,3 +382,73 @@ func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+// Replaying a whole trading strategy states its conditions once and hands them on as
+// the conditions every replay shares. A condition that failed to make that journey
+// would not break the build — it would arrive as nothing at all, and the replay would
+// run on a default nobody asked for.
+//
+// So each condition is pinned by the refusal it is supposed to earn: a refusal only
+// happens if the value actually reached the gate.
+func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
+	testCases := []struct {
+		name           string
+		breakCondition func(*dto.TradingStrategyBacktestRequestDto)
+		expectedField  string
+	}{
+		{
+			name: "the market it replays",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.Symbol = ""
+			},
+		},
+		{
+			name: "the stretch it replays",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.EndTime = requestDto.StartTime
+			},
+			expectedField: domains.BacktestTimeRangeField,
+		},
+		{
+			name: "what the account starts with",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.InitialCapital = decimal.Zero
+			},
+			expectedField: domains.BacktestInitialCapitalField,
+		},
+		{
+			name: "how much each opening stakes",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.PositionSizingMode = "percentage"
+				requestDto.PositionSizingValue = decimal.NewFromInt(500)
+			},
+			expectedField: domains.BacktestPositionSizingValueField,
+		},
+		{
+			name: "which way it trades",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.TradingMode = "dayTrade"
+			},
+			expectedField: domains.BacktestTradingModeField,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestDto := tradingStrategyBacktestRequest()
+			testCase.breakCondition(&requestDto)
+
+			_, err := domains.NewTradingStrategyBacktestDomain(
+				requestDto, backtestMaxCandleCount, backtestNow)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, domains.ErrBacktestValidation)
+			if testCase.expectedField == "" {
+				return
+			}
+			fieldName, namesField := domains.BacktestFieldName(err)
+			require.True(t, namesField)
+			assert.Equal(t, testCase.expectedField, fieldName)
+		})
+	}
+}

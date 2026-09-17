@@ -52,7 +52,8 @@
 | `dto.TradingStrategyBacktestRequestDto` | **Modify** | 同上 |
 | `models.BacktestRequest` | **Modify** | 多一個 `tradingMode` JSON 欄位，`ToRequestDto` 帶下去 |
 | `models.TradingStrategyBacktestRequest` | **Modify** | 同上 |
-| `domains.TradingStrategyBacktestDomain` | **Modify** | 組內層 `BacktestRequestDto` 時多帶一行。**驗證與拒絕措辭因此自動一字不差**，不另寫一套 |
+| `domains.TradingStrategyBacktestDomain` | **Modify** | 改為呼叫 `requestDto.ToBacktestRequestDto(sharedInterval)`，不再逐欄手抄。**驗證與拒絕措辭因此自動一字不差**，不另寫一套 |
+| `dto.TradingStrategyBacktestRequestDto.ToBacktestRequestDto` | **Add** | 把一次交易策略回測講成「每一次回測共通的那些條件」。轉換寫在來源身上（`a.toB()`），欄位漏抄就不會靜靜變成零值 |
 | `assistantqueries.TradingStrategyBacktestAssistantQuery` | **Modify** | 參數多一個 `tradingMode`（選填）、schema 加 enum、說明講得出兩種模式的差別與預設值 |
 | `domains.SignalDomain`／`vo.SignalVo` | **Not touched** | 信號仍然只有三種。第四種意見不在這一版 |
 | `domains.BacktestPositionDomain` | **Not touched** | 一注怎麼估值、怎麼變成一筆已平倉交易，與模式無關 |

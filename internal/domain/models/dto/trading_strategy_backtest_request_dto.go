@@ -47,3 +47,30 @@ type ResolvedSignalSourceDto struct {
 	Parameters      []StrategyScriptParameterWriteDto
 	ParameterValues []StrategyScriptParameterValueDto
 }
+
+// ToBacktestRequestDto is this replay stated as the conditions every replay shares,
+// once the coarseness its signal sources agree on has been worked out.
+//
+// It lives here rather than where the narrower shape is built because the fields are
+// all this one's, and reading them from outside is how one gets left behind: a
+// condition added to a replay and forgotten here would not fail to compile, it would
+// quietly read as nothing at all — no capital, no sizing mode, the default way of
+// trading — and the replay would run anyway.
+//
+// It carries no script and no knobs. Those belong to each signal source separately,
+// and a replay of a whole trading strategy runs one script per source rather than one
+// for the lot.
+func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
+	sharedAggregationInterval string,
+) BacktestRequestDto {
+	return BacktestRequestDto{
+		Symbol:              requestDto.Symbol,
+		AggregationInterval: sharedAggregationInterval,
+		StartTime:           requestDto.StartTime,
+		EndTime:             requestDto.EndTime,
+		InitialCapital:      requestDto.InitialCapital,
+		PositionSizingMode:  requestDto.PositionSizingMode,
+		PositionSizingValue: requestDto.PositionSizingValue,
+		TradingMode:         requestDto.TradingMode,
+	}
+}
