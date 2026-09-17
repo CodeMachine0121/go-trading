@@ -168,6 +168,8 @@ Controller ──▶ AssistantConversationApplication ──▶ AssistantConvers
 | 既有列沒有狀態 | 欄位預設值為已回答；它們都有答案 |
 | 改掉了「失敗不留存」這條既有規則 | UL-MAP 同步更新，理由寫在 PRD |
 | goroutine 逸出（server 關掉時還在跑） | 不攔它——重啟時的收殘留就是為這件事存在的 |
+| **那條 goroutine 裡的 panic 會帶走整個行程** | 驅動迴圈自己 `recover()`，把那一次收成失敗。在它離開請求之前，HTTP 層的防護接得住它；離開之後上面什麼都沒有了 |
+| **「一段對話一次只跑一則」是先讀後寫** | 加一個只涵蓋進行中那幾列的唯一索引，把破壞它的寫入翻成同一句拒絕。ARCH 原本規劃的 `StartTurn` 具備這個原子性，實作換成「先讀一次、再 `AppendTurn`」時掉了 |
 | 一次回答的用量在它跑完之前看不到 | 額度本來就是事後結算，UL-MAP 已載明 |
 
 ### Open decisions（交給實作）

@@ -70,6 +70,26 @@ func AssistantAnsweredNothing() error {
 	return fmt.Errorf("%w: 助手回了空白的答案，請稍後再試", ErrAssistantUnavailable)
 }
 
+// AssistantTurnNotFound is the refusal a writer gets when the exchange it was filling
+// in is no longer there — the conversation holding it was deleted while the answer
+// was being written.
+//
+// It is the conversation's own refusal because that is what actually went missing;
+// an exchange never outlives the conversation it belongs to.
+func AssistantTurnNotFound(turnID uint) error {
+	return fmt.Errorf("%w: 找不到識別碼為 %d 的問答", ErrConversationNotFound, turnID)
+}
+
+// AssistantBrokeDown is what an answer is closed with when writing it broke in a way
+// nobody planned for.
+//
+// It reads as the same "try again shortly" every other breakage does, because that is
+// the same single thing the person waiting can do about it. What actually happened
+// goes to the log, where somebody can fix it.
+func AssistantBrokeDown() error {
+	return fmt.Errorf("%w: 這則回答在產生的過程中出錯了，請再問一次", ErrAssistantUnavailable)
+}
+
 // AssistantAnswerInProgress is the refusal a reader gets for asking again while the
 // previous answer on that conversation is still being written.
 func AssistantAnswerInProgress() error {

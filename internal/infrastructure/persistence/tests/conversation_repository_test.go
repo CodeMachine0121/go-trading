@@ -410,3 +410,78 @@ func TestConversationRepositoryFailAllRunningTurnsFindsNothingToSweepOnACleanSta
 	require.NoError(t, sweepError)
 	assert.Equal(t, 0, sweptCount)
 }
+
+func TestConversationRepositoryRefusesASecondRunningTurnOnOneConversation(t *testing.T) {
+	// The rule is asked before a question is accepted, but asking and appending are
+	// two statements: two requests arriving together both read a conversation with
+	// nothing in flight, both pass, and both start writing into it. The store is what
+	// makes the second one impossible rather than merely unlikely.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+		LastActiveAt: momentAt(10, 0),
+		Turns: []entities.AssistantTurn{{
+			Ask: "第一句", Status: "running", CreatedAt: momentAt(10, 0),
+		}},
+	})
+	require.NoError(t, saveError)
+
+	_, appendError := conversationRepository.AppendTurn(
+		t.Context(), savedConversation.ID,
+		entities.AssistantTurn{Ask: "趁它還在寫再問一句", Status: "running", CreatedAt: momentAt(10, 1)})
+
+	// The person who was a moment slower gets the same sentence as the one who was
+	// merely told to wait.
+	require.ErrorIs(t, appendError, domains.ErrAssistantAnswerInProgress)
+}
+
+func TestConversationRepositoryAcceptsTheNextQuestionOnceTheOneBeforeItHasEnded(t *testing.T) {
+	// The index covers only the exchanges still being written. A conversation with a
+	// hundred finished ones is still free to take another question.
+	testCases := []struct {
+		name          string
+		previousState string
+	}{
+		{name: "the one before it was answered", previousState: "answered"},
+		{name: "the one before it failed", previousState: "failed"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+			savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+				LastActiveAt: momentAt(10, 0),
+				Turns: []entities.AssistantTurn{{
+					Ask: "第一句", Answer: "答案", Status: testCase.previousState,
+					CreatedAt: momentAt(10, 0),
+				}},
+			})
+			require.NoError(t, saveError)
+
+			appendedTurn, appendError := conversationRepository.AppendTurn(
+				t.Context(), savedConversation.ID,
+				entities.AssistantTurn{Ask: "下一句", Status: "running", CreatedAt: momentAt(10, 1)})
+
+			require.NoError(t, appendError)
+			assert.Positive(t, appendedTurn.ID)
+		})
+	}
+}
+
+func TestConversationRepositoryLetsTwoConversationsBeWrittenAtOnce(t *testing.T) {
+	// The rule is about one conversation, not one person: two exchanges in two
+	// different conversations have nothing to interleave.
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+
+	for range 2 {
+		_, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+			OwnerID:      1,
+			LastActiveAt: momentAt(10, 0),
+			Turns: []entities.AssistantTurn{{
+				Ask: "問一句", Status: "running", CreatedAt: momentAt(10, 0),
+			}},
+		})
+		require.NoError(t, saveError)
+	}
+}

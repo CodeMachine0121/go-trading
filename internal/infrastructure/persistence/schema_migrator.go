@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -150,6 +151,12 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, dropError
 	}
 
+	// After the retired ones are gone, so that a name being reused never runs into
+	// the index it is replacing.
+	if createError := schemaMigrator.createPartialIndexes(); createError != nil {
+		return nil, createError
+	}
+
 	if dropError := schemaMigrator.dropRetiredConstraints(); dropError != nil {
 		return nil, dropError
 	}
@@ -179,6 +186,51 @@ func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 		if dropError := migrator.DropColumn(column.entity, column.name); dropError != nil {
 			return fmt.Errorf("drop retired column %s: %w", column.name, dropError)
 		}
+	}
+
+	return nil
+}
+
+// AssistantTurnOneRunningPerConversationIndex is what makes "one answer at a time per
+// conversation" a fact about the store rather than a check somebody won.
+//
+// The rule is asked before a question is accepted, but asking and appending are two
+// statements: two requests arriving together both read a conversation with nothing in
+// flight, both pass, and both start writing into it. What is then recorded is two
+// interleaved exchanges nobody can attribute — which is exactly what the rule exists
+// to prevent, and the double-send is the very thing that triggers it.
+//
+// It is named here because the write path has to recognise this one breaking
+// specifically: it is a person asking twice, not a fault.
+const AssistantTurnOneRunningPerConversationIndex = "idx_assistant_turns_one_running_per_conversation"
+
+// createPartialIndexes adds the indexes the ORM's own tags cannot express.
+//
+// A unique index over part of a table has no tag: "unique" there would mean one
+// exchange per conversation ever, which is the opposite of a conversation. So this is
+// the second place in the codebase that writes a statement out by hand, for the same
+// reason as the first — the ORM cannot say it.
+//
+// Both identifiers go through the ORM's own quoting. **The status cannot**, and that
+// is the database's rule rather than a shortcut: PostgreSQL does not accept a
+// parameter inside an index predicate, so it has to be written into the statement.
+// It is read from the same constant everything else compares against — writing
+// "running" out by hand here is how a rename would silently leave this index
+// enforcing a state nothing uses — and it is a constant of this system, never
+// anything a caller supplied.
+//
+// Creating it is idempotent, so running this twice is the same as running it once.
+func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
+	created := schemaMigrator.database.Exec(
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (conversation_id) WHERE status = '%s'",
+			vo.AssistantTurnRunning),
+		clause.Column{Name: AssistantTurnOneRunningPerConversationIndex},
+		clause.Table{Name: entities.AssistantTurn{}.TableName()},
+	)
+	if created.Error != nil {
+		return fmt.Errorf("create index %s: %w",
+			AssistantTurnOneRunningPerConversationIndex, created.Error)
 	}
 
 	return nil

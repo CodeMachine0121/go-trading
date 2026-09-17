@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -75,7 +76,7 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 
 			turn.ConversationID = conversationId
 			if created := transaction.Create(&turn); created.Error != nil {
-				return created.Error
+				return conversationRepository.appendFailureOf(created.Error)
 			}
 
 			appendedTurn = turn
@@ -89,7 +90,8 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 	// can also fail before any of them runs — and that failure, left bare, would
 	// reach the caller as a sentence from the database driver.
 	if transactionError != nil {
-		if errors.Is(transactionError, domains.ErrConversationNotFound) {
+		if errors.Is(transactionError, domains.ErrConversationNotFound) ||
+			errors.Is(transactionError, domains.ErrAssistantAnswerInProgress) {
 			return entities.AssistantTurn{}, transactionError
 		}
 
@@ -97,6 +99,25 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 	}
 
 	return appendedTurn, nil
+}
+
+// appendFailureOf turns a failed insert into the refusal it actually is.
+//
+// One broken index means a second answer was starting on a conversation that already
+// had one — two requests that both read "nothing in flight" before either had
+// written. That is a person asking twice, and they get the same sentence as the
+// person who was merely a moment slower. Anything else is a fault, and dressing it up
+// as "wait for the previous one" would leave somebody waiting for an answer that is
+// never coming.
+func (conversationRepository *ConversationRepository) appendFailureOf(writeError error) error {
+	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](writeError)
+	if isPostgresError &&
+		postgresError.Code == uniqueViolationCode &&
+		postgresError.ConstraintName == AssistantTurnOneRunningPerConversationIndex {
+		return domains.AssistantAnswerInProgress()
+	}
+
+	return writeError
 }
 
 // CompleteTurn writes an answer, or a failure, over the exchange this turn names.
@@ -131,8 +152,12 @@ func (conversationRepository *ConversationRepository) CompleteTurn(
 			if completed.Error != nil {
 				return completed.Error
 			}
+			// The lookup was on the exchange, not the conversation, so that is what
+			// the refusal names. A completion carries no conversation identifier —
+			// it was settled when the place was reserved — so reporting one here
+			// would always say "conversation 0".
 			if completed.RowsAffected == 0 {
-				return domains.ConversationNotFound(turn.ConversationID)
+				return domains.AssistantTurnNotFound(turn.ID)
 			}
 
 			if len(turn.Queries) == 0 {

@@ -33,8 +33,8 @@ Test files below are abbreviated:
 | AC-8 | 回來就看得到 | 看得到完整的答案 | `CompleteTurn` + `FindOne` | `repo:298` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-9 | 進行中的那一次讀得到 | 問句在、答案還沒有、狀態是進行中 | `conversation_domain.go` `messages()` | `conv:141` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-10 | 失敗的那一次也讀得到 | 狀態是失敗，而且說得出原因 | 同上 + `ConversationMessageDto.FailureReason` | `conv:141` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-11 | 混在一起時依時間排好 | 都在，依時間由早到晚 | `messages()` 依 Turns 順序展開 | `conv:141`（前段仍是已回答的那一次） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-12 | 前一次還在跑 | 被拒絕，並說明前一次還在跑 | `HasAnswerInFlight` + `ErrAssistantAnswerInProgress` | `svc:681`, `conv:236`, `ctrl:164` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-11 | 混在一起時依時間排好 | 都在，依時間由早到晚 | `messages()` 依 Turns 順序展開 | `conv:297`（三則已回答＋一則進行中，七則依序） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-12 | 前一次還在跑 | 被拒絕，並說明前一次還在跑 | `HasAnswerInFlight` + `ErrAssistantAnswerInProgress`；同時抵達的兩個由唯一索引擋下，同一句話 | `svc:681`, `conv:236`, `ctrl:164`, `repo:414` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-13 | 前一次剛回答完 | 送得出去 | 同上 | `svc:698`, `conv:236` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-14 | 前一次失敗了不擋路 | 送得出去 | 同上 | `svc:698`, `conv:236` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-15 | 重啟時殘留的轉成失敗 | 原因寫著被重新啟動中斷 | `FailAllRunningTurns` + `FailInterruptedAnswers` | `svc:767`, `repo:375` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -46,13 +46,15 @@ Test files below are abbreviated:
 | BR-3 | 驅動那段不綁在請求上 | 連線斷了照樣跑完 | `assistant_answer_writer.go:42` | — | no-test | produces-oracle | 🟠 mis-asserted |
 | BR-4 | 失敗留紀錄但用量不計 | 說得出原因，用量為零 | `ToFailedTurn` | `exch:174`, `svc:638`, `repo:337` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-5 | 讀回時三種狀態都讀得到 | 依時間由早到晚 | `messages()` | `conv:141` | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-6 | 一段對話最多一次進行中 | 已有就拒絕新的 | `HasAnswerInFlight` | `svc:681`, `conv:236` | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-6 | 一段對話最多一次進行中 | 已有就拒絕新的 | `HasAnswerInFlight` 先擋；`idx_assistant_turns_one_running_per_conversation` 讓同時抵達的兩個也擋得住 | `svc:681`, `conv:236`, `repo:414`, `repo:438`, `repo:472` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-7 | 啟動時收殘留 | 原因為「被重新啟動中斷」 | `main.go` + `FailInterruptedAnswers` | `svc:767`, `repo:375` | asserts-oracle | produces-oracle | ✅ conforms |
 
 ## Orphans (code with no clause)
 
 | Code | Description | Verdict |
 |------|-------------|---------|
+| `assistant_answer_writer.go` 的 `recover()` | 一次回答離開請求之後，上面不再有任何人接住 panic——它會帶走整個行程 | ARCH 未載明；code review 指出後補上，已補測試 `svc:929` |
+| `schema_migrator.go` `createPartialIndexes` | 讓「一段對話一次只跑一則」變成資料庫做得到的事，而不是一場先讀後寫的賽跑 | 同上；ARCH 原本規劃的 `StartTurn` 具備這個原子性，實作換掉它時掉了 |
 | `assistant_turn_status_vo.go:38` 空字串讀作已回答 | 這個欄位存在之前寫的列都有答案，答完才是唯一為真的讀法 | PRD Risks「既有列要有合理的預設」的落點，非孤兒 |
 | `assistant_turn_status_vo.go:43` 認不得的值讀作失敗 | 讀成進行中會是一個永遠轉不完的圈 | 同上，屬同一條風險的另一半，非孤兒 |
 | `conversation_domain.go` `RecentMessages` 濾掉未答完的 | 一個沒有答案的提問會被助手讀成它拒答過 | ARCH 未載明，但屬 BR-5 同源的必要後果；已補測試 `conv:219` | 
@@ -77,6 +79,15 @@ Test files below are abbreviated:
 本次稽核修補的缺口：`ConversationDomain` 的三種狀態、未答完的提問不給助手看、
 以及「有沒有回答在進行中」原本完全沒有測試，已補上 `conv:141`／`conv:219`／
 `conv:236`／`conv:265` 四組。
+
+**Code review 之後的修補**（AC-11 在此之前是一筆過度宣稱：它指向的測試只有兩則問答，
+從來沒有斷言過四則的順序）：
+
+- AC-11 補上 `conv:297`，真的釘住三則已回答加一則進行中的七則順序。
+- BR-6／AC-12 從「先讀後寫的一道檢查」補成「資料庫做不到兩則」。原本兩個同時抵達的
+  請求會雙雙讀到「沒有東西在寫」、雙雙通過、雙雙開始寫——正是這條規則存在的那個情境。
+- 新增一條 ARCH 沒有規劃、但這個設計非有不可的東西：驅動迴圈的 `recover()`。
+  一次回答離開請求之後，HTTP 層的那道防護就管不到它了。
 
 > 稽核性質：靜態一致性稽核。它比對測試斷言與程式路徑對上規格的預期結果，
 > 不執行自行發明的情境，也不以整份測試套件的綠燈作為判準。

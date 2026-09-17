@@ -52,6 +52,22 @@ func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.Tr
 	}
 }
 
+// mostRecentClosedTrades is the tail of the round trips, at most closedTradeLimit of
+// them, plus the sentence that says so when there were more.
+//
+// The most recent rather than the first, because a replay is read backwards: what the
+// strategy has been doing lately is what decides whether to adjust it. An empty
+// sentence means nothing was left out.
+func mostRecentClosedTrades(closedTrades []dto.ClosedTradeDto) ([]dto.ClosedTradeDto, string) {
+	if len(closedTrades) <= closedTradeLimit {
+		return closedTrades, ""
+	}
+
+	return closedTrades[len(closedTrades)-closedTradeLimit:], fmt.Sprintf(
+		"這次重演共有 %d 筆交易，上面只列出最近的 %d 筆。成績單裡的數字是全部 %d 筆算出來的。",
+		len(closedTrades), closedTradeLimit, len(closedTrades))
+}
+
 // decimalOrZero reads an amount, answering zero for anything it cannot read.
 func decimalOrZero(amount string) decimal.Decimal {
 	parsedAmount, parseError := decimal.NewFromString(amount)
@@ -61,6 +77,20 @@ func decimalOrZero(amount string) decimal.Decimal {
 
 	return parsedAmount
 }
+
+// closedTradeLimit is how many round trips one replay hands the assistant.
+//
+// It exists for the same reason the K candle ceiling does, and it bites harder here:
+// what a capability hands back is replayed to the assistant on **every subsequent
+// round** of the same answer. An assistant that replays a chatty strategy four or
+// five times — which is exactly what forty queries are for — would be carrying every
+// trade of every attempt, and would run out of room to think before it ran out of
+// queries.
+//
+// Fifty is enough to see how a strategy behaves: how long it holds, whether it wins
+// in streaks, whether the losses are small. Reading all six hundred is not how that
+// question gets answered, and the report card above already counts them all.
+const closedTradeLimit = 50
 
 // tradingStrategyBacktestReport is one replay as the assistant reads it: the report
 // card and the round trips, and deliberately not the equity curve.
@@ -82,7 +112,14 @@ type tradingStrategyBacktestReport struct {
 	EndTime         time.Time              `json:"endTime"`
 	UsedCandleCount int                    `json:"usedCandleCount"`
 	Summary         dto.BacktestSummaryDto `json:"summary"`
-	ClosedTrades    []dto.ClosedTradeDto   `json:"closedTrades"`
+	// ClosedTrades holds the most recent round trips, at most closedTradeLimit of
+	// them. ClosedTradesTruncated says so outright when there were more.
+	//
+	// Being told is the whole point. An assistant reading fifty of six hundred trades
+	// without knowing it will describe a strategy that does not exist — and unlike a
+	// truncated answer, nothing about the list itself gives that away.
+	ClosedTrades          []dto.ClosedTradeDto `json:"closedTrades"`
+	ClosedTradesTruncated string               `json:"closedTradesTruncated,omitempty"`
 }
 
 // TradingStrategyBacktestAssistantQuery lets the assistant find out what the rules it
@@ -116,6 +153,7 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQuery) Description() string {
 	return "拿一段已經發生過的歷史，把一份交易策略從頭重演一遍，交回成績單與每一筆進出場。" +
 		"沒有彙總刻度可以給——那是這份交易策略的信號來源自己說的，而且每個來源必須一致，不一致會整次拒絕。" +
+		"交易明細只給最近 50 筆，超過時會明講；成績單裡的數字一律是全部交易算出來的。" +
 		"成績單裡的「打架棒數」(conflictedCandleCount) 一定要看：它是買入與賣出同時成立的棒數，" +
 		"那幾棒一律不動作。兩百棒裡打架一百八十棒的交易策略，成績單會很漂亮（幾乎沒有交易），" +
 		"但那代表它根本沒有在做決定，不是它很穩。" +
@@ -154,14 +192,17 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		return "", replayError
 	}
 
+	closedTrades, truncationNotice := mostRecentClosedTrades(resultDto.ClosedTrades)
+
 	payload, marshalError := json.Marshal(tradingStrategyBacktestReport{
-		Symbol:          resultDto.Symbol,
-		Interval:        resultDto.Interval,
-		StartTime:       resultDto.StartTime,
-		EndTime:         resultDto.EndTime,
-		UsedCandleCount: resultDto.UsedCandleCount,
-		Summary:         resultDto.Summary,
-		ClosedTrades:    resultDto.ClosedTrades,
+		Symbol:                resultDto.Symbol,
+		Interval:              resultDto.Interval,
+		StartTime:             resultDto.StartTime,
+		EndTime:               resultDto.EndTime,
+		UsedCandleCount:       resultDto.UsedCandleCount,
+		Summary:               resultDto.Summary,
+		ClosedTrades:          closedTrades,
+		ClosedTradesTruncated: truncationNotice,
 	})
 	if marshalError != nil {
 		return "", fmt.Errorf("render backtest report: %w", marshalError)

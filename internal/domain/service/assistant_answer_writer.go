@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"log"
+	"runtime/debug"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -41,6 +43,32 @@ type assistantAnswerWriter struct {
 // was answered with a place to look, and this is what fills that place in.
 func (assistantAnswerWriter assistantAnswerWriter) write() {
 	executionContext := context.Background()
+
+	// **A panic here used to take one request down; now it would take the process.**
+	// Until this loop moved off the request, the HTTP layer's own recovery contained
+	// it to a single failed answer. Out here nothing is above it, so a panic anywhere
+	// in up to forty rounds of tool calls — a replay engine, a proxy, a decimal
+	// division — would stop the API, the background jobs, and every other answer
+	// being written at that moment.
+	//
+	// The exchange is closed as failed on the way out, so the row does not sit at
+	// running until the next restart sweeps it. What is recorded is deliberately the
+	// same sentence any other breakage gets: the panic value is for the log, and the
+	// person waiting can do exactly one thing about it either way.
+	defer func() {
+		panicValue := recover()
+		if panicValue == nil {
+			return
+		}
+
+		log.Printf("assistant answer %d panicked: %v\n%s",
+			assistantAnswerWriter.turnID, panicValue, debug.Stack())
+
+		assistantAnswerWriter.recordEnding(
+			executionContext,
+			assistantAnswerWriter.exchange.ToFailedTurn(
+				assistantAnswerWriter.turnID, domains.AssistantBrokeDown().Error()))
+	}()
 
 	answeredExchange, answer, exchangeError := assistantAnswerWriter.assistantConversationService.writeAnswer(
 		executionContext, assistantAnswerWriter.viewerID, assistantAnswerWriter.exchange)

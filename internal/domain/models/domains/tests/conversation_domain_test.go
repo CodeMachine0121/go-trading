@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
@@ -291,4 +292,39 @@ func TestConversationDomainToDtoCarriesWhatAnAnswerCost(t *testing.T) {
 	// The question carries none of it: what an answer cost is the answer's own fact.
 	assert.Equal(t, 0, conversationDto.Messages[2].QueryCount)
 	assert.Equal(t, 0, conversationDto.Messages[2].Usage)
+}
+
+func TestConversationDomainToDtoKeepsFinishedAndUnfinishedExchangesInOrder(t *testing.T) {
+	// A conversation read back is a run of exchanges in the order they happened, and
+	// the one still being written is simply the last of them. Reading it as anything
+	// else — the unfinished one hoisted out, or left out — is the blank screen that
+	// makes somebody ask the same question twice.
+	conversation := conversationOf(3)
+	for index := range conversation.Turns {
+		conversation.Turns[index].Status = string(vo.AssistantTurnAnswered)
+	}
+	conversation.Turns = append(conversation.Turns, entities.AssistantTurn{
+		Ask: "還在跑的", Status: string(vo.AssistantTurnRunning),
+		CreatedAt: time.Date(2026, 9, 4, 10, 4, 0, 0, time.UTC),
+	})
+
+	conversationDto := domains.NewConversationDomain(conversation).ToDto()
+
+	// Three finished exchanges are two messages each; the unfinished one is its
+	// question alone.
+	require.Len(t, conversationDto.Messages, 7)
+	assert.Equal(t, []string{
+		"問題 1", "回答 1", "問題 2", "回答 2", "問題 3", "回答 3", "還在跑的",
+	}, contentsOf(conversationDto.Messages))
+	assert.Equal(t, "running", conversationDto.Messages[6].Status)
+}
+
+// contentsOf is what each message said, in order.
+func contentsOf(messages []dto.ConversationMessageDto) []string {
+	contents := make([]string, 0, len(messages))
+	for _, message := range messages {
+		contents = append(contents, message.Content)
+	}
+
+	return contents
 }

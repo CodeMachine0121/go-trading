@@ -925,3 +925,31 @@ func TestGetConversationReportsOneThatIsNotThere(t *testing.T) {
 
 	require.ErrorIs(t, findError, domains.ErrConversationNotFound)
 }
+
+func TestAskRecordsAFailureWhenWritingTheAnswerBreaksDown(t *testing.T) {
+	// Until this loop moved off the request, the HTTP layer's own recovery contained
+	// a panic to one failed answer. Out here nothing is above it: a panic anywhere in
+	// up to forty rounds of tool calls would stop the API, the background jobs, and
+	// every other answer being written at that moment.
+	//
+	// It is closed as failed rather than left at running, so the row does not sit
+	// there until the next restart sweeps it up.
+	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
+	fixture.expectUsageToday(0)
+	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(any, vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
+			panic("a capability tore a hole in the floor")
+		})
+	fixture.expectNewConversation(1)
+
+	_, askError := fixture.assistantConversationService.Ask(
+		t.Context(), dto.AssistantAskDto{Question: "問一句"})
+
+	// Accepting the question succeeded; it is the writing that broke.
+	require.NoError(t, askError)
+
+	completedTurn := fixture.awaitCompletedTurn(t)
+	assert.Equal(t, string(vo.AssistantTurnFailed), completedTurn.Status)
+	assert.Contains(t, completedTurn.FailureReason, "請再問一次")
+	assert.Equal(t, 0, completedTurn.Usage)
+}

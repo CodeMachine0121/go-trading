@@ -294,3 +294,71 @@ func aConflictingTradingStrategy() entities.TradingStrategy {
 
 	return tradingStrategy
 }
+
+func TestTradingStrategyBacktestAssistantQueryCapsTheTradesItHandsOverAndSaysSo(t *testing.T) {
+	// What a capability hands back is replayed to the assistant on every later round
+	// of the same answer. Four or five replays of a chatty strategy would carry every
+	// trade of every attempt, and it would run out of room to think before it ran out
+	// of queries.
+	//
+	// Being told is the other half: fifty trades out of six hundred, read as all of
+	// them, describe a strategy that does not exist — and nothing about the list
+	// itself gives that away.
+	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), assistantTradingStrategyID).
+		Return(aReplayableTradingStrategy("1h"), nil)
+
+	// Alternating buy and sell on every candle is the shape that produces the most
+	// round trips per candle there is.
+	candleCount := 260
+	candles := make([]entities.KCandle, 0, candleCount)
+	signals := make([]vo.SignalVo, 0, candleCount)
+	for candleIndex := range candleCount {
+		candles = append(candles, replayedCandle(candleIndex, "100"))
+		if candleIndex%2 == 0 {
+			signals = append(signals, vo.SignalBuy)
+			continue
+		}
+		signals = append(signals, vo.SignalSell)
+	}
+
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(candles, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(replaySignals(signals...), nil)
+
+	report, outcome := fixture.replay(t, `{
+      "tradingStrategyId": 11,
+      "symbol": "BTCUSDT",
+      "startTime": "2026-09-10T00:00:00Z",
+      "endTime": "2026-09-20T00:00:00Z",
+      "initialCapital": "10000",
+      "positionSizingMode": "allIn"
+    }`)
+
+	assert.Len(t, report.ClosedTrades, 50)
+	assert.Contains(t, outcome, "只列出最近的 50 筆")
+	// The report card still counts every one of them — that is why leaving trades out
+	// costs nothing that matters.
+	assert.Greater(t, report.Summary.PositionOpenCount, 50)
+}
+
+func TestTradingStrategyBacktestAssistantQuerySaysNothingAboutTruncationWhenNothingWasLeftOut(t *testing.T) {
+	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), assistantTradingStrategyID).
+		Return(aReplayableTradingStrategy("1h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{
+			replayedCandle(0, "100"), replayedCandle(1, "110"), replayedCandle(2, "120"),
+		}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(replaySignals(vo.SignalBuy, vo.SignalHold, vo.SignalSell), nil)
+
+	_, outcome := fixture.replay(t, aReplayArgument)
+
+	assert.NotContains(t, outcome, "closedTradesTruncated")
+}

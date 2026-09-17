@@ -45,7 +45,7 @@ Test files below are abbreviated:
 | BR-2 | 擁有者永遠是委託者，沒有欄位可指定 | 同 AC-2 | `ToWriteDto(id)` 簽章不含 ownerID | `tsq:135` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-3 | 刪除交易策略不存在 | 同 AC-10 | 無實作 | `aq:25` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-4 | 拒絕交回助手、不中斷整次回答 | 同 AC-17 | `IAssistantQuery` 既有契約 + `Run` 回 error | `tsq:159`、既有 service 測試 | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-5 | 回測結果含成績單與交易明細、不含資金曲線 | 同 AC-12／AC-13 | `tradingStrategyBacktestReport` | `tbq:197` | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-5 | 回測結果含成績單與交易明細、不含資金曲線、明細上限 50 筆 | 同 AC-12／AC-13 | `tradingStrategyBacktestReport` + `mostRecentClosedTrades` | `tbq:197`, `tbq:298`, `tbq:348` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-6 | 打架棒數必須在 | 同 AC-14 | 同上 | `tbq:218` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-7 | 上限行為不變，只改預設值 | 第 N 次照做、之後不放行、用完照常留存 | 只動 `application_config.go` 一個字面值 | 既有 service 測試（`queryLimit` 為建構參數） | asserts-oracle | produces-oracle | ✅ conforms |
 
@@ -53,6 +53,7 @@ Test files below are abbreviated:
 
 | Code | Description | Verdict |
 |------|-------------|---------|
+| `trading_strategy_backtest_assistant_query.go` `closedTradeLimit` | 一次能力交回的東西會在之後每一輪被重送給助手；沒有上限的交易明細會在查詢用完之前先把它能看的東西佔滿 | ARCH 未載明；code review 指出後補上，已補測試 `tbq:298`／`tbq:348` |
 | `trading_strategy_list_assistant_query.go:47` `AggregationIntervals` | 摘要帶出各來源刻度，讓助手一眼看出哪一份重演不了 | ARCH Open decisions 已載明並採納，非孤兒 |
 | `trading_strategy_backtest_assistant_query.go:57` `decimalOrZero` | 讀不出的金額當零，交給既有「本金必須大於零」拒絕 | PRD Edge Cases「本金不是正數」的落點，非孤兒 |
 
@@ -71,6 +72,11 @@ Test files below are abbreviated:
 本次稽核修補的缺口：AC-4、AC-18 原本只由既有的（非助手路徑）測試蓋到，
 已補上兩條從助手這條路出發的驗收測試；AC-21 原本沒有任何測試釘住那個數字，
 已補上設定測試。
+
+**Code review 之後的修補**：交回助手的交易明細原本沒有上限。它與 K 線的上限是同一條
+規則，而且咬得更深——一次能力交回的東西會在**之後每一輪**被重送給助手，
+所以重演四五次的累積量會在查詢次數用完之前，先把助手能看的東西佔滿。
+已加上限 50 筆並明講筆數（`tbq:298`／`tbq:348`）。
 
 > 稽核性質：靜態一致性稽核。它比對測試斷言與程式路徑對上規格的預期結果，
 > 不執行自行發明的情境，也不以整份測試套件的綠燈作為判準。
