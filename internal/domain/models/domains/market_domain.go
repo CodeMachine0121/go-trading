@@ -144,6 +144,32 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 	return tradingBucketCount
 }
 
+// TradingKCandleCountBetween is how many K candles this market should hold across the
+// stretch, **both ends included**.
+//
+// It answers "how many should be there", which is the question asked of a stretch
+// before deciding whether it is worth fetching at all: equal to what storage holds
+// means that stretch is already complete and the source need not be troubled for it.
+//
+// It is its own method rather than a call to TradingBucketCountBetween, because that
+// one answers one short for a market that never closes — a documented reading its
+// callers and the bars they draw all depend on, and one this must not take. For a
+// market that does close, that walk is already inclusive, so this defers to it rather
+// than keeping a second copy of the session arithmetic.
+func (marketDomain MarketDomain) TradingKCandleCountBetween(
+	startTime time.Time, endTime time.Time,
+) int {
+	if !marketDomain.neverCloses() {
+		return marketDomain.TradingBucketCountBetween(startTime, endTime, KCandleInterval)
+	}
+
+	if endTime.Before(startTime) {
+		return 0
+	}
+
+	return int(endTime.Sub(startTime)/KCandleInterval) + 1
+}
+
 // HoldsTrading reports whether the market is open at any point of the stretch.
 //
 // It is asked out loud rather than derived from a bucket count being zero, because a
