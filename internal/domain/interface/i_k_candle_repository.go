@@ -14,6 +14,16 @@ import (
 // semantics: storing a candle whose symbol and open time already exist replaces it.
 type IKCandleRepository interface {
 	Save(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error)
+	// SaveIfAbsent stores a K candle only when none is held for that trading symbol
+	// and open time, and says whether it actually stored one. Finding one already
+	// there is an ordinary outcome, not a failure.
+	//
+	// It is a second method rather than a flag on Save, because the two are different
+	// intentions rather than one intention with a setting: the automatic rounds
+	// collect a candle while it is still forming and mean to replace it once the
+	// source has settled, while filling in a gap means never touching what is
+	// already held.
+	SaveIfAbsent(executionContext context.Context, kCandle entities.KCandle) (bool, error)
 	Update(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error)
 	FindOne(executionContext context.Context, symbol string, openTime time.Time) (entities.KCandle, error)
 	FindInRange(

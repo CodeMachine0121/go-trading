@@ -14,6 +14,23 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
+// kCandleWriteRule is what a run does about a minute it already holds a candle for.
+//
+// The two are genuinely different intentions rather than one with a setting. An
+// automatic round collects the candle of the minute that just closed and means to
+// replace it next time round, once the source has settled its figures; filling a gap
+// means never touching what is already there, because the caller asked for the
+// missing ones and nothing else.
+type kCandleWriteRule int
+
+const (
+	// replaceStoredKCandles is what every automatic path does, and the manual
+	// catch-up with it: the newer answer from the source wins.
+	replaceStoredKCandles kCandleWriteRule = iota
+	// keepStoredKCandles fills in only the minutes nothing is held for.
+	keepStoredKCandles
+)
+
 // KCandleIngestionService keeps the stored K candles current without anyone asking.
 // Its two public use cases never call one another: the backfill closes the gap left
 // while nothing was running, the periodic round keeps up with the market afterwards.
@@ -78,7 +95,7 @@ func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
 	report := kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
 		func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error) {
 			return ingestionDomain.ScheduledWindow(watchedSymbol.Symbol, market), nil
-		})
+		}, replaceStoredKCandles)
 	kCandleIngestionService.presumeClosedMarkets(
 		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage())
 
@@ -97,7 +114,8 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 	}
 
 	report := kCandleIngestionService.ingestSymbols(executionContext, watchedSymbols, ingestionDomain,
-		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain))
+		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain),
+		replaceStoredKCandles)
 	kCandleIngestionService.presumeClosedMarkets(
 		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage())
 
@@ -135,17 +153,22 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
 		[]entities.TradingSymbol{registeredSymbol},
 		ingestionDomain,
 		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain),
+		replaceStoredKCandles,
 	), nil
 }
 
-// SyncHistoryFor fetches a stretch of one trading symbol's history that somebody
-// named, and stores it over whatever was there.
+// SyncHistoryFor fills in the minutes missing from a stretch of one trading symbol's
+// history that somebody named.
 //
-// It is not a backfill with an argument. A backfill closes a gap — it starts wherever
-// the stored data left off, and a symbol already up to date is left alone. This
-// starts where the caller said, every time, which means it **refetches what is
-// already stored**. That is the only capability it adds and the only reason it
-// exists: a stretch fetched wrongly today has no other way to be put right.
+// It is not a backfill with an argument. A backfill starts wherever the stored data
+// left off, so a minute missing from the *middle* of a stretch is one it never comes
+// back for — holding day one and day thirty, it begins after day thirty. This asks
+// about the whole stretch, every time, which is the only way that hole gets filled.
+//
+// **What it asks about and what it writes are two different things.** It asks about
+// everything and writes only what is absent: a candle already held is left exactly as
+// it is. So a stretch that was already complete reports nothing stored, which is the
+// truth about what this run changed.
 //
 // It shares every gate with the on-demand catch-up — the name, the registration, the
 // dropped closure decision — because those are questions about the symbol rather than
@@ -181,6 +204,7 @@ func (kCandleIngestionService *KCandleIngestionService) SyncHistoryFor(
 			return ingestionDomain.HistoryWindow(
 				watchedSymbol.Symbol, market, lookback.Duration()), nil
 		},
+		keepStoredKCandles,
 	), nil
 }
 
@@ -303,6 +327,7 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
 	watchedSymbols []entities.TradingSymbol,
 	ingestionDomain domains.KCandleIngestionDomain,
 	windowOf func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error),
+	writeRule kCandleWriteRule,
 ) dto.KCandleIngestionReportDto {
 	symbolReports := make([]dto.KCandleSymbolIngestionReportDto, len(watchedSymbols))
 
@@ -310,7 +335,7 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbols(
 	for index, watchedSymbol := range watchedSymbols {
 		waitGroup.Go(func() {
 			symbolReports[index] = kCandleIngestionService.ingestSymbol(
-				executionContext, watchedSymbol, ingestionDomain, windowOf)
+				executionContext, watchedSymbol, ingestionDomain, windowOf, writeRule)
 		})
 	}
 	waitGroup.Wait()
@@ -333,6 +358,7 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 	watchedSymbol entities.TradingSymbol,
 	ingestionDomain domains.KCandleIngestionDomain,
 	windowOf func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error),
+	writeRule kCandleWriteRule,
 ) dto.KCandleSymbolIngestionReportDto {
 	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(watchedSymbol.Market)
 	// The skipped list is built here rather than where the first candle is judged,
@@ -383,8 +409,9 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 			continue
 		}
 
-		if _, saveError := kCandleIngestionService.kCandleRepository.Save(
-			executionContext, kCandleDomain.ToEntity()); saveError != nil {
+		stored, saveError := kCandleIngestionService.store(
+			executionContext, kCandleDomain.ToEntity(), writeRule)
+		if saveError != nil {
 			symbolReport.SkippedKCandles = append(symbolReport.SkippedKCandles, dto.SkippedKCandleDto{
 				OpenTime: reportedKCandle.OpenTime.UTC(),
 				Reason:   saveError.Error(),
@@ -392,10 +419,39 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 			continue
 		}
 
+		// A minute already held under the keep rule is neither stored nor skipped:
+		// nothing went wrong and nothing was written. It is left out of both counts
+		// rather than given a third, because the question the report answers is what
+		// this run changed.
+		if !stored {
+			continue
+		}
+
 		symbolReport.StoredCount++
 	}
 
 	return symbolReport
+}
+
+// store writes one candle the way this run was told to, and says whether anything was
+// actually written.
+//
+// Replacing always writes, so it always reports having done so; keeping reports what
+// the store decided, because whether that minute was already held is the store's to
+// know and nobody else's.
+func (kCandleIngestionService *KCandleIngestionService) store(
+	executionContext context.Context, kCandle entities.KCandle, writeRule kCandleWriteRule,
+) (bool, error) {
+	if writeRule == keepStoredKCandles {
+		return kCandleIngestionService.kCandleRepository.SaveIfAbsent(executionContext, kCandle)
+	}
+
+	if _, saveError := kCandleIngestionService.kCandleRepository.Save(
+		executionContext, kCandle); saveError != nil {
+		return false, saveError
+	}
+
+	return true, nil
 }
 
 // presumeClosedMarkets decides which markets were shut today, from what the round

@@ -30,14 +30,19 @@ const fugleApiKeyHeader = "X-API-KEY"
 //
 // That split is the source's, not ours. Its intraday address only ever answers about
 // today, and its historical address takes whole dates — so a window is asked for one
-// local day at a time and trimmed back to what was actually wanted. The days are few:
-// a market's session is narrowed before this is reached, so even a backfill spans
-// two or three.
+// local day at a time and trimmed back to what was actually wanted.
+//
+// **Each of those days costs a sequential, keyed request**, which is why this takes
+// the market's session rather than just its zone. Narrowing a window to the session
+// only moves its two outer edges; the days in the middle it cannot trade on stay
+// inside it. That cost nothing while the only lookback-driven window was a day or
+// two, but a history sync hands over as many as ninety — a quarter of them weekends
+// that can only ever answer empty, on a plan that starts answering 429 when pushed.
 type FugleMarketDataProxy struct {
 	intradayBaseUrl   string
 	historicalBaseUrl string
 	apiKey            string
-	location          *time.Location
+	tradingSession    vo.TradingSessionVo
 	clockProxy        _interface.IClockProxy
 	httpClient        *http.Client
 }
@@ -46,7 +51,7 @@ func NewFugleMarketDataProxy(
 	intradayBaseUrl string,
 	historicalBaseUrl string,
 	apiKey string,
-	location *time.Location,
+	tradingSession vo.TradingSessionVo,
 	clockProxy _interface.IClockProxy,
 	requestTimeout time.Duration,
 ) *FugleMarketDataProxy {
@@ -54,7 +59,7 @@ func NewFugleMarketDataProxy(
 		intradayBaseUrl:   intradayBaseUrl,
 		historicalBaseUrl: historicalBaseUrl,
 		apiKey:            apiKey,
-		location:          location,
+		tradingSession:    tradingSession,
 		clockProxy:        clockProxy,
 		httpClient:        &http.Client{Timeout: requestTimeout},
 	}
@@ -67,10 +72,14 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) FetchKCandles(
 ) ([]vo.MarketKCandleVo, error) {
 	marketKCandles := make([]vo.MarketKCandleVo, 0)
 
-	today := fugleMarketDataProxy.clockProxy.Now().In(fugleMarketDataProxy.location)
+	today := fugleMarketDataProxy.clockProxy.Now().In(fugleMarketDataProxy.tradingSession.Location)
 	lastLocalDay := fugleMarketDataProxy.localDayOf(window.EndTime)
 
 	for localDay := fugleMarketDataProxy.localDayOf(window.StartTime); !localDay.After(lastLocalDay); localDay = localDay.AddDate(0, 0, 1) {
+		if !fugleMarketDataProxy.marketTradesOn(localDay) {
+			continue
+		}
+
 		dayKCandles, fetchError := fugleMarketDataProxy.fetchDay(
 			executionContext, window.Symbol, localDay, today)
 		if fetchError != nil {
@@ -86,6 +95,25 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) FetchKCandles(
 	}
 
 	return marketKCandles, nil
+}
+
+// marketTradesOn says whether this market opens at all on that local day.
+//
+// A session that names no weekday is one that never closes, and a market that never
+// closes is never skipped — that is the state crypto is in, and reading it as "trades
+// on no day" would silently fetch nothing at all.
+func (fugleMarketDataProxy *FugleMarketDataProxy) marketTradesOn(localDay time.Time) bool {
+	if len(fugleMarketDataProxy.tradingSession.Weekdays) == 0 {
+		return true
+	}
+
+	for _, tradingWeekday := range fugleMarketDataProxy.tradingSession.Weekdays {
+		if localDay.Weekday() == tradingWeekday {
+			return true
+		}
+	}
+
+	return false
 }
 
 // fetchDay asks for one local day, from whichever of the two addresses answers about
@@ -173,11 +201,11 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
 // localDayOf is the start of the local day a moment falls on, which is the unit this
 // source answers in.
 func (fugleMarketDataProxy *FugleMarketDataProxy) localDayOf(moment time.Time) time.Time {
-	localMoment := moment.In(fugleMarketDataProxy.location)
+	localMoment := moment.In(fugleMarketDataProxy.tradingSession.Location)
 
 	return time.Date(
 		localMoment.Year(), localMoment.Month(), localMoment.Day(),
-		0, 0, 0, 0, fugleMarketDataProxy.location)
+		0, 0, 0, 0, fugleMarketDataProxy.tradingSession.Location)
 }
 
 func (fugleMarketDataProxy *FugleMarketDataProxy) isSameLocalDay(

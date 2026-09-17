@@ -150,10 +150,14 @@ func (kCandleIngestionDomain KCandleIngestionDomain) BackfillWindow(
 // lookback they gave.
 //
 // **It never looks at what is already stored, and that is the whole of what separates
-// it from a backfill.** A backfill asks "what am I missing" and starts wherever the
-// stored data left off; this asks "is that stretch here and correct", which can only
-// be answered by fetching it again. It is the one way a stretch fetched wrongly can
-// ever be put right.
+// it from a backfill.** A backfill starts wherever the stored data left off, so a
+// minute missing from the *middle* of a stretch is one it never comes back for:
+// holding day one and day thirty, it begins after day thirty and the twenty-eight
+// days between are gone for good. Asking about the whole stretch is the only way that
+// hole ever gets filled.
+//
+// Asking is not writing. What comes back is stored under whichever rule the run was
+// given, and the run that uses this window keeps what it already holds.
 //
 // The start is rounded down to a bucket edge for the same reason every other
 // lookback-derived start is: a stretch beginning mid-bucket makes the oldest bucket

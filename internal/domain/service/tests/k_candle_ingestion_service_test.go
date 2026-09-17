@@ -148,6 +148,22 @@ func (underTest ingestionUnderTest) watchingInMarket(market vo.MarketVo, symbols
 		FindWatched(gomock.Any()).Return(watchedSymbols, nil).AnyTimes()
 }
 
+// acceptEveryFirstTimeSave lets every candle through on the path that never
+// overwrites, as though the store held none of them yet. It is separate from
+// acceptEverySave because which of the two a run reaches is itself the thing several
+// cases are about.
+func (underTest ingestionUnderTest) acceptEveryFirstTimeSave() *savedOpenTimes {
+	saved := &savedOpenTimes{openTimes: []time.Time{}}
+	underTest.kCandleRepository.EXPECT().SaveIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandle entities.KCandle) (bool, error) {
+			saved.record(kCandle)
+
+			return true, nil
+		}).AnyTimes()
+
+	return saved
+}
+
 // savedOpenTimes records what actually reached storage, safely across the
 // goroutines one round runs its symbols in.
 type savedOpenTimes struct {
@@ -1130,7 +1146,7 @@ func TestSyncingHistoryAsksForTheWholeStretchTheCallerNamed(t *testing.T) {
 	// The window's start comes from the lookback and nothing else. That is the whole
 	// difference from a backfill, which starts wherever the stored data left off.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEverySave()
+	underTest.acceptEveryFirstTimeSave()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
@@ -1150,12 +1166,13 @@ func TestSyncingHistoryAsksForTheWholeStretchTheCallerNamed(t *testing.T) {
 	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
 }
 
-func TestSyncingHistoryRefetchesWhatIsAlreadyStored(t *testing.T) {
-	// This is the one thing a backfill cannot do, and the reason this exists: a
-	// stretch fetched wrongly has no other way to be corrected. So the stored data is
-	// never consulted — the store is not even asked what it already holds.
+func TestSyncingHistoryAsksAboutTheWholeStretchEvenWhereItAlreadyHasData(t *testing.T) {
+	// A backfill starts after the newest candle it holds, so a hole in the middle of
+	// a stretch is one it never comes back for. This asks about the whole stretch, and
+	// that is what lets a hole be filled at all — the store is not consulted to narrow
+	// the window.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEverySave()
+	underTest.acceptEveryFirstTimeSave()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
@@ -1175,6 +1192,58 @@ func TestSyncingHistoryRefetchesWhatIsAlreadyStored(t *testing.T) {
 
 	require.NoError(t, syncError)
 	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), askedWindow.StartTime)
+}
+
+func TestSyncingHistoryLeavesAlreadyStoredKCandlesAlone(t *testing.T) {
+	// It fills in what is missing. A candle already held is not written over, which is
+	// what separates this from every other path here: the scheduled round legitimately
+	// replaces a candle it collected while it was still forming, and this must not.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{
+			validReportedKCandle(ingestionAt(9, 4, 0)),
+			validReportedKCandle(ingestionAt(9, 5, 0)),
+		}, nil)
+
+	// The store reports the second one as already held, so only the first is new.
+	underTest.kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+	underTest.kCandleRepository.EXPECT().
+		SaveIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandle entities.KCandle) (bool, error) {
+			return kCandle.OpenTime.Equal(ingestionAt(9, 4, 0)), nil
+		}).Times(2)
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	// The count is what was newly stored. Everything already held is silently left
+	// as it was — a stretch that was complete already reports nothing stored, which
+	// is the truth about what this run did.
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+	assert.Empty(t, report.SymbolReports[0].SkippedKCandles)
+}
+
+func TestTheOtherIngestionPathsStillOverwriteWhatTheyCollected(t *testing.T) {
+	// A scheduled round collects the candle of the minute that just closed, and the
+	// next round collects it again once the source has settled its figures. Refusing
+	// to overwrite there would freeze the first, roughest version of every candle.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.watchingInMarket(vo.MarketCrypto, "BTCUSDT")
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{validReportedKCandle(ingestionAt(9, 5, 0))}, nil)
+	underTest.kCandleRepository.EXPECT().SaveIfAbsent(gomock.Any(), gomock.Any()).Times(0)
+	saved := underTest.acceptEverySave()
+
+	_, roundError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.Equal(t, []time.Time{ingestionAt(9, 5, 0)}, saved.all())
 }
 
 func TestSyncingHistoryRefusesALookbackThatIsNotAStretch(t *testing.T) {
@@ -1228,7 +1297,7 @@ func TestSyncingHistoryRefusesNothingAsAName(t *testing.T) {
 
 func TestSyncingHistoryReachesASymbolNobodyIsWatching(t *testing.T) {
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEverySave()
+	underTest.acceptEveryFirstTimeSave()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: false,
@@ -1246,7 +1315,7 @@ func TestSyncingHistoryReportsTheCandlesItCouldNotStore(t *testing.T) {
 	// The report is the same shape a backfill produces, down to naming the candle
 	// that broke a rule. One thing should not have two ways of being described.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
-	underTest.acceptEverySave()
+	underTest.acceptEveryFirstTimeSave()
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
 			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
@@ -1294,7 +1363,7 @@ func TestSyncingHistoryDropsAStandingDecisionThatTheMarketIsShut(t *testing.T) {
 	// Same rule as the on-demand catch-up, and the same code; this pins that going in
 	// through the history sync reaches it too.
 	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T10:00:00+08:00"))
-	underTest.acceptEverySave()
+	underTest.acceptEveryFirstTimeSave()
 	underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
 		[]entities.TradingSymbol{{
 			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
