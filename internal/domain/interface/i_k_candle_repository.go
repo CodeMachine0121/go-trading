@@ -14,18 +14,15 @@ import (
 // semantics: storing a candle whose symbol and open time already exist replaces it.
 type IKCandleRepository interface {
 	Save(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error)
-	// SaveIfAbsent stores a K candle only when none is held for that trading symbol
-	// and open time, and says whether it actually stored one. Finding one already
-	// there is an ordinary outcome, not a failure.
+	// SaveAllIfAbsent stores every K candle nothing is held for yet, and says how many
+	// of them it actually stored. Finding one already there is an ordinary outcome,
+	// not a failure.
 	//
 	// It is a second method rather than a flag on Save, because the two are different
 	// intentions rather than one intention with a setting: the automatic rounds
 	// collect a candle while it is still forming and mean to replace it once the
-	// source has settled, while filling in a gap means never touching what is
-	// already held.
-	SaveIfAbsent(executionContext context.Context, kCandle entities.KCandle) (bool, error)
-	// SaveAllIfAbsent is SaveIfAbsent for a whole batch, and says how many of them
-	// were actually stored.
+	// source has settled, while filling in a gap means never touching what is already
+	// held.
 	//
 	// It exists because a stretch of history is fetched a day at a time and a day is
 	// over a thousand candles: written one at a time, four years is two million round

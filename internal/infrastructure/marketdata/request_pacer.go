@@ -7,7 +7,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// requestPacer holds a source to a rate it has agreed to answer at, making every
+// RequestPacer holds a source to a rate it has agreed to answer at, making every
 // caller wait its turn.
 //
 // It exists because nothing above here knows how many requests one call becomes.
@@ -25,24 +25,30 @@ import (
 //
 // It lives beside the proxies rather than in the domain because a venue's allowance
 // is a fact about that venue, in the same way its address and its wire format are.
-type requestPacer struct {
+//
+// **One venue, one pacer, however many proxies speak to it.** The allowance is counted
+// per venue, not per kind of question: asking whether a symbol is listed and asking
+// for a day of candles both spend it. So it is built in the composition root and
+// handed to every proxy that reaches that venue — a pacer each would let two of them
+// together go at twice the rate either was allowed.
+type RequestPacer struct {
 	limiter *rate.Limiter
 }
 
-// newRequestPacer paces to the given allowance. A rate of nothing paces nothing,
+// NewRequestPacer paces to the given allowance. A rate of nothing paces nothing,
 // which is what the tests that are not about pacing run on.
-func newRequestPacer(requestsPerMinute int) requestPacer {
+func NewRequestPacer(requestsPerMinute int) RequestPacer {
 	if requestsPerMinute <= 0 {
-		return requestPacer{limiter: rate.NewLimiter(rate.Inf, 1)}
+		return RequestPacer{limiter: rate.NewLimiter(rate.Inf, 1)}
 	}
 
-	return requestPacer{
+	return RequestPacer{
 		limiter: rate.NewLimiter(rate.Every(time.Minute/time.Duration(requestsPerMinute)), 1),
 	}
 }
 
-// waitForTurn blocks until this request may be sent, or until the caller gives up.
+// WaitForTurn blocks until this request may be sent, or until the caller gives up.
 // A caller that gave up is told so rather than being let through.
-func (pacer requestPacer) waitForTurn(executionContext context.Context) error {
+func (pacer RequestPacer) WaitForTurn(executionContext context.Context) error {
 	return pacer.limiter.Wait(executionContext)
 }

@@ -177,21 +177,6 @@ func (mr *MockIKCandleRepositoryMockRecorder) SaveAllIfAbsent(executionContext, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveAllIfAbsent", reflect.TypeOf((*MockIKCandleRepository)(nil).SaveAllIfAbsent), executionContext, kCandles)
 }
 
-// SaveIfAbsent mocks base method.
-func (m *MockIKCandleRepository) SaveIfAbsent(executionContext context.Context, kCandle entities.KCandle) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SaveIfAbsent", executionContext, kCandle)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SaveIfAbsent indicates an expected call of SaveIfAbsent.
-func (mr *MockIKCandleRepositoryMockRecorder) SaveIfAbsent(executionContext, kCandle any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveIfAbsent", reflect.TypeOf((*MockIKCandleRepository)(nil).SaveIfAbsent), executionContext, kCandle)
-}
-
 // Update mocks base method.
 func (m *MockIKCandleRepository) Update(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error) {
 	m.ctrl.T.Helper()

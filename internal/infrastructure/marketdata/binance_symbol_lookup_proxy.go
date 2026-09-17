@@ -28,12 +28,18 @@ type binanceExchangeInfo struct {
 type BinanceSymbolLookupProxy struct {
 	baseUrl    string
 	httpClient *http.Client
+	// pacer is the venue's, shared with every other proxy that reaches it. The
+	// allowance is counted per venue rather than per kind of question.
+	pacer RequestPacer
 }
 
-func NewBinanceSymbolLookupProxy(baseUrl string, requestTimeout time.Duration) *BinanceSymbolLookupProxy {
+func NewBinanceSymbolLookupProxy(
+	baseUrl string, requestTimeout time.Duration, pacer RequestPacer,
+) *BinanceSymbolLookupProxy {
 	return &BinanceSymbolLookupProxy{
 		baseUrl:    baseUrl,
 		httpClient: &http.Client{Timeout: requestTimeout},
+		pacer:      pacer,
 	}
 }
 
@@ -49,6 +55,10 @@ func NewBinanceSymbolLookupProxy(baseUrl string, requestTimeout time.Duration) *
 func (binanceSymbolLookupProxy *BinanceSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
 ) (vo.SymbolListingVo, error) {
+	if waitError := binanceSymbolLookupProxy.pacer.WaitForTurn(executionContext); waitError != nil {
+		return vo.SymbolListingVo{}, waitError
+	}
+
 	queryValues := url.Values{}
 	queryValues.Set("symbol", symbol)
 

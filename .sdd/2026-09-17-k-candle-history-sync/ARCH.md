@@ -23,6 +23,10 @@
 2. **已經齊全的那幾段連問都不問。** 長區間裡幾乎每一段都是。
 3. **先記輪次、回輪次、背景抓。** 沒有哪一條連線值得開十幾分鐘。
 4. **照來源的節奏打。** 切段之後請求變密，而來源是按請求數算額度的。
+   **一個來源一份節奏**，所有打到那個來源的 proxy 共用——額度是照來源算的，
+   不是照問什麼問題算的。
+5. **一個標的同時只跑一趟。** 兩趟同時走同一個標的，會互相搶同一份來源額度、
+   寫同一批列，而且誰都不會比較早結束。
 
 它另外有一條**寫入規則**：這一趟只寫沒有的。那是四條路裡唯一不覆蓋的一條，
 而其餘三條**必須**繼續覆蓋——定時那一輪收的是剛走完那一分鐘的 K 線，
@@ -47,7 +51,7 @@
 | Domain service | `KCandleIngestionService` 多三個公開用例；新增 `kCandleHistorySyncRunner`（背景推動者） |
 | Application | `KCandleIngestionApplication` 多三個 method |
 | Controller | 新增 `KCandleHistorySyncController`（兩條路由）+ `KCandleHistorySyncRequest` |
-| Infrastructure | 新增 `requestPacer`；兩個行情 proxy 各拿一個 |
+| Infrastructure | 新增 `RequestPacer`；在組裝根一個來源建一份，行情 proxy 與代號查詢 proxy 共用 |
 | Config | 新增回溯上限與兩個來源節奏上限 |
 | 組裝根 | 兩條路由、一個 repository、啟動時掃殘留輪次 |
 | Postman | 新增兩組請求 |
@@ -64,7 +68,7 @@
 | `KCandleHistorySyncDto` / `KCandleHistorySyncRunDto` | `domain/models/dto/` | service 收的那組參數；service 交出去的那趟輪次 |
 | `IKCandleHistorySyncRunRepository` | `domain/interface/` | 輪次的讀寫（`Save` / `FindOne` / `FailAllRunning`） |
 | `kCandleHistorySyncRunner` | `domain/service/k_candle_history_sync_runner.go` | 背景推動那一趟，並把進度寫回去 |
-| `requestPacer` | `infrastructure/marketdata/request_pacer.go` | 把一個來源壓在它允許的節奏上 |
+| `RequestPacer` | `infrastructure/marketdata/request_pacer.go` | 把一個來源壓在它允許的節奏上 |
 | `KCandleHistorySyncController` | `controller/` | `POST /k-candles/history`、`GET /k-candles/history/:id` |
 
 ### 為什麼回溯天數要一個 Domain Model
@@ -86,10 +90,23 @@
 把那些拿掉之後不剩任何領域概念。所以它住在 service 旁邊、不加後綴，
 規則仍然在 domain model 與 service 裡，它只是推動並記下結果。
 
-### 為什麼節奏守在 proxy 裡
+### 為什麼節奏守在 proxy 裡，而且一個來源只有一份
 
 只有那裡知道**一次呼叫會變成幾次請求**。上面看到的是「給我這一段」，
 下面可能是一次，也可能是三千次；而來源是按請求數算額度的。
+
+而**額度是照來源算的，不是照問什麼問題算的**：問「這個代號上市了嗎」與問
+「給我這一天的 K 線」花的是同一份。所以節奏在組裝根建立、發給每一支打到那個
+來源的 proxy——一支一份的話，兩支加起來就會跑到任何一支都不被允許的速度。
+
+### 為什麼一個標的同時只跑一趟
+
+兩趟同時走同一個標的，會互相搶同一份來源額度、寫同一批列，而且誰都不會比較早結束。
+在這種長度下，多按一次滑鼠就是幾小時的額度花兩次。
+
+**由資料庫決定，不是先讀再寫**：同時到的兩個請求會雙雙看到那個標的沒人在跑。
+用的是一條只蓋住 `running` 那幾列的唯一索引——與「一段對話同時只寫一則回答」
+同一個手法。被擋下來回 `409` 而不是 `502`：那是有人按了兩次，不是故障。
 
 ---
 
@@ -196,8 +213,9 @@ KCandleIngestionService.StartHistorySyncFor
 - 想做「重抓一段並修正它」時，落點是 `SaveAllIfAbsent` 換成覆蓋版。
 - 想讓一趟同步**可以取消**時，落點是輪次多一個狀態與一個取消訊號，
   推動者在每段之間檢查一次。這一版刻意不做——要停就重啟。
-- 想同時跑好幾趟時，落點是推動者前面加一個閘。目前沒有擋，
-  因為按的是人，而節奏上限已經是每個來源共用的。
+- 想讓「已齊全就不問」認得**休假日與上市前**時，落點是記下「問過了，那天本來就沒有」
+  ——那是一個新的概念（一段被確認為空），而不是把期望根數算得更聰明：
+  這個系統沒有行事曆，也不知道一檔標的何時上市，而來源知道。
 
 ---
 
@@ -228,6 +246,9 @@ KCandleIngestionService.StartHistorySyncFor
 | 進度寫得太頻繁 | 一段一次。相對於那一段幾百到幾千次照節奏發出的請求，是零頭；而只在收尾才出現的數字跟卡住的分不出來 |
 | 這條寫入規則被誤用到自動那幾輪 | **結構上分開**：歷史同步不走 `ingestSymbols`，沒有旗標可以傳錯。另有一條測試釘住定時那一輪仍然覆蓋 |
 | 壞掉的根太多，報告打不開 | 名單封頂 200 筆，`skippedCount` 照實算 |
+| 同一個標的被開兩趟 | 只蓋住 `running` 的唯一索引，由資料庫擋，回 `409` |
+| 收尾那一筆寫不進去，輪次永遠掛在 `running` | 收尾的寫入會重試（進度的不會——下一段馬上又寫一次） |
+| 「已齊全就不問」認不出休假日與上市前 | **已知代價**。期望根數只認得星期與盤別，不認得國定假日，也不知道這檔何時上市，所以那幾段每跑一次就重問一次。它只會多打幾次，不會漏資料 |
 
 ### Open decisions（交給實作）
 

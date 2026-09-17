@@ -36,16 +36,16 @@ const intervalStep = domains.KCandleInterval
 type BinanceMarketDataProxy struct {
 	baseUrl    string
 	httpClient *http.Client
-	pacer      requestPacer
+	pacer      RequestPacer
 }
 
 func NewBinanceMarketDataProxy(
-	baseUrl string, requestTimeout time.Duration, requestsPerMinute int,
+	baseUrl string, requestTimeout time.Duration, pacer RequestPacer,
 ) *BinanceMarketDataProxy {
 	return &BinanceMarketDataProxy{
 		baseUrl:    baseUrl,
 		httpClient: &http.Client{Timeout: requestTimeout},
-		pacer:      newRequestPacer(requestsPerMinute),
+		pacer:      pacer,
 	}
 }
 
@@ -85,7 +85,7 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
 	startTime time.Time,
 	endTime time.Time,
 ) ([]vo.MarketKCandleVo, error) {
-	if waitError := binanceMarketDataProxy.pacer.waitForTurn(executionContext); waitError != nil {
+	if waitError := binanceMarketDataProxy.pacer.WaitForTurn(executionContext); waitError != nil {
 		return nil, waitError
 	}
 

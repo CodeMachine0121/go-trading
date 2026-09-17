@@ -51,7 +51,7 @@ type FugleMarketDataProxy struct {
 	marketDomain      domains.MarketDomain
 	clockProxy        _interface.IClockProxy
 	httpClient        *http.Client
-	pacer             requestPacer
+	pacer             RequestPacer
 }
 
 func NewFugleMarketDataProxy(
@@ -61,7 +61,7 @@ func NewFugleMarketDataProxy(
 	marketDomain domains.MarketDomain,
 	clockProxy _interface.IClockProxy,
 	requestTimeout time.Duration,
-	requestsPerMinute int,
+	pacer RequestPacer,
 ) *FugleMarketDataProxy {
 	return &FugleMarketDataProxy{
 		intradayBaseUrl:   intradayBaseUrl,
@@ -70,7 +70,7 @@ func NewFugleMarketDataProxy(
 		marketDomain:      marketDomain,
 		clockProxy:        clockProxy,
 		httpClient:        &http.Client{Timeout: requestTimeout},
-		pacer:             newRequestPacer(requestsPerMinute),
+		pacer:             pacer,
 	}
 }
 
@@ -117,7 +117,7 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 	localDay time.Time,
 	today time.Time,
 ) ([]vo.MarketKCandleVo, error) {
-	if waitError := fugleMarketDataProxy.pacer.waitForTurn(executionContext); waitError != nil {
+	if waitError := fugleMarketDataProxy.pacer.WaitForTurn(executionContext); waitError != nil {
 		return nil, waitError
 	}
 

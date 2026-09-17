@@ -54,28 +54,6 @@ func (kCandleRepository *KCandleRepository) Save(
 	return kCandle, nil
 }
 
-// SaveIfAbsent stores a K candle only when none is held for that trading symbol and
-// open time, and says whether it stored one.
-//
-// The store decides, not a read followed by a write: two fetches of overlapping
-// stretches running at once would both find a minute absent and both go on to write
-// it, and the second would overwrite exactly what this exists to protect.
-func (kCandleRepository *KCandleRepository) SaveIfAbsent(
-	executionContext context.Context, kCandle entities.KCandle,
-) (bool, error) {
-	result := kCandleRepository.database.WithContext(executionContext).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
-			DoNothing: true,
-		}).
-		Create(&kCandle)
-	if result.Error != nil {
-		return false, fmt.Errorf("save k candle if absent: %w", result.Error)
-	}
-
-	return result.RowsAffected > 0, nil
-}
-
 // SaveAllIfAbsent stores every K candle nothing is held for yet, in one statement,
 // and says how many it stored.
 //

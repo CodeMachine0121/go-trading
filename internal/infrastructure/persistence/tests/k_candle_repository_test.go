@@ -533,65 +533,6 @@ func TestFindLatestBeforeReportsAStorageFailure(t *testing.T) {
 	assert.Error(t, findError)
 }
 
-func TestSaveIfAbsentLeavesTheCandleAlreadyHeldAlone(t *testing.T) {
-	// Filling a gap means never touching what is already there. The store decides
-	// rather than a read followed by a write, so two overlapping fetches running at
-	// once cannot both find a minute absent and both go on to write it.
-	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
-	require.NoError(t, saveError)
-
-	stored, saveIfAbsentError := kCandleRepository.SaveIfAbsent(
-		t.Context(), kCandleAt("BTCUSDT", at(9, 0), "999"))
-
-	require.NoError(t, saveIfAbsentError)
-	assert.False(t, stored, "已經有的那一根不該被寫過去")
-
-	readBack, findError := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
-	require.NoError(t, findError)
-	assert.True(t, decimal.RequireFromString("100").Equal(readBack.Close),
-		"原本的收盤價要原封不動")
-}
-
-func TestSaveIfAbsentStoresTheMinutesNothingIsHeldFor(t *testing.T) {
-	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-
-	stored, saveError := kCandleRepository.SaveIfAbsent(
-		t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
-
-	require.NoError(t, saveError)
-	assert.True(t, stored)
-
-	readBack, findError := kCandleRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
-	require.NoError(t, findError)
-	assert.True(t, decimal.RequireFromString("100").Equal(readBack.Close))
-}
-
-func TestSaveIfAbsentFillsAHoleWithoutDisturbingItsNeighbours(t *testing.T) {
-	// The whole point of asking about a stretch that is partly held: the minute in
-	// the middle arrives, and the two around it stay exactly as they were.
-	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
-	for _, openTime := range []time.Time{at(9, 0), at(9, 2)} {
-		_, saveError := kCandleRepository.Save(
-			t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
-		require.NoError(t, saveError)
-	}
-
-	for _, openTime := range []time.Time{at(9, 0), at(9, 1), at(9, 2)} {
-		_, saveError := kCandleRepository.SaveIfAbsent(
-			t.Context(), kCandleAt("BTCUSDT", openTime, "999"))
-		require.NoError(t, saveError)
-	}
-
-	held, findError := kCandleRepository.FindInRange(
-		t.Context(), queryFor(t, "BTCUSDT", at(9, 0), at(9, 2)), 10)
-	require.NoError(t, findError)
-	require.Len(t, held, 3)
-	assert.True(t, decimal.RequireFromString("100").Equal(held[0].Close))
-	assert.True(t, decimal.RequireFromString("999").Equal(held[1].Close), "洞被補上了")
-	assert.True(t, decimal.RequireFromString("100").Equal(held[2].Close))
-}
-
 func TestCountInRangeCountsBothEnds(t *testing.T) {
 	// It is asked once per day before that day is fetched: equal to what the market
 	// should hold means the source need not be troubled for it at all.
