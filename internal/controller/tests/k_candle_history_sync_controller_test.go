@@ -334,6 +334,26 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 			},
 		},
 		{
+			// Asking twice is not a fault: the run already going is doing exactly
+			// what the second one would, so it is refused rather than queued.
+			name:               "a symbol that is already being fetched",
+			body:               `{"symbol":"BTCUSDT","lookbackDays":30}`,
+			expectedStatusCode: http.StatusConflict,
+			expectedMessage:    "BTCUSDT",
+			arrange: func(underTest historySyncRouterUnderTest) {
+				underTest.tradingSymbolRepository.EXPECT().
+					FindBySymbol(gomock.Any(), "BTCUSDT").
+					Return(entities.TradingSymbol{
+						Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+					}, true, nil)
+				underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+					Return(entities.KCandleHistorySyncRun{},
+						domains.KCandleHistorySyncInProgress("BTCUSDT"))
+				underTest.marketDataProxy.EXPECT().
+					FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+			},
+		},
+		{
 			name:               "a body that cannot be read",
 			body:               `{"symbol":`,
 			expectedStatusCode: http.StatusBadRequest,

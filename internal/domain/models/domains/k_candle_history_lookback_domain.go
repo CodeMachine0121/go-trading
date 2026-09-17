@@ -11,6 +11,22 @@ import (
 // willing to reach in one go.
 var ErrKCandleHistoryLookback = errors.New("k candle history lookback rejected")
 
+// ErrKCandleHistorySyncInProgress marks a second history sync asked for on a symbol
+// that already has one running.
+//
+// It is refused rather than queued because the two would race each other through the
+// same source allowance and the same rows, and neither would finish any sooner. It is
+// not a fault: the run already going is doing exactly what the second one would.
+var ErrKCandleHistorySyncInProgress = errors.New("k candle history sync already running")
+
+// KCandleHistorySyncInProgress is the refusal somebody gets for asking for a stretch
+// while the same symbol is already being fetched.
+func KCandleHistorySyncInProgress(symbol string) error {
+	return fmt.Errorf(
+		"%w: %s 已經有一趟歷史同步在跑了，等它結束再開下一趟",
+		ErrKCandleHistorySyncInProgress, symbol)
+}
+
 // KCandleHistoryLookbackDomain is how far back one history sync reaches, in whole
 // days.
 //

@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -36,10 +39,30 @@ func (kCandleHistorySyncRunRepository *KCandleHistorySyncRunRepository) Save(
 		Select("*").Omit("ID").Save(&syncRun)
 	if saved.Error != nil {
 		return entities.KCandleHistorySyncRun{},
-			fmt.Errorf("save k candle history sync run: %w", saved.Error)
+			kCandleHistorySyncRunRepository.writeFailureOf(saved.Error, syncRun.Symbol)
 	}
 
 	return syncRun, nil
+}
+
+// writeFailureOf tells a person asking twice apart from something actually going wrong.
+//
+// One broken index means a second run was starting on a symbol that already had one —
+// two requests that both read "nothing in flight" before either had written, which is
+// why the database is what decides rather than a read here. Anything else is a fault,
+// and dressing it up as "one is already running" would leave somebody waiting on a run
+// that was never started.
+func (kCandleHistorySyncRunRepository *KCandleHistorySyncRunRepository) writeFailureOf(
+	writeError error, symbol string,
+) error {
+	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](writeError)
+	if isPostgresError &&
+		postgresError.Code == uniqueViolationCode &&
+		postgresError.ConstraintName == KCandleHistorySyncOneRunningPerSymbolIndex {
+		return domains.KCandleHistorySyncInProgress(symbol)
+	}
+
+	return fmt.Errorf("save k candle history sync run: %w", writeError)
 }
 
 // FindOne answers with the run carrying this identifier, and whether there is one.
@@ -67,15 +90,19 @@ func (kCandleHistorySyncRunRepository *KCandleHistorySyncRunRepository) FindOne(
 // decision to make per row: every one of them is stale by definition, since the
 // process that was fetching no longer exists.
 func (kCandleHistorySyncRunRepository *KCandleHistorySyncRunRepository) FailAllRunning(
-	executionContext context.Context, reason string,
+	executionContext context.Context, reason string, finishedAt time.Time,
 ) (int, error) {
+	// The finish time is written along with the status. A swept run left with none
+	// would read as "failed but still going" to anything using that column to tell
+	// a run in flight from one that is over — which is exactly what it is for.
 	swept := kCandleHistorySyncRunRepository.database.WithContext(executionContext).
 		Model(&entities.KCandleHistorySyncRun{}).
 		Where(clause.Eq{Column: "status", Value: string(vo.KCandleHistorySyncRunning)}).
-		Select("status", "failure_reason").
+		Select("status", "failure_reason", "finished_at").
 		Updates(entities.KCandleHistorySyncRun{
 			Status:        string(vo.KCandleHistorySyncFailed),
 			FailureReason: reason,
+			FinishedAt:    &finishedAt,
 		})
 	if swept.Error != nil {
 		return 0, fmt.Errorf("fail running k candle history sync runs: %w", swept.Error)

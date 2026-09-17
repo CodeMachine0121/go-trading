@@ -46,6 +46,11 @@ type KCandleHistorySyncRun struct {
 	FinishedAt *time.Time
 }
 
+// TableName pins the table to KCandleHistorySyncRuns instead of GORM's default.
+func (kCandleHistorySyncRun KCandleHistorySyncRun) TableName() string {
+	return "KCandleHistorySyncRuns"
+}
+
 // ToDto is the shape this run leaves the domain in.
 func (kCandleHistorySyncRun KCandleHistorySyncRun) ToDto() dto.KCandleHistorySyncRunDto {
 	return dto.KCandleHistorySyncRunDto{

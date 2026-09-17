@@ -12,6 +12,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	gomock "go.uber.org/mock/gomock"
@@ -42,18 +43,18 @@ func (m *MockIKCandleHistorySyncRunRepository) EXPECT() *MockIKCandleHistorySync
 }
 
 // FailAllRunning mocks base method.
-func (m *MockIKCandleHistorySyncRunRepository) FailAllRunning(executionContext context.Context, reason string) (int, error) {
+func (m *MockIKCandleHistorySyncRunRepository) FailAllRunning(executionContext context.Context, reason string, finishedAt time.Time) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FailAllRunning", executionContext, reason)
+	ret := m.ctrl.Call(m, "FailAllRunning", executionContext, reason, finishedAt)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FailAllRunning indicates an expected call of FailAllRunning.
-func (mr *MockIKCandleHistorySyncRunRepositoryMockRecorder) FailAllRunning(executionContext, reason any) *gomock.Call {
+func (mr *MockIKCandleHistorySyncRunRepositoryMockRecorder) FailAllRunning(executionContext, reason, finishedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailAllRunning", reflect.TypeOf((*MockIKCandleHistorySyncRunRepository)(nil).FailAllRunning), executionContext, reason)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailAllRunning", reflect.TypeOf((*MockIKCandleHistorySyncRunRepository)(nil).FailAllRunning), executionContext, reason, finishedAt)
 }
 
 // FindOne mocks base method.

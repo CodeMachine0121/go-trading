@@ -258,7 +258,8 @@ func (kCandleIngestionService *KCandleIngestionService) FailInterruptedHistorySy
 	executionContext context.Context,
 ) (int, error) {
 	return kCandleIngestionService.kCandleHistorySyncRunRepository.FailAllRunning(
-		executionContext, kCandleHistorySyncInterrupted)
+		executionContext, kCandleHistorySyncInterrupted,
+		kCandleIngestionService.clockProxy.Now())
 }
 
 // syncSymbolHistory walks one symbol's stretch a chunk at a time, asking the source

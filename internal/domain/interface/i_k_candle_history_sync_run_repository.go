@@ -2,6 +2,7 @@ package _interface
 
 import (
 	"context"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
@@ -24,7 +25,10 @@ type IKCandleHistorySyncRunRepository interface {
 	FindOne(
 		executionContext context.Context, id uint,
 	) (entities.KCandleHistorySyncRun, bool, error)
-	// FailAllRunning marks every run still recorded as running as failed. Every one of
-	// them is stale by definition: the process that was fetching no longer exists.
-	FailAllRunning(executionContext context.Context, reason string) (int, error)
+	// FailAllRunning marks every run still recorded as running as failed, closing it
+	// at the given moment. Every one of them is stale by definition: the process that
+	// was fetching no longer exists.
+	FailAllRunning(
+		executionContext context.Context, reason string, finishedAt time.Time,
+	) (int, error)
 }

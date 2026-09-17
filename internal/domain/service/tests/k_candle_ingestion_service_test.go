@@ -2004,7 +2004,7 @@ func TestClearingInterruptedHistorySyncsSaysHowManyThereWere(t *testing.T) {
 	// recorded as running is one nothing is fetching for.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.historySyncRunRepository.EXPECT().
-		FailAllRunning(gomock.Any(), gomock.Any()).Return(3, nil)
+		FailAllRunning(gomock.Any(), gomock.Any(), gomock.Any()).Return(3, nil)
 
 	clearedCount, sweepError := underTest.service.FailInterruptedHistorySyncs(t.Context())
 

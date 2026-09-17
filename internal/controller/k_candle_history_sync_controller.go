@@ -61,8 +61,27 @@ func (kCandleHistorySyncController *KCandleHistorySyncController) StartSymbolHis
 		ginContext.Request.Context(),
 		historySyncRequest.ToSyncDto(),
 		kCandleHistorySyncController.lookbackCeilingDays)
-	if syncError != nil {
-		kCandleHistorySyncController.respondWithError(ginContext, syncError)
+	// The four are deliberately four, because what the caller has to do about them
+	// differs: ask for a shorter stretch, register the symbol or retype it, wait for
+	// the run already going, or come back later. A symbol nobody registered in
+	// particular must not read the same as storage being down — one says "check what
+	// you asked for", the other says "that was fine, try again".
+	switch {
+	case errors.Is(syncError, domains.ErrKCandleHistoryLookback),
+		errors.Is(syncError, domains.ErrTradingSymbolNamed):
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": syncError.Error()})
+
+		return
+	case errors.Is(syncError, domains.ErrTradingSymbolNotRegistered):
+		ginContext.JSON(http.StatusNotFound, gin.H{"message": syncError.Error()})
+
+		return
+	case errors.Is(syncError, domains.ErrKCandleHistorySyncInProgress):
+		ginContext.JSON(http.StatusConflict, gin.H{"message": syncError.Error()})
+
+		return
+	case syncError != nil:
+		ginContext.JSON(http.StatusBadGateway, gin.H{"message": syncError.Error()})
 
 		return
 	}
@@ -100,30 +119,4 @@ func (kCandleHistorySyncController *KCandleHistorySyncController) GetSymbolHisto
 	}
 
 	ginContext.JSON(http.StatusOK, syncRun)
-}
-
-// respondWithError maps a refusal onto the status code that reports it.
-//
-// The three are deliberately three, because what the caller has to do about them
-// differs: ask for a shorter stretch, register the symbol or retype it, or come back
-// later. A symbol nobody registered in particular must not read the same as a source
-// that would not answer — one says "check what you asked for", the other says "that
-// was fine, try again".
-func (kCandleHistorySyncController *KCandleHistorySyncController) respondWithError(
-	ginContext *gin.Context, syncError error,
-) {
-	if errors.Is(syncError, domains.ErrKCandleHistoryLookback) ||
-		errors.Is(syncError, domains.ErrTradingSymbolNamed) {
-		ginContext.JSON(http.StatusBadRequest, gin.H{"message": syncError.Error()})
-
-		return
-	}
-
-	if errors.Is(syncError, domains.ErrTradingSymbolNotRegistered) {
-		ginContext.JSON(http.StatusNotFound, gin.H{"message": syncError.Error()})
-
-		return
-	}
-
-	ginContext.JSON(http.StatusBadGateway, gin.H{"message": syncError.Error()})
 }
