@@ -254,6 +254,18 @@
     {
       "key": "tradingStrategyId",
       "value": ""
+    },
+    {
+      "key": "backtestStartTime",
+      "value": ""
+    },
+    {
+      "key": "backtestEndTime",
+      "value": ""
+    },
+    {
+      "key": "mixedIntervalTradingStrategyId",
+      "value": ""
     }
   ],
   "event": [
@@ -8893,6 +8905,104 @@
                   "});",
                   "pm.test(\"說得出是哪一個參數名稱\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"沒有宣告這個名字\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演這一份交易策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{tradingStrategyId}}",
+                "backtests"
+              ]
+            },
+            "description": "拿一段歷史把整份交易策略從頭重演一遍：每個信號來源各逐棒跑一次它那支腳本，再把同一棒上的那幾個信號套進兩棵條件樹。**不必給彙總刻度**——那由那幾個來源自己說。結果不留存，每次問每次算。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"彙總刻度是那幾個來源自己說的\", function () {",
+                  "    pm.expect(pm.response.json().interval).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"成績單說得出打架了幾棒\", function () {",
+                  "    pm.expect(pm.response.json().summary.conflictedCandleCount).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：各來源的彙總刻度不一樣",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{mixedIntervalTradingStrategyId}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{mixedIntervalTradingStrategyId}}",
+                "backtests"
+              ]
+            },
+            "description": "重演是逐棒往前走的，而一小時的一棒與五分鐘的一棒不是同一根。這一版整次拒絕，並說出它現在有哪幾種——使用者要做的是回去把它們調成一樣。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說得出是哪一格要改，以及現在有哪幾種\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"signalSources\");",
+                  "    pm.expect(pm.response.json().message).to.include(\"彙總刻度\");",
                   "});"
                 ]
               }

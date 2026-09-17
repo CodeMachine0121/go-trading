@@ -94,6 +94,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /strategy-scripts",
 		"POST /strategy-scripts/:id/publication",
 		"POST /trading-strategies",
+		// 重演掛在那一份底下，因為那是對它做的事。
+		"POST /trading-strategies/:id/backtests",
 		"POST /users",
 		// Replacing one's own password. It names nobody but the person asking —
 		// who that is comes from the proof on the request — so it cannot reach a
