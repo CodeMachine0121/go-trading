@@ -106,6 +106,7 @@ func registerRoutes(
 	// 否則「今天休市」會各記各的。
 	kCandleIngestionService := service.NewKCandleIngestionService(
 		kCandleRepository,
+		persistence.NewKCandleHistorySyncRunRepository(database),
 		persistence.NewTradingSymbolRepository(database),
 		marketDataProxyFor(applicationConfig),
 		clock.NewSystemClockProxy(),
@@ -121,11 +122,16 @@ func registerRoutes(
 	// 補缺口與同步一段歷史是兩條路，因為它們對「要回溯多久」的答案相反：
 	// 前者由系統決定（那句話寫在它的請求物件上當理由），後者由要求的人說。
 	// 在前者身上加一個選填欄位，會讓那句話變成半真的。
-	engine.POST("/k-candles/history",
-		controller.NewKCandleHistorySyncController(
-			kCandleIngestionApplication,
-			applicationConfig.Ingestion.HistorySyncMaxLookbackDays,
-		).SyncSymbolHistory)
+	//
+	// 它先回 202 與一筆輪次，而不是等抓完才回：四年的一分鐘 K 線是幾千次照節奏發出的
+	// 請求，沒有哪一條連線值得開那麼久。抓取由活得比這個請求久的東西推動，
+	// 所以下面這條查詢路由才是它真正的答案。
+	kCandleHistorySyncController := controller.NewKCandleHistorySyncController(
+		kCandleIngestionApplication,
+		applicationConfig.Ingestion.HistorySyncMaxLookbackDays,
+	)
+	engine.POST("/k-candles/history", kCandleHistorySyncController.StartSymbolHistorySync)
+	engine.GET("/k-candles/history/:id", kCandleHistorySyncController.GetSymbolHistorySync)
 
 	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(

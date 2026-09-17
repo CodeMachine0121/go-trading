@@ -50,6 +50,19 @@ func main() {
 			interruptedAnswerCount)
 	}
 
+	// Same reasoning, same moment: a history sync is driven from this process too, so
+	// every run still recorded as fetching is one nothing is fetching for.
+	interruptedSyncCount, syncSweepError := kCandleIngestionApplication.FailInterruptedHistorySyncs(
+		context.Background())
+	if syncSweepError != nil {
+		log.Printf("failed to clear history syncs interrupted by the last shutdown: %v",
+			syncSweepError)
+	}
+	if interruptedSyncCount > 0 {
+		log.Printf("cleared %d k candle history sync(s) interrupted by the last shutdown",
+			interruptedSyncCount)
+	}
+
 	// The signals are listened for before anything is started, so an interrupt
 	// arriving during the startup backfill runs the shutdown path instead of falling
 	// back on killing the process. The backfill itself is still cut short — it has

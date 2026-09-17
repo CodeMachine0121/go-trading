@@ -41,18 +41,20 @@ const maxNamedSkippedKCandles = 200
 // state and locks nothing: what looks shut is read from what a round saw, when the
 // decision expires is the market's own calendar, and neither of those is here.
 type KCandleIngestionService struct {
-	kCandleRepository       domaininterface.IKCandleRepository
-	tradingSymbolRepository domaininterface.ITradingSymbolRepository
-	marketDataProxy         domaininterface.IMarketDataProxy
-	clockProxy              domaininterface.IClockProxy
-	marketCatalogDomain     domains.MarketCatalogDomain
-	roundCandleCount        int
-	backfillLookback        time.Duration
-	marketClosureLedger     *kCandleIngestionMarketClosureLedger
+	kCandleRepository               domaininterface.IKCandleRepository
+	kCandleHistorySyncRunRepository domaininterface.IKCandleHistorySyncRunRepository
+	tradingSymbolRepository         domaininterface.ITradingSymbolRepository
+	marketDataProxy                 domaininterface.IMarketDataProxy
+	clockProxy                      domaininterface.IClockProxy
+	marketCatalogDomain             domains.MarketCatalogDomain
+	roundCandleCount                int
+	backfillLookback                time.Duration
+	marketClosureLedger             *kCandleIngestionMarketClosureLedger
 }
 
 func NewKCandleIngestionService(
 	kCandleRepository domaininterface.IKCandleRepository,
+	kCandleHistorySyncRunRepository domaininterface.IKCandleHistorySyncRunRepository,
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository,
 	marketDataProxy domaininterface.IMarketDataProxy,
 	clockProxy domaininterface.IClockProxy,
@@ -61,14 +63,15 @@ func NewKCandleIngestionService(
 	backfillLookback time.Duration,
 ) *KCandleIngestionService {
 	return &KCandleIngestionService{
-		kCandleRepository:       kCandleRepository,
-		tradingSymbolRepository: tradingSymbolRepository,
-		marketDataProxy:         marketDataProxy,
-		clockProxy:              clockProxy,
-		marketCatalogDomain:     marketCatalogDomain,
-		roundCandleCount:        roundCandleCount,
-		backfillLookback:        backfillLookback,
-		marketClosureLedger:     newKCandleIngestionMarketClosureLedger(),
+		kCandleRepository:               kCandleRepository,
+		kCandleHistorySyncRunRepository: kCandleHistorySyncRunRepository,
+		tradingSymbolRepository:         tradingSymbolRepository,
+		marketDataProxy:                 marketDataProxy,
+		clockProxy:                      clockProxy,
+		marketCatalogDomain:             marketCatalogDomain,
+		roundCandleCount:                roundCandleCount,
+		backfillLookback:                backfillLookback,
+		marketClosureLedger:             newKCandleIngestionMarketClosureLedger(),
 	}
 }
 
@@ -147,8 +150,8 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
 	), nil
 }
 
-// SyncHistoryFor fills in the minutes missing from a stretch of one trading symbol's
-// history that somebody named.
+// StartHistorySyncFor accepts a request to fill in the minutes missing from a stretch
+// of one trading symbol's history, and answers with where to watch it happen.
 //
 // It is not a backfill with an argument. A backfill starts wherever the stored data
 // left off, so a minute missing from the *middle* of a stretch is one it never comes
@@ -168,33 +171,94 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfillFor(
 // same reason every other ceiling here does not: how far this system is willing to
 // reach in one request is an operator's decision, and a service that remembered it
 // would be a second place for it to be wrong.
-func (kCandleIngestionService *KCandleIngestionService) SyncHistoryFor(
+//
+// **It answers before the fetching starts, and that is not an optimisation.** Four
+// years of one-minute candles is thousands of requests to a source that is paced to
+// what it allows — tens of minutes of fetching, and longer on a market answering one
+// day at a time. There is no connection worth holding open that long: a proxy, a load
+// balancer or a laptop lid closing would end the request and, with a synchronous
+// fetch, the work with it. So the run is written down first, the work is driven by
+// something that outlives the request, and the caller is handed the run to come back
+// and look at.
+//
+// Everything that can refuse the request still refuses it here, before anything is
+// recorded — a lookback that is not a stretch, a name that is not one, a symbol
+// nobody registered. A run recorded and then immediately failed would be a worse
+// answer to those than a refusal.
+func (kCandleIngestionService *KCandleIngestionService) StartHistorySyncFor(
 	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, ceilingDays int,
-) (dto.KCandleIngestionReportDto, error) {
+) (dto.KCandleHistorySyncRunDto, error) {
 	// Judged before anything is read. A request that cannot work should not reach
 	// storage first, and the caller with a lookback of nothing is told about the
 	// lookback rather than about a symbol they spelled perfectly well.
 	lookback, lookbackError := domains.NewKCandleHistoryLookbackDomain(
 		syncDto.LookbackDays, ceilingDays)
 	if lookbackError != nil {
-		return dto.KCandleIngestionReportDto{}, lookbackError
+		return dto.KCandleHistorySyncRunDto{}, lookbackError
 	}
 
 	registeredSymbol, ingestionDomain, reachError := kCandleIngestionService.reachSymbolOnDemand(
 		executionContext, syncDto.Symbol)
 	if reachError != nil {
-		return dto.KCandleIngestionReportDto{}, reachError
+		return dto.KCandleHistorySyncRunDto{}, reachError
 	}
 
-	symbolReport, syncError := kCandleIngestionService.syncSymbolHistory(
-		executionContext, registeredSymbol, ingestionDomain, lookback.Duration())
-	if syncError != nil {
-		return dto.KCandleIngestionReportDto{}, syncError
+	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
+	chunks := ingestionDomain.HistoryChunks(
+		registeredSymbol.Symbol, marketDomain.Value(), lookback.Duration())
+
+	syncRun, saveError := kCandleIngestionService.kCandleHistorySyncRunRepository.Save(
+		executionContext, entities.KCandleHistorySyncRun{
+			Symbol:       registeredSymbol.Symbol,
+			LookbackDays: syncDto.LookbackDays,
+			Status:       string(vo.KCandleHistorySyncRunning),
+			TotalChunks:  len(chunks),
+			StartedAt:    ingestionDomain.CurrentTime(),
+		})
+	if saveError != nil {
+		// Nothing is started. A run nobody can find is work nobody can ask about and
+		// a restart cannot sweep up, which is worse than not having begun.
+		return dto.KCandleHistorySyncRunDto{}, saveError
 	}
 
-	return dto.KCandleIngestionReportDto{
-		SymbolReports: []dto.KCandleSymbolIngestionReportDto{symbolReport},
-	}, nil
+	go kCandleHistorySyncRunner{
+		kCandleIngestionService: kCandleIngestionService,
+		syncRun:                 syncRun,
+		registeredSymbol:        registeredSymbol,
+		ingestionDomain:         ingestionDomain,
+		chunks:                  chunks,
+	}.run()
+
+	return syncRun.ToDto(), nil
+}
+
+// GetHistorySyncRun answers with where one history sync has got to.
+func (kCandleIngestionService *KCandleIngestionService) GetHistorySyncRun(
+	executionContext context.Context, id uint,
+) (dto.KCandleHistorySyncRunDto, error) {
+	syncRun, found, findError := kCandleIngestionService.kCandleHistorySyncRunRepository.FindOne(
+		executionContext, id)
+	if findError != nil {
+		return dto.KCandleHistorySyncRunDto{}, findError
+	}
+	if !found {
+		return dto.KCandleHistorySyncRunDto{}, ErrKCandleHistorySyncRunNotFound
+	}
+
+	return syncRun.ToDto(), nil
+}
+
+// FailInterruptedHistorySyncs clears out the runs the last shutdown cut off, and says
+// how many there were.
+//
+// A run being fetched lives in this process and nowhere else, so every one still
+// recorded as running is stale the moment this one starts. Left alone each is a
+// progress figure that never moves again.
+func (kCandleIngestionService *KCandleIngestionService) FailInterruptedHistorySyncs(
+	executionContext context.Context,
+) (int, error) {
+	return kCandleIngestionService.kCandleHistorySyncRunRepository.FailAllRunning(
+		executionContext, kCandleHistorySyncInterrupted)
 }
 
 // syncSymbolHistory walks one symbol's stretch a chunk at a time, asking the source
@@ -224,7 +288,8 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 	executionContext context.Context,
 	registeredSymbol entities.TradingSymbol,
 	ingestionDomain domains.KCandleIngestionDomain,
-	lookback time.Duration,
+	chunks []vo.KCandleFetchWindowVo,
+	recordProgress func(completedChunks int, symbolReport dto.KCandleSymbolIngestionReportDto),
 ) (dto.KCandleSymbolIngestionReportDto, error) {
 	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
 	symbolReport := dto.KCandleSymbolIngestionReportDto{
@@ -233,8 +298,9 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 		SkippedKCandles: make([]dto.SkippedKCandleDto, 0),
 	}
 
-	for _, chunk := range ingestionDomain.HistoryChunks(
-		registeredSymbol.Symbol, marketDomain.Value(), lookback) {
+	for chunkIndex, chunk := range chunks {
+		recordProgress(chunkIndex, symbolReport)
+
 		tradableChunk := marketDomain.ClampToTradingSession(chunk)
 		if tradableChunk.IsEmpty() {
 			continue
@@ -282,6 +348,8 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 
 		symbolReport.StoredCount += storedCount
 	}
+
+	recordProgress(len(chunks), symbolReport)
 
 	return symbolReport, nil
 }

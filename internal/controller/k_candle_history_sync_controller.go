@@ -3,10 +3,12 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,13 +39,14 @@ func NewKCandleHistorySyncController(
 	}
 }
 
-// SyncSymbolHistory handles POST /k-candles/history.
+// StartSymbolHistorySync handles POST /k-candles/history.
 //
-// It answers only when the whole stretch has been fetched and stored. Ninety days of
-// one-minute candles is well over a hundred round trips to the source, so this can
-// take minutes — and that is accepted rather than worked around: what calls this is a
-// person or a Postman request, not a screen with somebody waiting at it.
-func (kCandleHistorySyncController *KCandleHistorySyncController) SyncSymbolHistory(
+// **It answers before the fetching is done**, with the run to come back and look at.
+// Years of one-minute candles is thousands of paced round trips to the source — tens
+// of minutes, and longer on a market that answers one day at a time — and no
+// connection is worth holding open that long. The work is driven by something that
+// outlives this request, so the run is the answer.
+func (kCandleHistorySyncController *KCandleHistorySyncController) StartSymbolHistorySync(
 	ginContext *gin.Context,
 ) {
 	var historySyncRequest models.KCandleHistorySyncRequest
@@ -54,7 +57,7 @@ func (kCandleHistorySyncController *KCandleHistorySyncController) SyncSymbolHist
 		return
 	}
 
-	report, syncError := kCandleHistorySyncController.kCandleIngestionApplication.SyncSymbolHistory(
+	syncRun, syncError := kCandleHistorySyncController.kCandleIngestionApplication.StartSymbolHistorySync(
 		ginContext.Request.Context(),
 		historySyncRequest.ToSyncDto(),
 		kCandleHistorySyncController.lookbackCeilingDays)
@@ -64,7 +67,39 @@ func (kCandleHistorySyncController *KCandleHistorySyncController) SyncSymbolHist
 		return
 	}
 
-	ginContext.JSON(http.StatusOK, report)
+	// Accepted rather than done: the run is recorded and the fetching has started,
+	// and the body says where to watch it.
+	ginContext.JSON(http.StatusAccepted, syncRun)
+}
+
+// GetSymbolHistorySync handles GET /k-candles/history/:id.
+//
+// It is what makes the accepted answer above usable: a run identifier with nowhere to
+// take it would be a receipt for work nobody can see.
+func (kCandleHistorySyncController *KCandleHistorySyncController) GetSymbolHistorySync(
+	ginContext *gin.Context,
+) {
+	id, idError := strconv.ParseUint(ginContext.Param("id"), 10, 64)
+	if idError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": "請指定同步輪次的編號"})
+
+		return
+	}
+
+	syncRun, findError := kCandleHistorySyncController.kCandleIngestionApplication.GetSymbolHistorySync(
+		ginContext.Request.Context(), uint(id))
+	if errors.Is(findError, service.ErrKCandleHistorySyncRunNotFound) {
+		ginContext.JSON(http.StatusNotFound, gin.H{"message": findError.Error()})
+
+		return
+	}
+	if findError != nil {
+		ginContext.JSON(http.StatusBadGateway, gin.H{"message": findError.Error()})
+
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, syncRun)
 }
 
 // respondWithError maps a refusal onto the status code that reports it.

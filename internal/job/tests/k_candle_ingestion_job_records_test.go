@@ -114,7 +114,7 @@ func startJobEvery(
 	ingestionJob := job.NewKCandleIngestionJob(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback)),
 		interval)

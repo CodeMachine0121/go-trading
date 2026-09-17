@@ -41,7 +41,7 @@ func newBackfillRouterUnderTest(t *testing.T) backfillRouterUnderTest {
 	backfillController := controller.NewKCandleBackfillController(
 		application.NewKCandleIngestionApplication(
 			service.NewKCandleIngestionService(
-				kCandleRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
+				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 					vo.MarketCrypto: {},
 				}), 5, time.Hour)))
