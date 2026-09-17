@@ -20,6 +20,7 @@ import (
 type BacktestSimulationDomain struct {
 	initialCapital decimal.Decimal
 	positionSizing PositionSizingDomain
+	tradingMode    TradingModeDomain
 	inputKCandles  []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
 	// candle. The script runner produces one signal per candle or fails the whole
@@ -34,12 +35,14 @@ type BacktestSimulationDomain struct {
 func NewBacktestSimulationDomain(
 	initialCapital decimal.Decimal,
 	positionSizing PositionSizingDomain,
+	tradingMode TradingModeDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
 ) BacktestSimulationDomain {
 	return BacktestSimulationDomain{
 		initialCapital: initialCapital,
 		positionSizing: positionSizing,
+		tradingMode:    tradingMode,
 		inputKCandles:  inputKCandles,
 		signals:        signals,
 	}
@@ -52,7 +55,9 @@ func NewBacktestSimulationDomain(
 // three chances for them to disagree about what happened.
 func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestResultDto {
 	account := NewBacktestAccountDomain(
-		backtestSimulationDomain.initialCapital, backtestSimulationDomain.positionSizing)
+		backtestSimulationDomain.initialCapital,
+		backtestSimulationDomain.positionSizing,
+		backtestSimulationDomain.tradingMode)
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
 	for candleIndex, inputKCandle := range backtestSimulationDomain.inputKCandles {

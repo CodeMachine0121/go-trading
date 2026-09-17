@@ -30,6 +30,7 @@ type BacktestDomain struct {
 	parameters     StrategyScriptParametersDomain
 	initialCapital decimal.Decimal
 	positionSizing PositionSizingDomain
+	tradingMode    TradingModeDomain
 	startTime      time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
 	// buckets that opened strictly before it are replayed.
@@ -81,6 +82,11 @@ func NewBacktestDomain(
 		return BacktestDomain{}, positionSizingError
 	}
 
+	tradingMode, tradingModeError := NewTradingModeDomain(requestDto.TradingMode)
+	if tradingModeError != nil {
+		return BacktestDomain{}, tradingModeError
+	}
+
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
 	if parametersError != nil {
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, parametersError)
@@ -120,6 +126,7 @@ func NewBacktestDomain(
 		parameters:     parameters,
 		initialCapital: requestDto.InitialCapital,
 		positionSizing: positionSizing,
+		tradingMode:    tradingMode,
 		startTime:      startTime,
 		readCutoff:     readCutoff,
 	}, nil
@@ -210,6 +217,7 @@ func (backtestDomain BacktestDomain) ReplayOver(
 	backtestResultDto := NewBacktestSimulationDomain(
 		backtestDomain.initialCapital,
 		backtestDomain.positionSizing,
+		backtestDomain.tradingMode,
 		inputKCandles,
 		signals).ToDto()
 

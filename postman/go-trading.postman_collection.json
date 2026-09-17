@@ -7870,6 +7870,118 @@
           ]
         },
         {
+          "name": "重演：現貨模式賣出就平倉回現金",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "**與上一發同一支算式、同一段歷史，只換了交易模式。**\n\n現貨模式只做多：聽到賣出就把多倉平掉、錢收回來，之後空手等下一個買點，**不會反手做空**。收盤 110 開多倉，收盤 140 那根平倉、3,000 入袋，最後一根漲到 150 時手上是現金，與他無關。\n\n所以最後剩 14,000，而上一發是 13,000——差的那 1,000 是上一發那個空倉的浮虧，一筆做不到放空的帳戶永遠不會有的損益。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"spot\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"賣出只平倉，不反手，所以只算一次開倉\", function () {",
+                  "    pm.expect(pm.response.json().summary.positionOpenCount).to.eql(1);",
+                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "});",
+                  "pm.test(\"現貨永遠不會出現空倉\", function () {",
+                  "    pm.response.json().closedTrades.forEach(function (trade) {",
+                  "        pm.expect(trade.direction).to.eql(\"long\");",
+                  "    });",
+                  "});",
+                  "pm.test(\"平倉之後手上是現金，最後一根的漲跌與他無關\", function () {",
+                  "    // 平掉多倉拿回 14,000；最後一根由 140 漲到 150 時已經空手。",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"14000\");",
+                  "});",
+                  "pm.test(\"資金曲線最後兩點一樣，因為那一段是現金\", function () {",
+                  "    const curve = pm.response.json().equityCurve;",
+                  "    pm.expect(curve[curve.length - 1].equity).to.eql(curve[curve.length - 2].equity);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：交易模式認不得",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "交易模式只有兩種。認不得的值**整次拒絕**，並說出有哪兩種可選——不默默退回預設，否則使用者會拿著一張用另一套規矩跑出來的成績單做決定，而且完全不知道。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"dayTrade\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"指名是哪一個輸入不對\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"tradingMode\");",
+                  "});",
+                  "pm.test(\"說出現在有哪兩種可選\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"longShort\");",
+                  "    pm.expect(pm.response.json().message).to.include(\"spot\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "（先存）重演：每次只押可用資金的一半",
           "request": {
             "method": "POST",
@@ -9061,6 +9173,62 @@
                   "});",
                   "pm.test(\"成績單說得出打架了幾棒\", function () {",
                   "    pm.expect(pm.response.json().summary.conflictedCandleCount).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演這一份交易策略：現貨模式",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{tradingStrategyId}}",
+                "backtests"
+              ]
+            },
+            "description": "**與上一發同一份交易策略、同一段歷史，只換了交易模式。**\n\n交易模式走的是與重演一支策略腳本完全相同的那一道關卡，所以留白即多空反手、認不得即整次拒絕，兩條路一字不差。現貨模式下賣出只平倉回現金，因此交易明細裡不可能出現空倉。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"spot\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"現貨模式下每一筆交易都是做多\", function () {",
+                  "    pm.response.json().closedTrades.forEach(function (trade) {",
+                  "        pm.expect(trade.direction).to.eql(\"long\");",
+                  "    });",
+                  "});",
+                  "pm.test(\"成績單、資金曲線、交易明細照舊交出來\", function () {",
+                  "    pm.expect(pm.response.json().summary).to.be.an(\"object\");",
+                  "    pm.expect(pm.response.json().equityCurve).to.be.an(\"array\");",
+                  "    pm.expect(pm.response.json().closedTrades).to.be.an(\"array\");",
                   "});"
                 ]
               }

@@ -43,6 +43,22 @@ func replayOf(
 ) domains.BacktestSimulationDomain {
 	t.Helper()
 
+	return replayTradingAs(t, "longShort", initialCapital, sizingMode, sizingValue,
+		closePrices, signals...)
+}
+
+// replayTradingAs is the same walk under a named trading mode.
+func replayTradingAs(
+	t *testing.T,
+	declaredTradingMode string,
+	initialCapital int64,
+	sizingMode string,
+	sizingValue int64,
+	closePrices []float64,
+	signals ...vo.SignalVo,
+) domains.BacktestSimulationDomain {
+	t.Helper()
+
 	positionSizing, err := domains.NewPositionSizingDomain(
 		sizingMode, decimal.NewFromInt(sizingValue))
 	require.NoError(t, err)
@@ -53,7 +69,8 @@ func replayOf(
 	}
 
 	return domains.NewBacktestSimulationDomain(
-		decimal.NewFromInt(initialCapital), positionSizing, inputKCandles,
+		decimal.NewFromInt(initialCapital), positionSizing,
+		tradingModeOf(t, declaredTradingMode), inputKCandles,
 		signalDomainsSaying(signals...))
 }
 
@@ -336,5 +353,101 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 			holdSignal, holdSignal).ToDto()
 
 		assert.True(t, decimal.NewFromInt(10000).Equal(result.Summary.InitialCapital))
+	})
+}
+
+// The same three candles, the same script, two report cards. This is the whole reason
+// the mode exists: the second one is built on a short position most accounts cannot
+// take, and until now it was the only answer on offer.
+func TestBacktestSimulationTradingModeChangesTheReportCard(t *testing.T) {
+	closePrices := []float64{100, 120, 90}
+
+	t.Run("a spot replay is in cash for the fall", func(t *testing.T) {
+		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+			closePrices, buySignal, sellSignal, holdSignal).ToDto()
+
+		// Bought at 100, sold at 120, and the drop to 90 happened to somebody else.
+		assert.True(t, decimal.NewFromInt(12000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
+		require.Len(t, result.ClosedTrades, 1)
+		assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
+		assert.True(t, decimal.NewFromInt(2000).Equal(result.ClosedTrades[0].Profit))
+		// The last point sits still because the account is holding cash, not a bet.
+		require.Len(t, result.EquityCurve, 3)
+		assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[1].Equity))
+		assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[2].Equity))
+	})
+
+	t.Run("a long-short replay takes the other side of the fall", func(t *testing.T) {
+		result := replayTradingAs(t, "longShort", 10000, "allIn", 0,
+			closePrices, buySignal, sellSignal, holdSignal).ToDto()
+
+		// The whole 12,000 went straight back out as a short at 120 — the reversal
+		// stakes what the close returned, not the original capital — so the fall to 90
+		// pays it 3,000 more.
+		assert.True(t, decimal.NewFromInt(15000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
+		assert.Equal(t, 2, result.Summary.PositionOpenCount)
+		// The short is still open at the end, so it is not among the round trips.
+		require.Len(t, result.ClosedTrades, 1)
+		assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
+	})
+
+	t.Run("without a sell the two modes cannot disagree", func(t *testing.T) {
+		spotResult := replayTradingAs(t, "spot", 10000, "allIn", 0,
+			closePrices, buySignal, holdSignal, holdSignal).ToDto()
+		longShortResult := replayTradingAs(t, "longShort", 10000, "allIn", 0,
+			closePrices, buySignal, holdSignal, holdSignal).ToDto()
+
+		assert.Equal(t, longShortResult.Summary, spotResult.Summary)
+		assert.Equal(t, longShortResult.ClosedTrades, spotResult.ClosedTrades)
+		assert.Equal(t, longShortResult.EquityCurve, spotResult.EquityCurve)
+	})
+}
+
+// Three things a spot replay does that only show up over a whole stretch rather than
+// on one candle.
+func TestBacktestSimulationSpotOverAWholeStretch(t *testing.T) {
+	t.Run("a stretch that never buys finishes with nothing having happened", func(t *testing.T) {
+		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+			[]float64{100, 90, 80},
+			sellSignal, sellSignal, holdSignal).ToDto()
+
+		// Nothing to sell, and no way to short: the account simply sat there. This is
+		// a legitimate outcome, not a failure.
+		assert.Equal(t, 0, result.Summary.PositionOpenCount)
+		assert.Empty(t, result.ClosedTrades)
+		require.Len(t, result.EquityCurve, 3)
+		for _, equityPoint := range result.EquityCurve {
+			assert.True(t, decimal.NewFromInt(10000).Equal(equityPoint.Equity),
+				"a point on the curve was %s", equityPoint.Equity)
+		}
+	})
+
+	t.Run("a fixed stake it cannot cover after a sale skips that opening", func(t *testing.T) {
+		// Stakes 8,000 a time. The first buy fits; the sale returns only 4,000, so the
+		// next buy cannot be placed and the replay carries on in cash.
+		result := replayTradingAs(t, "spot", 10000, "fixedAmount", 8000,
+			[]float64{100, 50, 60},
+			buySignal, sellSignal, buySignal).ToDto()
+
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
+		require.Len(t, result.ClosedTrades, 1)
+		// 2,000 never staked, plus the 4,000 the sale returned.
+		assert.True(t, decimal.NewFromInt(6000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
+	})
+
+	t.Run("a long still open at the end counts but is not a round trip", func(t *testing.T) {
+		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+			[]float64{100, 120, 150},
+			buySignal, holdSignal, holdSignal).ToDto()
+
+		// Bought 100 units at 100 and never sold: worth 15,000 at the last close.
+		assert.True(t, decimal.NewFromInt(15000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
+		assert.Empty(t, result.ClosedTrades)
 	})
 }

@@ -262,3 +262,70 @@ func TestRunBacktestEndpoint(t *testing.T) {
 		assert.Equal(t, http.StatusBadGateway, response.Code)
 	})
 }
+
+// The mode a caller declares has to survive the whole way down to the account, and
+// the refusal has to name the box the person types it into.
+func TestRunBacktestEndpointCarriesTheTradingMode(t *testing.T) {
+	t.Run("a long only replay stands aside instead of reversing", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.expectTwoCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]map[string]vo.IndicatorValueVo{
+				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
+			}, nil)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"strategyScriptId":9,
+			"initialCapital":"10000",
+			"positionSizingMode":"allIn",
+			"tradingMode":"spot"
+		}`)
+
+		require.Equal(t, http.StatusOK, response.Code)
+
+		var body struct {
+			Summary struct {
+				FinalEquity       string `json:"finalEquity"`
+				PositionOpenCount int    `json:"positionOpenCount"`
+			} `json:"summary"`
+			ClosedTrades []map[string]any `json:"closedTrades"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		// Bought at 100, sold at 110, now holding 11,000 in cash rather than a short.
+		assert.Equal(t, "11000", body.Summary.FinalEquity)
+		assert.Equal(t, 1, body.Summary.PositionOpenCount)
+		assert.Len(t, body.ClosedTrades, 1)
+	})
+
+	t.Run("a trading mode nobody offers names the input at fault", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"strategyScriptId":9,
+			"initialCapital":"10000",
+			"positionSizingMode":"allIn",
+			"tradingMode":"dayTrade"
+		}`)
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+
+		var body struct {
+			Message string `json:"message"`
+			Field   string `json:"field"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.Equal(t, "tradingMode", body.Field)
+		assert.Contains(t, body.Message, "longShort")
+		assert.Contains(t, body.Message, "spot")
+	})
+}

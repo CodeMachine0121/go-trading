@@ -14,6 +14,7 @@ import (
 // Holding at most one position is not a check this makes but the shape it has — there
 // is one position field, so there is nowhere for a second one to go.
 type BacktestAccountDomain struct {
+	tradingMode       TradingModeDomain
 	positionSizing    PositionSizingDomain
 	availableCash     decimal.Decimal
 	openPosition      BacktestPositionDomain
@@ -23,9 +24,12 @@ type BacktestAccountDomain struct {
 }
 
 func NewBacktestAccountDomain(
-	initialCapital decimal.Decimal, positionSizing PositionSizingDomain,
+	initialCapital decimal.Decimal,
+	positionSizing PositionSizingDomain,
+	tradingMode TradingModeDomain,
 ) *BacktestAccountDomain {
 	return &BacktestAccountDomain{
+		tradingMode:    tradingMode,
 		positionSizing: positionSizing,
 		availableCash:  initialCapital,
 		closedTrades:   make([]vo.ClosedTradeVo, 0),
@@ -39,18 +43,30 @@ func NewBacktestAccountDomain(
 // the two halves separately could reverse into a position while the old one was still
 // counted, or forget the second half entirely.
 //
-// An opinion matching what is already held does nothing at all: no trade, no counted
-// opening, no cash moved. Hearing "buy" twice is hearing it once.
+// What the opinion actually asks for is the trading mode's answer, not this method's:
+// a sell asks a long-short replay to face the other way and a spot replay to get out
+// into cash. Reading it as one target rather than as a signal is what lets both modes
+// share the walk below — the reversal and the close-to-cash are two exits from one
+// path, not two copies of it.
+//
+// An opinion asking for what is already held does nothing at all: no trade, no
+// counted opening, no cash moved. Hearing "buy" twice is hearing it once, and so is
+// hearing "sell" with nothing to sell.
 func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	signal SignalDomain, candleTime time.Time, fillPrice decimal.Decimal,
 ) {
-	wantedDirection, wantsPosition := signal.WantedDirection()
-	if !wantsPosition {
+	targetPosition := backtestAccountDomain.tradingMode.TargetFor(signal)
+	// Having no opinion is not the same as asking for cash, and this is the line that
+	// keeps them apart: an unchanged target leaves an open position alone, where a
+	// flat one would go on to close it.
+	if targetPosition == vo.TargetPositionUnchanged {
 		return
 	}
 
+	wantedDirection, wantsPosition := targetPosition.WantedDirection()
+
 	if backtestAccountDomain.hasOpenPosition {
-		if backtestAccountDomain.openPosition.Direction() == wantedDirection {
+		if wantsPosition && backtestAccountDomain.openPosition.Direction() == wantedDirection {
 			return
 		}
 
@@ -60,6 +76,12 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 		backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.Add(
 			backtestAccountDomain.openPosition.ValueAt(fillPrice))
 		backtestAccountDomain.hasOpenPosition = false
+	}
+
+	// Cash was what it asked for, and cash is what it now holds. This is where a spot
+	// sell stops, and the only reason the opening below is not reached by every target.
+	if !wantsPosition {
+		return
 	}
 
 	// An opening the account cannot afford simply does not happen: the replay carries

@@ -26,6 +26,8 @@ const (
 	BacktestInitialCapitalField = "initialCapital"
 	// BacktestPositionSizingValueField is the figure beside the sizing mode.
 	BacktestPositionSizingValueField = "positionSizingValue"
+	// BacktestTradingModeField is which set of rules the replay trades by.
+	BacktestTradingModeField = "tradingMode"
 	// BacktestSignalSourcesField is the set of signal sources a trading strategy
 	// replays through — what to go and change when they disagree about coarseness,
 	// or when there are none at all.

@@ -55,9 +55,13 @@ KCandle 可用欄位（全是 float64，除了 OpenTimeUnixSeconds 是 int64）�
 ---
 回測訊號規則（用 calculate_indicator 或直接跑回測時遵守）：
 
-結果 map 的 key "signal" 是唯一的交易指令：正數 → 買進（開多）；負數 → 賣出（開空）；0 / 不存在 / NaN / Inf → 持平不動。
+結果 map 的 key "signal" 是唯一的交易指令：正數 → 買進；負數 → 賣出；0 / 不存在 / NaN / Inf → 持平不動。
 成交在當根 K 線收盤，這根訊號這根成交。
-positionSizingMode：allIn（預設，全押）；percentage（需給 1–100 的百分比值）；fixedAmount（需給正數金額）。`
+positionSizingMode：allIn（預設，全押）；percentage（需給 1–100 的百分比值）；fixedAmount（需給正數金額）。
+tradingMode 決定「賣出」是什麼意思，不給就是 longShort：
+  longShort（預設）→ 永遠在市場裡：賣出把多倉平掉，並在同一根反手開空；空手時賣出直接開空。
+  spot            → 只做多：賣出就平倉把錢收回來、之後空手等下一個買點；空手時賣出什麼都不做，永遠不開空。
+使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時要給 spot——用錯的那一個，成績單會是照他做不到的操作算出來的。`
 
 // queryLimitReachedNote is what the assistant is told once its queries are spent. It
 // is appended to the last message rather than added to the instructions above,

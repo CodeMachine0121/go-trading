@@ -58,18 +58,11 @@ func NewTradingStrategyBacktestDomain(
 			BacktestSignalSourcesField, intervalError.Error())
 	}
 
-	// The coarseness is the trading strategy's answer, not the caller's, and the
-	// parameters are each source's rather than one script's — so what is handed down
-	// carries neither a script nor a knob.
-	backtest, backtestError := NewBacktestDomain(dto.BacktestRequestDto{
-		Symbol:              requestDto.Symbol,
-		AggregationInterval: sharedInterval,
-		StartTime:           requestDto.StartTime,
-		EndTime:             requestDto.EndTime,
-		InitialCapital:      requestDto.InitialCapital,
-		PositionSizingMode:  requestDto.PositionSizingMode,
-		PositionSizingValue: requestDto.PositionSizingValue,
-	}, maxCandleCount, now)
+	// The coarseness is the trading strategy's answer, not the caller's, which is the
+	// only thing this has to supply — every other condition of the replay travels
+	// with the request itself.
+	backtest, backtestError := NewBacktestDomain(
+		requestDto.ToBacktestRequestDto(sharedInterval), maxCandleCount, now)
 	if backtestError != nil {
 		return TradingStrategyBacktestDomain{}, backtestError
 	}

@@ -46,6 +46,23 @@ func storedBacktestCandleAt(hour int, closePrice int64) entities.KCandle {
 	}
 }
 
+// tradingStrategyBacktestRequest is the same stretch replayed for a whole trading
+// strategy: one source reading one coarseness, and a condition on each side.
+func tradingStrategyBacktestRequest() dto.TradingStrategyBacktestRequestDto {
+	return dto.TradingStrategyBacktestRequestDto{
+		Symbol:    "BTCUSDT",
+		StartTime: backtestStart,
+		EndTime:   backtestStart.Add(5 * time.Hour),
+		SignalSources: []dto.ResolvedSignalSourceDto{
+			{Label: "A", AggregationInterval: "1h", Script: "//"},
+		},
+		BuyCondition:       dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "buy"},
+		SellCondition:      dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "sell"},
+		InitialCapital:     decimal.NewFromInt(10000),
+		PositionSizingMode: "allIn",
+	}
+}
+
 func TestNewBacktestDomain(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -300,4 +317,138 @@ func TestBacktestDomainSimulation(t *testing.T) {
 		assert.Equal(t, replayStart, result.StartTime)
 		assert.Equal(t, replayStart.Add(time.Hour), result.EndTime)
 	})
+}
+
+func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
+	t.Run("a request that names no trading mode is accepted", func(t *testing.T) {
+		requestDto := backtestRequest()
+
+		_, err := domains.NewBacktestDomain(requestDto, backtestMaxCandleCount, backtestNow)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("a request naming the long only mode is accepted", func(t *testing.T) {
+		requestDto := backtestRequest()
+		requestDto.TradingMode = "spot"
+
+		_, err := domains.NewBacktestDomain(requestDto, backtestMaxCandleCount, backtestNow)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("a trading mode nobody offers is refused", func(t *testing.T) {
+		requestDto := backtestRequest()
+		requestDto.TradingMode = "dayTrade"
+
+		_, err := domains.NewBacktestDomain(requestDto, backtestMaxCandleCount, backtestNow)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
+		fieldName, namesField := domains.BacktestFieldName(err)
+		require.True(t, namesField)
+		assert.Equal(t, domains.BacktestTradingModeField, fieldName)
+	})
+
+	// A replay run for a whole trading strategy answers this in the same words as one
+	// run for a single script — because it asks the very same gate, rather than
+	// repeating the rule and drifting from it.
+	t.Run("a trading strategy replay refuses it in the same words", func(t *testing.T) {
+		scriptRequestDto := backtestRequest()
+		scriptRequestDto.TradingMode = "dayTrade"
+		_, scriptError := domains.NewBacktestDomain(
+			scriptRequestDto, backtestMaxCandleCount, backtestNow)
+		require.Error(t, scriptError)
+
+		strategyRequestDto := tradingStrategyBacktestRequest()
+		strategyRequestDto.TradingMode = "dayTrade"
+		_, strategyError := domains.NewTradingStrategyBacktestDomain(
+			strategyRequestDto, backtestMaxCandleCount, backtestNow)
+
+		require.Error(t, strategyError)
+		assert.Equal(t, scriptError.Error(), strategyError.Error())
+		fieldName, namesField := domains.BacktestFieldName(strategyError)
+		require.True(t, namesField)
+		assert.Equal(t, domains.BacktestTradingModeField, fieldName)
+	})
+
+	t.Run("a trading strategy replay accepts the long only mode", func(t *testing.T) {
+		strategyRequestDto := tradingStrategyBacktestRequest()
+		strategyRequestDto.TradingMode = "spot"
+
+		_, err := domains.NewTradingStrategyBacktestDomain(
+			strategyRequestDto, backtestMaxCandleCount, backtestNow)
+
+		require.NoError(t, err)
+	})
+}
+
+// Replaying a whole trading strategy states its conditions once and hands them on as
+// the conditions every replay shares. A condition that failed to make that journey
+// would not break the build — it would arrive as nothing at all, and the replay would
+// run on a default nobody asked for.
+//
+// So each condition is pinned by the refusal it is supposed to earn: a refusal only
+// happens if the value actually reached the gate.
+func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
+	testCases := []struct {
+		name           string
+		breakCondition func(*dto.TradingStrategyBacktestRequestDto)
+		expectedField  string
+	}{
+		{
+			name: "the market it replays",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.Symbol = ""
+			},
+		},
+		{
+			name: "the stretch it replays",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.EndTime = requestDto.StartTime
+			},
+			expectedField: domains.BacktestTimeRangeField,
+		},
+		{
+			name: "what the account starts with",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.InitialCapital = decimal.Zero
+			},
+			expectedField: domains.BacktestInitialCapitalField,
+		},
+		{
+			name: "how much each opening stakes",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.PositionSizingMode = "percentage"
+				requestDto.PositionSizingValue = decimal.NewFromInt(500)
+			},
+			expectedField: domains.BacktestPositionSizingValueField,
+		},
+		{
+			name: "which way it trades",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.TradingMode = "dayTrade"
+			},
+			expectedField: domains.BacktestTradingModeField,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestDto := tradingStrategyBacktestRequest()
+			testCase.breakCondition(&requestDto)
+
+			_, err := domains.NewTradingStrategyBacktestDomain(
+				requestDto, backtestMaxCandleCount, backtestNow)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, domains.ErrBacktestValidation)
+			if testCase.expectedField == "" {
+				return
+			}
+			fieldName, namesField := domains.BacktestFieldName(err)
+			require.True(t, namesField)
+			assert.Equal(t, testCase.expectedField, fieldName)
+		})
+	}
 }

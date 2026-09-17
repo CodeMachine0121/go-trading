@@ -32,6 +32,11 @@ type tradingStrategyBacktestAssistantArguments struct {
 	// figure that goes with it. Staking everything needs no figure.
 	PositionSizingMode  string `json:"positionSizingMode"`
 	PositionSizingValue string `json:"positionSizingValue"`
+	// TradingMode is which set of rules the replay trades by. It is left out rather
+	// than guessed when the person did not say: the assistant knows what the two
+	// modes mean, but which account the person actually holds is not something it can
+	// work out from the rules it was asked to replay.
+	TradingMode string `json:"tradingMode"`
 }
 
 // ToRequestDto turns what the assistant declared into the shape the domain replays,
@@ -49,6 +54,7 @@ func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.Tr
 		InitialCapital:      decimalOrZero(arguments.InitialCapital),
 		PositionSizingMode:  arguments.PositionSizingMode,
 		PositionSizingValue: decimalOrZero(arguments.PositionSizingValue),
+		TradingMode:         arguments.TradingMode,
 	}
 }
 
@@ -154,6 +160,10 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 	return "拿一段已經發生過的歷史，把一份交易策略從頭重演一遍，交回成績單與每一筆進出場。" +
 		"沒有彙總刻度可以給——那是這份交易策略的信號來源自己說的，而且每個來源必須一致，不一致會整次拒絕。" +
 		"交易明細只給最近 50 筆，超過時會明講；成績單裡的數字一律是全部交易算出來的。" +
+		"交易模式 (tradingMode) 決定賣出信號的意思：longShort 永遠在市場裡，賣出會把多倉平掉並在同一棒反手做空；" +
+		"spot 只做多，賣出就平倉把錢收回來、之後空手等下一個買點，空手時聽到賣出什麼都不做。" +
+		"不給就是 longShort。使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時要給 spot——" +
+		"用錯的那一個，成績單會是照他做不到的操作算出來的。" +
 		"成績單裡的「打架棒數」(conflictedCandleCount) 一定要看：它是買入與賣出同時成立的棒數，" +
 		"那幾棒一律不動作。兩百棒裡打架一百八十棒的交易策略，成績單會很漂亮（幾乎沒有交易），" +
 		"但那代表它根本沒有在做決定，不是它很穩。" +
@@ -169,7 +179,9 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		`"initialCapital":{"type":"string","description":"手上一開始有多少錢，以字串給精確數字（例如 \"500000\"），必須大於零"},` +
 		`"positionSizingMode":{"type":"string","enum":["allIn","percentage","fixedAmount"],` +
 		`"description":"每次開倉押多少：allIn 全押（不必給 positionSizingValue）、percentage 押帳戶的百分之幾、fixedAmount 每次押固定金額"},` +
-		`"positionSizingValue":{"type":"string","description":"配合 positionSizingMode 的數字，以字串給（percentage 給 0 到 100、fixedAmount 給金額）；allIn 時不必給"}` +
+		`"positionSizingValue":{"type":"string","description":"配合 positionSizingMode 的數字，以字串給（percentage 給 0 到 100、fixedAmount 給金額）；allIn 時不必給"},` +
+		`"tradingMode":{"type":"string","enum":["longShort","spot"],` +
+		`"description":"照哪一套規矩操作：longShort 永遠在市場裡（賣出＝平多並同棒反手做空）、spot 只做多（賣出＝平倉回現金，空手時賣出不動作）。不給即 longShort。使用者說不能放空時給 spot"}` +
 		`},"required":["tradingStrategyId","symbol","startTime","endTime","initialCapital","positionSizingMode"],` +
 		`"additionalProperties":false}`
 }
