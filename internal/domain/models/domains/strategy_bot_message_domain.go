@@ -114,11 +114,11 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
 	}
 
-	// Named only when the headline no longer quotes the signal, which is the one case
-	// a reader needs it: they are being told to open a short, and which account these
-	// rules were written for is what makes that the right act. An account that cannot
-	// short reads 賣出 — its own signal, needing no translator — so this line would be
-	// a sentence about the system rather than about the market.
+	// Named only where these rules can short, which is the one case a reader needs it:
+	// the headline may be telling them to open a position rather than to sell one, and
+	// which account these rules were written for is what makes that the right act. An
+	// account that cannot short reads 買入／賣出 — its own signals, needing no
+	// translator — so the line would be a sentence about the system, not the market.
 	if strategyBotMessageDomain.tradingMode.CanGoShort() {
 		lines = append(lines,
 			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
