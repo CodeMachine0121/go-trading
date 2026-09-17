@@ -14,7 +14,11 @@ import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 // A request with nowhere to put them is how "these are rules, not a bot" is made
 // true of the shape rather than of the code reading it.
 type TradingStrategyRequest struct {
-	Name          string                               `json:"name"`
+	Name string `json:"name"`
+	// TradingMode is which set of rules these are written for: whether a sell means
+	// get out into cash or face the other way. Leaving it out means always in the
+	// market, which is how every set of rules saved before this field existed reads.
+	TradingMode   string                               `json:"tradingMode"`
 	SignalSources []TradingStrategySignalSourceRequest `json:"signalSources"`
 	BuyCondition  TradingStrategyConditionRequest      `json:"buyCondition"`
 	SellCondition TradingStrategyConditionRequest      `json:"sellCondition"`
@@ -59,6 +63,7 @@ func (tradingStrategyRequest TradingStrategyRequest) ToWriteDto(id uint) dto.Tra
 	return dto.TradingStrategyWriteDto{
 		ID:            id,
 		Name:          tradingStrategyRequest.Name,
+		TradingMode:   tradingStrategyRequest.TradingMode,
 		SignalSources: tradingStrategyRequest.signalSourceWriteDtos(),
 		BuyCondition:  tradingStrategyRequest.BuyCondition.ToDto(),
 		SellCondition: tradingStrategyRequest.SellCondition.ToDto(),

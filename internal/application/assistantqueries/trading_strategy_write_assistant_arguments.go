@@ -61,11 +61,16 @@ type tradingStrategySignalSourceAssistantArgument struct {
 // on one path and not the other. Which trading strategy is meant is the identifier,
 // and a zero one means none yet.
 type tradingStrategyWriteAssistantArguments struct {
-	TradingStrategyID uint                                           `json:"tradingStrategyId"`
-	Name              string                                         `json:"name"`
-	SignalSources     []tradingStrategySignalSourceAssistantArgument `json:"signalSources"`
-	BuyCondition      tradingStrategyConditionAssistantArgument      `json:"buyCondition"`
-	SellCondition     tradingStrategyConditionAssistantArgument      `json:"sellCondition"`
+	TradingStrategyID uint   `json:"tradingStrategyId"`
+	Name              string `json:"name"`
+	// TradingMode is which set of rules these are written for. It is left out rather
+	// than guessed when the person did not say: the assistant knows what the two modes
+	// mean, but which account the person actually holds is not something it can work
+	// out from the conditions it was asked to write.
+	TradingMode   string                                         `json:"tradingMode"`
+	SignalSources []tradingStrategySignalSourceAssistantArgument `json:"signalSources"`
+	BuyCondition  tradingStrategyConditionAssistantArgument      `json:"buyCondition"`
+	SellCondition tradingStrategyConditionAssistantArgument      `json:"sellCondition"`
 }
 
 // ToWriteDto turns what the assistant declared into the shape the domain judges,
@@ -101,6 +106,7 @@ func (tradingStrategyWriteAssistantArguments tradingStrategyWriteAssistantArgume
 	return dto.TradingStrategyWriteDto{
 		ID:            id,
 		Name:          tradingStrategyWriteAssistantArguments.Name,
+		TradingMode:   tradingStrategyWriteAssistantArguments.TradingMode,
 		SignalSources: signalSourceWriteDtos,
 		BuyCondition:  tradingStrategyWriteAssistantArguments.BuyCondition.ToDto(),
 		SellCondition: tradingStrategyWriteAssistantArguments.SellCondition.ToDto(),
@@ -135,6 +141,11 @@ const tradingStrategyConditionArgumentSchema = `{"type":"object","description":`
 // the identifier is required, and each says that for itself.
 const tradingStrategyWriteArgumentSchema = `` +
 	`"name":{"type":"string","description":"交易策略名稱，不得空白、不得與自己既有的交易策略重複，上限 128 字"},` +
+	`"tradingMode":{"type":"string","enum":["longShort","spot"],` +
+	`"description":"這份規則是寫給哪一種帳戶的：longShort 做得了空（賣出＝平多並反手做空）、` +
+	`spot 只做多（賣出＝平倉把錢收回來，空手時賣出不動作）。不給即 longShort。` +
+	`使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時給 spot——` +
+	`它決定了重演這份規則時用哪一套算法，也決定了機器人的訊息要寫「買入／賣出」還是「做多／做空」"},` +
 	`"signalSources":{"type":"array","description":"這份交易策略聽哪幾支策略腳本說話，上限 10 個。` +
 	`每個來源的彙總刻度必須相同，否則回測與上線都會被拒絕",` +
 	`"items":{"type":"object","properties":{` +

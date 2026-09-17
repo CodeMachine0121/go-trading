@@ -7,11 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/stretchr/testify/assert"
@@ -371,4 +374,69 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceSetsAK
 
 	require.Error(t, runError)
 	assert.Contains(t, runError.Error(), "這支腳本沒宣告過的參數")
+}
+
+func TestTradingStrategyCreateAssistantQueryCarriesTheTradingModeItWasGiven(t *testing.T) {
+	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, stored entities.TradingStrategy) (entities.TradingStrategy, error) {
+			assert.Equal(t, string(vo.TradingModeSpot), stored.TradingMode)
+			stored.ID = assistantTradingStrategyID
+
+			return stored, nil
+		})
+
+	spotArgument := strings.Replace(
+		aWellFormedTradingStrategyArgument, `"name": "動能追蹤",`,
+		`"name": "動能追蹤", "tradingMode": "spot",`, 1)
+
+	outcome, runError := fixture.createAssistantQuery.Run(
+		t.Context(), assistantViewerID, spotArgument)
+
+	require.NoError(t, runError)
+	assert.Contains(t, outcome, `"tradingMode":"spot"`)
+}
+
+func TestTradingStrategyCreateAssistantQueryDefaultsATradingModeTheAssistantDidNotState(t *testing.T) {
+	// Not guessed. Which account the person actually holds is not something the
+	// assistant can work out from the conditions it was asked to write, so silence
+	// means the mode a replay has always defaulted to.
+	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, stored entities.TradingStrategy) (entities.TradingStrategy, error) {
+			assert.Equal(t, string(vo.TradingModeLongShort), stored.TradingMode)
+			stored.ID = assistantTradingStrategyID
+
+			return stored, nil
+		})
+
+	_, runError := fixture.createAssistantQuery.Run(
+		t.Context(), assistantViewerID, aWellFormedTradingStrategyArgument)
+
+	require.NoError(t, runError)
+}
+
+func TestTradingStrategyWritingAssistantQueriesTellTheAssistantWhatAModeMeans(t *testing.T) {
+	// Both spellings and what each one does to a sell, on both writing capabilities.
+	// The assistant has to pick this for somebody whose account it cannot see, so the
+	// only thing it can go on is the sentence it is handed here.
+	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
+
+	for _, schema := range []string{
+		fixture.createAssistantQuery.ArgumentSchema(),
+		fixture.updateAssistantQuery.ArgumentSchema(),
+	} {
+		assert.Contains(t, schema, "tradingMode")
+		assert.Contains(t, schema, string(vo.TradingModeLongShort))
+		assert.Contains(t, schema, string(vo.TradingModeSpot))
+		assert.Contains(t, schema, "不能放空")
+		// Not required: a mode nobody stated is the default, not a missing argument.
+		declaredSchema := struct {
+			Required []string `json:"required"`
+		}{}
+		require.NoError(t, json.Unmarshal([]byte(schema), &declaredSchema))
+		assert.NotContains(t, declaredSchema.Required, "tradingMode")
+	}
 }
