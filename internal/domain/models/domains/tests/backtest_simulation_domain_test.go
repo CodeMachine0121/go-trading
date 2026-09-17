@@ -405,3 +405,49 @@ func TestBacktestSimulationTradingModeChangesTheReportCard(t *testing.T) {
 		assert.Equal(t, longShortResult.EquityCurve, spotResult.EquityCurve)
 	})
 }
+
+// Three things a spot replay does that only show up over a whole stretch rather than
+// on one candle.
+func TestBacktestSimulationSpotOverAWholeStretch(t *testing.T) {
+	t.Run("a stretch that never buys finishes with nothing having happened", func(t *testing.T) {
+		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+			[]float64{100, 90, 80},
+			sellSignal, sellSignal, holdSignal).ToDto()
+
+		// Nothing to sell, and no way to short: the account simply sat there. This is
+		// a legitimate outcome, not a failure.
+		assert.Equal(t, 0, result.Summary.PositionOpenCount)
+		assert.Empty(t, result.ClosedTrades)
+		require.Len(t, result.EquityCurve, 3)
+		for _, equityPoint := range result.EquityCurve {
+			assert.True(t, decimal.NewFromInt(10000).Equal(equityPoint.Equity),
+				"a point on the curve was %s", equityPoint.Equity)
+		}
+	})
+
+	t.Run("a fixed stake it cannot cover after a sale skips that opening", func(t *testing.T) {
+		// Stakes 8,000 a time. The first buy fits; the sale returns only 4,000, so the
+		// next buy cannot be placed and the replay carries on in cash.
+		result := replayTradingAs(t, "spot", 10000, "fixedAmount", 8000,
+			[]float64{100, 50, 60},
+			buySignal, sellSignal, buySignal).ToDto()
+
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
+		require.Len(t, result.ClosedTrades, 1)
+		// 2,000 never staked, plus the 4,000 the sale returned.
+		assert.True(t, decimal.NewFromInt(6000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
+	})
+
+	t.Run("a long still open at the end counts but is not a round trip", func(t *testing.T) {
+		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+			[]float64{100, 120, 150},
+			buySignal, holdSignal, holdSignal).ToDto()
+
+		// Bought 100 units at 100 and never sold: worth 15,000 at the last close.
+		assert.True(t, decimal.NewFromInt(15000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
+		assert.Empty(t, result.ClosedTrades)
+	})
+}

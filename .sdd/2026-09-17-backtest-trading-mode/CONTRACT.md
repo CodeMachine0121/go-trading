@@ -3,7 +3,7 @@
 **Contract source:** `.sdd/2026-09-17-backtest-trading-mode/PRD.md`（Acceptance Criteria 為 oracle）
 **Design map:** `.sdd/2026-09-17-backtest-trading-mode/ARCH.md`
 **Glossary:** `.sdd/UL-MAP.md`
-**Verified:** 2026-09-17
+**Verified:** 2026-09-17（初稿後補上三條測試，已重驗）
 **Ceiling:** 靜態一致性稽核。逐條把**測試斷言**與**程式路徑**各自對照規格推出的 oracle，
 不以「跑完全套變綠」當判準，也不自行發明並執行新的情境。
 
@@ -88,11 +88,11 @@
 | ID | Clause | Oracle | Implementation | Test | Test audit | Code audit | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | EC-01 | 現貨整段一次賣出都沒有 | 與多空反手結果完全相同 | `trading_mode_domain.go:72-74` | `backtest_simulation_domain_test.go:397` | asserts-oracle | produces-oracle | ✅ conforms |
-| EC-02 | 現貨整段一次買入都沒有（全是賣出與持平） | 一筆交易都沒有，資金曲線恆為初始資金，**不是錯誤** | `backtest_account_domain.go:68`＋`:83` | `backtest_account_domain_test.go:196`（單棒層級） | shallow（無「整段重演」層級的斷言） | produces-oracle | 🟡 partial |
+| EC-02 | 現貨整段一次買入都沒有（全是賣出與持平） | 一筆交易都沒有，資金曲線恆為初始資金，**不是錯誤** | `backtest_account_domain.go:68`＋`:83` | `backtest_simulation_domain_test.go:411`（整段重演，逐點斷言曲線） | asserts-oracle | produces-oracle | ✅ conforms |
 | EC-03 | 現貨賣出的下一棒立刻又買入 | 兩棒兩件事，中間那一瞬間是空手 | `backtest_account_domain.go:58-105` | `backtest_account_domain_test.go:218` | asserts-oracle | produces-oracle | ✅ conforms |
-| EC-04 | 現貨平倉後可用資金不夠再開下一個倉（固定金額） | 跳過那次開倉，維持空手，重演繼續 | `backtest_account_domain.go:90-93` | `backtest_account_domain_test.go:234`（從頭就空手，非「平倉之後」） | shallow（未覆蓋平倉後那條路徑） | produces-oracle | 🟡 partial |
+| EC-04 | 現貨平倉後可用資金不夠再開下一個倉（固定金額） | 跳過那次開倉，維持空手，重演繼續 | `backtest_account_domain.go:90-93` | `backtest_simulation_domain_test.go:427`（賣出只拿回 4,000，撐不起 8,000 的下一注） | asserts-oracle | produces-oracle | ✅ conforms |
 | EC-05 | 交易模式的大小寫與使用者打的不一樣 | 比照倉位大小模式的既有寬容度 | `trading_mode_domain.go:45`（`EqualFold`，與 `position_sizing_domain.go` 同一手法） | `trading_mode_domain_test.go:12`（`"SPOT"`） | asserts-oracle | produces-oracle | ✅ conforms |
-| EC-06 | 現貨結束時還開著一個多倉 | 不自動平掉；不進交易明細，但算進最後剩多少與開倉次數 | `backtest_simulation_domain.go`（未改動）＋`backtest_account_domain.go:110` | `backtest_account_domain_test.go:218`（開倉 2／明細 1） | shallow（未斷言「最後剩多少含它」） | produces-oracle | 🟡 partial |
+| EC-06 | 現貨結束時還開著一個多倉 | 不自動平掉；不進交易明細，但算進最後剩多少與開倉次數 | `backtest_simulation_domain.go`（未改動）＋`backtest_account_domain.go:110` | `backtest_simulation_domain_test.go:441`（最後剩 15,000 含它、明細為空、開倉 1） | asserts-oracle | produces-oracle | ✅ conforms |
 
 ### Non-Functional（PRD §6）
 
@@ -123,15 +123,19 @@
 
 | Status | Count |
 | :--- | :--- |
-| ✅ conforms | 41 |
+| ✅ conforms | 44 |
 | 🔴 violation | 0 |
 | 🟠 mis-asserted | 0 |
-| 🟡 partial | 5 |
+| 🟡 partial | 2 |
 | ❌ gap | 0 |
 | ❔ unclear | 0 |
 | ⚠️ orphan | 2（皆良性）＋1 正確移除 |
 
-**Clauses:** 46 · **Conformance:** 89%（41/46 完全一致；其餘 5 條程式行為正確、僅測試未釘到該層級，無任何行為錯誤）
+**Clauses:** 46 · **Conformance:** 96%（44/46 完全一致）
+
+剩下的兩條（BR-09「交易模式不寫回去」、NFR-02「重演成本不因它增加」）都是**否定性／非功能性**的陳述：
+程式行為正確，但要斷言的是「某件事沒有發生」。BR-09 由 Out of Scope 檢查守住（`entities/` 一個欄位都沒加），
+NFR-02 由 `TargetFor` 無迴圈無配置的形狀守住。硬寫測試只會得到兩個永遠綠、永遠不會失敗的斷言。
 
 ### 值得記下來的一件事
 
