@@ -2,7 +2,6 @@ package domains
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -45,9 +44,18 @@ type resolvedSignalSource struct {
 func NewTradingStrategyBacktestDomain(
 	requestDto dto.TradingStrategyBacktestRequestDto, maxCandleCount int, now time.Time,
 ) (TradingStrategyBacktestDomain, error) {
-	sharedInterval, intervalError := sharedAggregationIntervalOf(requestDto.SignalSources)
+	// The same question the save gate asks, in the same words — this is the second
+	// of the two, kept because a trading strategy saved before that gate existed can
+	// still be mixed.
+	intervals := make([]string, 0, len(requestDto.SignalSources))
+	for _, signalSource := range requestDto.SignalSources {
+		intervals = append(intervals, signalSource.AggregationInterval)
+	}
+
+	sharedInterval, intervalError := NewSharedAggregationIntervalDomain(intervals).Shared()
 	if intervalError != nil {
-		return TradingStrategyBacktestDomain{}, intervalError
+		return TradingStrategyBacktestDomain{}, BacktestValidationFailure(
+			BacktestSignalSourcesField, intervalError.Error())
 	}
 
 	// The coarseness is the trading strategy's answer, not the caller's, and the
@@ -107,39 +115,6 @@ func NewTradingStrategyBacktestDomain(
 		buyCondition:  buyCondition,
 		sellCondition: sellCondition,
 	}, nil
-}
-
-// sharedAggregationIntervalOf is the one coarseness every source reads, or the
-// refusal that says there is more than one.
-//
-// The refusal names the coarsenesses it found. Told only that they differ, somebody
-// has to open every source to see how — and the thing they have to go and do is make
-// them the same.
-func sharedAggregationIntervalOf(signalSources []dto.ResolvedSignalSourceDto) (string, error) {
-	if len(signalSources) == 0 {
-		return "", BacktestValidationFailure(
-			BacktestSignalSourcesField, "這一份交易策略沒有任何信號來源，沒有東西可以重演")
-	}
-
-	intervals := make([]string, 0, len(signalSources))
-	for _, signalSource := range signalSources {
-		interval := strings.TrimSpace(signalSource.AggregationInterval)
-		if !slices.Contains(intervals, interval) {
-			intervals = append(intervals, interval)
-		}
-	}
-
-	if len(intervals) > 1 {
-		return "", BacktestValidationFailure(
-			BacktestSignalSourcesField,
-			fmt.Sprintf(
-				"這一份交易策略的信號來源目前用了 %s 這幾種彙總刻度。"+
-					"重演是逐棒往前走的，而不同刻度的一棒不是同一根——"+
-					"這一版請先把每個來源調成同一種",
-				strings.Join(intervals, "、")))
-	}
-
-	return intervals[0], nil
 }
 
 // Symbol, KCandleQuery, SourceCandleLimit and SelectInputCandles are the replay's,

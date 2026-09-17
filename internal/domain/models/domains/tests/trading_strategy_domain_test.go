@@ -232,3 +232,49 @@ func TestNewTradingStrategyDomainLetsOneStrategyScriptBeTwoSources(t *testing.T)
 	assert.Equal(t, 20.0, signalSources[0].ParameterValues[0].Value)
 	assert.Equal(t, 60.0, signalSources[1].ParameterValues[0].Value)
 }
+
+// A trading strategy whose sources read different coarsenesses cannot do anything:
+// replaying it is refused, and once it is running two sources on two different clocks
+// have their opinions read as two sentences about the same candle. Refusing it here
+// means the person finds out while they are still looking at the form.
+func TestNewTradingStrategyDomainRefusesSourcesThatReadDifferentCoarseness(t *testing.T) {
+	writeDto := aTradingStrategyWriteDto()
+	writeDto.SignalSources[1].AggregationInterval = string(vo.AggregationIntervalFiveMinutes)
+
+	_, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+	require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
+	// The refusal names them. Told only that they differ, somebody has to open every
+	// source to see how — and making them the same is the thing they then have to do.
+	assert.ErrorContains(t, buildError, "1h")
+	assert.ErrorContains(t, buildError, "5m")
+}
+
+func TestNewTradingStrategyDomainNamesEveryCoarsenessItFound(t *testing.T) {
+	writeDto := aTradingStrategyWriteDto()
+	writeDto.SignalSources = append(writeDto.SignalSources, sourceNamed("C", 3))
+	writeDto.SignalSources[2].AggregationInterval = string(vo.AggregationIntervalOneDay)
+	writeDto.BuyCondition = joining(vo.ConditionOperatorAnd,
+		comparing("A", vo.SignalBuy), comparing("B", vo.SignalBuy))
+
+	_, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+	require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
+	assert.ErrorContains(t, buildError, "1h")
+	assert.ErrorContains(t, buildError, "1d")
+}
+
+// One source cannot disagree with anybody, so the rule has nothing to say about it.
+func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.T) {
+	writeDto := aTradingStrategyWriteDto()
+	writeDto.SignalSources = []dto.TradingStrategySignalSourceWriteDto{sourceNamed("A", 1)}
+	writeDto.SignalSources[0].AggregationInterval = string(vo.AggregationIntervalFiveMinutes)
+	writeDto.BuyCondition = comparing("A", vo.SignalBuy)
+
+	tradingStrategy, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+	require.NoError(t, buildError)
+	assert.Equal(t,
+		string(vo.AggregationIntervalFiveMinutes),
+		tradingStrategy.ToEntity().SignalSources[0].AggregationInterval)
+}

@@ -83,6 +83,19 @@ func (fixture tradingStrategyRouterUnderTest) send(
 	return recorder
 }
 
+// aMixedCoarsenessTradingStrategyBody is the same trading strategy with its two
+// sources reading different coarsenesses — the one shape that is well formed in every
+// other way and still cannot be saved.
+const aMixedCoarsenessTradingStrategyBody = `{
+	"name": "黃金交叉",
+	"signalSources": [
+		{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h"},
+		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "5m"}
+	],
+	"buyCondition": {"sourceLabel": "A", "signal": "buy"},
+	"sellCondition": {"sourceLabel": "A", "signal": "sell"}
+}`
+
 // aTradingStrategyBody has a nested buy condition, so that the nesting a person
 // builds on screen is proven to survive the journey in.
 const aTradingStrategyBody = `{
@@ -90,7 +103,7 @@ const aTradingStrategyBody = `{
 	"signalSources": [
 		{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h",
 		 "parameterValues": [{"name": "回看根數", "value": 20}]},
-		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "5m"}
+		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "1h"}
 	],
 	"buyCondition": {
 		"operator": "and",
@@ -287,6 +300,16 @@ func TestTradingStrategyRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 			target:         "/trading-strategies",
 			body:           aTradingStrategyBody,
 			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name: "sources reading different coarsenesses are the caller's mistake",
+			arrange: func(fixture tradingStrategyRouterUnderTest) {
+				fixture.expectResolvableStrategyScript()
+			},
+			method:         http.MethodPost,
+			target:         "/trading-strategies",
+			body:           aMixedCoarsenessTradingStrategyBody,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name: "storage that could not answer is not the caller's fault",

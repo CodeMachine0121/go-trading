@@ -110,6 +110,25 @@ func NewTradingStrategySignalSourcesDomain(
 		labels = append(labels, label)
 	}
 
+	// Every source having its own coarseness would let somebody save a trading
+	// strategy that cannot do anything: replaying it is refused, and once it is
+	// running, two sources on two different clocks have their opinions read as two
+	// sentences about the same candle. Asked here, the refusal arrives while they are
+	// still looking at the form.
+	//
+	// It is asked after the loop rather than inside it because the question is about
+	// the set. Asked one at a time, the first source would be judged against nothing.
+	intervals := make([]string, 0, len(settledSources))
+	for _, source := range settledSources {
+		intervals = append(intervals, source.AggregationInterval)
+	}
+
+	_, sharedIntervalError := NewSharedAggregationIntervalDomain(intervals).Shared()
+	if sharedIntervalError != nil {
+		return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
+			"%w: %w", ErrTradingStrategyValidation, sharedIntervalError)
+	}
+
 	return TradingStrategySignalSourcesDomain{sources: settledSources, labels: labels}, nil
 }
 

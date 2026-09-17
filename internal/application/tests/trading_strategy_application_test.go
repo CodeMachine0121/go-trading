@@ -416,3 +416,87 @@ func TestTradingStrategyApplicationReportsStorageThatCouldNotAnswer(t *testing.T
 		})
 	}
 }
+
+// aMixedCoarsenessTradingStrategy is one saved before the rule existed: two sources
+// on two different clocks. Nothing goes and fixes it, so it is still exactly this
+// when somebody reads it back.
+func aMixedCoarsenessTradingStrategy() entities.TradingStrategy {
+	tradingStrategy := storedTradingStrategy()
+	tradingStrategy.SignalSources = append(tradingStrategy.SignalSources,
+		entities.TradingStrategySignalSource{
+			ID: 21, TradingStrategyID: tradingStrategyID, Label: "B",
+			StrategyScriptID: 9, AggregationInterval: "5m",
+		})
+
+	return tradingStrategy
+}
+
+// Nothing rewrites anybody's stored rules. One saved before the rule existed reads
+// back exactly as it was left — changing it quietly would be far more expensive than
+// a refusal, because nobody would find out.
+func TestTradingStrategyApplicationReadsAMixedOneBackUnchanged(t *testing.T) {
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+		Return(aMixedCoarsenessTradingStrategy(), nil)
+
+	tradingStrategyDto, readError := underTest.tradingStrategyApplication.GetTradingStrategy(
+		context.Background(), strategyBotOwnerID, tradingStrategyID)
+
+	require.NoError(t, readError)
+	require.Len(t, tradingStrategyDto.SignalSources, 2)
+	assert.Equal(t, "1h", tradingStrategyDto.SignalSources[0].AggregationInterval)
+	assert.Equal(t, "5m", tradingStrategyDto.SignalSources[1].AggregationInterval)
+}
+
+// Rewriting is where a mixed one is asked to be reconciled, and the ask is the same
+// whether the person changed the coarsenesses or only the name — the rule is about
+// what is being saved, not about what was edited.
+func TestTradingStrategyApplicationUpdateRefusesAMixedOneEvenWhenOnlyTheNameChanged(t *testing.T) {
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+		Return(aMixedCoarsenessTradingStrategy(), nil).AnyTimes()
+	underTest.expectFollowingBots()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(aScriptOwnedByTheCaller(9), nil).AnyTimes()
+	underTest.expectNoMarketplaceQuestion()
+	underTest.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+
+	writeDto := aTradingStrategyWrite()
+	writeDto.ID = tradingStrategyID
+	writeDto.Name = "改個名字"
+	writeDto.SignalSources = append(writeDto.SignalSources,
+		dto.TradingStrategySignalSourceWriteDto{
+			Label: "B", StrategyScriptID: 9, AggregationInterval: "5m"})
+
+	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, domains.ErrTradingStrategyValidation)
+	assert.ErrorContains(t, updateError, "1h")
+	assert.ErrorContains(t, updateError, "5m")
+}
+
+// Making them the same is all it takes; nothing else about the trading strategy has
+// to be touched.
+func TestTradingStrategyApplicationUpdateAcceptsAMixedOneOnceItIsReconciled(t *testing.T) {
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+		Return(aMixedCoarsenessTradingStrategy(), nil).Times(2)
+	underTest.expectFollowingBots()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(aScriptOwnedByTheCaller(9), nil).AnyTimes()
+	underTest.expectNoMarketplaceQuestion()
+	underTest.tradingStrategyRepository.EXPECT().
+		Save(gomock.Any(), gomock.Any()).Return(storedTradingStrategy(), nil)
+
+	writeDto := aTradingStrategyWrite()
+	writeDto.ID = tradingStrategyID
+	writeDto.SignalSources = append(writeDto.SignalSources,
+		dto.TradingStrategySignalSourceWriteDto{
+			Label: "B", StrategyScriptID: 9, AggregationInterval: "1h"})
+
+	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.NoError(t, updateError)
+}
