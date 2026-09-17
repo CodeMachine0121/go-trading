@@ -24,6 +24,26 @@ type IKCandleRepository interface {
 	// source has settled, while filling in a gap means never touching what is
 	// already held.
 	SaveIfAbsent(executionContext context.Context, kCandle entities.KCandle) (bool, error)
+	// SaveAllIfAbsent is SaveIfAbsent for a whole batch, and says how many of them
+	// were actually stored.
+	//
+	// It exists because a stretch of history is fetched a day at a time and a day is
+	// over a thousand candles: written one at a time, four years is two million round
+	// trips to the store, and that is most of the time such a run would take. An
+	// empty batch stores nothing and is not an error — a day the market was shut on
+	// produces one, and guarding for that at every call site is worse than answering
+	// it here.
+	SaveAllIfAbsent(executionContext context.Context, kCandles []entities.KCandle) (int, error)
+	// CountInRange is how many K candles are held for this symbol across the stretch,
+	// both ends included.
+	//
+	// It is asked once per day before that day is fetched: a count equal to what the
+	// market should hold means the stretch is already complete, and the source is
+	// never troubled for it. That one question is what turns a second run over four
+	// years from half an hour into seconds.
+	CountInRange(
+		executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+	) (int, error)
 	Update(executionContext context.Context, kCandle entities.KCandle) (entities.KCandle, error)
 	FindOne(executionContext context.Context, symbol string, openTime time.Time) (entities.KCandle, error)
 	FindInRange(

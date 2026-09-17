@@ -589,3 +589,82 @@ func TestSaveIfAbsentFillsAHoleWithoutDisturbingItsNeighbours(t *testing.T) {
 	assert.True(t, decimal.RequireFromString("999").Equal(held[1].Close), "洞被補上了")
 	assert.True(t, decimal.RequireFromString("100").Equal(held[2].Close))
 }
+
+func TestCountInRangeCountsBothEnds(t *testing.T) {
+	// It is asked once per day before that day is fetched: equal to what the market
+	// should hold means the source need not be troubled for it at all.
+	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+	for _, openTime := range []time.Time{at(9, 0), at(9, 1), at(9, 2)} {
+		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
+		require.NoError(t, saveError)
+	}
+
+	testCases := []struct {
+		name          string
+		startTime     time.Time
+		endTime       time.Time
+		expectedCount int
+	}{
+		{name: "the whole stretch", startTime: at(9, 0), endTime: at(9, 2), expectedCount: 3},
+		{name: "both ends are included", startTime: at(9, 1), endTime: at(9, 1), expectedCount: 1},
+		{name: "a stretch holding none", startTime: at(10, 0), endTime: at(10, 5), expectedCount: 0},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			count, countError := kCandleRepository.CountInRange(
+				t.Context(), "BTCUSDT", testCase.startTime, testCase.endTime)
+
+			require.NoError(t, countError)
+			assert.Equal(t, testCase.expectedCount, count)
+		})
+	}
+}
+
+func TestCountInRangeKeepsSymbolsApart(t *testing.T) {
+	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+	_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 0), "100"))
+	require.NoError(t, saveError)
+
+	count, countError := kCandleRepository.CountInRange(t.Context(), "ETHUSDT", at(9, 0), at(9, 5))
+
+	require.NoError(t, countError)
+	assert.Equal(t, 0, count)
+}
+
+func TestSaveAllIfAbsentWritesOnlyTheOnesNothingIsHeldFor(t *testing.T) {
+	// One statement per day instead of one per candle. Four years is two million
+	// candles, and two million round trips to the database is most of the time this
+	// would take.
+	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+	_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 1), "100"))
+	require.NoError(t, saveError)
+
+	storedCount, saveAllError := kCandleRepository.SaveAllIfAbsent(t.Context(), []entities.KCandle{
+		kCandleAt("BTCUSDT", at(9, 0), "999"),
+		kCandleAt("BTCUSDT", at(9, 1), "999"),
+		kCandleAt("BTCUSDT", at(9, 2), "999"),
+	})
+
+	require.NoError(t, saveAllError)
+	assert.Equal(t, 2, storedCount, "只有沒有的那兩根算數")
+
+	held, findError := kCandleRepository.FindInRange(
+		t.Context(), queryFor(t, "BTCUSDT", at(9, 0), at(9, 2)), 10)
+	require.NoError(t, findError)
+	require.Len(t, held, 3)
+	assert.True(t, decimal.RequireFromString("100").Equal(held[1].Close),
+		"本來就有的那一根原封不動")
+}
+
+func TestSaveAllIfAbsentWithNothingToWriteTouchesNothing(t *testing.T) {
+	// A day the market was shut on produces an empty batch, and that is an ordinary
+	// outcome rather than something to guard against at every call site.
+	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
+
+	storedCount, saveAllError := kCandleRepository.SaveAllIfAbsent(
+		t.Context(), []entities.KCandle{})
+
+	require.NoError(t, saveAllError)
+	assert.Equal(t, 0, storedCount)
+}
