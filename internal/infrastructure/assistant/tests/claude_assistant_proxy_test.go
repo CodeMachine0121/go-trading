@@ -347,3 +347,30 @@ func TestClaudeAssistantProxyLeavesOutANarrationThatWasNotThere(t *testing.T) {
 	require.Len(t, assistantTurn.Content, 1)
 	assert.Equal(t, "tool_use", assistantTurn.Content[0].Type)
 }
+
+// The standing instructions tell the assistant how a replay trades. They are prose in
+// a cached string with nothing pointing at them, so when the trading rules changed
+// they simply stayed as they were — still asserting that a sell always opens a short,
+// while the capability beside them had grown a mode where it never does.
+//
+// The cost of that drift is exactly the thing this feature exists to remove: someone
+// says their account cannot short, the assistant follows instructions that never
+// mention a choice, and hands back a report card built on short positions.
+func TestClaudeAssistantProxyTellsTheAssistantHowAReplayTrades(t *testing.T) {
+	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
+
+	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
+
+	require.NoError(t, replyError)
+	require.Len(t, fixture.sentRequest.System, 1)
+	instructions := fixture.sentRequest.System[0].Text
+
+	// Both modes are named, so the assistant knows a choice exists at all.
+	assert.Contains(t, instructions, string(vo.TradingModeLongShort))
+	assert.Contains(t, instructions, string(vo.TradingModeSpot))
+	// And which one it gets by saying nothing, so it does not have to guess.
+	assert.Contains(t, instructions, "不給就是 longShort")
+	// A sell no longer means one thing regardless of mode. Saying so unconditionally
+	// is what made the old wording false rather than merely incomplete.
+	assert.NotContains(t, instructions, "賣出（開空）")
+}
