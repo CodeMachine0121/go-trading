@@ -1,6 +1,6 @@
-# 拿歷史重演一支策略 — Architecture Design
+# 拿歷史重演一支策略腳本 — Architecture Design
 
-**Feature:** 策略回測
+**Feature:** 策略腳本回測
 **Status:** Finalized
 **PRD:** `PRD.md`（同一資料夾）
 **Owner:** James Hsueh
@@ -116,7 +116,7 @@ backtestDomain.Simulation(inputKCandles, perCandleIndicatorValues).ToDto()
 | :--- | :--- |
 | `IndicatorCalculationService` / `IndicatorCalculationDomain` | 重演與單算指標是兩個用例。共用的是**取數規則**（由 `AggregationIntervalDomain`、`KCandleSeriesDomain` 提供），不是這兩個型別 |
 | `IKCandleRepository` | `FindInRange` 已經是「一段區間、由早到晚、帶上限」，正好是重演要的 |
-| `StrategyParametersDomain` | 參數宣告、套值、對不上名字的失敗，一條都不改 |
+| `StrategyScriptParametersDomain` | 參數宣告、套值、對不上名字的失敗，一條都不改 |
 | 任何 entity / 資料表 | **重演不留存**（BR-14），所以沒有新的資料表、沒有 migration |
 
 ---
@@ -128,7 +128,7 @@ backtestDomain.Simulation(inputKCandles, perCandleIndicatorValues).ToDto()
 | `SignalDomain` | Domain Model | 把一棒的指標結果讀成買入／賣出／持平：取名為 `signal` 的值，**看正負號**；沒有這個名字或不是有限數字即持平 | `vo.IndicatorValueVo` | US-01 全部 |
 | `PositionSizingDomain` | Domain Model | 「這次押多少」：三種模式的驗證與 `StakeFor(可用資金) (押注金額, 押得下去嗎)` | — | US-03 全部 |
 | `BacktestPositionDomain` | Domain Model | 手上那一注：方向、進場時間價格、押注金額、口數；`ValueAt(價)`、`ClosedAt(時間, 價)` | `vo.ClosedTradeVo` | US-02、US-04、US-05 |
-| `BacktestDomain` | Domain Model | 一次重演的條件與取數計畫：驗證、讀取截止、讀取上限、`SelectInputCandles`（不足兩根即拒絕）、`Simulation(...)` | `AggregationIntervalDomain`、`KCandleSeriesDomain`、`StrategyParametersDomain`、`PositionSizingDomain` | US-06、US-07 |
+| `BacktestDomain` | Domain Model | 一次重演的條件與取數計畫：驗證、讀取截止、讀取上限、`SelectInputCandles`（不足兩根即拒絕）、`Simulation(...)` | `AggregationIntervalDomain`、`KCandleSeriesDomain`、`StrategyScriptParametersDomain`、`PositionSizingDomain` | US-06、US-07 |
 | `BacktestSimulationDomain` | Domain Model | 逐棒狀態機：走一次 K 線，維護可用資金與倉位，收集已平倉交易與資金曲線，最後結算成績單 | `SignalDomain`、`BacktestPositionDomain`、`PositionSizingDomain` | US-02、US-03、US-04、US-05 |
 | `BacktestService` | Domain Service | 編排：建條件 → 讀 K 線 → 逐棒執行算式 → 交給模擬 → 轉 DTO | `IKCandleRepository`、`IIndicatorScriptProxy`、`IClockProxy` | 全部 |
 | `BacktestApplication` | Application | 用例入口 | `BacktestService` | 全部 |
@@ -170,7 +170,7 @@ VO 依規範不帶行為，所以它是 Domain Model；**平掉之後**產出的
 `BacktestDomain` 建構時：
 
 1. 交易標的、彙總刻度 → 沿用 `NewTradingSymbolDomain`、`NewAggregationIntervalDomain`。
-2. 參數宣告與套值 → 沿用 `NewStrategyParametersDomain(...).Applying(...)`。
+2. 參數宣告與套值 → 沿用 `NewStrategyScriptParametersDomain(...).Applying(...)`。
 3. 初始資金 > 0、押注模式合法 → 本切片新增（US-03、US-07）。
 4. **讀取截止** = `interval.BucketStart(min(終點, 現在))`——與指標計算同一條「走完的刻度區間」規則。
 5. **截止 ≤ 起點時當場拒絕**，理由就是「這段期間湊不出足夠的 K 線」。
@@ -195,7 +195,7 @@ flowchart TD
     S --> P[IIndicatorScriptProxy]
     S --> K[IClockProxy]
     D --> AI[AggregationIntervalDomain]
-    D --> SP[StrategyParametersDomain]
+    D --> SP[StrategyScriptParametersDomain]
     D --> PS[PositionSizingDomain]
     D --> SIM[BacktestSimulationDomain]
     SIM --> SG[SignalDomain]

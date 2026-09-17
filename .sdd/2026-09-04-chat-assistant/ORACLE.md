@@ -122,12 +122,12 @@ mock：`IAssistantProxy`、`IConversationRepository`、`IClockProxy`、`[]IAssis
 | Q6 | `KCandleSeriesAssistantQuery`，區間內無資料 | 回文字表示沒有資料，**不是錯誤** |
 | Q7 | `KCandleRangeAssistantQuery`，要求 500 根 | 同 Q3 |
 | Q8 | `IndicatorCalculationAssistantQuery` | 以既有用例算一次；回文字含指標名稱與值 |
-| Q9 | `StrategyListAssistantQuery` | 回文字含每支策略的識別碼與名稱 |
-| Q10 | `StrategyGetAssistantQuery`，不存在 | 回錯誤，訊息為既有的找不到說明 |
-| Q11 | `StrategyCreateAssistantQuery`，名稱重複 | 回錯誤，訊息為既有的「名稱已被使用」 |
-| Q12 | `StrategyUpdateAssistantQuery` | 以既有用例改一支；回文字含改完的內容 |
+| Q9 | `StrategyScriptListAssistantQuery` | 回文字含每支策略腳本的識別碼與名稱 |
+| Q10 | `StrategyScriptGetAssistantQuery`，不存在 | 回錯誤，訊息為既有的找不到說明 |
+| Q11 | `StrategyScriptCreateAssistantQuery`，名稱重複 | 回錯誤，訊息為既有的「名稱已被使用」 |
+| Q12 | `StrategyScriptUpdateAssistantQuery` | 以既有用例改一支；回文字含改完的內容 |
 | Q13 | 每一項能力 | `Name()` 不重複、`Description()` 非空、`ArgumentSchema()` 是合法 JSON |
-| Q14 | 能力清單整體 | **不含任何刪除策略或寫入 K 線的能力** |
+| Q14 | 能力清單整體 | **不含任何刪除策略腳本或寫入 K 線的能力** |
 | Q15 | 每一項能力的參數為非法 JSON | 回錯誤（可交回助手），不 panic |
 
 ## Controller（錯誤對映）

@@ -17,7 +17,7 @@
 
   1. **金鑰交不出去，是型別上交不出去。**
      `dto.TelegramDeliveryDto` **結構上沒有放完整金鑰的欄位**，只有 `BotTokenTail`。
-     沿用 `PublishedStrategyDto` 已經證明過的做法：一條路忘了遮，整個功能的價值歸零，
+     沿用 `PublishedStrategyScriptDto` 已經證明過的做法：一條路忘了遮，整個功能的價值歸零，
      而忘記是遲早的——所以不靠紀律，靠編譯器。
 
   2. **讀設定完全不碰金鑰。** 金鑰結尾 `BotTokenTail` 是**存下來的一個欄位**，
@@ -63,7 +63,7 @@
 | `persistence.SchemaMigrator` | **Modify** | 註冊 `entities.TelegramDelivery` |
 | `cmd/server/dependencies.go` | **Modify** | 組裝並註冊四條路由，**全部掛在既有的 `requiresSignIn` 後面** |
 | `middlewares.AuthenticationMiddleware` | **Not touched** | 門已經在了 |
-| 使用者、登入階段、策略、K 線、回測 | **Not touched** | 這一刀只長出一個新的、與它們平行的東西。**沒有任何既有流程會開始送訊息**——那是下一刀 |
+| 使用者、登入階段、策略腳本、K 線、回測 | **Not touched** | 這一刀只長出一個新的、與它們平行的東西。**沒有任何既有流程會開始送訊息**——那是下一刀 |
 | 背景 job | **Not touched** | 本切片沒有任何自動投遞，因此沒有 job。`IBackgroundJob` 一個都不加 |
 
 ---
@@ -251,7 +251,7 @@ flowchart TD
 
 - **Patterns applied & why:**
   - **能力抽象命名**（`IMessageDeliveryProxy` / `ISecretSealProxy`）：對準真正的變動軸。
-  - **型別即遮蔽**（`TelegramDeliveryDto` 沒有金鑰欄位）：沿用 `PublishedStrategyDto`。
+  - **型別即遮蔽**（`TelegramDeliveryDto` 沒有金鑰欄位）：沿用 `PublishedStrategyScriptDto`。
   - **正規化關在 proxy 裡**（Telegram 的回答 → 四種原因）：
     沿用 `BinanceMarketDataProxy` 把 wire 格式擋在 domain 外面的既有做法。
   - **建構子即驗證**：沿用 `PasswordDomain`、`EmailDomain`。

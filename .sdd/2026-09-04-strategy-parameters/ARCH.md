@@ -1,6 +1,6 @@
-# 策略自己的旋鈕 — Architecture Design
+# 策略腳本自己的旋鈕 — Architecture Design
 
-**Feature:** 策略自己的旋鈕
+**Feature:** 策略腳本自己的旋鈕
 **Status:** Finalized
 **PRD:** `PRD.md`（同一資料夾）
 **Owner:** James Hsueh
@@ -29,9 +29,9 @@
 不同的是**系統怎麼讀它**：回看根數要當成整數拿去數根數，數值就是個數字。
 
 ```go
-type StrategyParameter struct {
+type StrategyScriptParameter struct {
     ID           uint
-    StrategyID   uint    `gorm:"not null;index"`
+    StrategyScriptID   uint    `gorm:"not null;index"`
     Name         string  `gorm:"size:64;not null"`
     Kind         string  `gorm:"size:32;not null"`  // lookbackCount ／ number
     DefaultValue float64 `gorm:"not null"`
@@ -41,7 +41,7 @@ type StrategyParameter struct {
 - **值只有一個欄位，型別具體**：`float64`。沒有空介面，也沒有「兩個欄位其中一個永遠沒意義」。
 - **回看根數存在 `float64` 裡不會失真**：整數在 `float64` 中精確到 2^53，
   而回看根數的上限是單次查詢上限（一千）——差了十兆倍。
-- **`Kind` 是宣告的一部分**，不是讀取時才猜的。`StrategyParameterKindDomain` 負責正規化與拒絕，
+- **`Kind` 是宣告的一部分**，不是讀取時才猜的。`StrategyScriptParameterKindDomain` 負責正規化與拒絕，
   形狀比照既有的 `IndicatorResultTypeDomain`（同樣是「宣告的種類，非法即拒絕」）。
 
 **金額仍然用精確小數，這裡不是金額。** 期數與倍數是純數值，
@@ -55,52 +55,52 @@ type StrategyParameter struct {
 
 | 層 | 檔案 | 為什麼存在 |
 | :--- | :--- | :--- |
-| entities | `strategy_parameter.go` | 一個參數的本體形狀（見上） |
-| domains | `strategy_parameter_kind_domain.go` | 「這是哪一種」的正規化與拒絕 |
-| domains | `strategy_parameters_domain.go` | **本切片的核心**：一整份參數的所有規則 |
-| dto | `strategy_parameter_dto.go` | 參數交給 application 的形狀 |
-| vo | `strategy_parameter_value_vo.go` | 這一次執行給的一個值（名稱＋數字） |
+| entities | `strategyScript_parameter.go` | 一個參數的本體形狀（見上） |
+| domains | `strategyScript_parameter_kind_domain.go` | 「這是哪一種」的正規化與拒絕 |
+| domains | `strategyScript_parameters_domain.go` | **本切片的核心**：一整份參數的所有規則 |
+| dto | `strategyScript_parameter_dto.go` | 參數交給 application 的形狀 |
+| vo | `strategyScript_parameter_value_vo.go` | 這一次執行給的一個值（名稱＋數字） |
 | domains | `indicator_parameter_errors.go` | 兩個哨兵錯誤（見 §5） |
 
 ### 修改
 
 | 檔案 | 改什麼 |
 | :--- | :--- |
-| `entities/strategy.go` | 多一個 `Parameters []StrategyParameter`（GORM 一對多） |
-| `persistence/strategy_repository.go` | 讀時 `Preload`、寫時整份取代 |
-| `dto/strategy_write_dto.go`／`strategy_dto.go` | 帶上參數 |
-| `domains/strategy_domain.go` | 建構時驗證整份參數 |
+| `entities/strategyScript.go` | 多一個 `Parameters []StrategyScriptParameter`（GORM 一對多） |
+| `persistence/strategyScript_repository.go` | 讀時 `Preload`、寫時整份取代 |
+| `dto/strategyScript_write_dto.go`／`strategyScript_dto.go` | 帶上參數 |
+| `domains/strategyScript_domain.go` | 建構時驗證整份參數 |
 | `dto/indicator_calculation_request_dto.go` | 多帶參數宣告與這一次的值 |
 | `domains/indicator_calculation_domain.go` | 「要拿幾根」的推導（見 §6） |
 | `interface/i_indicator_script_proxy.go`＋`script/yaegi_...` | 把參數送進算式（見 §5） |
-| `controller/strategy_controller.go`／`indicator_calculation_controller.go` | 請求形狀 |
+| `controller/strategyScript_controller.go`／`indicator_calculation_controller.go` | 請求形狀 |
 | `persistence/schema_migrator.go` | 新表 |
 
 ### 刻意不動
 
 - **進入點的形狀 `func Calculate(data []indicator.KCandle) map[string]<值形狀>` 一個字都不改。**
-  使用者已同意既有策略可以壞掉，但**沒有必要壞**——參數走符號注入這條路
-  （`indicator.Data` 已經是這樣進去的），因此**既有策略全部繼續可用**。
+  使用者已同意既有策略腳本可以壞掉，但**沒有必要壞**——參數走符號注入這條路
+  （`indicator.Data` 已經是這樣進去的），因此**既有策略腳本全部繼續可用**。
   被允許破壞，不等於應該破壞。
 - **「湊不滿就整次拒絕」與單次查詢上限**：沿用。
 - **彙總刻度、算到哪一刻**：沿用，它們仍屬於這一次執行。
 
 ---
 
-## 4. `StrategyParametersDomain` — 一整份參數的所有規則
+## 4. `StrategyScriptParametersDomain` — 一整份參數的所有規則
 
 **它是這個切片唯一需要被讀懂的物件。** 對外只回答問題，不外洩那份清單：
 
 ```go
-NewStrategyParametersDomain(parameters []entities.StrategyParameter) (StrategyParametersDomain, error)
+NewStrategyScriptParametersDomain(parameters []entities.StrategyScriptParameter) (StrategyScriptParametersDomain, error)
 
 // 這一次執行：把給的值套上去，回傳一份「已經定案」的參數
-Applying(values []vo.StrategyParameterValueVo) (StrategyParametersDomain, error)
+Applying(values []vo.StrategyScriptParameterValueVo) (StrategyScriptParametersDomain, error)
 
 MaximumLookbackCount() int          // 沒有任何回看根數時為 0
 LookbackCountOf(name string) (int, bool)
 NumberOf(name string) (float64, bool)
-ToDtos() []dto.StrategyParameterDto
+ToDtos() []dto.StrategyScriptParameterDto
 ```
 
 **建構子就把整份驗證完**：名稱不得為空白、去除前後空白、同一份內不得重複、
@@ -193,18 +193,18 @@ InputCandleCount() = 呼叫端要看的根數 + max(0, MaximumLookbackCount() �
 「回看根數必須大於零」只剩程式碼知道，任何人打開資料庫看到的是一團字。
 關聯表讓每個欄位都有型別、有名字、看得懂。
 
-**但它沒有自己的 repository**，`StrategyRepository` 讀時 `Preload`、寫時整份取代。
+**但它沒有自己的 repository**，`StrategyScriptRepository` 讀時 `Preload`、寫時整份取代。
 
 ### 刻意偏離既有規範
 
 規範寫著「一個 entity 對應一個 repository」。這裡不遵守，理由是：
 **參數沒有自己的生命**——它不會被單獨查詢、單獨建立、單獨刪除，
-它整份屬於一支策略，跟著策略生、跟著策略死。給它一個 repository，
-等於允許有人在策略不知情的情況下改動它的一部分，
+它整份屬於一支策略腳本，跟著策略腳本生、跟著策略腳本死。給它一個 repository，
+等於允許有人在策略腳本不知情的情況下改動它的一部分，
 而「同一份內名稱不得重複」這條規則屆時沒有任何地方守得住。
 
 規範那句話的用意是「一個聚合的讀寫只有一個入口」，本設計正是那個用意：
-**策略就是那個入口。**
+**策略腳本就是那個入口。**
 
 ---
 
@@ -239,22 +239,22 @@ InputCandleCount() = 呼叫端要看的根數 + max(0, MaximumLookbackCount() �
 
 | PRD 情境 | 由誰滿足 |
 | :--- | :--- |
-| US-01.1 帶著參數的策略被完整記住 | `Strategy.Parameters` 關聯 ＋ `StrategyRepository` 整份寫入 |
-| US-01.2 讀回來時參數原樣還在 | `StrategyRepository` 讀時 `Preload` |
-| US-01.3 一個參數都不宣告照常運作 | `StrategyParametersDomain` 允許空的一份；`MaximumLookbackCount()` 回 0 |
-| US-01.4 名稱不得重複 | `NewStrategyParametersDomain` 的驗證 |
+| US-01.1 帶著參數的策略腳本被完整記住 | `StrategyScript.Parameters` 關聯 ＋ `StrategyScriptRepository` 整份寫入 |
+| US-01.2 讀回來時參數原樣還在 | `StrategyScriptRepository` 讀時 `Preload` |
+| US-01.3 一個參數都不宣告照常運作 | `StrategyScriptParametersDomain` 允許空的一份；`MaximumLookbackCount()` 回 0 |
+| US-01.4 名稱不得重複 | `NewStrategyScriptParametersDomain` 的驗證 |
 | US-01.5 名稱不得為空白 | 同上 |
 | US-01.6 前後空白不予保留 | 同上（建構時正規化） |
 | US-01.7 回看根數必須大於零 | 同上（依 `Kind` 分流的範圍檢查） |
-| US-01.8 種類只有兩種 | `StrategyParameterKindDomain` |
+| US-01.8 種類只有兩種 | `StrategyScriptParameterKindDomain` |
 | US-01.9 數值不限正負與小數 | 同上（數值那一種不設範圍） |
 | US-02.1 要看的每一格都有值 | `IndicatorCalculationDomain.InputCandleCount()` |
 | US-02.2 沒有回看根數就是那一段的根數 | 同上（最大值為 0） |
-| US-02.3 好幾個回看根數只看最大的 | `StrategyParametersDomain.MaximumLookbackCount()` |
+| US-02.3 好幾個回看根數只看最大的 | `StrategyScriptParametersDomain.MaximumLookbackCount()` |
 | US-02.4 只看一格也拿滿回看所需 | `InputCandleCount()` |
 | US-02.5 超過上限整次拒絕 | 既有的上限檢查，對象改為推導後的結果 |
 | US-03.1 回看根數取出來是整數 | 注入的 `LookbackCount` 回 `int` |
-| US-03.2 這一次給的值蓋過預設值 | `StrategyParametersDomain.Applying` |
+| US-03.2 這一次給的值蓋過預設值 | `StrategyScriptParametersDomain.Applying` |
 | US-03.3 取用沒宣告的名字就是這次失敗 | 記錄器 ＋ `ErrIndicatorParameterNotDeclared` |
 | US-03.4 失敗說的是名字對不上 | 同上（記錄器優先於 yaegi 的錯誤內容） |
 | US-04.1 給了值就用給的 | `Applying` |
@@ -269,11 +269,11 @@ InputCandleCount() = 呼叫端要看的根數 + max(0, MaximumLookbackCount() �
 
 ### 對既有測試與既有資料的影響
 
-- **既有策略不會壞。** 進入點形狀未改，因此每一支既有算式都繼續可執行。
+- **既有策略腳本不會壞。** 進入點形狀未改，因此每一支既有算式都繼續可執行。
   被允許破壞而選擇不破壞，是因為符號注入這條路本來就更好：
   沒有參數的算式不必為此多帶一個永遠用不到的引數。
-- **既有資料需要一張新表**，既有的策略列一個字都不用改（沒有參數就是沒有關聯列）。
-- **既有測試**：策略的建立／修改／讀取／列出測試會因為形狀多一份參數而需要調整，
+- **既有資料需要一張新表**，既有的策略腳本列一個字都不用改（沒有參數就是沒有關聯列）。
+- **既有測試**：策略腳本的建立／修改／讀取／列出測試會因為形狀多一份參數而需要調整，
   但它們斷言的行為沒有一條改變。指標計算的測試會因為 `CandleCount` 的意思改變
   而需要重新表態——**那是刻意的行為變更**，見 §6。
 

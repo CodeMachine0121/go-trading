@@ -1,7 +1,7 @@
-# 策略與執行參數分離 — Architecture Design
+# 策略腳本與執行參數分離 — Architecture Design
 
 **Status:** Confirmed
-**Source PRD:** `.sdd/2026-09-03-strategy-execution-parameters/PRD.md`
+**Source PRD:** `.sdd/2026-09-03-strategyScript-execution-parameters/PRD.md`
 **Tech context:** Go · Clean / Onion Architecture · Gin · GORM · PostgreSQL · yaegi 指標算式沙箱
 
 ---
@@ -9,7 +9,7 @@
 ## 1. Design Goal & Guiding Principle
 
 - **In one sentence:**
-  把「要多粗的 K 線、要幾根、算到哪個時間為止」從 `Strategy` 身上拿掉，改由每一次計算請求帶進來；
+  把「要多粗的 K 線、要幾根、算到哪個時間為止」從 `StrategyScript` 身上拿掉，改由每一次計算請求帶進來；
   指標計算不再直接讀原始五分鐘 K 線，而是走**與彙總查詢完全同一套切格與併格規則**取數，
   並把「這次讀了哪幾根」一併回覆出去。
 
@@ -33,11 +33,11 @@
 
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
-| `entities.Strategy` | **Modify** | 移除 `AggregationInterval`、`CandleCount` 兩個欄位與其 `ToDto` 對應 |
-| `domains.StrategyDomain` | **Modify** | 移除同兩個欄位、其驗證與 `AggregationInterval()` 存取子；建構子不再需要 `maxCandleCount` |
-| `dto.StrategyDto` / `dto.StrategyWriteDto` | **Modify** | 移除同兩個欄位 |
-| `models.StrategyRequest` | **Modify** | 移除同兩個欄位——附上也不再有地方可放（PRD US-01「附上取數計畫也不會被記住」） |
-| `service.StrategyService` | **Modify** | 建構子移除 `maxCandleCount` 依賴 |
+| `entities.StrategyScript` | **Modify** | 移除 `AggregationInterval`、`CandleCount` 兩個欄位與其 `ToDto` 對應 |
+| `domains.StrategyScriptDomain` | **Modify** | 移除同兩個欄位、其驗證與 `AggregationInterval()` 存取子；建構子不再需要 `maxCandleCount` |
+| `dto.StrategyScriptDto` / `dto.StrategyScriptWriteDto` | **Modify** | 移除同兩個欄位 |
+| `models.StrategyScriptRequest` | **Modify** | 移除同兩個欄位——附上也不再有地方可放（PRD US-01「附上取數計畫也不會被記住」） |
+| `service.StrategyScriptService` | **Modify** | 建構子移除 `maxCandleCount` 依賴 |
 | `persistence.SchemaMigrator` | **Modify** | `AutoMigrate` 不會刪欄位，因此明確刪除 `Strategies` 上那兩個殘欄，不留孤兒 |
 | `domains.KCandleSeriesDomain` | **Modify** | 把私有的分組步驟升為公開的 `Buckets()`；`ToDto()` 改為建立在它之上 |
 | `domains.KCandleBucketDomain` | **Modify** | 新增 `ToVo()`——同一格既能變成回覆用的 DTO，也能變成算式吃的 VO |
@@ -48,7 +48,7 @@
 | `service.IndicatorCalculationService` | **Modify** | 注入 `IClockProxy`（決定「現在」）；改用新的讀取方法 |
 | `IKCandleRepository` | **Modify** | 新增 `FindLatestBefore`（見 §4 的理由） |
 | `persistence.KCandleRepository` | **Modify** | 實作 `FindLatestBefore` |
-| `cmd/server` 組裝根 | **Modify** | `StrategyService` 少一個參數、`IndicatorCalculationService` 多一個 |
+| `cmd/server` 組裝根 | **Modify** | `StrategyScriptService` 少一個參數、`IndicatorCalculationService` 多一個 |
 | **彙總查詢那條路徑**（`KCandleSeriesQueryDomain`、`GET /k-candles/series`） | **Not touched** | 對外行為一字不變。它只是換成從 `Buckets()` 出發，回覆完全相同 |
 | **`KCandleBucketDomain` 的併格規則** | **Not touched** | 開高低收與四項成交數字怎麼併，完全不動——這正是兩條路徑要共用的那份規則 |
 | **指標算式沙箱**（`yaegi_indicator_script_proxy`、`indicator_script_shape`） | **Not touched** | 算式收到的仍是 `[]vo.KCandleVo`，形狀一字不變；它不知道那些 K 線是原始的還是併出來的 |
@@ -79,8 +79,8 @@
 
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
-| `entities.Strategy` | 策略的儲存形狀 | 刪 `AggregationInterval`、`CandleCount` 欄位與其 `ToDto` 對應 |
-| `domains.StrategyDomain` | 策略的全部規則 | 刪那兩樣的驗證與存取子；`NewStrategyDomain(writeDto)` 不再收 `maxCandleCount`。名稱、算式、種類的規則**一字不動** |
+| `entities.StrategyScript` | 策略腳本的儲存形狀 | 刪 `AggregationInterval`、`CandleCount` 欄位與其 `ToDto` 對應 |
+| `domains.StrategyScriptDomain` | 策略腳本的全部規則 | 刪那兩樣的驗證與存取子；`NewStrategyScriptDomain(writeDto)` 不再收 `maxCandleCount`。名稱、算式、種類的規則**一字不動** |
 | `persistence.SchemaMigrator` | code-first 同步 schema | `AutoMigrate` 之後，若 `Strategies` 仍有 `aggregation_interval` / `candle_count` 欄位就刪掉。**冪等**：已經沒有就什麼都不做 |
 | `domains.KCandleSeriesDomain` | 一次彙總查詢讀到的 K 線 + 刻度 | 新增 `Buckets() []KCandleBucketDomain`（依 bucket 起點由早到晚、沒有 K 線的格子不出現）；`ToDto()` 改成 `Buckets()` 逐格 `ToDto()`。**外部行為零變化** |
 | `domains.KCandleBucketDomain` | 一格內的 K 線與它們併成的那一根 | 新增 `ToVo() vo.KCandleVo`。併格規則不動 |
@@ -172,7 +172,7 @@ flowchart TD
 ## 6. Extensibility & Handoff Notes
 
 - **Most likely next requirement:**
-  在圖表上套用一支策略——前端會以「當下的彙總刻度 + 看得到的那一段的右緣 + 一個根數」執行同一支策略，
+  在圖表上套用一支策略腳本——前端會以「當下的彙總刻度 + 看得到的那一段的右緣 + 一個根數」執行同一支策略腳本，
   並把回覆的起始時間拿去對位。
 
 - **Where it lands:**
@@ -205,7 +205,7 @@ flowchart TD
     目前資料回補上限僅 24 小時，實務上碰不到。
     **該回頭處理的訊號**：出現「回看很長一段」的需求，或單次計算的讀取時間變得明顯。
     屆時的解法是替計算加一道「回看總時長」的上限，而不是改切格規則。
-  - **既有策略的那兩個欄位直接刪除、不遷移**。它們從未生效，沒有可遷移的去處。
+  - **既有策略腳本的那兩個欄位直接刪除、不遷移**。它們從未生效，沒有可遷移的去處。
 
 ---
 
@@ -213,11 +213,11 @@ flowchart TD
 
 | PRD Scenario | Fulfilled by |
 | :--- | :--- |
-| US-01 新建立的策略不再帶著取數計畫 | `entities.Strategy` + `StrategyDomain` + `StrategyDto` 欄位移除 |
-| US-01 既有策略的算法原封不動 | `SchemaMigrator` 只刪那兩個欄位，其餘不動 |
-| US-01 附上取數計畫也不會被記住 | `models.StrategyRequest` 不再有那兩個欄位可綁 |
-| US-01 修改策略時沒有取數計畫可以一起改 | `StrategyWriteDto` 欄位移除 |
-| US-01 名稱為空白／名稱重複仍然被拒絕 | `StrategyDomain` 既有驗證（不動） |
+| US-01 新建立的策略腳本不再帶著取數計畫 | `entities.StrategyScript` + `StrategyScriptDomain` + `StrategyScriptDto` 欄位移除 |
+| US-01 既有策略腳本的算法原封不動 | `SchemaMigrator` 只刪那兩個欄位，其餘不動 |
+| US-01 附上取數計畫也不會被記住 | `models.StrategyScriptRequest` 不再有那兩個欄位可綁 |
+| US-01 修改策略腳本時沒有取數計畫可以一起改 | `StrategyScriptWriteDto` 欄位移除 |
+| US-01 名稱為空白／名稱重複仍然被拒絕 | `StrategyScriptDomain` 既有驗證（不動） |
 | US-02 依指定的彙總刻度與根數取數 | `IndicatorCalculationDomain.SourceCandleLimit()` + `SelectInputCandles` + `KCandleSeriesDomain.Buckets()` |
 | US-02 同樣回看一天，較細的刻度看見更多細節 | 同上（刻度由請求帶入，無逐刻度分支） |
 | US-02 未指定彙總刻度時視為五分鐘 | `NewAggregationIntervalDomain("")`（既有行為） |
@@ -248,7 +248,7 @@ flowchart TD
 ## 8. Risks & Open Decisions
 
 - **Risks / trade-offs:**
-  - **破壞性變更**：策略的形狀與計算的請求／回覆同時改變，操作介面必須同批更新。
+  - **破壞性變更**：策略腳本的形狀與計算的請求／回覆同時改變，操作介面必須同批更新。
     唯一呼叫端是本專案的前端，可接受；不做版本並存。
   - **`KCandleSeriesDomain.Buckets()` 讓一個既有型別多了一個公開方法**，
     等於承認彙總查詢不是它唯一的客戶。這是刻意的：另一個選擇是複製切格邏輯，代價高得多。

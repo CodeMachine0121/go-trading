@@ -24,7 +24,7 @@
      `AssistantConversationService`、proxy、controller **一行都不用改**。
 
   次要原則：**助手能做什麼，由注入的那一份清單決定，不由 proxy 或 service 內的 switch 決定。**
-  「助手不能刪策略」因此不是一段防禦碼，而是**清單裡沒有那一項**。
+  「助手不能刪策略腳本」因此不是一段防禦碼，而是**清單裡沒有那一項**。
 
 ---
 
@@ -45,7 +45,7 @@
 | `cmd/server/dependencies.go` | **Modify** | 組裝新元件、註冊三條路由、組出助手能力清單 |
 | `cmd/migrate/` | **Modify** | 三張新表加進 `AutoMigrate` |
 | `postman/` | **Modify** | 補三條路由 |
-| **既有的 K 線／指標計算／策略／交易標的 domain service** | **Not touched** | 助手能力**只呼叫**它們現有的方法。這個切片不放寬任何既有規則，也不為助手開後門 |
+| **既有的 K 線／指標計算／策略腳本／交易標的 domain service** | **Not touched** | 助手能力**只呼叫**它們現有的方法。這個切片不放寬任何既有規則，也不為助手開後門 |
 | **既有 controller 與路由** | **Not touched** | 助手能力走 application／service，**不繞回自己的 HTTP**——省一次網路、省一層序列化，也不必為此開鑑權 |
 | **背景工作** | **Not touched** | 提問一律由使用者觸發，沒有排程 |
 | **即時串流** | **Not touched** | 一問一答，不做逐字顯示（PRD Out of Scope） |
@@ -63,7 +63,7 @@
 | `AssistantQueryRecord` | Entity | 這次問答裡**某一次助手查詢**做了什麼：第幾次、哪個能力、什麼參數、結果如何、是否被拒 | — | US-03、US-05「紀錄裡仍看得到」 |
 
 `AssistantTurn` 與 `AssistantQueryRecord` **沒有自己的 repository**——它們從不被單獨讀寫，
-一律隨所屬的 `Conversation` 一起進出，比照既有 `StrategyParameter` 的作法。
+一律隨所屬的 `Conversation` 一起進出，比照既有 `StrategyScriptParameter` 的作法。
 
 **為什麼一次問答是一個 row，而不是兩則訊息 row**：
 提問與回答**同生共死**——助手掛掉時兩者都不留（US-09）。放在同一個 row 裡，
@@ -159,18 +159,18 @@ func (s *AssistantConversationService) GetConversation(ctx context.Context, id u
 | `KCandleRangeAssistantQuery` | AssistantQuery | 能力：查一段區間的 K 線（受根數上限約束） | `KCandleApplication`、`AssistantCandleLimitDomain` | US-03、US-07 |
 | `KCandleSeriesAssistantQuery` | AssistantQuery | 能力：查一段區間的彙總 K 線序列（受根數上限約束） | `KCandleApplication`、`AssistantCandleLimitDomain` | US-03、US-07 |
 | `IndicatorCalculationAssistantQuery` | AssistantQuery | 能力：執行一次指標計算 | `IndicatorCalculationApplication` | US-03 |
-| `StrategyGetAssistantQuery` | AssistantQuery | 能力：讀取一支策略 | `StrategyApplication` | US-03 |
-| `StrategyListAssistantQuery` | AssistantQuery | 能力：列出所有策略 | `StrategyApplication` | US-03 |
-| `StrategyCreateAssistantQuery` | AssistantQuery | 能力：建立一支策略 | `StrategyApplication` | US-04 |
-| `StrategyUpdateAssistantQuery` | AssistantQuery | 能力：修改一支策略 | `StrategyApplication` | US-04 |
+| `StrategyScriptGetAssistantQuery` | AssistantQuery | 能力：讀取一支策略腳本 | `StrategyScriptApplication` | US-03 |
+| `StrategyScriptListAssistantQuery` | AssistantQuery | 能力：列出所有策略腳本 | `StrategyScriptApplication` | US-03 |
+| `StrategyScriptCreateAssistantQuery` | AssistantQuery | 能力：建立一支策略腳本 | `StrategyScriptApplication` | US-04 |
+| `StrategyScriptUpdateAssistantQuery` | AssistantQuery | 能力：修改一支策略腳本 | `StrategyScriptApplication` | US-04 |
 
 **這八個為什麼在 application 層**：它們的工作正是「把一個外部意圖轉成既有用例的一次呼叫」，
 那是 application 的職責。它們實作的是 **domain 的介面**，依賴方向仍然指向 domain（DIP）。
 反過來把它們放進 domain，domain 就得認識所有其他 domain service，
 變成一張誰都連誰的網——這正是規範要求「跨 service 編排由 application 負責」的理由。
 
-**沒有 `StrategyDeleteAssistantQuery`，也沒有任何 K 線寫入能力。**
-US-04「助手不能刪除策略」與 PRD Out of Scope「助手不動 K 線」因此**由結構保證**，
+**沒有 `StrategyScriptDeleteAssistantQuery`，也沒有任何 K 線寫入能力。**
+US-04「助手不能刪除策略腳本」與 PRD Out of Scope「助手不動 K 線」因此**由結構保證**，
 不靠任何一段檢查碼——不存在的能力沒有辦法被誤呼叫。
 
 ### 3.6 Infrastructure
@@ -242,7 +242,7 @@ flowchart TD
     Queries -.impl.-> Q2[KCandleRangeAssistantQuery]
     Queries -.impl.-> Q3[KCandleSeriesAssistantQuery]
     Queries -.impl.-> Q4[IndicatorCalculationAssistantQuery]
-    Queries -.impl.-> Q5[Strategy Get / List / Create / Update]
+    Queries -.impl.-> Q5[StrategyScript Get / List / Create / Update]
 
     Q2 --> Limit[AssistantCandleLimitDomain]
     Q3 --> Limit
@@ -291,8 +291,8 @@ sequenceDiagram
     **`AssistantConversationService`、`ClaudeAssistantProxy`、controller、config 一行都不用改。**
   - 換助手：新增一個 `internal/infrastructure/assistant/` 底下的實作，改組裝根注入哪一個。
 - **Patterns applied & why:**
-  - **Strategy（能力清單）** — 綁在「助手能做什麼」這條變動軸上。它是這個切片最會動的地方，
-    所以做成 add-only；順帶讓「不給刪除策略」成為結構事實而非檢查碼。
+  - **StrategyScript（能力清單）** — 綁在「助手能做什麼」這條變動軸上。它是這個切片最會動的地方，
+    所以做成 add-only；順帶讓「不給刪除策略腳本」成為結構事實而非檢查碼。
   - **Adapter（`IAssistantProxy`）** — 綁在「哪一家助手、SDK 長什麼樣」這條軸上。
   - **Rich Domain Model** — 每一條上限都是一個 domain model 的 method，可單獨 table-driven 測，
     不必為了驗「20 則的邊界」而叫一次外部助手。
@@ -327,14 +327,14 @@ sequenceDiagram
 | **US-02** 兩段對話彼此不相通 | `ConversationDomain`（近期訊息只取自這一段） |
 | **US-03** 助手列出可查交易標的來回答 | `TradingSymbolListAssistantQuery` |
 | **US-03** 助手自己選定彙總刻度取回序列 | `KCandleSeriesAssistantQuery` |
-| **US-03** 助手指名既有策略去算 | `StrategyGetAssistantQuery` + `IndicatorCalculationAssistantQuery` |
+| **US-03** 助手指名既有策略腳本去算 | `StrategyScriptGetAssistantQuery` + `IndicatorCalculationAssistantQuery` |
 | **US-03** 與行情無關的問題不做任何查詢 | `AssistantConversationService.Ask`（proxy 直接回答時迴圈不進入） |
 | **US-03** 非法彙總刻度被拒 | `KCandleSeriesAssistantQuery`（錯誤原樣交回助手，不中止回答） |
 | **US-03** 查不到資料不是錯誤 | `KCandleSeriesAssistantQuery`（空結果照樣交回助手） |
-| **US-04** 助手建立一支策略 | `StrategyCreateAssistantQuery` |
-| **US-04** 助手修改一支策略 | `StrategyUpdateAssistantQuery` |
-| **US-04** 助手不能刪除策略 | **能力清單裡沒有刪除**——由結構保證 |
-| **US-04** 建立策略同樣受既有規則約束 | `StrategyCreateAssistantQuery` → 既有 `StrategyService` 規則 |
+| **US-04** 助手建立一支策略腳本 | `StrategyScriptCreateAssistantQuery` |
+| **US-04** 助手修改一支策略腳本 | `StrategyScriptUpdateAssistantQuery` |
+| **US-04** 助手不能刪除策略腳本 | **能力清單裡沒有刪除**——由結構保證 |
+| **US-04** 建立策略腳本同樣受既有規則約束 | `StrategyScriptCreateAssistantQuery` → 既有 `StrategyScriptService` 規則 |
 | **US-05** 不到上限時全部帶給助手 | `ConversationDomain.RecentMessages` |
 | **US-05** 剛好等於上限時全部帶給助手 | 同上 |
 | **US-05** 超出上限時只帶最近 20 則，其餘仍讀得到 | `ConversationDomain.RecentMessages` + `.ToDto` |
@@ -417,11 +417,11 @@ sequenceDiagram
 原設計有。實作時發現沒有東西能填它：能力只回文字，截斷與否已寫在交給助手的文字裡。
 **被告知才是重點**，一個只有這張表看得到的旗標什麼都告訴不了助手，所以刪掉。
 
-### 9.4 指標計算能力接受 `strategyId`
+### 9.4 指標計算能力接受 `strategyScriptId`
 
-原設計要助手先讀策略、再把算式送回來算。實作時改成能力自己收 `strategyId` 並代讀，
-因為「用我的二十根均線看 BTCUSDT」指的是**一支策略**而不是一段算式：
-少一次往返，也不必把整段算式在對話裡走兩趟。兩者都給時以 `strategyId` 為準，
+原設計要助手先讀策略腳本、再把算式送回來算。實作時改成能力自己收 `strategyScriptId` 並代讀，
+因為「用我的二十根均線看 BTCUSDT」指的是**一支策略腳本**而不是一段算式：
+少一次往返，也不必把整段算式在對話裡走兩趟。兩者都給時以 `strategyScriptId` 為準，
 它們不能悄悄不一致。
 
 ### 9.5 多了 `ASSISTANT_BASE_URL`
@@ -452,7 +452,7 @@ statement，會以資料庫驅動的原句直達呼叫端。改成：找不到�
 
 問「請給我一份布林通道的腳本」，回來的是：
 
-> 我先看一下系統裡既有策略的算式寫法，免得我憑空猜語法給你一份跑不起來的東西。
+> 我先看一下系統裡既有策略腳本的算式寫法，免得我憑空猜語法給你一份跑不起來的東西。
 
 然後這一則問答就結束了。**工具一次都沒跑**，使用者只能自己再問一次「好了沒」。
 

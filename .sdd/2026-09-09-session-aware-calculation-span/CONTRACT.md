@@ -26,7 +26,7 @@ Bridging notes used throughout (UL-MAP + ARCH):
 | AC-09 | 加密貨幣看不滿一格的一段 | 要看 1 格 | `aggregation_interval_domain.go:157` | `aggregation_interval_domain_test.go:287`（3 分鐘→1） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-10 | 台股一個交易日（54 格）＋回看 20 | 計算根數 73；不足的 19 根取自前一交易日；54 個位置都有值 | `indicator_calculation_domain.go:113` | `indicator_calculation_domain_test.go:988`（第一列） | asserts-oracle（73 直接斷言）；「取自前一交易日」是既有的**按根數往回讀**所致，非本切片新增 | produces-oracle | ✅ conforms |
 | AC-11 | 台股開盤後一小時（12 格）＋回看 20 | 計算根數 31 | 同上 | `indicator_calculation_domain_test.go:988`（第二列） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-12 | 策略沒有宣告回看根數 | 計算根數 54，不多取一根 | 同上 | `indicator_calculation_domain_test.go:988`（第三列） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-12 | 策略腳本沒有宣告回看根數 | 計算根數 54，不多取一根 | 同上 | `indicator_calculation_domain_test.go:988`（第三列） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-13 | 更早的行情不存在（可用 54、需要 73） | 以 54 根執行；回報需要 73、實際採用 54 | `indicator_calculation_domain.go:220`（既有 `SelectInputCandles`） | `indicator_calculation_service_test.go`（湊不滿以可用根數執行，既有案例） | asserts-oracle（回報路徑與市場無關，既有案例已釘住；73 的來源由 AC-10 釘住） | produces-oracle | ✅ conforms |
 | AC-14 | 觀察區間完全落在收盤後 | 整次拒絕，說明這一段時間市場沒有交易，且呼叫端分辨得出 | `indicator_calculation_domain.go:98`、`indicator_calculation_errors.go:119`、`indicator_calculation_controller.go:70` | `indicator_calculation_domain_test.go:1033`＋`indicator_calculation_controller_test.go:367` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-15 | 觀察區間是整個週六 | 整次拒絕，說明這一段時間市場沒有交易 | 同上 | 同上（兩個測試各有這一列） | asserts-oracle | produces-oracle | ✅ conforms |

@@ -76,7 +76,7 @@ flowchart TD
     Svc --> Repo[(IKCandleRepository)]
     Svc --> Script[IIndicatorScriptProxy]
     Dom -->|併出刻度區間| Series[KCandleSeriesDomain]
-    Dom -->|最少可算根數| Params[StrategyParametersDomain]
+    Dom -->|最少可算根數| Params[StrategyScriptParametersDomain]
     Dom -->|湊不出最少可算根數| TooThin[CandleCoverageTooThin]
     Ctl -->|挖出兩個數字| Shortfall[CandleCoverageShortfall]
 ```
@@ -111,7 +111,7 @@ flowchart TD
   而讀說明文字去辨認等於在比對寫給人看的散文。這個模式 repo 已經用過兩次，沿用而非發明。
 
 - **Do not hardcode:**
-  - **最少可算根數不得寫成常數。** 它是「最大回看根數」推出來的，一支策略一個值。
+  - **最少可算根數不得寫成常數。** 它是「最大回看根數」推出來的，一支策略腳本一個值。
     寫死一個數字等於系統開始猜算法需要幾根——通用語地圖明文禁止。
   - **不得把「湊不出最少可算根數」與「超過上限」講成同一句話。** 兩者的出路正好相反。
   - 不得在服務層或控制器再數一次根數：那會讓同一條規則有兩個版本。
@@ -145,7 +145,7 @@ flowchart TD
 | US-03 算式本身跑不動仍是算式的問題 | `ErrIndicatorScriptFailed` 分流（既有，不變） |
 | US-04 沒宣告卻在算式裡寫死期數 | `SelectInputCandles` 只讀宣告出來的參數；算式失敗由 `IIndicatorScriptProxy` 回報 |
 | US-04 宣告與算式一致時最少可算根數就是對的 | `SelectInputCandles` |
-| US-04 宣告了多個回看根數時取最大的那一個 | `StrategyParametersDomain.MaximumLookbackCount()`（既有，不變） |
+| US-04 宣告了多個回看根數時取最大的那一個 | `StrategyScriptParametersDomain.MaximumLookbackCount()`（既有，不變） |
 | US-05 超過上限的三個情境 | `NewIndicatorCalculationDomain` 的上限檢查 + `CandleCountExceeded`（既有，一字不動） |
 
 ---
@@ -187,7 +187,7 @@ flowchart TD
 
 - **湊不滿從「拒絕」變成「成功」，是一次行為變更。** 任何把拒絕當訊號的呼叫端會看到不同的結果。
   目前呼叫端只有兩處，兩處都是把它顯示成失敗——改成成功正是本次要的結果。
-- **沒宣告回看根數卻寫死期數的策略**，會從「根數不足」變成「算式的問題」。刻意接受（PRD US-04）。
+- **沒宣告回看根數卻寫死期數的策略腳本**，會從「根數不足」變成「算式的問題」。刻意接受（PRD US-04）。
 - 新增回報欄位是**只增不減**，既有呼叫端不看它也照樣運作。
 
 ### Open decisions (for implementation)

@@ -23,7 +23,7 @@
 | `vo/signal_vo.go` | **Modify** | 第三個值 `SignalFlat`/`"flat"` 改名為 `SignalHold`/`"hold"`（PRD BR-10）。純改名，模擬行為不變 |
 | `vo/indicator_result_type_vo.go` | **Modify** | 新增 `IndicatorResultTypeSignal IndicatorResultTypeVo = "signal"` |
 | `vo/indicator_value_vo.go` | **Modify** | 新增 `Signal SignalVo` 欄位——信號種類下，執行端產出的內容放這裡（數字放 `Numbers`、是非放 `Booleans`、信號放 `Signal`，三者其一） |
-| `vo/signal_indicator_key.go` | **Add** | `SignalIndicatorKey = "signal"`：信號種類下，執行端把那一個信號放進結果 map 用的內部固定鍵。**不是使用者可見的指標名稱**，只是跨層的可辨識常數（沿用 strategy-backtest ARCH「signal 名稱不得散落」的要求） |
+| `vo/signal_indicator_key.go` | **Add** | `SignalIndicatorKey = "signal"`：信號種類下，執行端把那一個信號放進結果 map 用的內部固定鍵。**不是使用者可見的指標名稱**，只是跨層的可辨識常數（沿用 strategyScript-backtest ARCH「signal 名稱不得散落」的要求） |
 | `domains/indicator_result_type_domain.go` | **Modify** | `declarableIndicatorResultTypes` 加入 `signal`；新增 `IsSignal()` 述詞；`ScriptResultShape()` 對信號回傳 `"indicator.Signal"`。`IsList()`／`HoldsNumbers()` 對信號皆為 `false`，不需改動 |
 | `domains/signal_domain.go` | **Modify（重寫）** | 移除 `SignalIndicatorName` 常數與「取名為 signal 的浮點數 → 看正負號 / NaN / Inf」整段。改為薄包裝：`NewSignalDomain(value vo.SignalVo) SignalDomain`（total，信任已驗過的輸入），保留 `Value()`、`WantedDirection()`（`hold` → `("", false)`） |
 | `domains/backtest_domain.go` | **Modify** | `ResultType()` 回傳 `signal` 種類（原本寫死 `float`）；`ReplayOver(...)` 第二參數由 `[]map[string]vo.IndicatorValueVo` 改為 `[]SignalDomain` |
@@ -35,7 +35,7 @@
 | `infrastructure/script/yaegi_indicator_script_proxy.go` | **Modify** | `indicator` 套件符號表注入 `Signal`（型別）、`Buy` / `Sell` / `Hold`（值）。四個符號恆常存在，非信號算式用不到也無害 |
 | `infrastructure/script/indicator_script_shape.go` | **Modify** | `entryPointType()` 信號分支回傳 `func([]indicator.KCandle) vo.SignalVo`；`readValues(...)` 加 `error` 回傳，信號分支驗證回傳值是 `buy`／`sell`／`hold` 之一（否則 `ErrIndicatorScriptFailed`），並以 `SignalIndicatorKey` 放進單一entry map |
 | `interface/i_indicator_script_proxy.go` · `mocks/` | **Not touched** | `Execute` / `ExecuteForEachCandle` 的簽章（`map[string]vo.IndicatorValueVo`）不變——信號透過既有形狀的新欄位帶出，介面零改動、mock 不必重產 |
-| `entities/strategy.go` · `domains/strategy_domain.go` | **Not touched** | 策略的種類驗證是委派 `NewIndicatorResultTypeDomain`；`declarableIndicatorResultTypes` 一改，策略自動接受 `signal`（PRD US-05） |
+| `entities/strategyScript.go` · `domains/strategyScript_domain.go` | **Not touched** | 策略腳本的種類驗證是委派 `NewIndicatorResultTypeDomain`；`declarableIndicatorResultTypes` 一改，策略腳本自動接受 `signal`（PRD US-05） |
 | `controller/*` | **Not touched** | 新的拒絕全部落在既有哨兵 `ErrIndicatorScriptFailed` / `ErrIndicatorCalculationValidation` / `ErrBacktestValidation`，狀態碼分流不變 |
 | `cmd/server/dependencies.go` | **Not touched** | 無新依賴、無新路由、無新設定 |
 | entity / 資料表 / migration | **Not touched** | 計算與回測結果都不留存 |
@@ -112,9 +112,9 @@ flowchart TD
   - `buy` / `sell` / `hold` 三個字面值——已是 `vo` 常數。
   - 「回測 = 信號種類」——只在 `BacktestDomain.ResultType()` 一處。
 - **Known debt / deferred:**
-  - `indicatorScriptShape` 現在有三個內容分支（數字／是非／信號），不再是純兩述詞模型。**這是刻意接受的**：信號是真正不同的內容形狀。若出現第四種不同形狀，屆時才考慮「一形狀一策略物件」。
-  - 已存的舊策略若其算式用數字表達信號，本切片不主動掃描標記（PRD Open Decision #3 定案為後者）——使用者拿去回測時被 `ErrIndicatorScriptFailed` 擋下並告知要改寫。
-  - 破壞性變更：既有的數字型信號算式（strategy-backtest 切片的測試、Postman 範例）全部要改寫成信號種類。範圍已知，屬本切片實作工作。
+  - `indicatorScriptShape` 現在有三個內容分支（數字／是非／信號），不再是純兩述詞模型。**這是刻意接受的**：信號是真正不同的內容形狀。若出現第四種不同形狀，屆時才考慮「一形狀一策略腳本物件」。
+  - 已存的舊策略腳本若其算式用數字表達信號，本切片不主動掃描標記（PRD Open Decision #3 定案為後者）——使用者拿去回測時被 `ErrIndicatorScriptFailed` 擋下並告知要改寫。
+  - 破壞性變更：既有的數字型信號算式（strategyScript-backtest 切片的測試、Postman 範例）全部要改寫成信號種類。範圍已知，屬本切片實作工作。
 
 ---
 
@@ -138,7 +138,7 @@ flowchart TD
 | US-04 某一棒沒產出信號 | `ExecuteForEachCandle` 逐棒執行，任一棒 `readValues` 失敗即整批失敗（既有行為） |
 | US-04 回測請求不帶指標值種類 | `BacktestDomain.ResultType()` 內部固定 signal，`BacktestRequestDto` 無此欄位 |
 | US-05 單純算指標宣告信號種類 | `IndicatorCalculationService` 信號分支 |
-| US-05 建立／修改策略時把種類設成信號 | `StrategyDomain` 委派 `NewIndicatorResultTypeDomain`（`declarableIndicatorResultTypes` 已含 signal）——零改動 |
+| US-05 建立／修改策略腳本時把種類設成信號 | `StrategyScriptDomain` 委派 `NewIndicatorResultTypeDomain`（`declarableIndicatorResultTypes` 已含 signal）——零改動 |
 | US-06 回測逐棒／排除未走完格／根數上限／逾時 | `BacktestDomain.SelectInputCandles`、`ExecuteForEachCandle`——不動 |
 | US-06 持有那一棒的模擬行為不變 | `SignalDomain.WantedDirection()` 對 `hold` 回 `("", false)` → `BacktestAccountDomain.Apply` 早退（既有邏輯，僅改名） |
 
@@ -154,4 +154,4 @@ flowchart TD
 - **Open decisions（已於本 ARCH 定案，供實作遵循）:**
   1. 「一個沒有名稱的信號」怎麼回傳 → `IndicatorCalculationResultDto` 頂層新增 `signal` 欄位（`omitempty`），信號種類下 `values` 為空。
   2. 「持平 → 持有」改名範圍 → 對內常數（`SignalHold`）與對外字面值（`"hold"`）一起改；本切片不留存、無歷史資料，無遷移問題。
-  3. 舊策略掃描 → 不主動掃，等回測時擋下（PRD Open Decision #3）。
+  3. 舊策略腳本掃描 → 不主動掃，等回測時擋下（PRD Open Decision #3）。

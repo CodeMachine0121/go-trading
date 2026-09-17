@@ -13,17 +13,17 @@ PRD before any code or test was read, then the test and the code were judged
 
 Statuses: ✅ conforms · 🟡 partial (code right, no test pinning it) · 🟠 mis-asserted · 🔴 violation · ❌ gap · ❔ unclear
 
-### US-01 — 把幾支策略組成一台機器人
+### US-01 — 把幾支策略腳本組成一台機器人
 
 | ID | Clause | Oracle (from the spec alone) | Implementation | Test | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| AC-01 | 組起一台機器人 | 建立成功、回覆識別碼、狀態為已停止 | `strategy_bot_service.go:38` · `strategy_bot_domain.go:145` | `strategy_bot_application_test.go` CreateResolvesEveryNamedStrategyThroughTheGates | ✅ |
-| AC-02 | 同一支策略以不同參數值當成兩個來源 | 建立成功，A 與 B 各自說話 | `strategy_bot_signal_sources_domain.go:40` | `strategy_bot_domain_test.go` LetsOneStrategyBeTwoSources | ✅ |
+| AC-01 | 組起一台機器人 | 建立成功、回覆識別碼、狀態為已停止 | `strategy_bot_service.go:38` · `strategy_bot_domain.go:145` | `strategy_bot_application_test.go` CreateResolvesEveryNamedStrategyScriptThroughTheGates | ✅ |
+| AC-02 | 同一支策略腳本以不同參數值當成兩個來源 | 建立成功，A 與 B 各自說話 | `strategy_bot_signal_sources_domain.go:40` | `strategy_bot_domain_test.go` LetsOneStrategyScriptBeTwoSources | ✅ |
 | AC-03 | 巢狀的條件，深度為 2 | 建立成功且深度為 2 | `strategy_bot_condition_domain.go:55` | `strategy_bot_condition_domain_test.go` NodeCount / Depth | ✅ |
 | AC-04 | 條件指到沒宣告的信號來源 | 拒絕，指出是哪一個代號 | `strategy_bot_condition_domain.go:66` | condition Refusals「naming a source that was never declared」 | ✅ |
 | AC-05 | 來源代號重複 | 拒絕，說明代號不得重複 | `strategy_bot_signal_sources_domain.go:75` | domain Refusals「two sources answering to one label」 | ✅ |
 | AC-06 | 參數名稱對不上 | 拒絕，指出是哪一個名稱 | `strategy_bot_signal_sources_domain.go:98` | domain Refusals「a value set on a knob…」＋ application test | ✅ |
-| AC-07 | 信號來源指名一支看不到的策略 | 回覆「找不到」，與不存在者一字不差 | `strategy_bot_application.go:119`（既有三道關卡） | application test CreateRefusesAStrategyThisPersonCannotSee | ✅ |
+| AC-07 | 信號來源指名一支看不到的策略腳本 | 回覆「找不到」，與不存在者一字不差 | `strategy_bot_application.go:119`（既有三道關卡） | application test CreateRefusesAStrategyScriptThisPersonCannotSee | ✅ |
 | AC-08 | 買入條件不得為空 | 拒絕 | `strategy_bot_domain.go:112` | domain Refusals「no buy condition」/「no sell condition」 | ✅ |
 | AC-09 | 條件群組至少兩個子條件 | 拒絕，說出下限 | `strategy_bot_condition_domain.go:88` | condition Refusals「a group joining only one condition」 | ✅ |
 | AC-10 | 深度剛好到上限 5 | 建立成功 | `strategy_bot_condition_domain.go:113` | AcceptsTheDeepestAllowedNesting | ✅ |
@@ -84,8 +84,8 @@ Statuses: ✅ conforms · 🟡 partial (code right, no test pinning it) · 🟠 
 | AC-45 | K 線不夠就跳過 | 跳過、維持執行中 | 同上 | failure domain ＋ run application KeepsRunningWhenTheCandlesAreNotThereYet | ✅ |
 | AC-46 | 連不上 Telegram 就下一輪再送 | 維持執行中、記著的信號不更新 | `NewStrategyBotDeliveryFailureDomain` default | run application ReadsTelegramsRefusalTheWayItWasMeant | ✅ |
 | AC-47 | Telegram 遲遲不答也是下一輪再送 | 同上 | 同上 | 同上 | ✅ |
-| AC-48 | 策略被刪了就停下 | 已停止、原因是那支策略找不到了 | `NewStrategyBotRoundFailureDomain` | failure domain ＋ run application HaltsForFailuresThatWillNeverFixThemselves | ✅ |
-| AC-49 | 採用來的策略被取消發佈 | 與上一列**一字不差** | 同上（兩個哨兵映到同一個停擺原因） | failure domain「withdrawn… stops it the same way」 | ✅ |
+| AC-48 | 策略腳本被刪了就停下 | 已停止、原因是那支策略腳本找不到了 | `NewStrategyBotRoundFailureDomain` | failure domain ＋ run application HaltsForFailuresThatWillNeverFixThemselves | ✅ |
+| AC-49 | 採用來的策略腳本被取消發佈 | 與上一列**一字不差** | 同上（兩個哨兵映到同一個停擺原因） | failure domain「withdrawn… stops it the same way」 | ✅ |
 | AC-50 | 算式執行失敗就停下 | 已停止、原因是算不出來 | 同上 | failure domain ＋ run application HaltsWhenAScriptWillNotRun | ✅ |
 | AC-51 | 金鑰不被接受就停下 | 已停止、原因是金鑰不被接受 | `NewStrategyBotDeliveryFailureDomain` | failure domain ＋ run application ReadsTelegramsRefusal… | ✅ |
 | AC-52 | 找不到聊天室就停下 | 已停止、原因是找不到聊天室 | 同上 | 同上 | ✅ |
@@ -100,7 +100,7 @@ Statuses: ✅ conforms · 🟡 partial (code right, no test pinning it) · 🟠 
 | AC-56 | 別人停不了我的機器人 | 「找不到」，我那台仍執行中 | 同上 | application StopRefusesToTouchSomebodyElsesBot | ✅ |
 | AC-57 | 修改一台已停止的機器人 | 成功、更新修改時間、識別碼／建立時間／擁有者不變 | `strategy_bot_service.go:96`（`writeDto.OwnerID` 取自庫內）· repository 只更新三欄 | repository SaveReplacesTheSourcesAndTreesItHadBefore ＋ UpdateRunStateTouchesOnlyABotsLife | ✅ |
 | AC-58 | 改回自己原本的名稱不算重複 | 成功 | `(owner_id, name)` 唯一索引與自己不衝突 | 由 AC-16 的索引語意涵蓋；**沒有專屬測試** | 🟡 |
-| AC-59 | 建立時的每一條規則，修改時同樣適用 | 拒絕、一個字都沒變 | `UpdateStrategyBot` 走同一個 `NewStrategyBotDomain` | application UpdateRewriteRefusesAStrategyThisPersonCannotSee ＋ controller | ✅ |
+| AC-59 | 建立時的每一條規則，修改時同樣適用 | 拒絕、一個字都沒變 | `UpdateStrategyBot` 走同一個 `NewStrategyBotDomain` | application UpdateRewriteRefusesAStrategyScriptThisPersonCannotSee ＋ controller | ✅ |
 | AC-60 | 刪除 | 查不到；來源與條件一併消失 | GORM cascade | repository DeleteTakesTheSourcesAndTreesWithIt | ✅ |
 | AC-61 | 沒有登入就做不了任何一件 | 拒絕並要求先登入 | `requiresSignIn` | controller RefusesEveryRouteWithoutProofOfIdentity（七條路由全覆蓋） | ✅ |
 

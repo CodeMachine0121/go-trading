@@ -14,23 +14,23 @@
       "value": "TESTONLY"
     },
     {
-      "key": "strategyName",
+      "key": "strategyScriptName",
       "value": "TESTONLY 二十根均線"
     },
     {
-      "key": "strategyId",
+      "key": "strategyScriptId",
       "value": ""
     },
     {
-      "key": "strategyIdDefaults",
+      "key": "strategyScriptIdDefaults",
       "value": ""
     },
     {
-      "key": "strategyIdDraft",
+      "key": "strategyScriptIdDraft",
       "value": ""
     },
     {
-      "key": "strategyCreatedAt",
+      "key": "strategyScriptCreatedAt",
       "value": ""
     },
     {
@@ -77,111 +77,111 @@
       "type": "default"
     },
     {
-      "key": "strategyIdForCalculation1",
+      "key": "strategyScriptIdForCalculation1",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation2",
+      "key": "strategyScriptIdForCalculation2",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation3",
+      "key": "strategyScriptIdForCalculation3",
       "value": ""
     },
     {
-      "key": "strategyIdForfloatList1",
+      "key": "strategyScriptIdForfloatList1",
       "value": ""
     },
     {
-      "key": "strategyIdForbool1",
+      "key": "strategyScriptIdForbool1",
       "value": ""
     },
     {
-      "key": "strategyIdForboolList1",
+      "key": "strategyScriptIdForboolList1",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation4",
+      "key": "strategyScriptIdForCalculation4",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation5",
+      "key": "strategyScriptIdForCalculation5",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation6",
+      "key": "strategyScriptIdForCalculation6",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation7",
+      "key": "strategyScriptIdForCalculation7",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation8",
+      "key": "strategyScriptIdForCalculation8",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation9",
+      "key": "strategyScriptIdForCalculation9",
       "value": ""
     },
     {
-      "key": "strategyIdForCalculation10",
+      "key": "strategyScriptIdForCalculation10",
       "value": ""
     },
     {
-      "key": "strategyIdForsignal1",
+      "key": "strategyScriptIdForsignal1",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest1",
+      "key": "strategyScriptIdForBacktest1",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest2",
+      "key": "strategyScriptIdForBacktest2",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest3",
+      "key": "strategyScriptIdForBacktest3",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest4",
+      "key": "strategyScriptIdForBacktest4",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest5",
+      "key": "strategyScriptIdForBacktest5",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest6",
+      "key": "strategyScriptIdForBacktest6",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest7",
+      "key": "strategyScriptIdForBacktest7",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktestTooFewCandles",
+      "key": "strategyScriptIdForBacktestTooFewCandles",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest8",
+      "key": "strategyScriptIdForBacktest8",
       "value": ""
     },
     {
-      "key": "strategyIdForBacktest9",
+      "key": "strategyScriptIdForBacktest9",
       "value": ""
     },
     {
-      "key": "strategyIdForKnobbedCalculation",
+      "key": "strategyScriptIdForKnobbedCalculation",
       "value": ""
     },
     {
-      "key": "strategyIdForKnob1",
+      "key": "strategyScriptIdForKnob1",
       "value": ""
     },
     {
-      "key": "publishedStrategyId",
+      "key": "publishedStrategyScriptId",
       "value": ""
     },
     {
@@ -189,7 +189,7 @@
       "value": ""
     },
     {
-      "key": "unpublishedStrategyId",
+      "key": "unpublishedStrategyScriptId",
       "value": ""
     },
     {
@@ -237,7 +237,7 @@
       "value": ""
     },
     {
-      "key": "botStrategyId",
+      "key": "botStrategyScriptId",
       "value": "",
       "type": "string"
     },
@@ -3662,12 +3662,12 @@
               "raw": "{\n  \"name\": \"算一條移動平均 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -3680,7 +3680,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation1\", pm.response.json().id);"
                 ]
               }
             }
@@ -3708,7 +3708,7 @@
             "description": "算式的形狀固定為 `func Calculate(data []indicator.KCandle) map[string]float64`。\n\n**只採用走完的刻度區間**：不指定 `aggregationInterval` 就是一分鐘一格，而目前正在走的那一分鐘不會被讀進來。準備的五根都已經收完，所以五根都算數，取最靠近 `endTime`（省略即現在）的四根。\n\n算式只能做純運算，只開放 `math` 與 `sort`；`os`、`net/http`、`time`、亂數一律 import 不到。\n\n`resultType` 宣告這次算出的值是哪一種（`float`、`floatList`、`bool`、`boolList`、`signal`）；`float` 是預設值，省略不寫的行為完全相同。`signal` 種類回傳的是單一一個信號、沒有指標名稱。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3769,12 +3769,12 @@
               "raw": "{\n  \"name\": \"算式可以一次回多個指標 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\thighest := data[0].High\\n\\tlowest := data[0].Low\\n\\tfor _, candle := range data {\\n\\t\\tif candle.High > highest {\\n\\t\\t\\thighest = candle.High\\n\\t\\t}\\n\\t\\tif candle.Low < lowest {\\n\\t\\t\\tlowest = candle.Low\\n\\t\\t}\\n\\t}\\n\\treturn map[string]float64{\\\"highest\\\": highest, \\\"lowest\\\": lowest}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -3787,7 +3787,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation2\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation2\", pm.response.json().id);"
                 ]
               }
             }
@@ -3814,7 +3814,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation2}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation2}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3856,12 +3856,12 @@
               "raw": "{\n  \"name\": \"算到指定的時間為止 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -3874,7 +3874,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation3\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation3\", pm.response.json().id);"
                 ]
               }
             }
@@ -3902,7 +3902,7 @@
             "description": "`endTime` 說這次算到哪個時間為止，省略就是現在。\n\n這裡把它訂在第 4 根的起始時間上——那一格從那一刻才開始走，所以只採用它之前走完的三根，收盤價 110/120/130，平均 120。同一個 `endTime` 問幾次都是同一個答案，這正是把時間交給呼叫端指定的理由。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation3}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart3BeforeSeed4}}\",\n  \"endTime\": \"{{seedTime4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation3}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart3BeforeSeed4}}\",\n  \"endTime\": \"{{seedTime4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3947,12 +3947,12 @@
               "raw": "{\n  \"name\": \"算一整條線（floatList） {{$guid}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tclosePrices := []float64{}\\n\\tfor _, candle := range data {\\n\\t\\tclosePrices = append(closePrices, candle.Close)\\n\\t}\\n\\treturn map[string][]float64{\\\"line\\\": closePrices}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -3965,7 +3965,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForfloatList1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForfloatList1\", pm.response.json().id);"
                 ]
               }
             }
@@ -3993,7 +3993,7 @@
             "description": "宣告 `resultType` 為 `floatList` 時，算式要回傳 `map[string][]float64`，一個指標名稱帶一整串數字——畫線用的形狀。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForfloatList1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForfloatList1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4041,12 +4041,12 @@
               "raw": "{\n  \"name\": \"算一個是非（bool） {{$guid}}\",\n  \"resultType\": \"bool\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]bool {\\n\\treturn map[string]bool{\\\"rising\\\": data[len(data)-1].Close > data[0].Close}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4059,7 +4059,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForbool1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForbool1\", pm.response.json().id);"
                 ]
               }
             }
@@ -4087,7 +4087,7 @@
             "description": "宣告 `resultType` 為 `bool` 時，算式要回傳 `map[string]bool`。訊號類的指標本來就是是非題，不必再用 1 和 0 迂迴表達。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForbool1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForbool1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4130,12 +4130,12 @@
               "raw": "{\n  \"name\": \"算逐根的是非（boolList） {{$guid}}\",\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string][]bool {\\n\\tanswers := []bool{}\\n\\tfor _, candle := range data {\\n\\t\\tanswers = append(answers, candle.Close > 125)\\n\\t}\\n\\treturn map[string][]bool{\\\"aboveAverage\\\": answers}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4148,7 +4148,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForboolList1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForboolList1\", pm.response.json().id);"
                 ]
               }
             }
@@ -4176,7 +4176,7 @@
             "description": "宣告 `resultType` 為 `boolList` 時，算式要回傳 `map[string][]bool`——每根 K 線各一個答案。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForboolList1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForboolList1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4217,12 +4217,12 @@
               "raw": "{\n  \"name\": \"拒絕：算式的形狀不是宣告的種類 {{$guid}}\",\n  \"resultType\": \"boolList\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"movingAverage\\\": data[0].Close}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4235,7 +4235,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation4\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation4\", pm.response.json().id);"
                 ]
               }
             }
@@ -4263,7 +4263,7 @@
             "description": "宣告了 `boolList` 卻回傳 `map[string]float64`，是**算式的問題**（`422`），訊息會說出 `Calculate` 該長什麼樣。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation4}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation4}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4303,12 +4303,12 @@
               "raw": "{\n  \"name\": \"拒絕：要看的那一段沒有長度 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4321,7 +4321,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation5\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation5\", pm.response.json().id);"
                 ]
               }
             }
@@ -4349,7 +4349,7 @@
             "description": "`400` 代表**你送的參數不對**。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation5}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStartNotBeforeEnd}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation5}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStartNotBeforeEnd}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4386,12 +4386,12 @@
               "raw": "{\n  \"name\": \"拒絕：彙總刻度不在五種之內 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4404,7 +4404,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation6\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation6\", pm.response.json().id);"
                 ]
               }
             }
@@ -4432,7 +4432,7 @@
             "description": "彙總刻度六選一：`1m`、`5m`、`15m`、`1h`、`4h`、`1d`。七分鐘不是暫時不支援，是不成立——它既不是一分鐘 K 線長度整除得出的刻度之一，也不整除一天，刻度區間的邊界會逐日漂移。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation6}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"7m\",\n  \"startTime\": \"{{calcStart2}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation6}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"7m\",\n  \"startTime\": \"{{calcStart2}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4472,12 +4472,12 @@
               "raw": "{\n  \"name\": \"湊不滿就算手上有的 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4490,7 +4490,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation7\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation7\", pm.response.json().id);"
                 ]
               }
             }
@@ -4518,7 +4518,7 @@
             "description": "要了 999 根，走完的刻度區間只湊得出準備好的那 5 根。**這不是拒絕**：要幾根是由「要看多長」推出來的，一段只有部分存下來的行情不算問錯，所以算式拿到手上那 5 根，回應同時說出「填滿要 999 根」（`requiredCandleCount`）與「實際用了 5 根」（`usedCandleCount`）。\n\n兩個數字並列回報，呼叫端才說得出一句不混單位的話——兩者同為彙總 K 線的根數。\n\n回應那個數字**不叫** `candleCount`：請求裡的 `candleCount` 是「要為幾個位置拿到值」，回應的 `requiredCandleCount` 已經含了回看根數，兩者本來就不會相等，同名只會招來一個不存在的落差。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation7}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart999}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation7}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart999}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4564,12 +4564,12 @@
               "raw": "{\n  \"name\": \"拒絕：連一個值都算不出來 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 20\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4582,7 +4582,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation8\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation8\", pm.response.json().id);"
                 ]
               }
             }
@@ -4610,7 +4610,7 @@
             "description": "宣告一個回看 20 根的旋鈕，但走完的刻度區間只湊得出 5 根。回看 20 根的算法要到第 20 根才生出第一個值，所以 5 根連一個值都算不出來——**這一種才是拒絕**。\n\n回應把「湊得出幾根」與「至少要幾根」當成兩個值交出來，不只寫在那句話裡面：呼叫端要靠它們給出路，而讀訊息文字等於在比對寫給人看的散文。\n\n它與「計算根數超過單次上限」是**兩句不同的話**，出路正好相反：這一種要改用更細的彙總刻度或把缺的歷史補回來，那一種要縮短區間或改用更粗的刻度。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation8}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 20\n    }\n  ]\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation8}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 20\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4656,12 +4656,12 @@
               "raw": "{\n  \"name\": \"拒絕：算式無法解讀 {{$guid}}\",\n  \"script\": \"package main\\nfunc Calculate(\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4674,7 +4674,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation9\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation9\", pm.response.json().id);"
                 ]
               }
             }
@@ -4702,7 +4702,7 @@
             "description": "`422` 代表**參數沒問題，但你的算式跑不動**。跟 `400` 分開，就是為了讓呼叫端不必讀訊息也分得出來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation9}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation9}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4739,12 +4739,12 @@
               "raw": "{\n  \"name\": \"拒絕：算式試圖碰不該碰的東西 {{$guid}}\",\n  \"script\": \"package main\\nimport (\\n\\t\\\"indicator\\\"\\n\\t\\\"os\\\"\\n)\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"leak\\\": float64(len(os.Args))}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4757,7 +4757,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForCalculation10\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForCalculation10\", pm.response.json().id);"
                 ]
               }
             }
@@ -4785,7 +4785,7 @@
             "description": "白名單沒開放 `os`，所以在解讀階段就失敗了。同一批 K 線跑兩次結果必定相同，靠的就是這條。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForCalculation10}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForCalculation10}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4822,12 +4822,12 @@
               "raw": "{\n  \"name\": \"算一個買賣信號（signal） {{$guid}}\",\n  \"resultType\": \"signal\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close > data[0].Close {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -4840,7 +4840,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForsignal1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForsignal1\", pm.response.json().id);"
                 ]
               }
             }
@@ -4868,7 +4868,7 @@
             "description": "宣告 `resultType` 為 `signal` 時，算式回傳 `indicator.Signal`——值只能是 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，沒有第四種、也不能自己組一個。信號沒有指標名稱，直接以 `signal` 欄位回傳，`values` 為空。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForsignal1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForsignal1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4938,7 +4938,7 @@
           ]
         },
         {
-          "name": "拒絕：同時指名策略又帶算式",
+          "name": "拒絕：同時指名策略腳本又帶算式",
           "request": {
             "method": "POST",
             "header": [
@@ -4949,7 +4949,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"strategyId\": {{strategyIdForCalculation1}},\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\",\n  \"strategyScriptId\": {{strategyScriptIdForCalculation1}},\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\tsum := 0.0\\n\\tfor _, candle := range data {\\n\\t\\tsum += candle.Close\\n\\t}\\n\\treturn map[string]float64{\\\"movingAverage\\\": sum / float64(len(data))}\\n}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/indicator-calculations",
@@ -4979,7 +4979,7 @@
           ]
         },
         {
-          "name": "拒絕：既沒指名策略也沒帶算式",
+          "name": "拒絕：既沒指名策略腳本也沒帶算式",
           "request": {
             "method": "POST",
             "header": [
@@ -5022,11 +5022,11 @@
       ]
     },
     {
-      "name": "策略",
-      "description": "把一套算法留下來：取個名字，記住它算出來的值長什麼樣、要吃多粗、多少根 K 線。\n\n彙總刻度沿用系統既有的那六種（1m／5m／15m／1h／4h／1d），不另立第二套。\n存策略不執行也不檢查指標算式——半成品也該存得住。",
+      "name": "策略腳本",
+      "description": "把一套算法留下來：取個名字，記住它算出來的值長什麼樣、要吃多粗、多少根 K 線。\n\n彙總刻度沿用系統既有的那六種（1m／5m／15m／1h／4h／1d），不另立第二套。\n存策略腳本不執行也不檢查指標算式——半成品也該存得住。",
       "item": [
         {
-          "name": "存下一支策略",
+          "name": "存下一支策略腳本",
           "request": {
             "method": "POST",
             "header": [
@@ -5036,18 +5036,18 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
-            "description": "策略是被留下來的一整包：名稱、指標算式，以及它要吃多粗、多少根 K 線。存起來只是被記住，系統不會因此執行它。",
+            "description": "策略腳本是被留下來的一整包：名稱、指標算式，以及它要吃多粗、多少根 K 線。存起來只是被記住，系統不會因此執行它。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"description\": \"這一支拿來示範存得住什麼\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"description\": \"這一支拿來示範存得住什麼\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5066,12 +5066,12 @@
                   "});",
                   "pm.test(\"存回來的就是送出去的那一支\", function () {",
                   "    const saved = pm.response.json();",
-                  "    pm.expect(saved.name).to.eql(pm.collectionVariables.get(\"strategyName\"));",
+                  "    pm.expect(saved.name).to.eql(pm.collectionVariables.get(\"strategyScriptName\"));",
                   "    pm.expect(saved.description).to.eql(\"這一支拿來示範存得住什麼\");",
                   "    pm.expect(saved.resultType).to.eql(\"floatList\");",
                   "    pm.expect(saved.script).to.be.a(\"string\").and.not.empty;",
                   "    pm.expect(saved.id).to.be.above(0);",
-                  "    pm.collectionVariables.set(\"strategyId\", saved.id);",
+                  "    pm.collectionVariables.set(\"strategyScriptId\", saved.id);",
                   "});"
                 ]
               }
@@ -5089,18 +5089,18 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "名稱是拿來認人的，兩支同名就認不出是哪一支。名稱前後的空白不算數，所以這一支與上一支是同一個名稱。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"　{{strategyName}}　\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
+              "raw": "{\n  \"name\": \"　{{strategyScriptName}}　\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5133,18 +5133,18 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "與彙總查詢、指標計算的規則一致：沒說彙總刻度就是一分鐘，沒說指標值種類就是一個數字。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5164,7 +5164,7 @@
                   "pm.test(\"套用的是全系統同一套預設\", function () {",
                   "    const saved = pm.response.json();",
                   "    pm.expect(saved.resultType).to.eql(\"float\");",
-                  "    pm.collectionVariables.set(\"strategyIdDefaults\", saved.id);",
+                  "    pm.collectionVariables.set(\"strategyScriptIdDefaults\", saved.id);",
                   "});",
                   "pm.test(\"沒寫說明就是沒有說明，不是錯誤\", function () {",
                   "    pm.expect(pm.response.json().description).to.eql(\"\");",
@@ -5185,18 +5185,18 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
-            "description": "存策略不執行、也不檢查算式。一支算式常要調很多次才對，存不進去就沒辦法中途收工、明天再改。",
+            "description": "存策略腳本不執行、也不檢查算式。一支算式常要調很多次才對，存不進去就沒辦法中途收工、明天再改。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-半成品\",\n  \"script\": \"這根本不是一段程式碼\",\n  \"resultType\": \"floatList\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}-半成品\",\n  \"script\": \"這根本不是一段程式碼\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5214,7 +5214,7 @@
                   "    pm.response.to.have.status(201);",
                   "});",
                   "pm.test(\"半成品也留得住\", function () {",
-                  "    pm.collectionVariables.set(\"strategyIdDraft\", pm.response.json().id);",
+                  "    pm.collectionVariables.set(\"strategyScriptIdDraft\", pm.response.json().id);",
                   "});"
                 ]
               }
@@ -5232,18 +5232,18 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "可宣告的種類只有一個數字、一串數字、一個是非、一串是非、信號。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-文字\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"string\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}-文字\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"string\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5266,7 +5266,7 @@
           ]
         },
         {
-          "name": "拒絕：沒有給策略取名字",
+          "name": "拒絕：沒有給策略腳本取名字",
           "request": {
             "method": "POST",
             "header": [
@@ -5276,12 +5276,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "只有空白等同沒取。",
@@ -5315,16 +5315,16 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
-            "description": "以策略識別碼指名，拿回它記住的全部內容。"
+            "description": "以策略腳本識別碼指名，拿回它記住的全部內容。"
           },
           "event": [
             {
@@ -5337,12 +5337,12 @@
                   "});",
                   "pm.test(\"五項內容加上兩個時間都在\", function () {",
                   "    const found = pm.response.json();",
-                  "    pm.expect(found.id).to.eql(Number(pm.collectionVariables.get(\"strategyId\")));",
-                  "    pm.expect(found.name).to.eql(pm.collectionVariables.get(\"strategyName\"));",
+                  "    pm.expect(found.id).to.eql(Number(pm.collectionVariables.get(\"strategyScriptId\")));",
+                  "    pm.expect(found.name).to.eql(pm.collectionVariables.get(\"strategyScriptName\"));",
                   "    pm.expect(found.script).to.be.a(\"string\").and.not.empty;",
                   "    pm.expect(found.createdAt).to.be.a(\"string\");",
                   "    pm.expect(found.updatedAt).to.be.a(\"string\");",
-                  "    pm.collectionVariables.set(\"strategyCreatedAt\", found.createdAt);",
+                  "    pm.collectionVariables.set(\"strategyScriptCreatedAt\", found.createdAt);",
                   "});"
                 ]
               }
@@ -5355,12 +5355,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "一次看完系統留著的每一支，依名稱由小到大。一支都沒有時回空清單，那不是錯誤。"
@@ -5405,19 +5405,19 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
             "description": "五項內容一次改完。建立時的每一條規則，修改時一字不差地同樣適用。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"boolList\",\n  \"description\": \"改過之後的說明\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"boolList\",\n  \"description\": \"改過之後的說明\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5441,8 +5441,8 @@
                   "});",
                   "pm.test(\"識別碼與建立時間動不了\", function () {",
                   "    const rewritten = pm.response.json();",
-                  "    pm.expect(rewritten.id).to.eql(Number(pm.collectionVariables.get(\"strategyId\")));",
-                  "    pm.expect(rewritten.createdAt).to.eql(pm.collectionVariables.get(\"strategyCreatedAt\"));",
+                  "    pm.expect(rewritten.id).to.eql(Number(pm.collectionVariables.get(\"strategyScriptId\")));",
+                  "    pm.expect(rewritten.createdAt).to.eql(pm.collectionVariables.get(\"strategyScriptCreatedAt\"));",
                   "});",
                   "function updatedResultType() {",
                   "    return JSON.parse(pm.request.body.raw).resultType;",
@@ -5463,19 +5463,19 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
-            "description": "一支策略不會與自己撞名——它撞到的就是它自己那一列。",
+            "description": "一支策略腳本不會與自己撞名——它撞到的就是它自己那一列。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 30\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\",\n  \"aggregationInterval\": \"1h\",\n  \"candleCount\": 30\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5508,19 +5508,19 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
             "description": "改名一樣受名稱不重複的約束。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}-預設\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5553,16 +5553,16 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
-            "description": "整次拒絕，該策略維持原狀。",
+            "description": "整次拒絕，該策略腳本維持原狀。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
@@ -5593,16 +5593,16 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/999999",
+              "raw": "{{baseUrl}}/strategy-scripts/999999",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
+                "strategy-scripts",
                 "999999"
               ]
             },
-            "description": "指名一支不存在的策略，與給了不合法的內容是兩件不同的事。"
+            "description": "指名一支不存在的策略腳本，與給了不合法的內容是兩件不同的事。"
           },
           "event": [
             {
@@ -5624,12 +5624,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/abc",
+              "raw": "{{baseUrl}}/strategy-scripts/abc",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
+                "strategy-scripts",
                 "abc"
               ]
             },
@@ -5660,19 +5660,19 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/999999",
+              "raw": "{{baseUrl}}/strategy-scripts/999999",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
+                "strategy-scripts",
                 "999999"
               ]
             },
-            "description": "不會因此建立一支新的策略。",
+            "description": "不會因此建立一支新的策略腳本。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}-幽靈\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}-幽靈\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5700,13 +5700,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
             "description": "真刪除，不保留、不可復原，名稱隨之空出。"
@@ -5731,16 +5731,16 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
-            "description": "刪掉的策略讀不回來。"
+            "description": "刪掉的策略腳本讀不回來。"
           },
           "event": [
             {
@@ -5762,13 +5762,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
             "description": "已經不在了。"
@@ -5798,18 +5798,18 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "刪除把名稱一併釋出，所以同一個名字可以再用。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
+              "raw": "{\n  \"name\": \"{{strategyScriptName}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo) map[string][]float64 {\\n\\tsums := map[string][]float64{}\\n\\treturn sums\\n}\",\n  \"resultType\": \"floatList\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5827,7 +5827,7 @@
                   "    pm.response.to.have.status(201);",
                   "});",
                   "pm.test(\"同名再建一支\", function () {",
-                  "    pm.collectionVariables.set(\"strategyId\", pm.response.json().id);",
+                  "    pm.collectionVariables.set(\"strategyScriptId\", pm.response.json().id);",
                   "});"
                 ]
               }
@@ -5837,10 +5837,10 @@
       ]
     },
     {
-      "name": "策略市集",
+      "name": "策略腳本市集",
       "item": [
         {
-          "name": "先存一支要發佈的策略",
+          "name": "先存一支要發佈的策略腳本",
           "request": {
             "method": "POST",
             "header": [
@@ -5850,17 +5850,17 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"要發佈的策略 {{$guid}}\",\n  \"description\": \"把它放上市集，讓別人用得動但看不到算式\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"close\\\": data[len(data)-1].Close}\\n}\"\n}"
+              "raw": "{\n  \"name\": \"要發佈的策略腳本 {{$guid}}\",\n  \"description\": \"把它放上市集，讓別人用得動但看不到算式\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"close\\\": data[len(data)-1].Close}\\n}\"\n}"
             }
           },
           "event": [
@@ -5872,7 +5872,7 @@
                   "pm.test(\"存得起來（201）\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"publishedStrategyId\", pm.response.json().id);",
+                  "pm.collectionVariables.set(\"publishedStrategyScriptId\", pm.response.json().id);",
                   "pm.test(\"說明留了下來\", function () {",
                   "    pm.expect(pm.response.json().description).to.eql(\"把它放上市集，讓別人用得動但看不到算式\");",
                   "});"
@@ -5893,15 +5893,15 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"不發佈的策略 {{$guid}}\",\n  \"description\": \"只有我看得到\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"close\\\": data[0].Close}\\n}\"\n}"
+              "raw": "{\n  \"name\": \"不發佈的策略腳本 {{$guid}}\",\n  \"description\": \"只有我看得到\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"close\\\": data[0].Close}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -5914,7 +5914,7 @@
                   "pm.test(\"回應 201\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"unpublishedStrategyId\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"unpublishedStrategyScriptId\", pm.response.json().id);"
                 ]
               }
             }
@@ -5926,13 +5926,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -5948,7 +5948,7 @@
                   "pm.test(\"尚未發佈就不在市集上\", function () {",
                   "    const outThere = pm.response.json();",
                   "    const mine = outThere.filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    });",
                   "    pm.expect(mine).to.be.empty;",
                   "});"
@@ -5963,13 +5963,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "publication"
               ]
             }
@@ -5994,13 +5994,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6016,7 +6016,7 @@
                   "pm.test(\"看得到名稱、說明、發佈者與發佈時刻\", function () {",
                   "    const outThere = pm.response.json();",
                   "    const mine = outThere.filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    });",
                   "    pm.expect(mine).to.have.lengthOf(1);",
                   "    pm.expect(mine[0].description).to.be.a(\"string\").and.not.empty;",
@@ -6031,7 +6031,7 @@
                   "    });",
                   "    pm.expect(pm.response.text()).to.not.include(\"func Calculate\");",
                   "});",
-                  "pm.collectionVariables.set(\"publishedAtFirstTime\", pm.response.json().filter(function (one) { return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\")); })[0].publishedAt);"
+                  "pm.collectionVariables.set(\"publishedAtFirstTime\", pm.response.json().filter(function (one) { return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\")); })[0].publishedAt);"
                 ]
               }
             }
@@ -6043,13 +6043,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "publication"
               ]
             }
@@ -6074,13 +6074,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6095,13 +6095,13 @@
                   "});",
                   "pm.test(\"再按一次發佈，市集上仍然只有一筆\", function () {",
                   "    const mine = pm.response.json().filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    });",
                   "    pm.expect(mine).to.have.lengthOf(1);",
                   "});",
                   "pm.test(\"它從第一次發佈起就在那裡了\", function () {",
                   "    const mine = pm.response.json().filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    })[0];",
                   "    pm.expect(mine.publishedAt).to.eql(pm.collectionVariables.get(\"publishedAtFirstTime\"));",
                   "});"
@@ -6116,14 +6116,14 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts/{{publishedStrategyScriptId}}/adoption",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "adoption"
               ]
             }
@@ -6151,12 +6151,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6176,7 +6176,7 @@
                   "});",
                   "pm.test(\"採用自己的沒有讓它多出現一次\", function () {",
                   "    const adopted = pm.response.json().adopted.filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    });",
                   "    pm.expect(adopted).to.be.empty;",
                   "});"
@@ -6206,7 +6206,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{publishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+              "raw": "{\n  \"strategyScriptId\": {{publishedStrategyScriptId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
             }
           },
           "event": [
@@ -6232,14 +6232,14 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts/{{publishedStrategyScriptId}}/adoption",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "adoption"
               ]
             }
@@ -6379,12 +6379,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6397,7 +6397,7 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"別人的策略不會自己跑進來\", function () {",
+                  "pm.test(\"別人的策略腳本不會自己跑進來\", function () {",
                   "    pm.expect(pm.response.json().mine).to.be.empty;",
                   "    pm.expect(pm.response.json().adopted).to.be.empty;",
                   "});"
@@ -6412,13 +6412,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{unpublishedStrategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{unpublishedStrategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{unpublishedStrategyId}}"
+                "strategy-scripts",
+                "{{unpublishedStrategyScriptId}}"
               ]
             }
           },
@@ -6443,12 +6443,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/999999",
+              "raw": "{{baseUrl}}/strategy-scripts/999999",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
+                "strategy-scripts",
                 "999999"
               ]
             }
@@ -6465,7 +6465,7 @@
                   "pm.test(\"兩種看不到，說法一字不差\", function () {",
                   "    pm.expect(pm.response.json().message).to.eql(",
                   "        pm.collectionVariables.get(\"refusalForSomebodyElses\").replace(",
-                  "            String(pm.collectionVariables.get(\"unpublishedStrategyId\")), \"999999\"));",
+                  "            String(pm.collectionVariables.get(\"unpublishedStrategyScriptId\")), \"999999\"));",
                   "});"
                 ]
               }
@@ -6483,13 +6483,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{unpublishedStrategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{unpublishedStrategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{unpublishedStrategyId}}"
+                "strategy-scripts",
+                "{{unpublishedStrategyScriptId}}"
               ]
             },
             "body": {
@@ -6535,7 +6535,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{unpublishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+              "raw": "{\n  \"strategyScriptId\": {{unpublishedStrategyScriptId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
             }
           },
           "event": [
@@ -6558,13 +6558,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6579,7 +6579,7 @@
                   "});",
                   "pm.test(\"市集是共用的\", function () {",
                   "    const outThere = pm.response.json().filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    });",
                   "    pm.expect(outThere).to.have.lengthOf(1);",
                   "});",
@@ -6612,7 +6612,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{publishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+              "raw": "{\n  \"strategyScriptId\": {{publishedStrategyScriptId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
             }
           },
           "event": [
@@ -6638,14 +6638,14 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts/{{publishedStrategyScriptId}}/adoption",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "adoption"
               ]
             }
@@ -6670,12 +6670,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6705,14 +6705,14 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies/{{publishedStrategyId}}/adoption",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts/{{publishedStrategyScriptId}}/adoption",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "adoption"
               ]
             }
@@ -6732,18 +6732,18 @@
           ]
         },
         {
-          "name": "找不到：他發佈不了別人的策略",
+          "name": "找不到：他發佈不了別人的策略腳本",
           "request": {
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "publication"
               ]
             }
@@ -6768,13 +6768,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "publication"
               ]
             }
@@ -6804,13 +6804,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}"
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}"
               ]
             },
             "body": {
@@ -6871,13 +6871,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "publication"
               ]
             }
@@ -6944,12 +6944,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -6991,7 +6991,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{publishedStrategyId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
+              "raw": "{\n  \"strategyScriptId\": {{publishedStrategyScriptId}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart4}}\"\n}"
             }
           },
           "event": [
@@ -7044,13 +7044,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}",
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}",
                 "publication"
               ]
             }
@@ -7075,13 +7075,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -7097,7 +7097,7 @@
                   "pm.test(\"收回之後就不在市集上\", function () {",
                   "    const outThere = pm.response.json();",
                   "    const mine = outThere.filter(function (one) {",
-                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyId\"));",
+                  "        return String(one.id) === String(pm.collectionVariables.get(\"publishedStrategyScriptId\"));",
                   "    });",
                   "    pm.expect(mine).to.be.empty;",
                   "});"
@@ -7112,12 +7112,12 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/999999/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/999999/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
+                "strategy-scripts",
                 "999999",
                 "publication"
               ]
@@ -7143,13 +7143,13 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/marketplace/strategies/999999/adoption",
+              "raw": "{{baseUrl}}/marketplace/strategy-scripts/999999/adoption",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "marketplace",
-                "strategies",
+                "strategy-scripts",
                 "999999",
                 "adoption"
               ]
@@ -7175,12 +7175,12 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/abc/publication",
+              "raw": "{{baseUrl}}/strategy-scripts/abc/publication",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
+                "strategy-scripts",
                 "abc",
                 "publication"
               ]
@@ -7206,13 +7206,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{publishedStrategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{publishedStrategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{publishedStrategyId}}"
+                "strategy-scripts",
+                "{{publishedStrategyScriptId}}"
               ]
             }
           },
@@ -7236,13 +7236,13 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{unpublishedStrategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{unpublishedStrategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{unpublishedStrategyId}}"
+                "strategy-scripts",
+                "{{unpublishedStrategyScriptId}}"
               ]
             }
           },
@@ -7592,7 +7592,7 @@
       ]
     },
     {
-      "name": "策略回測",
+      "name": "策略腳本回測",
       "item": [
         {
           "name": "（先存）重演：買進之後一路抱著",
@@ -7609,12 +7609,12 @@
               "raw": "{\n  \"name\": \"重演：買進之後一路抱著 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -7627,7 +7627,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest1\", pm.response.json().id);"
                 ]
               }
             }
@@ -7655,7 +7655,7 @@
             "description": "回測一律以「信號」種類執行算式：算式回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`，逐根決定進出場。\n\n這一發的算式在第一根說持有、之後說買入，於是在第二根（收盤 120）以 12,000 全押開多倉，拿到 100 單位，一路抱到第五根（收盤 150），最後值 15,000。\n\n**重演不留存**：每次問、每次算、算完就走。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest1}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest1}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7708,12 +7708,12 @@
               "raw": "{\n  \"name\": \"重演：聽到反向信號就在同一棒反手 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif data[len(data)-1].Close < 135 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Sell\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -7726,7 +7726,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest2\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest2\", pm.response.json().id);"
                 ]
               }
             }
@@ -7754,7 +7754,7 @@
             "description": "手上同一時間只有一個倉位。聽到反向的信號時，**先以該棒收盤價平掉舊的，再以同一個價格開新的**——所以一次反手會留下一筆已平倉交易，並且算兩次開倉。\n\n這一發在收盤價低於 135 時買入、否則賣出：收盤 110 開多倉，收盤 140 那根翻空，多倉賺 3,000 入袋，同一個 140 轉開空倉，最後一根收盤 150 讓空倉浮虧 1,000。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7809,12 +7809,12 @@
               "raw": "{\n  \"name\": \"重演：每次只押可用資金的一半 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -7827,7 +7827,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest3\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest3\", pm.response.json().id);"
                 ]
               }
             }
@@ -7855,7 +7855,7 @@
             "description": "每次開倉押多少三選一：**全押**、**百分比**、**固定金額**。選百分比時押下當時可用資金的那個百分比，其餘不動。\n\n這一發押 50%：12,000 的一半在收盤 120 買到 50 單位，收盤 150 時值 7,500，加上沒動的 6,000。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest3}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest3}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"50\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7895,12 +7895,12 @@
               "raw": "{\n  \"name\": \"重演：固定金額押不下去就跳過，不算失敗 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -7913,7 +7913,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest4\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest4\", pm.response.json().id);"
                 ]
               }
             }
@@ -7941,7 +7941,7 @@
             "description": "固定金額大於當時可用資金時，**這一次開倉被跳過**——不算失敗、不中斷重演、也不計為一次開倉。所以固定金額填得比初始資金還大是合法的，行為就是每一次開倉都被跳過。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest4}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest4}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"fixedAmount\",\n  \"positionSizingValue\": \"99999\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7985,12 +7985,12 @@
               "raw": "{\n  \"name\": \"拒絕：算式產出數字而不是信號 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{\\\"signal\\\": 1}\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -8003,7 +8003,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest5\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest5\", pm.response.json().id);"
                 ]
               }
             }
@@ -8031,7 +8031,7 @@
             "description": "回測一律以「信號」種類執行算式：算式要回傳 `indicator.Signal`，值取自 `indicator.Buy`／`indicator.Sell`／`indicator.Hold`。產出一組數字（舊寫法）會被回測擋下（`422`），訊息說出 `Calculate` 該長什麼樣。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest5}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest5}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8071,12 +8071,12 @@
               "raw": "{\n  \"name\": \"拒絕：初始資金不大於零 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -8089,7 +8089,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest6\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest6\", pm.response.json().id);"
                 ]
               }
             }
@@ -8117,7 +8117,7 @@
             "description": "沒有本金就沒有東西可以押。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest6}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest6}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"0\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8157,12 +8157,12 @@
               "raw": "{\n  \"name\": \"拒絕：百分比不在零到一百之間 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -8175,7 +8175,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest7\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest7\", pm.response.json().id);"
                 ]
               }
             }
@@ -8203,7 +8203,7 @@
             "description": "百分比填 0 的行為會是「每次開倉都被跳過」，跑出來是一張全空的成績單，看起來像壞了——當場拒絕比事後困惑好。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest7}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest7}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"percentage\",\n  \"positionSizingValue\": \"0\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8243,12 +8243,12 @@
               "raw": "{\n  \"name\": \"拒絕：這段期間湊不出足夠的 K 線 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -8261,7 +8261,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktestTooFewCandles\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktestTooFewCandles\", pm.response.json().id);"
                 ]
               }
             }
@@ -8289,7 +8289,7 @@
             "description": "一根 K 線重演不出任何東西，所以不足兩根即整次拒絕。起訖顛倒、或市場那段時間根本沒有資料，對提問的人來說是同一件事，因此**共用同一句說明**。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktestTooFewCandles}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestTooFewCandles}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{emptyRangeStart}}\",\n  \"endTime\": \"{{emptyRangeEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8329,12 +8329,12 @@
               "raw": "{\n  \"name\": \"拒絕：算式取用了沒有宣告的參數名稱 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif indicator.LookbackCount(\\\"period\\\") > 0 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -8347,7 +8347,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest8\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest8\", pm.response.json().id);"
                 ]
               }
             }
@@ -8375,7 +8375,7 @@
             "description": "錯的是名字對不上，不是算式本身寫壞——所以回的是 400 並指名那個參數，而不是把它報成算式失敗。重演與單純算指標在這裡的說法一字不差。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest8}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest8}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8415,12 +8415,12 @@
               "raw": "{\n  \"name\": \"拒絕：算式無法解讀 {{$guid}}\",\n  \"script\": \"這不是 Go\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -8433,7 +8433,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForBacktest9\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktest9\", pm.response.json().id);"
                 ]
               }
             }
@@ -8461,7 +8461,7 @@
             "description": "算式壞掉時的呈現方式與單純算指標一致：422。同一頁上的兩個去處，錯誤不該長成兩種樣子。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForBacktest9}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest9}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8489,7 +8489,7 @@
       "name": "策略機器人",
       "item": [
         {
-          "name": "先存一支會吐信號的策略",
+          "name": "先存一支會吐信號的策略腳本",
           "request": {
             "method": "POST",
             "header": [
@@ -8499,15 +8499,15 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
-            "description": "機器人只認得信號種類的策略。這一支帶一個旋鈕，好讓同一支算式當成兩個來源。",
+            "description": "機器人只認得信號種類的策略腳本。這一支帶一個旋鈕，好讓同一支算式當成兩個來源。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"機器人用的信號算式 {{$timestamp}}\",\n  \"script\": \"func Calculate(candles []vo.KCandleVo, params map[string]float64) vo.SignalVo {\\n\\treturn vo.SignalHold\\n}\",\n  \"resultType\": \"signal\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 3\n    }\n  ]\n}",
@@ -8525,7 +8525,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
-                  "pm.collectionVariables.set(\"botStrategyId\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"botStrategyScriptId\", pm.response.json().id);"
                 ]
               }
             }
@@ -8550,10 +8550,10 @@
                 "strategy-bots"
               ]
             },
-            "description": "一台機器人是幾支策略的信號，加上把它們合成一個結論的兩個條件。存起來一律是已停止——存下來不會讓它跑起來。",
+            "description": "一台機器人是幾支策略腳本的信號，加上把它們合成一個結論的兩個條件。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8679,7 +8679,7 @@
             "description": "條件只能指名這台機器人自己宣告過的代號。放行的話它會安靜地永遠不成立。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"指錯代號 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"D\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"指錯代號 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"D\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8726,7 +8726,7 @@
             "description": "兩個來源都叫 A，條件裡的 A 就有兩個意思。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"代號撞名 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"代號撞名 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8773,7 +8773,7 @@
             "description": "一個子條件的群組跟那個子條件完全一樣，留著只會讓同一棵樹有無限多種寫法。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"空群組 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"or\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"空群組 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"or\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8820,7 +8820,7 @@
             "description": "少了任何一邊，這台機器人就只會說一種話。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"只有一邊 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {},\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"只有一邊 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {},\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8867,7 +8867,7 @@
             "description": "下限一分鐘（最細的 K 線就是一分鐘），上限一天。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"太久了 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 1441,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"太久了 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 1441,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8893,7 +8893,7 @@
           ]
         },
         {
-          "name": "拒絕：給了策略沒宣告的參數",
+          "name": "拒絕：給了策略腳本沒宣告的參數",
           "request": {
             "method": "POST",
             "header": [
@@ -8914,7 +8914,7 @@
             "description": "現在擋掉，總比半夜三點以算式失敗的樣子停掉一台機器人好。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"旋鈕對不上 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"週期\",\n          \"value\": 14\n        }\n      ]\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"旋鈕對不上 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"週期\",\n          \"value\": 14\n        }\n      ]\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8961,7 +8961,7 @@
             "description": "名稱只在同一位擁有者之間不得重複；別人的同名不算。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -9080,7 +9080,7 @@
             "description": "一台正在跑的機器人在半途換掉條件，沒有人說得出它那一輪用的是哪一版。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -9195,7 +9195,7 @@
             "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyId\": \"{{botStrategyId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"5m\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -9433,18 +9433,18 @@
           ]
         },
         {
-          "name": "清掉這一段用的策略",
+          "name": "清掉這一段用的策略腳本",
           "request": {
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{botStrategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{botStrategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{botStrategyId}}"
+                "strategy-scripts",
+                "{{botStrategyScriptId}}"
               ]
             },
             "description": "收尾。"
@@ -9628,16 +9628,16 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyId}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyId}}"
+                "strategy-scripts",
+                "{{strategyScriptId}}"
               ]
             },
-            "description": "把這一輪留下的策略收乾淨。"
+            "description": "把這一輪留下的策略腳本收乾淨。"
           },
           "event": [
             {
@@ -9659,16 +9659,16 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyIdDefaults}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptIdDefaults}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyIdDefaults}}"
+                "strategy-scripts",
+                "{{strategyScriptIdDefaults}}"
               ]
             },
-            "description": "把這一輪留下的策略收乾淨。"
+            "description": "把這一輪留下的策略腳本收乾淨。"
           },
           "event": [
             {
@@ -9690,16 +9690,16 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/strategies/{{strategyIdDraft}}",
+              "raw": "{{baseUrl}}/strategy-scripts/{{strategyScriptIdDraft}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies",
-                "{{strategyIdDraft}}"
+                "strategy-scripts",
+                "{{strategyScriptIdDraft}}"
               ]
             },
-            "description": "把這一輪留下的策略收乾淨。"
+            "description": "把這一輪留下的策略腳本收乾淨。"
           },
           "event": [
             {
@@ -10266,11 +10266,11 @@
       ]
     },
     {
-      "name": "策略參數",
-      "description": "一支策略記著它自己的旋鈕。種類只有兩種，而分成兩種只有一個理由——系統必須知道要拿多少 K 線：`lookbackCount` 是大於零的整數，系統取所有這一種的**最大值**去算要讀幾根；`number` 是任何數字，系統不解讀。\n\n**「要拿幾根」不必也不能填**：它是 `要看的格數 + 最大回看根數 − 1` 算出來的。",
+      "name": "策略腳本參數",
+      "description": "一支策略腳本記著它自己的旋鈕。種類只有兩種，而分成兩種只有一個理由——系統必須知道要拿多少 K 線：`lookbackCount` 是大於零的整數，系統取所有這一種的**最大值**去算要讀幾根；`number` 是任何數字，系統不解讀。\n\n**「要拿幾根」不必也不能填**：它是 `要看的格數 + 最大回看根數 − 1` 算出來的。",
       "item": [
         {
-          "name": "建立一支帶旋鈕的策略",
+          "name": "建立一支帶旋鈕的策略腳本",
           "request": {
             "method": "POST",
             "header": [
@@ -10280,15 +10280,15 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
-            "description": "參數宣告跟著策略一起存，與指標值種類同一個層級。",
+            "description": "參數宣告跟著策略腳本一起存，與指標值種類同一個層級。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"布林通道 {{$timestamp}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\t_ = indicator.Number(\\\"倍數\\\")\\n\\tmiddle := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tmiddle = append(middle, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\\\"中線\\\": middle}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 20 },\n    { \"name\": \"倍數\", \"kind\": \"number\", \"defaultValue\": 2 }\n  ]\n}",
@@ -10331,15 +10331,15 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
-            "description": "同一支策略內名稱不得重複——算式是以名字取用它們的。",
+            "description": "同一支策略腳本內名稱不得重複——算式是以名字取用它們的。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"重複的旋鈕 {{$timestamp}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    { \"name\": \"期數\", \"kind\": \"lookbackCount\", \"defaultValue\": 20 },\n    { \"name\": \"期數\", \"kind\": \"number\", \"defaultValue\": 2 }\n  ]\n}",
@@ -10378,12 +10378,12 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             },
             "description": "回看根數是要拿去數 K 線的，半根 K 線不是一件東西。",
@@ -10429,12 +10429,12 @@
               "raw": "{\n  \"name\": \"計算：這一次把期數改成 2 {{$guid}}\",\n  \"resultType\": \"floatList\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string][]float64 {\\n\\tperiod := indicator.LookbackCount(\\\"期數\\\")\\n\\tout := []float64{}\\n\\tfor i := period - 1; i < len(data); i++ {\\n\\t\\tsum := 0.0\\n\\t\\tfor _, candle := range data[i-period+1 : i+1] {\\n\\t\\t\\tsum += candle.Close\\n\\t\\t}\\n\\t\\tout = append(out, sum/float64(period))\\n\\t}\\n\\treturn map[string][]float64{\\\"ma\\\": out}\\n}\\n\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 5\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -10447,7 +10447,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForKnobbedCalculation\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForKnobbedCalculation\", pm.response.json().id);"
                 ]
               }
             }
@@ -10475,7 +10475,7 @@
             "description": "`candleCount` 是「我要幾格有值」；實際要拿幾根由系統算：2 格 + 回看 2 根 − 1 = 3 根。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForKnobbedCalculation}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart2}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForKnobbedCalculation}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart2}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"期數\",\n      \"value\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -10516,12 +10516,12 @@
               "raw": "{\n  \"name\": \"拒絕：給了一個沒有宣告的旋鈕 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\n\\nimport \\\"indicator\\\"\\n\\nfunc Calculate(data []indicator.KCandle) map[string]float64 {\\n\\treturn map[string]float64{}\\n}\\n\",\n  \"parameters\": [\n    {\n      \"name\": \"期數\",\n      \"kind\": \"lookbackCount\",\n      \"defaultValue\": 1\n    }\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/strategies",
+              "raw": "{{baseUrl}}/strategy-scripts",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "strategies"
+                "strategy-scripts"
               ]
             }
           },
@@ -10534,7 +10534,7 @@
                   "pm.test(\"存得起來\", function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "pm.collectionVariables.set(\"strategyIdForKnob1\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"strategyScriptIdForKnob1\", pm.response.json().id);"
                 ]
               }
             }
@@ -10562,7 +10562,7 @@
             "description": "安靜忽略會讓人以為他調的那一格有作用，而它什麼都沒做。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyId\": {{strategyIdForKnob1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"週期\",\n      \"value\": 5\n    }\n  ]\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForKnob1}},\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{calcStart1}}\",\n  \"parameterValues\": [\n    {\n      \"name\": \"週期\",\n      \"value\": 5\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -10579,7 +10579,7 @@
                   "pm.test(\"回應 400\", function () {",
                   "    pm.response.to.have.status(400);",
                   "});",
-                  "pm.test(\"指名是哪一個不是這支策略的參數\", function () {",
+                  "pm.test(\"指名是哪一個不是這支策略腳本的參數\", function () {",
                   "    pm.expect(pm.response.json().message).to.include(\"週期\");",
                   "});"
                 ]

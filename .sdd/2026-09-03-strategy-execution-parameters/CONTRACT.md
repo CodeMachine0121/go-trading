@@ -1,6 +1,6 @@
-# 策略與執行參數分離 — Contract Verification
+# 策略腳本與執行參數分離 — Contract Verification
 
-**Contract source:** `.sdd/2026-09-03-strategy-execution-parameters/PRD.md`（Section 3 驗收條件）
+**Contract source:** `.sdd/2026-09-03-strategyScript-execution-parameters/PRD.md`（Section 3 驗收條件）
 **Design map:** `ARCH.md`（同資料夾）
 **Verified:** 2026-09-03
 **Ceiling:** 靜態一致性稽核——逐條把**測試的斷言**與**程式碼路徑**各自對照 PRD 導出的預期結果，
@@ -12,16 +12,16 @@
 
 **Oracle** 一律先只讀 PRD 導出，再去對程式碼；`code` 欄記最具體的實作位置。
 
-### US-01 — 策略只記住一套算法
+### US-01 — 策略腳本只記住一套算法
 
 | ID | Clause | Oracle（由 PRD 導出） | Implementation | Test | Test audit | Code audit | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| AC-01.1 | 新建立的策略不再帶著取數計畫 | 建立成功；讀回只有名稱、算式、種類與兩個時間，沒有彙總刻度與計算根數 | `entities/strategy.go:20`、`domains/strategy_domain.go:30` | `entities/tests/strategy_test.go:TestStrategyToDto`、`controller/tests:answers created and hands back the strategy` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-01.2 | 既有策略的算法原封不動 | 名稱、算式、種類、建立時間與先前完全相同；回覆不出現那兩樣 | `persistence/schema_migrator.go:74` | `persistence/tests:TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-01.3 | 附上取數計畫也不會被記住 | 建立成功；讀回不出現那兩樣 | `controller/models/strategy_request.go:14` | `controller/tests:a plan for feeding the algorithm is not part of a strategy` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-01.4 | 修改策略時沒有取數計畫可以一起改 | 修改成功、最後修改時間更新、回覆不出現那兩樣 | `dto/strategy_write_dto.go` | `application/tests:rewrites the strategy the write names` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-01.5 | 名稱為空白仍然被拒絕 | 拒絕，說明必須給策略取一個名稱 | `domains/strategy_domain.go:46` | `domains/tests:TestNewStrategyDomainRefusesContentThatBreaksARule/no name at all` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-01.6 | 名稱重複仍然被拒絕 | 拒絕、說明名稱已被使用；既有那一支不受影響 | `persistence/strategy_repository.go` 唯一索引 | `application/tests:reports a name another strategy already holds` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.1 | 新建立的策略腳本不再帶著取數計畫 | 建立成功；讀回只有名稱、算式、種類與兩個時間，沒有彙總刻度與計算根數 | `entities/strategyScript.go:20`、`domains/strategyScript_domain.go:30` | `entities/tests/strategyScript_test.go:TestStrategyScriptToDto`、`controller/tests:answers created and hands back the strategyScript` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.2 | 既有策略腳本的算法原封不動 | 名稱、算式、種類、建立時間與先前完全相同；回覆不出現那兩樣 | `persistence/schema_migrator.go:74` | `persistence/tests:TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.3 | 附上取數計畫也不會被記住 | 建立成功；讀回不出現那兩樣 | `controller/models/strategyScript_request.go:14` | `controller/tests:a plan for feeding the algorithm is not part of a strategyScript` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.4 | 修改策略腳本時沒有取數計畫可以一起改 | 修改成功、最後修改時間更新、回覆不出現那兩樣 | `dto/strategyScript_write_dto.go` | `application/tests:rewrites the strategyScript the write names` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.5 | 名稱為空白仍然被拒絕 | 拒絕，說明必須給策略腳本取一個名稱 | `domains/strategyScript_domain.go:46` | `domains/tests:TestNewStrategyScriptDomainRefusesContentThatBreaksARule/no name at all` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-01.6 | 名稱重複仍然被拒絕 | 拒絕、說明名稱已被使用；既有那一支不受影響 | `persistence/strategyScript_repository.go` 唯一索引 | `application/tests:reports a name another strategyScript already holds` | asserts-oracle | produces-oracle | ✅ conforms |
 
 ### US-02 — 一次計算自己說要吃什麼
 
@@ -85,7 +85,7 @@
 | `spareBucketCount` 多讀一格 | `domains/indicator_calculation_domain.go` | 非孤兒——它是 AC-04.1 與 AC-04.2 之所以能同時成立的機制；由 `TestSelectInputCandlesNeverHandsOverABucketTheReadCutInHalf` 釘住 |
 
 **無違反 Out of Scope 的實作。** 特別確認：未新增「最低需求根數」欄位（PRD Out of Scope），
-未在圖表上畫任何東西，未把交易標的記在策略身上，未遷移既有策略的那兩個欄位。
+未在圖表上畫任何東西，未把交易標的記在策略腳本身上，未遷移既有策略腳本的那兩個欄位。
 
 ---
 

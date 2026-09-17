@@ -40,7 +40,7 @@
 | `domains.KCandleIngestionDomain` | **Not touched** | 已經只透過那個長度常數表達所有視窗規則，長度一改全部自動跟上 |
 | `job.LiveFollowRosterJob` | **Not touched** | 它的五分鐘是「多久重算一次台股跟盤名單」，與 K 線長度無關。兩個五分鐘湊巧相同，不是同一件事 |
 | 單次查詢筆數上限 / 每輪取回根數 / 回補上限 | **Not touched** | 三者都是既有的可調整設定，PRD §4 R-08 已裁定沿用現值 |
-| 指標計算、回測、策略 | **Not touched** | 它們全部只認「彙總刻度」，不認「一根原始 K 線多長」。這正是既有分層做對了的地方 |
+| 指標計算、回測、策略腳本 | **Not touched** | 它們全部只認「彙總刻度」，不認「一根原始 K 線多長」。這正是既有分層做對了的地方 |
 
 ---
 
@@ -123,7 +123,7 @@ flowchart TD
 
 - **Patterns applied & why:**
   - **單一真實來源（Single Source of Truth）**：`KCandleInterval`。針對的軸線是「長度會再變」。
-  - 沒有引入 Strategy／Factory。K 線長度目前只有一個值，為它開多型是為想像中的需求付現在的代價。
+  - 沒有引入 StrategyScript／Factory。K 線長度目前只有一個值，為它開多型是為想像中的需求付現在的代價。
 
 - **Do not hardcode:**
   - 任何行情來源檔案內**不得再出現自己的 K 線長度常數**。要用就從領域拿。

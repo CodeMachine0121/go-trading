@@ -1,4 +1,4 @@
-# Contract Traceability Matrix — 策略回測
+# Contract Traceability Matrix — 策略腳本回測
 
 Contract: `PRD.md`（同一資料夾）
 Design map: `ARCH.md`（同一資料夾）
