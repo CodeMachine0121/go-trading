@@ -310,3 +310,83 @@ func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.
 		string(vo.AggregationIntervalFiveMinutes),
 		tradingStrategy.ToEntity().SignalSources[0].AggregationInterval)
 }
+
+func TestNewTradingStrategyDomainReadsTheTradingMode(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declaredMode string
+		expectedMode vo.TradingModeVo
+	}{
+		{
+			name:         "declared spot",
+			declaredMode: "spot",
+			expectedMode: vo.TradingModeSpot,
+		},
+		{
+			name:         "declared long-short",
+			declaredMode: "longShort",
+			expectedMode: vo.TradingModeLongShort,
+		},
+		{
+			// Word for word what a replay does with a blank one, because there is one
+			// model that knows what a trading mode may be and both ask it.
+			name:         "declared nothing at all",
+			declaredMode: "",
+			expectedMode: vo.TradingModeLongShort,
+		},
+		{
+			name:         "declared blanks",
+			declaredMode: "   ",
+			expectedMode: vo.TradingModeLongShort,
+		},
+		{
+			name:         "the spelling is read however it was typed",
+			declaredMode: "SPOT",
+			expectedMode: vo.TradingModeSpot,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aTradingStrategyWriteDto()
+			writeDto.TradingMode = testCase.declaredMode
+
+			tradingStrategy, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+			require.NoError(t, buildError)
+			assert.Equal(t,
+				string(testCase.expectedMode), tradingStrategy.ToEntity().TradingMode)
+		})
+	}
+}
+
+func TestNewTradingStrategyDomainRefusesATradingModeItCannotRead(t *testing.T) {
+	writeDto := aTradingStrategyWriteDto()
+	writeDto.TradingMode = "dayTrade"
+
+	_, buildError := domains.NewTradingStrategyDomain(writeDto)
+
+	require.Error(t, buildError)
+	// The one sentinel every refused trading strategy carries, so that a controller
+	// maps this without learning a second one.
+	assert.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
+	// Both spellings are offered back, in the very sentence a replay's refusal uses:
+	// a caller who reaches one refusal has already read the other.
+	assert.Contains(t, buildError.Error(), string(vo.TradingModeLongShort))
+	assert.Contains(t, buildError.Error(), string(vo.TradingModeSpot))
+}
+
+func TestNewTradingStrategyDomainRefusesAnUnreadableModeInTheSameWordsAReplayDoes(t *testing.T) {
+	writeDto := aTradingStrategyWriteDto()
+	writeDto.TradingMode = "dayTrade"
+
+	_, saveError := domains.NewTradingStrategyDomain(writeDto)
+	_, modeError := domains.NewTradingModeDomain("dayTrade")
+
+	require.Error(t, saveError)
+	require.Error(t, modeError)
+	// Not merely similar: the reason is the mode's own sentence, carried through. Two
+	// separately worded lists of what a trading mode may be would eventually disagree,
+	// and a person reading one of them would be told something untrue.
+	assert.Contains(t, saveError.Error(), modeError.Error())
+}

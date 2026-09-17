@@ -130,8 +130,8 @@ func TestTradingStrategyRepositorySaveReplacesTheSourcesAndTreesItHadBefore(t *t
 	require.Len(t, rewrittenRow.ConditionNodes, 2)
 }
 
-// A rewrite must not be able to change hands or to forge a creation time, so it
-// writes the name and nothing else about the row itself.
+// A rewrite must not be able to change hands or to forge a creation time, so the
+// columns it may touch are named one by one and neither of those two is on the list.
 func TestTradingStrategyRepositorySaveLeavesTheOwnerAndCreationAlone(t *testing.T) {
 	database := newTradingStrategyTestDatabase(t)
 	repository := persistence.NewTradingStrategyRepository(database)
@@ -280,4 +280,48 @@ func TestTradingStrategyRepositorySaveReportsAFailedRewriteAsItself(t *testing.T
 	_, rewriteError := repository.Save(t.Context(), rewritten)
 
 	require.ErrorIs(t, rewriteError, domains.ErrTradingStrategyNameConflict)
+}
+
+func TestTradingStrategyRepositorySaveKeepsAndRewritesTheTradingMode(t *testing.T) {
+	database := newTradingStrategyTestDatabase(t)
+	repository := persistence.NewTradingStrategyRepository(database)
+
+	spotRules := aTradingStrategyRow("黃金交叉")
+	spotRules.TradingMode = string(vo.TradingModeSpot)
+
+	saved, saveError := repository.Save(t.Context(), spotRules)
+	require.NoError(t, saveError)
+
+	readBack, findError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, string(vo.TradingModeSpot), readBack.TradingMode)
+
+	// A rewrite reaches the mode. It has to be named in the column list beside the
+	// name, and a mode that silently stayed as it was would leave somebody reading
+	// "spot" on the screen while every replay traded both ways.
+	rewritten := aTradingStrategyRow("黃金交叉")
+	rewritten.ID = saved.ID
+	rewritten.TradingMode = string(vo.TradingModeLongShort)
+
+	_, rewriteError := repository.Save(t.Context(), rewritten)
+	require.NoError(t, rewriteError)
+
+	rewrittenRow, findRewrittenError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findRewrittenError)
+	assert.Equal(t, string(vo.TradingModeLongShort), rewrittenRow.TradingMode)
+}
+
+func TestTradingStrategyRepositorySaveDefaultsATradingModeNobodyStated(t *testing.T) {
+	database := newTradingStrategyTestDatabase(t)
+	repository := persistence.NewTradingStrategyRepository(database)
+
+	// A row written with no mode at all stands for one stored before the column
+	// existed. It has to read back as long-short: that is the way it was actually
+	// replayed, and reading it as spot would change report cards nobody touched.
+	saved, saveError := repository.Save(t.Context(), aTradingStrategyRow("黃金交叉"))
+	require.NoError(t, saveError)
+
+	readBack, findError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, string(vo.TradingModeLongShort), readBack.TradingMode)
 }

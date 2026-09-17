@@ -31,6 +31,7 @@ type TradingStrategyDomain struct {
 	id            uint
 	ownerID       uint
 	name          string
+	tradingMode   TradingModeDomain
 	signalSources TradingStrategySignalSourcesDomain
 	buyCondition  TradingStrategyConditionDomain
 	sellCondition TradingStrategyConditionDomain
@@ -65,6 +66,17 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 			ErrTradingStrategyValidation, tradingStrategyNameMaxLength)
 	}
 
+	// Settled before the sources and the conditions, beside the name: the mode and the
+	// name are what this set of rules *is*, while the sources and the two trees are
+	// what it is made of. It reads its own declaration — blank means always in the
+	// market and anything unrecognised is refused — in the same words a replay reads,
+	// because there is only one model that knows what a trading mode may be.
+	tradingMode, tradingModeError := NewTradingModeDomain(writeDto.TradingMode)
+	if tradingModeError != nil {
+		return TradingStrategyDomain{}, fmt.Errorf(
+			"%w: %s", ErrTradingStrategyValidation, tradingModeError)
+	}
+
 	signalSources, sourcesError := NewTradingStrategySignalSourcesDomain(writeDto.SignalSources)
 	if sourcesError != nil {
 		return TradingStrategyDomain{}, sourcesError
@@ -88,6 +100,7 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 		id:            writeDto.ID,
 		ownerID:       writeDto.OwnerID,
 		name:          name,
+		tradingMode:   tradingMode,
 		signalSources: signalSources,
 		buyCondition:  buyCondition,
 		sellCondition: sellCondition,
@@ -100,6 +113,7 @@ func (tradingStrategyDomain TradingStrategyDomain) ToEntity() entities.TradingSt
 		ID:            tradingStrategyDomain.id,
 		OwnerID:       tradingStrategyDomain.ownerID,
 		Name:          tradingStrategyDomain.name,
+		TradingMode:   string(tradingStrategyDomain.tradingMode.Value()),
 		SignalSources: tradingStrategyDomain.signalSources.ToEntities(),
 		ConditionNodes: []entities.TradingStrategyConditionNode{
 			tradingStrategyDomain.buyCondition.ToEntity(vo.TradingStrategyConditionSideBuy, 0),
