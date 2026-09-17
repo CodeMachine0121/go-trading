@@ -268,3 +268,27 @@ func TestConversationDomainReadsAnExchangeStoredBeforeStatesExistedAsAnswered(t 
 	assert.Equal(t, "answered", conversationDto.Messages[0].Status)
 	assert.Equal(t, "回答 1", conversationDto.Messages[1].Content)
 }
+
+func TestConversationDomainToDtoCarriesWhatAnAnswerCost(t *testing.T) {
+	// The reply that produced it no longer carries anything — a question is answered
+	// with a place to look — so this record is the only place those numbers survive.
+	// An answer that ran out of queries is a different thing from a poor one.
+	conversation := conversationEndingWith(entities.AssistantTurn{
+		Ask: "查到底", Answer: "只查到這些", Status: string(vo.AssistantTurnAnswered),
+		QueryCount: 40, StoppedAtQueryLimit: true, Usage: 12000,
+		CreatedAt: time.Date(2026, 9, 4, 10, 2, 0, 0, time.UTC),
+	})
+
+	conversationDto := domains.NewConversationDomain(conversation).ToDto()
+
+	require.Len(t, conversationDto.Messages, 4)
+	answerMessage := conversationDto.Messages[3]
+	assert.Equal(t, "answer", answerMessage.Role)
+	assert.Equal(t, 40, answerMessage.QueryCount)
+	assert.True(t, answerMessage.StoppedAtQueryLimit)
+	assert.Equal(t, 12000, answerMessage.Usage)
+
+	// The question carries none of it: what an answer cost is the answer's own fact.
+	assert.Equal(t, 0, conversationDto.Messages[2].QueryCount)
+	assert.Equal(t, 0, conversationDto.Messages[2].Usage)
+}

@@ -114,11 +114,14 @@ func (conversationDomain ConversationDomain) ToDto() dto.ConversationDto {
 	messageDtos := make([]dto.ConversationMessageDto, 0, len(messages))
 	for _, message := range messages {
 		messageDtos = append(messageDtos, dto.ConversationMessageDto{
-			Role:          string(message.Role),
-			Content:       message.Content,
-			CreatedAt:     message.CreatedAt.UTC(),
-			Status:        string(message.Status),
-			FailureReason: message.FailureReason,
+			Role:                string(message.Role),
+			Content:             message.Content,
+			CreatedAt:           message.CreatedAt.UTC(),
+			Status:              string(message.Status),
+			FailureReason:       message.FailureReason,
+			QueryCount:          message.QueryCount,
+			StoppedAtQueryLimit: message.StoppedAtQueryLimit,
+			Usage:               message.Usage,
 		})
 	}
 
@@ -152,6 +155,11 @@ type conversationMessage struct {
 	// FailureReason the one sentence explaining a failed one.
 	Status        vo.AssistantTurnStatusVo
 	FailureReason string
+	// QueryCount, StoppedAtQueryLimit and Usage are what an answer cost, and are
+	// filled in only on an answer.
+	QueryCount          int
+	StoppedAtQueryLimit bool
+	Usage               int
 }
 
 // messages unfolds every exchange into the messages it holds, earliest first. All
@@ -181,10 +189,13 @@ func (conversationDomain ConversationDomain) messages() []conversationMessage {
 		}
 
 		messages = append(messages, conversationMessage{
-			Role:      vo.AssistantMessageRoleAnswer,
-			Content:   turn.Answer,
-			CreatedAt: turn.CreatedAt,
-			Status:    status,
+			Role:                vo.AssistantMessageRoleAnswer,
+			Content:             turn.Answer,
+			CreatedAt:           turn.CreatedAt,
+			Status:              status,
+			QueryCount:          turn.QueryCount,
+			StoppedAtQueryLimit: turn.StoppedAtQueryLimit,
+			Usage:               turn.Usage,
 		})
 	}
 
