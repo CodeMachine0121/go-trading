@@ -1,6 +1,6 @@
 package dto
 
-// StrategyBotSignalSourceDto is one strategy script as it runs inside one bot: which
+// TradingStrategySignalSourceDto is one strategy script as it runs inside one bot: which
 // strategy script, how coarse the candles it reads are, what its knobs are worth here, and
 // what it is called in the conditions.
 //
@@ -13,7 +13,7 @@ package dto
 // this source's way of running and not the bot's. One bot reading an hourly moving
 // average for direction and a five-minute oscillator for timing is the ordinary
 // case; a single coarseness shared by the whole bot could not say it.
-type StrategyBotSignalSourceDto struct {
+type TradingStrategySignalSourceDto struct {
 	// Label is what the conditions call this source — A, B, C. It is the only name
 	// a condition has for a strategy script.
 	Label string `json:"label"`

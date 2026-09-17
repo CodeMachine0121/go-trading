@@ -36,6 +36,16 @@ type IStrategyBotRepository interface {
 	// FindAllByOwner returns this person's bots, by name.
 	FindAllByOwner(executionContext context.Context, ownerID uint) ([]entities.StrategyBot, error)
 
+	// FindAllByTradingStrategy returns every bot following this set of rules,
+	// whoever owns it and whether or not it is running.
+	//
+	// One read rather than a count and a separate list of the running ones: both
+	// refusals that use it — a rewrite blocked by a running bot, a delete blocked
+	// by any bot — are about the same moment, and two reads can disagree about it.
+	FindAllByTradingStrategy(
+		executionContext context.Context, tradingStrategyID uint,
+	) ([]entities.StrategyBot, error)
+
 	// Delete removes this bot; its sources and trees go with it, by cascade rather
 	// than by any code here remembering them.
 	Delete(executionContext context.Context, id uint) error

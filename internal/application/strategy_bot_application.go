@@ -10,23 +10,23 @@ import (
 // StrategyBotApplication orchestrates everything a person does to a strategy bot.
 //
 // It joins three domain services, which is this layer's job and not theirs. A bot
-// names strategy scripts, so saving one has to ask the strategy script rules whether those may be
-// seen and what knobs they declare; starting one has to ask the delivery setting
-// whether its owner can be spoken to at all. Neither question belongs to the bots.
+// names a trading strategy, so saving one has to ask the trading strategy rules
+// whether that one may be seen at all; starting one has to ask the delivery setting
+// whether its owner can be spoken to. Neither question belongs to the bots.
 type StrategyBotApplication struct {
 	strategyBotService      *service.StrategyBotService
-	strategyScriptService   *service.StrategyScriptService
+	tradingStrategyService  *service.TradingStrategyService
 	telegramDeliveryService *service.TelegramDeliveryService
 }
 
 func NewStrategyBotApplication(
 	strategyBotService *service.StrategyBotService,
-	strategyScriptService *service.StrategyScriptService,
+	tradingStrategyService *service.TradingStrategyService,
 	telegramDeliveryService *service.TelegramDeliveryService,
 ) *StrategyBotApplication {
 	return &StrategyBotApplication{
 		strategyBotService:      strategyBotService,
-		strategyScriptService:   strategyScriptService,
+		tradingStrategyService:  tradingStrategyService,
 		telegramDeliveryService: telegramDeliveryService,
 	}
 }
@@ -37,28 +37,25 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 ) (dto.StrategyBotDto, error) {
 	writeDto.OwnerID = viewerID
 
-	resolvedWriteDto, resolveError := strategyBotApplication.withResolvedStrategyScripts(
-		executionContext, viewerID, writeDto)
-	if resolveError != nil {
-		return dto.StrategyBotDto{}, resolveError
+	if gateError := strategyBotApplication.requireOwnedTradingStrategy(
+		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
+		return dto.StrategyBotDto{}, gateError
 	}
 
-	return strategyBotApplication.strategyBotService.CreateStrategyBot(
-		executionContext, resolvedWriteDto)
+	return strategyBotApplication.strategyBotService.CreateStrategyBot(executionContext, writeDto)
 }
 
 // UpdateStrategyBot rewrites one of this person's bots.
 func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
-	resolvedWriteDto, resolveError := strategyBotApplication.withResolvedStrategyScripts(
-		executionContext, viewerID, writeDto)
-	if resolveError != nil {
-		return dto.StrategyBotDto{}, resolveError
+	if gateError := strategyBotApplication.requireOwnedTradingStrategy(
+		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
+		return dto.StrategyBotDto{}, gateError
 	}
 
 	return strategyBotApplication.strategyBotService.UpdateStrategyBot(
-		executionContext, viewerID, resolvedWriteDto)
+		executionContext, viewerID, writeDto)
 }
 
 // ListStrategyBots returns this person's bots.
@@ -151,37 +148,22 @@ func (strategyBotApplication *StrategyBotApplication) announce(
 		executionContext, viewerID, message)
 }
 
-// withResolvedStrategyScripts fills each source in with what only its strategy script can say:
-// the name to show, and the knobs it declares.
+// requireOwnedTradingStrategy refuses a bot that names a set of rules this person
+// cannot see.
 //
-// Resolving is also the gate. Naming a strategy script that is not this person's and not on
-// the marketplace fails here with the same sentence as naming one that does not
-// exist, which is what stops a bot's sources becoming a way to probe for strategy scripts.
-//
-// Both creating and rewriting need every step of this, which is what earns it a
-// name of its own.
-func (strategyBotApplication *StrategyBotApplication) withResolvedStrategyScripts(
-	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
-) (dto.StrategyBotWriteDto, error) {
-	resolvedSources := make(
-		[]dto.StrategyBotSignalSourceWriteDto, 0, len(writeDto.SignalSources))
-
-	for _, signalSource := range writeDto.SignalSources {
-		runnableStrategyScript, resolveError := strategyBotApplication.strategyScriptService.ResolveRunnableStrategyScript(
-			executionContext, viewerID, signalSource.StrategyScriptID)
-		if resolveError != nil {
-			return dto.StrategyBotWriteDto{}, resolveError
-		}
-
-		// Only the declared knobs are taken. The script is deliberately left
-		// behind: what a bot stores about a source is which strategy script it names, so
-		// that a strategy script adopted from the marketplace is run without ever being
-		// copied somewhere its adopter could read it.
-		signalSource.DeclaredParameters = runnableStrategyScript.Parameters
-		resolvedSources = append(resolvedSources, signalSource)
+// Naming somebody else's fails here with the same sentence as naming one that does
+// not exist, which is what stops the field becoming a way to probe for other
+// people's trading strategies. Nothing about the rules themselves is checked — they
+// were checked once, where they live.
+func (strategyBotApplication *StrategyBotApplication) requireOwnedTradingStrategy(
+	executionContext context.Context, viewerID uint, tradingStrategyID uint,
+) error {
+	if tradingStrategyID == 0 {
+		return nil
 	}
 
-	writeDto.SignalSources = resolvedSources
+	_, findError := strategyBotApplication.tradingStrategyService.GetTradingStrategy(
+		executionContext, viewerID, tradingStrategyID)
 
-	return writeDto, nil
+	return findError
 }

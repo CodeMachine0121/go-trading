@@ -16,49 +16,35 @@ import (
 // botRowOwnerID is whoever owns every bot in this file unless a test says otherwise.
 const botRowOwnerID = uint(1)
 
+// botRowTradingStrategyID is the set of rules every bot in this file follows unless
+// a test says otherwise.
+const botRowTradingStrategyID = uint(1)
+
 // newStrategyBotTestDatabase is a cleared database with the person these bots belong
-// to already in it. Planting them first is not scaffolding: the owner column carries
-// a foreign key, so a bot owned by nobody is a row the schema refuses.
+// to, and the rules they follow, already in it. Planting them first is not
+// scaffolding: both columns carry a foreign key, so a bot owned by nobody or
+// following nothing is a row the schema refuses.
 func newStrategyBotTestDatabase(t *testing.T) *gorm.DB {
 	database := newTestDatabase(t)
 	require.NoError(t, database.WithContext(t.Context()).Create(&entities.User{
 		ID: botRowOwnerID, Email: "bot-owner@example.com", PasswordProof: "a-proof",
 	}).Error)
+	require.NoError(t, database.WithContext(t.Context()).Create(&entities.TradingStrategy{
+		ID: botRowTradingStrategyID, OwnerID: botRowOwnerID, Name: "黃金交叉",
+	}).Error)
 
 	return database
 }
 
-// aBotRow is one bot with two sources and two condition trees:
-//
-//	buy:  ( A=buy and B=buy )
-//	sell: A=sell
-//
-// The buy tree is nested so that the write path has to descend rather than write one
-// flat level, which is the part of it worth proving.
+// aBotRow is one bot: a name, a market, how often, and the rules it follows. The
+// rules themselves are not here — they are a thing of their own now, and a bot only
+// names one.
 func aBotRow(name string) entities.StrategyBot {
 	return entities.StrategyBot{
 		OwnerID: botRowOwnerID, Name: name, Symbol: "BTCUSDT",
+		TradingStrategyID:      botRowTradingStrategyID,
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotStopped),
-		SignalSources: []entities.StrategyBotSignalSource{
-			{Label: "A", StrategyScriptID: 9, AggregationInterval: "1h",
-				ParameterValues: []entities.StrategyBotSignalSourceParameterValue{
-					{Name: "回看根數", Value: 20},
-				}},
-			{Label: "B", StrategyScriptID: 10, AggregationInterval: "5m"},
-		},
-		ConditionNodes: []entities.StrategyBotConditionNode{
-			{Side: string(vo.StrategyBotConditionSideBuy), Position: 0,
-				Operator: string(vo.ConditionOperatorAnd),
-				Children: []entities.StrategyBotConditionNode{
-					{Side: string(vo.StrategyBotConditionSideBuy), Position: 0,
-						SourceLabel: "A", ExpectedSignal: string(vo.SignalBuy)},
-					{Side: string(vo.StrategyBotConditionSideBuy), Position: 1,
-						SourceLabel: "B", ExpectedSignal: string(vo.SignalBuy)},
-				}},
-			{Side: string(vo.StrategyBotConditionSideSell), Position: 0,
-				SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
-		},
 	}
 }
 
@@ -75,61 +61,38 @@ func TestStrategyBotRepositorySaveAndReadBackAWholeBot(t *testing.T) {
 
 	assert.Equal(t, "早盤突破", readBot.Name)
 	assert.Equal(t, "BTCUSDT", readBot.Symbol)
-	require.Len(t, readBot.SignalSources, 2)
-	require.Len(t, readBot.ConditionNodes, 4)
-
-	// The nesting survives the round trip, which is the whole reason the write path
-	// descends instead of handing a tree to the store and hoping.
-	botDto := readBot.ToDto()
-	assert.Equal(t, string(vo.ConditionOperatorAnd), botDto.BuyCondition.Operator)
-	require.Len(t, botDto.BuyCondition.Conditions, 2)
-	assert.Equal(t, "A", botDto.BuyCondition.Conditions[0].SourceLabel)
-	assert.Equal(t, "B", botDto.BuyCondition.Conditions[1].SourceLabel)
-	assert.Equal(t, "A", botDto.SellCondition.SourceLabel)
-	assert.Equal(t, string(vo.SignalSell), botDto.SellCondition.Signal)
-
-	// A source's parameter values come back with it, since nothing ever reads them
-	// on their own.
-	sourceValues := map[string][]float64{}
-	for _, signalSource := range botDto.SignalSources {
-		for _, parameterValue := range signalSource.ParameterValues {
-			sourceValues[signalSource.Label] = append(
-				sourceValues[signalSource.Label], parameterValue.Value)
-		}
-	}
-	assert.Equal(t, []float64{20}, sourceValues["A"])
-	assert.Empty(t, sourceValues["B"])
+	assert.Equal(t, botRowTradingStrategyID, readBot.TradingStrategyID)
+	// The rules' current name comes back with the bot, so a list says what each bot
+	// is doing without a second read per bot.
+	assert.Equal(t, "黃金交叉", readBot.TradingStrategy.Name)
 }
 
-func TestStrategyBotRepositorySaveReplacesTheSourcesAndTreesItHadBefore(t *testing.T) {
+func TestStrategyBotRepositorySaveReplacesWhatItHadBefore(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)
+
+	require.NoError(t, database.WithContext(t.Context()).Create(&entities.TradingStrategy{
+		ID: 2, OwnerID: botRowOwnerID, Name: "死亡交叉",
+	}).Error)
 
 	savedBot, saveError := repository.Save(t.Context(), aBotRow("早盤突破"))
 	require.NoError(t, saveError)
 
 	rewritten := aBotRow("收盤反轉")
 	rewritten.ID = savedBot.ID
-	rewritten.SignalSources = []entities.StrategyBotSignalSource{
-		{Label: "C", StrategyScriptID: 11, AggregationInterval: "1d"},
-	}
-	rewritten.ConditionNodes = []entities.StrategyBotConditionNode{
-		{Side: string(vo.StrategyBotConditionSideBuy), Position: 0,
-			SourceLabel: "C", ExpectedSignal: string(vo.SignalBuy)},
-		{Side: string(vo.StrategyBotConditionSideSell), Position: 0,
-			SourceLabel: "C", ExpectedSignal: string(vo.SignalSell)},
-	}
+	rewritten.Symbol = "ETHUSDT"
+	rewritten.TradingStrategyID = 2
+	rewritten.TriggerIntervalMinutes = 15
 
 	rewrittenBot, rewriteError := repository.Save(t.Context(), rewritten)
 	require.NoError(t, rewriteError)
 
 	assert.Equal(t, savedBot.ID, rewrittenBot.ID)
 	assert.Equal(t, "收盤反轉", rewrittenBot.Name)
-	// Nothing of the old shape is left behind: a bot half rewritten could name a
-	// label that no longer exists, and would then run that way every few minutes.
-	require.Len(t, rewrittenBot.SignalSources, 1)
-	assert.Equal(t, "C", rewrittenBot.SignalSources[0].Label)
-	require.Len(t, rewrittenBot.ConditionNodes, 2)
+	assert.Equal(t, "ETHUSDT", rewrittenBot.Symbol)
+	// Pointing a bot at another set of rules is a rewrite like any other.
+	assert.Equal(t, uint(2), rewrittenBot.TradingStrategyID)
+	assert.Equal(t, 15, rewrittenBot.TriggerIntervalMinutes)
 }
 
 func TestStrategyBotRepositorySaveRefusesANameThisPersonAlreadyUses(t *testing.T) {
@@ -155,7 +118,7 @@ func TestStrategyBotRepositoryFindOneReportsTheDomainsNotFound(t *testing.T) {
 	require.ErrorIs(t, findError, domains.ErrStrategyBotNotFound)
 }
 
-func TestStrategyBotRepositoryDeleteTakesTheSourcesAndTreesWithIt(t *testing.T) {
+func TestStrategyBotRepositoryDeleteLeavesTheRulesItFollowedAlone(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)
 
@@ -167,17 +130,45 @@ func TestStrategyBotRepositoryDeleteTakesTheSourcesAndTreesWithIt(t *testing.T) 
 	_, findError := repository.FindOne(t.Context(), savedBot.ID)
 	require.ErrorIs(t, findError, domains.ErrStrategyBotNotFound)
 
-	// The cascade is declared rather than performed, so this is what proves no Go
-	// code had to remember it.
-	remainingSources := int64(0)
+	// The rules are a thing of their own, and other bots may follow them. Deleting
+	// a machine must not take the rules with it.
+	remainingTradingStrategies := int64(0)
 	require.NoError(t, database.WithContext(t.Context()).
-		Model(&entities.StrategyBotSignalSource{}).Count(&remainingSources).Error)
-	assert.Zero(t, remainingSources)
+		Model(&entities.TradingStrategy{}).Count(&remainingTradingStrategies).Error)
+	assert.Equal(t, int64(1), remainingTradingStrategies)
+}
 
-	remainingNodes := int64(0)
-	require.NoError(t, database.WithContext(t.Context()).
-		Model(&entities.StrategyBotConditionNode{}).Count(&remainingNodes).Error)
-	assert.Zero(t, remainingNodes)
+// Both refusals that protect a set of rules — a rewrite blocked by a running bot, a
+// delete blocked by any bot — are answered from this one read, whatever state those
+// bots are in.
+func TestStrategyBotRepositoryFindAllByTradingStrategyAnswersRunningAndStoppedAlike(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+
+	require.NoError(t, database.WithContext(t.Context()).Create(&entities.TradingStrategy{
+		ID: 2, OwnerID: botRowOwnerID, Name: "死亡交叉",
+	}).Error)
+
+	runningBot, saveError := repository.Save(t.Context(), aBotRow("A 執行中的"))
+	require.NoError(t, saveError)
+	runningBot.RunState = string(vo.StrategyBotRunning)
+	require.NoError(t, repository.UpdateRunState(t.Context(), runningBot))
+
+	_, saveError = repository.Save(t.Context(), aBotRow("B 已停止的"))
+	require.NoError(t, saveError)
+
+	otherRulesBot := aBotRow("跟別份規則的")
+	otherRulesBot.TradingStrategyID = 2
+	_, saveError = repository.Save(t.Context(), otherRulesBot)
+	require.NoError(t, saveError)
+
+	followers, findError := repository.FindAllByTradingStrategy(
+		t.Context(), botRowTradingStrategyID)
+	require.NoError(t, findError)
+
+	require.Len(t, followers, 2)
+	assert.Equal(t, "A 執行中的", followers[0].Name)
+	assert.Equal(t, "B 已停止的", followers[1].Name)
 }
 
 func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
@@ -208,7 +199,6 @@ func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
 	assert.Equal(t, string(vo.StrategyBotHaltScriptFailed), readBot.HaltReason)
 	assert.True(t, readBot.Conflicting)
 	assert.Equal(t, "早盤突破", readBot.Name)
-	assert.Len(t, readBot.ConditionNodes, 4)
 }
 
 func TestStrategyBotRepositoryUpdateRunStateLeavesTheLastModifiedTimeAlone(t *testing.T) {
@@ -287,9 +277,9 @@ func TestStrategyBotRepositoryFindDueAnswersOnlyRunningBotsThatAreDue(t *testing
 
 	require.Len(t, dueBots, 1)
 	assert.Equal(t, "到期的", dueBots[0].Name)
-	// Everything a round needs comes with it, so a round is never a second read.
-	assert.Len(t, dueBots[0].SignalSources, 2)
-	assert.Len(t, dueBots[0].ConditionNodes, 4)
+	// Which rules it follows comes with it, so a round never has to ask twice which
+	// bot it is about before it can ask what that bot does.
+	assert.Equal(t, botRowTradingStrategyID, dueBots[0].TradingStrategyID)
 }
 
 func TestStrategyBotRepositoryFindDueHonoursTheCapOnTheReadItself(t *testing.T) {
@@ -373,6 +363,9 @@ func TestStrategyBotRepositorySaysSoWhenStorageCannotAnswer(t *testing.T) {
 
 	_, dueError := repository.FindDue(t.Context(), time.Now(), 10)
 	assert.Error(t, dueError)
+
+	_, followersError := repository.FindAllByTradingStrategy(t.Context(), 1)
+	assert.Error(t, followersError)
 }
 
 func TestStrategyBotRepositorySaveReportsAFailedRewriteAsItself(t *testing.T) {

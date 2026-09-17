@@ -30,11 +30,13 @@ type StrategyBotDto struct {
 	// may have stopped and started it again, and starting rewrites exactly the
 	// columns the round is about to write; without this check the finishing round
 	// would put the old values back and quietly undo the restart.
-	NextRunAt     time.Time                    `json:"-"`
-	SignalSources []StrategyBotSignalSourceDto `json:"signalSources"`
-	BuyCondition  StrategyBotConditionDto      `json:"buyCondition"`
-	SellCondition StrategyBotConditionDto      `json:"sellCondition"`
-	RunState      string                       `json:"runState"`
+	NextRunAt time.Time `json:"-"`
+	// TradingStrategyID names the rules this bot follows, and TradingStrategyName
+	// is that trading strategy's current name — read through the association every
+	// time rather than copied, so renaming it cannot leave a bot saying the old one.
+	TradingStrategyID   uint   `json:"tradingStrategyId"`
+	TradingStrategyName string `json:"tradingStrategyName"`
+	RunState            string `json:"runState"`
 	// LastSentSignal is the last signal that actually reached Telegram, and it is
 	// what the next round is compared against. Empty means nothing has been sent
 	// since this bot was last started, which is why the first conclusion after

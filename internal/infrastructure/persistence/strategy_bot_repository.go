@@ -14,8 +14,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// StrategyBotRepository stores strategy bots, their signal sources and their two
-// condition trees, in PostgreSQL.
+// StrategyBotRepository stores strategy bots in PostgreSQL. The rules a bot follows
+// are stored by TradingStrategyRepository; a bot row only names which set it points
+// at.
 type StrategyBotRepository struct {
 	database *gorm.DB
 }
@@ -24,132 +25,47 @@ func NewStrategyBotRepository(database *gorm.DB) *StrategyBotRepository {
 	return &StrategyBotRepository{database: database}
 }
 
-// Save stores this bot whole, replacing whatever it had before.
+// Save stores this bot, replacing whatever it had before.
 //
-// Everything happens in one transaction, because a bot whose conditions were
-// replaced but whose sources were not is a bot that can name a label that no longer
-// exists — and it would then run that way every few minutes.
-//
-// The children are cleared and written again rather than compared and patched. A
-// condition tree holds at most thirty-two nodes and is only ever read and written
-// whole; the reads a diff would save are worth less than the ways a diff can be
-// wrong.
+// There are no children to clear and rewrite any more: the sources and the two
+// condition trees moved to the trading strategy this bot names, so a bot is one row.
 func (strategyBotRepository *StrategyBotRepository) Save(
 	executionContext context.Context, bot entities.StrategyBot,
 ) (entities.StrategyBot, error) {
-	savedBot := bot
+	botRow := bot
+	botRow.Owner = entities.User{}
+	botRow.TradingStrategy = entities.TradingStrategy{}
+	botRow.RunRecords = nil
 
-	transactionError := strategyBotRepository.database.WithContext(executionContext).Transaction(
-		func(transaction *gorm.DB) error {
-			// The bot row goes first and alone: its identifier is what every child
-			// row needs, and on a create nobody knows it until this returns.
-			// Omitting the associations is what stops GORM writing them here in a
-			// shape this code would then have to undo.
-			botRow := bot
-			botRow.SignalSources = nil
-			botRow.ConditionNodes = nil
-			botRow.RunRecords = nil
-
-			if botRow.ID == 0 {
-				if createError := transaction.Omit(clause.Associations).Create(&botRow).Error; createError != nil {
-					return createError
-				}
-			} else {
-				// The columns are named so that a rewrite cannot reach the ones a
-				// bot's life owns — a run state, a next round, a last sent signal.
-				// Naming them also makes an empty value mean empty rather than
-				// "unchanged", which is how GORM reads a struct otherwise.
-				updates := transaction.Model(&entities.StrategyBot{}).
-					Where(clause.Eq{Column: "id", Value: botRow.ID}).
-					Select("name", "symbol", "trigger_interval_minutes").
-					Updates(entities.StrategyBot{
-						Name:                   botRow.Name,
-						Symbol:                 botRow.Symbol,
-						TriggerIntervalMinutes: botRow.TriggerIntervalMinutes,
-					})
-				if updates.Error != nil {
-					return updates.Error
-				}
-
-				if deleteError := transaction.
-					Where(clause.Eq{Column: "strategy_bot_id", Value: botRow.ID}).
-					Delete(&entities.StrategyBotSignalSource{}).Error; deleteError != nil {
-					return deleteError
-				}
-
-				// Deleting the roots takes their descendants with them through the
-				// node table's own cascade, so this does not walk the tree — and
-				// therefore cannot walk it wrong.
-				if deleteError := transaction.
-					Where(clause.Eq{Column: "strategy_bot_id", Value: botRow.ID}).
-					Delete(&entities.StrategyBotConditionNode{}).Error; deleteError != nil {
-					return deleteError
-				}
-			}
-
-			for index := range bot.SignalSources {
-				signalSource := bot.SignalSources[index]
-				signalSource.ID = 0
-				signalSource.StrategyBotID = botRow.ID
-				for valueIndex := range signalSource.ParameterValues {
-					signalSource.ParameterValues[valueIndex].ID = 0
-					signalSource.ParameterValues[valueIndex].StrategyBotSignalSourceID = 0
-				}
-
-				if createError := transaction.Create(&signalSource).Error; createError != nil {
-					return createError
-				}
-			}
-
-			for index := range bot.ConditionNodes {
-				if writeError := strategyBotRepository.writeConditionSubtree(
-					transaction, botRow.ID, nil, bot.ConditionNodes[index]); writeError != nil {
-					return writeError
-				}
-			}
-
-			savedBot = botRow
-
-			return nil
-		})
-	if transactionError != nil {
-		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(transactionError, bot.Name)
-	}
-
-	return strategyBotRepository.FindOne(executionContext, savedBot.ID)
-}
-
-// writeConditionSubtree writes one node and everything under it, handing each child
-// the identifier its parent has just been given.
-//
-// It descends explicitly rather than relying on the store to write a nested
-// association for it. One level of nesting is something an ORM will do; five is
-// something to find out about at three in the morning.
-func (strategyBotRepository *StrategyBotRepository) writeConditionSubtree(
-	transaction *gorm.DB, strategyBotID uint, parentID *uint,
-	node entities.StrategyBotConditionNode,
-) error {
-	children := node.Children
-
-	nodeRow := node
-	nodeRow.ID = 0
-	nodeRow.StrategyBotID = strategyBotID
-	nodeRow.ParentID = parentID
-	nodeRow.Children = nil
-	nodeRow.Parent = nil
-
-	if createError := transaction.Omit(clause.Associations).Create(&nodeRow).Error; createError != nil {
-		return createError
-	}
-
-	for index := range children {
-		if writeError := strategyBotRepository.writeConditionSubtree(
-			transaction, strategyBotID, &nodeRow.ID, children[index]); writeError != nil {
-			return writeError
+	if botRow.ID == 0 {
+		createError := strategyBotRepository.database.WithContext(executionContext).
+			Omit(clause.Associations).Create(&botRow).Error
+		if createError != nil {
+			return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(createError, bot.Name)
 		}
+
+		return strategyBotRepository.FindOne(executionContext, botRow.ID)
 	}
 
-	return nil
+	// The columns are named so that a rewrite cannot reach the ones a bot's life
+	// owns — a run state, a next round, a last sent signal. Naming them also makes
+	// an empty value mean empty rather than "unchanged", which is how GORM reads a
+	// struct otherwise.
+	updates := strategyBotRepository.database.WithContext(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: botRow.ID}).
+		Select("name", "symbol", "trading_strategy_id", "trigger_interval_minutes").
+		Updates(entities.StrategyBot{
+			Name:                   botRow.Name,
+			Symbol:                 botRow.Symbol,
+			TradingStrategyID:      botRow.TradingStrategyID,
+			TriggerIntervalMinutes: botRow.TriggerIntervalMinutes,
+		})
+	if updates.Error != nil {
+		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(updates.Error, bot.Name)
+	}
+
+	return strategyBotRepository.FindOne(executionContext, botRow.ID)
 }
 
 // StrategyBotNameIndex is the index that makes a bot's name unique within its
@@ -175,7 +91,7 @@ func (strategyBotRepository *StrategyBotRepository) writeFailureOf(
 	return fmt.Errorf("save strategy bot: %w", writeError)
 }
 
-// FindOne returns this bot with its sources and both trees.
+// FindOne returns this bot, with the name of the trading strategy it follows.
 func (strategyBotRepository *StrategyBotRepository) FindOne(
 	executionContext context.Context, id uint,
 ) (entities.StrategyBot, error) {
@@ -185,9 +101,7 @@ func (strategyBotRepository *StrategyBotRepository) FindOne(
 	// drops zero-valued struct fields — and an identifier of nothing would become
 	// no condition at all, handing back whichever bot happens to be first.
 	result := strategyBotRepository.database.WithContext(executionContext).
-		Preload("SignalSources.ParameterValues").
-		Preload("SignalSources").
-		Preload("ConditionNodes").
+		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "id", Value: id}).
 		First(&bot)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -207,9 +121,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 	bots := []entities.StrategyBot{}
 
 	result := strategyBotRepository.database.WithContext(executionContext).
-		Preload("SignalSources.ParameterValues").
-		Preload("SignalSources").
-		Preload("ConditionNodes").
+		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Order("name ASC").
 		Find(&bots)
@@ -220,7 +132,29 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 	return bots, nil
 }
 
-// Delete removes this bot. Its sources and condition nodes go with it by cascade.
+// FindAllByTradingStrategy returns every bot following this set of rules.
+//
+// It does not filter by owner. A trading strategy already belongs to exactly one
+// person and only they can point a bot at it, so an owner clause here would narrow
+// nothing and would quietly become the place a future sharing feature goes wrong.
+func (strategyBotRepository *StrategyBotRepository) FindAllByTradingStrategy(
+	executionContext context.Context, tradingStrategyID uint,
+) ([]entities.StrategyBot, error) {
+	bots := []entities.StrategyBot{}
+
+	result := strategyBotRepository.database.WithContext(executionContext).
+		Where(clause.Eq{Column: "trading_strategy_id", Value: tradingStrategyID}).
+		Order("name ASC").
+		Find(&bots)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find strategy bots by trading strategy: %w", result.Error)
+	}
+
+	return bots, nil
+}
+
+// Delete removes this bot. Its rounds go with it by cascade; the trading strategy it
+// followed is untouched — that is a thing of its own, and other bots may use it.
 func (strategyBotRepository *StrategyBotRepository) Delete(
 	executionContext context.Context, id uint,
 ) error {
@@ -290,9 +224,7 @@ func (strategyBotRepository *StrategyBotRepository) FindDue(
 	bots := []entities.StrategyBot{}
 
 	result := strategyBotRepository.database.WithContext(executionContext).
-		Preload("SignalSources.ParameterValues").
-		Preload("SignalSources").
-		Preload("ConditionNodes").
+		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "run_state", Value: string(vo.StrategyBotRunning)}).
 		Where(clause.Lte{Column: "next_run_at", Value: moment.UTC()}).
 		Order("next_run_at ASC").

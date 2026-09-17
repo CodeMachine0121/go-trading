@@ -11,20 +11,20 @@ import (
 )
 
 // comparing is the smallest condition there is: one source equal to one signal.
-func comparing(sourceLabel string, signal vo.SignalVo) dto.StrategyBotConditionDto {
-	return dto.StrategyBotConditionDto{SourceLabel: sourceLabel, Signal: string(signal)}
+func comparing(sourceLabel string, signal vo.SignalVo) dto.TradingStrategyConditionDto {
+	return dto.TradingStrategyConditionDto{SourceLabel: sourceLabel, Signal: string(signal)}
 }
 
 // joining is a group of conditions under one operator.
 func joining(
-	operator vo.ConditionOperatorVo, conditions ...dto.StrategyBotConditionDto,
-) dto.StrategyBotConditionDto {
-	return dto.StrategyBotConditionDto{Operator: string(operator), Conditions: conditions}
+	operator vo.ConditionOperatorVo, conditions ...dto.TradingStrategyConditionDto,
+) dto.TradingStrategyConditionDto {
+	return dto.TradingStrategyConditionDto{Operator: string(operator), Conditions: conditions}
 }
 
 // nestedToDepth builds a condition nested exactly this many levels, so that a test
 // about a depth limit says the depth it means instead of drawing it.
-func nestedToDepth(depth int) dto.StrategyBotConditionDto {
+func nestedToDepth(depth int) dto.TradingStrategyConditionDto {
 	condition := comparing("A", vo.SignalBuy)
 	for level := 1; level < depth; level++ {
 		condition = joining(vo.ConditionOperatorAnd, condition, comparing("B", vo.SignalBuy))
@@ -33,10 +33,10 @@ func nestedToDepth(depth int) dto.StrategyBotConditionDto {
 	return condition
 }
 
-func TestStrategyBotConditionHolds(t *testing.T) {
+func TestTradingStrategyConditionHolds(t *testing.T) {
 	testCases := []struct {
 		name           string
-		condition      dto.StrategyBotConditionDto
+		condition      dto.TradingStrategyConditionDto
 		signalsByLabel map[string]vo.SignalVo
 		expectedToHold bool
 	}{
@@ -108,7 +108,7 @@ func TestStrategyBotConditionHolds(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			condition, buildError := domains.NewStrategyBotConditionDomain(
+			condition, buildError := domains.NewTradingStrategyConditionDomain(
 				testCase.condition, []string{"A", "B", "C"})
 			require.NoError(t, buildError)
 
@@ -117,15 +117,15 @@ func TestStrategyBotConditionHolds(t *testing.T) {
 	}
 }
 
-func TestNewStrategyBotConditionDomainRefusals(t *testing.T) {
+func TestNewTradingStrategyConditionDomainRefusals(t *testing.T) {
 	testCases := []struct {
 		name            string
-		condition       dto.StrategyBotConditionDto
+		condition       dto.TradingStrategyConditionDto
 		expectedMessage string
 	}{
 		{
 			name:            "a condition that is neither a comparison nor a group",
-			condition:       dto.StrategyBotConditionDto{},
+			condition:       dto.TradingStrategyConditionDto{},
 			expectedMessage: "條件必須指名一個信號來源",
 		},
 		{
@@ -135,7 +135,7 @@ func TestNewStrategyBotConditionDomainRefusals(t *testing.T) {
 		},
 		{
 			name:            "a comparison against something that is not a signal",
-			condition:       dto.StrategyBotConditionDto{SourceLabel: "A", Signal: "maybe"},
+			condition:       dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "maybe"},
 			expectedMessage: "只能是買入、賣出或持有",
 		},
 		{
@@ -164,40 +164,40 @@ func TestNewStrategyBotConditionDomainRefusals(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, buildError := domains.NewStrategyBotConditionDomain(
+			_, buildError := domains.NewTradingStrategyConditionDomain(
 				testCase.condition, []string{"A", "B", "C"})
 
-			require.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
+			require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
 			assert.ErrorContains(t, buildError, testCase.expectedMessage)
 		})
 	}
 }
 
-func TestNewStrategyBotConditionDomainAcceptsTheDeepestAllowedNesting(t *testing.T) {
-	condition, buildError := domains.NewStrategyBotConditionDomain(
+func TestNewTradingStrategyConditionDomainAcceptsTheDeepestAllowedNesting(t *testing.T) {
+	condition, buildError := domains.NewTradingStrategyConditionDomain(
 		nestedToDepth(5), []string{"A", "B"})
 
 	require.NoError(t, buildError)
 	assert.Equal(t, 5, condition.Depth())
 }
 
-func TestNewStrategyBotConditionDomainRefusesATreeWithTooManyNodes(t *testing.T) {
+func TestNewTradingStrategyConditionDomainRefusesATreeWithTooManyNodes(t *testing.T) {
 	// Thirty-two comparisons under one group is thirty-three nodes: one over the
 	// ceiling, and only two levels deep, so nothing but the size can refuse it.
-	comparisons := make([]dto.StrategyBotConditionDto, 0, 32)
+	comparisons := make([]dto.TradingStrategyConditionDto, 0, 32)
 	for range 32 {
 		comparisons = append(comparisons, comparing("A", vo.SignalBuy))
 	}
 
-	_, buildError := domains.NewStrategyBotConditionDomain(
+	_, buildError := domains.NewTradingStrategyConditionDomain(
 		joining(vo.ConditionOperatorOr, comparisons...), []string{"A"})
 
-	require.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
+	require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
 	assert.ErrorContains(t, buildError, "節點數上限是 32 個")
 }
 
-func TestStrategyBotConditionNodeCountCountsEveryConditionIncludingItself(t *testing.T) {
-	condition, buildError := domains.NewStrategyBotConditionDomain(
+func TestTradingStrategyConditionNodeCountCountsEveryConditionIncludingItself(t *testing.T) {
+	condition, buildError := domains.NewTradingStrategyConditionDomain(
 		joining(vo.ConditionOperatorOr,
 			joining(vo.ConditionOperatorAnd, comparing("A", vo.SignalBuy), comparing("B", vo.SignalBuy)),
 			comparing("C", vo.SignalBuy)),
@@ -207,15 +207,15 @@ func TestStrategyBotConditionNodeCountCountsEveryConditionIncludingItself(t *tes
 	assert.Equal(t, 5, condition.NodeCount())
 }
 
-func TestStrategyBotConditionToEntityKeepsTheShapeAndTheOrder(t *testing.T) {
-	condition, buildError := domains.NewStrategyBotConditionDomain(
+func TestTradingStrategyConditionToEntityKeepsTheShapeAndTheOrder(t *testing.T) {
+	condition, buildError := domains.NewTradingStrategyConditionDomain(
 		joining(vo.ConditionOperatorOr, comparing("A", vo.SignalBuy), comparing("B", vo.SignalSell)),
 		[]string{"A", "B"})
 	require.NoError(t, buildError)
 
-	rootNode := condition.ToEntity(vo.StrategyBotConditionSideBuy, 0)
+	rootNode := condition.ToEntity(vo.TradingStrategyConditionSideBuy, 0)
 
-	assert.Equal(t, string(vo.StrategyBotConditionSideBuy), rootNode.Side)
+	assert.Equal(t, string(vo.TradingStrategyConditionSideBuy), rootNode.Side)
 	assert.Equal(t, string(vo.ConditionOperatorOr), rootNode.Operator)
 	assert.True(t, rootNode.IsGroup())
 	require.Len(t, rootNode.Children, 2)

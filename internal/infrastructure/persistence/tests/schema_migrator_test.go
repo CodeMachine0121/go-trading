@@ -8,6 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // retiredStrategyScriptColumns are the columns a strategy script used to carry. They described one
@@ -166,4 +168,173 @@ func TestSchemaMigratorBuildsAStrategyScriptTableThatIsNotThereYet(t *testing.T)
 		FindAllOwnedBy(t.Context(), strategyScriptRowOwnerID)
 	require.NoError(t, findError)
 	assert.Empty(t, strategyScripts)
+}
+
+// asTheShapeBeforeTheRulesMoved puts the database back the way it was when a bot
+// carried its own signal sources and its own two condition trees.
+//
+// It is raw SQL for the reason the retired columns above are: syncing the schema
+// works from the entities, and the entities no longer describe this shape. Raw SQL
+// belongs to the test alone — this is the one place that has to describe a database
+// as it was rather than as the code says it should be.
+func asTheShapeBeforeTheRulesMoved(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	for _, statement := range []string{
+		`ALTER TABLE "TradingStrategySignalSources" RENAME TO "StrategyBotSignalSources"`,
+		`ALTER TABLE "TradingStrategyConditionNodes" RENAME TO "StrategyBotConditionNodes"`,
+		`ALTER TABLE "TradingStrategySignalSourceParameterValues"
+		   RENAME TO "StrategyBotSignalSourceParameterValues"`,
+		`ALTER TABLE "StrategyBotSignalSources" RENAME COLUMN "trading_strategy_id" TO "strategy_bot_id"`,
+		`ALTER TABLE "StrategyBotConditionNodes" RENAME COLUMN "trading_strategy_id" TO "strategy_bot_id"`,
+		`ALTER TABLE "StrategyBotSignalSourceParameterValues"
+		   RENAME COLUMN "trading_strategy_signal_source_id" TO "strategy_bot_signal_source_id"`,
+		`ALTER INDEX "idx_trading_strategy_signal_sources_strategy"
+		   RENAME TO "idx_strategy_bot_signal_sources_bot"`,
+		`ALTER INDEX "idx_trading_strategy_signal_sources_strategy_label"
+		   RENAME TO "idx_strategy_bot_signal_sources_bot_label"`,
+		`ALTER INDEX "idx_trading_strategy_signal_sources_script"
+		   RENAME TO "idx_strategy_bot_signal_sources_strategy"`,
+		`ALTER INDEX "idx_trading_strategy_condition_nodes_strategy"
+		   RENAME TO "idx_strategy_bot_condition_nodes_bot"`,
+		`ALTER INDEX "idx_trading_strategy_condition_nodes_parent"
+		   RENAME TO "idx_strategy_bot_condition_nodes_parent"`,
+		`ALTER INDEX "idx_trading_strategy_source_parameter_values_source"
+		   RENAME TO "idx_strategy_bot_source_parameter_values_source"`,
+		`ALTER TABLE "StrategyBots" DROP COLUMN "trading_strategy_id"`,
+		`DROP TABLE "TradingStrategies" CASCADE`,
+	} {
+		require.NoError(t, database.Exec(statement).Error,
+			"這個測試得先把資料庫變回搬家以前的樣子，才有東西可以被搬")
+	}
+}
+
+// aBotOfTheOldShape plants one bot carrying its own rules, exactly as one was stored
+// before they moved, and hands back its identifier.
+func aBotOfTheOldShape(t *testing.T, database *gorm.DB, ownerID uint, name string) uint {
+	t.Helper()
+
+	botID := uint(0)
+	require.NoError(t, database.Raw(
+		`INSERT INTO "StrategyBots"
+		   ("owner_id","name","symbol","trigger_interval_minutes","run_state","next_run_at",
+		    "last_sent_signal","halt_reason","conflicting","created_at","updated_at")
+		 VALUES (?,?,'BTCUSDT',5,'running',now(),'','',false,now(),now()) RETURNING id`,
+		ownerID, name).Scan(&botID).Error)
+	require.NotZero(t, botID)
+
+	require.NoError(t, database.Exec(
+		`INSERT INTO "StrategyBotSignalSources"
+		   ("strategy_bot_id","label","strategy_id","aggregation_interval")
+		 VALUES (?,'A',9,'1h')`, botID).Error)
+	require.NoError(t, database.Exec(
+		`INSERT INTO "StrategyBotConditionNodes"
+		   ("strategy_bot_id","side","position","operator","source_label","expected_signal")
+		 VALUES (?,'buy',0,'','A','buy'), (?,'sell',0,'','A','sell')`, botID, botID).Error)
+
+	return botID
+}
+
+// A bot that was already running keeps every set of rules it was running, and keeps
+// running. Somebody who left a bot watching overnight must find it watching the same
+// thing in the morning.
+func TestSchemaMigratorGivesEveryExistingBotItsOwnTradingStrategy(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "moved-rules@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asTheShapeBeforeTheRulesMoved(t, database)
+	botID := aBotOfTheOldShape(t, database, 1, "我的機器人")
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	movedBot := entities.StrategyBot{}
+	require.NoError(t, database.Preload("TradingStrategy").First(&movedBot, botID).Error)
+
+	// The rules are now a thing of their own, named after the bot that was running
+	// them, and belonging to the same person.
+	require.NotZero(t, movedBot.TradingStrategyID)
+	assert.Equal(t, "我的機器人", movedBot.TradingStrategy.Name)
+	assert.Equal(t, uint(1), movedBot.TradingStrategy.OwnerID)
+	// Still running, still due, still the same bot.
+	assert.Equal(t, "running", movedBot.RunState)
+	assert.Equal(t, "我的機器人", movedBot.Name)
+
+	movedTradingStrategy := entities.TradingStrategy{}
+	require.NoError(t, database.
+		Preload("SignalSources").Preload("ConditionNodes").
+		First(&movedTradingStrategy, movedBot.TradingStrategyID).Error)
+
+	// Not one of them is lost, and none of them is a copy: these are the very rows
+	// the bot was running.
+	require.Len(t, movedTradingStrategy.SignalSources, 1)
+	assert.Equal(t, "A", movedTradingStrategy.SignalSources[0].Label)
+	assert.Equal(t, uint(9), movedTradingStrategy.SignalSources[0].StrategyScriptID)
+	require.Len(t, movedTradingStrategy.ConditionNodes, 2)
+}
+
+// Two bots must not end up sharing one set of rules, and neither must end up with
+// the other's. The identifiers a fresh sequence hands out overlap with the bot
+// identifiers the rows are still carrying, so this is where that would show.
+func TestSchemaMigratorKeepsEachBotsRulesToItself(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "two-bots@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asTheShapeBeforeTheRulesMoved(t, database)
+	firstBotID := aBotOfTheOldShape(t, database, 1, "第一台")
+	secondBotID := aBotOfTheOldShape(t, database, 1, "第二台")
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	firstBot := entities.StrategyBot{}
+	require.NoError(t, database.Preload("TradingStrategy").First(&firstBot, firstBotID).Error)
+	secondBot := entities.StrategyBot{}
+	require.NoError(t, database.Preload("TradingStrategy").First(&secondBot, secondBotID).Error)
+
+	assert.Equal(t, "第一台", firstBot.TradingStrategy.Name)
+	assert.Equal(t, "第二台", secondBot.TradingStrategy.Name)
+	assert.NotEqual(t, firstBot.TradingStrategyID, secondBot.TradingStrategyID)
+
+	for _, bot := range []entities.StrategyBot{firstBot, secondBot} {
+		sourceCount := int64(0)
+		require.NoError(t, database.Model(&entities.TradingStrategySignalSource{}).
+			Where(clause.Eq{Column: "trading_strategy_id", Value: bot.TradingStrategyID}).
+			Count(&sourceCount).Error)
+		assert.Equal(t, int64(1), sourceCount, "%s 的信號來源應該還在它自己身上", bot.Name)
+	}
+}
+
+// Migrating again must not hand out a second set of rules to a bot that already has
+// one — a server restarts, and a migration that is not safe to repeat is a migration
+// that breaks on the second start.
+func TestSchemaMigratorMovesTheRulesOnlyOnce(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "twice@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asTheShapeBeforeTheRulesMoved(t, database)
+	botID := aBotOfTheOldShape(t, database, 1, "我的機器人")
+
+	_, firstError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, firstError)
+
+	firstBot := entities.StrategyBot{}
+	require.NoError(t, database.First(&firstBot, botID).Error)
+
+	_, secondError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, secondError)
+
+	secondBot := entities.StrategyBot{}
+	require.NoError(t, database.First(&secondBot, botID).Error)
+	assert.Equal(t, firstBot.TradingStrategyID, secondBot.TradingStrategyID)
+
+	tradingStrategyCount := int64(0)
+	require.NoError(t, database.Model(&entities.TradingStrategy{}).Count(&tradingStrategyCount).Error)
+	assert.Equal(t, int64(1), tradingStrategyCount)
 }

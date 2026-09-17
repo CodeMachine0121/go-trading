@@ -29,10 +29,10 @@ const strategyBotTriggerIntervalMaximumMinutes = 1440
 // own invariants. An instance only exists when every rule passed, so there is no
 // half-valid bot.
 //
-// It delegates the two halves that have rules of their own — the sources and the
-// conditions — rather than restating them. That is also what makes the ordering
-// here matter: the sources are settled first because the conditions may only name
-// labels the sources declared, and the labels are not known until the sources are.
+// It says nothing about the rules the bot follows — it only checks that exactly one
+// set of them was named. Whether those rules are this person's, and whether they
+// hold together, is TradingStrategyDomain's question, asked once where the rules
+// live rather than again in every machine that follows them.
 //
 // It knows nothing about whether the bot is running. Starting, stopping and being
 // halted happen to a bot that already exists and has already passed all of this, so
@@ -43,10 +43,8 @@ type StrategyBotDomain struct {
 	ownerID                uint
 	name                   string
 	symbol                 string
+	tradingStrategyID      uint
 	triggerIntervalMinutes int
-	signalSources          StrategyBotSignalSourcesDomain
-	buyCondition           StrategyBotConditionDomain
-	sellCondition          StrategyBotConditionDomain
 }
 
 // NewStrategyBotDomain validates the bot against every rule that applies to it. The
@@ -101,23 +99,12 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			ErrStrategyBotValidation, strategyBotTriggerIntervalMaximumMinutes)
 	}
 
-	signalSources, sourcesError := NewStrategyBotSignalSourcesDomain(writeDto.SignalSources)
-	if sourcesError != nil {
-		return StrategyBotDomain{}, sourcesError
-	}
-
-	// Both conditions are required. A bot missing one only ever says a single kind
-	// of thing, which is not a bot that judges anything.
-	buyCondition, buyError := NewStrategyBotConditionDomain(
-		writeDto.BuyCondition, signalSources.Labels())
-	if buyError != nil {
-		return StrategyBotDomain{}, fmt.Errorf("%w（買入條件）", buyError)
-	}
-
-	sellCondition, sellError := NewStrategyBotConditionDomain(
-		writeDto.SellCondition, signalSources.Labels())
-	if sellError != nil {
-		return StrategyBotDomain{}, fmt.Errorf("%w（賣出條件）", sellError)
+	// Exactly one set of rules, named rather than given. Nothing is refused here
+	// for being somebody else's — that answer has to come from reading it, and
+	// reading it is the application's job.
+	if writeDto.TradingStrategyID == 0 {
+		return StrategyBotDomain{}, fmt.Errorf(
+			"%w: 必須指名這台機器人要用哪一份交易策略", ErrStrategyBotValidation)
 	}
 
 	return StrategyBotDomain{
@@ -125,10 +112,8 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		ownerID:                writeDto.OwnerID,
 		name:                   name,
 		symbol:                 tradingSymbol.Value(),
+		tradingStrategyID:      writeDto.TradingStrategyID,
 		triggerIntervalMinutes: writeDto.TriggerIntervalMinutes,
-		signalSources:          signalSources,
-		buyCondition:           buyCondition,
-		sellCondition:          sellCondition,
 	}, nil
 }
 
@@ -144,12 +129,8 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		OwnerID:                strategyBotDomain.ownerID,
 		Name:                   strategyBotDomain.name,
 		Symbol:                 strategyBotDomain.symbol,
+		TradingStrategyID:      strategyBotDomain.tradingStrategyID,
 		TriggerIntervalMinutes: strategyBotDomain.triggerIntervalMinutes,
 		RunState:               string(vo.StrategyBotStopped),
-		SignalSources:          strategyBotDomain.signalSources.ToEntities(),
-		ConditionNodes: []entities.StrategyBotConditionNode{
-			strategyBotDomain.buyCondition.ToEntity(vo.StrategyBotConditionSideBuy, 0),
-			strategyBotDomain.sellCondition.ToEntity(vo.StrategyBotConditionSideSell, 0),
-		},
 	}
 }

@@ -344,8 +344,29 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 	)
 
+	// The rules are their own thing, built before the bots that follow them and
+	// shared by every one of them. Nothing here knows how often anything wakes up.
+	tradingStrategyService := service.NewTradingStrategyService(
+		persistence.NewTradingStrategyRepository(database),
+	)
+
+	tradingStrategyController := controller.NewTradingStrategyController(
+		application.NewTradingStrategyApplication(
+			tradingStrategyService,
+			strategyScriptService,
+			strategyBotService,
+		),
+	)
+
+	engine.POST("/trading-strategies", requiresSignIn, tradingStrategyController.CreateTradingStrategy)
+	engine.GET("/trading-strategies", requiresSignIn, tradingStrategyController.ListTradingStrategies)
+	engine.GET("/trading-strategies/:id", requiresSignIn, tradingStrategyController.GetTradingStrategy)
+	engine.PUT("/trading-strategies/:id", requiresSignIn, tradingStrategyController.UpdateTradingStrategy)
+	engine.DELETE("/trading-strategies/:id", requiresSignIn, tradingStrategyController.DeleteTradingStrategy)
+
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,
+		tradingStrategyService,
 		strategyScriptService,
 		indicatorCalculationService,
 		telegramDeliveryService,
@@ -359,7 +380,7 @@ func registerRoutes(
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
 			strategyBotService,
-			strategyScriptService,
+			tradingStrategyService,
 			telegramDeliveryService,
 		),
 		strategyBotRunApplication,

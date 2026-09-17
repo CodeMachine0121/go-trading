@@ -51,11 +51,10 @@
 | `domains.TradingStrategyConditionDomain` | Domain Model | 一棵條件樹的形狀規則與扁平化（由 `StrategyBotConditionDomain` 改名） | — | 條件群組至少兩個子條件 |
 | `domains.TradingStrategySignalSourcesDomain` | Domain Model | 一組信號來源的規則：上限、代號唯一、參數值必須是該腳本宣告過的（由 `StrategyBotSignalSourcesDomain` 改名） | — | 兩個信號來源用了同一個代號 |
 | `dto.TradingStrategyDto` / `TradingStrategyWriteDto` / `TradingStrategySignalSourceDto` / `TradingStrategyConditionDto` | DTO | domain 與 application 之間唯一的形狀；write 版本是建立與修改**共用**的輸入 | — | 全部 |
-| `dto.RunnableTradingStrategyDto` | DTO | 「拿去跑的那一份」：已解析好的信號來源（含各自的指標算式）與兩棵條件樹 | — | 判斷結論與升級前相同 |
 | `dto.TradingStrategyReferencesDto` | DTO | 「誰在引用我」的答案：總共幾台、其中哪幾台正在跑（名稱） | — | 有一台在跑時改不動 / 還有機器人引用時刪不掉 |
 | `ITradingStrategyRepository` | Interface | 交易策略聚合的持久化契約 | — | 全部 |
 | `persistence.TradingStrategyRepository` | Repository | 存／讀／刪一份交易策略，含來源與條件樹的整棵覆寫；名稱衝突由唯一索引回報 | GORM | 名稱在同一位擁有者之間不得重複 |
-| `service.TradingStrategyService` | Domain Service | 交易策略的五個用例，外加 `ResolveRunnableTradingStrategy`——**跑一輪與日後的回測共用的那一個讀取入口** | `ITradingStrategyRepository`、`IStrategyScriptRepository` | 全部 US-01 / US-02 |
+| `service.TradingStrategyService` | Domain Service | 交易策略的五個用例。其中 `GetTradingStrategy` 就是**跑一輪與日後的回測共用的那一個讀取入口** | `ITradingStrategyRepository` | 全部 US-01 / US-02 |
 | `application.TradingStrategyApplication` | Application | 編排：建立／修改前解析每個來源指名的策略腳本（三道關卡＋宣告的參數），改與刪之前先問機器人那邊「誰在引用我」 | `TradingStrategyService`、`StrategyBotService`、`StrategyScriptService` | US-02、US-04 |
 | `controller.TradingStrategyController` | Controller | 五條路由的請求／回應轉換 | `TradingStrategyApplication` | 全部 |
 
@@ -114,9 +113,9 @@ flowchart TD
 ## 6. Extensibility & Handoff Notes
 
 - **Most likely next requirement：** 回測一份交易策略（下一個切片，已在 BRIEF 裡指名）。
-- **Where it lands：** `TradingStrategyService.ResolveRunnableTradingStrategy`。
-  它回的 `RunnableTradingStrategyDto` 就是回測要的全部——一組已解析的信號來源
-  （帶各自的指標算式與參數值、各自的彙總刻度）與兩棵條件樹。
+- **Where it lands：** `TradingStrategyService.GetTradingStrategy`。
+  它回的 `TradingStrategyDto` 就是回測要的全部——一組信號來源
+  （各自指名一支策略腳本、帶參數值與彙總刻度）與兩棵條件樹。
 - **How to add it：** 新的 `TradingStrategyBacktestApplication` 呼叫同一個方法拿到那份 DTO，
   逐棒求值。**不必碰**交易策略的 entity、domain、repository 或 service。
 - **再下一個：** 交易策略的市集。它會落在 `TradingStrategy` 旁邊，
@@ -132,9 +131,9 @@ flowchart TD
 - **Known debt / deferred：**
   - 「改之前先問誰在跑」與「真的改下去」之間沒有鎖。PRD 已接受：最壞是那一輪用舊規則、
     下一輪用新的，兩者都是完整的一版。要收掉它的訊號是有人回報「改了之後那一輪還是舊的」。
-  - 機器人不 cascade 到交易策略，所以「刪不掉」是**程式碼擋的**，不是資料庫擋的。
-    要更硬的話，日後可以加一條外鍵 restrict；現在不加，是因為那句拒絕要說得出「有幾台在用」，
-    而資料庫的拒絕說不出那個數字。
+  - 機器人指向交易策略的那一欄**完全沒有外鍵**，所以「刪不掉」是**程式碼擋的**。
+    這不只是取捨，是唯一可行的做法：欄位加上去的那一刻，每一台既有機器人都還帶著搬家尚未清掉的 0，
+    外鍵會當場拒絕那一次升級本身。順帶的好處是那句拒絕說得出「有幾台在用」，而資料庫說不出。
 
 ---
 
@@ -205,6 +204,15 @@ flowchart TD
 | 表名與 entity 名不一致（沿用 Phase 0 的處理） | 這次**不沿用**——這三張子表用 `RenameTable` 真的改名，因為 ORM 改得動表名，而 Phase 0 改不動的是「已經有資料的表換一個 entity」這件事 |
 | 兩個 Domain Service 都被同一個 Application 使用 | 這正是 Application 層存在的理由；兩個 service 之間仍然互不認識 |
 | 前後端必須一起上 | 機器人的請求形狀變了。兩邊各自的切片一起交付 |
+
+### 實作時偏離設計之處（已驗證）
+
+| 原設計 | 實際做法 | 為什麼 |
+| :--- | :--- | :--- |
+| `ResolveRunnableTradingStrategy` ＋ `RunnableTradingStrategyDto` | **拿掉**，改用 `GetTradingStrategy` | 兩者會做同一件事：以擁有者身分讀回信號來源與兩棵條件樹。跑一輪本來就是「以那台機器人的擁有者身分」讀，答案一字不差。一個讀取入口，跑一輪與畫面看到的就永遠不會漂移 |
+| 機器人的交易策略欄位帶外鍵 | **不帶** | 見上方 Known debt：外鍵在欄位加上去的當下就會拒絕升級本身 |
+| 表名沿用（比照 Phase 0） | **真的改名**，另加欄名與索引名一起改 | ORM 改得動表名、欄名與索引名，資料一列都不搬。Phase 0 改不動的是「已經有資料的表換一個 entity」，那是另一件事 |
+| 退役外鍵不處理 | **加一份退役外鍵清單** | 三張子表改名之後帶著四條舊外鍵，其中兩條仍指著 `StrategyBots`——那不是殘留而是當場的故障：每一次寫入都會被一條指錯地方的外鍵擋下 |
 
 ### Open decisions（交給實作）
 
