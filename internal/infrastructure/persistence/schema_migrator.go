@@ -473,7 +473,13 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 
 	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
 		unmovedBots := []entities.StrategyBot{}
-		if findError := transaction.
+		// The three columns are named rather than taking the whole row, and that is
+		// not a saving. This runs on a connection that has already read this table
+		// once and has just altered it: a statement whose result type changed under
+		// a cached plan is refused outright. Three columns this step does not touch
+		// keep the same result type on both sides of the change.
+		if findError := transaction.Model(&entities.StrategyBot{}).
+			Select("id", "owner_id", "name").
 			Where(clause.Eq{Column: "trading_strategy_id", Value: 0}).
 			Order("id ASC").
 			Find(&unmovedBots).Error; findError != nil {
