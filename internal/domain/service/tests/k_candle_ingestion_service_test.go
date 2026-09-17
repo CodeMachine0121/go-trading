@@ -1284,3 +1284,71 @@ func TestSyncingHistoryReportsASourceThatWouldNotAnswer(t *testing.T) {
 	require.Len(t, report.SymbolReports, 1)
 	assert.Contains(t, report.SymbolReports[0].FetchFailureReason, "unreachable")
 }
+
+func TestSyncingHistoryDropsAStandingDecisionThatTheMarketIsShut(t *testing.T) {
+	// Somebody asking by hand is somebody saying they want the source asked. Obeying
+	// a presumed holiday would answer them with a report saying nothing was
+	// collected — indistinguishable from a market that genuinely had nothing — and
+	// leave them no way to correct a decision that may have been wrong.
+	//
+	// Same rule as the on-demand catch-up, and the same code; this pins that going in
+	// through the history sync reaches it too.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-11T10:00:00+08:00"))
+	underTest.acceptEverySave()
+	underTest.tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).Return(
+		[]entities.TradingSymbol{{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}}, nil).AnyTimes()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil).AnyTimes()
+
+	// A scheduled round that hears nothing from every watched symbol of a market is
+	// what earns the "shut for the day" conclusion in the first place.
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.MarketKCandleVo{}, nil)
+	_, roundError := underTest.service.RunScheduledRound(t.Context())
+	require.NoError(t, roundError)
+
+	// The next scheduled round obeys that decision and never reaches the source.
+	// The history sync, arriving right after it, must.
+	askedAgain := false
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+			askedAgain = true
+
+			return []vo.MarketKCandleVo{}, nil
+		})
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("2330", 2), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	assert.True(t, askedAgain, "手動同步必須真的去問來源，而不是沿用「今天休市」那個判斷")
+	require.Len(t, report.SymbolReports, 1)
+	assert.True(t, report.SymbolReports[0].WasAsked)
+}
+
+func TestSyncingHistoryOverAClosedMarketIsNotAFailure(t *testing.T) {
+	// A stretch that lies entirely outside a market's session holds no candle, and
+	// that is a fact about the market rather than a failed request. It has to be
+	// told apart from a source that would not answer: one is normal, the other is
+	// worth chasing.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2026-09-13T10:00:00+08:00"))
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+	// The whole window falls on a weekend, so the source is never even reached.
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+
+	report, syncError := underTest.service.SyncHistoryFor(
+		t.Context(), historySyncOf("2330", 1), historyCeilingDays)
+
+	require.NoError(t, syncError)
+	require.Len(t, report.SymbolReports, 1)
+	assert.False(t, report.SymbolReports[0].WasAsked)
+	assert.Empty(t, report.SymbolReports[0].FetchFailureReason)
+	assert.Equal(t, 0, report.SymbolReports[0].StoredCount)
+}
