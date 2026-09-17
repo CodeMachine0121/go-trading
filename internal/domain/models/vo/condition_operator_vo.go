@@ -6,7 +6,7 @@ package vo
 // question that would need a number alongside it, and inventing a place for that
 // number before anybody asks for it would put an unused field on every group.
 // Immutable, no behavior: what each one does to a set of answers lives in
-// StrategyBotConditionDomain.
+// TradingStrategyConditionDomain.
 type ConditionOperatorVo string
 
 const (

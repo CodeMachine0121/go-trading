@@ -14,8 +14,8 @@ import (
 // back — and a write naming a knob the strategy script never declared is refused. The
 // refusal names the knob, three steps away from the field that lost it, so the shape
 // this goes out in is worth pinning rather than reading off the struct.
-func TestStrategyBotSignalSourceDtoIsWrittenInTheShapeItIsReadIn(t *testing.T) {
-	signalSource := dto.StrategyBotSignalSourceDto{
+func TestTradingStrategySignalSourceDtoIsWrittenInTheShapeItIsReadIn(t *testing.T) {
+	signalSource := dto.TradingStrategySignalSourceDto{
 		Label:               "A",
 		StrategyScriptID:    30,
 		AggregationInterval: "5m",

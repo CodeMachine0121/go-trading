@@ -40,6 +40,13 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 		errors.Is(roundError, ErrStrategyScriptNotPublished):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltStrategyScriptUnavailable}
 
+	// The rules a bot follows being gone is not something time fixes either, and
+	// the bot has nothing left to run. It stops and says so rather than skipping
+	// for ever, which is the only outcome its owner could neither see nor fix.
+	case errors.Is(roundError, ErrTradingStrategyNotFound):
+		return StrategyBotRoundFailureDomain{
+			haltReason: vo.StrategyBotHaltTradingStrategyUnavailable}
+
 	case errors.Is(roundError, ErrIndicatorScriptFailed),
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltScriptFailed}

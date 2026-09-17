@@ -38,6 +38,7 @@ const strategyBotRecordTimeout = 15 * time.Second
 // a step somebody would otherwise be able to leave out.
 type StrategyBotRunApplication struct {
 	strategyBotService          *service.StrategyBotService
+	tradingStrategyService      *service.TradingStrategyService
 	strategyScriptService       *service.StrategyScriptService
 	indicatorCalculationService *service.IndicatorCalculationService
 	telegramDeliveryService     *service.TelegramDeliveryService
@@ -50,6 +51,7 @@ type StrategyBotRunApplication struct {
 
 func NewStrategyBotRunApplication(
 	strategyBotService *service.StrategyBotService,
+	tradingStrategyService *service.TradingStrategyService,
 	strategyScriptService *service.StrategyScriptService,
 	indicatorCalculationService *service.IndicatorCalculationService,
 	telegramDeliveryService *service.TelegramDeliveryService,
@@ -61,6 +63,7 @@ func NewStrategyBotRunApplication(
 ) *StrategyBotRunApplication {
 	return &StrategyBotRunApplication{
 		strategyBotService:          strategyBotService,
+		tradingStrategyService:      tradingStrategyService,
 		strategyScriptService:       strategyScriptService,
 		indicatorCalculationService: indicatorCalculationService,
 		telegramDeliveryService:     telegramDeliveryService,
@@ -255,8 +258,25 @@ func (strategyBotRunApplication *StrategyBotRunApplication) roundDeadlineFor(
 func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 ) dto.StrategyBotRoundOutcomeDto {
+	// Read every round rather than carried on the bot, which is what makes editing
+	// a shared set of rules take effect on the next round of every bot following
+	// it. It is read as the bot's owner: a round has no signed-in caller, and the
+	// clock is not a person.
+	tradingStrategyDto, tradingStrategyError := strategyBotRunApplication.tradingStrategyService.
+		GetTradingStrategy(executionContext, botDto.OwnerID, botDto.TradingStrategyID)
+	if tradingStrategyError != nil {
+		// Very nearly unreachable — deleting a set of rules is refused while any bot
+		// follows it — but "very nearly" is why this halts rather than skips: a bot
+		// with nothing to run that keeps reporting itself as running is the one
+		// outcome its owner can neither see nor fix.
+		log.Printf("strategy bot %d: round could not read its trading strategy: %v",
+			botDto.ID, tradingStrategyError)
+
+		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(tradingStrategyError)
+	}
+
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
-		executionContext, botDto)
+		executionContext, botDto, tradingStrategyDto)
 	if roundError != nil {
 		// Said out loud, always. A round that ends here leaves one word in its
 		// history — "hold" — which is the same word a round that ran fine and
@@ -271,7 +291,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	}
 
 	decision, decideError := strategyBotRunApplication.strategyBotService.DecideRound(
-		botDto, signalsByLabel)
+		botDto, tradingStrategyDto, signalsByLabel)
 	if decideError != nil {
 		log.Printf("strategy bot %d: round could not read its conditions: %v",
 			botDto.ID, decideError)
@@ -378,19 +398,20 @@ func (strategyBotRunApplication *StrategyBotRunApplication) stillWaitingForThisR
 // absent, and would quietly come out false.
 func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 	executionContext context.Context, botDto dto.StrategyBotDto,
+	tradingStrategyDto dto.TradingStrategyDto,
 ) (map[string]vo.SignalVo, []dto.StrategyBotSourceSignalDto, error) {
 	endTime := strategyBotRunApplication.clockProxy.Now()
 	startTime := endTime.Add(-strategyBotObservationWindowLength)
 
 	signalsByLabel := map[string]vo.SignalVo{}
-	sourceSignals := make([]dto.StrategyBotSourceSignalDto, len(botDto.SignalSources))
-	sourceErrors := make([]error, len(botDto.SignalSources))
+	sourceSignals := make([]dto.StrategyBotSourceSignalDto, len(tradingStrategyDto.SignalSources))
+	sourceErrors := make([]error, len(tradingStrategyDto.SignalSources))
 
 	waitGroup := sync.WaitGroup{}
 	signalsMutex := sync.Mutex{}
 
-	for index := range botDto.SignalSources {
-		signalSource := botDto.SignalSources[index]
+	for index := range tradingStrategyDto.SignalSources {
+		signalSource := tradingStrategyDto.SignalSources[index]
 		resultIndex := index
 
 		waitGroup.Add(1)

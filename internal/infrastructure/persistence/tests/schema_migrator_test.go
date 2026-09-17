@@ -8,6 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // retiredStrategyScriptColumns are the columns a strategy script used to carry. They described one
@@ -166,4 +168,253 @@ func TestSchemaMigratorBuildsAStrategyScriptTableThatIsNotThereYet(t *testing.T)
 		FindAllOwnedBy(t.Context(), strategyScriptRowOwnerID)
 	require.NoError(t, findError)
 	assert.Empty(t, strategyScripts)
+}
+
+// asTheShapeBeforeTheRulesMoved puts the database back the way it was when a bot
+// carried its own signal sources and its own two condition trees.
+//
+// It is raw SQL for the reason the retired columns above are: syncing the schema
+// works from the entities, and the entities no longer describe this shape. Raw SQL
+// belongs to the test alone — this is the one place that has to describe a database
+// as it was rather than as the code says it should be.
+func asTheShapeBeforeTheRulesMoved(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	for _, statement := range []string{
+		// The foreign keys go back to naming the bot too, which is both what the old
+		// shape had and what lets rows carrying bot identifiers be written at all.
+		`ALTER TABLE "TradingStrategySignalSources"
+		   DROP CONSTRAINT IF EXISTS "fk_TradingStrategies_signal_sources"`,
+		`ALTER TABLE "TradingStrategyConditionNodes"
+		   DROP CONSTRAINT IF EXISTS "fk_TradingStrategies_condition_nodes"`,
+		`ALTER TABLE "TradingStrategySignalSources" RENAME TO "StrategyBotSignalSources"`,
+		`ALTER TABLE "TradingStrategyConditionNodes" RENAME TO "StrategyBotConditionNodes"`,
+		`ALTER TABLE "TradingStrategySignalSourceParameterValues"
+		   RENAME TO "StrategyBotSignalSourceParameterValues"`,
+		`ALTER TABLE "StrategyBotSignalSources" RENAME COLUMN "trading_strategy_id" TO "strategy_bot_id"`,
+		`ALTER TABLE "StrategyBotConditionNodes" RENAME COLUMN "trading_strategy_id" TO "strategy_bot_id"`,
+		`ALTER TABLE "StrategyBotSignalSourceParameterValues"
+		   RENAME COLUMN "trading_strategy_signal_source_id" TO "strategy_bot_signal_source_id"`,
+		`ALTER INDEX "idx_trading_strategy_signal_sources_strategy"
+		   RENAME TO "idx_strategy_bot_signal_sources_bot"`,
+		`ALTER INDEX "idx_trading_strategy_signal_sources_strategy_label"
+		   RENAME TO "idx_strategy_bot_signal_sources_bot_label"`,
+		`ALTER INDEX "idx_trading_strategy_signal_sources_script"
+		   RENAME TO "idx_strategy_bot_signal_sources_strategy"`,
+		`ALTER INDEX "idx_trading_strategy_condition_nodes_strategy"
+		   RENAME TO "idx_strategy_bot_condition_nodes_bot"`,
+		`ALTER INDEX "idx_trading_strategy_condition_nodes_parent"
+		   RENAME TO "idx_strategy_bot_condition_nodes_parent"`,
+		`ALTER INDEX "idx_trading_strategy_source_parameter_values_source"
+		   RENAME TO "idx_strategy_bot_source_parameter_values_source"`,
+		`ALTER TABLE "StrategyBots" DROP COLUMN "trading_strategy_id"`,
+		`ALTER TABLE "StrategyBotSignalSources"
+		   ADD CONSTRAINT "fk_StrategyBots_signal_sources"
+		   FOREIGN KEY ("strategy_bot_id") REFERENCES "StrategyBots"("id") ON DELETE CASCADE`,
+		`ALTER TABLE "StrategyBotConditionNodes"
+		   ADD CONSTRAINT "fk_StrategyBots_condition_nodes"
+		   FOREIGN KEY ("strategy_bot_id") REFERENCES "StrategyBots"("id") ON DELETE CASCADE`,
+	} {
+		require.NoError(t, database.Exec(statement).Error,
+			"這個測試得先把資料庫變回搬家以前的樣子，才有東西可以被搬")
+	}
+}
+
+// asAStranger is the same, plus dropping the table the rules move into — the shape a
+// database that has never seen this feature is actually in.
+//
+// It is separate because one test needs the table to stay: the identifiers it hands
+// out are what that test is about, and dropping it would reset them.
+func asAStranger(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	asTheShapeBeforeTheRulesMoved(t, database)
+	require.NoError(t, database.Exec(`DROP TABLE "TradingStrategies" CASCADE`).Error)
+}
+
+// aBotOfTheOldShape plants one bot carrying its own rules, exactly as one was stored
+// before they moved, and hands back its identifier.
+func aBotOfTheOldShape(t *testing.T, database *gorm.DB, ownerID uint, name string) uint {
+	t.Helper()
+
+	botID := uint(0)
+	require.NoError(t, database.Raw(
+		`INSERT INTO "StrategyBots"
+		   ("owner_id","name","symbol","trigger_interval_minutes","run_state","next_run_at",
+		    "last_sent_signal","halt_reason","conflicting","created_at","updated_at")
+		 VALUES (?,?,'BTCUSDT',5,'running',now(),'','',false,now(),now()) RETURNING id`,
+		ownerID, name).Scan(&botID).Error)
+	require.NotZero(t, botID)
+
+	require.NoError(t, database.Exec(
+		`INSERT INTO "StrategyBotSignalSources"
+		   ("strategy_bot_id","label","strategy_id","aggregation_interval")
+		 VALUES (?,'A',9,'1h')`, botID).Error)
+	require.NoError(t, database.Exec(
+		`INSERT INTO "StrategyBotConditionNodes"
+		   ("strategy_bot_id","side","position","operator","source_label","expected_signal")
+		 VALUES (?,'buy',0,'','A','buy'), (?,'sell',0,'','A','sell')`, botID, botID).Error)
+
+	return botID
+}
+
+// A bot that was already running keeps every set of rules it was running, and keeps
+// running. Somebody who left a bot watching overnight must find it watching the same
+// thing in the morning.
+func TestSchemaMigratorGivesEveryExistingBotItsOwnTradingStrategy(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "moved-rules@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asAStranger(t, database)
+	botID := aBotOfTheOldShape(t, database, 1, "我的機器人")
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	movedBot := entities.StrategyBot{}
+	require.NoError(t, database.Preload("TradingStrategy").First(&movedBot, botID).Error)
+
+	// The rules are now a thing of their own, named after the bot that was running
+	// them, and belonging to the same person.
+	require.NotZero(t, movedBot.TradingStrategyID)
+	assert.Equal(t, "我的機器人", movedBot.TradingStrategy.Name)
+	assert.Equal(t, uint(1), movedBot.TradingStrategy.OwnerID)
+	// Still running, still due, still the same bot.
+	assert.Equal(t, "running", movedBot.RunState)
+	assert.Equal(t, "我的機器人", movedBot.Name)
+
+	movedTradingStrategy := entities.TradingStrategy{}
+	require.NoError(t, database.
+		Preload("SignalSources").Preload("ConditionNodes").
+		First(&movedTradingStrategy, movedBot.TradingStrategyID).Error)
+
+	// Not one of them is lost, and none of them is a copy: these are the very rows
+	// the bot was running.
+	require.Len(t, movedTradingStrategy.SignalSources, 1)
+	assert.Equal(t, "A", movedTradingStrategy.SignalSources[0].Label)
+	assert.Equal(t, uint(9), movedTradingStrategy.SignalSources[0].StrategyScriptID)
+	require.Len(t, movedTradingStrategy.ConditionNodes, 2)
+}
+
+// Two bots must not end up sharing one set of rules, and neither must end up with
+// the other's. The identifiers a fresh sequence hands out overlap with the bot
+// identifiers the rows are still carrying, so this is where that would show.
+func TestSchemaMigratorKeepsEachBotsRulesToItself(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "two-bots@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asAStranger(t, database)
+	firstBotID := aBotOfTheOldShape(t, database, 1, "第一台")
+	secondBotID := aBotOfTheOldShape(t, database, 1, "第二台")
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	firstBot := entities.StrategyBot{}
+	require.NoError(t, database.Preload("TradingStrategy").First(&firstBot, firstBotID).Error)
+	secondBot := entities.StrategyBot{}
+	require.NoError(t, database.Preload("TradingStrategy").First(&secondBot, secondBotID).Error)
+
+	assert.Equal(t, "第一台", firstBot.TradingStrategy.Name)
+	assert.Equal(t, "第二台", secondBot.TradingStrategy.Name)
+	assert.NotEqual(t, firstBot.TradingStrategyID, secondBot.TradingStrategyID)
+
+	for _, bot := range []entities.StrategyBot{firstBot, secondBot} {
+		sourceCount := int64(0)
+		require.NoError(t, database.Model(&entities.TradingStrategySignalSource{}).
+			Where(clause.Eq{Column: "trading_strategy_id", Value: bot.TradingStrategyID}).
+			Count(&sourceCount).Error)
+		assert.Equal(t, int64(1), sourceCount, "%s 的信號來源應該還在它自己身上", bot.Name)
+	}
+}
+
+// Migrating again must not hand out a second set of rules to a bot that already has
+// one — a server restarts, and a migration that is not safe to repeat is a migration
+// that breaks on the second start.
+func TestSchemaMigratorMovesTheRulesOnlyOnce(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "twice@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asAStranger(t, database)
+	botID := aBotOfTheOldShape(t, database, 1, "我的機器人")
+
+	_, firstError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, firstError)
+
+	firstBot := entities.StrategyBot{}
+	require.NoError(t, database.First(&firstBot, botID).Error)
+
+	_, secondError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, secondError)
+
+	secondBot := entities.StrategyBot{}
+	require.NoError(t, database.First(&secondBot, botID).Error)
+	assert.Equal(t, firstBot.TradingStrategyID, secondBot.TradingStrategyID)
+
+	tradingStrategyCount := int64(0)
+	require.NoError(t, database.Model(&entities.TradingStrategy{}).Count(&tradingStrategyCount).Error)
+	assert.Equal(t, int64(1), tradingStrategyCount)
+}
+
+// A first attempt that failed leaves the identifier sequence advanced — Postgres
+// sequences do not roll back — so on the retry an identifier handed out can equal a
+// *later* bot's identifier, which is still what that bot's rule rows are carrying.
+// Gathering those rows one bot at a time would then let the later bot sweep up the
+// earlier one's, and the earlier one would come out of the migration with no rules.
+func TestSchemaMigratorKeepsEachBotsRulesToItselfAfterAFailedAttempt(t *testing.T) {
+	database := newTestDatabase(t)
+	require.NoError(t, database.Create(&entities.User{
+		ID: 1, Email: "retry@example.com", PasswordProof: "a-proof",
+	}).Error)
+
+	asTheShapeBeforeTheRulesMoved(t, database)
+	firstBotID := aBotOfTheOldShape(t, database, 1, "第一台")
+	secondBotID := aBotOfTheOldShape(t, database, 1, "第二台")
+	require.Less(t, firstBotID, secondBotID)
+
+	// The next identifier is the second bot's — exactly the collision a rolled-back
+	// first attempt can leave behind, and the one the move pushes past.
+	withTheNextIdentifierBeing(t, database, secondBotID)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+	require.NoError(t, migrateError)
+
+	for _, botID := range []uint{firstBotID, secondBotID} {
+		bot := entities.StrategyBot{}
+		require.NoError(t, database.First(&bot, botID).Error)
+
+		sourceCount := int64(0)
+		require.NoError(t, database.Model(&entities.TradingStrategySignalSource{}).
+			Where(clause.Eq{Column: "trading_strategy_id", Value: bot.TradingStrategyID}).
+			Count(&sourceCount).Error)
+		assert.Equal(t, int64(1), sourceCount, "%s 的信號來源應該還在它自己身上", bot.Name)
+
+		nodeCount := int64(0)
+		require.NoError(t, database.Model(&entities.TradingStrategyConditionNode{}).
+			Where(clause.Eq{Column: "trading_strategy_id", Value: bot.TradingStrategyID}).
+			Count(&nodeCount).Error)
+		assert.Equal(t, int64(2), nodeCount, "%s 的兩棵條件樹應該還在它自己身上", bot.Name)
+		// Every identifier handed out is past every bot, which is what makes the
+		// collision impossible rather than merely unlikely.
+		assert.Greater(t, bot.TradingStrategyID, secondBotID)
+	}
+}
+
+// withTheNextIdentifierBeing puts the identifier this table hands out next exactly
+// where a rolled-back first attempt can leave it: on a bot that has not been moved.
+//
+// Raw SQL, because moving a sequence has no word in the ORM — and this is a test
+// describing a database as it can be, not as the code says it should be.
+func withTheNextIdentifierBeing(t *testing.T, database *gorm.DB, nextIdentifier uint) {
+	t.Helper()
+
+	require.NoError(t, database.Exec(
+		`SELECT setval(pg_get_serial_sequence('"TradingStrategies"', 'id'), ?, false)`,
+		nextIdentifier).Error)
 }

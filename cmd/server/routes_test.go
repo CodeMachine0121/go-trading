@@ -41,6 +41,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /strategy-bots/:id/power",
 		"DELETE /strategy-scripts/:id",
 		"DELETE /strategy-scripts/:id/publication",
+		// 一份規則自己是一個東西，所以它有自己的一組路徑，而不是掛在機器人底下。
+		"DELETE /trading-strategies/:id",
 		// Taking away the place this system was told to speak to. It names nobody
 		// but the person asking, so it cannot reach a symbol either.
 		"DELETE /users/me/telegram-delivery",
@@ -68,6 +70,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /strategy-bots/:id/runs",
 		"GET /strategy-scripts",
 		"GET /strategy-scripts/:id",
+		"GET /trading-strategies",
+		"GET /trading-strategies/:id",
 		"GET /trading-symbols",
 		// Recognising a person reads and writes only users. None of these three can
 		// name a symbol, so the boundary this test holds is intact.
@@ -89,6 +93,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /strategy-bots/:id/runs",
 		"POST /strategy-scripts",
 		"POST /strategy-scripts/:id/publication",
+		"POST /trading-strategies",
 		"POST /users",
 		// Replacing one's own password. It names nobody but the person asking —
 		// who that is comes from the proof on the request — so it cannot reach a
@@ -101,6 +106,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategy-bots/:id",
 		"PUT /strategy-scripts/:id",
+		"PUT /trading-strategies/:id",
 		"PUT /users/me/telegram-delivery",
 	}, mountedRoutes)
 }

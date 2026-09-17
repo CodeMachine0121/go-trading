@@ -86,6 +86,21 @@ func (mr *MockIStrategyBotRepositoryMockRecorder) FindAllByOwner(executionContex
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllByOwner", reflect.TypeOf((*MockIStrategyBotRepository)(nil).FindAllByOwner), executionContext, ownerID)
 }
 
+// FindAllByTradingStrategy mocks base method.
+func (m *MockIStrategyBotRepository) FindAllByTradingStrategy(executionContext context.Context, tradingStrategyID uint) ([]entities.StrategyBot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAllByTradingStrategy", executionContext, tradingStrategyID)
+	ret0, _ := ret[0].([]entities.StrategyBot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindAllByTradingStrategy indicates an expected call of FindAllByTradingStrategy.
+func (mr *MockIStrategyBotRepositoryMockRecorder) FindAllByTradingStrategy(executionContext, tradingStrategyID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllByTradingStrategy", reflect.TypeOf((*MockIStrategyBotRepository)(nil).FindAllByTradingStrategy), executionContext, tradingStrategyID)
+}
+
 // FindDue mocks base method.
 func (m *MockIStrategyBotRepository) FindDue(executionContext context.Context, moment time.Time, limit int) ([]entities.StrategyBot, error) {
 	m.ctrl.T.Helper()

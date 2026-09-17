@@ -31,7 +31,14 @@ type strategyBotRunUnderTest struct {
 	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
 	roundGuard                 *application.StrategyBotRoundGuard
-	t                          *testing.T
+	// tradingStrategy is the rules every round in this file reads, held by pointer
+	// so that a test can change them and have the next round see the change — which
+	// is exactly what a round does against a set of rules somebody has edited.
+	tradingStrategy *entities.TradingStrategy
+	// tradingStrategyFailure makes that read fail instead, for the one test about a
+	// bot whose rules are gone.
+	tradingStrategyFailure *error
+	t                      *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services and models a round goes
@@ -67,6 +74,18 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 
+	tradingStrategy := aDueTradingStrategy()
+	tradingStrategyFailure := error(nil)
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
+	tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), botsTradingStrategyID).
+		DoAndReturn(func(_ context.Context, _ uint) (entities.TradingStrategy, error) {
+			if tradingStrategyFailure != nil {
+				return entities.TradingStrategy{}, tradingStrategyFailure
+			}
+
+			return tradingStrategy, nil
+		}).AnyTimes()
+
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
 	secretSealProxy.EXPECT().Unseal("sealed").Return("the-token", nil).AnyTimes()
 
@@ -74,6 +93,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
@@ -97,6 +117,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		strategyScriptRepository:   strategyScriptRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
 		roundGuard:                 roundGuard,
+		tradingStrategy:            &tradingStrategy,
+		tradingStrategyFailure:     &tradingStrategyFailure,
 		t:                          t,
 	}
 }
@@ -129,28 +151,40 @@ func (underTest strategyBotRunUnderTest) expectDeliverySetting() {
 		}, nil).AnyTimes()
 }
 
-// aDueBot is one running bot with two sources and the conditions
-// "buy when both say buy" and "sell when A says sell".
+// aDueBot is one running bot, due now, following the rules aDueTradingStrategy
+// describes.
 func aDueBot(lastSentSignal string) entities.StrategyBot {
 	return entities.StrategyBot{
 		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", Symbol: "BTCUSDT",
+		TradingStrategyID:      botsTradingStrategyID,
+		TradingStrategy:        entities.TradingStrategy{ID: botsTradingStrategyID, Name: "黃金交叉"},
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotRunning),
 		// 這一輪是憑這個時刻被領走的。送出前與寫回前都會再確認它沒有被別人動過。
 		NextRunAt:      botRunNow.Add(-time.Minute),
 		LastSentSignal: lastSentSignal,
-		SignalSources: []entities.StrategyBotSignalSource{
-			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyScriptID: 9, AggregationInterval: "1h"},
-			{ID: 21, StrategyBotID: strategyBotID, Label: "B", StrategyScriptID: 10, AggregationInterval: "5m"},
+	}
+}
+
+// aDueTradingStrategy is two sources and the conditions "buy when both say buy" and
+// "sell when A says sell".
+func aDueTradingStrategy() entities.TradingStrategy {
+	return entities.TradingStrategy{
+		ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
+		SignalSources: []entities.TradingStrategySignalSource{
+			{ID: 20, TradingStrategyID: botsTradingStrategyID, Label: "A",
+				StrategyScriptID: 9, AggregationInterval: "1h"},
+			{ID: 21, TradingStrategyID: botsTradingStrategyID, Label: "B",
+				StrategyScriptID: 10, AggregationInterval: "5m"},
 		},
-		ConditionNodes: []entities.StrategyBotConditionNode{
-			{ID: 10, StrategyBotID: strategyBotID, Side: "buy",
+		ConditionNodes: []entities.TradingStrategyConditionNode{
+			{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
 				Operator: string(vo.ConditionOperatorAnd)},
-			{ID: 11, StrategyBotID: strategyBotID, Side: "buy", ParentID: parentOf(10),
+			{ID: 11, TradingStrategyID: botsTradingStrategyID, Side: "buy", ParentID: parentOf(10),
 				Position: 0, SourceLabel: "A", ExpectedSignal: string(vo.SignalBuy)},
-			{ID: 12, StrategyBotID: strategyBotID, Side: "buy", ParentID: parentOf(10),
+			{ID: 12, TradingStrategyID: botsTradingStrategyID, Side: "buy", ParentID: parentOf(10),
 				Position: 1, SourceLabel: "B", ExpectedSignal: string(vo.SignalBuy)},
-			{ID: 13, StrategyBotID: strategyBotID, Side: "sell",
+			{ID: 13, TradingStrategyID: botsTradingStrategyID, Side: "sell",
 				SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
 		},
 	}
@@ -271,10 +305,10 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 	// "A and B both buy". To hold both at once the bot needs a buy condition A also
 	// satisfies, so this one uses a bot whose conditions overlap on purpose.
 	conflictingBot := aDueBot(string(vo.SignalBuy))
-	conflictingBot.ConditionNodes = []entities.StrategyBotConditionNode{
-		{ID: 10, StrategyBotID: strategyBotID, Side: "buy",
+	underTest.tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
+		{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
 			SourceLabel: "B", ExpectedSignal: string(vo.SignalBuy)},
-		{ID: 13, StrategyBotID: strategyBotID, Side: "sell",
+		{ID: 13, TradingStrategyID: botsTradingStrategyID, Side: "sell",
 			SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
 	}
 
@@ -572,10 +606,10 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t
 	// four things a person can go and correct, so it skips rather than halts — the
 	// rule that covers anything unrecognised.
 	brokenBot := aDueBot("")
-	brokenBot.ConditionNodes = []entities.StrategyBotConditionNode{
-		{ID: 10, StrategyBotID: strategyBotID, Side: "buy",
+	underTest.tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
+		{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
 			SourceLabel: "Z", ExpectedSignal: string(vo.SignalBuy)},
-		{ID: 13, StrategyBotID: strategyBotID, Side: "sell",
+		{ID: 13, TradingStrategyID: botsTradingStrategyID, Side: "sell",
 			SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
 	}
 
@@ -717,10 +751,10 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 	// side, a bot with a broken sell condition would keep concluding "buy" from a
 	// tree nobody had looked at.
 	brokenBot := aDueBot("")
-	brokenBot.ConditionNodes = []entities.StrategyBotConditionNode{
-		{ID: 10, StrategyBotID: strategyBotID, Side: "buy",
+	underTest.tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
+		{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
 			SourceLabel: "A", ExpectedSignal: string(vo.SignalBuy)},
-		{ID: 13, StrategyBotID: strategyBotID, Side: "sell",
+		{ID: 13, TradingStrategyID: botsTradingStrategyID, Side: "sell",
 			SourceLabel: "Z", ExpectedSignal: string(vo.SignalSell)},
 	}
 
@@ -986,4 +1020,44 @@ func TestStrategyBotRunApplicationRefusesToRunSomebodyElsesBotByHand(t *testing.
 		context.Background(), strategyBotOwnerID+99, strategyBotID)
 
 	require.ErrorIs(t, runError, domains.ErrStrategyBotNotFound)
+}
+
+// A bot whose rules are gone has nothing left to run, and waiting fixes nothing.
+//
+// Deleting a set of rules is refused while any bot follows it, so this is very nearly
+// unreachable — but "very nearly" is why it halts rather than skips: a bot reporting
+// itself as running while saying nothing for ever is the one outcome its owner can
+// neither see nor fix.
+func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil)
+	*underTest.tradingStrategyFailure = domains.TradingStrategyNotFound(botsTradingStrategyID)
+	// Halting says so out loud, and the message names which of the six reasons it
+	// was — a bot that stops without saying why leaves its owner nothing to act on.
+	underTest.expectDeliverySetting()
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.Contains(t, message, "那一份交易策略找不到了")
+
+			return vo.DeliveryFailureNone, nil
+		})
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+			assert.Equal(t, string(vo.StrategyBotStopped), bot.RunState)
+			assert.Equal(t, string(vo.StrategyBotHaltTradingStrategyUnavailable), bot.HaltReason)
+
+			return nil
+		})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
 }

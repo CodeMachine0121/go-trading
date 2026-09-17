@@ -144,6 +144,37 @@ func (strategyBotService *StrategyBotService) DeleteStrategyBot(
 	return strategyBotService.strategyBotRepository.Delete(executionContext, id)
 }
 
+// ReadReferencesTo says who is following this set of rules: how many bots in total,
+// and which of them are running.
+//
+// Both halves come from one read, because both refusals that use them are about the
+// same moment — a rewrite blocked by a running bot, a delete blocked by any bot —
+// and two reads can disagree about it.
+//
+// It asks nothing about who wants to know. The caller has already established that
+// the trading strategy is theirs; a bot pointing at it can only be theirs too.
+func (strategyBotService *StrategyBotService) ReadReferencesTo(
+	executionContext context.Context, tradingStrategyID uint,
+) (dto.TradingStrategyReferencesDto, error) {
+	bots, findError := strategyBotService.strategyBotRepository.FindAllByTradingStrategy(
+		executionContext, tradingStrategyID)
+	if findError != nil {
+		return dto.TradingStrategyReferencesDto{}, findError
+	}
+
+	runningBotNames := make([]string, 0, len(bots))
+	for _, bot := range bots {
+		if vo.StrategyBotRunStateVo(bot.RunState) == vo.StrategyBotRunning {
+			runningBotNames = append(runningBotNames, bot.Name)
+		}
+	}
+
+	return dto.TradingStrategyReferencesDto{
+		TotalCount:      len(bots),
+		RunningBotNames: runningBotNames,
+	}, nil
+}
+
 // StartStrategyBot puts the viewer's own bot to work, due immediately.
 //
 // Whether they can be spoken to is answered by the caller, because the delivery
@@ -241,21 +272,22 @@ func (strategyBotService *StrategyBotService) FindDueStrategyBots(
 // over history one round at a time, should a backtest of a whole bot ever be asked
 // for, without a line of this changing.
 func (strategyBotService *StrategyBotService) DecideRound(
-	botDto dto.StrategyBotDto, signalsByLabel map[string]vo.SignalVo,
+	botDto dto.StrategyBotDto, tradingStrategyDto dto.TradingStrategyDto,
+	signalsByLabel map[string]vo.SignalVo,
 ) (dto.StrategyBotRoundDecisionDto, error) {
-	declaredLabels := make([]string, 0, len(botDto.SignalSources))
-	for _, signalSource := range botDto.SignalSources {
+	declaredLabels := make([]string, 0, len(tradingStrategyDto.SignalSources))
+	for _, signalSource := range tradingStrategyDto.SignalSources {
 		declaredLabels = append(declaredLabels, signalSource.Label)
 	}
 
-	buyCondition, buyError := domains.NewStrategyBotConditionDomain(
-		botDto.BuyCondition, declaredLabels)
+	buyCondition, buyError := domains.NewTradingStrategyConditionDomain(
+		tradingStrategyDto.BuyCondition, declaredLabels)
 	if buyError != nil {
 		return dto.StrategyBotRoundDecisionDto{}, buyError
 	}
 
-	sellCondition, sellError := domains.NewStrategyBotConditionDomain(
-		botDto.SellCondition, declaredLabels)
+	sellCondition, sellError := domains.NewTradingStrategyConditionDomain(
+		tradingStrategyDto.SellCondition, declaredLabels)
 	if sellError != nil {
 		return dto.StrategyBotRoundDecisionDto{}, sellError
 	}

@@ -65,6 +65,8 @@ func (messageDomain StrategyBotLifecycleMessageDomain) haltReasonInWords() strin
 	switch messageDomain.haltReason {
 	case vo.StrategyBotHaltStrategyScriptUnavailable:
 		return "原因：它用到的某一支策略腳本找不到了。"
+	case vo.StrategyBotHaltTradingStrategyUnavailable:
+		return "原因：它用的那一份交易策略找不到了。"
 	case vo.StrategyBotHaltScriptFailed:
 		return "原因：它用到的某一支策略腳本算不出來。"
 	case vo.StrategyBotHaltCredentialRejected:

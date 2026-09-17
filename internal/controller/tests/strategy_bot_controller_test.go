@@ -27,6 +27,7 @@ type strategyBotRouterUnderTest struct {
 	engine                     *gin.Engine
 	strategyBotRepository      *mocks.MockIStrategyBotRepository
 	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
+	tradingStrategyRepository  *mocks.MockITradingStrategyRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
 }
 
@@ -69,6 +70,8 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
+	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)
 	// 啟動與停止會讓機器人說一句它自己的動靜；這幾個測試問的是路由與狀態碼，
 	// 所以整條投遞路徑一律放行。
 	telegramDeliveryService := service.NewTelegramDeliveryService(
@@ -76,10 +79,11 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
-			strategyBotService, strategyScriptService, telegramDeliveryService),
+			strategyBotService, tradingStrategyService, telegramDeliveryService),
 		// 「立即運算」那一條走時鐘那一側，而它走的必須是同一條路。
 		application.NewStrategyBotRunApplication(
 			strategyBotService,
+			tradingStrategyService,
 			strategyScriptService,
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository,
@@ -109,6 +113,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 		engine:                     engine,
 		strategyBotRepository:      strategyBotRepository,
 		strategyScriptRepository:   strategyScriptRepository,
+		tradingStrategyRepository:  tradingStrategyRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
 	}
 }
@@ -125,62 +130,42 @@ func (fixture strategyBotRouterUnderTest) send(
 	return recorder
 }
 
-// aStrategyBotBody is one bot with a nested buy condition, so that the nesting a
-// person builds on screen is proven to survive the journey in.
+// aStrategyBotBody is one bot: a name, a market, how often, and the rules it names.
+// The rules are not in the body — a bot names a set, it does not carry one.
 const aStrategyBotBody = `{
 	"name": "早盤突破",
 	"symbol": "BTCUSDT",
-	"triggerIntervalMinutes": 5,
-	"signalSources": [
-		{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h",
-		 "parameterValues": [{"name": "回看根數", "value": 20}]},
-		{"label": "B", "strategyScriptId": 9, "aggregationInterval": "5m"}
-	],
-	"buyCondition": {
-		"operator": "and",
-		"conditions": [
-			{"sourceLabel": "A", "signal": "buy"},
-			{"sourceLabel": "B", "signal": "buy"}
-		]
-	},
-	"sellCondition": {"sourceLabel": "A", "signal": "sell"}
+	"tradingStrategyId": 9,
+	"triggerIntervalMinutes": 5
 }`
 
-func (fixture strategyBotRouterUnderTest) expectResolvableStrategyScript() {
-	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(entities.StrategyScript{
-			ID: 9, OwnerID: signedInViewerID, Name: "均線", Script: "//", ResultType: "signal",
-			Parameters: []entities.StrategyScriptParameter{
-				{StrategyScriptID: 9, Name: "回看根數", Kind: "lookbackCount", DefaultValue: 20},
-			},
+// expectResolvableTradingStrategy is the one question saving a bot asks of anything
+// outside itself: may this person use the rules they named?
+func (fixture strategyBotRouterUnderTest) expectResolvableTradingStrategy() {
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(entities.TradingStrategy{
+			ID: 9, OwnerID: signedInViewerID, Name: "黃金交叉",
 		}, nil).AnyTimes()
 }
 
 func aStoredStrategyBotRow(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	return entities.StrategyBot{
 		ID: 3, OwnerID: signedInViewerID, Name: "早盤突破", Symbol: "BTCUSDT",
+		TradingStrategyID:      9,
+		TradingStrategy:        entities.TradingStrategy{ID: 9, Name: "黃金交叉"},
 		TriggerIntervalMinutes: 5,
 		RunState:               string(runState),
-		SignalSources: []entities.StrategyBotSignalSource{
-			{ID: 20, StrategyBotID: 3, Label: "A", StrategyScriptID: 9, AggregationInterval: "1h"},
-		},
-		ConditionNodes: []entities.StrategyBotConditionNode{
-			{ID: 10, StrategyBotID: 3, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
-			{ID: 11, StrategyBotID: 3, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
-		},
 	}
 }
 
 func TestStrategyBotRouterCreatesABotAndAnswersWithIt(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
-	fixture.expectResolvableStrategyScript()
+	fixture.expectResolvableTradingStrategy()
 
 	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
-			// The nesting a person built on screen arrived intact.
-			require.Len(t, bot.ConditionNodes, 2)
-			assert.Equal(t, string(vo.ConditionOperatorAnd), bot.ConditionNodes[0].Operator)
-			require.Len(t, bot.ConditionNodes[0].Children, 2)
+			// The rules a person named arrived as a name and nothing else.
+			assert.Equal(t, uint(9), bot.TradingStrategyID)
 			// The owner comes from the proof of identity, never from the body.
 			assert.Equal(t, signedInViewerID, bot.OwnerID)
 
@@ -194,6 +179,9 @@ func TestStrategyBotRouterCreatesABotAndAnswersWithIt(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
 	assert.Equal(t, "早盤突破", answer["name"])
 	assert.Equal(t, string(vo.StrategyBotStopped), answer["runState"])
+	// The rules' current name comes back beside their identifier, so a list says
+	// what each bot is doing without a second call per bot.
+	assert.Equal(t, "黃金交叉", answer["tradingStrategyName"])
 	// A bot's owner is nothing a person reading their own bots learns from.
 	assert.NotContains(t, answer, "ownerId")
 }
@@ -219,7 +207,7 @@ func TestStrategyBotRouterListsAndReadsBots(t *testing.T) {
 
 func TestStrategyBotRouterRewritesAndDeletes(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
-	fixture.expectResolvableStrategyScript()
+	fixture.expectResolvableTradingStrategy()
 
 	fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 		Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil).Times(2)
@@ -285,7 +273,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 		{
 			name: "a bot that breaks a rule",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategyScript()
+				fixture.expectResolvableTradingStrategy()
 			},
 			method:         http.MethodPost,
 			target:         "/strategy-bots",
@@ -322,7 +310,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 		{
 			name: "rewriting a bot that is running",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategyScript()
+				fixture.expectResolvableTradingStrategy()
 				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 					Return(aStoredStrategyBotRow(vo.StrategyBotRunning), nil)
 			},
@@ -334,7 +322,7 @@ func TestStrategyBotRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 		{
 			name: "a name this person already uses",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategyScript()
+				fixture.expectResolvableTradingStrategy()
 				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.StrategyBot{}, domains.ErrStrategyBotNameConflict)
 			},
@@ -475,7 +463,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 		{
 			name: "rewriting one",
 			arrange: func(fixture strategyBotRouterUnderTest) {
-				fixture.expectResolvableStrategyScript()
+				fixture.expectResolvableTradingStrategy()
 				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
 					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
 				fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).

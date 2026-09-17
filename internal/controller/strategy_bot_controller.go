@@ -195,7 +195,12 @@ func (strategyBotController *StrategyBotController) respondWithError(
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	if errors.Is(err, domains.ErrStrategyBotNotFound) || errors.Is(err, domains.ErrStrategyScriptNotFound) {
+	// A trading strategy the caller may not see comes back as the bot's own
+	// not-found, for the reason a strategy script does: naming one they may not use
+	// is answered the same way whichever field they named it in.
+	if errors.Is(err, domains.ErrStrategyBotNotFound) ||
+		errors.Is(err, domains.ErrTradingStrategyNotFound) ||
+		errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
