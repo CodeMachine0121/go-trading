@@ -32,10 +32,12 @@ type StrategyBotRunRecord struct {
 	// RanAt is the moment the round finished. Stored in universal time, like every
 	// other moment here.
 	RanAt time.Time `gorm:"type:timestamptz;not null"`
-	// Result is buy, sell or hold. A round that concluded nothing, conflicted, was
-	// skipped or halted the bot is all one thing from a reader's side: it did not
-	// ask for a position. Why it did not is on the bot itself, where it can be
-	// acted on.
+	// Result is buy, sell, hold or conflict — see StrategyBotRoundResultVo.
+	//
+	// Conflicted has a word of its own because it is the one quiet round that asks
+	// for something: that bot will stay silent until its owner changes a condition.
+	// Every other way a round ends without a position is still "hold"; why it ended
+	// that way is on the bot itself, where it can be acted on.
 	Result string `gorm:"size:16;not null"`
 }
 

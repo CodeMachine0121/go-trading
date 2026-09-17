@@ -85,25 +85,32 @@ func NewStrategyBotRoundConcludedOutcome(
 		verdict: verdict, sentSignal: sentSignal, conflicting: conflicting}
 }
 
-// RecordedResult is this round as its history remembers it: buy, sell, or hold.
+// RecordedResult is this round as its history remembers it: buy, sell, hold, or
+// conflicted.
 //
-// Everything that is not a position is one thing from a reader's side — conflicted,
-// concluded nothing, skipped, halted the bot. Why it was none of those is on the bot
-// itself, in its halt reason and its conflict mark, where it can actually be acted
-// on; a history spelling out four kinds of silence would be four columns answering a
-// question nobody asked of it.
+// Conflicted is told apart from hold, and the reason is the reader's next move. A
+// holding bot is waiting for the market; a conflicted one is waiting for its owner,
+// because both of its conditions held at once and it will stay silent until one of
+// them is changed. Recording both as "hold" hid the only entry in a history that
+// asks somebody to go and do something.
+//
+// Everything else that ends a round without a position — concluded nothing, skipped,
+// halted the bot — is still one word. Why it was none of those is on the bot itself,
+// in its halt reason, where it can actually be acted on.
 //
 // It reads the verdict and not the signal that was sent. A bot holding the same view
 // for twelve rounds sent one message and thought "buy" twelve times, and the history
 // is about what it thought.
-func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResult() vo.SignalVo {
+func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResult() vo.StrategyBotRoundResultVo {
 	switch strategyBotRoundOutcomeDomain.verdict {
 	case vo.StrategyBotVerdictBuy:
-		return vo.SignalBuy
+		return vo.StrategyBotRoundResultBuy
 	case vo.StrategyBotVerdictSell:
-		return vo.SignalSell
+		return vo.StrategyBotRoundResultSell
+	case vo.StrategyBotVerdictConflict:
+		return vo.StrategyBotRoundResultConflict
 	default:
-		return vo.SignalHold
+		return vo.StrategyBotRoundResultHold
 	}
 }
 
