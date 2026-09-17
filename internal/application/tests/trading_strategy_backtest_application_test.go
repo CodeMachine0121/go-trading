@@ -333,3 +333,68 @@ func TestTradingStrategyBacktestOfOneSourceMatchesReplayingThatScript(t *testing
 	assert.Equal(t, scriptResult.ClosedTrades, tradingStrategyResult.ClosedTrades)
 	assert.Equal(t, scriptResult.EquityCurve, tradingStrategyResult.EquityCurve)
 }
+
+// Naming one that does not exist and naming somebody else's are answered with the
+// same sentence. Two different answers would turn this field into a way to find out
+// which trading strategies other people have.
+func TestTradingStrategyBacktestAnswersTheSameForOneThatIsNotThere(t *testing.T) {
+	fixture := newTradingStrategyBacktestUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), replayedTradingStrategyID).
+		Return(entities.TradingStrategy{},
+			domains.TradingStrategyNotFound(replayedTradingStrategyID))
+
+	_, err := fixture.run()
+
+	require.ErrorIs(t, err, domains.ErrTradingStrategyNotFound)
+}
+
+// A source may name a script its owner has since deleted. Half a replay — the other
+// sources' opinions with this one silently missing — would be a report card for a
+// strategy nobody wrote, so the whole run is refused.
+func TestTradingStrategyBacktestRefusesWhenASourcesScriptCannotBeRead(t *testing.T) {
+	controller := gomock.NewController(t)
+	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(backtestNow).AnyTimes()
+
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
+	tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), replayedTradingStrategyID).
+		Return(aReplayedTradingStrategy("1h"), nil)
+
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9))
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
+
+	backtestApplication := application.NewTradingStrategyBacktestApplication(
+		service.NewTradingStrategyService(tradingStrategyRepository),
+		service.NewStrategyScriptService(
+			strategyScriptRepository, publishedStrategyScriptRepository),
+		service.NewBacktestService(
+			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults))
+
+	_, err := backtestApplication.RunTradingStrategyBacktest(
+		t.Context(), backtestViewerID, replayedTradingStrategyID,
+		tradingStrategyBacktestRequestDto())
+
+	require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
+}
+
+// The rules a replay is refused under do not change because several scripts read the
+// candles instead of one. One candle is not a stretch either way.
+func TestTradingStrategyBacktestRefusesAStretchWithTooFewCandles(t *testing.T) {
+	fixture := newTradingStrategyBacktestUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), replayedTradingStrategyID).
+		Return(aReplayedTradingStrategy("1h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{storedHourlyCandle(0, "100")}, nil)
+
+	_, err := fixture.run()
+
+	require.ErrorIs(t, err, domains.ErrBacktestValidation)
+}
