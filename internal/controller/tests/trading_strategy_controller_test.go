@@ -356,7 +356,9 @@ func TestTradingStrategyRouterRefusesAnUnreadableBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 
-func TestTradingStrategyRouterCarriesTheTradingModeBothWays(t *testing.T) {
+// In on the request and back out on the answer. The rewrite path shares this very
+// conversion, so it is covered by the same line rather than by a second test.
+func TestTradingStrategyRouterCarriesTheTradingModeInAndBackOut(t *testing.T) {
 	fixture := newTradingStrategyRouterUnderTest(t)
 	fixture.expectResolvableStrategyScript()
 
