@@ -12,7 +12,7 @@ Implementation: `internal/domain/models/domains/k_candle_history_lookback_domain
 `internal/config/application_config.go`, `cmd/server/dependencies.go`,
 `internal/infrastructure/persistence/k_candle_repository.go` (`SaveIfAbsent`),
 `internal/infrastructure/marketdata/fugle_market_data_proxy.go`
-Oracle: Acceptance Criteria (18 clauses) + Core Business Rules (9 clauses)
+Oracle: Acceptance Criteria (20 clauses) + Core Business Rules (10 clauses)
 
 Test files below are abbreviated:
 `look` = `internal/domain/models/domains/tests/k_candle_history_lookback_domain_test.go`,
@@ -42,7 +42,9 @@ Test files below are abbreviated:
 | AC-10 | 剛好是上限 | 照做 | 同上 | `look:16` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-11 | 報告與既有回補一字不差 | 列出壞掉的那一根與原因，其餘照存 | 共用 `ingestSymbols`，沒有第二種報告 | `svc:1245` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-12 | 市場那幾天沒開不算失敗 | 不算失敗，且與「來源不答話」分得開 | 既有 `ingestSymbol` 路徑 | `svc:1333`（整段落在週末：來源根本沒被問，`fetchFailureReason` 是空的）, `ctrl:84` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-13 | 來源連不上 | 回「稍後再試」那一類 | `ingestSymbol` 寫進報告；controller 只對映系統自己的故障 | `svc:1271`, `ctrl:115`（兩條：報告裡的來源失敗，與 502 的儲存故障） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-13 | 來源連不上寫進報告，不是整次失敗 | 回 200，那一檔帶著 `fetchFailureReason` | `ingestSymbol` 寫進報告 | `svc:1340`, `ctrl:115`（「來源不答話是被報告出來的，不是被拒絕」那一條） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-13b | 這個系統自己壞掉才是整次失敗 | 回 502 | `respondWithError` 的 default | `ctrl:115`（「這個系統讀不到自己的儲存」那一條） | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-8 | 整次失敗只留給系統自己壞掉 | 同 AC-13／AC-13b | 同上 | `ctrl:115` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-14 | 不在觀察清單上的也同步得動 | 照做 | `reachSymbolOnDemand` 走 `FindBySymbol` 而非觀察清單 | `svc:1229` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-15 | 上限由環境變數決定，非正整數退回預設 | 預設 90；0／負／讀不出來退回 | `application_config.go` | `cfg:169` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-1 | 粒度固定，請求裡沒有地方指定 | 同 AC-3 | 請求物件 | `ctrl:221` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -66,7 +68,7 @@ Test files below are abbreviated:
 
 ## Summary
 
-- Conforms: 27/27 clauses ✅ (100%)
+- Conforms: 30/30 clauses ✅ (100%)
 - Violations: 無
 - Mis-asserted: 無
 - Partial: 無

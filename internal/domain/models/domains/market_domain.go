@@ -252,6 +252,23 @@ func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 	).UTC()
 }
 
+// Zone is the zone this market says its own days in, and nil for one that never
+// closes and therefore has none.
+//
+// It is given out for one purpose: a source whose address takes a local date has to
+// *name* a day to somebody else, which needs the zone both to write it down and to
+// step to the next one. TradingDateOf cannot serve that — it answers in universal
+// time, which is the right answer for comparing days and the wrong one for spelling
+// them.
+//
+// Nothing else should reach for it. Whether a market is open, whether a stretch holds
+// trading, which day a moment falls in — all of those are questions this model
+// already answers, and answering them from the zone outside would be a second copy
+// of rules that live here.
+func (marketDomain MarketDomain) Zone() *time.Location {
+	return marketDomain.rules.TradingSession.Location
+}
+
 // NeverCloses reports a market that trades round the clock.
 //
 // It is asked out loud because a market with no hours also has no days off: deciding

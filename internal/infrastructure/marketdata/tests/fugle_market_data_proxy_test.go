@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/stretchr/testify/assert"
@@ -20,18 +21,22 @@ import (
 // on any machine whatever time zone database it ships with.
 var taipei = time.FixedZone("Asia/Taipei", 8*60*60)
 
-// taipeiTradingSession is the market this source answers for. The proxy needs the
-// whole session rather than just the zone, because it is asked one local day at a
-// time and the days a market cannot trade on are the market's own knowledge.
-func taipeiTradingSession() vo.TradingSessionVo {
-	return vo.TradingSessionVo{
-		Location:   taipei,
-		DailyStart: 9 * time.Hour,
-		DailyEnd:   13*time.Hour + 30*time.Minute,
-		Weekdays: []time.Weekday{
-			time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+// taipeiMarket is the market this source answers for. The proxy is handed the market
+// itself rather than just its zone, because it is asked one local day at a time and
+// "does this market trade that day" is the market's question, not the source's.
+func taipeiMarket() domains.MarketDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   taipei,
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
 		},
-	}
+	}).MarketOf(string(vo.MarketTaiwanStock))
 }
 
 // taipeiAt is a moment said in Taipei time, which is how the requirements for this
@@ -134,7 +139,7 @@ func (source *fugleSourceUnderTest) proxyAt(
 
 	return marketdata.NewFugleMarketDataProxy(
 		source.server.URL+"/intraday", source.server.URL+"/historical",
-		"a-key", taipeiTradingSession(), clockProxy, requestTimeout)
+		"a-key", taipeiMarket(), clockProxy, requestTimeout)
 }
 
 func fugleWindow(t *testing.T, startTime string, endTime string) vo.KCandleFetchWindowVo {
@@ -332,7 +337,7 @@ func TestFugleReportsASourceThatWillNotAnswer(t *testing.T) {
 			clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-08T10:07:00+08:00")).AnyTimes()
 			fugleMarketDataProxy := marketdata.NewFugleMarketDataProxy(
 				server.URL+"/intraday", server.URL+"/historical",
-				"a-key", taipeiTradingSession(), clockProxy, requestTimeout)
+				"a-key", taipeiMarket(), clockProxy, requestTimeout)
 
 			_, fetchError := fugleMarketDataProxy.FetchKCandles(
 				t.Context(), fugleWindow(t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
@@ -437,7 +442,7 @@ func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
 
 	_, fetchError := marketdata.NewFugleMarketDataProxy(
 		"http://\x7f/intraday", "http://\x7f/historical",
-		"a-key", taipeiTradingSession(), clockProxy, requestTimeout,
+		"a-key", taipeiMarket(), clockProxy, requestTimeout,
 	).FetchKCandles(t.Context(), fugleWindow(
 		t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
 

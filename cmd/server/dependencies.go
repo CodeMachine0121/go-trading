@@ -528,9 +528,11 @@ func marketDataProxyFor(
 				applicationConfig.TaiwanStock.IntradayCandlesUrl,
 				applicationConfig.TaiwanStock.HistoricalCandlesUrl,
 				applicationConfig.TaiwanStock.ApiKey,
-				// 這個來源是一天打一次，所以它要知道哪幾天這個市場根本不開——
+				// 這個來源是一天打一次，所以它要問得到「哪幾天這個市場根本不開」——
 				// 把窗口收進交易時段只動得到頭尾，中間那些休市日還留在裡面。
-				applicationConfig.MarketRules[vo.MarketTaiwanStock].TradingSession,
+				// 給的是市場本身而不是時段，那個問題才不會在這裡被回答第二次。
+				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
+					MarketOf(string(vo.MarketTaiwanStock)),
 				clock.NewSystemClockProxy(),
 				applicationConfig.TaiwanStock.RequestTimeout,
 			),

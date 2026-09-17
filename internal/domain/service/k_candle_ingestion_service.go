@@ -97,7 +97,8 @@ func (kCandleIngestionService *KCandleIngestionService) RunScheduledRound(
 			return ingestionDomain.ScheduledWindow(watchedSymbol.Symbol, market), nil
 		}, replaceStoredKCandles)
 	kCandleIngestionService.presumeClosedMarkets(
-		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage())
+		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage(),
+		replaceStoredKCandles)
 
 	return report, nil
 }
@@ -117,7 +118,8 @@ func (kCandleIngestionService *KCandleIngestionService) RunBackfill(
 		kCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain),
 		replaceStoredKCandles)
 	kCandleIngestionService.presumeClosedMarkets(
-		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage())
+		report.SymbolReports, ingestionDomain.CurrentTime(), ingestionDomain.RoundCoverage(),
+		replaceStoredKCandles)
 
 	return report, nil
 }
@@ -467,11 +469,24 @@ func (kCandleIngestionService *KCandleIngestionService) store(
 // A source that could not be reached is never read as a holiday. Answered-with-
 // nothing versus did-not-answer is the only reliable distinction available here, and
 // it is what leaves a broken source reported as broken.
+//
+// **It can only read a run that overwrote what it collected**, which is why the rule
+// that run used is an argument rather than an assumption. What it reads a holiday off
+// is a symbol that was asked and produced nothing — and under the keep rule a symbol
+// whose candles are all already held produces nothing either, while saying nothing at
+// all about the market. Letting that through would latch a perfectly open market shut
+// for the rest of the day, on the evidence that somebody asked for history they
+// already had.
 func (kCandleIngestionService *KCandleIngestionService) presumeClosedMarkets(
 	symbolReports []dto.KCandleSymbolIngestionReportDto,
 	currentTime time.Time,
 	roundCoverage time.Duration,
+	writeRule kCandleWriteRule,
 ) {
+	if writeRule != replaceStoredKCandles {
+		return
+	}
+
 	askedMarkets := make(map[vo.MarketVo]bool)
 	marketsThatProduced := make(map[vo.MarketVo]bool)
 	for _, symbolReport := range symbolReports {

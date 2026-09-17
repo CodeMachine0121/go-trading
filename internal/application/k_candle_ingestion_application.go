@@ -41,8 +41,8 @@ func (kCandleIngestionApplication *KCandleIngestionApplication) RunScheduledRoun
 	return kCandleIngestionApplication.kCandleIngestionService.RunScheduledRound(executionContext)
 }
 
-// SyncSymbolHistory fetches a named stretch of one trading symbol's history and
-// stores it over whatever was there.
+// SyncSymbolHistory fills in the minutes missing from a named stretch of one trading
+// symbol's history. What is already held is left exactly as it is.
 //
 // The ceiling travels through rather than being held anywhere in the middle: it is an
 // operator's decision, settled once at the composition root, and a layer that
