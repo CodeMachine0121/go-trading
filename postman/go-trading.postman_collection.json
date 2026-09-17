@@ -8591,13 +8591,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/trading-strategies/{{strategyBotId}}",
+              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "trading-strategies",
-                "{{strategyBotId}}"
+                "{{tradingStrategyId}}"
               ]
             },
             "description": "條件是巢狀交出去的，不是一串節點——攤平了就等於要畫面自己組樹。"

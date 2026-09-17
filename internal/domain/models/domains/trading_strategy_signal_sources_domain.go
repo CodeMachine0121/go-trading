@@ -42,12 +42,12 @@ func NewTradingStrategySignalSourcesDomain(
 ) (TradingStrategySignalSourcesDomain, error) {
 	if len(sources) == 0 {
 		return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
-			"%w: 一台機器人至少要有一個信號來源", ErrTradingStrategyValidation)
+			"%w: 一份交易策略至少要有一個信號來源", ErrTradingStrategyValidation)
 	}
 
 	if len(sources) > strategyBotSignalSourceMaxCount {
 		return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
-			"%w: 一台機器人的信號來源上限是 %d 個",
+			"%w: 一份交易策略的信號來源上限是 %d 個",
 			ErrTradingStrategyValidation, strategyBotSignalSourceMaxCount)
 	}
 
@@ -72,7 +72,7 @@ func NewTradingStrategySignalSourcesDomain(
 		// intended.
 		if slices.Contains(labels, label) {
 			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
-				"%w: 信號來源代號 %q 重複了，同一台機器人內的代號必須各不相同",
+				"%w: 信號來源代號 %q 重複了，同一份交易策略內的代號必須各不相同",
 				ErrTradingStrategyValidation, label)
 		}
 

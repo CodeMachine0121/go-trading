@@ -2,7 +2,7 @@ package vo
 
 // StrategyBotHaltReasonVo is why the system stopped a bot its owner had started.
 //
-// What the four have in common is that running them ten thousand more times gives
+// What they have in common is that running them ten thousand more times gives
 // the same answer. Everything that might come right on its own — a closed market,
 // candles that have not arrived yet, Telegram not answering — is deliberately
 // absent: halting for those would switch off every bot in the system each weekend.
@@ -28,6 +28,16 @@ const (
 	// whoever asks, so renaming it would leave every bot halted before the rename
 	// reporting one spelling and every bot halted after it reporting another.
 	StrategyBotHaltStrategyScriptUnavailable StrategyBotHaltReasonVo = "strategyUnavailable"
+	// StrategyBotHaltTradingStrategyUnavailable is the trading strategy this bot
+	// follows no longer being readable.
+	//
+	// Deleting one is refused while any bot follows it, so this is very nearly
+	// unreachable — but "very nearly" is not "never": a delete and a create naming
+	// the same trading strategy can pass each other, and the bot left behind points
+	// at nothing. Skipping the round instead would leave that bot reporting itself
+	// as running for ever while saying nothing, which is the one outcome its owner
+	// can neither see nor fix.
+	StrategyBotHaltTradingStrategyUnavailable StrategyBotHaltReasonVo = "tradingStrategyUnavailable"
 	// StrategyBotHaltScriptFailed is a script that would not run, or that reached
 	// for a parameter name nobody declared.
 	StrategyBotHaltScriptFailed StrategyBotHaltReasonVo = "scriptFailed"

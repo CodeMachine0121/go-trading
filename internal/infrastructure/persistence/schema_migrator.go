@@ -459,11 +459,10 @@ func (schemaMigrator *SchemaMigrator) prepareForTheMove() error {
 // The name is the bot's. Two bots of one owner cannot share a name, and before this
 // there were no trading strategies at all, so nothing can collide.
 //
-// The children are repointed **by their own identifiers**, gathered before anything
-// is written. Repointing them by the value they carry would be a trap: that value is
-// a bot identifier, the new trading strategy identifiers come from a sequence that
-// starts again at one, and the two ranges overlap — so a later bot could sweep up
-// the children of an earlier one that had already been moved.
+// The children are repointed **by their own identifiers**, and every bot's are
+// gathered before the first trading strategy is created. Repointing them by the
+// value they carry would be a trap: that value is a bot identifier, the new trading
+// strategy identifiers come from their own sequence, and the two ranges overlap.
 //
 // A bot whose identifier is already set is skipped, which is what makes running this
 // a second time do nothing at all.
@@ -481,6 +480,24 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 			return fmt.Errorf("find bots without a trading strategy: %w", findError)
 		}
 
+		// Every identifier this move hands out is pushed past every bot identifier
+		// before the first one is used. Until a row is moved it still carries a bot
+		// identifier, and (trading_strategy_id, label) is unique — so a trading
+		// strategy whose identifier happens to equal a bot that has not been moved
+		// yet collides with that bot's own rows, for as long as the move runs.
+		//
+		// Two bots sharing the label "A" is not unusual; it is the default the
+		// screen offers. So this is the ordinary case, not a corner of it.
+		if pushError := schemaMigrator.pushIdentifiersPastEveryBot(transaction); pushError != nil {
+			return pushError
+		}
+
+		// Every bot's rows are gathered before any trading strategy is created, not
+		// one bot at a time. Gathering per bot would read a table earlier bots have
+		// already been written into.
+		signalSourceIDsByBot := map[uint][]uint{}
+		conditionNodeIDsByBot := map[uint][]uint{}
+
 		for _, bot := range unmovedBots {
 			signalSourceIDs, readError := schemaMigrator.ruleRowIDsOf(
 				transaction, &entities.TradingStrategySignalSource{}, bot.ID)
@@ -494,6 +511,11 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 				return readError
 			}
 
+			signalSourceIDsByBot[bot.ID] = signalSourceIDs
+			conditionNodeIDsByBot[bot.ID] = conditionNodeIDs
+		}
+
+		for _, bot := range unmovedBots {
 			tradingStrategy := entities.TradingStrategy{OwnerID: bot.OwnerID, Name: bot.Name}
 			if createError := transaction.Omit(clause.Associations).
 				Create(&tradingStrategy).Error; createError != nil {
@@ -502,13 +524,13 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 
 			if repointError := schemaMigrator.repointRuleRows(
 				transaction, &entities.TradingStrategySignalSource{},
-				signalSourceIDs, tradingStrategy.ID); repointError != nil {
+				signalSourceIDsByBot[bot.ID], tradingStrategy.ID); repointError != nil {
 				return repointError
 			}
 
 			if repointError := schemaMigrator.repointRuleRows(
 				transaction, &entities.TradingStrategyConditionNode{},
-				conditionNodeIDs, tradingStrategy.ID); repointError != nil {
+				conditionNodeIDsByBot[bot.ID], tradingStrategy.ID); repointError != nil {
 				return repointError
 			}
 
@@ -521,6 +543,38 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 
 		return nil
 	})
+}
+
+// pushIdentifiersPastEveryBot makes the next trading strategy identifier greater
+// than every bot identifier, and greater than every trading strategy identifier
+// already handed out.
+//
+// This is the one statement in the migrator written by hand, and the ORM is the
+// reason: advancing a sequence has no word in it. Nothing is pasted into the text —
+// the one value it needs goes through the ORM's own binding.
+func (schemaMigrator *SchemaMigrator) pushIdentifiersPastEveryBot(transaction *gorm.DB) error {
+	highestBotID := uint(0)
+	if readError := transaction.Model(&entities.StrategyBot{}).
+		Select("COALESCE(MAX(id), 0)").Scan(&highestBotID).Error; readError != nil {
+		return fmt.Errorf("read the highest bot identifier: %w", readError)
+	}
+
+	// Nothing to push past, and nothing to move either. Pushing anyway would burn
+	// the first identifier on a database that has never held a bot.
+	if highestBotID == 0 {
+		return nil
+	}
+
+	pushed := transaction.Exec(
+		`SELECT setval(
+			pg_get_serial_sequence('"TradingStrategies"', 'id'),
+			GREATEST(?, (SELECT COALESCE(MAX(id), 0) FROM "TradingStrategies")),
+			true)`, highestBotID)
+	if pushed.Error != nil {
+		return fmt.Errorf("push trading strategy identifiers past every bot: %w", pushed.Error)
+	}
+
+	return nil
 }
 
 // ruleRowIDsOf is which rows of one rule table currently hang off this bot, read

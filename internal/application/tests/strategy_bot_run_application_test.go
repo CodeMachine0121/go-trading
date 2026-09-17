@@ -35,7 +35,10 @@ type strategyBotRunUnderTest struct {
 	// so that a test can change them and have the next round see the change — which
 	// is exactly what a round does against a set of rules somebody has edited.
 	tradingStrategy *entities.TradingStrategy
-	t               *testing.T
+	// tradingStrategyFailure makes that read fail instead, for the one test about a
+	// bot whose rules are gone.
+	tradingStrategyFailure *error
+	t                      *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services and models a round goes
@@ -72,9 +75,14 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 
 	tradingStrategy := aDueTradingStrategy()
+	tradingStrategyFailure := error(nil)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
 	tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), botsTradingStrategyID).
 		DoAndReturn(func(_ context.Context, _ uint) (entities.TradingStrategy, error) {
+			if tradingStrategyFailure != nil {
+				return entities.TradingStrategy{}, tradingStrategyFailure
+			}
+
 			return tradingStrategy, nil
 		}).AnyTimes()
 
@@ -110,6 +118,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		telegramDeliveryRepository: telegramDeliveryRepository,
 		roundGuard:                 roundGuard,
 		tradingStrategy:            &tradingStrategy,
+		tradingStrategyFailure:     &tradingStrategyFailure,
 		t:                          t,
 	}
 }
@@ -1011,4 +1020,44 @@ func TestStrategyBotRunApplicationRefusesToRunSomebodyElsesBotByHand(t *testing.
 		context.Background(), strategyBotOwnerID+99, strategyBotID)
 
 	require.ErrorIs(t, runError, domains.ErrStrategyBotNotFound)
+}
+
+// A bot whose rules are gone has nothing left to run, and waiting fixes nothing.
+//
+// Deleting a set of rules is refused while any bot follows it, so this is very nearly
+// unreachable — but "very nearly" is why it halts rather than skips: a bot reporting
+// itself as running while saying nothing for ever is the one outcome its owner can
+// neither see nor fix.
+func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil)
+	*underTest.tradingStrategyFailure = domains.TradingStrategyNotFound(botsTradingStrategyID)
+	// Halting says so out loud, and the message names which of the six reasons it
+	// was — a bot that stops without saying why leaves its owner nothing to act on.
+	underTest.expectDeliverySetting()
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.Contains(t, message, "那一份交易策略找不到了")
+
+			return vo.DeliveryFailureNone, nil
+		})
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+			assert.Equal(t, string(vo.StrategyBotStopped), bot.RunState)
+			assert.Equal(t, string(vo.StrategyBotHaltTradingStrategyUnavailable), bot.HaltReason)
+
+			return nil
+		})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
 }

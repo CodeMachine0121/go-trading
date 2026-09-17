@@ -265,10 +265,10 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	tradingStrategyDto, tradingStrategyError := strategyBotRunApplication.tradingStrategyService.
 		GetTradingStrategy(executionContext, botDto.OwnerID, botDto.TradingStrategyID)
 	if tradingStrategyError != nil {
-		// This is very nearly unreachable — deleting a set of rules is refused
-		// while any bot follows it — so it takes the benign reading the failure
-		// model gives anything unrecognised: skip, and try again next round. A bot
-		// switched off by something nobody can explain is worse than one retrying.
+		// Very nearly unreachable — deleting a set of rules is refused while any bot
+		// follows it — but "very nearly" is why this halts rather than skips: a bot
+		// with nothing to run that keeps reporting itself as running is the one
+		// outcome its owner can neither see nor fix.
 		log.Printf("strategy bot %d: round could not read its trading strategy: %v",
 			botDto.ID, tradingStrategyError)
 
