@@ -186,6 +186,10 @@ func TestRunBacktest(t *testing.T) {
 		assert.True(t, decimal.NewFromInt(1000).Equal(result.ClosedTrades[0].Profit),
 			"profit was %s", result.ClosedTrades[0].Profit)
 		assert.Equal(t, 2, result.Summary.PositionOpenCount)
+		// One script cannot disagree with itself, so this is zero for every replay of
+		// a strategy script — the number only ever says something about a trading
+		// strategy whose two condition trees both held.
+		assert.Equal(t, 0, result.Summary.ConflictedCandleCount)
 	})
 
 	t.Run("a strategy script that only ever holds reports no trades rather than a failure", func(t *testing.T) {

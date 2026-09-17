@@ -211,16 +211,18 @@ func registerRoutes(
 	// It shares the read ceiling with every other read, deliberately: a replay is
 	// still one look at the market, and giving it a ceiling of its own would leave two
 	// numbers to keep in step.
+	// Built once and shared by both kinds of replay. Two of these would be two read
+	// ceilings and two clocks, and the day they drifted apart the same stretch of
+	// market would replay differently depending on which subject was named.
+	backtestService := service.NewBacktestService(
+		kCandleRepository,
+		script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	engine.POST("/backtests", requiresSignIn, controller.NewBacktestController(
-		application.NewBacktestApplication(
-			strategyScriptService,
-			service.NewBacktestService(
-				kCandleRepository,
-				script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
-				clock.NewSystemClockProxy(),
-				applicationConfig.KCandleQueryMaxResults,
-			),
-		)).RunBacktest)
+		application.NewBacktestApplication(strategyScriptService, backtestService)).RunBacktest)
 
 	assistantConversationController := controller.NewAssistantConversationController(
 		application.NewAssistantConversationApplication(
@@ -363,6 +365,14 @@ func registerRoutes(
 	engine.GET("/trading-strategies/:id", requiresSignIn, tradingStrategyController.GetTradingStrategy)
 	engine.PUT("/trading-strategies/:id", requiresSignIn, tradingStrategyController.UpdateTradingStrategy)
 	engine.DELETE("/trading-strategies/:id", requiresSignIn, tradingStrategyController.DeleteTradingStrategy)
+	// 重演是對某一份交易策略做的事，所以掛在它底下——與機器人的輪次同一個形狀。
+	engine.POST("/trading-strategies/:id/backtests", requiresSignIn,
+		controller.NewTradingStrategyBacktestController(
+			application.NewTradingStrategyBacktestApplication(
+				tradingStrategyService,
+				strategyScriptService,
+				backtestService,
+			)).RunTradingStrategyBacktest)
 
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,

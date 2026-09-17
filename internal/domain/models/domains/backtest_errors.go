@@ -26,6 +26,10 @@ const (
 	BacktestInitialCapitalField = "initialCapital"
 	// BacktestPositionSizingValueField is the figure beside the sizing mode.
 	BacktestPositionSizingValueField = "positionSizingValue"
+	// BacktestSignalSourcesField is the set of signal sources a trading strategy
+	// replays through — what to go and change when they disagree about coarseness,
+	// or when there are none at all.
+	BacktestSignalSourcesField = "signalSources"
 )
 
 // BacktestFieldName digs out which input a refusal is about, when it is about one.

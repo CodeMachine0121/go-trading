@@ -19,4 +19,17 @@ type BacktestSummaryDto struct {
 	// skipped for want of cash is not one of them, and the position still open at
 	// the end is.
 	PositionOpenCount int `json:"positionOpenCount"`
+	// ConflictedCandleCount is how many candles had both conditions holding at once.
+	// Those candles do nothing — picking a side would hand somebody an opinion the
+	// system invented — and this is the only way they ever find out.
+	//
+	// It is a count rather than a flag because what matters is *how often*: once is a
+	// coincidence, a hundred and eighty times out of two hundred means the trading
+	// strategy is not deciding anything, and the report card of a replay that barely
+	// traded reads as a very steady strategy indeed.
+	//
+	// Replaying a single strategy script always reports zero: one script does not
+	// conflict with itself. Both kinds of replay hand back one shape, so nothing
+	// reading a report card has to know which kind produced it.
+	ConflictedCandleCount int `json:"conflictedCandleCount"`
 }
