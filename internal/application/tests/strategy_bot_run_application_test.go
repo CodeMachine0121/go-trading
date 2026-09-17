@@ -167,10 +167,17 @@ func aDueBot(lastSentSignal string) entities.StrategyBot {
 }
 
 // aDueTradingStrategy is two sources and the conditions "buy when both say buy" and
-// "sell when A says sell".
+// "sell when A says sell", written for an account that cannot short.
+//
+// Spot rather than the default, because these tests are what holds the wording of a
+// spot bot's message to the letter — it is the half of this that must not move, and
+// asserting it here means any drift shows up as a failing message rather than as a
+// message nobody compared. What a bot following rules that can short says is asserted
+// on its own, in TestStrategyBotRunApplicationTellsAShortableAccountWhatToDo.
 func aDueTradingStrategy() entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
+		TradingMode: string(vo.TradingModeSpot),
 		SignalSources: []entities.TradingStrategySignalSource{
 			{ID: 20, TradingStrategyID: botsTradingStrategyID, Label: "A",
 				StrategyScriptID: 9, AggregationInterval: "1h"},
@@ -236,6 +243,103 @@ func (underTest strategyBotRunUnderTest) expectSources(
 // test say which source said what without depending on when each one ran.
 func scriptOfStrategyScript(id uint) string {
 	return fmt.Sprintf("the script of %d", id)
+}
+
+// A conclusion is read as an instruction, so it is worded by the rules it was reached
+// under. Somebody whose account can short and is told 賣出 has to work out for
+// themselves that the act is to open a short — and the round they are most likely to
+// misread is the one they are reading on a phone while doing something else.
+func TestStrategyBotRunApplicationTellsAShortableAccountWhatToDo(t *testing.T) {
+	testCases := []struct {
+		name             string
+		signals          []vo.SignalVo
+		expectedHeadline string
+	}{
+		{
+			name:             "a buy is an instruction to go long",
+			signals:          []vo.SignalVo{vo.SignalBuy, vo.SignalBuy},
+			expectedHeadline: "【做多】早盤突破 · BTCUSDT",
+		},
+		{
+			name:             "a sell is an instruction to go short",
+			signals:          []vo.SignalVo{vo.SignalSell, vo.SignalHold},
+			expectedHeadline: "【做空】早盤突破 · BTCUSDT",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newStrategyBotRunUnderTest(t)
+			underTest.expectDeliverySetting()
+			underTest.expectSources(testCase.signals[0], testCase.signals[1])
+			underTest.tradingStrategy.TradingMode = string(vo.TradingModeLongShort)
+
+			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+				Return([]entities.StrategyBot{aDueBot("")}, nil)
+			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+				Return(aDueBot(""), nil).AnyTimes()
+			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+				Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+
+			underTest.messageDeliveryProxy.EXPECT().
+				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(
+					_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+				) (vo.DeliveryFailureReasonVo, error) {
+					assert.Contains(t, message, testCase.expectedHeadline)
+					// Which account these rules were written for is named, because
+					// that is what makes opening a short the right act.
+					assert.Contains(t, message, "交易模式 多空反手")
+					// The sources still give their own testimony. A script only ever
+					// says buy, sell or hold, and rewriting those as 做多／做空 would
+					// leave nobody able to work back from the conclusion.
+					assert.Contains(t, message, "各來源怎麼說")
+					assert.NotContains(t, message, "・A（1h）：做多")
+					assert.NotContains(t, message, "・A（1h）：做空")
+					// The price reads exactly as it does for an account that cannot
+					// short: only the act changed, not the market.
+					assert.Contains(t, message, "💰 參考價 64180.5")
+
+					return vo.DeliveryFailureNone, nil
+				})
+
+			underTest.strategyBotRepository.EXPECT().
+				UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+			underTest.strategyBotRunApplication.RunDueRounds(t.Context())
+		})
+	}
+}
+
+// A set of rules stored before a mode was a thing reads as the one it was actually
+// replayed under, so a bot following it words its message that way too.
+func TestStrategyBotRunApplicationWordsRulesWithNoStatedModeAsShortable(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalSell, vo.SignalHold)
+	underTest.tradingStrategy.TradingMode = ""
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.Contains(t, message, "【做空】早盤突破 · BTCUSDT")
+
+			return vo.DeliveryFailureNone, nil
+		})
+
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
 }
 
 func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {

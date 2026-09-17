@@ -59,8 +59,11 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 				// is what keeps a rewrite away from the owner and the created time.
 				updates := transaction.Model(&entities.TradingStrategy{}).
 					Where(clause.Eq{Column: "id", Value: tradingStrategyRow.ID}).
-					Select("name").
-					Updates(entities.TradingStrategy{Name: tradingStrategyRow.Name})
+					Select("name", "trading_mode").
+					Updates(entities.TradingStrategy{
+						Name:        tradingStrategyRow.Name,
+						TradingMode: tradingStrategyRow.TradingMode,
+					})
 				if updates.Error != nil {
 					return updates.Error
 				}

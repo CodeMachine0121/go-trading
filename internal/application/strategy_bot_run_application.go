@@ -325,7 +325,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	}
 
 	deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
-		executionContext, botDto, decision, sourceSignals)
+		executionContext, botDto, tradingStrategyDto, decision, sourceSignals)
 	if deliverError != nil {
 		// Not Telegram refusing — this side failing to ask at all. Most of those
 		// are worth waiting out, but one is not: the owner having removed their
@@ -485,12 +485,18 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 // message: the conclusion is the part somebody acts on, and the price is context.
 func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	executionContext context.Context, botDto dto.StrategyBotDto,
+	tradingStrategyDto dto.TradingStrategyDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
 ) (vo.DeliveryFailureReasonVo, error) {
 	round := dto.StrategyBotRoundDto{
-		BotName:       botDto.Name,
-		Symbol:        botDto.Symbol,
-		Verdict:       decision.Verdict,
+		BotName: botDto.Name,
+		Symbol:  botDto.Symbol,
+		Verdict: decision.Verdict,
+		// Carried from the rules this round was judged by, which is the round's own
+		// answer rather than a fact about the bot: three bots following one set of
+		// rules all word their messages the same way, and changing the mode changes
+		// all three at once.
+		TradingMode:   tradingStrategyDto.TradingMode,
 		SourceSignals: sourceSignals,
 	}
 

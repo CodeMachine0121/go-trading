@@ -12,9 +12,9 @@ import (
 //
 // Which trading strategy is meant comes from the path, never from the body.
 //
-// It carries **no coarseness and no script**. The signal sources already say both, so
-// a body with room for them would be a body with two answers and no rule about which
-// one wins.
+// It carries **no coarseness, no script and no trading mode**. The trading strategy
+// already says all three, so a body with room for them would be a body with two
+// answers and no rule about which one wins.
 type TradingStrategyBacktestRequest struct {
 	Symbol    string    `json:"symbol"`
 	StartTime time.Time `json:"startTime"`
@@ -26,14 +26,11 @@ type TradingStrategyBacktestRequest struct {
 	// chose it may leave the figure out entirely.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
-	// TradingMode is which set of rules this replay trades by. Leaving it out means
-	// always being in the market.
-	TradingMode string `json:"tradingMode"`
 }
 
 // ToRequestDto turns the request into the shape the domain accepts. The signal
-// sources and the two conditions are not taken from here at all — they come from the
-// trading strategy the path names.
+// sources, the two conditions and the trading mode are not taken from here at all —
+// they come from the trading strategy the path names.
 func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
 		Symbol:              request.Symbol,
@@ -42,6 +39,5 @@ func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategy
 		InitialCapital:      request.InitialCapital,
 		PositionSizingMode:  request.PositionSizingMode,
 		PositionSizingValue: request.PositionSizingValue,
-		TradingMode:         request.TradingMode,
 	}
 }

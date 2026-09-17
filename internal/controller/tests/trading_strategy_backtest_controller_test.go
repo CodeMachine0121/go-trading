@@ -243,27 +243,47 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	assert.Contains(t, answer["message"], "5m")
 }
 
-// Replaying a whole set of rules reads the trading mode from the very same gate a
-// single script does, so the two endpoints refuse it in the same words.
-func TestTradingStrategyBacktestRouterRefusesATradingModeNobodyOffers(t *testing.T) {
+// Replaying a whole set of rules trades the way those rules say they trade. A caller
+// replaying rules written for an account that cannot short would otherwise have to
+// remember to say so every single time, under a default that is wrong for them.
+func TestTradingStrategyBacktestRouterTradesTheWayTheRulesSayTheyTrade(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
-	fixture.tradingStrategyRepository.EXPECT().
-		FindOne(gomock.Any(), uint(11)).Return(aRoutedTradingStrategy("1h"), nil)
 
+	spotRules := aRoutedTradingStrategy("1h")
+	spotRules.TradingMode = string(vo.TradingModeSpot)
+
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).Return(spotRules, nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{
+			aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "120"),
+			aRoutedHourlyCandle(2, "90"),
+		}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]vo.IndicatorValueVo{
+			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+			{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
+			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+		}, nil)
+
+	// A body naming a mode of its own: there is no field for one, so this changes
+	// nothing. The rules say spot, and spot is what runs.
 	response := fixture.send("/trading-strategies/11/backtests", `{
 		"symbol":"BTCUSDT",
 		"startTime":"2026-08-29T00:00:00Z",
 		"endTime":"2026-08-29T04:00:00Z",
 		"initialCapital":"10000",
 		"positionSizingMode":"allIn",
-		"tradingMode":"dayTrade"
+		"tradingMode":"longShort"
 	}`)
 
-	require.Equal(t, http.StatusBadRequest, response.Code)
-
+	require.Equal(t, http.StatusOK, response.Code)
 	answer := map[string]any{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
-	assert.Equal(t, "tradingMode", answer["field"])
-	assert.Contains(t, answer["message"], "longShort")
-	assert.Contains(t, answer["message"], "spot")
+	summary, isObject := answer["summary"].(map[string]any)
+	require.True(t, isObject)
+	// Sold at 120 and stood aside for the fall to 90. Had the body won, this would be
+	// 15,000 — the short that an account trading these rules cannot place.
+	assert.Equal(t, "12000", summary["finalEquity"])
+	assert.Equal(t, float64(1), summary["positionOpenCount"])
 }

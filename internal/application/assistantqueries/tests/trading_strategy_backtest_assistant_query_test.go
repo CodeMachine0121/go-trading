@@ -99,6 +99,16 @@ func aReplayableTradingStrategy(intervals ...string) entities.TradingStrategy {
 	}
 }
 
+// tradingTheWay is the same set of rules written for an account that trades the named
+// way. The mode is the trading strategy's own now, which is why a replay of it has
+// nowhere to be told one.
+func tradingTheWay(tradingMode vo.TradingModeVo, intervals ...string) entities.TradingStrategy {
+	tradingStrategy := aReplayableTradingStrategy(intervals...)
+	tradingStrategy.TradingMode = string(tradingMode)
+
+	return tradingStrategy
+}
+
 // replayedCandle builds a stored candle that many hours into the stretch.
 func replayedCandle(hour int, closePrice string) entities.KCandle {
 	return entities.KCandle{
@@ -363,27 +373,16 @@ func TestTradingStrategyBacktestAssistantQuerySaysNothingAboutTruncationWhenNoth
 	assert.NotContains(t, outcome, "closedTradesTruncated")
 }
 
-// aSpotReplayArgument replays the same stretch the way an account that cannot short
-// would actually have traded it.
-const aSpotReplayArgument = `{
-  "tradingStrategyId": 11,
-  "symbol": "BTCUSDT",
-  "startTime": "2026-09-10T00:00:00Z",
-  "endTime": "2026-09-10T04:00:00Z",
-  "initialCapital": "10000",
-  "positionSizingMode": "allIn",
-  "tradingMode": "spot"
-}`
-
-// The assistant converges by replaying, reading and adjusting. Handing it only the
-// mode that can short would have it tune a set of rules against trades the person's
-// account can never place — and nothing in the report card would say so.
-func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheAccountTrades(t *testing.T) {
-	t.Run("naming the long only mode keeps every round trip long", func(t *testing.T) {
+// The assistant converges by replaying, reading and adjusting. Replaying a set of
+// rules the way it can never be traded would have it tune them against trades the
+// person's account cannot place — and nothing in the report card would say so. So the
+// mode comes off the rules themselves and the assistant is never asked for one.
+func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheRulesSayTheyTrade(t *testing.T) {
+	t.Run("rules written for an account that cannot short keep every round trip long", func(t *testing.T) {
 		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 		fixture.tradingStrategyRepository.EXPECT().
 			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(aReplayableTradingStrategy("1h"), nil)
+			Return(tradingTheWay(vo.TradingModeSpot, "1h"), nil)
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{
 				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
@@ -392,7 +391,8 @@ func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheAccountTrades(t *t
 			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
-		report, _ := fixture.replay(t, aSpotReplayArgument)
+		// The argument says nothing about a mode, because there is nowhere to say it.
+		report, _ := fixture.replay(t, aReplayArgument)
 
 		// Sold at 120 and stood aside for the fall to 90.
 		assert.Equal(t, "12000", report.Summary.FinalEquity)
@@ -401,7 +401,7 @@ func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheAccountTrades(t *t
 		assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
 	})
 
-	t.Run("naming no mode replays the way it always has", func(t *testing.T) {
+	t.Run("rules that say nothing replay the way they always have", func(t *testing.T) {
 		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 		fixture.tradingStrategyRepository.EXPECT().
 			FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -421,22 +421,17 @@ func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheAccountTrades(t *t
 		assert.Equal(t, 2, report.Summary.PositionOpenCount)
 	})
 
-	t.Run("a mode nobody offers is refused rather than replayed", func(t *testing.T) {
+	t.Run("rules holding a mode nobody offers are refused rather than replayed", func(t *testing.T) {
+		// Unreachable through the save gate, which refuses this before it is stored.
+		// It is asserted anyway because the day something else writes that column, the
+		// answer has to be a refusal rather than a plausible report card.
 		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 		fixture.tradingStrategyRepository.EXPECT().
 			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(aReplayableTradingStrategy("1h"), nil)
+			Return(tradingTheWay("dayTrade", "1h"), nil)
 
 		outcome, runError := fixture.backtestAssistantQuery.Run(
-			t.Context(), assistantViewerID, `{
-  "tradingStrategyId": 11,
-  "symbol": "BTCUSDT",
-  "startTime": "2026-09-10T00:00:00Z",
-  "endTime": "2026-09-10T04:00:00Z",
-  "initialCapital": "10000",
-  "positionSizingMode": "allIn",
-  "tradingMode": "dayTrade"
-}`)
+			t.Context(), assistantViewerID, aReplayArgument)
 
 		require.Error(t, runError)
 		assert.ErrorIs(t, runError, domains.ErrBacktestValidation)
@@ -446,25 +441,24 @@ func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheAccountTrades(t *t
 	})
 }
 
-// The assistant can only pick the right mode if it is told what the two mean and
-// which one it gets by saying nothing.
-func TestTradingStrategyBacktestAssistantQueryExplainsTheTwoWaysToTrade(t *testing.T) {
+// The assistant cannot name a mode here, and has to be told where the answer lives
+// instead — otherwise a person saying "my account cannot short" would be met with a
+// capability that has no way to act on it and no idea what to suggest.
+func TestTradingStrategyBacktestAssistantQuerySaysWhereTheModeComesFrom(t *testing.T) {
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 
 	argumentSchema := fixture.backtestAssistantQuery.ArgumentSchema()
 	description := fixture.backtestAssistantQuery.Description()
 
-	assert.Contains(t, argumentSchema, "tradingMode")
-	assert.Contains(t, argumentSchema, string(vo.TradingModeLongShort))
-	assert.Contains(t, argumentSchema, string(vo.TradingModeSpot))
-	// Not required: saying nothing has to stay a legitimate thing to do, or every
-	// existing answer would start failing.
-	requiredArguments := struct {
-		Required []string `json:"required"`
-	}{}
-	require.NoError(t, json.Unmarshal([]byte(argumentSchema), &requiredArguments))
-	assert.NotContains(t, requiredArguments.Required, "tradingMode")
+	// No field for it, the same way there is no field for the coarseness. An argument
+	// it sent anyway is refused by its own gate, since nothing else may be sent.
+	assert.NotContains(t, argumentSchema, "tradingMode")
+	assert.Contains(t, argumentSchema, `"additionalProperties":false`)
 
+	// It still has to understand what the two modes do, so that it can go and change
+	// the right one when the person says their account cannot short.
 	assert.Contains(t, description, string(vo.TradingModeLongShort))
 	assert.Contains(t, description, string(vo.TradingModeSpot))
+	assert.Contains(t, description, "不能放空")
+	assert.Contains(t, description, "交易策略")
 }

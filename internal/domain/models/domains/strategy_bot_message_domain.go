@@ -26,13 +26,34 @@ const strategyBotMessageTimeLayout = "2006-01-02 15:04 UTC"
 // as a contradiction rather than as the working. It is not one: a condition can
 // perfectly well be met by a source that says hold. Saying "各來源怎麼說" out loud is
 // what separates the conclusion from what it was concluded from.
+//
+// The headline is worded by the trading mode of the rules this round was judged by,
+// because a conclusion is read as an instruction. To an account that cannot short,
+// 賣出 is the act: sell what is held. To one that can, the act is 做空 — open a
+// position that gains as the price falls — and a reader told to 賣出 would ask what
+// they are meant to be selling.
 type StrategyBotMessageDomain struct {
-	round dto.StrategyBotRoundDto
+	round       dto.StrategyBotRoundDto
+	tradingMode TradingModeDomain
 }
 
 // NewStrategyBotMessageDomain takes a round to be written out.
+//
+// A mode this cannot read is written as no mode at all: the zero value cannot short,
+// so the message quotes the signal's own words and names nothing. That is the same
+// rule the headline's coloured mark follows for a conclusion it does not recognise —
+// a message is the last place to guess which way somebody should trade, and guessing
+// 做空 here would be exactly that.
+//
+// Unreachable through the save gate, which refuses a mode it cannot read before it is
+// ever stored. It is written down because the alternative to a rule is an accident.
 func NewStrategyBotMessageDomain(round dto.StrategyBotRoundDto) StrategyBotMessageDomain {
-	return StrategyBotMessageDomain{round: round}
+	tradingMode, tradingModeError := NewTradingModeDomain(round.TradingMode)
+	if tradingModeError != nil {
+		return StrategyBotMessageDomain{round: round}
+	}
+
+	return StrategyBotMessageDomain{round: round, tradingMode: tradingMode}
 }
 
 // Text is the message.
@@ -52,10 +73,26 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		headlineMark = "🔴"
 	}
 
+	// The verb beside the mark, and the one thing the trading mode decides about a
+	// message: a conclusion is read as an instruction. It starts as the signal's own
+	// word, which is already the act for an account that cannot short, and is replaced
+	// only where the two part company. An opinion nobody can read keeps its own
+	// wording — a message is the last place to invent a direction.
+	headlineVerb := strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict)
+
+	if strategyBotMessageDomain.tradingMode.CanGoShort() {
+		switch vo.SignalVo(strategyBotMessageDomain.round.Verdict) {
+		case vo.SignalBuy:
+			headlineVerb = "做多"
+		case vo.SignalSell:
+			headlineVerb = "做空"
+		}
+	}
+
 	lines := []string{
 		fmt.Sprintf("%s【%s】%s · %s",
 			headlineMark,
-			strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict),
+			headlineVerb,
 			strategyBotMessageDomain.round.BotName,
 			strategyBotMessageDomain.round.Symbol),
 		"",
@@ -77,6 +114,21 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
 	}
 
+	// Named only where these rules can short, which is the one case a reader needs it:
+	// the headline may be telling them to open a position rather than to sell one, and
+	// which account these rules were written for is what makes that the right act. An
+	// account that cannot short reads 買入／賣出 — its own signals, needing no
+	// translator — so the line would be a sentence about the system, not the market.
+	if strategyBotMessageDomain.tradingMode.CanGoShort() {
+		lines = append(lines,
+			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
+	}
+
+	// Always the signals, whichever mode asked. These lines are the strategy scripts'
+	// own testimony, and a script only ever says buy, sell or hold — rewriting them as
+	// 做多／做空 would put words in their mouths and leave the reader unable to work
+	// back from the conclusion to what produced it, which is the only reason these
+	// lines are in the message at all.
 	lines = append(lines, "", "📊 各來源怎麼說")
 
 	for _, sourceSignal := range strategyBotMessageDomain.round.SourceSignals {
@@ -91,6 +143,10 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 
 // signalInWords is a signal as a person reads it. Both the headline and every source
 // line need it, which is what earns it a name of its own.
+//
+// It stays the signal's own vocabulary — buy, sell, hold — whatever mode is reading.
+// What somebody has to go and do about one is the headline's business, above, and
+// rewriting these words to match it would put them in the strategy scripts' mouths.
 //
 // An unrecognised value is written out as it stands rather than replaced with a
 // guess: a message is the last place to quietly turn something the system did not
