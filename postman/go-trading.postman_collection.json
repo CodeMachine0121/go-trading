@@ -10614,7 +10614,7 @@
           ]
         },
         {
-          "name": "同步一段歷史（注意：這一發會真的去打來源，可能要好幾分鐘）",
+          "name": "同步一段歷史（回 202 與一筆輪次，抓取在背景跑）",
           "request": {
             "method": "POST",
             "header": [
@@ -10635,14 +10635,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 1\n}",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 1460\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "description": "指名交易標的與回溯天數，把那一段**缺的**一分鐘 K 線補回來。\n\n**與隔壁的補缺口是兩件事**，差別有兩處：\n\n1. **回溯多久由你說**（補缺口刻意不讓）。\n2. **向來源問的是整段**，不是從「已存最新那根之後」開始。後者跨不回**中間的破洞**——手上有第 1 天與第 30 天時，補缺口從第 30 天之後開始，中間那 28 天再也回不來。\n\n但**寫進去的只有沒有的那幾根**，已經有的原封不動。所以 `storedCount` 講的是**這一次新增了幾根**：整段本來就齊全時它是 0，而那是實話。\n\n粒度固定一分鐘一根，沒有地方可以指定。\n\n真的要抓 BTCUSDT 三十天的話，把 symbol 換成 BTCUSDT、lookbackDays 換成 30——那是四萬三千根、來源要分四十幾次才給得完，會跑上一段時間。"
+            "description": "回溯天數由你說（補缺口那一支刻意不讓）。向來源問整段——那是唯一填得了中間破洞的問法——但只寫沒有的，已經有的原封不動。\n\n它不等抓完才回答：四年的一分鐘 K 線是幾千次照節奏發出的請求，回的是 202 與一筆輪次。拿回來的 id 去下面那一支看進度。\n\n整段切成一天一段，抓一段存一段；已經齊全的那幾段連問都不問。"
           },
           "event": [
             {
@@ -10650,25 +10650,56 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "const report = pm.response.json();",
-                  "pm.test(\"回的是那份熟悉的報告\", function () {",
-                  "    pm.expect(report.symbolReports).to.be.an(\"array\").with.lengthOf(1);",
-                  "});",
-                  "pm.test(\"只有指名的那一檔\", function () {",
-                  "    pm.expect(report.symbolReports[0].symbol).to.eql(pm.collectionVariables.get(\"symbol\"));",
-                  "});",
-                  "pm.test(\"storedCount 是「這一次新增了幾根」\", function () {",
-                  "    pm.expect(report.symbolReports[0].storedCount).to.be.a(\"number\").and.at.least(0);",
-                  "});",
-                  "// 同一發連打兩次，第二次的 storedCount 會是 0：整段都已經有了，這一次什麼都沒改。",
-                  "// storedCount 是 0 不代表失敗——{{symbol}} 是測試用代號，來源也不見得認得它。"
+                  "pm.test('收下了，回的是一筆輪次', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "    const run = pm.response.json();",
+                  "    pm.expect(run.status).to.eql('running');",
+                  "    pm.expect(run.totalChunks).to.be.above(0);",
+                  "    pm.collectionVariables.set('historySyncRunId', run.id);",
+                  "});"
                 ]
               }
             }
           ]
+        },
+        {
+          "name": "看那一趟走到哪",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history/{{historySyncRunId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history",
+                "{{historySyncRunId}}"
+              ]
+            },
+            "description": "status 是 running / succeeded / failed；completedChunks / totalChunks 是走到第幾段。\n\n來源不答話時 status 仍是 succeeded，原因寫在 fetchFailureReason——那是這一趟查到的事。failureReason 那一格才是這個系統自己壞掉時寫的。\n\n服務重啟會把還掛在 running 的輪次掃成 failed，寫上 interrupted by restart。"
+          },
+          "response": []
+        },
+        {
+          "name": "找不到：查一個沒人開過的輪次",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history",
+                "999999"
+              ]
+            }
+          },
+          "response": []
         },
         {
           "name": "拒絕：回溯天數超過上限",
@@ -10692,14 +10723,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 9999\n}",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"lookbackDays\": 99999\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "description": "上限由 KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS 決定，預設 90 天。"
+            "description": "上限是打錯字的防線，不是成本上限——四年是正常的要求。被擋下來的那句話會說出上限是多少。"
           },
           "event": [
             {

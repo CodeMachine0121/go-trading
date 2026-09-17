@@ -4,25 +4,34 @@
 
 ## 1. Design Goal & Guiding Principle
 
-**只多一個窗口與一條寫入規則，其餘一律沿用。**
+**兩件事：一段一段地抓，還有不要讓人等。**
 
 把 K 線抓回來這件事，從窗口以下已經整條做好了：問來源（來源自己分頁）、
-逐根判、存下去、寫報告。三條路（定時一輪、開機回補、手動補缺口）的差別**只有**
-交給來源的那個時間窗。
+逐根判、存下去、寫報告。三條既有的路（定時一輪、開機回補、手動補缺口）
+的差別**只有**交給來源的那個時間窗。
 
-所以這個切片加的是**第四個窗口**：從現在往回推 N 天，不看既有資料——
-那是唯一填得了中間破洞的問法。
+這個切片原本也只想加**第四個窗口**：從現在往回推 N 天，不看既有資料——
+那是唯一填得了中間破洞的問法。九十天以內，那樣就夠了。
 
-它另外加一條**寫入規則**：這一趟只寫沒有的，已經有的原封不動。那是四條路裡唯一
-不覆蓋的一條，而其餘三條**必須**繼續覆蓋——定時那一輪收的是剛走完那一分鐘的
-K 線，下一輪會在來源把數字定下來之後再收一次，不覆蓋會把每一根都凍在最粗糙的
-那個版本。
+四年不夠。約兩百萬根、幾千次來源往返、十幾分鐘到幾小時。整段一次抓，
+記憶體握著兩百萬根等最後一頁；同步回答，一條連線得開十幾分鐘。
+兩件事都不是調參數能解決的。
 
-它不新增報告形狀、不碰來源。
+所以歷史同步**不走 `ingestSymbols`**，自己走一條：
+
+1. **切成一天一段，抓一段存一段。** 記憶體是平的，斷掉時前面幾段已經存好。
+2. **已經齊全的那幾段連問都不問。** 長區間裡幾乎每一段都是。
+3. **先記輪次、回輪次、背景抓。** 沒有哪一條連線值得開十幾分鐘。
+4. **照來源的節奏打。** 切段之後請求變密，而來源是按請求數算額度的。
+
+它另外有一條**寫入規則**：這一趟只寫沒有的。那是四條路裡唯一不覆蓋的一條，
+而其餘三條**必須**繼續覆蓋——定時那一輪收的是剛走完那一分鐘的 K 線，
+下一輪會在來源把數字定下來之後再收一次，不覆蓋會把每一根都凍在最粗糙的那個版本。
+這條規則現在是**結構上**分開的：歷史同步根本不走那三條路的程式碼，
+所以沒有任何旗標可以被傳錯。
 
 第二條原則：**既有那一支一個字都不動。** `POST /k-candles/backfill` 的身分是
-「回溯長度由系統決定」，那句話寫在它的請求物件上。在它身上加一個選填欄位會讓它
-變成半真的；兩條路各自說得完整，比一條路說一半好。
+「回溯長度由系統決定」，那句話寫在它的請求物件上。
 
 ---
 
@@ -30,15 +39,18 @@ K 線，下一輪會在來源把數字定下來之後再收一次，不覆蓋會
 
 | 層 | 動作 |
 | :--- | :--- |
-| Domain model | 新增 `KCandleHistoryLookbackDomain`；`KCandleIngestionDomain` 多一個窗口 |
-| Interface / Repository | `IKCandleRepository` 多一個「沒有才寫」 |
-| DTO | 新增 `KCandleHistorySyncDto`（application → domain 的輸入形狀） |
-| Domain service | `KCandleIngestionService` 多一個公開用例 |
-| Application | `KCandleIngestionApplication` 多一個 method |
-| Controller | 新增 `KCandleHistorySyncController` + `KCandleHistorySyncRequest` |
-| Config | 新增一個上限 |
-| 組裝根 | 註冊一條路由 |
-| Postman | 新增一組請求 |
+| Domain model | 新增 `KCandleHistoryLookbackDomain`；`KCandleIngestionDomain` 多一個窗口與一個切段；`MarketDomain` 多「這段時間開得出幾根」與「這個市場的時區」 |
+| Entity | 新增 `KCandleHistorySyncRun`（歷史同步輪次） |
+| VO | 新增 `KCandleHistorySyncRunStatusVo` |
+| Interface / Repository | `IKCandleRepository` 多「沒有才寫」「整批沒有才寫」「這段有幾根」；新增 `IKCandleHistorySyncRunRepository` |
+| DTO | 新增 `KCandleHistorySyncDto`（輸入）與 `KCandleHistorySyncRunDto`（輸出）；報告 DTO 多「跳過幾根」與「名單被截斷了沒」 |
+| Domain service | `KCandleIngestionService` 多三個公開用例；新增 `kCandleHistorySyncRunner`（背景推動者） |
+| Application | `KCandleIngestionApplication` 多三個 method |
+| Controller | 新增 `KCandleHistorySyncController`（兩條路由）+ `KCandleHistorySyncRequest` |
+| Infrastructure | 新增 `requestPacer`；兩個行情 proxy 各拿一個 |
+| Config | 新增回溯上限與兩個來源節奏上限 |
+| 組裝根 | 兩條路由、一個 repository、啟動時掃殘留輪次 |
+| Postman | 新增兩組請求 |
 
 ---
 
@@ -46,23 +58,38 @@ K 線，下一輪會在來源把數字定下來之後再收一次，不覆蓋會
 
 | 型別 | 檔案 | 職責 |
 | :--- | :--- | :--- |
-| `KCandleHistoryLookbackDomain` | `internal/domain/models/domains/k_candle_history_lookback_domain.go` | 回溯天數：建構子判 1..上限，並換算成時間長度 |
-| `KCandleHistorySyncDto` | `internal/domain/models/dto/k_candle_history_sync_dto.go` | service 收的那組參數（標的 + 天數） |
-| `KCandleHistorySyncController` | `internal/controller/k_candle_history_sync_controller.go` | `POST /k-candles/history` |
-| `KCandleHistorySyncRequest` | `internal/controller/models/k_candle_history_sync_request.go` | 那支 endpoint 的 body |
+| `KCandleHistoryLookbackDomain` | `domain/models/domains/k_candle_history_lookback_domain.go` | 回溯天數：建構子判 1..上限，並換算成時間長度 |
+| `KCandleHistorySyncRun` | `domain/models/entities/k_candle_history_sync_run.go` | 一趟歷史同步本身：要抓什麼、走到哪、收集到什麼 |
+| `KCandleHistorySyncRunStatusVo` | `domain/models/vo/` | `running` / `succeeded` / `failed`，讀不懂的一律當 `failed` |
+| `KCandleHistorySyncDto` / `KCandleHistorySyncRunDto` | `domain/models/dto/` | service 收的那組參數；service 交出去的那趟輪次 |
+| `IKCandleHistorySyncRunRepository` | `domain/interface/` | 輪次的讀寫（`Save` / `FindOne` / `FailAllRunning`） |
+| `kCandleHistorySyncRunner` | `domain/service/k_candle_history_sync_runner.go` | 背景推動那一趟，並把進度寫回去 |
+| `requestPacer` | `infrastructure/marketdata/request_pacer.go` | 把一個來源壓在它允許的節奏上 |
+| `KCandleHistorySyncController` | `controller/` | `POST /k-candles/history`、`GET /k-candles/history/:id` |
 
 ### 為什麼回溯天數要一個 Domain Model
 
 它不是一個數字，是一個**有條件的**數字：至少一天、不超過上限、而且超過時的拒絕
-要說得出上限是多少。建構子裡判、判過才拿得到值，是這個專案對「有規則的值」的既有做法
-（`AssistantAskDomain`、`BacktestInitialCapitalDomain` 都是這樣）。
+要說得出上限是多少。建構子裡判、判過才拿得到值，是這個專案對「有規則的值」的既有做法。
 
 上限由外面給進建構子，因為它是設定而不是領域常識。
 
-### 為什麼 service 收 DTO 而不是兩個參數
+### 為什麼輪次是 entity 而不是記憶體裡的一張表
 
-`naming.md`：「Service 收的參數用 DTO」。既有的 `RunBackfillFor` 收一個字串是因為
-它只有一個；這一支有兩個，而第三個（例如起訖時刻）遲早會有人想加。
+那份工作**活得比請求久**。它不在佇列裡、不在誰的 map 裡——這一筆就是那份工作。
+所以有人來問時查得到，重啟時掃得到。這與助手回答那一套是同一個形狀，
+理由也是同一個：先寫下來的那一列，是讓「還在跑」這件事看得見的唯一辦法。
+
+### 為什麼推動者不是 Domain Model
+
+它拿的是**執行**：一個背景 context、一份要寫回去的位置、一串還沒走完的段。
+把那些拿掉之後不剩任何領域概念。所以它住在 service 旁邊、不加後綴，
+規則仍然在 domain model 與 service 裡，它只是推動並記下結果。
+
+### 為什麼節奏守在 proxy 裡
+
+只有那裡知道**一次呼叫會變成幾次請求**。上面看到的是「給我這一段」，
+下面可能是一次，也可能是三千次；而來源是按請求數算額度的。
 
 ---
 
@@ -70,54 +97,72 @@ K 線，下一輪會在來源把數字定下來之後再收一次，不覆蓋會
 
 ### `KCandleIngestionDomain`
 
-多一個窗口：
+多一個窗口與一個切段：
 
 ```
 HistoryWindow(symbol, market, lookback) → KCandleFetchWindowVo
     起點 = 對齊（現在 − lookback）
     終點 = 最後一根走完的一分鐘
+
+HistoryChunks(symbol, market, lookback) → []KCandleFetchWindowVo
+    把上面那一段切成一天一段（與粗粒度彙總的最粗一格同寬）
 ```
 
 **與 `BackfillWindow` 的唯一差別，就是它不看既有資料。** `BackfillWindow` 會把起點
-往後推到「已存最新那一根之後」，而那個起點**跨不回中間的破洞**；這一個不推，
-所以問得到整段，洞才補得起來。
+往後推到「已存最新那一根之後」，而那個起點**跨不回中間的破洞**。
 
-### `IKCandleRepository` 多一個 `SaveIfAbsent`
+切段寬度取「最粗的那一格」而不是隨便一個數字，因為系統已經有那個刻度，
+而段邊界對齊刻度邊界時，每一段都是完整的一格——進度才說得出「第幾天」。
 
-**第二個方法而不是 `Save` 上的一個旗標**，因為那是兩種意圖而不是一種意圖加一個設定：
-自動那幾輪收的是還在成形的 K 線、本來就打算等來源定案後再蓋掉；補洞則是絕不碰
-已經有的。
+### `MarketDomain` 多 `TradingKCandleCountBetween`
 
-**判斷交給資料庫**（同一個開盤時刻就什麼都不做），不是先讀一次再寫。兩個範圍重疊的
-同步同時在跑時，先讀再寫會雙雙認定某一分鐘不存在、雙雙寫下去，而後寫的那個
-正好蓋掉這條規則要保護的東西。
+「這個市場在這段時間裡開得出幾根」。**「已經齊全就不問」全靠它**：
+手上有幾根，跟開得出幾根比一比。它與既有的 `TradingBucketCountBetween` 分開，
+因為那一個在全年無休的市場上會少算一根（既有的已知差異，不在這個切片改）。
+
+### `IKCandleRepository` 多三個
+
+- `SaveIfAbsent` / `SaveAllIfAbsent`——**不覆蓋**。是第二個方法而不是 `Save` 上的旗標，
+  因為那是兩種意圖而不是一種意圖加一個設定。**判斷交給資料庫**
+  （`ON CONFLICT DO NOTHING`），不是先讀一次再寫：兩個範圍重疊的同步同時在跑時，
+  先讀再寫會雙雙認定某一分鐘不存在、雙雙寫下去。
+- `CountInRange`——「這段手上有幾根」，「已經齊全就不問」的那半。
+
+整批寫是給歷史同步用的：一段一千多根，一根一句話是一千多次往返。
+其餘三條路一次只有幾根，維持逐根寫（那也讓它們的「哪一根寫不進去」仍然指得出來）。
 
 ### `KCandleIngestionService`
 
-多一個公開用例 `SyncHistoryFor`，以及一個說明「這一趟怎麼寫」的 `kCandleWriteRule`
-（覆蓋／保留）。四條路裡只有歷史同步是保留。
-
-它與 `RunBackfillFor` **互不呼叫**（同一個 service 的公開用例互不呼叫），
-但兩者共用同一段私有流程：
+多三個公開用例，並把共用的部分抽出來：
 
 ```
-SyncHistoryFor(dto)
-  ├─ 判代號          （與 RunBackfillFor 同一段私有 helper）
-  ├─ 判回溯天數      【新】KCandleHistoryLookbackDomain
-  ├─ 查登錄          （同上）
-  ├─ 放掉休市判斷    （同上）
-  └─ ingestSymbols(…, HistoryWindow)   ← 只有這一行不同
+StartHistorySyncFor(dto, ceiling)
+  ├─ 判回溯天數      KCandleHistoryLookbackDomain
+  ├─ reachSymbolOnDemand   （與 RunBackfillFor 共用：判代號、查登錄、放掉休市判斷）
+  ├─ 切段            HistoryChunks
+  ├─ 記輪次（running + 總段數）  ← 記不下來就整個拒絕
+  └─ go runner.run() ；回那筆輪次
+
+GetHistorySyncRun(id)
+FailInterruptedHistorySyncs()      ← 啟動時掃
+
+（私有）syncSymbolHistory(symbol, chunks, recordProgress)
+  逐段：收進交易時段 → 已齊全就跳過 → 照節奏問 → judge → SaveAllIfAbsent → 回報進度
+
+（私有）judge(reported, domain)    ← 與 ingestSymbol 共用的「哪幾根可以存」
 ```
 
-前四步是 `RunBackfillFor` 已經有的，且都只被這兩個公開用例用到——**兩個以上**，
-所以抽成一個私有 helper 是對的（`architecture.md` 的門檻）。
+**歷史同步不經過 `ingestSymbols`**，而那是刻意的兩件事：這裡永遠只有一個標的，
+而且從那裡通得到的「休市帳」絕不能看到這一趟——一段已經齊全的歷史同步會
+「被問了卻什麼都沒收到」，那正是休市帳用來判定整個市場休市的訊號。
 
 ### Controller
 
-自己一支，理由與 `KCandleBackfillController` 當初分出來的一樣：它交出去的不是一根
-K 線，而是一次取數。它與回補分開，是因為兩者的規則不同——一個讓你說多久，一個不讓。
+兩條路由。`POST` 回 `202` 與輪次；`GET` 是那個編號真正有用的地方——
+一個沒地方去的編號只是一張沒人看得懂的收據。
 
-狀態碼沿用既有那一支的對映，多一個回溯天數的 400。
+狀態碼：回溯天數／代號說不通 `400`、沒登錄 `404`、這個系統自己壞掉 `502`。
+**來源不答話不在其中**：那是這一趟查到的事，寫在輪次的 `fetchFailureReason` 上。
 
 ---
 
@@ -127,30 +172,32 @@ K 線，而是一次取數。它與回補分開，是因為兩者的規則不同
 KCandleHistorySyncController
         │  KCandleHistorySyncRequest → KCandleHistorySyncDto
         ▼
-KCandleIngestionApplication.SyncSymbolHistory
+KCandleIngestionApplication.StartSymbolHistorySync / GetSymbolHistorySync
         ▼
-KCandleIngestionService.SyncHistoryFor
-        ├─ KCandleHistoryLookbackDomain      （判天數）
-        ├─ KCandleIngestionDomain.HistoryWindow（算窗口）
-        └─ ingestSymbols                      （既有：問來源、判、存、寫報告）
-                 ├─ IMarketDataProxy          （既有，自己分頁）
-                 └─ IKCandleRepository        （既有）
+KCandleIngestionService.StartHistorySyncFor
+        ├─ KCandleHistoryLookbackDomain          （判天數）
+        ├─ KCandleIngestionDomain.HistoryChunks  （切段）
+        ├─ IKCandleHistorySyncRunRepository      （記輪次）
+        └─ go kCandleHistorySyncRunner.run()
+                 └─ KCandleIngestionService.syncSymbolHistory（私有）
+                        ├─ MarketDomain.TradingKCandleCountBetween（已齊全？）
+                        ├─ IKCandleRepository.CountInRange
+                        ├─ IMarketDataProxy.FetchKCandles → requestPacer
+                        └─ IKCandleRepository.SaveAllIfAbsent
 ```
 
-依賴方向不變。**來源、存入、報告三者一個字都沒動。**
+依賴方向不變。節奏守在 infrastructure，輪次的規則在 domain。
 
 ---
 
 ## 6. Extensibility & Handoff Notes
 
-- 想改成「指定起訖時刻」時，落點是再一個窗口方法，加上 DTO 多兩個欄位。
-  其餘照樣不用動——這就是「差別只有窗口」的用處。
-- 想做「重抓一段並修正它」時，落點只有一個字：把那條寫入規則換成覆蓋。
-  窗口、關卡、報告一律照舊。
-- 真的要抓一年時，該做的是**邊抓邊存**（把窗口切成一天一段，存完再抓下一段），
-  而不是把上限調高。現在整段候在記憶體裡，那是上限存在的理由。
-- 要做成非同步時，`pipeline_run`／助手那套「先留紀錄再寫回」是現成的樣子。
-  這一版刻意不做——沒有畫面在等。
+- 想改成「指定起訖時刻」時，落點是再一個切段方法，加上 DTO 多兩個欄位。
+- 想做「重抓一段並修正它」時，落點是 `SaveAllIfAbsent` 換成覆蓋版。
+- 想讓一趟同步**可以取消**時，落點是輪次多一個狀態與一個取消訊號，
+  推動者在每段之間檢查一次。這一版刻意不做——要停就重啟。
+- 想同時跑好幾趟時，落點是推動者前面加一個閘。目前沒有擋，
+  因為按的是人，而節奏上限已經是每個來源共用的。
 
 ---
 
@@ -158,14 +205,17 @@ KCandleIngestionService.SyncHistoryFor
 
 | AC | 落在哪 |
 | :--- | :--- |
-| US-01 抓回指定的那一段 | `HistoryWindow` + `SyncHistoryFor` |
+| US-01 抓回指定的那一段 | `HistoryChunks` + `syncSymbolHistory` |
 | US-01 問整段（填得了破洞） | `HistoryWindow` 不看既有資料 |
-| US-01 已經有的不覆蓋 | `kCandleWriteRule` 的保留那一邊 + `SaveIfAbsent` |
+| US-01 已經有的不覆蓋 | `SaveAllIfAbsent`（`ON CONFLICT DO NOTHING`） |
+| US-01 已經齊全的不問 | `CountInRange` vs `TradingKCandleCountBetween` |
+| US-01 抓得動四年 | `HistoryChunks` 切段 + 逐段存 + `requestPacer` |
 | US-01 粒度固定 | 請求物件上沒有那個欄位 |
-| US-02 代號說不通／沒登錄 | 沿用 `RunBackfillFor` 的那兩道，抽成共用私有 helper |
-| US-02 回溯天數說不通 | `KCandleHistoryLookbackDomain` 建構子 |
+| US-02 代號／回溯天數說不通 | `reachSymbolOnDemand`、`KCandleHistoryLookbackDomain` |
 | US-03 邊界上的 1 天與上限 | 同上 |
-| US-04 報告一字不差 | 共用 `ingestSymbols`，沒有第二種報告 |
+| US-04 交代它做了什麼 | 輪次的 `storedCount` / `skippedCount` / `fetchFailureReason` |
+| US-05 不等我但看得到進度 | `KCandleHistorySyncRun` + `kCandleHistorySyncRunner` + `GET` |
+| US-05 重啟掃殘留 | `FailAllRunning` + `main.go` 啟動時那一段 |
 
 ---
 
@@ -173,12 +223,14 @@ KCandleIngestionService.SyncHistoryFor
 
 | 風險 | 緩解 |
 | :--- | :--- |
-| 一次九十天要好幾分鐘 | 上限封頂；要更長時先做邊抓邊存 |
-| 問整段對來源打很多次，即使資料已經齊全 | 這是填得了破洞的代價；手動工具，按的人知道自己在做什麼 |
-| 這條寫入規則被誤用到自動那幾輪 | 四條路各自在呼叫處明寫用哪一種；定時那一輪有一條測試釘住它仍然覆蓋 |
-| 十三萬根候在記憶體 | 同上限；這是上限真正在封的東西 |
+| 一趟四年要十幾分鐘到幾小時 | 先回輪次、背景抓、可查進度。不靠上限 |
+| 來源額度 | 每個來源自己的節奏上限，且留餘裕——額度是跟系統其他呼叫共用的 |
+| 進度寫得太頻繁 | 一段一次。相對於那一段幾百到幾千次照節奏發出的請求，是零頭；而只在收尾才出現的數字跟卡住的分不出來 |
+| 這條寫入規則被誤用到自動那幾輪 | **結構上分開**：歷史同步不走 `ingestSymbols`，沒有旗標可以傳錯。另有一條測試釘住定時那一輪仍然覆蓋 |
+| 壞掉的根太多，報告打不開 | 名單封頂 200 筆，`skippedCount` 照實算 |
 
 ### Open decisions（交給實作）
 
-- 路徑 `POST /k-candles/history`。不叫 `/sync`，因為它與隔壁的 `/backfill` 意思太近，
-  而兩者的差別正是這一支的重點：**你說要多少歷史**。
+- 路徑 `POST /k-candles/history` 與 `GET /k-candles/history/:id`。
+- 進度用**段數**而不是百分比或根數：段是這趟真正往前走的單位，
+  而「第 11 段／共 30 段」不需要任何人先同意一個算法。

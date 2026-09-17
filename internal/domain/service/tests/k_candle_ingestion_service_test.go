@@ -1310,7 +1310,9 @@ func TestSyncingHistoryAnswersBeforeItHasFetchedAnything(t *testing.T) {
 	assert.Positive(t, startedRun.TotalChunks, "回覆裡就要說出這一趟總共有幾段")
 
 	close(letGo)
-	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), runs.awaitEnding(t).Status)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.NotNil(t, endedRun.FinishedAt, "收尾的輪次要說得出它什麼時候收的")
 }
 
 func TestSyncingHistoryMovesItsProgressAlongAsItGoes(t *testing.T) {
