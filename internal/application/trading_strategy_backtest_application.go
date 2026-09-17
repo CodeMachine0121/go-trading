@@ -60,6 +60,12 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 	requestDto.SignalSources = resolvedSources
 	requestDto.BuyCondition = tradingStrategyDto.BuyCondition
 	requestDto.SellCondition = tradingStrategyDto.SellCondition
+	// Read off the trading strategy rather than taken from whoever asked — and there
+	// is nowhere for them to say it, because a sell means what these rules say it
+	// means. Somebody replaying rules written for an account that cannot short would
+	// otherwise have to remember to say so every single time, under a default that is
+	// wrong for them.
+	requestDto.TradingMode = tradingStrategyDto.TradingMode
 
 	return tradingStrategyBacktestApplication.backtestService.RunTradingStrategyBacktest(
 		executionContext, requestDto)
