@@ -2,15 +2,15 @@ package entities
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 
-// StrategyBotSignalSourceParameterValue is what one of a strategy's knobs is worth
+// StrategyBotSignalSourceParameterValue is what one of a strategy script's knobs is worth
 // inside one signal source.
 //
 // It is a row of its own rather than a blob on the source, for the same reason a
-// strategy's declared parameters are: a knob is one name and one number, and a
+// strategy script's declared parameters are: a knob is one name and one number, and a
 // column that holds several of them can only be read by parsing it.
 //
-// The value is one float64 and the kind is absent, exactly as it is on a strategy
-// parameter value: which kind a name was declared as is the strategy's word, not
+// The value is one float64 and the kind is absent, exactly as it is on a strategy script
+// parameter value: which kind a name was declared as is the strategy script's word, not
 // this bot's, so setting a value here cannot change what that name means.
 type StrategyBotSignalSourceParameterValue struct {
 	ID                        uint    `gorm:"primaryKey"`
@@ -25,8 +25,8 @@ func (parameterValue StrategyBotSignalSourceParameterValue) TableName() string {
 }
 
 // ToDto converts this row into the shape the domain hands outwards.
-func (parameterValue StrategyBotSignalSourceParameterValue) ToDto() dto.StrategyParameterValueDto {
-	return dto.StrategyParameterValueDto{
+func (parameterValue StrategyBotSignalSourceParameterValue) ToDto() dto.StrategyScriptParameterValueDto {
+	return dto.StrategyScriptParameterValueDto{
 		Name:  parameterValue.Name,
 		Value: parameterValue.Value,
 	}

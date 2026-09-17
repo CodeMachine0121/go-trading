@@ -115,7 +115,7 @@ func TestNewBacktestDomain(t *testing.T) {
 		{
 			name: "a knob declared twice is refused",
 			mutateRequest: func(requestDto *dto.BacktestRequestDto) {
-				requestDto.Parameters = []dto.StrategyParameterWriteDto{
+				requestDto.Parameters = []dto.StrategyScriptParameterWriteDto{
 					{Name: "period", Kind: "lookbackCount", DefaultValue: 5},
 					{Name: "period", Kind: "lookbackCount", DefaultValue: 9},
 				}
@@ -125,7 +125,7 @@ func TestNewBacktestDomain(t *testing.T) {
 		{
 			name: "a value for a knob nobody declared is refused",
 			mutateRequest: func(requestDto *dto.BacktestRequestDto) {
-				requestDto.ParameterValues = []dto.StrategyParameterValueDto{
+				requestDto.ParameterValues = []dto.StrategyScriptParameterValueDto{
 					{Name: "period", Value: 9},
 				}
 			},

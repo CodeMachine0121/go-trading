@@ -8,7 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestSimulationDomain replays one strategy candle by candle.
+// BacktestSimulationDomain replays one strategy script candle by candle.
 //
 // It is pure arithmetic: candles in, opinions in, a report card out. It reads no
 // storage, no clock and no interpreter, which is what lets every rule the requirements

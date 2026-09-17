@@ -30,7 +30,7 @@ func replayedCandleAt(candleIndex int, closePrice float64) vo.KCandleVo {
 	}
 }
 
-// replayOf walks a strategy over candles priced by closePrices, acting on the signal
+// replayOf walks a strategy script over candles priced by closePrices, acting on the signal
 // standing at the same position. The two lists are always the same length here, which
 // is what the script runner guarantees.
 func replayOf(
@@ -187,7 +187,7 @@ func TestBacktestSimulationStakesWhatTheSizingModeSays(t *testing.T) {
 }
 
 func TestBacktestSimulationEquityCurve(t *testing.T) {
-	t.Run("the money does not move while the strategy does not", func(t *testing.T) {
+	t.Run("the money does not move while the strategy script does not", func(t *testing.T) {
 		result := replayOf(t, 10000, "allIn", 0,
 			[]float64{100, 110, 120},
 			holdSignal, holdSignal, holdSignal).ToDto()

@@ -21,7 +21,7 @@ const slowQueryThreshold = 200 * time.Millisecond
 //
 // "Record not found" is kept out of the log, because in this system it is an
 // answer rather than a failure: every read that can come back empty translates it
-// into one — a strategy that is not on the marketplace, a person with no delivery
+// into one — a strategy script that is not on the marketplace, a person with no delivery
 // setting, a bot that is not there. The program still receives the error and still
 // has to handle it; only the line saying so is dropped.
 //

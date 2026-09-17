@@ -66,7 +66,7 @@ Oracle: Acceptance Criteria（26 條）＋ Core Business Rules（11 條）＋ No
 | ID | Clause | Spec-expected (oracle) | Impl | Test | Test audit | Code audit | Status |
 |----|--------|------------------------|------|------|------------|------------|--------|
 | AC-24 | 清乾淨之後啟動，留存的只有一分鐘 K 線 | 啟動回補依既有上限取回一分鐘 K 線；留存的全部涵蓋一分鐘 | 既有啟動回補（`k_candle_ingestion_service.go:RunBackfill`）＋ `README.md`「切換 K 線長度時要先清掉舊資料」 | `k_candle_ingestion_service_test.go:TestBackfillAsksOnlyForTheGap`（回補視窗以一分鐘為步進） | asserts-oracle（可自動驗的那一半：回補行為）；清除本身是人工步驟，無從以測試斷言 | produces-oracle | ✅ conforms |
-| AC-25 | 清除只針對 K 線，其他留存資料不受影響 | 交易標的、策略、使用者完全不受影響 | `README.md` 部署步驟明確只針對 `KCandles` 一張表 | — | no-test（人工步驟） | produces-oracle（其他資料存於不同資料表，指令未觸及） | 🟡 partial |
+| AC-25 | 清除只針對 K 線，其他留存資料不受影響 | 交易標的、策略腳本、使用者完全不受影響 | `README.md` 部署步驟明確只針對 `KCandles` 一張表 | — | no-test（人工步驟） | produces-oracle（其他資料存於不同資料表，指令未觸及） | 🟡 partial |
 | AC-26 | 沒有清乾淨就啟動，兩種長度會混在一起而且分不出來 | 兩種長度並存且系統無從分辨；指標與回測會當成同一種東西計算 | `entities/k_candle.go`（沒有記錄長度的欄位——這正是「分不出來」的成因）；`PRD.md` §1 Out of Scope 明列不做「兩種長度並存」 | — | no-test | produces-oracle（此為**刻意接受的後果**，不是待修的缺陷；PRD §7 已列為風險） | 🟡 partial |
 
 ### Core Business Rules
@@ -100,7 +100,7 @@ Oracle: Acceptance Criteria（26 條）＋ Core Business Rules（11 條）＋ No
 |------|-------------|---------|
 | — | 本次無 code orphan：所有新增／修改的公開行為都對應到條款 | — |
 | ~~15 處註解／提示詞仍寫「五分鐘」~~ | 註解與 AI 提示詞的用字落後於行為 | **已修正**（commit `bdf03b1`）。`claude_assistant_proxy.go` 那一行會直接影響助手的用詞，是其中最要緊的一處 |
-| `postman` 的「策略預設 `aggregationInterval` 為 `5m`」斷言 | 策略早已不帶彙總刻度（欄位已退場） | **既有漂移，與本切片無關**——本次未動它，留給後續處理 |
+| `postman` 的「策略腳本預設 `aggregationInterval` 為 `5m`」斷言 | 策略腳本早已不帶彙總刻度（欄位已退場） | **既有漂移，與本切片無關**——本次未動它，留給後續處理 |
 
 ## Summary
 
@@ -110,4 +110,4 @@ Oracle: Acceptance Criteria（26 條）＋ Core Business Rules（11 條）＋ No
 - Partial: `AC-25`、`AC-26`、`BR-11`、`NFR-03` 🟡（四條都在描述「人工步驟」或「系統刻意不做某事」，本質上無從以自動化測試斷言，非缺測試）
 - Gaps: 無 ❌
 - Unclear: `NFR-01` ❔（容量陳述，非行為條款）
-- Orphans: 2 類，皆為文件而非程式（「註解仍寫五分鐘」已於 `bdf03b1` 修正；postman 的策略欄位斷言為既有漂移，與本切片無關）
+- Orphans: 2 類，皆為文件而非程式（「註解仍寫五分鐘」已於 `bdf03b1` 修正；postman 的策略腳本欄位斷言為既有漂移，與本切片無關）

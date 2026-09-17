@@ -1,11 +1,11 @@
 package dto
 
-// StrategyBotSignalSourceDto is one strategy as it runs inside one bot: which
-// strategy, how coarse the candles it reads are, what its knobs are worth here, and
+// StrategyBotSignalSourceDto is one strategy script as it runs inside one bot: which
+// strategy script, how coarse the candles it reads are, what its knobs are worth here, and
 // what it is called in the conditions.
 //
 // There is no script field, and that absence is the design. A bot may name a
-// strategy adopted from the marketplace, and a shape with nowhere to put a script is
+// strategy script adopted from the marketplace, and a shape with nowhere to put a script is
 // the only way "reading a bot never reads somebody else's algorithm" is something
 // the types make impossible rather than something a reviewer keeps checking.
 //
@@ -15,14 +15,14 @@ package dto
 // case; a single coarseness shared by the whole bot could not say it.
 type StrategyBotSignalSourceDto struct {
 	// Label is what the conditions call this source — A, B, C. It is the only name
-	// a condition has for a strategy.
+	// a condition has for a strategy script.
 	Label string `json:"label"`
-	// StrategyID names the strategy, and is the only thing stored about which
-	// algorithm this is. There is no copy of the strategy's name here: a copy would
+	// StrategyScriptID names the strategy script, and is the only thing stored about which
+	// algorithm this is. There is no copy of the strategy script's name here: a copy would
 	// go stale the first time it was renamed, and there is nothing it would be
 	// needed for — the label is already this source's name, chosen by the person
 	// who has to read it.
-	StrategyID          uint                        `json:"strategyId"`
-	AggregationInterval string                      `json:"aggregationInterval"`
-	ParameterValues     []StrategyParameterValueDto `json:"parameterValues"`
+	StrategyScriptID    uint                              `json:"strategyScriptId"`
+	AggregationInterval string                            `json:"aggregationInterval"`
+	ParameterValues     []StrategyScriptParameterValueDto `json:"parameterValues"`
 }

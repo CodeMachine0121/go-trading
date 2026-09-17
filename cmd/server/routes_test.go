@@ -33,14 +33,14 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"DELETE /k-candles/:symbol/:openTime",
-		// Taking a published strategy off one's own shelf, and taking one's own
-		// strategy off the shared shelf. Two different withdrawals, so two paths:
-		// one hangs off the marketplace, the other off the strategy itself.
-		"DELETE /marketplace/strategies/:id/adoption",
-		"DELETE /strategies/:id",
-		"DELETE /strategies/:id/publication",
+		// Taking a published strategy script off one's own shelf, and taking one's own
+		// strategy script off the shared shelf. Two different withdrawals, so two paths:
+		// one hangs off the marketplace, the other off the strategy script itself.
+		"DELETE /marketplace/strategy-scripts/:id/adoption",
 		"DELETE /strategy-bots/:id",
 		"DELETE /strategy-bots/:id/power",
+		"DELETE /strategy-scripts/:id",
+		"DELETE /strategy-scripts/:id/publication",
 		// Taking away the place this system was told to speak to. It names nobody
 		// but the person asking, so it cannot reach a symbol either.
 		"DELETE /users/me/telegram-delivery",
@@ -62,33 +62,33 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// The shared shelf. It hands out names, descriptions and knobs, never an
 		// algorithm — that is a property of the shape it answers with, not of this
 		// route.
-		"GET /marketplace/strategies",
-		"GET /strategies",
-		"GET /strategies/:id",
+		"GET /marketplace/strategy-scripts",
 		"GET /strategy-bots",
 		"GET /strategy-bots/:id",
 		"GET /strategy-bots/:id/runs",
+		"GET /strategy-scripts",
+		"GET /strategy-scripts/:id",
 		"GET /trading-symbols",
 		// Recognising a person reads and writes only users. None of these three can
 		// name a symbol, so the boundary this test holds is intact.
 		"GET /users/me",
 		"GET /users/me/telegram-delivery",
-		// Replaying a strategy reads the market and stores nothing at all, so it
+		// Replaying a strategy script reads the market and stores nothing at all, so it
 		// cannot reach the watchlist either.
 		"POST /backtests",
 		"POST /chat",
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"POST /k-candles/backfill",
-		"POST /marketplace/strategies/:id/adoption",
+		"POST /marketplace/strategy-scripts/:id/adoption",
 		"POST /sessions",
 		"POST /sessions/renewal",
 		"POST /sessions/revocation",
-		"POST /strategies",
-		"POST /strategies/:id/publication",
 		"POST /strategy-bots",
 		"POST /strategy-bots/:id/power",
 		"POST /strategy-bots/:id/runs",
+		"POST /strategy-scripts",
+		"POST /strategy-scripts/:id/publication",
 		"POST /users",
 		// Replacing one's own password. It names nobody but the person asking —
 		// who that is comes from the proof on the request — so it cannot reach a
@@ -99,8 +99,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /users/me/telegram-delivery/test-message",
 		"POST /watchlist",
 		"PUT /k-candles/:symbol/:openTime",
-		"PUT /strategies/:id",
 		"PUT /strategy-bots/:id",
+		"PUT /strategy-scripts/:id",
 		"PUT /users/me/telegram-delivery",
 	}, mountedRoutes)
 }

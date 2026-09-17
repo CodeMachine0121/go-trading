@@ -72,7 +72,7 @@ func registerRoutes(
 	// signing in cannot require being signed in. The market — candles, symbols, the
 	// watchlist — is nobody's property: putting a door on it would only make a chart
 	// blank for a visitor, and there is nothing behind it to protect. What is closed
-	// is everything that belongs to a person: their strategies, the marketplace,
+	// is everything that belongs to a person: their strategy scripts, the marketplace,
 	// running one, and the assistant that acts as them.
 	requiresSignIn := middlewares.NewAuthenticationMiddleware(userApplication).Handle
 
@@ -138,50 +138,50 @@ func registerRoutes(
 	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
 	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
 
-	// A saved strategy is its own resource: it holds an algorithm, who it belongs
+	// A saved strategy script is its own resource: it holds an algorithm, who it belongs
 	// to, and nothing else — how coarse the K candles are, how many of them and up
 	// to when describe one run and travel with the calculation instead. It reads no
 	// K candles, so it is given no K candle repository.
 	//
-	// It is built before the two use cases that run a strategy, because both of them
+	// It is built before the two use cases that run a strategy script, because both of them
 	// resolve an identifier through it first. That resolution is the only way a
 	// script leaves storage, and it is what lets one person run another's published
 	// algorithm without ever being handed it.
-	strategyRepository := persistence.NewStrategyRepository(database)
-	publishedStrategyRepository := persistence.NewPublishedStrategyRepository(database)
+	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
+	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
 
-	strategyService := service.NewStrategyService(strategyRepository, publishedStrategyRepository)
-	strategyApplication := application.NewStrategyApplication(strategyService)
+	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
+	strategyScriptApplication := application.NewStrategyScriptApplication(strategyScriptService)
 
-	strategyController := controller.NewStrategyController(strategyApplication)
+	strategyScriptController := controller.NewStrategyScriptController(strategyScriptApplication)
 
-	engine.POST("/strategies", requiresSignIn, strategyController.CreateStrategy)
-	engine.GET("/strategies", requiresSignIn, strategyController.ListAvailableStrategies)
-	engine.GET("/strategies/:id", requiresSignIn, strategyController.GetStrategy)
-	engine.PUT("/strategies/:id", requiresSignIn, strategyController.UpdateStrategy)
-	engine.DELETE("/strategies/:id", requiresSignIn, strategyController.DeleteStrategy)
+	engine.POST("/strategy-scripts", requiresSignIn, strategyScriptController.CreateStrategyScript)
+	engine.GET("/strategy-scripts", requiresSignIn, strategyScriptController.ListAvailableStrategyScripts)
+	engine.GET("/strategy-scripts/:id", requiresSignIn, strategyScriptController.GetStrategyScript)
+	engine.PUT("/strategy-scripts/:id", requiresSignIn, strategyScriptController.UpdateStrategyScript)
+	engine.DELETE("/strategy-scripts/:id", requiresSignIn, strategyScriptController.DeleteStrategyScript)
 
 	// The marketplace is the same rows read a different way, and a separate resource
 	// because it answers a different question: not "what is mine" but "what is out
-	// there". Publishing hangs off the strategy's own path because it is something
-	// done to a strategy; browsing and adopting hang off the marketplace because
+	// there". Publishing hangs off the strategy script's own path because it is something
+	// done to a strategy script; browsing and adopting hang off the marketplace because
 	// they are things done to the shelf.
-	strategyMarketplaceController := controller.NewStrategyMarketplaceController(
-		application.NewStrategyMarketplaceApplication(
-			service.NewStrategyMarketplaceService(
-				strategyRepository,
-				publishedStrategyRepository,
-				persistence.NewStrategyAdoptionRepository(database),
+	strategyScriptMarketplaceController := controller.NewStrategyScriptMarketplaceController(
+		application.NewStrategyScriptMarketplaceApplication(
+			service.NewStrategyScriptMarketplaceService(
+				strategyScriptRepository,
+				publishedStrategyScriptRepository,
+				persistence.NewStrategyScriptAdoptionRepository(database),
 				clock.NewSystemClockProxy(),
 			),
 		),
 	)
 
-	engine.POST("/strategies/:id/publication", requiresSignIn, strategyMarketplaceController.PublishStrategy)
-	engine.DELETE("/strategies/:id/publication", requiresSignIn, strategyMarketplaceController.WithdrawStrategy)
-	engine.GET("/marketplace/strategies", requiresSignIn, strategyMarketplaceController.BrowseMarketplace)
-	engine.POST("/marketplace/strategies/:id/adoption", requiresSignIn, strategyMarketplaceController.AdoptStrategy)
-	engine.DELETE("/marketplace/strategies/:id/adoption", requiresSignIn, strategyMarketplaceController.AbandonStrategy)
+	engine.POST("/strategy-scripts/:id/publication", requiresSignIn, strategyScriptMarketplaceController.PublishStrategyScript)
+	engine.DELETE("/strategy-scripts/:id/publication", requiresSignIn, strategyScriptMarketplaceController.WithdrawStrategyScript)
+	engine.GET("/marketplace/strategy-scripts", requiresSignIn, strategyScriptMarketplaceController.BrowseMarketplace)
+	engine.POST("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AdoptStrategyScript)
+	engine.DELETE("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AbandonStrategyScript)
 
 	// Built once and shared, because a strategy bot asks exactly the same question
 	// of it as somebody sitting at the screen does. Two instances would be two
@@ -197,14 +197,14 @@ func registerRoutes(
 	)
 
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
-		strategyService,
+		strategyScriptService,
 		indicatorCalculationService,
 	)
 
 	engine.POST("/indicator-calculations", requiresSignIn, controller.NewIndicatorCalculationController(
 		indicatorCalculationApplication).CalculateIndicator)
 
-	// Replaying a strategy is its own use case rather than a mode of calculating an
+	// Replaying a strategy script is its own use case rather than a mode of calculating an
 	// indicator: it asks a different question of the same script, and it stores
 	// nothing — which is why it is given no repository beyond the one it reads from.
 	//
@@ -213,7 +213,7 @@ func registerRoutes(
 	// numbers to keep in step.
 	engine.POST("/backtests", requiresSignIn, controller.NewBacktestController(
 		application.NewBacktestApplication(
-			strategyService,
+			strategyScriptService,
 			service.NewBacktestService(
 				kCandleRepository,
 				script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
@@ -237,7 +237,7 @@ func registerRoutes(
 					tradingSymbolApplication,
 					kCandleApplication,
 					indicatorCalculationApplication,
-					strategyApplication,
+					strategyScriptApplication,
 					applicationConfig.Assistant.CandleLimit,
 				),
 				clock.NewSystemClockProxy(),
@@ -250,8 +250,8 @@ func registerRoutes(
 	)
 
 	// The assistant acts as whoever asked it, so it is behind the door like anything
-	// else that touches a strategy. Without that, a strategy it saved would belong
-	// to nobody, and "every strategy has an owner" would have its one exception.
+	// else that touches a strategy script. Without that, a strategy script it saved would belong
+	// to nobody, and "every strategy script has an owner" would have its one exception.
 	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
 	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
 	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
@@ -331,7 +331,7 @@ func registerRoutes(
 
 	// Standing bots: the first thing here that both decides something and says it
 	// without anybody asking. They are wired last because they lean on almost
-	// everything above — the strategy gates, the script runner, the candles and the
+	// everything above — the strategy script gates, the script runner, the candles and the
 	// way out to Telegram — and add only one store of their own.
 	//
 	// The run side and the managing side share one service but are two
@@ -346,7 +346,7 @@ func registerRoutes(
 
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,
-		strategyService,
+		strategyScriptService,
 		indicatorCalculationService,
 		telegramDeliveryService,
 		kCandleService,
@@ -359,7 +359,7 @@ func registerRoutes(
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
 			strategyBotService,
-			strategyService,
+			strategyScriptService,
 			telegramDeliveryService,
 		),
 		strategyBotRunApplication,
@@ -391,7 +391,7 @@ func registerRoutes(
 // assistantQueriesFor is everything the assistant is allowed to do.
 //
 // It is assembled here and only here, which is what makes "it cannot delete a
-// strategy" a fact about the system rather than a check somebody could remove: there
+// strategy script" a fact about the system rather than a check somebody could remove: there
 // is no deleting capability to reach for, and no K candle writing one either. Adding
 // a capability is adding one line to this list.
 //
@@ -401,7 +401,7 @@ func assistantQueriesFor(
 	tradingSymbolApplication *application.TradingSymbolApplication,
 	kCandleApplication *application.KCandleApplication,
 	indicatorCalculationApplication *application.IndicatorCalculationApplication,
-	strategyApplication *application.StrategyApplication,
+	strategyScriptApplication *application.StrategyScriptApplication,
 	candleLimit int,
 ) []domaininterface.IAssistantQuery {
 	return []domaininterface.IAssistantQuery{
@@ -409,10 +409,10 @@ func assistantQueriesFor(
 		assistantqueries.NewKCandleSeriesAssistantQuery(kCandleApplication, candleLimit),
 		assistantqueries.NewKCandleRangeAssistantQuery(kCandleApplication, candleLimit),
 		assistantqueries.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication),
-		assistantqueries.NewStrategyListAssistantQuery(strategyApplication),
-		assistantqueries.NewStrategyGetAssistantQuery(strategyApplication),
-		assistantqueries.NewStrategyCreateAssistantQuery(strategyApplication),
-		assistantqueries.NewStrategyUpdateAssistantQuery(strategyApplication),
+		assistantqueries.NewStrategyScriptListAssistantQuery(strategyScriptApplication),
+		assistantqueries.NewStrategyScriptGetAssistantQuery(strategyScriptApplication),
+		assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication),
+		assistantqueries.NewStrategyScriptUpdateAssistantQuery(strategyScriptApplication),
 	}
 }
 

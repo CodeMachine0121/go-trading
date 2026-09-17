@@ -52,9 +52,9 @@ func newStrategyBotScanJobUnderTest(
 			return []entities.StrategyBot{}, findDueError
 		}).AnyTimes()
 
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(mockController)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
@@ -66,8 +66,8 @@ func newStrategyBotScanJobUnderTest(
 		application.NewStrategyBotRunApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
-			service.NewStrategyService(
-				mocks.NewMockIStrategyRepository(mockController), publishedStrategyRepository),
+			service.NewStrategyScriptService(
+				mocks.NewMockIStrategyScriptRepository(mockController), publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController), clockProxy,

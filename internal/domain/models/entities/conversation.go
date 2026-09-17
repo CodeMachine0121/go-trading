@@ -13,8 +13,8 @@ import "time"
 type Conversation struct {
 	ID uint `gorm:"primaryKey"`
 	// OwnerID is who asked. A conversation belongs to one person for the same reason
-	// a strategy does, and here the reason is sharper: the assistant acts as whoever
-	// asked it, so a transcript can hold that person's own strategies — the very
+	// a strategy script does, and here the reason is sharper: the assistant acts as whoever
+	// asked it, so a transcript can hold that person's own strategy scripts — the very
 	// thing publishing exists to hand out deliberately rather than by accident.
 	//
 	// It is not nullable. A conversation with nobody behind it could be read by

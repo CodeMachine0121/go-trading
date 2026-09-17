@@ -12,42 +12,42 @@ import (
 )
 
 // indicatorCalculationAssistantArguments is what the assistant sends to run one
-// calculation. It may name a saved strategy or bring its own algorithm, never both.
+// calculation. It may name a saved strategy script or bring its own algorithm, never both.
 type indicatorCalculationAssistantArguments struct {
-	Symbol     string `json:"symbol"`
-	Interval   string `json:"interval"`
-	StrategyID uint   `json:"strategyId"`
-	Script     string `json:"script"`
-	ResultType string `json:"resultType"`
+	Symbol           string `json:"symbol"`
+	Interval         string `json:"interval"`
+	StrategyScriptID uint   `json:"strategyScriptId"`
+	Script           string `json:"script"`
+	ResultType       string `json:"resultType"`
 	// StartTime and EndTime are the stretch of market to read, RFC3339. How many
 	// values come out of it depends on how much of it the symbol's market is open
 	// for, so a stretch over a Taiwan night holds nothing at all.
 	StartTime string `json:"startTime"`
 	EndTime   string `json:"endTime"`
-	// ParameterValues are what the named strategy's knobs are worth this time.
+	// ParameterValues are what the named strategy script's knobs are worth this time.
 	// Anything left out keeps the value it was declared with.
-	ParameterValues []strategyParameterValueAssistantArgument `json:"parameterValues"`
+	ParameterValues []strategyScriptParameterValueAssistantArgument `json:"parameterValues"`
 }
 
-// strategyParameterValueAssistantArgument is what one knob is worth this run.
-type strategyParameterValueAssistantArgument struct {
+// strategyScriptParameterValueAssistantArgument is what one knob is worth this run.
+type strategyScriptParameterValueAssistantArgument struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
 }
 
 // IndicatorCalculationAssistantQuery lets the assistant run one indicator
-// calculation, either from a saved strategy or from an algorithm it wrote itself.
+// calculation, either from a saved strategy script or from an algorithm it wrote itself.
 //
-// Naming a saved strategy is offered because that is how the question is actually
-// asked — "look at BTCUSDT with my twenty-bar average" names a strategy, not a
-// script. The alternative, making the assistant read the strategy and then send its
+// Naming a saved strategy script is offered because that is how the question is actually
+// asked — "look at BTCUSDT with my twenty-bar average" names a strategy script, not a
+// script. The alternative, making the assistant read the strategy script and then send its
 // algorithm back, costs an extra round trip and puts the whole script through the
 // conversation twice for nothing.
 //
-// A strategy that is named wins over an algorithm that is sent, so that the two can
+// A strategy script that is named wins over an algorithm that is sent, so that the two can
 // never quietly disagree about which one ran.
 //
-// It no longer reads the strategy itself. Fetching the algorithm belongs to the use
+// It no longer reads the strategy script itself. Fetching the algorithm belongs to the use
 // case that runs it — that is where the three gates are walked — so this capability
 // hands over an identifier and never holds a script it did not write.
 type IndicatorCalculationAssistantQuery struct {
@@ -67,8 +67,8 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Na
 }
 
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Description() string {
-	return "算一次指標。可以指名一支既有策略（strategyId），或自己帶一段算式（script）；" +
-		"兩者都給時以 strategyId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
+	return "算一次指標。可以指名一支既有策略腳本（strategyScriptId），或自己帶一段算式（script）；" +
+		"兩者都給時以 strategyScriptId 為準。彙總刻度只接受 1m、5m、15m、1h、4h、1d，未給視為 1m。" +
 		"startTime 與 endTime 是要看哪一段行情；會收盤的市場只數有交易的那些時間，" +
 		"所以整段落在台股收盤時間裡的區間會被拒絕。回傳的是指標值，不是 K 線。" +
 		"存下來的行情不夠長時不會被拒絕，而是用手上有的算：回傳的 requiredCandleCount 是填滿要幾根、" +
@@ -81,8 +81,8 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ar
 		`"symbol":{"type":"string","description":"交易標的代號，例如 BTCUSDT"},` +
 		`"interval":{"type":"string","enum":["1m","5m","15m","1h","4h","1d"],"description":"彙總刻度"},` +
 		`"startTime":{"type":"string","description":"要看哪一段行情的起點，RFC3339"},` +
-		`"strategyId":{"type":"integer","description":"要用哪一支既有策略"},` +
-		`"script":{"type":"string","description":"自帶的指標算式，未指名策略時使用"},` +
+		`"strategyScriptId":{"type":"integer","description":"要用哪一支既有策略腳本"},` +
+		`"script":{"type":"string","description":"自帶的指標算式，未指名策略腳本時使用"},` +
 		`"resultType":{"type":"string","enum":["float","floatList","bool","boolList"],"description":"自帶算式的指標值種類"},` +
 		`"endTime":{"type":"string","description":"算到哪個時間為止，RFC3339，未給視為現在"},` +
 		`"parameterValues":{"type":"array","description":"這次每個參數是多少","items":{"type":"object","properties":{` +
@@ -147,9 +147,9 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) re
 	startTime time.Time,
 	endTime time.Time,
 ) dto.IndicatorCalculationRequestDto {
-	parameterValueDtos := make([]dto.StrategyParameterValueDto, 0, len(calculationArguments.ParameterValues))
+	parameterValueDtos := make([]dto.StrategyScriptParameterValueDto, 0, len(calculationArguments.ParameterValues))
 	for _, parameterValue := range calculationArguments.ParameterValues {
-		parameterValueDtos = append(parameterValueDtos, dto.StrategyParameterValueDto{
+		parameterValueDtos = append(parameterValueDtos, dto.StrategyScriptParameterValueDto{
 			Name:  parameterValue.Name,
 			Value: parameterValue.Value,
 		})
@@ -160,12 +160,12 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) re
 		StartTime:           startTime,
 		AggregationInterval: calculationArguments.Interval,
 		EndTime:             endTime,
-		Parameters:          make([]dto.StrategyParameterWriteDto, 0),
+		Parameters:          make([]dto.StrategyScriptParameterWriteDto, 0),
 		ParameterValues:     parameterValueDtos,
 	}
 }
 
-// calculate runs whatever the assistant asked for: the strategy it named, or the
+// calculate runs whatever the assistant asked for: the strategy script it named, or the
 // algorithm it wrote itself when it named none.
 //
 // Both go through one call. Which of the two it is, is settled by the same model
@@ -178,7 +178,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) ca
 	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
 	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
-		calculationArguments.StrategyID, calculationArguments.Script,
+		calculationArguments.StrategyScriptID, calculationArguments.Script,
 		calculationArguments.ResultType, nil)
 	if subjectError != nil {
 		return dto.IndicatorCalculationResultDto{}, subjectError

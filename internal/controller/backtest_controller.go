@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// BacktestController exposes the strategy backtest use case over HTTP.
+// BacktestController exposes the strategy script backtest use case over HTTP.
 type BacktestController struct {
 	backtestApplication *application.BacktestApplication
 }
@@ -30,7 +30,7 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 	}
 
 	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
-		backtestRequest.StrategyID, backtestRequest.Script, "", backtestRequest.ToParameterWriteDtos())
+		backtestRequest.StrategyScriptID, backtestRequest.Script, "", backtestRequest.ToParameterWriteDtos())
 	if subjectError != nil {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": subjectError.Error()})
 		return
@@ -55,10 +55,10 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 // it to run, and a screen showing both should not have to tell two stories about one
 // broken line.
 func (backtestController *BacktestController) respondWithError(ginContext *gin.Context, err error) {
-	// A strategy that is not there, one belonging to somebody else, and one that is
+	// A strategy script that is not there, one belonging to somebody else, and one that is
 	// not on the marketplace all arrive as this single refusal, and all leave as the
 	// same 404. Telling them apart would let a caller learn which identifiers exist.
-	if errors.Is(err, domains.ErrStrategyNotFound) {
+	if errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}

@@ -30,7 +30,7 @@ func NewConversationDomain(conversation entities.Conversation) ConversationDomai
 // RequireOwnership refuses anybody but the person who asked, with the same refusal
 // a conversation that is not there gives.
 //
-// One sentence for both, exactly as strategies do it: told apart, they would let
+// One sentence for both, exactly as strategy scripts do it: told apart, they would let
 // somebody holding a list of identifiers learn which conversations exist and whose
 // they are not.
 //

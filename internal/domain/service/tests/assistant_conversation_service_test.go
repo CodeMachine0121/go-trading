@@ -308,7 +308,7 @@ func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 
 func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) {
 	// 這是回報進來的症狀：問「給我一份布林通道的腳本」，回來的是
-	// 「我先看一下系統裡既有策略的算式寫法」然後就結束了，工具一次都沒跑，
+	// 「我先看一下系統裡既有策略腳本的算式寫法」然後就結束了，工具一次都沒跑，
 	// 使用者只好自己再問一次「好了沒」。
 	//
 	// 助手很常在**同一則回覆裡**同時說一句話與要求一次查詢。那句話是旁白不是答案，
@@ -316,12 +316,12 @@ func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) 
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(`{"strategies":[]}`, nil)
+		Return(`{"strategyScripts":[]}`, nil)
 
 	gomock.InOrder(
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 			Return(vo.AssistantReplyVo{
-				Answer:     "我先看一下系統裡既有策略的算式寫法。",
+				Answer:     "我先看一下系統裡既有策略腳本的算式寫法。",
 				QueryCalls: []vo.AssistantQueryCallVo{{CallID: "call_1", Name: theQueryName, Arguments: `{}`}},
 				Usage:      100,
 			}, nil),
@@ -330,7 +330,7 @@ func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) 
 				// 那句旁白要跟著它的查詢請求一起回去，否則助手是從一個它看不到的
 				// 想法往下接，答案會從半句話開始。
 				require.Len(t, request.Rounds, 1)
-				assert.Equal(t, "我先看一下系統裡既有策略的算式寫法。", request.Rounds[0].Narration)
+				assert.Equal(t, "我先看一下系統裡既有策略腳本的算式寫法。", request.Rounds[0].Narration)
 
 				return answeredReply("這是一份布林通道的算式：…", 200), nil
 			}),
@@ -431,8 +431,8 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 		},
 		{
 			name:            "a capability that does not exist at all",
-			requestedName:   "delete_strategy",
-			expectedOutcome: "系統沒有「delete_strategy」這個能力",
+			requestedName:   "delete_strategyScript",
+			expectedOutcome: "系統沒有「delete_strategyScript」這個能力",
 			expectsRun:      false,
 		},
 	}

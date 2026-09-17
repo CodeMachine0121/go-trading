@@ -9,7 +9,7 @@
 ## 1. Design Goal & Guiding Principle
 
 - **In one sentence:**
-  讓一台由使用者組起來的機器人，在沒有人看著的時候，每隔幾分鐘把幾支策略各跑一次、
+  讓一台由使用者組起來的機器人，在沒有人看著的時候，每隔幾分鐘把幾支策略腳本各跑一次、
   照兩棵條件樹判出一個信號，並**只在信號變了的時候**送到他的 Telegram——
   而且這件事的「在不在跑」活在資料庫裡，不活在記憶體裡。
 
@@ -41,8 +41,8 @@
 | `internal/config/` | **Modify** | 三個新環境變數（掃描間隔、同時輪次上限、一輪等待上限） |
 | `cmd/server/dependencies.go` | **Modify** | DI 組裝、路由註冊、把新 job 加進背景工作清單 |
 | **既有的指標計算** | **Not touched** | 機器人**不改動**執行指標計算的任何一行。它是**呼叫端**，走既有的「宣告信號種類」那條路 |
-| **既有的回測** | **Not touched** | 回測只認單一一支策略。把它擴到條件樹是另一刀（PRD 明列 Out of Scope） |
-| **既有的策略 CRUD 與市集** | **Not touched** | 機器人只**讀**可用策略，用的是既有的 `ResolveRunnableStrategy` 三道關卡 |
+| **既有的回測** | **Not touched** | 回測只認單一一支策略腳本。把它擴到條件樹是另一刀（PRD 明列 Out of Scope） |
+| **既有的策略腳本 CRUD 與市集** | **Not touched** | 機器人只**讀**可用策略腳本，用的是既有的 `ResolveRunnableStrategyScript` 三道關卡 |
 | **`IMessageDeliveryProxy`** | **Not touched** | 它的註解已經預言了這一天：「Sending a message somebody typed and sending one the system generated are the same act」。介面一個字都不用改 |
 | **K 線匯入** | **Not touched** | 機器人讀的是既有的 K 線；它的即時性上限就是匯入的即時性 |
 
@@ -55,22 +55,22 @@
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies |
 | :--- | :--- | :--- | :--- | :--- |
 | `StrategyBot` | Entity | 一台機器人的欄位：擁有者、名稱、交易標的、觸發間隔、執行狀態、下次觸發時刻、上一次送出的信號、停擺原因、衝突記號、建立與修改時間。名稱帶 **`(OwnerID, Name)` 唯一索引** | — | 名稱重複、兩人同名、重啟後續跑 |
-| `StrategyBotSignalSource` | Entity | 一個信號來源的欄位：所屬機器人、來源代號、指名的策略、彙總刻度。帶 **`(StrategyBotID, Label)` 唯一索引** | — | 代號重複、各跑各的刻度 |
-| `StrategyBotSignalSourceParameterValue` | Entity | 一個來源這次要用的一個參數值：參數名稱與值 | — | 同一支策略當成兩個來源 |
+| `StrategyBotSignalSource` | Entity | 一個信號來源的欄位：所屬機器人、來源代號、指名的策略腳本、彙總刻度。帶 **`(StrategyBotID, Label)` 唯一索引** | — | 代號重複、各跑各的刻度 |
+| `StrategyBotSignalSourceParameterValue` | Entity | 一個來源這次要用的一個參數值：參數名稱與值 | — | 同一支策略腳本當成兩個來源 |
 | `StrategyBotConditionNode` | Entity | 條件樹的一個節點：所屬機器人、所屬那一棵（買入／賣出）、父節點、群組的運算子、葉子的來源代號與期望信號、兄弟之間的次序 | — | 巢狀條件、群組、信號比對 |
 
-> **四個 entity 只有一個 repository。** 沿用 `StrategyParameter` 已經立下的先例：
+> **四個 entity 只有一個 repository。** 沿用 `StrategyScriptParameter` 已經立下的先例：
 > 來源、參數值與條件節點**從來不會被單獨讀、單獨建、單獨刪**，它們跟著機器人走。
 > 為它們各開一個 repository，等於開三扇沒有人該走的門。
 > 刪除靠 GORM 的 `constraint:OnDelete:CASCADE` 完成——**沒有任何 Go 程式碼執行它，
-> 所以沒有任何 Go 程式碼忘得掉它**（與 `Strategy.Publication` 同一個理由）。
+> 所以沒有任何 Go 程式碼忘得掉它**（與 `StrategyScript.Publication` 同一個理由）。
 
 ### Domain Models（業務行為的所在地）
 
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies |
 | :--- | :--- | :--- | :--- | :--- |
 | `StrategyBotDomain` | Domain Model | **一台機器人的規則與狀態轉換**：名稱與觸發間隔的驗證、啟動（清空上次信號與停擺原因、下次觸發時刻設為現在）、停止、被停擺、改不改得動、跑完一輪之後下次觸發時刻怎麼算 | `StrategyBotConditionDomain`、`StrategyBotSignalSourcesDomain` | 啟動立刻跑第一輪、重複啟動、執行中改不動、錯過的不補跑 |
-| `StrategyBotSignalSourcesDomain` | Domain Model | **那幾個信號來源合起來的規則**：代號不得空白與重複、數量上限 10、參數名稱必須對得上該策略宣告的、交出每一個要跑的計算請求 | — | 代號重複、來源上限、參數名稱對不上 |
+| `StrategyBotSignalSourcesDomain` | Domain Model | **那幾個信號來源合起來的規則**：代號不得空白與重複、數量上限 10、參數名稱必須對得上該策略腳本宣告的、交出每一個要跑的計算請求 | — | 代號重複、來源上限、參數名稱對不上 |
 | `StrategyBotConditionDomain` | Domain Model | **一棵條件樹**：形狀驗證（深度 ≤ 5、節點數 ≤ 32、群組至少兩個子條件、代號必須宣告過、樹不得為空）與**求值**（給一組「代號 → 信號」，回成立或不成立） | — | 每一個條件形狀與求值的情境 |
 | `StrategyBotVerdictDomain` | Domain Model | **兩棵樹的結果 → 這一輪的結論**（買入／賣出／沒有結論／衝突），以及**與上一次送出的信號比對後該不該送** | — | 衝突、沒有結論、只在信號變了才送、中間那一輪不吃掉變化 |
 | `StrategyBotRoundFailureDomain` | Domain Model | **把一次失敗翻成「跳過這一輪」或「停下並記下停擺原因」**。認得既有的哨兵錯誤與四種投遞失敗原因 | — | 一輪出錯時停還是不停的全部九個情境 |
@@ -88,14 +88,14 @@
 | `IStrategyBotRepository` | Interface | 機器人的持久化契約：連同來源、參數值與條件節點**整棵一起**讀寫 | — | 全部 |
 | `StrategyBotRepository` | Repository | GORM 實作。整棵讀（`Preload`）、整棵覆寫（先清後寫子節點，交易內） | GORM | 全部 |
 | `StrategyBotService` | Domain Service | **機器人這個聚合的唯一入口**：建立、列出、讀取、修改、刪除、啟動、停止、找出到期的、記下一輪的結果 | `IStrategyBotRepository`、`IClockProxy`、六個領域模型 | 管理與啟停的全部情境 |
-| `StrategyBotApplication` | Application | **管理用例的編排**：建立與修改時要先問 `StrategyService` 那幾支策略看不看得到、參數宣告了什麼；啟動時要先問 `TelegramDeliveryService` 設定好了沒 | `StrategyBotService`、`StrategyService`、`TelegramDeliveryService` | 三道關卡、沒設定就啟動不了 |
-| `StrategyBotRunApplication` | Application | **跑輪的編排，一個方法把整件事包起來**：`RunDueRounds(ctx)`。內部：取到期清單 → 併發跑（有上限）→ 每一台各自解析策略、算指標、判結論、送訊息、記結果 | `StrategyBotService`、`StrategyService`、`IndicatorCalculationService`、`TelegramDeliveryService`、`IKCandleRepository`、`StrategyBotRoundGuard` | 跑一輪的全部情境 |
+| `StrategyBotApplication` | Application | **管理用例的編排**：建立與修改時要先問 `StrategyScriptService` 那幾支策略腳本看不看得到、參數宣告了什麼；啟動時要先問 `TelegramDeliveryService` 設定好了沒 | `StrategyBotService`、`StrategyScriptService`、`TelegramDeliveryService` | 三道關卡、沒設定就啟動不了 |
+| `StrategyBotRunApplication` | Application | **跑輪的編排，一個方法把整件事包起來**：`RunDueRounds(ctx)`。內部：取到期清單 → 併發跑（有上限）→ 每一台各自解析策略腳本、算指標、判結論、送訊息、記結果 | `StrategyBotService`、`StrategyScriptService`、`IndicatorCalculationService`、`TelegramDeliveryService`、`IKCandleRepository`、`StrategyBotRoundGuard` | 跑一輪的全部情境 |
 | `StrategyBotRoundGuard` | （執行機制，不是 model） | **同一台機器人同一時間只跑一輪**。行程內的一組「正在跑的機器人識別碼」，`sync.Mutex` 保護 | — | 上一輪還沒跑完就不排下一輪 |
 | `StrategyBotController` | Controller | 七條路由的請求／回應轉換與參數綁定 | `StrategyBotApplication` | 全部 HTTP 情境 |
 | `StrategyBotScanJob` | Job | 每隔掃描間隔呼叫 `RunDueRounds` 一次。實作既有的 `IBackgroundJob` | `StrategyBotRunApplication` | 排程、總開關、重啟後續跑 |
 
 > **深度檢查。** `StrategyBotRunApplication.RunDueRounds(ctx)` 只有一個參數、一個回傳，
-> 而它背後藏著解析策略、併發計算、條件求值、投遞與失敗分類。
+> 而它背後藏著解析策略腳本、併發計算、條件求值、投遞與失敗分類。
 > Job 不排列任何步驟，也不知道上面任何一個名字——這正是「簡單介面、複雜內臟」。
 > 反過來說，**沒有任何一個新介面要求呼叫端連打兩通才完成一件業務事**。
 
@@ -123,7 +123,7 @@ DELETE /strategy-bots/:id/run    停止
 ```
 
 > 啟動與停止用**同一個子資源的 POST 與 DELETE**，比照既有的
-> `POST/DELETE /strategies/:id/publication`。兩者都是「讓一個狀態存在或不存在」，
+> `POST/DELETE /strategy-scripts/:id/publication`。兩者都是「讓一個狀態存在或不存在」，
 > 也因此兩者天生冪等——重複按不算失敗這條規則，是這個形狀自己帶來的，
 > 不是另外記得要寫的。
 
@@ -141,7 +141,7 @@ flowchart TD
     end
 
     A --> S[StrategyBotService]
-    A --> SS[StrategyService]
+    A --> SS[StrategyScriptService]
     A --> TD[TelegramDeliveryService]
 
     R --> S
@@ -171,7 +171,7 @@ sequenceDiagram
     participant R as RunApplication
     participant G as RoundGuard
     participant S as BotService
-    participant SS as StrategyService
+    participant SS as StrategyScriptService
     participant IC as IndicatorCalculationService
     participant TD as TelegramDeliveryService
 
@@ -181,7 +181,7 @@ sequenceDiagram
       R->>G: TryEnter(botID)
       G-->>R: 進得去嗎
       par 每一個信號來源, 併發
-        R->>SS: ResolveRunnableStrategy(ownerID, strategyID)
+        R->>SS: ResolveRunnableStrategyScript(ownerID, strategyScriptID)
         R->>IC: CalculateIndicator(信號種類, 該刻度最後一根走完的)
       end
       alt 有來源失敗
@@ -252,7 +252,7 @@ sequenceDiagram
 | US-01 組起一台機器人、巢狀的條件 | `StrategyBotService` + `StrategyBotDomain` |
 | US-01 代號重複、來源上限、參數名稱對不上 | `StrategyBotSignalSourcesDomain` |
 | US-01 條件為空、群組只有一個子條件、深度／節點數上限、指到沒宣告的代號 | `StrategyBotConditionDomain` |
-| US-01 指名一支看不到的策略 | `StrategyBotApplication` + 既有 `StrategyService.ResolveRunnableStrategy` |
+| US-01 指名一支看不到的策略腳本 | `StrategyBotApplication` + 既有 `StrategyScriptService.ResolveRunnableStrategyScript` |
 | US-01 名稱重複、兩人同名 | `StrategyBot` 的 `(OwnerID, Name)` 唯一索引 + `StrategyBotService` |
 | US-01 觸發間隔上下限、名稱長度 | `StrategyBotDomain` |
 | US-01/US-06 沒有登入 | 既有 `requiresSignIn` 中介層 |
@@ -312,24 +312,24 @@ sequenceDiagram
 
 **逼出這個拆分的是 import 方向**：`domains` 會 import `entities`（為了 `ToEntity`），
 所以 `entities` 不能反過來 import `domains`——`entity.toDomain()` 這條路走不通，
-entity 只能**被傳進**一個 domain 模型的建構子（既有的 `NewStrategyAccessDomain` 正是如此）。
+entity 只能**被傳進**一個 domain 模型的建構子（既有的 `NewStrategyScriptAccessDomain` 正是如此）。
 一個模型同時要能從 WriteDto 與從 entity 建構，在 Go 裡就是兩個建構子、兩組欄位、
 兩種半空的狀態。拆成兩個之後，每個都只有一種建構方式，而且「存一台機器人」
 這條路上再也沒有任何地方碰得到執行狀態。
 
-### 9.2 信號來源不留策略名稱的副本
+### 9.2 信號來源不留策略腳本名稱的副本
 
-設計讓 `StrategyBotSignalSource` 帶一份 `StrategyName` 供清單顯示。實作拿掉了。
+設計讓 `StrategyBotSignalSource` 帶一份 `StrategyScriptName` 供清單顯示。實作拿掉了。
 
-**理由是拿不到一份可信的副本**：既有的 `ResolveRunnableStrategy` 交出的
-`RunnableStrategyDto` 只有算式、參數與種類，沒有名稱——它是為了「跑」而存在的形狀。
+**理由是拿不到一份可信的副本**：既有的 `ResolveRunnableStrategyScript` 交出的
+`RunnableStrategyScriptDto` 只有算式、參數與種類，沒有名稱——它是為了「跑」而存在的形狀。
 要填這個欄位，只能信呼叫端送來的字串，那就是一份**會過期、而且沒有人驗證過**的副本。
-替代方案是為了顯示去擴 `RunnableStrategyDto`，那會把一個「跑」的形狀污染成
+替代方案是為了顯示去擴 `RunnableStrategyScriptDto`，那會把一個「跑」的形狀污染成
 「跑＋顯示」的形狀。
 
 拿掉之後也沒有損失：**來源代號本身就是名字**，它必填、同一台機器人內唯一、最長 32 字，
 而且是**擁有者自己取的**——訊息裡寫「均線黃金交叉（1h）：賣出」比寫一份可能過期的
-策略名稱更準確。
+策略腳本名稱更準確。
 
 ### 9.3 多一個 `StrategyBotRoundOutcomeDomain`，三個記錄方法併成一個
 

@@ -25,12 +25,12 @@ against the spec's expected outcome; does not execute invented scenarios.
 | AC-12 | US-03 信號的產出沒有指標名稱 | 結果就是這一個信號本身，不是帶名稱的一組值 | `indicator_calculation_service.go:107-111` (`Signal` set, `Values` left nil) · `indicator_calculation_result_dto.go` | `indicator_calculation_service_test.go` "reports the signal itself…" (asserts `resultDto.Signal == "buy"` **and** `resultDto.Values` empty) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-13 | US-04 算式產出信號，回測正常重演 | 逐棒模擬進出場；交出成績單、交易明細、資金曲線 | `backtest_service.go:66-84` · `backtest_domain.go:130` | `backtest_application_test.go` "hands back the report card, the trades and the curve together" | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-14 | US-04 算式產出的是一個數字（舊寫法） | 回測拒絕；說明只接受信號種類、要改寫（ARCH bridge: 形式必須是 `indicator.Signal`）；不回傳結果 | shared `prepare()` shape check via `ExecuteForEachCandle` → `yaegi_indicator_script_proxy.go:175` | `yaegi_indicator_script_per_candle_test.go` "a number-emitting script is refused under the signal kind" (asserts `ErrIndicatorScriptFailed` + `indicator.Signal` + nil) | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-15 | US-04 算式從來沒有產出任何信號 | 回測拒絕；不默默當成「全程持有、零交易」 | `indicator_script_shape.go:90-93` via `ExecuteForEachCandle` | `yaegi_indicator_script_per_candle_test.go` "a signal left unset on one candle…" (unset ≡ "no signal", ARCH §7) + "a number-emitting script is refused…"; `backtest_application_test.go` "a strategy that only ever holds…" confirms hold ≠ absent | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-15 | US-04 算式從來沒有產出任何信號 | 回測拒絕；不默默當成「全程持有、零交易」 | `indicator_script_shape.go:90-93` via `ExecuteForEachCandle` | `yaegi_indicator_script_per_candle_test.go` "a signal left unset on one candle…" (unset ≡ "no signal", ARCH §7) + "a number-emitting script is refused…"; `backtest_application_test.go` "a strategyScript that only ever holds…" confirms hold ≠ absent | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-16 | US-04 某一棒沒產出信號 | 整次回測失敗；不回傳任何部分結果 | `yaegi_indicator_script_proxy.go:97-108` (first error ends the loop, returns nil) | `yaegi_indicator_script_per_candle_test.go` "a signal left unset on one candle brings the whole run down" (asserts `ErrIndicatorScriptFailed` + nil) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-17 | US-04 回測請求不帶指標值種類 | 一律以信號種類執行；不需宣告 | `backtest_domain.go:130` (hardcoded) · `dto/backtest_request_dto.go` (no kind field) | `backtest_application_test.go` "replays the script over the finished hours…" (asserts `resultType.IsSignal()` in the proxy call) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-18 | US-05 單純算指標宣告信號種類 | 回傳這次的信號是買入；不帶指標名稱 | `indicator_calculation_service.go:108-111` | `indicator_calculation_service_test.go` "reports the signal itself…" + `indicator_calculation_controller_test.go` "writes a signal out as the result itself" | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-19 | US-05 建立策略時把種類設成信號 | 策略正常建立；不因「不在四種之內」被拒 | `strategy_domain.go:69` (delegates `NewIndicatorResultTypeDomain`) · `indicator_result_type_domain.go:19` | `strategy_domain_test.go` "AcceptsTheSignalKind" (asserts created + `IsSignal()`) | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-20 | US-05 修改策略時把種類改成信號 | 策略正常更新 | `strategy_domain.go:69` (same path for create & rewrite) | `strategy_domain_test.go` "AcceptsTheSignalKind/rewriting an existing strategy to emit signals" (ID set → updated, `IsSignal()` true) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-19 | US-05 建立策略腳本時把種類設成信號 | 策略腳本正常建立；不因「不在四種之內」被拒 | `strategyScript_domain.go:69` (delegates `NewIndicatorResultTypeDomain`) · `indicator_result_type_domain.go:19` | `strategyScript_domain_test.go` "AcceptsTheSignalKind" (asserts created + `IsSignal()`) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-20 | US-05 修改策略腳本時把種類改成信號 | 策略腳本正常更新 | `strategyScript_domain.go:69` (same path for create & rewrite) | `strategyScript_domain_test.go` "AcceptsTheSignalKind/rewriting an existing strategyScript to emit signals" (ID set → updated, `IsSignal()` true) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-21 | US-06 回測逐棒執行的規則不變 | 第 N 棒看得到第一到第 N 根；第五棒看五根 | `backtest_domain.go` `SelectInputCandles` + `ExecuteForEachCandle` (untouched) | `yaegi_indicator_script_per_candle_test.go` "each run sees everything up to the candle it stands on" (unchanged, still green) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-22 | US-06 排除還沒走完的那一格 | 還在走的刻度區間不被取用 | `backtest_domain.go` `readCutoff` / `SelectInputCandles` (untouched) | `backtest_domain_test.go` "the bucket the stretch ends in is left out" (unchanged) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-23 | US-06 根數超過單次可用上限 | 拒絕；說出要用到幾根、上限幾根 | `backtest_domain.go` `NewBacktestDomain` bucket-count check (untouched) | `backtest_domain_test.go` "a stretch needing more buckets than one read allows is refused" (unchanged) | asserts-oracle | produces-oracle | ✅ conforms |
@@ -44,7 +44,7 @@ against the spec's expected outcome; does not execute invented scenarios.
 | BR-06 | 信號種類的產出不是一組「名稱對應值」 | 見 AC-12 | `indicator_calculation_service.go:107-111` | AC-12 test | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-07 | 回測一律以信號種類執行；非信號即拒絕整次 | 見 AC-13/14/17 | `backtest_domain.go:130` · `backtest_service.go:66-84` | AC-13/14/17 tests | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-08 | 移除舊讀法與「無信號→零交易」相容路徑 | 數字型/無信號算式不再默默零交易 | `signal_domain.go` (no sign/NaN logic; `SignalIndicatorName` deleted) · `backtest_simulation_domain.go` (no "missing → flat") | `signal_domain_test.go` (rewritten; no sign cases) — absence-of-behavior; `backtest_simulation_domain_test.go` no longer has "a candle with no result is read as flat" | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-09 | 信號種類到處可用（單純算指標、策略） | 見 AC-18/19/20 | `indicator_calculation_service.go:108` · `strategy_domain.go:69` | AC-18/19 tests; AC-20 partial | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-09 | 信號種類到處可用（單純算指標、策略腳本） | 見 AC-18/19/20 | `indicator_calculation_service.go:108` · `strategyScript_domain.go:69` | AC-18/19 tests; AC-20 partial | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-10 | 「持平」改名「持有」，模擬行為不變 | hold 那一棒倉位不動、不記交易 | `signal_vo.go:15` (`SignalHold = "hold"`) · `backtest_account_domain.go:47` | `backtest_account_domain_test.go` "a hold opinion moves nothing" + `backtest_simulation_domain_test.go` "holding does nothing at all" | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-11 | 其餘既有規則不變 | 取 K 線/上限/逾時/逐棒 — 見 AC-21..24 | untouched code paths | AC-21..24 tests (unchanged, green) | asserts-oracle | produces-oracle | ✅ conforms |
 | NFR-perf | 算式只解讀一次、逐棒執行 | 一次重演只 parse 一次 | `yaegi_indicator_script_proxy.go` `prepare()` once, `runOver` per candle (untouched) | `yaegi_indicator_script_per_candle_test.go` "the script is read once and then run" (unchanged) | asserts-oracle | produces-oracle | ✅ conforms |
@@ -60,7 +60,7 @@ against the spec's expected outcome; does not execute invented scenarios.
 
 No orphan matches an Out-of-Scope item. Out-of-scope boundaries checked and **not** violated:
 signal carries only a direction (no size/stop/confidence); one signal per execution;
-no strategy pre-run validation; backtest trading math untouched.
+no strategyScript pre-run validation; backtest trading math untouched.
 
 ## Summary
 
@@ -79,7 +79,7 @@ closed them:
 1. `yaegi_indicator_script_per_candle_test.go` "a number-emitting script is refused
    under the signal kind" — a `map[string]float64` script rejected through
    `ExecuteForEachCandle` with `indicator.Signal` in the message.
-2. `strategy_domain_test.go` "rewriting an existing strategy to emit signals" — the
+2. `strategyScript_domain_test.go` "rewriting an existing strategyScript to emit signals" — the
    update path (ID set) accepts `resultType: "signal"`.
 
 No behaviour changed; the code paths were already correct.

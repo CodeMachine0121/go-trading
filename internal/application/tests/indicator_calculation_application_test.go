@@ -32,11 +32,11 @@ type indicatorUnderTest struct {
 }
 
 // The algorithm now arrives by name, so every calculation below names one. These
-// two say whose strategy is being run and which; the calculation itself is
+// two say whose strategy script is being run and which; the calculation itself is
 // indifferent to both, which is what these tests are about.
 const (
-	indicatorViewerID   = uint(1)
-	indicatorStrategyID = uint(9)
+	indicatorViewerID         = uint(1)
+	indicatorStrategyScriptID = uint(9)
 )
 
 // newIndicatorUnderTest wires the real domain service and real domain models,
@@ -51,21 +51,21 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(indicatorNow).AnyTimes()
 
-	// The strategy behind the identifier is the caller's own and holds the script
+	// The strategy script behind the identifier is the caller's own and holds the script
 	// these tests execute. Resolving it is a different feature's rules, covered in
 	// its own tests; here it only has to happen.
-	strategyRepository := mocks.NewMockIStrategyRepository(controller)
-	strategyRepository.EXPECT().FindOne(gomock.Any(), indicatorStrategyID).
-		Return(entities.Strategy{
-			ID: indicatorStrategyID, OwnerID: indicatorViewerID, Script: "the script",
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), indicatorStrategyScriptID).
+		Return(entities.StrategyScript{
+			ID: indicatorStrategyScriptID, OwnerID: indicatorViewerID, Script: "the script",
 		}, nil).AnyTimes()
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
 	return indicatorUnderTest{
 		indicatorCalculationApplication: application.NewIndicatorCalculationApplication(
-			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
@@ -94,7 +94,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Execute(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(2))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), indicatorRequest(2))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "BTCUSDT", resultDto.Symbol)
@@ -125,7 +125,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 		// slot is an hour at this coarseness.
 		requestDto.StartTime = indicatorNow.Add(-2 * time.Hour)
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), requestDto)
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), requestDto)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "1h", resultDto.Interval)
@@ -137,7 +137,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	t.Run("refuses a request whose stretch of market has no length", func(t *testing.T) {
 		fixture := newIndicatorUnderTest(t)
 
-		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(0))
+		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), indicatorRequest(0))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
 		assert.Contains(t, err.Error(), "起點必須早於終點")
@@ -155,7 +155,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Return(map[string]vo.IndicatorValueVo{}, nil)
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(
-			t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(3))
+			t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), indicatorRequest(3))
 
 		require.NoError(t, err)
 		assert.Equal(t, 3, resultDto.RequiredCandleCount)
@@ -169,7 +169,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Return(nil, nil)
 
 		_, err := fixture.indicatorCalculationApplication.CalculateIndicator(
-			t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(3))
+			t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), indicatorRequest(3))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationCandleCoverageTooThin)
 		availableCandleCount, minimumCandleCount, isTooThin :=
@@ -188,7 +188,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, fmt.Errorf("%w: 算式無法解讀", domains.ErrIndicatorScriptFailed))
 
-		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategy(t, indicatorStrategyID), indicatorRequest(1))
+		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), indicatorRequest(1))
 
 		assert.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 		assert.Contains(t, err.Error(), "算式無法解讀")

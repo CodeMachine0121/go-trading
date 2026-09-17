@@ -43,7 +43,7 @@ func TestStrategyBotLifecycleMessageSaysWhichOfTheFiveHaltsItWas(t *testing.T) {
 		haltReason   vo.StrategyBotHaltReasonVo
 		expectedWord string
 	}{
-		{vo.StrategyBotHaltStrategyUnavailable, "找不到了"},
+		{vo.StrategyBotHaltStrategyScriptUnavailable, "找不到了"},
 		{vo.StrategyBotHaltScriptFailed, "算不出來"},
 		{vo.StrategyBotHaltCredentialRejected, "金鑰不被接受"},
 		{vo.StrategyBotHaltDestinationNotFound, "找不到這個聊天室"},

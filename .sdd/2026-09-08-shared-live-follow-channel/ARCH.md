@@ -145,7 +145,7 @@ flowchart TD
 - **Patterns applied & why:**
   - **以值識別（identity by value）**：通道的鍵就是它的內容。針對的軸線是「名單會變」，讓「變了要重建、沒變不要動」不需要任何比對程式碼。
   - **推導取代設定**：上限＝兩數相乘。針對的軸線是「方案會換」，讓不合法的組合無法被表達。
-  - 沒有引入 Strategy／Factory。市場之間的差異已經是資料（`MarketRulesVo`），為它再開多型是替想像中的需求付現在的代價。
+  - 沒有引入 StrategyScript／Factory。市場之間的差異已經是資料（`MarketRulesVo`），為它再開多型是替想像中的需求付現在的代價。
 
 - **Do not hardcode:**
   - 服務層與領域層**不得出現任何市場名稱的分支**。加密貨幣與台股的差別必須全部落在 `MarketRulesVo` 的數字上。

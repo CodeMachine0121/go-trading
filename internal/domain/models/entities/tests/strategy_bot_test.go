@@ -98,7 +98,7 @@ func TestStrategyBotToDtoHandsOutAnEmptyListRatherThanNothing(t *testing.T) {
 
 func TestStrategyBotSignalSourceToDtoCarriesNoScriptAndNoStaleName(t *testing.T) {
 	signalSource := StrategyBotSignalSource{
-		Label: "均線黃金交叉", StrategyID: 9,
+		Label: "均線黃金交叉", StrategyScriptID: 9,
 		AggregationInterval: string(vo.AggregationIntervalOneHour),
 		ParameterValues: []StrategyBotSignalSourceParameterValue{
 			{Name: "回看根數", Value: 20},
@@ -108,7 +108,7 @@ func TestStrategyBotSignalSourceToDtoCarriesNoScriptAndNoStaleName(t *testing.T)
 	sourceDto := signalSource.ToDto()
 
 	assert.Equal(t, "均線黃金交叉", sourceDto.Label)
-	assert.Equal(t, uint(9), sourceDto.StrategyID)
+	assert.Equal(t, uint(9), sourceDto.StrategyScriptID)
 	assert.Equal(t, string(vo.AggregationIntervalOneHour), sourceDto.AggregationInterval)
 	require.Len(t, sourceDto.ParameterValues, 1)
 	assert.Equal(t, "回看根數", sourceDto.ParameterValues[0].Name)

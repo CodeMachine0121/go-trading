@@ -37,7 +37,7 @@ type AesSecretSealProxy struct {
 // NewAesSecretSealProxy reads the configured key and builds the cipher once.
 //
 // A missing or unusable key is not an error here. Refusing to start would take down
-// candles, strategies and sign-in over a feature nobody may be using; instead this
+// candles, strategy scripts and sign-in over a feature nobody may be using; instead this
 // proxy exists in a state where both of its methods refuse, and only the paths that
 // actually need a key find out. What must never happen — storing a token unlocked —
 // cannot, because there is no code path that does it.

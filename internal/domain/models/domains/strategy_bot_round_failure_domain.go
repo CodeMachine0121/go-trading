@@ -18,7 +18,7 @@ import (
 //
 // The dividing line is whether running it again could give a different answer. A
 // closed market opens; missing candles arrive; Telegram comes back. A deleted
-// strategy does not undelete itself, and a broken script does not fix itself.
+// strategy script does not undelete itself, and a broken script does not fix itself.
 //
 // Anything unrecognised skips rather than halts. Halting is the destructive answer —
 // it takes a bot its owner started and turns it off — so an unfamiliar failure gets
@@ -32,13 +32,13 @@ type StrategyBotRoundFailureDomain struct {
 // this round's signals.
 func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureDomain {
 	switch {
-	// Not being able to see a strategy is one fact with two histories — its owner
+	// Not being able to see a strategy script is one fact with two histories — its owner
 	// deleted it, or they withdrew it from the marketplace. They share one reason
 	// here for the same cause they share one sentence everywhere else: telling them
-	// apart would say whether somebody else's strategy still exists.
-	case errors.Is(roundError, ErrStrategyNotFound),
-		errors.Is(roundError, ErrStrategyNotPublished):
-		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltStrategyUnavailable}
+	// apart would say whether somebody else's strategy script still exists.
+	case errors.Is(roundError, ErrStrategyScriptNotFound),
+		errors.Is(roundError, ErrStrategyScriptNotPublished):
+		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltStrategyScriptUnavailable}
 
 	case errors.Is(roundError, ErrIndicatorScriptFailed),
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):

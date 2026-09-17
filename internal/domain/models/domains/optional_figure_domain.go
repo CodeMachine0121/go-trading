@@ -60,7 +60,7 @@ func (optionalFigureDomain OptionalFigureDomain) IsNegative() bool {
 // zero.
 //
 // This is the one place the distinction is knowingly given up, and it is given up
-// because the alternative — changing the shape every existing strategy reads — breaks
+// because the alternative — changing the shape every existing strategy script reads — breaks
 // them all to fix a market none of them are written against yet.
 func (optionalFigureDomain OptionalFigureDomain) AsScriptFigure() float64 {
 	if !optionalFigureDomain.value.Valid {

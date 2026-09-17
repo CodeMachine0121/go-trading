@@ -28,14 +28,14 @@ type strategyBotRunUnderTest struct {
 	kCandleRepository          *mocks.MockIKCandleRepository
 	indicatorScriptProxy       *mocks.MockIIndicatorScriptProxy
 	messageDeliveryProxy       *mocks.MockIMessageDeliveryProxy
-	strategyRepository         *mocks.MockIStrategyRepository
+	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
 	roundGuard                 *application.StrategyBotRoundGuard
 	t                          *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services and models a round goes
-// through — resolving a strategy, running its script, reading the conditions,
+// through — resolving a strategy script, running its script, reading the conditions,
 // working out what a failure means — and mocks only storage, script execution and
 // the carrier.
 func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
@@ -49,7 +49,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(controller)
-	strategyRepository := mocks.NewMockIStrategyRepository(controller)
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(botRunNow).AnyTimes()
@@ -61,9 +61,9 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
-	publishedStrategyRepository := mocks.NewMockIPublishedStrategyRepository(controller)
-	publishedStrategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategy{}, domains.ErrStrategyNotPublished).AnyTimes()
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 
@@ -74,7 +74,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
-			service.NewStrategyService(strategyRepository, publishedStrategyRepository),
+			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
@@ -94,7 +94,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		kCandleRepository:          kCandleRepository,
 		indicatorScriptProxy:       indicatorScriptProxy,
 		messageDeliveryProxy:       messageDeliveryProxy,
-		strategyRepository:         strategyRepository,
+		strategyScriptRepository:   strategyScriptRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
 		roundGuard:                 roundGuard,
 		t:                          t,
@@ -140,8 +140,8 @@ func aDueBot(lastSentSignal string) entities.StrategyBot {
 		NextRunAt:      botRunNow.Add(-time.Minute),
 		LastSentSignal: lastSentSignal,
 		SignalSources: []entities.StrategyBotSignalSource{
-			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyID: 9, AggregationInterval: "1h"},
-			{ID: 21, StrategyBotID: strategyBotID, Label: "B", StrategyID: 10, AggregationInterval: "5m"},
+			{ID: 20, StrategyBotID: strategyBotID, Label: "A", StrategyScriptID: 9, AggregationInterval: "1h"},
+			{ID: 21, StrategyBotID: strategyBotID, Label: "B", StrategyScriptID: 10, AggregationInterval: "5m"},
 		},
 		ConditionNodes: []entities.StrategyBotConditionNode{
 			{ID: 10, StrategyBotID: strategyBotID, Side: "buy",
@@ -160,7 +160,7 @@ func parentOf(id uint) *uint {
 	return &id
 }
 
-// expectSources makes both strategies resolvable and has each one's script say its
+// expectSources makes both strategy scripts resolvable and has each one's script say its
 // own signal.
 //
 // Which signal belongs to which source is keyed on the script rather than on the
@@ -170,15 +170,15 @@ func (underTest strategyBotRunUnderTest) expectSources(
 	firstSourceSignal vo.SignalVo, secondSourceSignal vo.SignalVo,
 ) {
 	signalsByScript := map[string]vo.SignalVo{
-		scriptOfStrategy(9):  firstSourceSignal,
-		scriptOfStrategy(10): secondSourceSignal,
+		scriptOfStrategyScript(9):  firstSourceSignal,
+		scriptOfStrategyScript(10): secondSourceSignal,
 	}
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
-			return entities.Strategy{
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
 				ID: id, OwnerID: strategyBotOwnerID,
-				Script: scriptOfStrategy(id), ResultType: "signal",
+				Script: scriptOfStrategyScript(id), ResultType: "signal",
 			}, nil
 		}).AnyTimes()
 
@@ -190,7 +190,7 @@ func (underTest strategyBotRunUnderTest) expectSources(
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, script string, _ domains.IndicatorResultTypeDomain,
-			_ []vo.KCandleVo, _ domains.StrategyParametersDomain,
+			_ []vo.KCandleVo, _ domains.StrategyScriptParametersDomain,
 		) (map[string]vo.IndicatorValueVo, error) {
 			return map[string]vo.IndicatorValueVo{
 				vo.SignalIndicatorKey: {Signal: signalsByScript[script]},
@@ -198,9 +198,9 @@ func (underTest strategyBotRunUnderTest) expectSources(
 		}).AnyTimes()
 }
 
-// scriptOfStrategy gives each strategy a script of its own, which is what lets a
+// scriptOfStrategyScript gives each strategy script a script of its own, which is what lets a
 // test say which source said what without depending on when each one ran.
-func scriptOfStrategy(id uint) string {
+func scriptOfStrategyScript(id uint) string {
 	return fmt.Sprintf("the script of %d", id)
 }
 
@@ -305,14 +305,14 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 
 func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *testing.T) {
 	testCases := []struct {
-		name               string
-		strategyFindError  error
-		expectedHaltReason vo.StrategyBotHaltReasonVo
+		name                    string
+		strategyScriptFindError error
+		expectedHaltReason      vo.StrategyBotHaltReasonVo
 	}{
 		{
-			name:               "a strategy that can no longer be seen",
-			strategyFindError:  domains.StrategyNotFound(9),
-			expectedHaltReason: vo.StrategyBotHaltStrategyUnavailable,
+			name:                    "a strategy script that can no longer be seen",
+			strategyScriptFindError: domains.StrategyScriptNotFound(9),
+			expectedHaltReason:      vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
 	}
 
@@ -321,8 +321,8 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 			underTest := newStrategyBotRunUnderTest(t)
 			underTest.expectDeliverySetting()
 
-			underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-				Return(entities.Strategy{}, testCase.strategyFindError).AnyTimes()
+			underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+				Return(entities.StrategyScript{}, testCase.strategyScriptFindError).AnyTimes()
 			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
@@ -349,11 +349,11 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
-			return entities.Strategy{
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
 				ID: id, OwnerID: strategyBotOwnerID,
-				Script: scriptOfStrategy(id), ResultType: "signal",
+				Script: scriptOfStrategyScript(id), ResultType: "signal",
 			}, nil
 		}).AnyTimes()
 	underTest.kCandleRepository.EXPECT().
@@ -386,11 +386,11 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
-			return entities.Strategy{
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
 				ID: id, OwnerID: strategyBotOwnerID,
-				Script: scriptOfStrategy(id), ResultType: "signal",
+				Script: scriptOfStrategyScript(id), ResultType: "signal",
 			}, nil
 		}).AnyTimes()
 	// Nothing stored yet: the calculation refuses for want of candles, which is a
@@ -678,8 +678,8 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 		{
 			name: "a halt cannot be written back",
 			arrange: func(underTest strategyBotRunUnderTest) {
-				underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-					Return(entities.Strategy{}, domains.StrategyNotFound(9)).AnyTimes()
+				underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+					Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9)).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(aDueBot(""), nil).AnyTimes()
 				underTest.strategyBotRepository.EXPECT().
@@ -771,11 +771,11 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 
-	underTest.strategyRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, id uint) (entities.Strategy, error) {
-			return entities.Strategy{
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
 				ID: id, OwnerID: strategyBotOwnerID,
-				Script: scriptOfStrategy(id), ResultType: "signal",
+				Script: scriptOfStrategyScript(id), ResultType: "signal",
 			}, nil
 		}).AnyTimes()
 	underTest.indicatorScriptProxy.EXPECT().

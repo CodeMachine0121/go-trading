@@ -72,7 +72,7 @@ func TestNewIndicatorResultTypeDomainRefusesAnythingElse(t *testing.T) {
 			_, err := domains.NewIndicatorResultTypeDomain(declared)
 
 			// The reason is all a kind owes anyone; the sentinel is asserted where the
-			// wrapping happens — see the indicator calculation and the strategy.
+			// wrapping happens — see the indicator calculation and the strategy script.
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "指標值種類只能是")
 			assert.Contains(t, err.Error(), "float、floatList、bool、boolList、signal")

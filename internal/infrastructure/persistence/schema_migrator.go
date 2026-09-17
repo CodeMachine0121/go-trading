@@ -22,7 +22,7 @@ func NewSchemaMigrator(database *gorm.DB) *SchemaMigrator {
 // retiredColumn is a column an entity used to have. AutoMigrate adds and widens but
 // never drops, so a field removed from an entity leaves its column behind forever
 // unless it is said out loud here — and a reader who finds aggregation_interval
-// still sitting on Strategies has every reason to believe a strategy still
+// still sitting on StrategyScripts has every reason to believe a strategy script still
 // remembers it.
 type retiredColumn struct {
 	entity any
@@ -35,8 +35,8 @@ type retiredColumn struct {
 var retiredColumns = []retiredColumn{
 	// How coarse the K candles are and how many of them describe one run of an
 	// algorithm, not the algorithm; they moved onto the calculation request.
-	{entity: &entities.Strategy{}, name: "aggregation_interval"},
-	{entity: &entities.Strategy{}, name: "candle_count"},
+	{entity: &entities.StrategyScript{}, name: "aggregation_interval"},
+	{entity: &entities.StrategyScript{}, name: "candle_count"},
 }
 
 // retiredIndex is an index an entity used to carry. AutoMigrate adds indexes but
@@ -52,10 +52,10 @@ type retiredIndex struct {
 // retiredIndexes are the indexes to drop after the schema is synced. Dropping is
 // idempotent, so this list may be kept long after every database has caught up.
 var retiredIndexes = []retiredIndex{
-	// A strategy's name used to be unique across the whole system. It is now unique
+	// A strategy script's name used to be unique across the whole system. It is now unique
 	// within one owner's collection, and the old index would keep the first person
 	// here holding "二十根均線" against everybody else forever.
-	{entity: &entities.Strategy{}, name: "idx_strategies_name"},
+	{entity: &entities.StrategyScript{}, name: "idx_strategies_name"},
 }
 
 // ownerlessTable is a table that gained an owner it may not be without. Rows saved
@@ -73,8 +73,8 @@ type ownerlessTable struct {
 // column. Each condition stops being true the moment the migration after it runs,
 // so this list may be kept long after every database has caught up.
 var ownerlessTables = []ownerlessTable{
-	// Strategies became somebody's property.
-	{entity: &entities.Strategy{}, ownerColumn: "owner_id", description: "strategies"},
+	// StrategyScripts became somebody's property.
+	{entity: &entities.StrategyScript{}, ownerColumn: "owner_id", description: "strategy scripts"},
 	// So did conversations, and for a sharper reason: the assistant acts as whoever
 	// asked it, so a transcript can hold that person's own algorithms. A conversation
 	// belonging to nobody would be readable by everybody.
@@ -88,15 +88,15 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migratedEntities := []any{
 		&entities.KCandle{},
 		&entities.TradingSymbol{},
-		&entities.Strategy{},
-		&entities.StrategyParameter{},
+		&entities.StrategyScript{},
+		&entities.StrategyScriptParameter{},
 		&entities.Conversation{},
 		&entities.AssistantTurn{},
 		&entities.AssistantQueryRecord{},
 		&entities.User{},
 		&entities.Session{},
-		&entities.PublishedStrategy{},
-		&entities.StrategyAdoption{},
+		&entities.PublishedStrategyScript{},
+		&entities.StrategyScriptAdoption{},
 		&entities.TelegramDelivery{},
 		&entities.StrategyBot{},
 		&entities.StrategyBotSignalSource{},

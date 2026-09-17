@@ -12,7 +12,7 @@ import (
 // TestTheAssistantIsOfferedNothingItMustNotDo holds the boundary that the assistant's
 // reach is the list it is handed and nothing else.
 //
-// Not being able to delete a strategy is the whole point: a strategy saved by mistake
+// Not being able to delete a strategy script is the whole point: a strategy script saved by mistake
 // costs a name, one deleted by mistake costs an algorithm that took several sittings
 // to get right and cannot be recovered. Written as a guard clause somewhere in the
 // loop it would be one refactor away from gone; written as a missing capability there
@@ -28,13 +28,13 @@ func TestTheAssistantIsOfferedNothingItMustNotDo(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"calculate_indicator",
-		"create_strategy",
+		"create_strategy_script",
 		"get_k_candle_series",
 		"get_k_candles",
-		"get_strategy",
-		"list_strategies",
+		"get_strategy_script",
+		"list_strategy_scripts",
 		"list_trading_symbols",
-		"update_strategy",
+		"update_strategy_script",
 	}, offeredNames)
 }
 

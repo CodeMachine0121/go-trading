@@ -9,7 +9,7 @@ import (
 )
 
 // BacktestService is the application layer's only entry point for replaying a
-// strategy over a stretch of market that has already happened.
+// strategy script over a stretch of market that has already happened.
 //
 // It orchestrates and nothing more: the rules about what may be replayed live in
 // BacktestDomain, the rules about trading live in BacktestSimulationDomain, and how a
@@ -41,7 +41,7 @@ func NewBacktestService(
 // equity curve. Nothing is stored: asking the same question twice replays it twice.
 //
 // The script is run once per candle and sees everything from the first candle up to
-// the one it stands on — so a strategy that looks back further than it has candles
+// the one it stands on — so a strategy script that looks back further than it has candles
 // simply produces nothing to act on early in the replay, exactly as it would have at
 // the time.
 func (backtestService *BacktestService) RunBacktest(

@@ -9,33 +9,33 @@ import (
 )
 
 // IndicatorCalculationApplication orchestrates the indicator calculation use case:
-// resolve the strategy the caller named, then run it.
+// resolve the strategy script the caller named, then run it.
 //
 // The two steps are two domain services, and joining them is this layer's job — a
 // domain service does not call another. It is also what makes running somebody
-// else's strategy possible without reading it: the script is fetched here and
+// else's strategy script possible without reading it: the script is fetched here and
 // handed straight to the calculation, and nothing on the way back out carries it.
 type IndicatorCalculationApplication struct {
-	strategyService             *service.StrategyService
+	strategyScriptService       *service.StrategyScriptService
 	indicatorCalculationService *service.IndicatorCalculationService
 }
 
 func NewIndicatorCalculationApplication(
-	strategyService *service.StrategyService,
+	strategyScriptService *service.StrategyScriptService,
 	indicatorCalculationService *service.IndicatorCalculationService,
 ) *IndicatorCalculationApplication {
 	return &IndicatorCalculationApplication{
-		strategyService:             strategyService,
+		strategyScriptService:       strategyScriptService,
 		indicatorCalculationService: indicatorCalculationService,
 	}
 }
 
-// CalculateIndicator runs whatever this caller is asking to run: the strategy they
+// CalculateIndicator runs whatever this caller is asking to run: the strategy script they
 // named, or the algorithm they wrote themselves.
 //
 // Which of the two it is, is settled before anything else happens — by a model, so
 // that "one or the other, never both" is answered in one place for every use case
-// that runs something. A named strategy then goes through the three gates, which is
+// that runs something. A named strategy script then goes through the three gates, which is
 // what lets somebody run another person's published algorithm without being handed
 // it; an unsaved one is the caller's own text and needs no gate at all.
 func (indicatorCalculationApplication *IndicatorCalculationApplication) CalculateIndicator(
@@ -44,21 +44,21 @@ func (indicatorCalculationApplication *IndicatorCalculationApplication) Calculat
 	runSubjectDomain domains.RunSubjectDomain,
 	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	runnableStrategyDto := runSubjectDomain.ToRunnableDto()
+	runnableStrategyScriptDto := runSubjectDomain.ToRunnableDto()
 
-	if strategyID, namesAStrategy := runSubjectDomain.NamedStrategyID(); namesAStrategy {
-		resolved, resolveError := indicatorCalculationApplication.strategyService.ResolveRunnableStrategy(
-			executionContext, viewerID, strategyID)
+	if strategyScriptID, namesAStrategyScript := runSubjectDomain.NamedStrategyScriptID(); namesAStrategyScript {
+		resolved, resolveError := indicatorCalculationApplication.strategyScriptService.ResolveRunnableStrategyScript(
+			executionContext, viewerID, strategyScriptID)
 		if resolveError != nil {
 			return dto.IndicatorCalculationResultDto{}, resolveError
 		}
 
-		runnableStrategyDto = resolved
+		runnableStrategyScriptDto = resolved
 	}
 
-	requestDto.Script = runnableStrategyDto.Script
-	requestDto.ResultType = runnableStrategyDto.ResultType
-	requestDto.Parameters = runnableStrategyDto.Parameters
+	requestDto.Script = runnableStrategyScriptDto.Script
+	requestDto.ResultType = runnableStrategyScriptDto.ResultType
+	requestDto.Parameters = runnableStrategyScriptDto.Parameters
 
 	return indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(
 		executionContext, requestDto)

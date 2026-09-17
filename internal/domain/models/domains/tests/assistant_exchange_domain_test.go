@@ -68,13 +68,13 @@ func TestAssistantExchangeKeepsWhatTheAssistantSaidOnTheWay(t *testing.T) {
 	// 「我先看一下既有的算式寫法」那句話要跟著它的查詢請求一起回去，
 	// 否則助手下一輪是從一個它已經看不到的想法往下接——答案會從半句話開始。
 	exchange := anExchange(8).RecordRound(
-		"我先看一下系統裡既有策略的算式寫法。",
-		aRound(anOutcome("list_strategies", `{"strategies":[]}`, false)))
+		"我先看一下系統裡既有策略腳本的算式寫法。",
+		aRound(anOutcome("list_strategy_scripts", `{"strategyScripts":[]}`, false)))
 
 	request := exchange.Request()
 
 	require.Len(t, request.Rounds, 1)
-	assert.Equal(t, "我先看一下系統裡既有策略的算式寫法。", request.Rounds[0].Narration)
+	assert.Equal(t, "我先看一下系統裡既有策略腳本的算式寫法。", request.Rounds[0].Narration)
 }
 
 func TestAssistantExchangeKeepsOneRoundsLookupsTogether(t *testing.T) {
@@ -82,7 +82,7 @@ func TestAssistantExchangeKeepsOneRoundsLookupsTogether(t *testing.T) {
 	// 從此每件事都多花一次往返。
 	exchange := anExchange(8).RecordRound("一次查三件", aRound(
 		anOutcome("list_trading_symbols", "{}", false),
-		anOutcome("list_strategies", "{}", false),
+		anOutcome("list_strategy_scripts", "{}", false),
 		anOutcome("get_k_candles", "{}", false)))
 
 	request := exchange.Request()

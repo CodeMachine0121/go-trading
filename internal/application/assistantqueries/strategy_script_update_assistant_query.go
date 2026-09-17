@@ -1,0 +1,60 @@
+package assistantqueries
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+)
+
+// StrategyScriptUpdateAssistantQuery lets the assistant rewrite a saved algorithm.
+//
+// A rewrite replaces everything the strategy script remembers, so the assistant is told to
+// read the strategy script first: sending only the field it meant to change would blank the
+// rest. That is a property of rewriting, not something this capability chose, and
+// hiding it by merging silently would make "change the lookback to thirty" quietly
+// throw away the algorithm.
+type StrategyScriptUpdateAssistantQuery struct {
+	strategyScriptApplication *application.StrategyScriptApplication
+}
+
+func NewStrategyScriptUpdateAssistantQuery(strategyScriptApplication *application.StrategyScriptApplication) *StrategyScriptUpdateAssistantQuery {
+	return &StrategyScriptUpdateAssistantQuery{strategyScriptApplication: strategyScriptApplication}
+}
+
+func (strategyScriptUpdateAssistantQuery *StrategyScriptUpdateAssistantQuery) Name() string {
+	return "update_strategy_script"
+}
+
+func (strategyScriptUpdateAssistantQuery *StrategyScriptUpdateAssistantQuery) Description() string {
+	return "改寫一支既有策略腳本，包含它的參數——新增、改名、改種類、改預設值、移除某個參數都在這裡做。" +
+		"這是整包覆蓋：沒送的欄位與沒列進 parameters 的參數都會被清掉，" +
+		"所以請先用 get_strategy_script 讀回來，改你要改的，其餘（含每個要保留的參數）原樣送回。改回自己原本的名稱不算重複。"
+}
+
+func (strategyScriptUpdateAssistantQuery *StrategyScriptUpdateAssistantQuery) ArgumentSchema() string {
+	return `{"type":"object","properties":{` +
+		`"strategyScriptId":{"type":"integer","description":"要改寫的策略腳本識別碼"},` +
+		strategyScriptWriteArgumentSchema +
+		`},"required":["strategyScriptId","name","script"],"additionalProperties":false}`
+}
+
+// Run rewrites the strategy script and hands it back as it now stands.
+func (strategyScriptUpdateAssistantQuery *StrategyScriptUpdateAssistantQuery) Run(
+	executionContext context.Context, viewerID uint, arguments string,
+) (string, error) {
+	writeArguments := strategyScriptWriteAssistantArguments{}
+	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
+		return "", fmt.Errorf("%w: 參數不是合法的 JSON: %s", domains.ErrAssistantQueryArgument, unmarshalError)
+	}
+
+	strategyScriptDto, updateError := strategyScriptUpdateAssistantQuery.strategyScriptApplication.UpdateStrategyScript(
+		executionContext, writeArguments.ToWriteDto(writeArguments.StrategyScriptID, viewerID))
+	if updateError != nil {
+		return "", updateError
+	}
+
+	return renderedStrategyScript(strategyScriptDto)
+}

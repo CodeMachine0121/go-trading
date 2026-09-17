@@ -41,11 +41,11 @@ func aBotRow(name string) entities.StrategyBot {
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotStopped),
 		SignalSources: []entities.StrategyBotSignalSource{
-			{Label: "A", StrategyID: 9, AggregationInterval: "1h",
+			{Label: "A", StrategyScriptID: 9, AggregationInterval: "1h",
 				ParameterValues: []entities.StrategyBotSignalSourceParameterValue{
 					{Name: "回看根數", Value: 20},
 				}},
-			{Label: "B", StrategyID: 10, AggregationInterval: "5m"},
+			{Label: "B", StrategyScriptID: 10, AggregationInterval: "5m"},
 		},
 		ConditionNodes: []entities.StrategyBotConditionNode{
 			{Side: string(vo.StrategyBotConditionSideBuy), Position: 0,
@@ -111,7 +111,7 @@ func TestStrategyBotRepositorySaveReplacesTheSourcesAndTreesItHadBefore(t *testi
 	rewritten := aBotRow("收盤反轉")
 	rewritten.ID = savedBot.ID
 	rewritten.SignalSources = []entities.StrategyBotSignalSource{
-		{Label: "C", StrategyID: 11, AggregationInterval: "1d"},
+		{Label: "C", StrategyScriptID: 11, AggregationInterval: "1d"},
 	}
 	rewritten.ConditionNodes = []entities.StrategyBotConditionNode{
 		{Side: string(vo.StrategyBotConditionSideBuy), Position: 0,

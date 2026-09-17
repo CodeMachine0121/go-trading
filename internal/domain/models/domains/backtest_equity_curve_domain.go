@@ -20,7 +20,7 @@ type BacktestEquityCurveDomain struct {
 	points         []vo.EquityPointVo
 	// peakEquity starts at the initial capital rather than at the first point. A
 	// replay that only ever falls had its high before the first candle, and seeding
-	// from the first point would report no drawdown at all for exactly the strategy
+	// from the first point would report no drawdown at all for exactly the strategy script
 	// that most deserves one.
 	peakEquity      decimal.Decimal
 	maximumDrawdown float64

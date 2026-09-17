@@ -7,7 +7,7 @@ import "context"
 // IAssistantQuery is one thing the assistant is allowed to do.
 //
 // What the assistant can do is the set of these it is given and nothing else. That is
-// why it cannot delete a strategy: no such implementation exists, so there is nothing
+// why it cannot delete a strategy script: no such implementation exists, so there is nothing
 // to reach for and no guard clause anybody could remove by accident. Adding a
 // capability is adding an implementation and registering it; nothing that orchestrates
 // or talks to the assistant changes.

@@ -32,7 +32,7 @@
 
 ## 2. User Personas
 
-- **Primary Role(s):** 看盤的人（本專案作者本人）——同時也是寫策略、讀指標的人。
+- **Primary Role(s):** 看盤的人（本專案作者本人）——同時也是寫策略腳本、讀指標的人。
 - **Usage Context:**
   在一個開著的畫面上長時間盯著某一檔的 K 線走勢，期間會換標的、會縮放。
   市場全天無休，因此「沒有人在看」的時間遠多於「有人在看」。
@@ -147,7 +147,7 @@ Scenario: 沒有變動就沒有東西要送
 ### US-04 — 進行中的那一根不進系統、也不參與計算 [priority: P0]
 
 **As a** 看盤的人，**I want** 已經留下來的資料不會自己變動，
-**so that** 同一支策略在同一個時間點算出來的答案永遠一樣。
+**so that** 同一支策略腳本在同一個時間點算出來的答案永遠一樣。
 
 ```gherkin
 Scenario: 進行中的那一根查不到
@@ -347,5 +347,5 @@ flowchart TD
 - 需求共識：`BRIEF.md`（同一資料夾）
 - 既有的每五分鐘抓取：`.sdd/2026-08-30-k-candle-auto-ingestion/`
 - 「進行中 K 線不存入」的由來：同上切片
-- 指標只用走完的刻度區間：`.sdd/2026-09-03-strategy-execution-parameters/`
+- 指標只用走完的刻度區間：`.sdd/2026-09-03-strategy-script-execution-parameters/`
 - 通用語言：`.sdd/UL-MAP.md`

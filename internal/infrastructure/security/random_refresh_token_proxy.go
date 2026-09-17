@@ -35,7 +35,7 @@ func NewRandomRefreshTokenProxy() *RandomRefreshTokenProxy {
 // Mint produces a new renewal proof and the digest to keep in its place.
 //
 // The value is produced by rand.Text, which is documented never to fail and to
-// return enough randomness that guessing is not a strategy. The error in the
+// return enough randomness that guessing is not a strategy script. The error in the
 // signature is for the implementations that come after this one — a hardware
 // security module has plenty to say about failing — and keeping it costs the caller
 // one branch it has to write anyway.
