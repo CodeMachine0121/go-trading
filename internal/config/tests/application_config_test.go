@@ -157,3 +157,35 @@ func TestLoadReadsHowLongItWillWaitForTelegram(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadGivesTheAssistantEnoughQueriesToFinishWhatItStarted(t *testing.T) {
+	// The ceiling exists to stop one question costing without limit, but it also
+	// decides whether the assistant can finish a thought. It now builds a trading
+	// strategy, replays it, reads the report card, adjusts and replays again — about
+	// five queries a turn — so a ceiling in single figures cuts it off right after it
+	// has discovered the return is not good enough and before it can do anything
+	// about it, which is the least useful place to stop.
+	testCases := []struct {
+		name          string
+		queryLimit    string
+		expectedLimit int
+	}{
+		{name: "nothing set leaves room for several turns", queryLimit: "", expectedLimit: 40},
+		{name: "a usable ceiling is taken as given", queryLimit: "12", expectedLimit: 12},
+		// A ceiling of nothing is not a ceiling, it is an assistant that may look at
+		// nothing at all — so it falls back rather than being honoured.
+		{name: "zero falls back", queryLimit: "0", expectedLimit: 40},
+		{name: "a negative ceiling falls back", queryLimit: "-1", expectedLimit: 40},
+		{name: "an unreadable ceiling falls back", queryLimit: "lots", expectedLimit: 40},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("ASSISTANT_QUERY_LIMIT", testCase.queryLimit)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expectedLimit, applicationConfig.Assistant.QueryLimit)
+		})
+	}
+}

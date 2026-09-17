@@ -317,3 +317,56 @@ func TestTradingStrategyAssistantQueriesAreNamedSoTheAssistantCanTellThemApart(t
 	assert.Equal(t, "get_trading_strategy", fixture.getAssistantQuery.Name())
 	assert.Equal(t, "list_trading_strategies", fixture.listAssistantQuery.Name())
 }
+
+func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesAStrategyScriptItCannotSee(t *testing.T) {
+	// The assistant reaches strategy scripts through the same three gates a person
+	// does. A script that is somebody else's and not on the marketplace comes back as
+	// one that is not there — which is what stops a trading strategy's sources
+	// becoming a way to probe for other people's algorithms.
+	controller := gomock.NewController(t)
+
+	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
+	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(entities.StrategyScript{ID: 9, OwnerID: assistantViewerID + 1, Script: "別人的"}, nil)
+	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
+
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
+	tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+
+	createAssistantQuery := assistantqueries.NewTradingStrategyCreateAssistantQuery(
+		application.NewTradingStrategyApplication(
+			service.NewTradingStrategyService(tradingStrategyRepository),
+			service.NewStrategyScriptService(
+				strategyScriptRepository, publishedStrategyScriptRepository),
+			service.NewStrategyBotService(
+				mocks.NewMockIStrategyBotRepository(controller),
+				mocks.NewMockIStrategyBotRunRecordRepository(controller),
+				mocks.NewMockIClockProxy(controller)),
+		))
+
+	_, runError := createAssistantQuery.Run(
+		t.Context(), assistantViewerID, aWellFormedTradingStrategyArgument)
+
+	require.ErrorIs(t, runError, domains.ErrStrategyScriptNotFound)
+}
+
+func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceSetsAKnobNobodyDeclared(t *testing.T) {
+	// The other mistake the assistant is well placed to fix itself: it reads which
+	// knob was never declared and drops it. Caught here rather than at three in the
+	// morning when the script it feeds finally runs.
+	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+
+	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantViewerID, `{
+      "name": "動能追蹤",
+      "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h",
+        "parameterValues": [{"name": "這支腳本沒宣告過的參數", "value": 3}]}],
+      "buyCondition": {"sourceLabel": "A", "signal": "buy"},
+      "sellCondition": {"sourceLabel": "A", "signal": "sell"}
+    }`)
+
+	require.Error(t, runError)
+	assert.Contains(t, runError.Error(), "這支腳本沒宣告過的參數")
+}

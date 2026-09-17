@@ -136,3 +136,135 @@ func TestConversationDomainToSummaryDtoCountsNothingAsNothing(t *testing.T) {
 
 	assert.Equal(t, 0, summaryDto.MessageCount)
 }
+
+// conversationEndingWith is one answered exchange followed by one in whatever state
+// a case is about, so that "the finished ones are untouched" is checked alongside
+// whatever the unfinished one does.
+func conversationEndingWith(turn entities.AssistantTurn) entities.Conversation {
+	conversation := conversationOf(1)
+	conversation.Turns[0].Status = string(vo.AssistantTurnAnswered)
+	conversation.Turns = append(conversation.Turns, turn)
+
+	return conversation
+}
+
+func TestConversationDomainToDtoSaysWhatStateEachExchangeIsIn(t *testing.T) {
+	// A reader coming back to a conversation has to tell "still going" from "it
+	// broke" from "here is your answer". Leaving the unfinished ones out is exactly
+	// the blank screen that makes somebody ask the same question twice.
+	testCases := []struct {
+		name                  string
+		turn                  entities.AssistantTurn
+		expectedMessageCount  int
+		expectedLastRole      string
+		expectedLastStatus    string
+		expectedFailureReason string
+	}{
+		{
+			name: "one still being written shows the question and no reply yet",
+			turn: entities.AssistantTurn{
+				Ask: "還在跑的那句", Status: string(vo.AssistantTurnRunning),
+				CreatedAt: time.Date(2026, 9, 4, 10, 2, 0, 0, time.UTC),
+			},
+			expectedMessageCount: 3,
+			expectedLastRole:     "ask",
+			expectedLastStatus:   "running",
+		},
+		{
+			name: "one that failed says why",
+			turn: entities.AssistantTurn{
+				Ask: "壞掉的那句", Status: string(vo.AssistantTurnFailed),
+				FailureReason: "助手目前沒有回應，請稍後再試",
+				CreatedAt:     time.Date(2026, 9, 4, 10, 2, 0, 0, time.UTC),
+			},
+			expectedMessageCount:  3,
+			expectedLastRole:      "ask",
+			expectedLastStatus:    "failed",
+			expectedFailureReason: "助手目前沒有回應，請稍後再試",
+		},
+		{
+			name: "one that was answered has both halves",
+			turn: entities.AssistantTurn{
+				Ask: "答完的那句", Answer: "答案", Status: string(vo.AssistantTurnAnswered),
+				CreatedAt: time.Date(2026, 9, 4, 10, 2, 0, 0, time.UTC),
+			},
+			expectedMessageCount: 4,
+			expectedLastRole:     "answer",
+			expectedLastStatus:   "answered",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			conversationDto := domains.NewConversationDomain(
+				conversationEndingWith(testCase.turn)).ToDto()
+
+			require.Len(t, conversationDto.Messages, testCase.expectedMessageCount)
+
+			lastMessage := conversationDto.Messages[len(conversationDto.Messages)-1]
+			assert.Equal(t, testCase.expectedLastRole, lastMessage.Role)
+			assert.Equal(t, testCase.expectedLastStatus, lastMessage.Status)
+			assert.Equal(t, testCase.expectedFailureReason, lastMessage.FailureReason)
+
+			// The exchange that had already finished is untouched by any of this.
+			assert.Equal(t, "問題 1", conversationDto.Messages[0].Content)
+			assert.Equal(t, "answered", conversationDto.Messages[0].Status)
+		})
+	}
+}
+
+func TestConversationDomainDoesNotShowTheAssistantAQuestionThatWasNeverAnswered(t *testing.T) {
+	// A question with nothing under it reads to the assistant as one it declined to
+	// answer, and it will go on to explain why it declined — which is not what
+	// happened.
+	conversation := conversationEndingWith(entities.AssistantTurn{
+		Ask: "壞掉的那句", Status: string(vo.AssistantTurnFailed),
+		FailureReason: "助手沒有回應",
+		CreatedAt:     time.Date(2026, 9, 4, 10, 2, 0, 0, time.UTC),
+	})
+
+	recentMessages := domains.NewConversationDomain(conversation).RecentMessages(20)
+
+	require.Len(t, recentMessages, 2)
+	assert.Equal(t, "問題 1", recentMessages[0].Content)
+	assert.Equal(t, "回答 1", recentMessages[1].Content)
+}
+
+func TestConversationDomainKnowsWhetherAnAnswerIsStillBeingWritten(t *testing.T) {
+	// A yes refuses the next question: two answers written into one conversation at
+	// once leaves nobody able to say which of them the record belongs to. A failed
+	// one is not in flight — nothing is still being written, so there is nothing a
+	// second question could collide with.
+	testCases := []struct {
+		name             string
+		status           string
+		expectedInFlight bool
+	}{
+		{name: "one still being written", status: string(vo.AssistantTurnRunning), expectedInFlight: true},
+		{name: "one that was answered", status: string(vo.AssistantTurnAnswered), expectedInFlight: false},
+		{name: "one that failed", status: string(vo.AssistantTurnFailed), expectedInFlight: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			conversation := conversationEndingWith(entities.AssistantTurn{
+				Ask: "最後那句", Status: testCase.status,
+				CreatedAt: time.Date(2026, 9, 4, 10, 2, 0, 0, time.UTC),
+			})
+
+			assert.Equal(t, testCase.expectedInFlight,
+				domains.NewConversationDomain(conversation).HasAnswerInFlight())
+		})
+	}
+}
+
+func TestConversationDomainReadsAnExchangeStoredBeforeStatesExistedAsAnswered(t *testing.T) {
+	// Those rows have no status and an answer in full, so answered is the only
+	// reading that is true of them. Calling them failed would bury answers people
+	// already have behind a sentence telling them to ask again.
+	conversationDto := domains.NewConversationDomain(conversationOf(1)).ToDto()
+
+	require.Len(t, conversationDto.Messages, 2)
+	assert.Equal(t, "answered", conversationDto.Messages[0].Status)
+	assert.Equal(t, "回答 1", conversationDto.Messages[1].Content)
+}
