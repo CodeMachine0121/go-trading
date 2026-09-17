@@ -44,21 +44,22 @@ func (conversationRepository *ConversationRepository) Save(
 	return conversation, nil
 }
 
-// AppendTurn adds one exchange to a conversation and hands the conversation back as
-// it now stands.
+// AppendTurn adds one exchange to a conversation and hands that exchange back as
+// stored.
 //
 // Moving the conversation's last-active moment is done first, and it is also how a
 // conversation that is not there is reported: no row moved means no such
 // conversation. Asking whether it exists and then writing would let a deletion land
 // between the two and leave an exchange belonging to nothing.
 //
-// The write and the read-back share one transaction, so what comes back is what this
-// call stored rather than whatever a second question arriving at the same moment left
-// behind.
+// What comes back is the row this call created, named by the identifier the store
+// gave it. It is not found by reading the conversation back and taking the last
+// exchange: two questions arriving at once would both read whichever row committed
+// second, and one answer would be written over the other.
 func (conversationRepository *ConversationRepository) AppendTurn(
 	executionContext context.Context, conversationId uint, turn entities.AssistantTurn,
-) (entities.Conversation, error) {
-	appendedConversation := entities.Conversation{}
+) (entities.AssistantTurn, error) {
+	appendedTurn := entities.AssistantTurn{}
 
 	transactionError := conversationRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
@@ -77,12 +78,7 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 				return created.Error
 			}
 
-			readBackConversation, readBackError := readConversation(transaction, conversationId)
-			if readBackError != nil {
-				return readBackError
-			}
-
-			appendedConversation = readBackConversation
+			appendedTurn = turn
 
 			return nil
 		})
@@ -94,13 +90,13 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 	// reach the caller as a sentence from the database driver.
 	if transactionError != nil {
 		if errors.Is(transactionError, domains.ErrConversationNotFound) {
-			return entities.Conversation{}, transactionError
+			return entities.AssistantTurn{}, transactionError
 		}
 
-		return entities.Conversation{}, fmt.Errorf("append conversation turn: %w", transactionError)
+		return entities.AssistantTurn{}, fmt.Errorf("append conversation turn: %w", transactionError)
 	}
 
-	return appendedConversation, nil
+	return appendedTurn, nil
 }
 
 // CompleteTurn writes an answer, or a failure, over the exchange this turn names.

@@ -123,12 +123,12 @@ func (fixture assistantConversationServiceUnderTest) expectAppendedTurn(
 
 	fixture.conversationRepository.EXPECT().AppendTurn(gomock.Any(), conversationID, gomock.Any()).
 		DoAndReturn(func(
-			_ context.Context, id uint, turn entities.AssistantTurn,
-		) (entities.Conversation, error) {
+			_ context.Context, _ uint, turn entities.AssistantTurn,
+		) (entities.AssistantTurn, error) {
 			*startedTurn = turn
 			turn.ID = startedTurnID
 
-			return entities.Conversation{ID: id, Turns: []entities.AssistantTurn{turn}}, nil
+			return turn, nil
 		})
 
 	return startedTurn

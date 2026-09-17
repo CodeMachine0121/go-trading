@@ -43,10 +43,10 @@ func (m *MockIConversationRepository) EXPECT() *MockIConversationRepositoryMockR
 }
 
 // AppendTurn mocks base method.
-func (m *MockIConversationRepository) AppendTurn(executionContext context.Context, conversationId uint, turn entities.AssistantTurn) (entities.Conversation, error) {
+func (m *MockIConversationRepository) AppendTurn(executionContext context.Context, conversationId uint, turn entities.AssistantTurn) (entities.AssistantTurn, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AppendTurn", executionContext, conversationId, turn)
-	ret0, _ := ret[0].(entities.Conversation)
+	ret0, _ := ret[0].(entities.AssistantTurn)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

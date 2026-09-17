@@ -65,20 +65,6 @@ func (conversationDomain ConversationDomain) HasAnswerInFlight() bool {
 	return false
 }
 
-// NewestTurnID names the exchange most recently added to this conversation.
-//
-// It is how the exchange just started is found again, so that the answer can be
-// written back over the very row that reserved the place. Turns arrive earliest
-// first, so the newest is the last of them; a conversation with none answers zero,
-// which no exchange carries.
-func (conversationDomain ConversationDomain) NewestTurnID() uint {
-	if len(conversationDomain.conversation.Turns) == 0 {
-		return 0
-	}
-
-	return conversationDomain.conversation.Turns[len(conversationDomain.conversation.Turns)-1].ID
-}
-
 // RecentMessages is what the assistant is shown: the last so many messages of this
 // conversation, earliest first.
 //

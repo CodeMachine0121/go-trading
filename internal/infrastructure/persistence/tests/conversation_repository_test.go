@@ -82,16 +82,25 @@ func TestConversationRepositoryAppendTurnAddsToWhatIsAlreadyThere(t *testing.T) 
 	})
 	require.NoError(t, saveError)
 
-	appendedConversation, appendError := conversationRepository.AppendTurn(
+	appendedTurn, appendError := conversationRepository.AppendTurn(
 		t.Context(), savedConversation.ID, turnAt(momentAt(11, 0), "問 2", 200))
 
 	require.NoError(t, appendError)
-	require.Len(t, appendedConversation.Turns, 2)
-	assert.Equal(t, "問 1", appendedConversation.Turns[0].Ask)
-	assert.Equal(t, "問 2", appendedConversation.Turns[1].Ask)
+	// The exchange names itself, so an answer written later lands on this row and no
+	// other — even if a second question arrived at the same moment.
+	assert.Equal(t, "問 2", appendedTurn.Ask)
+	assert.Positive(t, appendedTurn.ID)
+	assert.NotEqual(t, savedConversation.Turns[0].ID, appendedTurn.ID)
+
+	readBackConversation, findError := conversationRepository.FindOne(
+		t.Context(), savedConversation.ID)
+	require.NoError(t, findError)
+	require.Len(t, readBackConversation.Turns, 2)
+	assert.Equal(t, "問 1", readBackConversation.Turns[0].Ask)
+	assert.Equal(t, "問 2", readBackConversation.Turns[1].Ask)
 	// When it was last active is the moment of the exchange that moved it — the same
 	// fact, not a second one to keep in step.
-	assert.Equal(t, momentAt(11, 0), appendedConversation.LastActiveAt.UTC())
+	assert.Equal(t, momentAt(11, 0), readBackConversation.LastActiveAt.UTC())
 }
 
 func TestConversationRepositoryAppendTurnReportsAConversationThatIsNotThere(t *testing.T) {

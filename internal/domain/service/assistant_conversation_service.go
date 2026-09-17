@@ -128,14 +128,11 @@ func (assistantConversationService *AssistantConversationService) Ask(
 		assistantConversationService.answerLengthLimit,
 	)
 
-	startedConversation, startError := assistantConversationService.start(
+	conversationID, turnID, startError := assistantConversationService.start(
 		executionContext, askDto.ViewerID, askDto.ConversationID, exchange.ToStartedTurn(now))
 	if startError != nil {
 		return dto.AssistantAnswerStartedDto{}, startError
 	}
-
-	startedConversationDomain := domains.NewConversationDomain(startedConversation)
-	turnID := startedConversationDomain.NewestTurnID()
 
 	go assistantAnswerWriter{
 		assistantConversationService: assistantConversationService,
@@ -145,7 +142,7 @@ func (assistantConversationService *AssistantConversationService) Ask(
 	}.write()
 
 	return dto.AssistantAnswerStartedDto{
-		ConversationID: startedConversation.ID,
+		ConversationID: conversationID,
 		TurnID:         turnID,
 		Status:         string(vo.AssistantTurnRunning),
 	}, nil
@@ -333,31 +330,45 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 }
 
 // start reserves the place an answer will go — as a new conversation when the
-// question named none, as an addition when it did — and hands back the conversation
-// as it now stands.
+// question named none, as an addition when it did — and names both the conversation
+// it landed in and the exchange itself.
 //
 // Both ways of writing it are a single statement, so a question never lands half
 // stored: a conversation with no exchange under it would show up in somebody's list
 // as an empty thread they never started.
+//
+// The exchange is named by what the store gave it rather than by looking for the
+// newest one afterwards. Two questions arriving at once would both find the same
+// newest exchange, and one answer would be written over the other.
 //
 // This runs on the asker's own context rather than a detached one, unlike the writing
 // that follows. Reserving the place is the part they are waiting on, so a caller who
 // gives up before it lands should take it with them.
 func (assistantConversationService *AssistantConversationService) start(
 	executionContext context.Context, viewerID uint, conversationId uint, turn entities.AssistantTurn,
-) (entities.Conversation, error) {
-	if conversationId == 0 {
-		return assistantConversationService.conversationRepository.Save(
-			executionContext,
-			entities.Conversation{
-				OwnerID:      viewerID,
-				LastActiveAt: turn.CreatedAt,
-				Turns:        []entities.AssistantTurn{turn},
-			})
+) (uint, uint, error) {
+	if conversationId != 0 {
+		appendedTurn, appendError := assistantConversationService.conversationRepository.AppendTurn(
+			executionContext, conversationId, turn)
+		if appendError != nil {
+			return 0, 0, appendError
+		}
+
+		return conversationId, appendedTurn.ID, nil
 	}
 
-	return assistantConversationService.conversationRepository.AppendTurn(
-		executionContext, conversationId, turn)
+	startedConversation, saveError := assistantConversationService.conversationRepository.Save(
+		executionContext,
+		entities.Conversation{
+			OwnerID:      viewerID,
+			LastActiveAt: turn.CreatedAt,
+			Turns:        []entities.AssistantTurn{turn},
+		})
+	if saveError != nil {
+		return 0, 0, saveError
+	}
+
+	return startedConversation.ID, startedConversation.Turns[0].ID, nil
 }
 
 // FailInterruptedAnswers marks every answer left mid-write by the last shutdown as

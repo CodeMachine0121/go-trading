@@ -29,11 +29,17 @@ type IConversationRepository interface {
 	// back as stored, identifier and times filled in.
 	Save(executionContext context.Context, conversation entities.Conversation) (entities.Conversation, error)
 	// AppendTurn adds one exchange to the conversation this identifier names and
-	// hands the conversation back as it now stands. Refuses with
+	// hands back that exchange as stored, its identifier filled in. Refuses with
 	// ErrConversationNotFound when there is no such conversation.
+	//
+	// **The exchange itself comes back, not the conversation it joined.** Naming the
+	// row this way is the only way that survives two questions arriving at once:
+	// reading the conversation back and taking the last exchange would hand both
+	// askers whichever row committed second, and one answer would be written over
+	// the other.
 	AppendTurn(
 		executionContext context.Context, conversationId uint, turn entities.AssistantTurn,
-	) (entities.Conversation, error)
+	) (entities.AssistantTurn, error)
 	// FindOne returns the conversation carrying this identifier with every exchange
 	// under it, earliest first, or ErrConversationNotFound.
 	FindOne(executionContext context.Context, id uint) (entities.Conversation, error)
