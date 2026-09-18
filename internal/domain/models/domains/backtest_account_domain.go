@@ -16,6 +16,7 @@ import (
 type BacktestAccountDomain struct {
 	tradingMode       TradingModeDomain
 	positionSizing    PositionSizingDomain
+	exitLevels        BacktestExitLevelsDomain
 	availableCash     decimal.Decimal
 	openPosition      BacktestPositionDomain
 	hasOpenPosition   bool
@@ -27,13 +28,40 @@ func NewBacktestAccountDomain(
 	initialCapital decimal.Decimal,
 	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
+	exitLevels BacktestExitLevelsDomain,
 ) *BacktestAccountDomain {
 	return &BacktestAccountDomain{
 		tradingMode:    tradingMode,
 		positionSizing: positionSizing,
+		exitLevels:     exitLevels,
 		availableCash:  initialCapital,
 		closedTrades:   make([]vo.ClosedTradeVo, 0),
 	}
+}
+
+// ApplyExitLevels closes the open position if this candle reached one of the two
+// prices it settled on at entry. A replay given no distances does nothing here at all.
+//
+// It is called before the candle's own signal, and that ordering carries two rules on
+// its own. A position opened on a candle is first examined on the next one, because
+// this ran before it existed — so "the entry candle cannot stop itself out" needs no
+// check anywhere. And a position stopped out here still hears that candle's signal
+// afterwards, which is right: the stop was reached during the bar and the close came
+// after it. Swallowing the signal as well would let one stop eat an entry that had
+// nothing to do with it.
+func (backtestAccountDomain *BacktestAccountDomain) ApplyExitLevels(
+	kCandle vo.KCandleVo, candleTime time.Time,
+) {
+	if !backtestAccountDomain.hasOpenPosition {
+		return
+	}
+
+	closedTrade, isExited := backtestAccountDomain.openPosition.ExitOn(kCandle, candleTime)
+	if !isExited {
+		return
+	}
+
+	backtestAccountDomain.settleOpenPosition(closedTrade)
 }
 
 // Apply carries out one candle's opinion at that candle's fill price.
@@ -70,12 +98,9 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 			return
 		}
 
-		backtestAccountDomain.closedTrades = append(
-			backtestAccountDomain.closedTrades,
-			backtestAccountDomain.openPosition.ClosedAt(candleTime, fillPrice))
-		backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.Add(
-			backtestAccountDomain.openPosition.ValueAt(fillPrice))
-		backtestAccountDomain.hasOpenPosition = false
+		backtestAccountDomain.settleOpenPosition(
+			backtestAccountDomain.openPosition.ClosedAt(
+				candleTime, fillPrice, vo.TradeExitReasonSignal))
 	}
 
 	// Cash was what it asked for, and cash is what it now holds. This is where a spot
@@ -94,7 +119,7 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	}
 
 	openedPosition, isOpened := NewBacktestPositionDomain(
-		wantedDirection, candleTime, fillPrice, stake)
+		wantedDirection, candleTime, fillPrice, stake, backtestAccountDomain.exitLevels)
 	if !isOpened {
 		return
 	}
@@ -103,6 +128,23 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	backtestAccountDomain.openPosition = openedPosition
 	backtestAccountDomain.hasOpenPosition = true
 	backtestAccountDomain.positionOpenCount++
+}
+
+// settleOpenPosition is the whole of letting go of a position: the trade joins the
+// list, the cash it is worth comes back, and the account is flat again.
+//
+// It is a method rather than three lines written twice because both ways out — the
+// signal asking for something else, and a candle reaching a level — have to do all
+// three. One of two copies missing the cash line is money appearing or vanishing, and
+// nothing downstream would report it as anything but a very good or very bad strategy.
+func (backtestAccountDomain *BacktestAccountDomain) settleOpenPosition(
+	closedTrade vo.ClosedTradeVo,
+) {
+	backtestAccountDomain.closedTrades = append(
+		backtestAccountDomain.closedTrades, closedTrade)
+	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.Add(
+		backtestAccountDomain.openPosition.ValueAt(closedTrade.ExitPrice))
+	backtestAccountDomain.hasOpenPosition = false
 }
 
 // EquityAt is what everything on hand is worth at that price: the cash, plus any open
@@ -128,6 +170,24 @@ func (backtestAccountDomain *BacktestAccountDomain) ClosedTradeDtos() []dto.Clos
 	}
 
 	return closedTradeDtos
+}
+
+// ExitCountFor is how many finished round trips ended that way.
+//
+// It is counted off the trade list rather than tallied as it goes, for the reason the
+// win rate is: a counter is a second place the same fact lives, and the day it
+// disagrees with the list nobody can say which one to believe.
+func (backtestAccountDomain *BacktestAccountDomain) ExitCountFor(
+	exitReason vo.TradeExitReasonVo,
+) int {
+	exitCount := 0
+	for _, closedTrade := range backtestAccountDomain.closedTrades {
+		if closedTrade.ExitReason == exitReason {
+			exitCount++
+		}
+	}
+
+	return exitCount
 }
 
 // PositionOpenCount is how many openings actually happened. One that was skipped for

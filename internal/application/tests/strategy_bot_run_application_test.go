@@ -1223,7 +1223,7 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 			assert.Contains(t, message, "止損 62255.085（往下，虧 450）")
 			assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
 			assert.Contains(t, message, "這個系統不下單")
-			assert.Contains(t, message, "回測沒有把止損止盈算進去")
+			assert.Contains(t, message, "回測要算進止損止盈，重演時把這兩個距離填上")
 
 			return vo.DeliveryFailureNone, nil
 		})

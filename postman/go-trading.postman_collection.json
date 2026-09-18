@@ -161,6 +161,10 @@
       "value": ""
     },
     {
+      "key": "strategyScriptIdForBacktestExits",
+      "value": ""
+    },
+    {
       "key": "strategyScriptIdForBacktestTooFewCandles",
       "value": ""
     },
@@ -8664,6 +8668,154 @@
                 "exec": [
                   "pm.test(\"回應 422\", function () {",
                   "    pm.response.to.have.status(422);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）重演：止損把那一注掃出場",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"重演：止損把那一注掃出場 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) == 2 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set(\"strategyScriptIdForBacktestExits\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：止損把那一注掃出場",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "同一支算式、同一段歷史，與「買進之後一路抱著」那一發**只差一個止損距離**——而成績單從 +25% 變成 −2%。\n\n第二根（收盤 120）全押開多，拿到 100 單位，止損價是進場價下面兩個百分點：117.6。第三根的最低價是 90，掃到它，以 **117.6** 出場，這一筆虧 240，帳上剩 11,760。\n\n**止損用那一根的最低價判，不是收盤價**——停損是盤中被掃到的。而**進場那一根不判**：成交在它的收盤價，它的最低價在成交之前就已經發生過了。\n\n兩個距離留白就完全不模擬，所以這一刀之前的每一發都一個數字都沒變。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"被止損掃出場，成交在止損價本身\", function () {",
+                  "    // 進場 120 下面兩個百分點是 117.6；第三根最低 90 掃到它。",
+                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"117.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"stopLoss\");",
+                  "});",
+                  "pm.test(\"成績單數得出那一筆是止損出場\", function () {",
+                  "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(1);",
+                  "    pm.expect(pm.response.json().summary.takeProfitExitCount).to.eql(0);",
+                  "});",
+                  "pm.test(\"同一支算式不設止損是 +25%，設了是 −2%\", function () {",
+                  "    // 12,000 − 240 = 11,760。不設止損時它抱到最後是 15,000。",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"11760\");",
+                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(-0.02);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：止損距離為負",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "負的距離會把止損價放到價格的**另一邊**——做多的止損跑到進場價上面，那個部位會在下一根就出場，而成績單看起來只像策略很差。\n\n超過 100 也一樣拒絕（會讓價格變成負數），但**正好 100 送得出去**：止損價正好是零，荒謬但算得出來。\n\n拒絕指向的欄位是 `exitLevels`——一個名字蓋住那兩格，由句子本身說出是止損還是止盈。這兩句話與機器人部位規劃那一側**逐字相同**。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"-2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說出是哪一個距離、以及為什麼\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"停損距離不得為負\");",
+                  "});",
+                  "pm.test(\"指向那一組出場價位\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"exitLevels\");",
                   "});"
                 ]
               }

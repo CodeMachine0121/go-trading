@@ -21,6 +21,7 @@ type BacktestSimulationDomain struct {
 	initialCapital decimal.Decimal
 	positionSizing PositionSizingDomain
 	tradingMode    TradingModeDomain
+	exitLevels     BacktestExitLevelsDomain
 	inputKCandles  []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
 	// candle. The script runner produces one signal per candle or fails the whole
@@ -36,6 +37,7 @@ func NewBacktestSimulationDomain(
 	initialCapital decimal.Decimal,
 	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
+	exitLevels BacktestExitLevelsDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
 ) BacktestSimulationDomain {
@@ -43,6 +45,7 @@ func NewBacktestSimulationDomain(
 		initialCapital: initialCapital,
 		positionSizing: positionSizing,
 		tradingMode:    tradingMode,
+		exitLevels:     exitLevels,
 		inputKCandles:  inputKCandles,
 		signals:        signals,
 	}
@@ -57,7 +60,8 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 	account := NewBacktestAccountDomain(
 		backtestSimulationDomain.initialCapital,
 		backtestSimulationDomain.positionSizing,
-		backtestSimulationDomain.tradingMode)
+		backtestSimulationDomain.tradingMode,
+		backtestSimulationDomain.exitLevels)
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
 	for candleIndex, inputKCandle := range backtestSimulationDomain.inputKCandles {
@@ -67,6 +71,14 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		fillPrice := decimal.NewFromFloat(inputKCandle.Close)
 		candleTime := time.Unix(inputKCandle.OpenTimeUnixSeconds, 0).UTC()
 
+		// The exit levels are asked first, and that ordering is a rule rather than a
+		// preference. A position is opened on the line below, so the earliest candle
+		// that can stop it out is the next one round — which is right, because the
+		// entry filled at this candle's close and its high and low had already
+		// happened by then. Written as a check instead, that rule would be a
+		// comparison of times, and a comparison of times is something a timezone or
+		// two bars opening in the same second can get wrong silently.
+		account.ApplyExitLevels(inputKCandle, candleTime)
 		account.Apply(backtestSimulationDomain.signals[candleIndex], candleTime, fillPrice)
 		equityCurve.Record(candleTime, account.EquityAt(fillPrice))
 	}
@@ -77,6 +89,10 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		TotalReturnRate:   equityCurve.TotalReturnRate(),
 		MaximumDrawdown:   equityCurve.MaximumDrawdown(),
 		PositionOpenCount: account.PositionOpenCount(),
+		// Both counts are zero for a replay given no distances, which is every
+		// replay made before there were distances to give.
+		StopLossExitCount:   account.ExitCountFor(vo.TradeExitReasonStopLoss),
+		TakeProfitExitCount: account.ExitCountFor(vo.TradeExitReasonTakeProfit),
 	}
 	// The win rate stays absent when nothing was ever closed, which is what keeps "no
 	// trades" from being reported as "every trade lost".

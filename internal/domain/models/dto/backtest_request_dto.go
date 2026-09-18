@@ -38,4 +38,13 @@ type BacktestRequestDto struct {
 	// TradingMode is which set of rules the replay trades by, exactly as declared.
 	// Reading it — including leaving it out — is the domain's job.
 	TradingMode string
+	// StopLossPercentage and TakeProfitPercentage are how far from its entry a
+	// position may be wrong, and how far right is far enough. Both are percentages,
+	// both optional, and zero means there is no such exit.
+	//
+	// They travel with the run rather than with the strategy script, for the same
+	// reason the capital does: they are what somebody turns up and down while
+	// sitting there deciding what they can sit through.
+	StopLossPercentage   decimal.Decimal
+	TakeProfitPercentage decimal.Decimal
 }

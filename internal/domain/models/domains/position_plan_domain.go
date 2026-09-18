@@ -94,6 +94,11 @@ func NewPositionPlanDomain(
 // negative distance would put a stop on the wrong side of the price, and one past a
 // hundred percent would put it below zero. Two copies of that would eventually let
 // one exit through a check the other refuses.
+//
+// A replay's own exit distances are checked here too, in these same words. The two
+// are different things — one says what a bot should suggest each round, the other how
+// one replay simulates — but the same 150 typed into either has to come back with the
+// same sentence, and only one copy of a sentence can stay true to itself.
 func validatedDistance(distance decimal.Decimal, name string) error {
 	if distance.IsNegative() {
 		return fmt.Errorf("%s不得為負", name)

@@ -182,7 +182,7 @@ func TestBacktestAccountDomainTradesNothingUnderAnUnrecognisedMode(t *testing.T)
 	positionSizing, err := domains.NewPositionSizingDomain("allIn", decimal.Zero)
 	require.NoError(t, err)
 	account := domains.NewBacktestAccountDomain(
-		decimal.NewFromInt(10000), positionSizing, domains.TradingModeDomain{})
+		decimal.NewFromInt(10000), positionSizing, domains.TradingModeDomain{}, domains.BacktestExitLevelsDomain{})
 
 	account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
 

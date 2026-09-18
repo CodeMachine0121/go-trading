@@ -38,6 +38,12 @@ type BacktestRequest struct {
 	// always being in the market, which is what a replay did before there was
 	// anything to declare.
 	TradingMode string `json:"tradingMode"`
+	// StopLossPercentage and TakeProfitPercentage are how far from its entry a
+	// position may be wrong, and how far right is far enough. Leaving both out means
+	// simulating no exits, which is what every replay did before these existed — so
+	// a caller that says nothing gets exactly the report card it got before.
+	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
+	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
 }
 
 // ToParameterWriteDtos hands on the knobs an unsaved algorithm declares.
@@ -53,15 +59,17 @@ func (backtestRequest BacktestRequest) ToParameterWriteDtos() []dto.StrategyScri
 // ToRequestDto turns the request into the shape the domain accepts.
 func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 	return dto.BacktestRequestDto{
-		Symbol:              backtestRequest.Symbol,
-		AggregationInterval: backtestRequest.AggregationInterval,
-		StartTime:           backtestRequest.StartTime,
-		EndTime:             backtestRequest.EndTime,
-		ParameterValues:     backtestRequest.parameterValueDtos(),
-		InitialCapital:      backtestRequest.InitialCapital,
-		PositionSizingMode:  backtestRequest.PositionSizingMode,
-		PositionSizingValue: backtestRequest.PositionSizingValue,
-		TradingMode:         backtestRequest.TradingMode,
+		Symbol:               backtestRequest.Symbol,
+		AggregationInterval:  backtestRequest.AggregationInterval,
+		StartTime:            backtestRequest.StartTime,
+		EndTime:              backtestRequest.EndTime,
+		ParameterValues:      backtestRequest.parameterValueDtos(),
+		InitialCapital:       backtestRequest.InitialCapital,
+		PositionSizingMode:   backtestRequest.PositionSizingMode,
+		PositionSizingValue:  backtestRequest.PositionSizingValue,
+		TradingMode:          backtestRequest.TradingMode,
+		StopLossPercentage:   backtestRequest.StopLossPercentage,
+		TakeProfitPercentage: backtestRequest.TakeProfitPercentage,
 	}
 }
 
