@@ -33,6 +33,10 @@ type TradingStrategyBacktestRequestDto struct {
 	PositionSizingValue decimal.Decimal
 	// TradingMode is which set of rules the replay trades by, exactly as declared.
 	TradingMode string
+	// StopLossPercentage and TakeProfitPercentage are the two exit distances this
+	// run simulates, both optional, zero meaning no such exit.
+	StopLossPercentage   decimal.Decimal
+	TakeProfitPercentage decimal.Decimal
 }
 
 // ResolvedSignalSourceDto is one signal source with the script it names already
@@ -64,13 +68,15 @@ func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
 	sharedAggregationInterval string,
 ) BacktestRequestDto {
 	return BacktestRequestDto{
-		Symbol:              requestDto.Symbol,
-		AggregationInterval: sharedAggregationInterval,
-		StartTime:           requestDto.StartTime,
-		EndTime:             requestDto.EndTime,
-		InitialCapital:      requestDto.InitialCapital,
-		PositionSizingMode:  requestDto.PositionSizingMode,
-		PositionSizingValue: requestDto.PositionSizingValue,
-		TradingMode:         requestDto.TradingMode,
+		Symbol:               requestDto.Symbol,
+		AggregationInterval:  sharedAggregationInterval,
+		StartTime:            requestDto.StartTime,
+		EndTime:              requestDto.EndTime,
+		InitialCapital:       requestDto.InitialCapital,
+		PositionSizingMode:   requestDto.PositionSizingMode,
+		PositionSizingValue:  requestDto.PositionSizingValue,
+		TradingMode:          requestDto.TradingMode,
+		StopLossPercentage:   requestDto.StopLossPercentage,
+		TakeProfitPercentage: requestDto.TakeProfitPercentage,
 	}
 }

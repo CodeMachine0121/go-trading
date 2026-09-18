@@ -39,7 +39,7 @@ func accountStakingEverythingIn(
 	require.NoError(t, err)
 
 	return domains.NewBacktestAccountDomain(
-		decimal.NewFromInt(initialCapital), positionSizing, tradingModeOf(t, declaredMode))
+		decimal.NewFromInt(initialCapital), positionSizing, tradingModeOf(t, declaredMode), domains.BacktestExitLevelsDomain{})
 }
 
 // signalOf is one candle's opinion.
@@ -96,7 +96,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 			"fixedAmount", decimal.NewFromInt(3000))
 		require.NoError(t, err)
 		account := domains.NewBacktestAccountDomain(
-			decimal.NewFromInt(2000), positionSizing, tradingModeOf(t, "longShort"))
+			decimal.NewFromInt(2000), positionSizing, tradingModeOf(t, "longShort"), domains.BacktestExitLevelsDomain{})
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 
@@ -236,7 +236,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 			"fixedAmount", decimal.NewFromInt(3000))
 		require.NoError(t, err)
 		account := domains.NewBacktestAccountDomain(
-			decimal.NewFromInt(2000), positionSizing, tradingModeOf(t, "spot"))
+			decimal.NewFromInt(2000), positionSizing, tradingModeOf(t, "spot"), domains.BacktestExitLevelsDomain{})
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 

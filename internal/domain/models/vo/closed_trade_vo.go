@@ -18,6 +18,10 @@ type ClosedTradeVo struct {
 	ExitPrice  decimal.Decimal
 	Stake      decimal.Decimal
 	Profit     decimal.Decimal
+	// ExitReason is how this round trip came to an end. A replay given no exit
+	// distances ends every one of them by signal, which is what every replay did
+	// before there were distances to give.
+	ExitReason TradeExitReasonVo
 }
 
 // IsWin says whether this trade made money. Breaking exactly even is not a win — it
@@ -37,5 +41,6 @@ func (closedTradeVo ClosedTradeVo) ToDto() dto.ClosedTradeDto {
 		ExitPrice:  closedTradeVo.ExitPrice,
 		Stake:      closedTradeVo.Stake,
 		Profit:     closedTradeVo.Profit,
+		ExitReason: string(closedTradeVo.ExitReason),
 	}
 }

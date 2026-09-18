@@ -70,8 +70,8 @@ func replayTradingAs(
 
 	return domains.NewBacktestSimulationDomain(
 		decimal.NewFromInt(initialCapital), positionSizing,
-		tradingModeOf(t, declaredTradingMode), inputKCandles,
-		signalDomainsSaying(signals...))
+		tradingModeOf(t, declaredTradingMode), domains.BacktestExitLevelsDomain{},
+		inputKCandles, signalDomainsSaying(signals...))
 }
 
 func TestBacktestSimulationHoldsOnePositionAtATime(t *testing.T) {

@@ -28,6 +28,15 @@ const (
 	BacktestPositionSizingValueField = "positionSizingValue"
 	// BacktestTradingModeField is which set of rules the replay trades by.
 	BacktestTradingModeField = "tradingMode"
+	// BacktestExitLevelsField is the pair of exit distances, together.
+	//
+	// One name covers both because they are filled in as one group on every screen
+	// that offers them, and the refusal's own sentence already says which of the two
+	// it is about — the same judgement the time range makes, where one name covers
+	// two moments and a coarseness. A second constant would only repeat a word the
+	// sentence has already said, and would cost every caller a second mapping to
+	// keep in step.
+	BacktestExitLevelsField = "exitLevels"
 	// BacktestSignalSourcesField is the set of signal sources a trading strategy
 	// replays through — what to go and change when they disagree about coarseness,
 	// or when there are none at all.

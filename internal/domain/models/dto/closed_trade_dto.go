@@ -22,4 +22,11 @@ type ClosedTradeDto struct {
 	Stake decimal.Decimal `json:"stake"`
 	// Profit is negative on a losing trade; there is no separate loss field.
 	Profit decimal.Decimal `json:"profit"`
+	// ExitReason is how the position was closed: by the signal that asked for
+	// something else, or by reaching one of the two exit levels the replay was
+	// given. It is on every trade rather than only in the summary's counts,
+	// because a count answers how many and never which ones — and whoever reads
+	// this list wants to know whether the stopped-out ones were all crowded into
+	// the same stretch of market.
+	ExitReason string `json:"exitReason"`
 }

@@ -26,6 +26,12 @@ type TradingStrategyBacktestRequest struct {
 	// chose it may leave the figure out entirely.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
+	// StopLossPercentage and TakeProfitPercentage are the two exit distances this
+	// run simulates. Unlike the coarseness and the trading mode, they are asked for
+	// here: the trading strategy has no opinion about what its owner can sit
+	// through, and the same set of rules is worth replaying against several answers.
+	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
+	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
 }
 
 // ToRequestDto turns the request into the shape the domain accepts. The signal
@@ -33,11 +39,13 @@ type TradingStrategyBacktestRequest struct {
 // they come from the trading strategy the path names.
 func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
-		Symbol:              request.Symbol,
-		StartTime:           request.StartTime,
-		EndTime:             request.EndTime,
-		InitialCapital:      request.InitialCapital,
-		PositionSizingMode:  request.PositionSizingMode,
-		PositionSizingValue: request.PositionSizingValue,
+		Symbol:               request.Symbol,
+		StartTime:            request.StartTime,
+		EndTime:              request.EndTime,
+		InitialCapital:       request.InitialCapital,
+		PositionSizingMode:   request.PositionSizingMode,
+		PositionSizingValue:  request.PositionSizingValue,
+		StopLossPercentage:   request.StopLossPercentage,
+		TakeProfitPercentage: request.TakeProfitPercentage,
 	}
 }

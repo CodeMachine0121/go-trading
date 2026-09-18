@@ -31,6 +31,7 @@ type BacktestDomain struct {
 	initialCapital decimal.Decimal
 	positionSizing PositionSizingDomain
 	tradingMode    TradingModeDomain
+	exitLevels     BacktestExitLevelsDomain
 	startTime      time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
 	// buckets that opened strictly before it are replayed.
@@ -103,6 +104,17 @@ func NewBacktestDomain(
 			BacktestTradingModeField, tradingModeError.Error())
 	}
 
+	exitLevels, exitLevelsError := NewBacktestExitLevelsDomain(
+		requestDto.StopLossPercentage, requestDto.TakeProfitPercentage)
+	if exitLevelsError != nil {
+		// The sentence comes from the distances themselves — the very sentence a bot
+		// being saved gets for the same figure — and naming which input it is about
+		// is this replay's business. One name covers both distances; the sentence
+		// says which.
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestExitLevelsField, exitLevelsError.Error())
+	}
+
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
 	if parametersError != nil {
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, parametersError)
@@ -143,6 +155,7 @@ func NewBacktestDomain(
 		initialCapital: requestDto.InitialCapital,
 		positionSizing: positionSizing,
 		tradingMode:    tradingMode,
+		exitLevels:     exitLevels,
 		startTime:      startTime,
 		readCutoff:     readCutoff,
 	}, nil
@@ -238,6 +251,7 @@ func (backtestDomain BacktestDomain) ReplayOver(
 		backtestDomain.initialCapital,
 		backtestDomain.positionSizing,
 		backtestDomain.tradingMode,
+		backtestDomain.exitLevels,
 		inputKCandles,
 		signals).ToDto()
 

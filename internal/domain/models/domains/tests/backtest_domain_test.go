@@ -431,6 +431,23 @@ func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 			},
 			expectedField: domains.BacktestTradingModeField,
 		},
+		{
+			// The exits are asked for on this kind of replay too, and refused by it
+			// in the same words — the trading strategy has no opinion about what its
+			// owner can sit through.
+			name: "how far it will let a bet be wrong",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.StopLossPercentage = decimal.NewFromInt(-2)
+			},
+			expectedField: domains.BacktestExitLevelsField,
+		},
+		{
+			name: "and how far right is far enough",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.TakeProfitPercentage = decimal.NewFromInt(120)
+			},
+			expectedField: domains.BacktestExitLevelsField,
+		},
 	}
 
 	for _, testCase := range testCases {

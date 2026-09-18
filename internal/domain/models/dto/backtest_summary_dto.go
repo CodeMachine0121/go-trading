@@ -19,6 +19,16 @@ type BacktestSummaryDto struct {
 	// skipped for want of cash is not one of them, and the position still open at
 	// the end is.
 	PositionOpenCount int `json:"positionOpenCount"`
+	// StopLossExitCount and TakeProfitExitCount are how many finished trades ended
+	// at one of the two exit levels the replay was given. Both are zero when it was
+	// given none.
+	//
+	// They are here because the same return rate tells two entirely different
+	// stories: a strategy where eight of ten exits were stops has been kept alive by
+	// them, and one where all ten came from its own signals has not yet met the
+	// stretch of market that empties it. Without these, those two read identically.
+	StopLossExitCount   int `json:"stopLossExitCount"`
+	TakeProfitExitCount int `json:"takeProfitExitCount"`
 	// ConflictedCandleCount is how many candles had both conditions holding at once.
 	// Those candles do nothing — picking a side would hand somebody an opinion the
 	// system invented — and this is the only way they ever find out.
