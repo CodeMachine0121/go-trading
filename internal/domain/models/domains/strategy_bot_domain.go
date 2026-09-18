@@ -45,6 +45,7 @@ type StrategyBotDomain struct {
 	symbol                 string
 	tradingStrategyID      uint
 	triggerIntervalMinutes int
+	positionPlan           PositionPlanDomain
 }
 
 // NewStrategyBotDomain validates the bot against every rule that applies to it. The
@@ -99,6 +100,18 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			ErrStrategyBotValidation, strategyBotTriggerIntervalMaximumMinutes)
 	}
 
+	// Settled beside the interval, because both are about how this machine runs
+	// rather than about whose rules it follows. Its own model owns every figure:
+	// leaving the group empty is not a failure, and how much one opening stakes is
+	// read by the very model a replay reads — in the same words, so a bot and a
+	// replay cannot end up disagreeing about what a percentage of a hundred and
+	// fifty means.
+	positionPlan, positionPlanError := NewPositionPlanDomain(writeDto.PositionPlan)
+	if positionPlanError != nil {
+		return StrategyBotDomain{}, fmt.Errorf(
+			"%w: %s", ErrStrategyBotValidation, positionPlanError)
+	}
+
 	// Exactly one set of rules, named rather than given. Nothing is refused here
 	// for being somebody else's — that answer has to come from reading it, and
 	// reading it is the application's job.
@@ -114,6 +127,7 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		symbol:                 tradingSymbol.Value(),
 		tradingStrategyID:      writeDto.TradingStrategyID,
 		triggerIntervalMinutes: writeDto.TriggerIntervalMinutes,
+		positionPlan:           positionPlan,
 	}, nil
 }
 
@@ -124,13 +138,21 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 // bot can only be rewritten while it is stopped, so stopped with nothing sent and
 // nothing halted is exactly what it already was.
 func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
+	positionPlanSettings := strategyBotDomain.positionPlan.ToSettingsDto()
+
 	return entities.StrategyBot{
-		ID:                     strategyBotDomain.id,
-		OwnerID:                strategyBotDomain.ownerID,
-		Name:                   strategyBotDomain.name,
-		Symbol:                 strategyBotDomain.symbol,
-		TradingStrategyID:      strategyBotDomain.tradingStrategyID,
-		TriggerIntervalMinutes: strategyBotDomain.triggerIntervalMinutes,
-		RunState:               string(vo.StrategyBotStopped),
+		ID:                               strategyBotDomain.id,
+		OwnerID:                          strategyBotDomain.ownerID,
+		Name:                             strategyBotDomain.name,
+		Symbol:                           strategyBotDomain.symbol,
+		TradingStrategyID:                strategyBotDomain.tradingStrategyID,
+		TriggerIntervalMinutes:           strategyBotDomain.triggerIntervalMinutes,
+		PositionPlanCapital:              positionPlanSettings.Capital,
+		PositionPlanSizingMode:           positionPlanSettings.SizingMode,
+		PositionPlanSizingValue:          positionPlanSettings.SizingValue,
+		PositionPlanLeverage:             positionPlanSettings.Leverage,
+		PositionPlanStopLossPercentage:   positionPlanSettings.StopLossPercentage,
+		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
+		RunState:                         string(vo.StrategyBotStopped),
 	}
 }

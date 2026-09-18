@@ -11,9 +11,11 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -38,7 +40,13 @@ type strategyBotRunUnderTest struct {
 	// tradingStrategyFailure makes that read fail instead, for the one test about a
 	// bot whose rules are gone.
 	tradingStrategyFailure *error
-	t                      *testing.T
+	// appendedRunRecords is every round this fixture booked into the history.
+	//
+	// Captured on the one expectation the fixture already sets rather than left to a
+	// test to expect for itself: that expectation is AnyTimes, so gomock would match
+	// it first and a second one added later would never fire.
+	appendedRunRecords *[]dto.StrategyBotRunRecordWriteDto
+	t                  *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services and models a round goes
@@ -51,8 +59,14 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
 	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
+	appendedRunRecords := []dto.StrategyBotRunRecordWriteDto{}
 	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		Append(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, writeDto dto.StrategyBotRunRecordWriteDto) error {
+			appendedRunRecords = append(appendedRunRecords, writeDto)
+
+			return nil
+		}).AnyTimes()
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(controller)
@@ -119,6 +133,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		roundGuard:                 roundGuard,
 		tradingStrategy:            &tradingStrategy,
 		tradingStrategyFailure:     &tradingStrategyFailure,
+		appendedRunRecords:         &appendedRunRecords,
 		t:                          t,
 	}
 }
@@ -1164,4 +1179,102 @@ func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
 	require.NoError(t, runError)
+}
+
+// aPositionPlannedDueBot is a due bot that suggests a position: fifty thousand,
+// staking a tenth of it, three times over, out at three and five percent.
+func aPositionPlannedDueBot() entities.StrategyBot {
+	bot := aDueBot("")
+	bot.PositionPlanCapital = decimal.NewFromInt(50000)
+	bot.PositionPlanSizingMode = string(vo.PositionSizingModePercentage)
+	bot.PositionPlanSizingValue = decimal.NewFromInt(10)
+	bot.PositionPlanLeverage = decimal.NewFromInt(3)
+	bot.PositionPlanStopLossPercentage = decimal.NewFromInt(3)
+	bot.PositionPlanTakeProfitPercentage = decimal.NewFromInt(5)
+
+	return bot
+}
+
+// The whole point of the slice, end to end: the figures reach the message its owner
+// reads, and the history they read it back in — worked out once, so the two cannot
+// disagree.
+func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+	underTest.tradingStrategy.TradingMode = string(vo.TradingModeLongShort)
+
+	plannedBot := aPositionPlannedDueBot()
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{plannedBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(plannedBot, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			// A tenth of fifty thousand, three times over, out three percent below.
+			assert.Contains(t, message, "保證金 5000")
+			assert.Contains(t, message, "名目 15000")
+			assert.Contains(t, message, "止損 62255.085（往下，虧 450）")
+			assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
+			assert.Contains(t, message, "這個系統不下單")
+			assert.Contains(t, message, "回測沒有把止損止盈算進去")
+
+			return vo.DeliveryFailureNone, nil
+		})
+
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
+
+	// The very figures the message carried. Worked out once, read twice — so the
+	// history and the message cannot disagree about what was suggested.
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	recorded := (*underTest.appendedRunRecords)[0]
+	require.True(t, recorded.HasPositionPlan)
+	assert.Equal(t, "5000", recorded.PositionPlan.Stake.String())
+	assert.Equal(t, "62255.085", recorded.PositionPlan.StopLossPrice.String())
+	assert.Equal(t, "67389.525", recorded.PositionPlan.TakeProfitPrice.String())
+}
+
+// A spot sell clears out, so there is nothing to size. Suggesting one would have
+// somebody putting money down in order to close a position.
+func TestStrategyBotRunApplicationSuggestsNothingWhenARoundClearsOut(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalSell, vo.SignalHold)
+
+	plannedBot := aPositionPlannedDueBot()
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{plannedBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(plannedBot, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			// The fixture's rules are spot, so this round is an exit.
+			assert.Contains(t, message, "【賣出】")
+			assert.NotContains(t, message, "建議部位")
+
+			return vo.DeliveryFailureNone, nil
+		})
+
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
+
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	assert.False(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
 }

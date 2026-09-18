@@ -23,6 +23,17 @@ func NewSignalDomain(indicatorValues map[string]vo.IndicatorValueVo) SignalDomai
 	return SignalDomain{value: indicatorValues[vo.SignalIndicatorKey].Signal}
 }
 
+// NewSignalDomainOf is one opinion already in hand.
+//
+// Two callers have a signal and no script result to read it out of: a replay of a
+// whole trading strategy, which has already combined several sources into one, and a
+// bot's round, which concluded one a while ago. Both were building a one-entry map for
+// the sake of the other constructor, and a map built to satisfy a reader is a shape
+// nobody meant.
+func NewSignalDomainOf(signal vo.SignalVo) SignalDomain {
+	return SignalDomain{value: signal}
+}
+
 func (signalDomain SignalDomain) Value() vo.SignalVo {
 	return signalDomain.value
 }

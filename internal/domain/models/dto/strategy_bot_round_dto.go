@@ -34,6 +34,17 @@ type StrategyBotRoundDto struct {
 	ReferenceTime  time.Time
 	HasReference   bool
 	SourceSignals  []StrategyBotSourceSignalDto
+	// PositionPlanSettings are this bot's five knobs, carried in so that the round
+	// can work out what it is suggesting. They are the bot's, not the rules': how
+	// much money there is and how much of a move its owner can sit through are facts
+	// about the machine, the same way the market it watches is.
+	PositionPlanSettings PositionPlanSettingsDto
+	// PositionPlan is what this round came to suggest, and HasPositionPlan whether it
+	// suggests anything at all. They are filled in once, by the domain, and read by
+	// both the message and the history — computing them twice would be two answers
+	// that part company the moment somebody edits a setting.
+	PositionPlan    PositionPlanDto
+	HasPositionPlan bool
 }
 
 // StrategyBotSourceSignalDto is what one signal source said this round.

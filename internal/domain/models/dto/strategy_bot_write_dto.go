@@ -17,4 +17,8 @@ type StrategyBotWriteDto struct {
 	// has to be the caller's own — the rules are not given here, only named.
 	TradingStrategyID      uint
 	TriggerIntervalMinutes int
+	// PositionPlan is what this bot is to suggest putting down each round, exactly as
+	// declared. Whether it was filled in at all is read from the capital: leaving the
+	// whole group empty is an ordinary thing to do, and such a bot suggests nothing.
+	PositionPlan PositionPlanSettingsDto
 }

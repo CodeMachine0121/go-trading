@@ -3,9 +3,10 @@ package persistence
 import (
 	"context"
 	"fmt"
-	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -37,8 +38,10 @@ func NewStrategyBotRunRecordRepository(database *gorm.DB) *StrategyBotRunRecordR
 // remembers its last fifty rounds. Apart, a failed trim would leave a history that
 // grows for ever while every other bot's stays bounded — and nothing would say so.
 func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
-	executionContext context.Context, strategyBotID uint, ranAt time.Time, result string,
+	executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto,
 ) error {
+	strategyBotID := writeDto.StrategyBotID
+
 	transactionError := strategyBotRunRecordRepository.database.WithContext(executionContext).
 		Transaction(func(transaction *gorm.DB) error {
 			latestNumber := 0
@@ -58,12 +61,32 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 				return selectError
 			}
 
-			if createError := transaction.Create(&entities.StrategyBotRunRecord{
+			runRecord := entities.StrategyBotRunRecord{
 				StrategyBotID: strategyBotID,
 				RunNumber:     latestNumber + 1,
-				RanAt:         ranAt.UTC(),
-				Result:        result,
-			}).Error; createError != nil {
+				RanAt:         writeDto.RanAt.UTC(),
+				Result:        writeDto.Result,
+			}
+
+			// Written only when this round actually suggested something. A round that
+			// suggested nothing leaves all three empty, which is a different thing
+			// from suggesting zero — and a stop price of zero is a figure somebody
+			// really can ask for.
+			if writeDto.HasPositionPlan && writeDto.PositionPlan.Affordable {
+				runRecord.SuggestedStake = storedFigure(writeDto.PositionPlan.Stake)
+
+				if writeDto.PositionPlan.HasStopLoss {
+					runRecord.SuggestedStopLossPrice = storedFigure(
+						writeDto.PositionPlan.StopLossPrice)
+				}
+
+				if writeDto.PositionPlan.HasTakeProfit {
+					runRecord.SuggestedTakeProfitPrice = storedFigure(
+						writeDto.PositionPlan.TakeProfitPrice)
+				}
+			}
+
+			if createError := transaction.Create(&runRecord).Error; createError != nil {
 				return createError
 			}
 
@@ -80,6 +103,12 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 	}
 
 	return nil
+}
+
+// storedFigure is one figure this round did suggest, ready to be stored as present
+// rather than as a number that happens not to be zero.
+func storedFigure(figure decimal.Decimal) decimal.NullDecimal {
+	return decimal.NullDecimal{Decimal: figure, Valid: true}
 }
 
 // FindLatestByBot returns this bot's remembered rounds, newest first.

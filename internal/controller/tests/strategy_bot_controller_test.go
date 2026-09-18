@@ -38,7 +38,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
 	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	strategyBotRunRecordRepository.EXPECT().
 		FindLatestByBot(gomock.Any(), gomock.Any()).
 		Return([]entities.StrategyBotRunRecord{}, nil).AnyTimes()
@@ -505,4 +505,100 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 			assert.Equal(t, http.StatusBadGateway, response.Code)
 		})
 	}
+}
+
+// aPositionPlannedStrategyBotBody is the same bot, saying what it should suggest
+// putting down each round.
+const aPositionPlannedStrategyBotBody = `{
+	"name": "早盤突破",
+	"symbol": "BTCUSDT",
+	"tradingStrategyId": 9,
+	"triggerIntervalMinutes": 5,
+	"positionPlan": {
+		"capital": "50000",
+		"sizingMode": "percentage",
+		"sizingValue": "10",
+		"leverage": "3",
+		"stopLossPercentage": "3",
+		"takeProfitPercentage": "5"
+	}
+}`
+
+func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+
+	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+			assert.Equal(t, "50000", bot.PositionPlanCapital.String())
+			assert.Equal(t, "percentage", bot.PositionPlanSizingMode)
+			assert.Equal(t, "10", bot.PositionPlanSizingValue.String())
+			assert.Equal(t, "3", bot.PositionPlanLeverage.String())
+			assert.Equal(t, "3", bot.PositionPlanStopLossPercentage.String())
+			assert.Equal(t, "5", bot.PositionPlanTakeProfitPercentage.String())
+
+			storedRow := aStoredStrategyBotRow(vo.StrategyBotStopped)
+			storedRow.PositionPlanCapital = bot.PositionPlanCapital
+			storedRow.PositionPlanSizingMode = bot.PositionPlanSizingMode
+			storedRow.PositionPlanSizingValue = bot.PositionPlanSizingValue
+			storedRow.PositionPlanLeverage = bot.PositionPlanLeverage
+			storedRow.PositionPlanStopLossPercentage = bot.PositionPlanStopLossPercentage
+			storedRow.PositionPlanTakeProfitPercentage = bot.PositionPlanTakeProfitPercentage
+
+			return storedRow, nil
+		})
+
+	response := fixture.send(
+		http.MethodPost, "/strategy-bots", aPositionPlannedStrategyBotBody)
+
+	require.Equal(t, http.StatusCreated, response.Code)
+
+	// It leaves in the answer too: a screen offering to edit this bot has to show the
+	// five figures it is currently suggesting from.
+	answer := struct {
+		PositionPlan struct {
+			Capital            string `json:"capital"`
+			SizingMode         string `json:"sizingMode"`
+			StopLossPercentage string `json:"stopLossPercentage"`
+		} `json:"positionPlan"`
+	}{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	assert.Equal(t, "50000", answer.PositionPlan.Capital)
+	assert.Equal(t, "percentage", answer.PositionPlan.SizingMode)
+	assert.Equal(t, "3", answer.PositionPlan.StopLossPercentage)
+}
+
+func TestStrategyBotRouterRefusesAPositionPlanItCannotUse(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+
+	// Nothing is stored: gomock enforces it by having no expectation for Save.
+	response := fixture.send(http.MethodPost, "/strategy-bots", strings.Replace(
+		aPositionPlannedStrategyBotBody, `"sizingValue": "10"`, `"sizingValue": "150"`, 1))
+
+	// The same status every other refused bot gets, because it carries the same
+	// sentinel — no controller learned a second one.
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	// The replay's own sentence, carried through — and no mention of a backtest,
+	// which is not what this person was doing.
+	assert.Contains(t, response.Body.String(), "百分比必須大於零且不超過一百")
+	assert.NotContains(t, response.Body.String(), "backtest")
+}
+
+// Leaving the whole group out is an ordinary thing to do: such a bot suggests nothing
+// and sends the message it sent before position plans existed.
+func TestStrategyBotRouterAcceptsABotWithNoPositionPlan(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+
+	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+			assert.True(t, bot.PositionPlanCapital.IsZero())
+
+			return aStoredStrategyBotRow(vo.StrategyBotStopped), nil
+		})
+
+	response := fixture.send(http.MethodPost, "/strategy-bots", aStrategyBotBody)
+
+	require.Equal(t, http.StatusCreated, response.Code)
 }

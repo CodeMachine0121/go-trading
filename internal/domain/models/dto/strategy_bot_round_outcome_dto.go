@@ -30,4 +30,11 @@ type StrategyBotRoundOutcomeDto struct {
 	SentSignal string
 	// Conflicting is whether the two conditions held at once, on a concluded round.
 	Conflicting bool
+	// PositionPlan is what this round suggested putting down, and HasPositionPlan
+	// whether it suggested anything. They travel with the outcome so that the history
+	// remembers the figures *this* round used: its owner may well have edited the
+	// settings by the time anybody reads it back, and recomputing then would answer
+	// about today rather than about that round.
+	PositionPlan    PositionPlanDto
+	HasPositionPlan bool
 }

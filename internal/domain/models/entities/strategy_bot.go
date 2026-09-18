@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/shopspring/decimal"
 )
 
 // StrategyBot is one standing bot: which trading strategy it follows, which market
@@ -49,6 +50,29 @@ type StrategyBot struct {
 	// person thinks in here, and because the finest candle is one minute — asking
 	// more often than that only fetches the same candle again.
 	TriggerIntervalMinutes int `gorm:"not null"`
+	// PositionPlanCapital is the money this bot sizes a suggested position against,
+	// and it is the switch for the five columns below it: without money there is
+	// nothing to stake, so a zero here means this bot has no position plan at all.
+	//
+	// All six default to zero, so every bot stored before they existed reads as
+	// having no plan — and sends the message it sent before plans existed.
+	//
+	// They are exact decimals rather than floats, including the leverage and the two
+	// distances, because all three multiply into money. A float would start drifting
+	// a stop price around its tenth digit, and that price is one somebody places an
+	// order at.
+	PositionPlanCapital decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	// PositionPlanSizingMode is how much of that capital one opening stakes, in the
+	// replay's own three spellings, and PositionPlanSizingValue the figure beside it.
+	PositionPlanSizingMode  string          `gorm:"size:16;not null;default:''"`
+	PositionPlanSizingValue decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	// PositionPlanLeverage is how many times the stake the position is worth. One
+	// means no leverage, and is what nothing at all is stored as.
+	PositionPlanLeverage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	// PositionPlanStopLossPercentage and PositionPlanTakeProfitPercentage are how far
+	// from the reference price each exit sits. Either may be left out on its own.
+	PositionPlanStopLossPercentage   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	PositionPlanTakeProfitPercentage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
 	// RunState is indexed together with NextRunAt because the scan asks exactly one
 	// question of this table — which bots are running and due — and that pair is it.
 	RunState string `gorm:"size:16;not null;index:idx_strategy_bots_run_state_next_run_at,priority:1"`
@@ -86,6 +110,20 @@ type StrategyBot struct {
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
+// positionPlanSettingsDto is this bot's five position plan settings, in the shape the
+// domain hands outwards. It is on the row because every field it reads is the row's
+// own.
+func (strategyBot StrategyBot) positionPlanSettingsDto() dto.PositionPlanSettingsDto {
+	return dto.PositionPlanSettingsDto{
+		Capital:              strategyBot.PositionPlanCapital,
+		SizingMode:           strategyBot.PositionPlanSizingMode,
+		SizingValue:          strategyBot.PositionPlanSizingValue,
+		Leverage:             strategyBot.PositionPlanLeverage,
+		StopLossPercentage:   strategyBot.PositionPlanStopLossPercentage,
+		TakeProfitPercentage: strategyBot.PositionPlanTakeProfitPercentage,
+	}
+}
+
 // TableName pins the table to StrategyBots instead of GORM's default.
 func (strategyBot StrategyBot) TableName() string {
 	return "StrategyBots"
@@ -104,6 +142,7 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		Name:                   strategyBot.Name,
 		Symbol:                 strategyBot.Symbol,
 		TriggerIntervalMinutes: strategyBot.TriggerIntervalMinutes,
+		PositionPlan:           strategyBot.positionPlanSettingsDto(),
 		NextRunAt:              strategyBot.NextRunAt.UTC(),
 		TradingStrategyID:      strategyBot.TradingStrategyID,
 		TradingStrategyName:    strategyBot.TradingStrategy.Name,

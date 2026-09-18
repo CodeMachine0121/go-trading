@@ -266,3 +266,166 @@ func TestStrategyBotMessageQuotesThePriceIdenticallyUnderEitherMode(t *testing.T
 		domains.NewStrategyBotMessageDomain(shortableWithoutPrice).Text(),
 		"💰 參考價 目前讀不到這個交易標的的最新 K 線")
 }
+
+// aSuggestedPosition is what a round came to suggest: five thousand down, fifteen
+// thousand at risk, out at 62255.085 or 67389.525.
+func aSuggestedPosition() dto.PositionPlanDto {
+	return dto.PositionPlanDto{
+		Stake:           decimal.NewFromInt(5000),
+		Affordable:      true,
+		Notional:        decimal.NewFromInt(15000),
+		Leveraged:       true,
+		StopLossPrice:   decimal.RequireFromString("62255.085"),
+		LossAtStop:      decimal.NewFromInt(450),
+		HasStopLoss:     true,
+		TakeProfitPrice: decimal.RequireFromString("67389.525"),
+		GainAtTarget:    decimal.NewFromInt(750),
+		HasTakeProfit:   true,
+	}
+}
+
+// suggestingBotRound is a round that suggests a long position under rules that can
+// short, which is the shape every figure below is read in.
+func suggestingBotRound() dto.StrategyBotRoundDto {
+	botRound := shortableBotRound()
+	botRound.Verdict = string(vo.SignalBuy)
+	botRound.PositionPlan = aSuggestedPosition()
+	botRound.HasPositionPlan = true
+
+	return botRound
+}
+
+// The four figures its reader would otherwise work out on a phone while doing
+// something else. They are asserted as strings rather than described, because the
+// arithmetic is the whole point and a formula restated here would agree with itself.
+func TestStrategyBotMessageSaysWhatToPutDownAndWhereToGetOut(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
+
+	assert.Contains(t, message, "📐 建議部位")
+	assert.Contains(t, message, "保證金 5000")
+	assert.Contains(t, message, "名目 15000")
+	assert.Contains(t, message, "止損 62255.085（往下，虧 450）")
+	assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
+}
+
+// Which way each exit lies is written out, never left for the reader. A short's stop
+// sits above the price, and 66105.915 reads like a perfectly ordinary price whichever
+// side it was meant for.
+func TestStrategyBotMessageSaysWhichWayEachExitLies(t *testing.T) {
+	botRound := suggestingBotRound()
+	botRound.Verdict = string(vo.SignalSell)
+	botRound.PositionPlan.SuggestsShort = true
+	botRound.PositionPlan.StopLossPrice = decimal.RequireFromString("66105.915")
+	botRound.PositionPlan.TakeProfitPrice = decimal.RequireFromString("60971.475")
+
+	message := domains.NewStrategyBotMessageDomain(botRound).Text()
+
+	assert.Contains(t, message, "止損 66105.915（往上，虧 450）")
+	assert.Contains(t, message, "止盈 60971.475（往下，賺 750）")
+}
+
+// The two things this suggestion owes its reader. Nothing here places an order, and
+// every report card they have ever seen was produced without these exits — so a
+// strategy that looks profitable there has never been measured with the stop this
+// message is asking them to place.
+func TestStrategyBotMessageAdmitsWhatTheSuggestionIsNot(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
+
+	assert.Contains(t, message, "這個系統不下單")
+	assert.Contains(t, message, "回測沒有把止損止盈算進去")
+}
+
+func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
+	testCases := []struct {
+		name            string
+		adjust          func(positionPlan *dto.PositionPlanDto)
+		expectedPresent []string
+		expectedAbsent  []string
+	}{
+		{
+			name: "no leverage leaves out the notional",
+			adjust: func(positionPlan *dto.PositionPlanDto) {
+				positionPlan.Leveraged = false
+			},
+			// Repeating the stake under a second label would read as a mistake.
+			expectedPresent: []string{"保證金 5000"},
+			expectedAbsent:  []string{"名目"},
+		},
+		{
+			name: "a stop on its own",
+			adjust: func(positionPlan *dto.PositionPlanDto) {
+				positionPlan.HasTakeProfit = false
+			},
+			expectedPresent: []string{"・止損 62255.085", "回測沒有把止損止盈算進去"},
+			// The bullet, not the word: the warning line names both exits.
+			expectedAbsent: []string{"・止盈"},
+		},
+		{
+			name: "a target on its own",
+			adjust: func(positionPlan *dto.PositionPlanDto) {
+				positionPlan.HasStopLoss = false
+			},
+			expectedPresent: []string{"・止盈 67389.525", "回測沒有把止損止盈算進去"},
+			expectedAbsent:  []string{"・止損"},
+		},
+		{
+			name: "a size with neither exit",
+			adjust: func(positionPlan *dto.PositionPlanDto) {
+				positionPlan.HasStopLoss = false
+				positionPlan.HasTakeProfit = false
+			},
+			// Nothing to warn about when no exit was suggested at all.
+			expectedPresent: []string{"保證金 5000"},
+			expectedAbsent:  []string{"・止損", "・止盈", "回測沒有把止損止盈算進去"},
+		},
+		{
+			name: "a stake the capital cannot cover",
+			adjust: func(positionPlan *dto.PositionPlanDto) {
+				positionPlan.Affordable = false
+				positionPlan.Stake = decimal.NewFromInt(8000)
+			},
+			// Named, not printed plain: printed plain, somebody would place it.
+			expectedPresent: []string{"部位資金不足，押不下 8000"},
+			expectedAbsent:  []string{"保證金 8000", "名目", "・止損", "・止盈"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			botRound := suggestingBotRound()
+			testCase.adjust(&botRound.PositionPlan)
+
+			message := domains.NewStrategyBotMessageDomain(botRound).Text()
+
+			for _, expected := range testCase.expectedPresent {
+				assert.Contains(t, message, expected)
+			}
+
+			for _, absent := range testCase.expectedAbsent {
+				assert.NotContains(t, message, absent)
+			}
+		})
+	}
+}
+
+// A round with nothing to suggest says nothing about it — and the message it sends is
+// the one it sent before suggestions existed. Every other assertion in this file is
+// written against exactly that round, and not one of them changed.
+func TestStrategyBotMessageStaysSilentWhenThereIsNothingToSuggest(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(aBotRound()).Text()
+
+	assert.NotContains(t, message, "建議部位")
+	assert.NotContains(t, message, "保證金")
+	assert.NotContains(t, message, "・止損")
+	assert.NotContains(t, message, "回測沒有把止損止盈算進去")
+}
+
+// What to do comes before the working: somebody skimming this is deciding whether to
+// act, and the evidence is for whoever then wants to check.
+func TestStrategyBotMessagePutsTheSuggestionBeforeTheWorking(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
+
+	assert.Less(t,
+		strings.Index(message, "📐 建議部位"), strings.Index(message, "📊 各來源怎麼說"))
+	assert.Less(t, strings.Index(message, "💰 參考價"), strings.Index(message, "📐 建議部位"))
+}

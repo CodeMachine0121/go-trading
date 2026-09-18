@@ -4,8 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -28,9 +30,12 @@ func TestStrategyBotRunRecordRepositoryNumbersEachRoundInTurn(t *testing.T) {
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), botID, runRecordRanAt, "hold"))
-	require.NoError(t, repository.Append(t.Context(), botID, runRecordRanAt, "buy"))
-	require.NoError(t, repository.Append(t.Context(), botID, runRecordRanAt, "sell"))
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy"}))
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell"}))
 
 	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
 	require.NoError(t, findError)
@@ -49,7 +54,8 @@ func TestStrategyBotRunRecordRepositoryKeepsOnlyTheLastFifty(t *testing.T) {
 
 	// 一台五分鐘的機器人一天跑 288 輪。什麼都留的話，那張表只會長不會縮。
 	for round := 0; round < 55; round++ {
-		require.NoError(t, repository.Append(t.Context(), botID, runRecordRanAt, "hold"))
+		require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+			StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
 	}
 
 	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
@@ -80,8 +86,10 @@ func TestStrategyBotRunRecordRepositoryKeepsEachBotsHistoryToItself(t *testing.T
 	secondBot, saveError := botRepository.Save(t.Context(), aBotRow("收盤反轉"))
 	require.NoError(t, saveError)
 
-	require.NoError(t, repository.Append(t.Context(), firstBotID, runRecordRanAt, "buy"))
-	require.NoError(t, repository.Append(t.Context(), secondBot.ID, runRecordRanAt, "sell"))
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: firstBotID, RanAt: runRecordRanAt, Result: "buy"}))
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: secondBot.ID, RanAt: runRecordRanAt, Result: "sell"}))
 
 	// 每一台各自從 Run 1 開始數，而且只看得到自己的。
 	firstHistory, findError := repository.FindLatestByBot(t.Context(), firstBotID)
@@ -102,7 +110,8 @@ func TestStrategyBotRunRecordRepositoryLosesTheHistoryWithTheBot(t *testing.T) {
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), botID, runRecordRanAt, "buy"))
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy"}))
 	require.NoError(t, persistence.NewStrategyBotRepository(database).Delete(t.Context(), botID))
 
 	// cascade 是宣告出來的，不是哪一段 Go 記得要做的——這一條就是那個保證。
@@ -115,7 +124,8 @@ func TestStrategyBotRunRecordRepositoryLosesTheHistoryWithTheBot(t *testing.T) {
 func TestStrategyBotRunRecordRepositorySaysSoWhenStorageCannotAnswer(t *testing.T) {
 	repository := persistence.NewStrategyBotRunRecordRepository(closedDatabase(t))
 
-	assert.Error(t, repository.Append(t.Context(), 1, runRecordRanAt, "buy"))
+	assert.Error(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: 1, RanAt: runRecordRanAt, Result: "buy"}))
 
 	_, findError := repository.FindLatestByBot(t.Context(), 1)
 	assert.Error(t, findError)
@@ -132,4 +142,81 @@ func TestStrategyBotRunRecordRepositoryHandsOutAnEmptyHistoryRatherThanAFailure(
 	require.NoError(t, findError)
 	assert.Empty(t, runRecords)
 	assert.NotNil(t, runRecords)
+}
+
+// The figures a round suggested have to be the ones it suggested, not the ones its
+// settings would produce today: by the time anybody reads a round back, its owner may
+// well have changed the stop distance.
+func TestStrategyBotRunRecordRepositoryAppendRemembersWhatTheRoundSuggested(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	botID := aBotToRecordAgainst(t, database)
+	repository := persistence.NewStrategyBotRunRecordRepository(database)
+
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell",
+		HasPositionPlan: true,
+		PositionPlan: dto.PositionPlanDto{
+			Stake:           decimal.NewFromInt(5000),
+			Affordable:      true,
+			StopLossPrice:   decimal.RequireFromString("66105.915"),
+			HasStopLoss:     true,
+			TakeProfitPrice: decimal.RequireFromString("60971.475"),
+			HasTakeProfit:   true,
+		},
+	}))
+
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	require.NoError(t, findError)
+	require.Len(t, runRecords, 1)
+
+	assert.True(t, runRecords[0].SuggestedStake.Valid)
+	assert.Equal(t, "5000", runRecords[0].SuggestedStake.Decimal.String())
+	assert.Equal(t, "66105.915", runRecords[0].SuggestedStopLossPrice.Decimal.String())
+	assert.Equal(t, "60971.475", runRecords[0].SuggestedTakeProfitPrice.Decimal.String())
+}
+
+// A round that suggested nothing remembers nothing — which is different from
+// remembering zero, because a stop-loss price of zero is a figure somebody really can
+// ask for. It is also what every round stored before suggestions existed reads as.
+func TestStrategyBotRunRecordRepositoryAppendRemembersNothingWhenNothingWasSuggested(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	botID := aBotToRecordAgainst(t, database)
+	repository := persistence.NewStrategyBotRunRecordRepository(database)
+
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
+
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	require.NoError(t, findError)
+	require.Len(t, runRecords, 1)
+
+	assert.False(t, runRecords[0].SuggestedStake.Valid)
+	assert.False(t, runRecords[0].SuggestedStopLossPrice.Valid)
+	assert.False(t, runRecords[0].SuggestedTakeProfitPrice.Valid)
+	// And it leaves the answer exactly as it read before: nothing at all rather than
+	// three zeroes.
+	runRecordDto := runRecords[0].ToDto()
+	assert.Nil(t, runRecordDto.SuggestedStake)
+	assert.Nil(t, runRecordDto.SuggestedStopLossPrice)
+	assert.Nil(t, runRecordDto.SuggestedTakeProfitPrice)
+}
+
+// A stake nobody could put down is remembered as no suggestion at all. Storing it
+// would leave a history saying a round suggested a figure it explicitly refused to.
+func TestStrategyBotRunRecordRepositoryAppendRemembersNothingForAnUnaffordableStake(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	botID := aBotToRecordAgainst(t, database)
+	repository := persistence.NewStrategyBotRunRecordRepository(database)
+
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy",
+		HasPositionPlan: true,
+		PositionPlan: dto.PositionPlanDto{
+			Stake: decimal.NewFromInt(8000), Affordable: false},
+	}))
+
+	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
+	require.NoError(t, findError)
+	require.Len(t, runRecords, 1)
+	assert.False(t, runRecords[0].SuggestedStake.Valid)
 }
