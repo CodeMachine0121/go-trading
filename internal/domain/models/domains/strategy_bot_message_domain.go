@@ -28,10 +28,16 @@ const strategyBotMessageTimeLayout = "2006-01-02 15:04 UTC"
 // what separates the conclusion from what it was concluded from.
 //
 // The headline is worded by the trading mode of the rules this round was judged by,
-// because a conclusion is read as an instruction. To an account that cannot short,
-// 賣出 is the act: sell what is held. To one that can, the act is 做空 — open a
-// position that gains as the price falls — and a reader told to 賣出 would ask what
-// they are meant to be selling.
+// because a conclusion is read as an instruction — and 賣出 is an instruction neither
+// account can reliably carry out. To one that can short, the act is 做空: open a
+// position that gains as the price falls, and a reader told to 賣出 asks what they
+// are meant to be selling. To one that cannot, the act is 出場: close whatever is
+// open, and a reader told to 賣出 asks the same question every time they are flat —
+// which is most of the time, because a sell reaches them on the strength of the
+// signal alone and the signal has never known what they hold.
+//
+// Only the headline speaks of acts. The source lines below keep quoting the scripts
+// in 買入／賣出／持有, which is how a reader works back from the conclusion.
 type StrategyBotMessageDomain struct {
 	round       dto.StrategyBotRoundDto
 	tradingMode TradingModeDomain
@@ -75,9 +81,17 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 
 	// The verb beside the mark, and the one thing the trading mode decides about a
 	// message: a conclusion is read as an instruction. It starts as the signal's own
-	// word, which is already the act for an account that cannot short, and is replaced
-	// only where the two part company. An opinion nobody can read keeps its own
-	// wording — a message is the last place to invent a direction.
+	// word and is replaced only where the word and the act part company. An opinion
+	// nobody can read keeps its own wording — a message is the last place to invent a
+	// direction.
+	//
+	// Both replacements are the same failure in two modes: 賣出 is an instruction the
+	// reader may be unable to carry out, and which one they cannot carry out is what
+	// the mode decides. Told 賣出 by rules that can short, they ask what they are
+	// meant to be selling — the act is to open a position. Told it by rules that
+	// cannot, they ask it whenever they are flat, which is most of the time: a sell
+	// reaches them on the strength of the signal alone, and the signal has never
+	// known what they hold. 出場 is the one wording both of those readers can act on.
 	headlineVerb := strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict)
 
 	if strategyBotMessageDomain.tradingMode.CanGoShort() {
@@ -87,6 +101,15 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		case vo.SignalSell:
 			headlineVerb = "做空"
 		}
+	} else if strategyBotMessageDomain.tradingMode.TargetFor(
+		NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict)),
+	) == vo.TargetPositionFlat {
+		// Asked of the mode rather than matched against the signal here, because the
+		// mode is what knows that its sell asks for nothing to be held. It also
+		// settles the unreadable mode for free: that one asks for nothing at all
+		// rather than for flat, so its message keeps quoting the signal, which is
+		// the rule for a mode this cannot read.
+		headlineVerb = "出場"
 	}
 
 	lines := []string{
@@ -115,10 +138,11 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	}
 
 	// Named only where these rules can short, which is the one case a reader needs it:
-	// the headline may be telling them to open a position rather than to sell one, and
-	// which account these rules were written for is what makes that the right act. An
-	// account that cannot short reads 買入／賣出 — its own signals, needing no
-	// translator — so the line would be a sentence about the system, not the market.
+	// the headline may be telling them to open a position rather than to close one,
+	// and which account these rules were written for is what makes that the right
+	// act. An account that cannot short is told 買入／出場, and neither of those can
+	// be mistaken for opening a short — so the line would be a sentence about the
+	// system, not the market.
 	//
 	// It opens with a blank line of its own, like every other block below the
 	// headline. Without one it renders glued to the reference moment, and a reader

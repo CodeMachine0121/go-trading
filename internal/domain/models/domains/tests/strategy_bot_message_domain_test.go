@@ -42,7 +42,7 @@ func TestStrategyBotMessageSaysTheSignalTheBotAndTheSymbolFirst(t *testing.T) {
 	// A phone's notification list shows the first line and maybe the second, so the
 	// three things that decide whether to open it go first.
 	firstLine := strings.Split(message, "\n")[0]
-	assert.Equal(t, "🔴【賣出】早盤突破 · BTCUSDT", firstLine)
+	assert.Equal(t, "🔴【出場】早盤突破 · BTCUSDT", firstLine)
 }
 
 // The mark is there to be skimmed, so what it must never do is be the only thing
@@ -54,7 +54,7 @@ func TestStrategyBotMessageMarksTheDirectionWithoutRelyingOnTheMark(t *testing.T
 		expectedFirstLine string
 	}{
 		{verdict: string(vo.SignalBuy), expectedFirstLine: "🟢【買入】早盤突破 · BTCUSDT"},
-		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【賣出】早盤突破 · BTCUSDT"},
+		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【出場】早盤突破 · BTCUSDT"},
 		{verdict: string(vo.SignalHold), expectedFirstLine: "⚪【持有】早盤突破 · BTCUSDT"},
 		// Nothing the system recognised, so nothing it is willing to colour.
 		{verdict: "shrug", expectedFirstLine: "⚪【shrug】早盤突破 · BTCUSDT"},
@@ -98,7 +98,7 @@ func TestStrategyBotMessageCarriesEverythingAReaderNeedsToJudgeIt(t *testing.T) 
 
 	assert.Contains(t, message, "早盤突破")
 	assert.Contains(t, message, "BTCUSDT")
-	assert.Contains(t, message, "賣出")
+	assert.Contains(t, message, "出場")
 	assert.Contains(t, message, "64180.5")
 	assert.Contains(t, message, "2026-09-16 13:00 UTC")
 	// Without the per-source lines, somebody reading "sell" has only the option of
@@ -135,7 +135,9 @@ func TestStrategyBotMessageWritesEachSignalTheWayAPersonReadsIt(t *testing.T) {
 		expectedWord string
 	}{
 		{verdict: string(vo.SignalBuy), expectedWord: "【買入】"},
-		{verdict: string(vo.SignalSell), expectedWord: "【賣出】"},
+		// A spot sell asks for nothing to be held, so the act is getting out — not
+		// selling, which is what a reader already holding nothing cannot go and do.
+		{verdict: string(vo.SignalSell), expectedWord: "【出場】"},
 		{verdict: string(vo.SignalHold), expectedWord: "【持有】"},
 	}
 
@@ -148,6 +150,21 @@ func TestStrategyBotMessageWritesEachSignalTheWayAPersonReadsIt(t *testing.T) {
 				domains.NewStrategyBotMessageDomain(botRound).Text(), testCase.expectedWord)
 		})
 	}
+}
+
+// A conclusion is read as an instruction, and 賣出 is one a reader holding nothing
+// cannot carry out — a spot sell reaches them just as often while they are flat,
+// because the signal does not know what they hold. 出場 is the one wording both
+// readers can act on: close what is open, or find there was nothing to close.
+//
+// The source lines are untouched, and that is the point of asserting both here: the
+// scripts still testify in 買入／賣出／持有, and only the headline speaks of acts.
+func TestStrategyBotMessageTellsASpotAccountToGetOutRatherThanToSell(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(aBotRound()).Text()
+
+	assert.Contains(t, message, "【出場】")
+	assert.NotContains(t, message, "【賣出】")
+	assert.Contains(t, message, "均線黃金交叉（1h）：賣出")
 }
 
 func TestStrategyBotMessageWritesAnUnrecognisedSignalOutAsItStands(t *testing.T) {
