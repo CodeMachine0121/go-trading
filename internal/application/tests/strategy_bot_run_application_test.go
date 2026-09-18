@@ -1263,8 +1263,10 @@ func TestStrategyBotRunApplicationSuggestsNothingWhenARoundClearsOut(t *testing.
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
 		) (vo.DeliveryFailureReasonVo, error) {
-			// The fixture's rules are spot, so this round is an exit.
-			assert.Contains(t, message, "【賣出】")
+			// The fixture's rules are spot, so this round is an exit — and the
+			// headline says so, rather than telling a reader who may be holding
+			// nothing to sell.
+			assert.Contains(t, message, "【出場】")
 			assert.NotContains(t, message, "建議部位")
 
 			return vo.DeliveryFailureNone, nil
