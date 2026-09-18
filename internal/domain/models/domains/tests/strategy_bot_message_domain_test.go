@@ -220,6 +220,15 @@ func TestStrategyBotMessageNamesTheModeOnlyWhenItRestatesTheSignal(t *testing.T)
 		domains.NewStrategyBotMessageDomain(aBotRound()).Text(), "交易模式")
 }
 
+// The mode is a block of its own, like everything else under the headline. Glued to
+// the reference moment it reads as one paragraph with it — as though the mode were
+// something about that price rather than about the rules that judged the round.
+func TestStrategyBotMessageGivesTheModeLineItsOwnBlock(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(shortableBotRound()).Text()
+
+	assert.Contains(t, message, "\n\n⚙️ 交易模式 多空反手")
+}
+
 // Rules stored before a mode was a thing read as the one they were actually replayed
 // under, so a bot following them words its message that way too.
 func TestStrategyBotMessageWordsARoundWithNoStatedModeAsShortable(t *testing.T) {

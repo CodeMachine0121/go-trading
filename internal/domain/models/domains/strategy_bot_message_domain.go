@@ -119,8 +119,13 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// which account these rules were written for is what makes that the right act. An
 	// account that cannot short reads 買入／賣出 — its own signals, needing no
 	// translator — so the line would be a sentence about the system, not the market.
+	//
+	// It opens with a blank line of its own, like every other block below the
+	// headline. Without one it renders glued to the reference moment, and a reader
+	// skimming a phone reads the two as one paragraph — as though the mode were
+	// something about that price rather than about the rules that judged the round.
 	if strategyBotMessageDomain.tradingMode.CanGoShort() {
-		lines = append(lines,
+		lines = append(lines, "",
 			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
 	}
 
