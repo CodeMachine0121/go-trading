@@ -332,7 +332,7 @@ func TestStrategyBotMessageAdmitsWhatTheSuggestionIsNot(t *testing.T) {
 	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
 
 	assert.Contains(t, message, "這個系統不下單")
-	assert.Contains(t, message, "回測沒有把止損止盈算進去")
+	assert.Contains(t, message, "回測要算進止損止盈，重演時把這兩個距離填上")
 }
 
 func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
@@ -356,7 +356,7 @@ func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
 			adjust: func(positionPlan *dto.PositionPlanDto) {
 				positionPlan.HasTakeProfit = false
 			},
-			expectedPresent: []string{"・止損 62255.085", "回測沒有把止損止盈算進去"},
+			expectedPresent: []string{"・止損 62255.085", "回測要算進止損止盈，重演時把這兩個距離填上"},
 			// The bullet, not the word: the warning line names both exits.
 			expectedAbsent: []string{"・止盈"},
 		},
@@ -365,7 +365,7 @@ func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
 			adjust: func(positionPlan *dto.PositionPlanDto) {
 				positionPlan.HasStopLoss = false
 			},
-			expectedPresent: []string{"・止盈 67389.525", "回測沒有把止損止盈算進去"},
+			expectedPresent: []string{"・止盈 67389.525", "回測要算進止損止盈，重演時把這兩個距離填上"},
 			expectedAbsent:  []string{"・止損"},
 		},
 		{
@@ -376,7 +376,7 @@ func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
 			},
 			// Nothing to warn about when no exit was suggested at all.
 			expectedPresent: []string{"保證金 5000"},
-			expectedAbsent:  []string{"・止損", "・止盈", "回測沒有把止損止盈算進去"},
+			expectedAbsent:  []string{"・止損", "・止盈", "回測要算進止損止盈，重演時把這兩個距離填上"},
 		},
 		{
 			name: "a stake the capital cannot cover",
@@ -417,7 +417,7 @@ func TestStrategyBotMessageStaysSilentWhenThereIsNothingToSuggest(t *testing.T) 
 	assert.NotContains(t, message, "建議部位")
 	assert.NotContains(t, message, "保證金")
 	assert.NotContains(t, message, "・止損")
-	assert.NotContains(t, message, "回測沒有把止損止盈算進去")
+	assert.NotContains(t, message, "回測要算進止損止盈，重演時把這兩個距離填上")
 }
 
 // What to do comes before the working: somebody skimming this is deciding whether to

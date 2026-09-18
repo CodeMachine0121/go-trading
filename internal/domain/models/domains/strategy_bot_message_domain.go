@@ -197,12 +197,13 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 			positionPlan.GainAtTarget.String()))
 	}
 
-	// The one thing about this suggestion its reader cannot find out for themselves.
-	// Every report card they have seen was produced without these exits, so a strategy
-	// that looks profitable there has never been measured with the stop this message
-	// is asking them to place.
+	// A replay can now be asked to honour exits like these, but only when it is
+	// asked: one given no distances still measures the strategy as though the bet
+	// were carried to its closing signal. So the line stays, and says what to do
+	// about it rather than only that something is missing — claiming the exits were
+	// already counted would simply be a newer untruth.
 	if positionPlan.HasStopLoss || positionPlan.HasTakeProfit {
-		lines = append(lines, "　⚠️ 回測沒有把止損止盈算進去")
+		lines = append(lines, "　⚠️ 回測要算進止損止盈，重演時把這兩個距離填上")
 	}
 
 	return lines
