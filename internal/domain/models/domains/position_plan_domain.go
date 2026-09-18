@@ -166,13 +166,15 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		// A stop is the price moving against the position, so it sits below a long
 		// and above a short. Getting this backwards is the one mistake here that
 		// cannot be seen: the wrong figure is still a plausible price.
-		positionPlanDto.StopLossPrice = movedAgainst(
+		// A short's stop is above the price; a long's is below.
+		positionPlanDto.StopLossPrice = movedBy(
 			referencePrice, positionPlanDomain.stopLoss, suggestsShort)
 		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
 	}
 
 	if positionPlanDto.HasTakeProfit {
-		positionPlanDto.TakeProfitPrice = movedAgainst(
+		// And the target is on the other side of the price from the stop, always.
+		positionPlanDto.TakeProfitPrice = movedBy(
 			referencePrice, positionPlanDomain.takeProfit, !suggestsShort)
 		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
 	}
@@ -180,17 +182,20 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	return positionPlanDto, true
 }
 
-// movedAgainst is the price that far away, on the side the caller asked for: upwards
-// when raising, downwards when not.
+// movedBy is the price that far away, on the side the caller asked for.
 //
-// Both exits are the same arithmetic in opposite directions, and both directions flip
-// with the position's own — so writing it once is what stops a long's stop and a
-// short's take-profit from drifting into two different formulas.
-func movedAgainst(
-	price decimal.Decimal, distance decimal.Decimal, raising bool,
+// Named after the arithmetic rather than after either exit, because it serves both and
+// they lie on opposite sides: a stop is the price moving against the position, a
+// target is it moving in favour. Calling it "moved against" would be right for one
+// caller and a lie to the other.
+//
+// Both directions also flip with the position's own, so writing it once is what stops
+// a long's stop and a short's target from drifting into two different formulas.
+func movedBy(
+	price decimal.Decimal, distance decimal.Decimal, upwards bool,
 ) decimal.Decimal {
 	moved := portionOf(price, distance)
-	if raising {
+	if upwards {
 		return price.Add(moved)
 	}
 

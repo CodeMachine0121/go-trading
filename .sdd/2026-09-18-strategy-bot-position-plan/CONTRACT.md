@@ -35,7 +35,7 @@
 | ID | Clause | Oracle | Implementation | Test | Test audit | Code audit | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | AC-12 | 做多那一輪的四個數字 | 保證金 5000、名目 15000、止損 62255.085、止盈 67389.525 | `position_plan_domain.go:133` 起 | `position_plan_domain_test.go:49`（**四個數字逐字斷言**）、`strategy_bot_run_application_test.go:1201`（同四個數字出現在訊息裡） | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-13 | 做空那一輪，止損在上面 | 止損 66105.915、止盈 60971.475 | `position_plan_domain.go:165`／`:174`（`movedAgainst` 依方向反向） | `position_plan_domain_test.go:71`（逐字斷言＋**再斷言止損大於參考價、止盈小於**）、`strategy_bot_message_domain_test.go:314` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-13 | 做空那一輪，止損在上面 | 止損 66105.915、止盈 60971.475 | `position_plan_domain.go:165`／`:174`（`movedBy` 依方向反向） | `position_plan_domain_test.go:71`（逐字斷言＋**再斷言止損大於參考價、止盈小於**）、`strategy_bot_message_domain_test.go:314` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-14 | 會虧／會賺算的是名目 | 虧 450、賺 750 | `position_plan_domain.go:167`／`:176`（`portionOf(notional, …)`） | `position_plan_domain_test.go:49`／`:71` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-15 | 不上槓桿 | 保證金 50000、無槓桿與名目兩行、止損 98 | `position_plan_domain.go:62`（非正即一倍）＋`strategy_bot_message_domain.go:179` | `position_plan_domain_test.go:90`（`no leverage` 與 `one times leverage` 兩列）、`strategy_bot_message_domain_test.go:338`（斷言**沒有**名目那一行） | asserts-oracle | produces-oracle | 🟡 partial |
 | AC-16 | 固定金額就是那個數字 | 保證金 8000 | `PositionSizingDomain.StakeFor`（**未改動**） | `position_plan_domain_test.go:90`（`a fixed amount is that amount`） | asserts-oracle | produces-oracle | ✅ conforms |
@@ -99,7 +99,7 @@
 | BR-04 | 槓桿不得小於一倍；沒填即一倍且不印那兩行 | 三件都成立 | `position_plan_domain.go:62`／`:69`／`strategy_bot_message_domain.go:179` | `position_plan_domain_test.go:90`／`:282`／`:409` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-05 | 兩個距離不得為負、不得超過一百；各自沒填就不印 | 兩條驗證兩個出口都適用 | `validatedDistance`（**一份，兩個出口共用**） | `position_plan_domain_test.go:282`（停損與停利各兩列）、`:90` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-06 | 只有目標是持多或持空的那一輪才有 | 空手與不變都沒有 | `position_plan_domain.go:140` | `position_plan_domain_test.go:221` | asserts-oracle | produces-oracle | ✅ conforms |
-| BR-07 | 方向決定止損在哪一邊 | 持多在下、持空在上；止盈對稱 | `movedAgainst`（**一份**，兩個出口以反向參數呼叫） | `position_plan_domain_test.go:49`／`:71` | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-07 | 方向決定止損在哪一邊 | 持多在下、持空在上；止盈對稱 | `movedBy`（**一份**，兩個出口以反向參數呼叫） | `position_plan_domain_test.go:49`／`:71` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-08 | 讀不到參考價就沒有部位規劃 | 不用別的價替代 | `position_plan_domain.go:141` | `position_plan_domain_test.go:221` | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-09 | 交易模式讀不出來就沒有部位規劃 | 不替任何人猜方向 | `strategy_bot_service.go:348` ＋ `TradingModeDomain` 零值 | `position_plan_domain_test.go:275` | asserts-oracle | produces-oracle | 🟡 partial |
 | BR-10 | 有建議部位的訊息必須講出兩件事 | 兩句都在 | `strategy_bot_message_domain.go:168`／`:205` | `strategy_bot_message_domain_test.go:331` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -146,7 +146,7 @@
 | 1 | `domains.NewSignalDomainOf` 這個新建構子 | `signal_domain.go:33` | 無 PRD 條款 | ✅ 正確的新增，且**消除了既有的重複**：`trading_strategy_backtest_domain.go` 原本為了滿足另一個建構子而組一個只有一個元素的 map，現在兩個呼叫端都直接給信號 |
 | 2 | `PositionSizingDomain.Value()` 這個讀取器 | `position_sizing_domain.go:104` | `ARCH.md` §3 隱含（要存得回那兩樣） | ✅ 不是 orphan。`PositionPlanDomain.ToSettingsDto` 用它。第一版是從 `StakeFor(100)` 反推那個數字，而那會隨「模式拿它做什麼」改變——第四種模式出現的那天，存第三種會悄悄變樣 |
 | 3 | `positionSizingFailure` 這個私有錯誤型別與 `PositionSizingFailureAboutFigure` | `position_sizing_errors.go` | `ARCH.md` §2、§4 | ⚠️ 良性且必要。它讓**同一句話**同時服務兩個哨兵：回測包成帶欄位名的拒絕、機器人包成自己的驗證錯誤。沒有它，存一台機器人的人會在畫面上讀到「backtest validation failed」——而那不是他在做的事。由 `strategy_bot_domain_test.go:205` 的 `NotContains("backtest")` 與回測既有測試同時釘住 |
-| 4 | `validatedDistance`／`movedAgainst`／`portionOf` 三個 package-level 私有函式 | `position_plan_domain.go:97`／`:189`／`:201` | 無 PRD 條款 | ⚠️ 良性。`.claude/rules/architecture.md` 允許為**消除重複**而抽，而三者都是：`portionOf` 四處、`movedAgainst` 兩處（且它是止損與止盈不會漂移成兩套公式的唯一原因）、`validatedDistance` 兩處。三者都不讀任何 receiver 欄位，所以掛成 method 會是一個不用 receiver 的 method——更糟 |
+| 4 | `validatedDistance`／`movedBy`／`portionOf` 三個 package-level 私有函式 | `position_plan_domain.go:97`／`:194`／`:206` | 無 PRD 條款 | ⚠️ 良性。`.claude/rules/architecture.md` 允許為**消除重複**而抽，而三者都是：`portionOf` 四處、`movedBy` 兩處（且它是止損與止盈不會漂移成兩套公式的唯一原因）、`validatedDistance` 兩處。三者都不讀任何 receiver 欄位，所以掛成 method 會是一個不用 receiver 的 method——更糟 |
 | 5 | `entities` 的 `figureOrNothing` 與 persistence 的 `storedFigure` | `strategy_bot_run_record.go` 末、`strategy_bot_run_record_repository.go:86` | 無 PRD 條款 | ⚠️ 良性。各在自己那一層做一次方向相反的轉換，各被三處呼叫。合成一個會讓 entity 認識 persistence |
 | 6 | `dto.StrategyBotRunRecordWriteDto` 這個新形狀 | `strategy_bot_run_record_write_dto.go` | `naming.md`「Service 收一組參數就封成 DTO」 | ✅ 正確。`Append` 原本四個參數，加上三個數字與一個旗標會變八個；而那三個數字**只有一起才有意義**——逐一傳過去，可以傳出「一輪沒有建議，但這裡有個止損價」這種沒有東西會拒絕的組合 |
 | 7 | 合併了 `wholePercentage` 與 `oneHundredPercent` | `position_sizing_domain.go:19` | `improve-codebase` 階段發現 | ✅ 正確的移除。同一個套件裡同一個值的第二個名字 |
