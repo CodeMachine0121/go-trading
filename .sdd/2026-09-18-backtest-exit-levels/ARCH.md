@@ -161,7 +161,7 @@ func NewBacktestPositionDomain(
 
 // ExitOn 是這一棒逼出來的那一筆已平倉交易，如果它逼出了一筆。
 func (p BacktestPositionDomain) ExitOn(
-    kCandle vo.KCandleVo, candleTime time.Time,
+    kCandle vo.KCandleVo, exitTime time.Time,
 ) (vo.ClosedTradeVo, bool)
 
 // ClosedAt 多一個原因參數
