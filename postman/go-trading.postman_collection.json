@@ -8686,7 +8686,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"重演：止損把那一注掃出場 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) == 1 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\treturn indicator.Buy\\n}\"\n}"
+              "raw": "{\n  \"name\": \"重演：止損把那一注掃出場 {{$guid}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) indicator.Signal {\\n\\tif len(data) == 2 {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Hold\\n}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/strategy-scripts",
