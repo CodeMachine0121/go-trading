@@ -124,6 +124,10 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
 	}
 
+	// What to put down, before the working. Somebody skimming this on a phone is
+	// deciding whether to act; the evidence is for whoever then wants to check.
+	lines = append(lines, strategyBotMessageDomain.positionPlanLines()...)
+
 	// Always the signals, whichever mode asked. These lines are the strategy scripts'
 	// own testimony, and a script only ever says buy, sell or hold — rewriting them as
 	// 做多／做空 would put words in their mouths and leave the reader unable to work
@@ -139,6 +143,82 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// positionPlanLines are what this round suggests putting down, or nothing at all.
+//
+// Nothing at all is the ordinary case and it has to stay byte-for-byte quiet: a bot
+// whose owner never filled the settings in sends the message it sent before any of
+// this existed.
+//
+// Each figure's line appears only if it was asked for, which is why they are appended
+// one at a time rather than formatted as one block. A bot sizing a spot purchase wants
+// the amount and nothing about leverage; one that set a stop and no target wants one
+// exit line, not two with a blank.
+func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []string {
+	if !strategyBotMessageDomain.round.HasPositionPlan {
+		return nil
+	}
+
+	positionPlan := strategyBotMessageDomain.round.PositionPlan
+
+	// Named as a suggestion in the heading itself, not in small print at the bottom.
+	// Nothing here places an order, and a paragraph of prices and amounts is exactly
+	// what somebody would otherwise read as confirmation that something had been.
+	lines := []string{"", "📐 建議部位（這個系統不下單）"}
+
+	if !positionPlan.Affordable {
+		// The figure that could not be put down is named rather than printed as if it
+		// could. Printing it plain would have somebody placing it.
+		return append(lines, fmt.Sprintf(
+			"　・部位資金不足，押不下 %s", positionPlan.Stake.String()))
+	}
+
+	lines = append(lines, fmt.Sprintf("　・保證金 %s", positionPlan.Stake.String()))
+
+	if positionPlan.Leveraged {
+		lines = append(lines, fmt.Sprintf("　・名目 %s", positionPlan.Notional.String()))
+	}
+
+	// Which way each exit lies is written out in words. A short's stop sits above the
+	// price, and 66105.915 reads like a perfectly ordinary price whichever side it was
+	// meant for — so the side is never left for the reader to work out.
+	if positionPlan.HasStopLoss {
+		lines = append(lines, fmt.Sprintf("　・止損 %s（%s，虧 %s）",
+			positionPlan.StopLossPrice.String(),
+			exitDirectionInWords(positionPlan.SuggestsShort),
+			positionPlan.LossAtStop.String()))
+	}
+
+	if positionPlan.HasTakeProfit {
+		lines = append(lines, fmt.Sprintf("　・止盈 %s（%s，賺 %s）",
+			positionPlan.TakeProfitPrice.String(),
+			exitDirectionInWords(!positionPlan.SuggestsShort),
+			positionPlan.GainAtTarget.String()))
+	}
+
+	// The one thing about this suggestion its reader cannot find out for themselves.
+	// Every report card they have seen was produced without these exits, so a strategy
+	// that looks profitable there has never been measured with the stop this message
+	// is asking them to place.
+	if positionPlan.HasStopLoss || positionPlan.HasTakeProfit {
+		lines = append(lines, "　⚠️ 回測沒有把止損止盈算進去")
+	}
+
+	return lines
+}
+
+// exitDirectionInWords is which way an exit lies from the reference price.
+//
+// Both exits need it and they need it inverted from one another, which is exactly why
+// it is one function: two copies would let a long's stop and a short's target drift
+// into disagreeing about the same direction.
+func exitDirectionInWords(above bool) string {
+	if above {
+		return "往上"
+	}
+
+	return "往下"
 }
 
 // signalInWords is a signal as a person reads it. Both the headline and every source

@@ -2,8 +2,8 @@ package _interface
 
 import (
 	"context"
-	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
@@ -20,9 +20,7 @@ type IStrategyBotRunRecordRepository interface {
 	// keeps. Numbering and trimming happen together because they are two halves of
 	// one fact — how many rounds this bot remembers — and apart they would be two
 	// places that could disagree about it.
-	Append(
-		executionContext context.Context, strategyBotID uint, ranAt time.Time, result string,
-	) error
+	Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) error
 
 	// FindLatestByBot returns this bot's remembered rounds, newest first.
 	FindLatestByBot(

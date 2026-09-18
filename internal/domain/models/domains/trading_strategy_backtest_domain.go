@@ -211,8 +211,7 @@ func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) combineSignal
 			signal = vo.SignalHold
 		}
 
-		verdicts = append(verdicts, NewSignalDomain(
-			map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: signal}}))
+		verdicts = append(verdicts, NewSignalDomainOf(signal))
 	}
 
 	return verdicts, conflictedCandleCount

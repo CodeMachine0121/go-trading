@@ -38,7 +38,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
 	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	strategyBotRunRecordRepository.EXPECT().
 		FindLatestByBot(gomock.Any(), gomock.Any()).
 		Return([]entities.StrategyBotRunRecord{}, nil).AnyTimes()

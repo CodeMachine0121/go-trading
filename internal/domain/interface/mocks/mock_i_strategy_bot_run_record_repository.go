@@ -12,8 +12,8 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
-	time "time"
 
+	dto "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -43,17 +43,17 @@ func (m *MockIStrategyBotRunRecordRepository) EXPECT() *MockIStrategyBotRunRecor
 }
 
 // Append mocks base method.
-func (m *MockIStrategyBotRunRecordRepository) Append(executionContext context.Context, strategyBotID uint, ranAt time.Time, result string) error {
+func (m *MockIStrategyBotRunRecordRepository) Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Append", executionContext, strategyBotID, ranAt, result)
+	ret := m.ctrl.Call(m, "Append", executionContext, writeDto)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Append indicates an expected call of Append.
-func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) Append(executionContext, strategyBotID, ranAt, result any) *gomock.Call {
+func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) Append(executionContext, writeDto any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Append", reflect.TypeOf((*MockIStrategyBotRunRecordRepository)(nil).Append), executionContext, strategyBotID, ranAt, result)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Append", reflect.TypeOf((*MockIStrategyBotRunRecordRepository)(nil).Append), executionContext, writeDto)
 }
 
 // FindLatestByBot mocks base method.

@@ -324,7 +324,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		return skippedRound()
 	}
 
-	deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
+	positionPlan, hasPositionPlan, deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
 		executionContext, botDto, tradingStrategyDto, decision, sourceSignals)
 	if deliverError != nil {
 		// Not Telegram refusing — this side failing to ask at all. Most of those
@@ -342,11 +342,18 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	// Only a message that arrived counts as said. One Telegram could not take leaves
 	// the last sent signal where it was, so the next round offers it again instead of
 	// assuming it got through.
+	//
+	// The suggestion is recorded either way. It is what this round worked out, and a
+	// history that forgot it because Telegram was down would leave somebody unable to
+	// tell a round that suggested nothing from one nobody received.
 	if deliveryFailure != vo.DeliveryFailureNone {
-		return concludedRound(decision.Verdict, "", decision.Conflicting)
+		return suggestingRound(
+			decision.Verdict, "", decision.Conflicting, positionPlan, hasPositionPlan)
 	}
 
-	return concludedRound(decision.Verdict, decision.Verdict, decision.Conflicting)
+	return suggestingRound(
+		decision.Verdict, decision.Verdict, decision.Conflicting,
+		positionPlan, hasPositionPlan)
 }
 
 // roundSkipped is the outcome kind that changes nothing but when the bot is next
@@ -367,6 +374,19 @@ func concludedRound(verdict string, sentSignal string, conflicting bool) dto.Str
 		SentSignal:  sentSignal,
 		Conflicting: conflicting,
 	}
+}
+
+// suggestingRound is a concluded round that also said what to put down, so that the
+// history remembers the figures it actually sent.
+func suggestingRound(
+	verdict string, sentSignal string, conflicting bool,
+	positionPlan dto.PositionPlanDto, hasPositionPlan bool,
+) dto.StrategyBotRoundOutcomeDto {
+	outcomeDto := concludedRound(verdict, sentSignal, conflicting)
+	outcomeDto.PositionPlan = positionPlan
+	outcomeDto.HasPositionPlan = hasPositionPlan
+
+	return outcomeDto
 }
 
 // stillWaitingForThisRound says whether the bot is still there and still waiting for
@@ -483,11 +503,14 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 // The reference price is read here and a failure to read it is not a failure of the
 // round. A message that says the price could not be read is worth more than no
 // message: the conclusion is the part somebody acts on, and the price is context.
+// It also hands back what this round suggested putting down, because the history has
+// to remember the figures *this* round used — its owner may well have edited the
+// settings by the time anybody reads it back.
 func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 	tradingStrategyDto dto.TradingStrategyDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
-) (vo.DeliveryFailureReasonVo, error) {
+) (dto.PositionPlanDto, bool, vo.DeliveryFailureReasonVo, error) {
 	round := dto.StrategyBotRoundDto{
 		BotName: botDto.Name,
 		Symbol:  botDto.Symbol,
@@ -496,8 +519,12 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		// answer rather than a fact about the bot: three bots following one set of
 		// rules all word their messages the same way, and changing the mode changes
 		// all three at once.
-		TradingMode:   tradingStrategyDto.TradingMode,
-		SourceSignals: sourceSignals,
+		TradingMode: tradingStrategyDto.TradingMode,
+		// Carried from the bot, not the rules: how much money there is and how much
+		// of a move its owner can sit through are facts about this machine. Three
+		// bots following one set of rules may each suggest a different size.
+		PositionPlanSettings: botDto.PositionPlan,
+		SourceSignals:        sourceSignals,
 	}
 
 	latestCandle, hasLatestCandle, candleError := strategyBotRunApplication.kCandleService.GetLatestKCandle(
@@ -508,8 +535,15 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		round.HasReference = true
 	}
 
-	return strategyBotRunApplication.telegramDeliveryService.SendMessage(
+	// Worked out once, here, because the same figures reach the message below and the
+	// history afterwards. Twice would be two answers, and they would part company the
+	// moment somebody edited a setting between the two reads.
+	round = strategyBotRunApplication.strategyBotService.PlanRoundPosition(round)
+
+	deliveryFailure, deliverError := strategyBotRunApplication.telegramDeliveryService.SendMessage(
 		executionContext,
 		botDto.OwnerID,
 		strategyBotRunApplication.strategyBotService.WriteRoundMessage(round))
+
+	return round.PositionPlan, round.HasPositionPlan, deliveryFailure, deliverError
 }

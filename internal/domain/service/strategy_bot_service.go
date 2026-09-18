@@ -325,6 +325,41 @@ func (strategyBotService *StrategyBotService) ReadDeliveryFailure(
 		vo.DeliveryFailureReasonVo(failureReason)).ToOutcomeDto()
 }
 
+// PlanRoundPosition is this round with what it suggests putting down worked out.
+//
+// It happens here, once, because the figures have two readers — the message its owner
+// reads and the history they read it back in. Working them out in each would be two
+// answers, and they would part company the moment somebody edited a setting between
+// the two reads.
+//
+// Settings it cannot read leave the round exactly as it arrived. That is unreachable
+// through the save gate, which refuses such settings before they are ever stored, and
+// it is written down because the alternative to a rule is an accident: a bot whose
+// figures cannot be read says nothing about them rather than saying something wrong.
+func (strategyBotService *StrategyBotService) PlanRoundPosition(
+	round dto.StrategyBotRoundDto,
+) dto.StrategyBotRoundDto {
+	positionPlan, positionPlanError := domains.NewPositionPlanDomain(round.PositionPlanSettings)
+	if positionPlanError != nil {
+		return round
+	}
+
+	tradingMode, tradingModeError := domains.NewTradingModeDomain(round.TradingMode)
+	if tradingModeError != nil {
+		return round
+	}
+
+	// What this round's conclusion asks the account to hold is the trading mode's
+	// answer, and it is the whole of what a plan needs: whether to suggest at all,
+	// and which way round the two exits go.
+	target := tradingMode.TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
+
+	round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(
+		target, round.ReferencePrice, round.HasReference)
+
+	return round
+}
+
 // WriteRoundMessage is this round as the message its owner reads.
 func (strategyBotService *StrategyBotService) WriteRoundMessage(
 	round dto.StrategyBotRoundDto,
@@ -378,7 +413,16 @@ func (strategyBotService *StrategyBotService) RecordRound(
 	// would let a bot's history quietly stop growing while the bot carried on, and
 	// somebody would open it next month to find it ends in August.
 	if appendError := strategyBotService.strategyBotRunRecordRepository.Append(
-		executionContext, id, ranAt, string(outcome.RecordedResult())); appendError != nil {
+		executionContext, dto.StrategyBotRunRecordWriteDto{
+			StrategyBotID: id,
+			RanAt:         ranAt,
+			Result:        string(outcome.RecordedResult()),
+			// Carried through from the outcome rather than worked out again here: the
+			// figures belong to the round that sent them, and this bot's settings may
+			// already have changed.
+			PositionPlan:    outcomeDto.PositionPlan,
+			HasPositionPlan: outcomeDto.HasPositionPlan,
+		}); appendError != nil {
 		return dto.StrategyBotDto{}, false, appendError
 	}
 

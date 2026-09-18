@@ -49,7 +49,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
 	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
