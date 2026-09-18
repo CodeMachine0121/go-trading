@@ -9401,7 +9401,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -9423,6 +9423,7 @@
                   "        Number(pm.collectionVariables.get(\"tradingStrategyId\")));",
                   "    pm.expect(saved.tradingStrategyName).to.be.a(\"string\");",
                   "});",
+                  "pm.test(\"部位規劃跟著這一台存起來了\", function () {\n    const plan = pm.response.json().positionPlan;\n    pm.expect(plan.capital).to.eql(\"50000\");\n    pm.expect(plan.sizingMode).to.eql(\"percentage\");\n    pm.expect(plan.leverage).to.eql(\"3\");\n    pm.expect(plan.stopLossPercentage).to.eql(\"3\");\n    pm.expect(plan.takeProfitPercentage).to.eql(\"5\");\n});",
                   "pm.collectionVariables.set(\"strategyBotId\", pm.response.json().id);"
                 ]
               }
@@ -9850,7 +9851,7 @@
             "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"positionPlan\": {\n    \"capital\": \"80000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"0\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -9869,7 +9870,8 @@
                   "    const updated = pm.response.json();",
                   "    pm.expect(updated.id).to.eql(Number(pm.collectionVariables.get(\"strategyBotId\")));",
                   "    pm.expect(updated.triggerIntervalMinutes).to.eql(15);",
-                  "});"
+                  "});",
+                  "pm.test(\"部位規劃也改到了，而且拿掉的那一格真的不在了\", function () {\n    const plan = pm.response.json().positionPlan;\n    pm.expect(plan.capital).to.eql(\"80000\");\n    // 整份改寫就是整份：留白的停利距離要歸零，不是沿用上一版。\n    pm.expect(plan.takeProfitPercentage).to.eql(\"0\");\n});"
                 ]
               }
             }
@@ -10082,6 +10084,223 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：押多少的百分比超過一百",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"150\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出哪裡不對\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(\"百分比必須大於零且不超過一百\");",
+                  "    // 這個人在存一台機器人，不是在跑回測——那個詞不該出現在他眼前。",
+                  "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：槓桿小於一倍",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"0.5\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出哪裡不對\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(\"槓桿倍數不得小於 1 倍\");",
+                  "    // 這個人在存一台機器人，不是在跑回測——那個詞不該出現在他眼前。",
+                  "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：停損距離為負",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"-3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出哪裡不對\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(\"停損距離不得為負\");",
+                  "    // 這個人在存一台機器人，不是在跑回測——那個詞不該出現在他眼前。",
+                  "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "組起一台不算部位的機器人",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "// 整組不填是一件平常的事：這一台不建議部位，訊息與部位規劃出現之前一字不差。",
+                  "pm.test(\"沒填就是沒有部位規劃\", function () {",
+                  "    pm.expect(pm.response.json().positionPlan.capital).to.eql(\"0\");",
+                  "});",
+                  "pm.collectionVariables.set(\"plainStrategyBotId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉那一台不算部位的機器人",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{plainStrategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{plainStrategyBotId}}"
+              ]
+            },
+            "description": "執行中的也刪得掉，不要求先按停止：他要的結果是這台不在了，而不在了的東西不會再跑。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刪掉了\", function () { pm.expect(pm.response.code).to.be.oneOf([200, 204]); });"
                 ]
               }
             }
