@@ -79,7 +79,18 @@ func NewBacktestDomain(
 	positionSizing, positionSizingError := NewPositionSizingDomain(
 		requestDto.PositionSizingMode, requestDto.PositionSizingValue)
 	if positionSizingError != nil {
-		return BacktestDomain{}, positionSizingError
+		// The sentence comes from the model; which input this replay calls the thing
+		// at fault is its own business. Only the figure is an input a caller can go
+		// and change — a mode nobody offers is answered by listing the three — so
+		// only that one names a field. A bot being saved wraps the same sentences in
+		// its own sentinel instead.
+		if PositionSizingFailureAboutFigure(positionSizingError) {
+			return BacktestDomain{}, BacktestValidationFailure(
+				BacktestPositionSizingValueField, positionSizingError.Error())
+		}
+
+		return BacktestDomain{}, fmt.Errorf(
+			"%w: %s", ErrBacktestValidation, positionSizingError)
 	}
 
 	tradingMode, tradingModeError := NewTradingModeDomain(requestDto.TradingMode)

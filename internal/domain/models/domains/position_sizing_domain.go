@@ -64,9 +64,8 @@ func NewPositionSizingDomain(
 		selectableSpellings = append(selectableSpellings, string(selectableMode))
 	}
 
-	return PositionSizingDomain{}, fmt.Errorf(
-		"%w: 每次開倉押多少只能是 %s 其中之一",
-		ErrBacktestValidation, strings.Join(selectableSpellings, "、"))
+	return PositionSizingDomain{}, positionSizingModeFailure(fmt.Sprintf(
+		"每次開倉押多少只能是 %s 其中之一", strings.Join(selectableSpellings, "、")))
 }
 
 // newPositionSizingDomain is the only way an instance is built, so a mode can never
@@ -76,13 +75,11 @@ func newPositionSizingDomain(
 ) (PositionSizingDomain, error) {
 	if mode == vo.PositionSizingModePercentage &&
 		(!value.IsPositive() || value.GreaterThan(oneHundredPercent)) {
-		return PositionSizingDomain{}, BacktestValidationFailure(
-			BacktestPositionSizingValueField, "百分比必須大於零且不超過一百")
+		return PositionSizingDomain{}, positionSizingFigureFailure("百分比必須大於零且不超過一百")
 	}
 
 	if mode == vo.PositionSizingModeFixedAmount && !value.IsPositive() {
-		return PositionSizingDomain{}, BacktestValidationFailure(
-			BacktestPositionSizingValueField, "固定金額必須大於零")
+		return PositionSizingDomain{}, positionSizingFigureFailure("固定金額必須大於零")
 	}
 
 	return PositionSizingDomain{mode: mode, value: value}, nil
@@ -90,6 +87,17 @@ func newPositionSizingDomain(
 
 func (positionSizingDomain PositionSizingDomain) Mode() vo.PositionSizingModeVo {
 	return positionSizingDomain.mode
+}
+
+// Value is the figure that was declared beside the mode. Staking everything needs
+// none, and answers zero.
+//
+// It is here beside Mode so that whoever has to store these two can read them back
+// the way they arrived. Working the figure back out of StakeFor is possible and
+// wrong: it would depend on what the mode does with it, so the day a fourth mode
+// exists, storing the third one silently changes.
+func (positionSizingDomain PositionSizingDomain) Value() decimal.Decimal {
+	return positionSizingDomain.value
 }
 
 // StakeFor is what this opening puts down given the cash on hand, and whether it can
