@@ -1,6 +1,9 @@
 package models
 
-import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+import (
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/shopspring/decimal"
+)
 
 // StrategyBotRequest is the body a caller sends to build or rewrite a strategy bot.
 //
@@ -20,6 +23,38 @@ type StrategyBotRequest struct {
 	Symbol                 string `json:"symbol"`
 	TradingStrategyID      uint   `json:"tradingStrategyId"`
 	TriggerIntervalMinutes int    `json:"triggerIntervalMinutes"`
+	// PositionPlan is what this bot is to suggest putting down each round. The whole
+	// group may be left out: a bot without one sends the message it sent before
+	// position plans existed.
+	PositionPlan PositionPlanRequest `json:"positionPlan"`
+}
+
+// PositionPlanRequest is the five figures behind a suggested position.
+//
+// The money arrives as an exact decimal rather than a JSON number, for the reason it
+// does everywhere else here: the leverage and the two distances all multiply into a
+// price somebody places an order at.
+type PositionPlanRequest struct {
+	Capital              decimal.Decimal `json:"capital"`
+	SizingMode           string          `json:"sizingMode"`
+	SizingValue          decimal.Decimal `json:"sizingValue"`
+	Leverage             decimal.Decimal `json:"leverage"`
+	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
+	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
+}
+
+// ToSettingsDto hands the five figures on untouched. Reading them — a blank sizing
+// mode meaning stake everything, a leverage of nothing meaning one — is the domain's
+// job, the same way it is for every other declared spelling here.
+func (positionPlanRequest PositionPlanRequest) ToSettingsDto() dto.PositionPlanSettingsDto {
+	return dto.PositionPlanSettingsDto{
+		Capital:              positionPlanRequest.Capital,
+		SizingMode:           positionPlanRequest.SizingMode,
+		SizingValue:          positionPlanRequest.SizingValue,
+		Leverage:             positionPlanRequest.Leverage,
+		StopLossPercentage:   positionPlanRequest.StopLossPercentage,
+		TakeProfitPercentage: positionPlanRequest.TakeProfitPercentage,
+	}
 }
 
 // ToWriteDto turns the request into the shape the domain accepts, taking which bot
@@ -34,5 +69,6 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 		Symbol:                 strategyBotRequest.Symbol,
 		TradingStrategyID:      strategyBotRequest.TradingStrategyID,
 		TriggerIntervalMinutes: strategyBotRequest.TriggerIntervalMinutes,
+		PositionPlan:           strategyBotRequest.PositionPlan.ToSettingsDto(),
 	}
 }

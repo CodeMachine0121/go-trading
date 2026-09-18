@@ -54,12 +54,22 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 	updates := strategyBotRepository.database.WithContext(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: botRow.ID}).
-		Select("name", "symbol", "trading_strategy_id", "trigger_interval_minutes").
+		Select(
+			"name", "symbol", "trading_strategy_id", "trigger_interval_minutes",
+			"position_plan_capital", "position_plan_sizing_mode",
+			"position_plan_sizing_value", "position_plan_leverage",
+			"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage").
 		Updates(entities.StrategyBot{
-			Name:                   botRow.Name,
-			Symbol:                 botRow.Symbol,
-			TradingStrategyID:      botRow.TradingStrategyID,
-			TriggerIntervalMinutes: botRow.TriggerIntervalMinutes,
+			Name:                             botRow.Name,
+			Symbol:                           botRow.Symbol,
+			TradingStrategyID:                botRow.TradingStrategyID,
+			TriggerIntervalMinutes:           botRow.TriggerIntervalMinutes,
+			PositionPlanCapital:              botRow.PositionPlanCapital,
+			PositionPlanSizingMode:           botRow.PositionPlanSizingMode,
+			PositionPlanSizingValue:          botRow.PositionPlanSizingValue,
+			PositionPlanLeverage:             botRow.PositionPlanLeverage,
+			PositionPlanStopLossPercentage:   botRow.PositionPlanStopLossPercentage,
+			PositionPlanTakeProfitPercentage: botRow.PositionPlanTakeProfitPercentage,
 		})
 	if updates.Error != nil {
 		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(updates.Error, bot.Name)

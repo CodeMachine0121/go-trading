@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,6 +158,103 @@ func TestNewStrategyBotDomainStoresTheSymbolInOneCase(t *testing.T) {
 			require.NoError(t, buildError)
 
 			assert.Equal(t, testCase.expectedSymbol, strategyBot.ToEntity().Symbol)
+		})
+	}
+}
+
+// aPositionPlannedBotWriteDto is a bot that suggests a position: fifty thousand,
+// staking a tenth of it, three times over, out at three and five percent.
+func aPositionPlannedBotWriteDto() dto.StrategyBotWriteDto {
+	writeDto := aBotWriteDto()
+	writeDto.PositionPlan = dto.PositionPlanSettingsDto{
+		Capital:              decimal.NewFromInt(50000),
+		SizingMode:           string(vo.PositionSizingModePercentage),
+		SizingValue:          decimal.NewFromInt(10),
+		Leverage:             decimal.NewFromInt(3),
+		StopLossPercentage:   decimal.NewFromInt(3),
+		TakeProfitPercentage: decimal.NewFromInt(5),
+	}
+
+	return writeDto
+}
+
+func TestNewStrategyBotDomainKeepsThePositionPlanItWasGiven(t *testing.T) {
+	strategyBot, buildError := domains.NewStrategyBotDomain(aPositionPlannedBotWriteDto())
+	require.NoError(t, buildError)
+
+	botEntity := strategyBot.ToEntity()
+
+	assert.Equal(t, "50000", botEntity.PositionPlanCapital.String())
+	assert.Equal(t,
+		string(vo.PositionSizingModePercentage), botEntity.PositionPlanSizingMode)
+	assert.Equal(t, "10", botEntity.PositionPlanSizingValue.String())
+	assert.Equal(t, "3", botEntity.PositionPlanLeverage.String())
+	assert.Equal(t, "3", botEntity.PositionPlanStopLossPercentage.String())
+	assert.Equal(t, "5", botEntity.PositionPlanTakeProfitPercentage.String())
+}
+
+// Leaving the whole group out is an ordinary thing to do — it is what every bot
+// stored before position plans existed reads as.
+func TestNewStrategyBotDomainAcceptsABotWithNoPositionPlan(t *testing.T) {
+	strategyBot, buildError := domains.NewStrategyBotDomain(aBotWriteDto())
+	require.NoError(t, buildError)
+
+	assert.True(t, strategyBot.ToEntity().PositionPlanCapital.IsZero())
+}
+
+func TestNewStrategyBotDomainRefusesAPositionPlanItCannotUse(t *testing.T) {
+	testCases := []struct {
+		name          string
+		adjust        func(settings *dto.PositionPlanSettingsDto)
+		expectedWords string
+	}{
+		{
+			// The replay's own sentence, carried through rather than reworded — so a
+			// bot and a replay cannot end up disagreeing about what a percentage of a
+			// hundred and fifty means.
+			name: "a percentage above a hundred",
+			adjust: func(settings *dto.PositionPlanSettingsDto) {
+				settings.SizingValue = decimal.NewFromInt(150)
+			},
+			expectedWords: "百分比必須大於零且不超過一百",
+		},
+		{
+			name: "a sizing mode nobody offers",
+			adjust: func(settings *dto.PositionPlanSettingsDto) {
+				settings.SizingMode = "dayTrade"
+			},
+			expectedWords: "每次開倉押多少只能是",
+		},
+		{
+			name: "leverage below one times",
+			adjust: func(settings *dto.PositionPlanSettingsDto) {
+				settings.Leverage = decimal.RequireFromString("0.5")
+			},
+			expectedWords: "槓桿倍數不得小於 1 倍",
+		},
+		{
+			name: "a negative stop distance",
+			adjust: func(settings *dto.PositionPlanSettingsDto) {
+				settings.StopLossPercentage = decimal.NewFromInt(-3)
+			},
+			expectedWords: "停損距離不得為負",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			writeDto := aPositionPlannedBotWriteDto()
+			testCase.adjust(&writeDto.PositionPlan)
+
+			_, buildError := domains.NewStrategyBotDomain(writeDto)
+
+			require.Error(t, buildError)
+			// The one sentinel every refused bot carries, so that a controller maps
+			// this without learning a second one — and so that nobody is told a
+			// backtest failed while saving a bot.
+			assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
+			assert.Contains(t, buildError.Error(), testCase.expectedWords)
+			assert.NotContains(t, buildError.Error(), "backtest")
 		})
 	}
 }

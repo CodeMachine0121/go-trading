@@ -22,6 +22,10 @@ type StrategyBotDto struct {
 	Symbol  string `json:"symbol"`
 	// TriggerIntervalMinutes is how often a running bot wakes up.
 	TriggerIntervalMinutes int `json:"triggerIntervalMinutes"`
+	// PositionPlan is what this bot suggests putting down each round. A capital of
+	// zero means it suggests nothing, which is what every bot stored before position
+	// plans existed reads as.
+	PositionPlan PositionPlanSettingsDto `json:"positionPlan"`
 	// NextRunAt is when this bot was next due, and it never leaves in a response —
 	// nobody reading their own bots has any use for it.
 	//

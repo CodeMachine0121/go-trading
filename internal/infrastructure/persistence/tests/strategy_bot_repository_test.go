@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -386,4 +387,68 @@ func TestStrategyBotRepositorySaveReportsAFailedRewriteAsItself(t *testing.T) {
 	_, rewriteError := repository.Save(t.Context(), rewritten)
 
 	require.ErrorIs(t, rewriteError, domains.ErrStrategyBotNameConflict)
+}
+
+// A position plan has to survive both journeys: written once and read back, and
+// reached by a rewrite. A rewrite that quietly left it alone would have somebody
+// reading their new stop distance on screen while every message used the old one.
+func TestStrategyBotRepositorySaveKeepsAndRewritesThePositionPlan(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+
+	plannedBot := aBotRow("早盤突破")
+	plannedBot.PositionPlanCapital = decimal.NewFromInt(50000)
+	plannedBot.PositionPlanSizingMode = string(vo.PositionSizingModePercentage)
+	plannedBot.PositionPlanSizingValue = decimal.NewFromInt(10)
+	plannedBot.PositionPlanLeverage = decimal.NewFromInt(3)
+	plannedBot.PositionPlanStopLossPercentage = decimal.NewFromInt(3)
+	plannedBot.PositionPlanTakeProfitPercentage = decimal.NewFromInt(5)
+
+	saved, saveError := repository.Save(t.Context(), plannedBot)
+	require.NoError(t, saveError)
+
+	readBack, findError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "50000", readBack.PositionPlanCapital.String())
+	assert.Equal(t, "10", readBack.PositionPlanSizingValue.String())
+	assert.Equal(t, "3", readBack.PositionPlanLeverage.String())
+	assert.Equal(t, "3", readBack.PositionPlanStopLossPercentage.String())
+	assert.Equal(t, "5", readBack.PositionPlanTakeProfitPercentage.String())
+
+	rewritten := aBotRow("早盤突破")
+	rewritten.ID = saved.ID
+	rewritten.PositionPlanCapital = decimal.NewFromInt(80000)
+	rewritten.PositionPlanSizingMode = string(vo.PositionSizingModeFixedAmount)
+	rewritten.PositionPlanSizingValue = decimal.NewFromInt(8000)
+	rewritten.PositionPlanLeverage = decimal.NewFromInt(1)
+	rewritten.PositionPlanStopLossPercentage = decimal.NewFromInt(2)
+
+	_, rewriteError := repository.Save(t.Context(), rewritten)
+	require.NoError(t, rewriteError)
+
+	rewrittenRow, findRewrittenError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findRewrittenError)
+	assert.Equal(t, "80000", rewrittenRow.PositionPlanCapital.String())
+	assert.Equal(t,
+		string(vo.PositionSizingModeFixedAmount), rewrittenRow.PositionPlanSizingMode)
+	assert.Equal(t, "8000", rewrittenRow.PositionPlanSizingValue.String())
+	assert.Equal(t, "2", rewrittenRow.PositionPlanStopLossPercentage.String())
+	// Cleared rather than left behind: a rewrite replaces everything a bot is, so a
+	// target somebody removed has to actually be gone.
+	assert.True(t, rewrittenRow.PositionPlanTakeProfitPercentage.IsZero())
+}
+
+// A row written with no plan at all stands for every bot stored before these columns
+// existed. It has to read back as suggesting nothing, or those bots would start
+// sending a paragraph their owners never asked for.
+func TestStrategyBotRepositorySaveLeavesABotWithoutAPositionPlanSuggestingNothing(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+
+	saved, saveError := repository.Save(t.Context(), aBotRow("早盤突破"))
+	require.NoError(t, saveError)
+
+	readBack, findError := repository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.True(t, readBack.PositionPlanCapital.IsZero())
 }
