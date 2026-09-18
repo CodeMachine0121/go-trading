@@ -13,11 +13,6 @@ import (
 // thing everywhere below rather than two cases to keep in step.
 var noLeverage = decimal.NewFromInt(1)
 
-// wholePercentage is a distance of the entire price, written as the number somebody
-// types. A stop that far away sits exactly at zero, which is absurd but arithmetic;
-// past it the price would go negative, which is not.
-var wholePercentage = decimal.NewFromInt(100)
-
 // PositionPlanDomain is what a bot suggests putting down, and where it suggests
 // getting out — plus every rule about the five figures that decide it.
 //
@@ -104,7 +99,7 @@ func validatedDistance(distance decimal.Decimal, name string) error {
 		return fmt.Errorf("%s不得為負", name)
 	}
 
-	if distance.GreaterThan(wholePercentage) {
+	if distance.GreaterThan(oneHundredPercent) {
 		return fmt.Errorf("%s不得超過 100%%——那會讓價格變成負數", name)
 	}
 
@@ -204,5 +199,5 @@ func movedAgainst(
 
 // portionOf is that percentage of an amount.
 func portionOf(amount decimal.Decimal, percentage decimal.Decimal) decimal.Decimal {
-	return amount.Mul(percentage).Div(wholePercentage)
+	return amount.Mul(percentage).Div(oneHundredPercent)
 }

@@ -16,8 +16,13 @@ var selectablePositionSizingModes = []vo.PositionSizingModeVo{
 	vo.PositionSizingModeFixedAmount,
 }
 
-// oneHundredPercent is the whole of the cash on hand, written as the percentage a
-// caller would type.
+// oneHundredPercent is the whole of something, written as the percentage a caller
+// would type.
+//
+// Shared with the position plan beside it, which measures its two exits in the same
+// units: a distance of the whole price. Two names for a hundred in one package is one
+// name too many — and the day somebody decides percentages are written as fractions,
+// two of them would be two places to change.
 var oneHundredPercent = decimal.NewFromInt(100)
 
 // PositionSizingDomain is how much one opening stakes, and every rule about it.
