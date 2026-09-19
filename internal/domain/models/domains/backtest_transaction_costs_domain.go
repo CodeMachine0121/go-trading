@@ -123,11 +123,13 @@ func (backtestTransactionCostsDomain BacktestTransactionCostsDomain) MaximumStak
 		return availableCash
 	}
 
-	stakeWithItsCost := decimal.NewFromInt(1).Add(
-		backtestTransactionCostsDomain.entryCostPercentage.Div(oneHundredPercent))
-
-	return availableCash.
-		DivRound(stakeWithItsCost, maximumStakeScale+2).
+	// Written as cash × 100 ÷ (100 + rate) rather than cash ÷ (1 + rate/100). They
+	// are the same quotient, but this one stays in the units the caller typed and
+	// divides exactly wherever the arithmetic allows — the other converts to a
+	// fraction first and rounds twice.
+	return availableCash.Mul(oneHundredPercent).
+		DivRound(oneHundredPercent.Add(
+			backtestTransactionCostsDomain.entryCostPercentage), maximumStakeScale+2).
 		Truncate(maximumStakeScale)
 }
 

@@ -34,12 +34,13 @@ func (costedReplaySpec costedReplaySpec) run(t *testing.T) dto.BacktestResultDto
 	t.Helper()
 
 	positionSizing, sizingError := domains.NewPositionSizingDomain(
-		costedReplaySpec.sizingMode, decimalOf(t, costedReplaySpec.sizingValue))
+		costedReplaySpec.sizingMode,
+		decimal.RequireFromString(costedReplaySpec.sizingValue))
 	require.NoError(t, sizingError)
 
 	transactionCosts, costsError := domains.NewBacktestTransactionCostsDomain(
-		decimalOf(t, costedReplaySpec.entryCostPercentage),
-		decimalOf(t, costedReplaySpec.exitCostPercentage))
+		decimal.RequireFromString(costedReplaySpec.entryCostPercentage),
+		decimal.RequireFromString(costedReplaySpec.exitCostPercentage))
 	require.NoError(t, costsError)
 
 	inputKCandles := make([]vo.KCandleVo, 0, len(costedReplaySpec.closePrices))
@@ -48,7 +49,7 @@ func (costedReplaySpec costedReplaySpec) run(t *testing.T) dto.BacktestResultDto
 	}
 
 	return domains.NewBacktestSimulationDomain(
-		decimalOf(t, costedReplaySpec.initialCapital), positionSizing,
+		decimal.RequireFromString(costedReplaySpec.initialCapital), positionSizing,
 		tradingModeOf(t, costedReplaySpec.tradingMode),
 		domains.BacktestExitLevelsDomain{}, transactionCosts,
 		inputKCandles, signalDomainsSaying(costedReplaySpec.signals...)).ToDto()

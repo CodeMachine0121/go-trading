@@ -18,19 +18,11 @@ func transactionCostsOf(
 	t.Helper()
 
 	transactionCosts, buildError := domains.NewBacktestTransactionCostsDomain(
-		decimalOf(t, entryCostPercentage), decimalOf(t, exitCostPercentage))
+		decimal.RequireFromString(entryCostPercentage),
+		decimal.RequireFromString(exitCostPercentage))
 	require.NoError(t, buildError)
 
 	return transactionCosts
-}
-
-func decimalOf(t *testing.T, value string) decimal.Decimal {
-	t.Helper()
-
-	parsedValue, parseError := decimal.NewFromString(value)
-	require.NoError(t, parseError)
-
-	return parsedValue
 }
 
 func TestBacktestTransactionCostsRefuseRatesThatCannotBeCharged(t *testing.T) {
@@ -69,8 +61,8 @@ func TestBacktestTransactionCostsRefuseRatesThatCannotBeCharged(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, buildError := domains.NewBacktestTransactionCostsDomain(
-				decimalOf(t, testCase.entryCostPercentage),
-				decimalOf(t, testCase.exitCostPercentage))
+				decimal.RequireFromString(testCase.entryCostPercentage),
+				decimal.RequireFromString(testCase.exitCostPercentage))
 
 			require.Error(t, buildError)
 			assert.Equal(t, testCase.expectedReason, buildError.Error())
@@ -185,7 +177,7 @@ func TestBacktestTransactionCostsMaximumStakeLeavesRoomForTheEntryCharge(t *test
 
 			assert.Equal(t, testCase.expectedMaximumStake,
 				transactionCosts.MaximumStakeFrom(
-					decimalOf(t, testCase.availableCash)).String())
+					decimal.RequireFromString(testCase.availableCash)).String())
 		})
 	}
 }
