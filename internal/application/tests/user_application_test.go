@@ -1594,3 +1594,53 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 		assert.Empty(t, sessionTokensDto.AccessToken)
 	})
 }
+
+func TestUserApplicationLockingAnAccountLeavesWhoeverIsAlreadyInsideAlone(t *testing.T) {
+	// The lock is on getting a fresh proof of identity, not on the people already
+	// holding one. Throwing them out would end nothing a machine guessing passwords
+	// is doing, while interrupting whatever the account holder had running.
+	//
+	// Both paths get there by never reading the lock at all, which is exactly why
+	// these two tests exist: the next person to maintain this will feel that a shut
+	// account ought not to be able to renew, and nothing else would turn red.
+	t.Run("a shut account still renews its proof of identity", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.expectDigestLookup()
+		fixture.sessionRepository.EXPECT().
+			FindOneByDigest(gomock.Any(), "a-refresh-token-digest").
+			Return(aStoredSession(), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil)
+		fixture.refreshTokenProxy.EXPECT().
+			Mint().
+			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
+		fixture.accessTokenProxy.EXPECT().
+			Issue(uint(7), accessTokenExpiry).
+			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token", ExpiresAt: accessTokenExpiry}, nil)
+		fixture.sessionRepository.EXPECT().
+			Rotate(gomock.Any(), uint(11), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uint, next entities.Session) (entities.Session, error) {
+				next.ID = 12
+				return next, nil
+			})
+
+		sessionTokensDto, err := fixture.userApplication.RenewSession(t.Context(), aRenewal())
+
+		require.NoError(t, err)
+		assert.NotErrorIs(t, err, domains.ErrSignInLocked)
+		assert.Equal(t, "a-newer-signed-token", sessionTokensDto.AccessToken)
+	})
+
+	t.Run("a shut account can still sign itself out", func(t *testing.T) {
+		// Being unable to leave is a worse position than being unable to get in.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.expectDigestLookup()
+		fixture.sessionRepository.EXPECT().
+			FindOneByDigest(gomock.Any(), "a-refresh-token-digest").
+			Return(aStoredSession(), nil)
+		fixture.sessionRepository.EXPECT().RevokeChain(gomock.Any(), "a-chain").Return(nil)
+
+		require.NoError(t, fixture.userApplication.RevokeSession(t.Context(), aRenewal()))
+	})
+}
