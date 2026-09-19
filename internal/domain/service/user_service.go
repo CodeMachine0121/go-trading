@@ -258,6 +258,15 @@ func (userService *UserService) countFailedSignIn(
 		user = freshUser
 	}
 
+	// Out of looks, against a row that has been read once more. Every round lost
+	// here is a round somebody else's number landed in, so by now the account is
+	// usually shut — and a shut account means this attempt is accounted for, which
+	// is the same answer the loop gives when it finds one.
+	if domains.NewSignInLockoutDomain(
+		user, userService.lockoutPolicy, userService.clockProxy.Now()).Refusal() != nil {
+		return nil
+	}
+
 	return domains.ErrSignInLockoutStateStale
 }
 

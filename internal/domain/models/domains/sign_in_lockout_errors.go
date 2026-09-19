@@ -27,8 +27,11 @@ var ErrSignInLocked = errors.New("這個帳號因為連續登入失敗已被鎖�
 // mistyping at once; it is the cheapest way to defeat this lock, and it is available
 // to exactly the tireless machine the lock exists for.
 //
-// It never reaches a caller: the sign-in flow answers it by reading the row again
-// and counting against what it actually says now.
+// The sign-in flow answers it by reading the row again and counting against what
+// the row actually says now. It reaches a caller only when looking again has run
+// out of tries against a row that is still not shut — which is the one case where
+// an attempt really has gone uncounted, and saying nothing would leave the lock
+// short of the guesses that happened.
 var ErrSignInLockoutStateStale = errors.New("這次登入的計數已被另一次登入改寫")
 
 // SignInLockedError is that refusal carrying the moment it ends.

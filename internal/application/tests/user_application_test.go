@@ -1768,4 +1768,30 @@ func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrCredentialsRejected)
 	})
+
+	t.Run("running out of looks against a shut account is not a failure", func(t *testing.T) {
+		// Every round lost is a round somebody else's number landed in, so a shut
+		// account by the end means this attempt is accounted for — the same answer
+		// the loop gives when it finds one mid-way. Answering "the store broke"
+		// would hand a plain wrong password an error about the system.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 99
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		gomock.InOrder(
+			fixture.userRepository.EXPECT().
+				FindOne(gomock.Any(), uint(7)).
+				Return(anAccountWithStanding(1, nil), nil).Times(2),
+			fixture.userRepository.EXPECT().
+				FindOne(gomock.Any(), uint(7)).
+				Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil),
+		)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected,
+			"帳號已經被別人鎖住了，這一次就是一次單純的密碼錯誤")
+	})
 }
