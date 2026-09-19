@@ -118,6 +118,10 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    # The tag the deploy job below writes into the manifests.
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+
     permissions:
       contents: read
       # The only addition. With this, the job's built-in token can push to GHCR, so
@@ -127,6 +131,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The version is computed once, here, and both the tag that gets pushed and
+      # the tag written back into the deployment come from this one value. Working
+      # it out twice would raise the question of whether the two agree, and the way
+      # that question fails is a deployment pointing at a tag that was never pushed.
+      #
+      # Short form, because where it gets read and typed is a manifest.
+      - id: version
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -135,22 +148,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The commit sha is the version. It is the only tag that still means something
-      # a week later, it is what a deployment manifest names, and it makes a rollback
-      # a one-word edit rather than a rebuild. Short form, because the place it gets
-      # read and typed is a manifest, not a log line.
-      #
-      # `latest` rides along only for running the image by hand. Nothing deployed
-      # should ever reference it — an image that means "whatever was pushed last"
-      # cannot be rolled back to, and makes `kubectl describe` unable to say what is
-      # actually running.
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest
-            type=sha,format=short,prefix=
+            type=raw,value=${{ steps.version.outputs.tag }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -197,3 +201,80 @@ jobs:
           package-name: go-trading
           package-type: container
           min-versions-to-keep: 5
+
+  # The last link. Publishing an image changes nothing on its own — something has to
+  # say "run this one", and that something is a commit in the deployment repository,
+  # because Argo CD reads git and nothing else.
+  #
+  # Writing it from here rather than letting a controller watch the registry keeps the
+  # deployment history in git: who released what, when, in one log.
+  deploy:
+    # publish, not prune. Whether old versions got tidied up has nothing to do with
+    # whether this release should go out.
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      # This job needs nothing from this repository's token. What it writes to is
+      # another repository, and the key for that is a deploy key scoped to it alone
+      # — it can push there and it can do nothing else, anywhere.
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: CodeMachine0121/go-trading-deploy
+          ssh-key: ${{ secrets.DEPLOY_REPO_SSH_KEY }}
+          ref: main
+          # Full history: the push below rebases when it loses a race, and a shallow
+          # clone has nothing to rebase onto.
+          fetch-depth: 0
+
+      - name: Point the deployment at this commit
+        env:
+          IMAGE: ghcr.io/codemachine0121/go-trading
+          TAG: ${{ needs.publish.outputs.tag }}
+          # Through the environment, never interpolated into the script below. A
+          # commit message is text somebody wrote, and `${{ }}` pasted into a shell
+          # line would run whatever that text happens to say.
+          SOURCE_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+
+          # yq rather than sed: it sets the newTag field of the images entry with
+          # this name, not whichever line of the file happens to look right. Adding
+          # a second image later cannot make this edit the wrong one. It is already
+          # on the runner, so there is no version to pin and nothing to install.
+          yq -i "(.images[] | select(.name == strenv(IMAGE)) | .newTag) = strenv(TAG)" \
+            go-trading/kustomization.yaml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add go-trading/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "deployment already points at $TAG"
+            exit 0
+          fi
+
+          SUBJECT=$(printf '%s\n' "$SOURCE_MESSAGE" | head -1)
+          git commit -m "Deploy go-trading $TAG" \
+                     -m "${GITHUB_REPOSITORY}@${GITHUB_SHA}" \
+                     -m "$SUBJECT"
+
+          # Both services write to the same repository, so two releases at once means
+          # one of these pushes arrives second and is refused. Rebase and retry rather
+          # than force: the other push set a different service's version, and both
+          # need to survive.
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "push refused, rebasing onto what landed first (attempt $attempt)"
+            git pull --rebase
+          done
+
+          echo "::error::could not write the deployment update after three attempts"
+          exit 1
