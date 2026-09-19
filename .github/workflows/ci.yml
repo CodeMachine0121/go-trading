@@ -158,7 +158,42 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # provenance/sbom off. Each of them adds a second, untagged manifest to
+          # the package on every push, and on a free account the only thing those
+          # buy here is a faster walk into the storage limit. Turning them off is
+          # also what keeps one push equal to one version, which is the assumption
+          # the prune job below counts on.
+          provenance: false
+          sbom: false
           # Layer cache lives with the workflow, so an unchanged go.mod does not
           # re-download the whole module graph on every push.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Old versions are never deleted by anything else, and the free account this
+  # publishes to has 500 MB to spend on private packages. Left alone, the limit is
+  # reached quietly and the next push simply fails — so the pruning runs on the same
+  # event that causes the growth, rather than on a schedule somebody has to remember.
+  #
+  # It is a separate job so that a successful publish stays green when the prune
+  # fails. A failure here is worth seeing, but it did not break the release.
+  prune:
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Deleting a version needs write, not read. This is the same scope the publish
+      # job already holds, granted separately because this job does a different thing
+      # with it.
+      packages: write
+
+    steps:
+      # Five, not one: a rollback target has to still exist to be rolled back to, and
+      # the version being replaced is exactly the one most likely to be wanted back.
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: go-trading
+          package-type: container
+          min-versions-to-keep: 5
