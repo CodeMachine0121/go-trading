@@ -130,13 +130,13 @@ func (userRepository *UserRepository) ChangePasswordProof(
 			// second one: somebody who changed their password has already proved
 			// who they are, and there is no instant in between where the new
 			// password works but the door is still shut.
+			// Select names all three so that the two being cleared are written
+			// rather than skipped: an update from a struct leaves zero values
+			// alone, and "no wrong passwords" and "not shut" are both zero.
 			replaced := transaction.Model(&entities.User{}).
 				Where(clause.Eq{Column: "id", Value: userID}).
-				Updates(map[string]any{
-					"password_proof":       newPasswordProof,
-					"failed_sign_in_count": 0,
-					"locked_until":         nil,
-				})
+				Select("password_proof", "failed_sign_in_count", "locked_until").
+				Updates(entities.User{PasswordProof: newPasswordProof})
 			if replaced.Error != nil {
 				return fmt.Errorf("change password proof: %w", replaced.Error)
 			}
@@ -168,12 +168,16 @@ func (userRepository *UserRepository) ChangePasswordProof(
 func (userRepository *UserRepository) SaveSignInLockoutState(
 	executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
 ) error {
+	// Both columns are named in Select so that clearing them actually clears them:
+	// an update from a struct skips zero values, and both halves of "nothing held
+	// against this account" are zero.
 	saved := userRepository.database.WithContext(executionContext).
 		Model(&entities.User{}).
 		Where(clause.Eq{Column: "id", Value: userID}).
-		Updates(map[string]any{
-			"failed_sign_in_count": state.FailedSignInCount,
-			"locked_until":         state.LockedUntil,
+		Select("failed_sign_in_count", "locked_until").
+		Updates(entities.User{
+			FailedSignInCount: state.FailedSignInCount,
+			LockedUntil:       state.LockedUntil,
 		})
 	if saved.Error != nil {
 		return fmt.Errorf("save sign in lockout state: %w", saved.Error)
