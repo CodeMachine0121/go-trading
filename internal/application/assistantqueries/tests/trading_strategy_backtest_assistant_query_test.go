@@ -157,12 +157,14 @@ type replayReport struct {
 		PositionOpenCount     int      `json:"positionOpenCount"`
 		ConflictedCandleCount int      `json:"conflictedCandleCount"`
 		TotalTransactionCost  string   `json:"totalTransactionCost"`
+		StopLossExitCount     int      `json:"stopLossExitCount"`
 	} `json:"summary"`
 	ClosedTrades []struct {
-		Direction string `json:"direction"`
-		Profit    string `json:"profit"`
-		EntryCost string `json:"entryCost"`
-		ExitCost  string `json:"exitCost"`
+		Direction  string `json:"direction"`
+		Profit     string `json:"profit"`
+		EntryCost  string `json:"entryCost"`
+		ExitCost   string `json:"exitCost"`
+		ExitReason string `json:"exitReason"`
 	} `json:"closedTrades"`
 }
 
@@ -524,6 +526,58 @@ func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts
 		require.Error(t, runError)
 		assert.ErrorIs(t, runError, domains.ErrBacktestValidation)
 		assert.Empty(t, outcome)
+	})
+}
+
+// Declaring a box is not the same as honouring it. The two exit distances arrived on
+// this capability late, and a schema that offers them while the value goes nowhere
+// would pass every assertion about the schema and still hand back a report card with
+// no stop in it.
+func TestTradingStrategyBacktestAssistantQuerySimulatesTheExitDistancesItWasGiven(t *testing.T) {
+	replayingWith := func(t *testing.T, exitArguments string) replayReport {
+		t.Helper()
+
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(tradingTheWay(vo.TradingModeSpot, "1h"), nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(replaySignals(vo.SignalBuy, vo.SignalHold, vo.SignalHold), nil)
+
+		report, _ := fixture.replay(t, `{
+  "tradingStrategyId": 11,
+  "symbol": "BTCUSDT",
+  "startTime": "2026-09-10T00:00:00Z",
+  "endTime": "2026-09-10T04:00:00Z",
+  "initialCapital": "10100",
+  "positionSizingMode": "allIn"`+exitArguments+`
+}`)
+
+		return report
+	}
+
+	t.Run("naming a stop gets the bet taken off at it", func(t *testing.T) {
+		report := replayingWith(t, `,
+  "stopLossPercentage": "2"`)
+
+		require.Len(t, report.ClosedTrades, 1)
+		assert.Equal(t, string(vo.TradeExitReasonStopLoss), report.ClosedTrades[0].ExitReason)
+		assert.Equal(t, 1, report.Summary.StopLossExitCount)
+		// 101 units bought at 100, taken off at 98.
+		assert.Equal(t, "9898", report.Summary.FinalEquity)
+	})
+
+	t.Run("naming none rides the fall all the way down", func(t *testing.T) {
+		report := replayingWith(t, "")
+
+		assert.Empty(t, report.ClosedTrades)
+		assert.Equal(t, 0, report.Summary.StopLossExitCount)
+		assert.Equal(t, "9090", report.Summary.FinalEquity)
 	})
 }
 
