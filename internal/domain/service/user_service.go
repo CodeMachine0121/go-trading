@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
@@ -29,6 +30,7 @@ type UserService struct {
 	clockProxy         domaininterface.IClockProxy
 	sessionLifetimes   vo.SessionLifetimesVo
 	activationPolicy   vo.AccountActivationPolicyVo
+	lockoutPolicy      vo.SignInLockoutPolicyVo
 }
 
 func NewUserService(
@@ -40,6 +42,7 @@ func NewUserService(
 	clockProxy domaininterface.IClockProxy,
 	sessionLifetimes vo.SessionLifetimesVo,
 	activationPolicy vo.AccountActivationPolicyVo,
+	lockoutPolicy vo.SignInLockoutPolicyVo,
 ) *UserService {
 	return &UserService{
 		userRepository:     userRepository,
@@ -50,6 +53,7 @@ func NewUserService(
 		clockProxy:         clockProxy,
 		sessionLifetimes:   sessionLifetimes,
 		activationPolicy:   activationPolicy,
+		lockoutPolicy:      lockoutPolicy,
 	}
 }
 
@@ -85,6 +89,13 @@ func (userService *UserService) RegisterUser(
 	return domains.NewAccountActivationDomain(savedUser, userService.activationPolicy).ToUserDto(), nil
 }
 
+// signInFailureCountingAttempts is how many times counting one wrong password will
+// look again after another attempt beat it to the row.
+//
+// Three, and not a setting: it is a property of how many writes can be lost in a row,
+// not something an operator tunes.
+const signInFailureCountingAttempts = 3
+
 // SignIn checks a pair and opens a session, handing back the two proofs that session
 // is made of.
 //
@@ -113,11 +124,34 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, findError
 	}
 
+	now := userService.clockProxy.Now()
+	lockout := domains.NewSignInLockoutDomain(user, userService.lockoutPolicy, now)
+
+	// Before the comparison, not after. A shut account that still paid for a bcrypt
+	// comparison on every attempt would be paying exactly the cost this lock exists
+	// to stop — and because the flow turns back here, there is no path from a locked
+	// account to the counting below. "Trying again does not extend the lock" is
+	// therefore not a rule anybody has to keep; it is a road that is not there.
+	if refusal := lockout.Refusal(); refusal != nil {
+		return dto.SessionTokensDto{}, refusal
+	}
+
 	if !userService.passwordProofProxy.Matches(signIn.Password(), user.PasswordProof) {
+		if recordError := userService.countFailedSignIn(executionContext, user); recordError != nil {
+			return dto.SessionTokensDto{}, recordError
+		}
+
 		return dto.SessionTokensDto{}, domains.ErrCredentialsRejected
 	}
 
-	now := userService.clockProxy.Now()
+	// A failure to write this is a failure to sign in, deliberately. Swallowed, the
+	// lock would quietly not exist for as long as the store was unwell, and the one
+	// thing nobody would learn is that it had stopped protecting anything.
+	if recordError := userService.recordSignInOutcome(
+		executionContext, user.ID, user.FailedSignInCount,
+		lockout.AfterSuccess()); recordError != nil {
+		return dto.SessionTokensDto{}, recordError
+	}
 
 	refreshToken, accessToken, materialError := userService.newSessionMaterial(user.ID, now)
 	if materialError != nil {
@@ -143,6 +177,97 @@ func (userService *UserService) SignIn(
 		RefreshToken:          refreshToken,
 		RefreshTokenExpiresAt: savedSession.ExpiresAt,
 	}.ToDto(), nil
+}
+
+// recordSignInOutcome stores what an attempt left behind, and says nothing at all
+// when there was no account to leave it against.
+//
+// The guard is the whole reason this is a method rather than two lines written twice.
+// An address nobody has registered arrives here with an identifier of zero, and a
+// write against zero is a write that names no row — which the store correctly refuses
+// as "no such user", turning a plain wrong-address refusal into a failure. Answering
+// early keeps the promise that an unregistered address leaves no trace and reads
+// exactly like every other wrong pair.
+func (userService *UserService) recordSignInOutcome(
+	executionContext context.Context,
+	userID uint,
+	observedFailedSignInCount int,
+	state vo.SignInLockoutStateVo,
+) error {
+	if userID == 0 {
+		return nil
+	}
+
+	return userService.userRepository.SaveSignInLockoutState(
+		executionContext, userID, observedFailedSignInCount, state)
+}
+
+// countFailedSignIn adds this wrong password to the account's streak, looking again
+// whenever another attempt got there first.
+//
+// Looking again is the point of it. Reading the streak, spending a bcrypt comparison
+// and writing the next number are three moments, and guesses aimed at one address in
+// parallel land inside that gap on purpose: without the retry they would all read the
+// same number and all write the same number, so a hundred guesses would cost one
+// increment and the threshold would never arrive. That is not two people mistyping at
+// once — it is the cheapest way to defeat this lock, and it belongs to exactly the
+// machine the lock exists for.
+//
+// The budget is small and fixed because it does not need to be big: every round that
+// ends in a refused write is a round where somebody else's number did land, so three
+// rounds cannot all be lost while the threshold is three. Running out is not silently
+// forgiven — an attempt nobody could count is an attempt nobody knows about.
+func (userService *UserService) countFailedSignIn(
+	executionContext context.Context, user entities.User,
+) error {
+	for range signInFailureCountingAttempts {
+		lockout := domains.NewSignInLockoutDomain(user, userService.lockoutPolicy,
+			userService.clockProxy.Now())
+
+		// Somebody else shut it while we were looking. The attempt is accounted
+		// for, and counting on top would work out a fresh moment and push the end
+		// of the lock further out — the one thing it must never do.
+		if lockout.Refusal() != nil {
+			return nil
+		}
+
+		nextStanding := lockout.AfterFailure()
+
+		recordError := userService.recordSignInOutcome(
+			executionContext, user.ID, user.FailedSignInCount, nextStanding)
+		if !errors.Is(recordError, domains.ErrSignInLockoutStateStale) {
+			if recordError == nil && nextStanding.LockedUntil != nil {
+				// Only the moment an account is shut, and never the ordinary single
+				// failure. One wrong password is somebody mistyping; three in a row
+				// is an account being guessed at, and that is the one thing here
+				// worth somebody's attention. Logging every failure instead would
+				// build the running tally of failed sign-ins this feature
+				// deliberately does not keep, only somewhere nobody looks after it.
+				log.Printf("sign in lockout: account %d shut until %s after %d consecutive failures",
+					user.ID, nextStanding.LockedUntil.Format(time.RFC3339),
+					nextStanding.FailedSignInCount)
+			}
+
+			return recordError
+		}
+
+		freshUser, findError := userService.userRepository.FindOne(executionContext, user.ID)
+		if findError != nil {
+			return findError
+		}
+		user = freshUser
+	}
+
+	// Out of looks, against a row that has been read once more. Every round lost
+	// here is a round somebody else's number landed in, so by now the account is
+	// usually shut — and a shut account means this attempt is accounted for, which
+	// is the same answer the loop gives when it finds one.
+	if domains.NewSignInLockoutDomain(
+		user, userService.lockoutPolicy, userService.clockProxy.Now()).Refusal() != nil {
+		return nil
+	}
+
+	return domains.ErrSignInLockoutStateStale
 }
 
 // RenewSession trades a renewal proof for a fresh pair, and ends the proof it was

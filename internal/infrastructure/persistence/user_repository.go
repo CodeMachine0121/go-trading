@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -125,9 +126,17 @@ func (userRepository *UserRepository) ChangePasswordProof(
 ) error {
 	return userRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
+			// The lock goes in the same statement as the proof rather than a
+			// second one: somebody who changed their password has already proved
+			// who they are, and there is no instant in between where the new
+			// password works but the door is still shut.
+			// Select names all three so that the two being cleared are written
+			// rather than skipped: an update from a struct leaves zero values
+			// alone, and "no wrong passwords" and "not shut" are both zero.
 			replaced := transaction.Model(&entities.User{}).
 				Where(clause.Eq{Column: "id", Value: userID}).
-				Update("password_proof", newPasswordProof)
+				Select("password_proof", "failed_sign_in_count", "locked_until").
+				Updates(entities.User{PasswordProof: newPasswordProof})
 			if replaced.Error != nil {
 				return fmt.Errorf("change password proof: %w", replaced.Error)
 			}
@@ -148,4 +157,57 @@ func (userRepository *UserRepository) ChangePasswordProof(
 
 			return nil
 		})
+}
+
+// SaveSignInLockoutState records what one attempt at signing in left behind.
+//
+// Both columns are written every time, including the nil that clears the lock. A
+// partial write — the count without the moment, or the other way round — would leave
+// a row saying two things that cannot both be true, and nothing downstream could tell
+// which half to believe.
+func (userRepository *UserRepository) SaveSignInLockoutState(
+	executionContext context.Context,
+	userID uint,
+	observedFailedSignInCount int,
+	state vo.SignInLockoutStateVo,
+) error {
+	// Both columns are named in Select so that clearing them actually clears them:
+	// an update from a struct skips zero values, and both halves of "nothing held
+	// against this account" are zero.
+	//
+	// The second Where is the whole defence against parallel guessing. The caller
+	// read a streak, spent a deliberately slow comparison, and worked out the next
+	// one — so by now the row may say something else, and writing a whole number
+	// over it would throw the other attempt away. Guarding on the number that was
+	// read turns that into a refusal the caller can answer by looking again, which
+	// is the same shape as rotating a session that was already rotated.
+	saved := userRepository.database.WithContext(executionContext).
+		Model(&entities.User{}).
+		Where(clause.Eq{Column: "id", Value: userID}).
+		Where(clause.Eq{Column: "failed_sign_in_count", Value: observedFailedSignInCount}).
+		Select("failed_sign_in_count", "locked_until").
+		Updates(entities.User{
+			FailedSignInCount: state.FailedSignInCount,
+			LockedUntil:       state.LockedUntil,
+		})
+	if saved.Error != nil {
+		return fmt.Errorf("save sign in lockout state: %w", saved.Error)
+	}
+	if saved.RowsAffected == 1 {
+		return nil
+	}
+
+	// Nothing was written, and the two reasons need telling apart: the row moved
+	// under us, or there is no row. A missing user is not a quiet no-op here — the
+	// caller is the sign-in flow recording what just happened, and a record that
+	// reached nobody means the lock silently does not exist for that account.
+	if userRepository.database.WithContext(executionContext).
+		Model(&entities.User{}).
+		Where(clause.Eq{Column: "id", Value: userID}).
+		Limit(1).
+		Find(&entities.User{}).RowsAffected == 0 {
+		return domains.ErrUserNotFound
+	}
+
+	return domains.ErrSignInLockoutStateStale
 }

@@ -44,8 +44,50 @@ var activationPolicy = vo.AccountActivationPolicyVo{
 	SubjectPrefix:  "console access request",
 }
 
+// lockoutPolicy is how tired the door gets in these tests. The numbers are the
+// shipped defaults rather than convenient small ones, so that a scenario reading
+// "the third wrong password" is the third here too.
+var lockoutPolicy = vo.SignInLockoutPolicyVo{
+	FailureThreshold: 3,
+	LockoutDuration:  7 * 24 * time.Hour,
+}
+
+// lockoutExpiry is signInMoment plus the lockout duration, written out rather than
+// computed so that asserting it asserts the requirement and not the code's own sum.
+var lockoutExpiry = time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
+
+// signInOutcomeRecorder catches what each sign-in attempt asked the store to
+// remember about the account's standing with the door.
+//
+// Catching it beats setting an expectation per test for two reasons. The tests that
+// existed before this lock are about something else entirely and should not have to
+// grow a line about it; and the tests that are about it can then assert on the value
+// itself rather than on a call having happened, which is the difference between
+// "something was written" and "three, and shut until next Saturday".
+type signInOutcomeRecorder struct {
+	states  []vo.SignInLockoutStateVo
+	userIDs []uint
+	// observedCounts is the streak each write guarded on — the value the caller had
+	// read and counted from.
+	observedCounts []int
+	// failure is what the store answers instead of accepting the write, for the
+	// tests about an unwell store.
+	failure error
+	// staleWrites is how many of the next writes are refused as counted from a
+	// streak that has since moved, for the tests about attempts arriving together.
+	staleWrites int
+}
+
+func (recorder *signInOutcomeRecorder) only(t *testing.T) vo.SignInLockoutStateVo {
+	t.Helper()
+	require.Len(t, recorder.states, 1, "一次登入只該寫回一次狀態")
+
+	return recorder.states[0]
+}
+
 type userApplicationUnderTest struct {
 	userApplication    *application.UserApplication
+	signInOutcome      *signInOutcomeRecorder
 	userRepository     *mocks.MockIUserRepository
 	sessionRepository  *mocks.MockISessionRepository
 	passwordProofProxy *mocks.MockIPasswordProofProxy
@@ -69,12 +111,36 @@ func newUserApplicationUnderTest(
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(signInMoment).AnyTimes()
 
+	signInOutcome := &signInOutcomeRecorder{}
+	userRepository.EXPECT().
+		SaveSignInLockoutState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, userID uint, observedFailedSignInCount int,
+			state vo.SignInLockoutStateVo,
+		) error {
+			if signInOutcome.failure != nil {
+				return signInOutcome.failure
+			}
+			if signInOutcome.staleWrites > 0 {
+				signInOutcome.staleWrites--
+
+				return domains.ErrSignInLockoutStateStale
+			}
+			signInOutcome.userIDs = append(signInOutcome.userIDs, userID)
+			signInOutcome.observedCounts = append(
+				signInOutcome.observedCounts, observedFailedSignInCount)
+			signInOutcome.states = append(signInOutcome.states, state)
+
+			return nil
+		}).AnyTimes()
+
 	return userApplicationUnderTest{
+		signInOutcome: signInOutcome,
 		userApplication: application.NewUserApplication(
 			service.NewUserService(
 				userRepository, sessionRepository, passwordProofProxy,
 				accessTokenProxy, refreshTokenProxy, clockProxy, lifetimes,
-				activationPolicy)),
+				activationPolicy, lockoutPolicy)),
 		userRepository:     userRepository,
 		sessionRepository:  sessionRepository,
 		passwordProofProxy: passwordProofProxy,
@@ -1333,5 +1399,399 @@ func TestUserApplicationChangePassword(t *testing.T) {
 			dto.PasswordChangeDto{CurrentPassword: "correct horse", NewPassword: "battery staple"})
 
 		require.NoError(t, err)
+	})
+}
+
+// anAccountWithStanding is a stored user carrying what decides a lockout outcome:
+// the streak behind it and the moment it is shut until.
+func anAccountWithStanding(failedSignInCount int, lockedUntil *time.Time) entities.User {
+	user := aStoredUser(7, "james@example.com")
+	user.FailedSignInCount = failedSignInCount
+	user.LockedUntil = lockedUntil
+
+	return user
+}
+
+func shutUntilMoment(moment time.Time) *time.Time {
+	return &moment
+}
+
+func TestUserApplicationSignInLockout(t *testing.T) {
+	t.Run("a wrong password on a clean account is counted and nothing more", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 1, state.FailedSignInCount)
+		assert.Nil(t, state.LockedUntil, "第一次猜錯還不該被鎖住")
+	})
+
+	t.Run("the third wrong password shuts the account for a week", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(2, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		// That attempt is itself refused. There is no moment where the count has
+		// reached the threshold and somebody is still being let through.
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 3, state.FailedSignInCount)
+		require.NotNil(t, state.LockedUntil)
+		assert.Equal(t, lockoutExpiry, *state.LockedUntil)
+	})
+
+	t.Run("getting the third one right shuts nothing and clears the streak", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(2, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
+		fixture.expectSessionOpened()
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.NoError(t, err)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 0, state.FailedSignInCount)
+		assert.Nil(t, state.LockedUntil)
+	})
+
+	t.Run("a shut account is refused without its password being looked at", func(t *testing.T) {
+		// The password proxy has no expectation set, so gomock fails the test if it
+		// is called at all. That single absence carries two requirements: the lock
+		// is checked before the deliberately slow comparison, and a shut account
+		// never reaches the counting — so "trying again does not extend the lock" is
+		// a road that is not there rather than a rule somebody has to keep.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrSignInLocked)
+		var locked domains.SignInLockedError
+		require.ErrorAs(t, err, &locked)
+		assert.Equal(t, lockoutExpiry, locked.LockedUntil)
+		assert.Empty(t, fixture.signInOutcome.states, "鎖住期間不該再寫回任何狀態")
+	})
+
+	t.Run("the right password during the lock is refused just the same", func(t *testing.T) {
+		// A lock with a way past it is decoration.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrSignInLocked)
+		assert.Empty(t, fixture.signInOutcome.states)
+	})
+
+	t.Run("a lock ending exactly now lets the right password through", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(3, shutUntilMoment(signInMoment)), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
+		fixture.expectSessionOpened()
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.NoError(t, err)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 0, state.FailedSignInCount)
+		assert.Nil(t, state.LockedUntil)
+	})
+
+	t.Run("the first wrong password after a served lock counts as one again", func(t *testing.T) {
+		// Otherwise somebody who sat out a whole week would get one attempt back
+		// rather than three.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(3, shutUntilMoment(signInMoment.Add(-time.Second))), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 1, state.FailedSignInCount)
+		assert.Nil(t, state.LockedUntil)
+	})
+
+	t.Run("an address nobody has registered is never shut and leaves nothing behind",
+		func(t *testing.T) {
+			// It also still pays for the comparison. Refusing sooner than a real one
+			// would answer "no account holds that address" in a timing difference
+			// nobody wrote down.
+			fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+			fixture.userRepository.EXPECT().
+				FindOneByEmail(gomock.Any(), gomock.Any()).
+				Return(entities.User{}, domains.ErrUserNotFound).
+				Times(5)
+			fixture.passwordProofProxy.EXPECT().
+				Matches(gomock.Any(), gomock.Any()).
+				Return(false).
+				Times(5)
+
+			for range 5 {
+				_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+				require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+				require.NotErrorIs(t, err, domains.ErrSignInLocked,
+					"不存在的電子郵件試幾次都不該變成被鎖住的那句話")
+			}
+			assert.Empty(t, fixture.signInOutcome.states,
+				"沒有這個帳號，就沒有任何東西該被記下來")
+		})
+
+	t.Run("somebody nobody has let in is shut just the same", func(t *testing.T) {
+		// Being let in and being shut out are unrelated questions.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		waiting := anAccountWithStanding(2, nil)
+		waiting.IsEnabled = false
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(waiting, nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 3, state.FailedSignInCount)
+		assert.NotNil(t, state.LockedUntil)
+	})
+
+	t.Run("a store that cannot remember the failure fails the sign-in", func(t *testing.T) {
+		// Swallowed, the lock would quietly not exist for as long as the store was
+		// unwell, and the one thing nobody would learn is that it had stopped
+		// protecting anything.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.failure = errors.New("store is unwell")
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(2, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrCredentialsRejected,
+			"記不下來與密碼不對是兩件事，回同一句會讓這道鎖悄悄消失")
+	})
+
+	t.Run("a store that cannot remember the success hands out no session", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.failure = errors.New("store is unwell")
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(2, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
+
+		sessionTokensDto, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.Error(t, err)
+		assert.Empty(t, sessionTokensDto.AccessToken)
+	})
+}
+
+func TestUserApplicationLockingAnAccountLeavesWhoeverIsAlreadyInsideAlone(t *testing.T) {
+	// The lock is on getting a fresh proof of identity, not on the people already
+	// holding one. Throwing them out would end nothing a machine guessing passwords
+	// is doing, while interrupting whatever the account holder had running.
+	//
+	// Both paths get there by never reading the lock at all, which is exactly why
+	// these two tests exist: the next person to maintain this will feel that a shut
+	// account ought not to be able to renew, and nothing else would turn red.
+	t.Run("a shut account still renews its proof of identity", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.expectDigestLookup()
+		fixture.sessionRepository.EXPECT().
+			FindOneByDigest(gomock.Any(), "a-refresh-token-digest").
+			Return(aStoredSession(), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil)
+		fixture.refreshTokenProxy.EXPECT().
+			Mint().
+			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
+		fixture.accessTokenProxy.EXPECT().
+			Issue(uint(7), accessTokenExpiry).
+			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token", ExpiresAt: accessTokenExpiry}, nil)
+		fixture.sessionRepository.EXPECT().
+			Rotate(gomock.Any(), uint(11), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uint, next entities.Session) (entities.Session, error) {
+				next.ID = 12
+				return next, nil
+			})
+
+		sessionTokensDto, err := fixture.userApplication.RenewSession(t.Context(), aRenewal())
+
+		require.NoError(t, err)
+		assert.NotErrorIs(t, err, domains.ErrSignInLocked)
+		assert.Equal(t, "a-newer-signed-token", sessionTokensDto.AccessToken)
+	})
+
+	t.Run("a shut account can still sign itself out", func(t *testing.T) {
+		// Being unable to leave is a worse position than being unable to get in.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.expectDigestLookup()
+		fixture.sessionRepository.EXPECT().
+			FindOneByDigest(gomock.Any(), "a-refresh-token-digest").
+			Return(aStoredSession(), nil)
+		fixture.sessionRepository.EXPECT().RevokeChain(gomock.Any(), "a-chain").Return(nil)
+
+		require.NoError(t, fixture.userApplication.RevokeSession(t.Context(), aRenewal()))
+	})
+}
+
+func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *testing.T) {
+	t.Run("a streak that moved underneath is counted against what it says now", func(t *testing.T) {
+		// Reading the streak, spending a bcrypt comparison and writing the next
+		// number are three moments, and a second attempt on the same address lands
+		// inside that gap on purpose. Writing the stale number over it would throw
+		// the other attempt away — a hundred guesses for the price of one.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 1
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		// The row as it actually stands now: somebody else already counted one.
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(anAccountWithStanding(1, nil), nil)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 2, state.FailedSignInCount,
+			"要從它現在真正的數字往上加，不是從我們讀到的那個")
+		assert.Equal(t, []int{1}, fixture.signInOutcome.observedCounts,
+			"寫入必須守在讀到的那個數字上，否則就是覆蓋別人的計數")
+	})
+
+	t.Run("the third of three arriving together still shuts the account", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 1
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(anAccountWithStanding(2, nil), nil)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		state := fixture.signInOutcome.only(t)
+		assert.Equal(t, 3, state.FailedSignInCount)
+		require.NotNil(t, state.LockedUntil, "並行進來的猜測一樣要觸發鎖定")
+		assert.Equal(t, lockoutExpiry, *state.LockedUntil)
+	})
+
+	t.Run("an account somebody else just shut is left exactly as they shut it", func(t *testing.T) {
+		// Counting on top would work out a fresh moment and push the end of the lock
+		// further out — the one thing it must never do, because that is how somebody
+		// who knows an address holds its owner out forever.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 1
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(2, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
+		assert.Empty(t, fixture.signInOutcome.states,
+			"已經被鎖住了就不再寫——再寫一次會把解除時刻往後推")
+	})
+
+	t.Run("a store that cannot be looked at again fails the sign-in", func(t *testing.T) {
+		// Looking again is how the attempt gets counted at all. A store that cannot
+		// answer the second look has left this guess uncounted, and pretending
+		// otherwise would hand back a plain wrong-password refusal while the lock
+		// quietly fell one guess behind what actually happened.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 1
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(entities.User{}, errors.New("store is unwell"))
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrCredentialsRejected)
+	})
+
+	t.Run("an attempt nobody could count fails the sign-in rather than vanishing", func(t *testing.T) {
+		// Running out of looks is not silently forgiven: an attempt that was never
+		// counted is an attempt nobody knows about, and the lock would be quietly
+		// short of the guesses that actually happened.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 99
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(anAccountWithStanding(1, nil), nil).
+			AnyTimes()
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domains.ErrCredentialsRejected)
+	})
+
+	t.Run("running out of looks against a shut account is not a failure", func(t *testing.T) {
+		// Every round lost is a round somebody else's number landed in, so a shut
+		// account by the end means this attempt is accounted for — the same answer
+		// the loop gives when it finds one mid-way. Answering "the store broke"
+		// would hand a plain wrong password an error about the system.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.signInOutcome.staleWrites = 99
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(anAccountWithStanding(0, nil), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
+		gomock.InOrder(
+			fixture.userRepository.EXPECT().
+				FindOne(gomock.Any(), uint(7)).
+				Return(anAccountWithStanding(1, nil), nil).Times(2),
+			fixture.userRepository.EXPECT().
+				FindOne(gomock.Any(), uint(7)).
+				Return(anAccountWithStanding(3, shutUntilMoment(lockoutExpiry)), nil),
+		)
+
+		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.ErrorIs(t, err, domains.ErrCredentialsRejected,
+			"帳號已經被別人鎖住了，這一次就是一次單純的密碼錯誤")
 	})
 }

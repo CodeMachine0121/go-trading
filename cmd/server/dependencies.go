@@ -67,6 +67,10 @@ func registerRoutes(
 				RequestMailbox: applicationConfig.AccountActivation.RequestMailbox,
 				SubjectPrefix:  applicationConfig.AccountActivation.SubjectPrefix,
 			},
+			vo.SignInLockoutPolicyVo{
+				FailureThreshold: applicationConfig.SignInLockout.FailureThreshold,
+				LockoutDuration:  applicationConfig.SignInLockout.LockoutDuration,
+			},
 		),
 	)
 

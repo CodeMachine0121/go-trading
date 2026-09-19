@@ -59,6 +59,7 @@ func doorOpenFor(t *testing.T, viewerID uint) gin.HandlerFunc {
 				clockProxy,
 				vo.SessionLifetimesVo{AccessToken: 15 * time.Minute, RefreshToken: 30 * 24 * time.Hour},
 				testActivationPolicy,
+				vo.SignInLockoutPolicyVo{FailureThreshold: 3, LockoutDuration: 7 * 24 * time.Hour},
 			),
 		),
 	).Handle

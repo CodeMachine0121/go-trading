@@ -211,3 +211,49 @@ func TestLoadReadsWhereToAskToBeLetIn(t *testing.T) {
 		"gatekeeper@example.com", applicationConfig.AccountActivation.RequestMailbox)
 	assert.Equal(t, "console access request", applicationConfig.AccountActivation.SubjectPrefix)
 }
+
+func TestLoadAppliesSignInLockoutDefaultsWhenNothingIsSet(t *testing.T) {
+	applicationConfig := config.Load()
+
+	assert.Equal(t, 3, applicationConfig.SignInLockout.FailureThreshold)
+	assert.Equal(t, 7*24*time.Hour, applicationConfig.SignInLockout.LockoutDuration,
+		"單位是天。寫成小時會讓一週的鎖安靜地變成七小時")
+}
+
+func TestLoadReadsHowTiredTheSignInDoorGets(t *testing.T) {
+	t.Setenv("AUTH_SIGN_IN_FAILURE_THRESHOLD", "5")
+	t.Setenv("AUTH_SIGN_IN_LOCKOUT_DAYS", "2")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t, 5, applicationConfig.SignInLockout.FailureThreshold)
+	assert.Equal(t, 48*time.Hour, applicationConfig.SignInLockout.LockoutDuration)
+}
+
+func TestLoadRefusesToLetAnybodySwitchTheSignInLockOff(t *testing.T) {
+	// A threshold of zero would shut every account on sight; a negative one, or a
+	// duration of zero, would open the door to unlimited guessing. Both fall back,
+	// so this lock has no "off" — which is the point, on an endpoint the whole
+	// internet can reach.
+	testCases := []struct {
+		name      string
+		threshold string
+		days      string
+	}{
+		{name: "zero", threshold: "0", days: "0"},
+		{name: "negative", threshold: "-1", days: "-7"},
+		{name: "not a number", threshold: "off", days: "never"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("AUTH_SIGN_IN_FAILURE_THRESHOLD", testCase.threshold)
+			t.Setenv("AUTH_SIGN_IN_LOCKOUT_DAYS", testCase.days)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, 3, applicationConfig.SignInLockout.FailureThreshold)
+			assert.Equal(t, 7*24*time.Hour, applicationConfig.SignInLockout.LockoutDuration)
+		})
+	}
+}

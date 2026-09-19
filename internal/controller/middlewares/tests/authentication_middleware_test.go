@@ -63,6 +63,7 @@ func newDoorUnderTest(t *testing.T, storedUser entities.User, proofIsGood bool) 
 				mocks.NewMockIClockProxy(mockController),
 				vo.SessionLifetimesVo{AccessToken: 15 * time.Minute, RefreshToken: 30 * 24 * time.Hour},
 				gatekeeping,
+				vo.SignInLockoutPolicyVo{FailureThreshold: 3, LockoutDuration: 7 * 24 * time.Hour},
 			),
 		),
 	)
