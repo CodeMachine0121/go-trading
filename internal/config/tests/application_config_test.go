@@ -189,3 +189,25 @@ func TestLoadGivesTheAssistantEnoughQueriesToFinishWhatItStarted(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAppliesAccountActivationDefaultsWhenNothingIsSet(t *testing.T) {
+	applicationConfig := config.Load()
+
+	// Both have a default, unlike the two keys, and the difference is that neither
+	// is a key. A mailbox anybody can guess gives nothing away; refusing to start
+	// for want of one would take the console down over a setting that guards nothing.
+	assert.Equal(t,
+		"james.afternoon.dev@gmail.com", applicationConfig.AccountActivation.RequestMailbox)
+	assert.Equal(t, "go-trading 開通申請", applicationConfig.AccountActivation.SubjectPrefix)
+}
+
+func TestLoadReadsWhereToAskToBeLetIn(t *testing.T) {
+	t.Setenv("ACCOUNT_ACTIVATION_REQUEST_MAILBOX", "gatekeeper@example.com")
+	t.Setenv("ACCOUNT_ACTIVATION_SUBJECT_PREFIX", "console access request")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t,
+		"gatekeeper@example.com", applicationConfig.AccountActivation.RequestMailbox)
+	assert.Equal(t, "console access request", applicationConfig.AccountActivation.SubjectPrefix)
+}

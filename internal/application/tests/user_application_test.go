@@ -36,6 +36,14 @@ var sessionLifetimes = vo.SessionLifetimesVo{
 	RefreshToken: 30 * 24 * time.Hour,
 }
 
+// activationPolicy is where these tests pretend letters asking to be let in are sent.
+// It is a stand-in address on purpose: what the tests are about is that the subject
+// line is assembled from whatever the setting says, not about any particular inbox.
+var activationPolicy = vo.AccountActivationPolicyVo{
+	RequestMailbox: "gatekeeper@example.com",
+	SubjectPrefix:  "console access request",
+}
+
 type userApplicationUnderTest struct {
 	userApplication    *application.UserApplication
 	userRepository     *mocks.MockIUserRepository
@@ -65,7 +73,8 @@ func newUserApplicationUnderTest(
 		userApplication: application.NewUserApplication(
 			service.NewUserService(
 				userRepository, sessionRepository, passwordProofProxy,
-				accessTokenProxy, refreshTokenProxy, clockProxy, lifetimes)),
+				accessTokenProxy, refreshTokenProxy, clockProxy, lifetimes,
+				activationPolicy)),
 		userRepository:     userRepository,
 		sessionRepository:  sessionRepository,
 		passwordProofProxy: passwordProofProxy,
@@ -111,6 +120,14 @@ func aStoredUser(id uint, email string) entities.User {
 	}
 }
 
+// aLetInUser is the same row after somebody let them in.
+func aLetInUser(id uint, email string) entities.User {
+	user := aStoredUser(id, email)
+	user.IsEnabled = true
+
+	return user
+}
+
 func TestUserApplicationRegisterUser(t *testing.T) {
 	t.Run("turns the password into a proof and stores what came back", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
@@ -130,6 +147,47 @@ func TestUserApplicationRegisterUser(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uint(7), userDto.ID)
 		assert.Equal(t, "james@example.com", userDto.Email)
+	})
+
+	t.Run("nobody arrives already let in", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.passwordProofProxy.EXPECT().Prove(gomock.Any()).Return("a-password-proof", nil)
+		fixture.userRepository.EXPECT().
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, user entities.User) (entities.User, error) {
+				// The registration has nowhere to put this, so the row can only ever
+				// arrive at storage waiting — which is why nobody can ask to skip
+				// the queue.
+				assert.False(t, user.IsEnabled)
+
+				return aStoredUser(7, user.Email), nil
+			})
+
+		userDto, err := fixture.userApplication.RegisterUser(t.Context(), aRegistrationDto())
+
+		require.NoError(t, err)
+		assert.False(t, userDto.IsEnabled)
+	})
+
+	t.Run("says where to write and what to put in the subject", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.passwordProofProxy.EXPECT().Prove(gomock.Any()).Return("a-password-proof", nil)
+		fixture.userRepository.EXPECT().
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, user entities.User) (entities.User, error) {
+				return aStoredUser(7, user.Email), nil
+			})
+
+		// Typed with padding and capitals; the subject has to carry the spelling the
+		// account is stored under, because that is what the person reading the inbox
+		// matches on.
+		userDto, err := fixture.userApplication.RegisterUser(t.Context(), aRegistrationDto())
+
+		require.NoError(t, err)
+		require.NotNil(t, userDto.ActivationInstruction)
+		assert.Equal(t, "gatekeeper@example.com", userDto.ActivationInstruction.RequestMailbox)
+		assert.Equal(t,
+			"console access request：james@example.com", userDto.ActivationInstruction.Subject)
 	})
 
 	t.Run("refuses an address that is not one without touching anything", func(t *testing.T) {
@@ -225,6 +283,31 @@ func TestUserApplicationSignIn(t *testing.T) {
 		// value would defeat the point of storing a digest at all.
 		assert.Equal(t, "a-refresh-token", sessionTokensDto.RefreshToken)
 		assert.Equal(t, refreshTokenExpiry, sessionTokensDto.RefreshTokenExpiresAt)
+	})
+
+	t.Run("lets in somebody who has not been let in yet", func(t *testing.T) {
+		// Stopping them here would leave them with no way to see their own standing,
+		// and nothing to do but sign in again — which will never tell them anything.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(aStoredUser(7, "james@example.com"), nil)
+		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
+		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
+		fixture.accessTokenProxy.EXPECT().
+			Issue(gomock.Any(), gomock.Any()).
+			Return(vo.AccessTokenVo{AccessToken: "a-signed-token"}, nil)
+		fixture.sessionRepository.EXPECT().
+			Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, session entities.Session) (entities.Session, error) {
+				session.ID = 11
+				return session, nil
+			})
+
+		sessionTokensDto, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
+
+		require.NoError(t, err)
+		assert.Equal(t, "a-signed-token", sessionTokensDto.AccessToken)
 	})
 
 	t.Run("stores a session holding the digest, never the proof itself", func(t *testing.T) {
@@ -480,6 +563,169 @@ func TestUserApplicationIdentifyUser(t *testing.T) {
 
 		require.ErrorIs(t, err, storageFailure)
 		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	t.Run("answers somebody still waiting, and says what to do about it", func(t *testing.T) {
+		// This question is deliberately the one that does not refuse them: it is the
+		// only way somebody waiting can find out that they no longer are.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aStoredUser(7, "james@example.com"), nil)
+
+		userDto, err := fixture.userApplication.IdentifyUser(t.Context(), "a-signed-token")
+
+		require.NoError(t, err)
+		assert.False(t, userDto.IsEnabled)
+		require.NotNil(t, userDto.ActivationInstruction)
+		assert.Equal(t,
+			"console access request：james@example.com", userDto.ActivationInstruction.Subject)
+	})
+
+	t.Run("stops saying it once they have been let in", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aLetInUser(7, "james@example.com"), nil)
+
+		userDto, err := fixture.userApplication.IdentifyUser(t.Context(), "a-signed-token")
+
+		require.NoError(t, err)
+		assert.True(t, userDto.IsEnabled)
+		assert.Nil(t, userDto.ActivationInstruction)
+	})
+}
+
+func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
+	t.Run("hands over somebody who has been let in", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aLetInUser(7, "james@example.com"), nil)
+
+		userDto, err := fixture.userApplication.IdentifyActivatedUser(t.Context(), "a-signed-token")
+
+		require.NoError(t, err)
+		assert.Equal(t, uint(7), userDto.ID)
+		assert.True(t, userDto.IsEnabled)
+	})
+
+	t.Run("refuses somebody still waiting, carrying what to do about it", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aStoredUser(7, "james@example.com"), nil)
+
+		_, err := fixture.userApplication.IdentifyActivatedUser(t.Context(), "a-signed-token")
+
+		require.ErrorIs(t, err, domains.ErrAccountNotActivated)
+
+		var notActivated domains.AccountNotActivatedError
+		require.ErrorAs(t, err, &notActivated)
+		assert.Equal(t, "gatekeeper@example.com", notActivated.Instruction.RequestMailbox)
+		assert.Equal(t,
+			"console access request：james@example.com", notActivated.Instruction.Subject)
+	})
+
+	t.Run("not being let in is never reported as needing to sign in", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aStoredUser(7, "james@example.com"), nil)
+
+		_, err := fixture.userApplication.IdentifyActivatedUser(t.Context(), "a-signed-token")
+
+		// Told to sign in again, somebody merely waiting would sign in successfully
+		// and land in exactly the same place.
+		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	t.Run("a proof nobody can read is refused before activation is looked at", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			accessToken string
+			proofFails  bool
+		}{
+			{name: "nothing was presented", accessToken: ""},
+			{name: "the proof was tampered with", accessToken: "a-tampered-token", proofFails: true},
+		}
+
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+				if testCase.proofFails {
+					fixture.accessTokenProxy.EXPECT().
+						UserIdentifiedBy(gomock.Any()).
+						Return(uint(0), domains.ErrAuthenticationRequired)
+				}
+
+				_, err := fixture.userApplication.IdentifyActivatedUser(
+					t.Context(), testCase.accessToken)
+
+				// Saying "your account is not activated yet" here would say something
+				// about an account nobody managed to identify.
+				require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+				assert.NotErrorIs(t, err, domains.ErrAccountNotActivated)
+			})
+		}
+	})
+
+	t.Run("a valid proof for somebody who is gone means signing in again", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy(gomock.Any()).Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(entities.User{}, domains.ErrUserNotFound)
+
+		_, err := fixture.userApplication.IdentifyActivatedUser(t.Context(), "a-signed-token")
+
+		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+		assert.NotErrorIs(t, err, domains.ErrAccountNotActivated)
+	})
+
+	t.Run("storage being broken is not dressed up as either refusal", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		storageFailure := errors.New("find user: connection closed")
+		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy(gomock.Any()).Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(entities.User{}, storageFailure)
+
+		_, err := fixture.userApplication.IdentifyActivatedUser(t.Context(), "a-signed-token")
+
+		require.ErrorIs(t, err, storageFailure)
+		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
+		assert.NotErrorIs(t, err, domains.ErrAccountNotActivated)
+	})
+
+	t.Run("the same proof starts working the moment somebody is let in", func(t *testing.T) {
+		// Standing is read afresh every time rather than signed into the proof, so
+		// being let in takes effect without anybody signing in again.
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().
+			UserIdentifiedBy("a-signed-token").Return(uint(7), nil).Times(2)
+		gomock.InOrder(
+			fixture.userRepository.EXPECT().
+				FindOne(gomock.Any(), uint(7)).
+				Return(aStoredUser(7, "james@example.com"), nil),
+			fixture.userRepository.EXPECT().
+				FindOne(gomock.Any(), uint(7)).
+				Return(aLetInUser(7, "james@example.com"), nil),
+		)
+
+		_, beforeError := fixture.userApplication.IdentifyActivatedUser(
+			t.Context(), "a-signed-token")
+		userDto, afterError := fixture.userApplication.IdentifyActivatedUser(
+			t.Context(), "a-signed-token")
+
+		require.ErrorIs(t, beforeError, domains.ErrAccountNotActivated)
+		require.NoError(t, afterError)
+		assert.True(t, userDto.IsEnabled)
 	})
 }
 

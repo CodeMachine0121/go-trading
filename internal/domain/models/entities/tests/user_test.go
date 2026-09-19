@@ -14,12 +14,25 @@ func TestUserToDtoHandsOutWhoTheyAreAndNothingElse(t *testing.T) {
 		ID:            7,
 		Email:         "james@example.com",
 		PasswordProof: "$2a$12$XnhfeGHwjLbM/cah350NkOeZnpiIZUnm8UF4w3HoxjbuZbxdkrzl6",
+		IsEnabled:     true,
 	}
 
 	userDto := user.ToDto()
 
 	assert.Equal(t, uint(7), userDto.ID)
 	assert.Equal(t, "james@example.com", userDto.Email)
+	assert.True(t, userDto.IsEnabled)
+}
+
+func TestUserToDtoCarriesStillWaitingToBeLetIn(t *testing.T) {
+	user := entities.User{ID: 7, Email: "james@example.com"}
+
+	userDto := user.ToDto()
+
+	assert.False(t, userDto.IsEnabled)
+	// The row knows it is waiting; it does not know what to do about it, because
+	// that needs an address nobody stores on a user.
+	assert.Nil(t, userDto.ActivationInstruction)
 }
 
 func TestUserDtoCarriesNoTraceOfThePasswordProof(t *testing.T) {
@@ -35,7 +48,8 @@ func TestUserDtoCarriesNoTraceOfThePasswordProof(t *testing.T) {
 	encodedUserDto, err := json.Marshal(user.ToDto())
 
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"id":7,"email":"james@example.com"}`, string(encodedUserDto))
+	assert.JSONEq(t,
+		`{"id":7,"email":"james@example.com","isEnabled":false}`, string(encodedUserDto))
 }
 
 func TestUserIsStoredInItsOwnTable(t *testing.T) {
