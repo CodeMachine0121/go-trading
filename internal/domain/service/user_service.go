@@ -124,11 +124,6 @@ func (userService *UserService) SignIn(
 	// to stop — and because the flow turns back here, there is no path from a locked
 	// account to the counting below. "Trying again does not extend the lock" is
 	// therefore not a rule anybody has to keep; it is a road that is not there.
-	//
-	// Nobody holding this address reaches this with a zero-valued user, whose lock
-	// is absent, so the decoy comparison below still happens and still takes its
-	// time. What does not happen is any of the recording: a user identifier of zero
-	// matches no row, and an address that is not an account leaves nothing behind.
 	if refusal := lockout.Refusal(); refusal != nil {
 		return dto.SessionTokensDto{}, refusal
 	}
