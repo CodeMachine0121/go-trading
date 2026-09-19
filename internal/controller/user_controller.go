@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
@@ -208,8 +209,17 @@ func (userController *UserController) respondWithError(ginContext *gin.Context, 
 	// where the truth here is that this caller has tried too often and what they
 	// have to do is wait. The moment they can stop waiting is already in the
 	// message, put there by the domain.
-	if errors.Is(err, domains.ErrSignInLocked) {
-		ginContext.JSON(http.StatusTooManyRequests, gin.H{"message": err.Error()})
+	//
+	// The moment travels as a field of its own as well as inside the sentence.
+	// A caller that has to show it in the reader's own timezone would otherwise
+	// have to pick it back out of a sentence written for a person — and the day
+	// somebody rewords that sentence, the parsing quietly stops finding it.
+	var signInLocked domains.SignInLockedError
+	if errors.As(err, &signInLocked) {
+		ginContext.JSON(http.StatusTooManyRequests, gin.H{
+			"message":     signInLocked.Error(),
+			"lockedUntil": signInLocked.LockedUntil.UTC().Format(time.RFC3339),
+		})
 		return
 	}
 	// The password given as the one in force was not the one in force. It is 403

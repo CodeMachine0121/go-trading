@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -268,9 +269,17 @@ func TestUserRouterSignIn(t *testing.T) {
 
 		require.Equal(t, http.StatusTooManyRequests, recorder.Code)
 		// The moment has to reach the person, or they will come back every few
-		// minutes for a week to find out whether it is over yet.
-		assert.Contains(t, recorder.Body.String(), "2026-09-12")
-		assert.NotContains(t, recorder.Body.String(), "電子郵件或密碼不正確",
+		// minutes for a week to find out whether it is over yet. It travels as a
+		// field of its own so that a caller showing it in the reader's own timezone
+		// never has to pick it out of a sentence written for a person.
+		var body struct {
+			Message     string `json:"message"`
+			LockedUntil string `json:"lockedUntil"`
+		}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+		assert.Equal(t, "2026-09-12T08:00:00Z", body.LockedUntil)
+		assert.Contains(t, body.Message, "2026-09-12")
+		assert.NotContains(t, body.Message, "電子郵件或密碼不正確",
 			"被鎖住與密碼不對是兩句不同的話")
 	})
 
