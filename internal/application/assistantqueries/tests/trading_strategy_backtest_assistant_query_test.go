@@ -3,6 +3,7 @@ package assistantqueries_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,10 +156,13 @@ type replayReport struct {
 		WinRate               *float64 `json:"winRate"`
 		PositionOpenCount     int      `json:"positionOpenCount"`
 		ConflictedCandleCount int      `json:"conflictedCandleCount"`
+		TotalTransactionCost  string   `json:"totalTransactionCost"`
 	} `json:"summary"`
 	ClosedTrades []struct {
 		Direction string `json:"direction"`
 		Profit    string `json:"profit"`
+		EntryCost string `json:"entryCost"`
+		ExitCost  string `json:"exitCost"`
 	} `json:"closedTrades"`
 }
 
@@ -439,6 +443,116 @@ func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheRulesSayTheyTrade(
 		// a whole one.
 		assert.Empty(t, outcome)
 	})
+}
+
+// What a broker charges is the assistant's to say, unlike the mode: a set of rules
+// has no opinion about it, and the person asking "does this still make money after
+// fees" is asking a question only this capability can answer.
+//
+// The two exit distances are here for the same reason, and they arrived late: the
+// capability was built without them, which left the assistant handing back a report
+// card the person could not reproduce from the screen. Three doors into one replay
+// have to offer the same boxes, or the difference between two report cards says
+// nothing about the strategy.
+func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts(t *testing.T) {
+	replayingWith := func(t *testing.T, costArguments string) replayReport {
+		t.Helper()
+
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(tradingTheWay(vo.TradingModeSpot, "1h"), nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
+
+		report, _ := fixture.replay(t, `{
+  "tradingStrategyId": 11,
+  "symbol": "BTCUSDT",
+  "startTime": "2026-09-10T00:00:00Z",
+  "endTime": "2026-09-10T04:00:00Z",
+  "initialCapital": "10100",
+  "positionSizingMode": "allIn"`+costArguments+`
+}`)
+
+		return report
+	}
+
+	t.Run("naming rates charges them", func(t *testing.T) {
+		report := replayingWith(t, `,
+  "entryCostPercentage": "1",
+  "exitCostPercentage": "1"`)
+
+		assert.Equal(t, "11880", report.Summary.FinalEquity)
+		assert.Equal(t, "220", report.Summary.TotalTransactionCost)
+		require.Len(t, report.ClosedTrades, 1)
+		assert.Equal(t, "100", report.ClosedTrades[0].EntryCost)
+		assert.Equal(t, "120", report.ClosedTrades[0].ExitCost)
+		assert.Equal(t, "1780", report.ClosedTrades[0].Profit)
+	})
+
+	t.Run("naming none leaves the report card exactly as it was", func(t *testing.T) {
+		report := replayingWith(t, "")
+
+		assert.Equal(t, "12120", report.Summary.FinalEquity)
+		assert.Equal(t, "0", report.Summary.TotalTransactionCost)
+		require.Len(t, report.ClosedTrades, 1)
+		assert.Equal(t, "2020", report.ClosedTrades[0].Profit)
+	})
+
+	t.Run("a rate nobody could charge is refused, and nothing partial gets through", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(aReplayableTradingStrategy("1h"), nil)
+
+		outcome, runError := fixture.backtestAssistantQuery.Run(
+			t.Context(), assistantViewerID, `{
+  "tradingStrategyId": 11,
+  "symbol": "BTCUSDT",
+  "startTime": "2026-09-10T00:00:00Z",
+  "endTime": "2026-09-10T04:00:00Z",
+  "initialCapital": "10100",
+  "positionSizingMode": "allIn",
+  "entryCostPercentage": "-1"
+}`)
+
+		require.Error(t, runError)
+		assert.ErrorIs(t, runError, domains.ErrBacktestValidation)
+		assert.Empty(t, outcome)
+	})
+}
+
+// Four boxes the assistant may fill and none it must. A required cost rate would make
+// every replay an argument about fees; an absent one would make the assistant guess.
+func TestTradingStrategyBacktestAssistantQueryOffersCostsAndExitsWithoutDemandingThem(t *testing.T) {
+	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+
+	argumentSchema := fixture.backtestAssistantQuery.ArgumentSchema()
+
+	// The schema is assembled by hand out of string pieces, so the first thing worth
+	// asserting is that it is still a document at all. A broken one does not fail
+	// here — it fails wherever the assistant is told about its tools, far from the
+	// edit that broke it.
+	require.True(t, json.Valid([]byte(argumentSchema)), "argument schema is not valid JSON")
+
+	requiredArguments := argumentSchema[strings.Index(argumentSchema, `"required":`):]
+	for _, optionalArgument := range []string{
+		"entryCostPercentage", "exitCostPercentage",
+		"stopLossPercentage", "takeProfitPercentage",
+	} {
+		assert.Contains(t, argumentSchema, optionalArgument)
+		assert.NotContains(t, requiredArguments, optionalArgument)
+	}
+
+	// It also has to know that leaving them out is not neutral — a report card with no
+	// fees in it is the one that flatters a strategy that trades constantly.
+	assert.Contains(t, fixture.backtestAssistantQuery.Description(), "totalTransactionCost")
+	assert.Contains(t, fixture.backtestAssistantQuery.Description(), "淨額")
 }
 
 // The assistant cannot name a mode here, and has to be told where the answer lives
