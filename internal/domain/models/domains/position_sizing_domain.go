@@ -105,25 +105,41 @@ func (positionSizingDomain PositionSizingDomain) Value() decimal.Decimal {
 	return positionSizingDomain.value
 }
 
-// StakeFor is what this opening puts down given the cash on hand, and whether it can
-// be put down at all.
+// StakeFor is what this opening puts down given the cash on hand and what trading
+// costs, and whether it can be put down at all.
 //
 // The second answer is not an error. A fixed amount the account cannot currently
 // cover means this one opening does not happen — the replay carries on, and the
 // account may well afford the next one. Reporting it as a failure would end a run
 // over something that is a perfectly ordinary way for a strategy script to behave.
+//
+// Affording it means affording the stake **and** the charge for putting it down, and
+// that is one comparison rather than three because the costs hand over a single
+// ceiling to measure every mode against. Staking everything means staking that
+// ceiling: the cash becomes the trade, not the position, so the position ends up a
+// little smaller than the cash and nothing is left owing. The other two modes name a
+// figure the caller typed, and a typed figure is honoured or skipped, never quietly
+// shrunk — which is why a hundred percent and "everything" part ways once there is a
+// charge, exactly as a fixed amount equal to the cash already does.
+//
+// It takes the costs rather than a ceiling already worked out so that the one caller
+// with nothing to pay says so in its own words: a bot's position plan hands over the
+// zero value, and that line is the only place the decision to leave live advice alone
+// is visible. A number would have made the same thing read like a coincidence.
 func (positionSizingDomain PositionSizingDomain) StakeFor(
-	availableCash decimal.Decimal,
+	availableCash decimal.Decimal, transactionCosts BacktestTransactionCostsDomain,
 ) (decimal.Decimal, bool) {
+	maximumStake := transactionCosts.MaximumStakeFrom(availableCash)
+
 	if positionSizingDomain.mode == vo.PositionSizingModeFixedAmount {
 		return positionSizingDomain.value,
-			positionSizingDomain.value.LessThanOrEqual(availableCash)
+			positionSizingDomain.value.LessThanOrEqual(maximumStake)
 	}
 
-	stake := availableCash
+	stake := maximumStake
 	if positionSizingDomain.mode == vo.PositionSizingModePercentage {
 		stake = availableCash.Mul(positionSizingDomain.value).Div(oneHundredPercent)
 	}
 
-	return stake, stake.IsPositive()
+	return stake, stake.IsPositive() && stake.LessThanOrEqual(maximumStake)
 }

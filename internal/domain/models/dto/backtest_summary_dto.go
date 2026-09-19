@@ -29,6 +29,21 @@ type BacktestSummaryDto struct {
 	// stretch of market that empties it. Without these, those two read identically.
 	StopLossExitCount   int `json:"stopLossExitCount"`
 	TakeProfitExitCount int `json:"takeProfitExitCount"`
+	// TotalTransactionCost is everything this replay paid for the act of trading:
+	// both charges on every finished round trip, plus the entry charge already paid
+	// on a position still open at the end. It is zero when no rates were given.
+	//
+	// It is on the report card because one return rate tells two different stories: a
+	// strategy that cannot read the market, and one that reads it well enough but
+	// hands the winnings to the broker. Without this figure those two look identical,
+	// and only one of them is worth another afternoon.
+	//
+	// Two things it deliberately does not do. It does not include the charge a still
+	// open position would pay on the way out — that money has not moved, so the final
+	// equity beside it is one exit charge too kind. And it knows nothing of a
+	// per-order minimum fee, so very small orders are charged less here than a real
+	// broker would charge.
+	TotalTransactionCost decimal.Decimal `json:"totalTransactionCost"`
 	// ConflictedCandleCount is how many candles had both conditions holding at once.
 	// Those candles do nothing — picking a side would hand somebody an opinion the
 	// system invented — and this is the only way they ever find out.

@@ -32,6 +32,12 @@ type TradingStrategyBacktestRequest struct {
 	// through, and the same set of rules is worth replaying against several answers.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
+	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
+	// act of trading. Asked for here rather than read off the trading strategy for
+	// the same reason the exit distances are: a set of rules has no opinion about
+	// what its owner's broker charges.
+	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
+	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
 }
 
 // ToRequestDto turns the request into the shape the domain accepts. The signal
@@ -47,5 +53,7 @@ func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategy
 		PositionSizingValue:  request.PositionSizingValue,
 		StopLossPercentage:   request.StopLossPercentage,
 		TakeProfitPercentage: request.TakeProfitPercentage,
+		EntryCostPercentage:  request.EntryCostPercentage,
+		ExitCostPercentage:   request.ExitCostPercentage,
 	}
 }

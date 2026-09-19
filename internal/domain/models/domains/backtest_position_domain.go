@@ -26,6 +26,19 @@ type BacktestPositionDomain struct {
 	stake      decimal.Decimal
 	unitCount  decimal.Decimal
 	exitPrices vo.ExitPricesVo
+	// transactionCosts travels with the position for the same reason the exit prices
+	// do: what this bet costs to get out of is settled by the rates the run was given,
+	// and reading them from somewhere else later would let a position be charged at a
+	// rate it was never opened under.
+	transactionCosts BacktestTransactionCostsDomain
+	// entryCost is money already gone, worked out once at entry and kept.
+	//
+	// Kept rather than derived again for the reason the unit count is: a second
+	// multiplication is a second chance to disagree with the first, and this figure is
+	// the only record that the account has already paid it. The running total of what
+	// a replay spent asks a position still open what it cost to open, and this is the
+	// answer.
+	entryCost decimal.Decimal
 }
 
 // NewBacktestPositionDomain opens a position at a candle's close.
@@ -39,19 +52,28 @@ func NewBacktestPositionDomain(
 	entryPrice decimal.Decimal,
 	stake decimal.Decimal,
 	exitLevels BacktestExitLevelsDomain,
+	transactionCosts BacktestTransactionCostsDomain,
 ) (BacktestPositionDomain, bool) {
 	if !entryPrice.IsPositive() || !stake.IsPositive() {
 		return BacktestPositionDomain{}, false
 	}
 
 	return BacktestPositionDomain{
-		direction:  direction,
-		entryTime:  entryTime.UTC(),
-		entryPrice: entryPrice,
-		stake:      stake,
-		unitCount:  stake.Div(entryPrice),
-		exitPrices: exitLevels.PricesFrom(direction, entryPrice),
+		direction:        direction,
+		entryTime:        entryTime.UTC(),
+		entryPrice:       entryPrice,
+		stake:            stake,
+		unitCount:        stake.Div(entryPrice),
+		exitPrices:       exitLevels.PricesFrom(direction, entryPrice),
+		transactionCosts: transactionCosts,
+		entryCost:        transactionCosts.EntryCostFor(stake),
 	}, true
+}
+
+// EntryCost is what was already paid to open this bet. A replay given no rates paid
+// nothing, and answers zero.
+func (backtestPositionDomain BacktestPositionDomain) EntryCost() decimal.Decimal {
+	return backtestPositionDomain.entryCost
 }
 
 func (backtestPositionDomain BacktestPositionDomain) Direction() vo.PositionDirectionVo {
@@ -76,6 +98,13 @@ func (backtestPositionDomain BacktestPositionDomain) ProfitAt(
 // whatever it has made or lost. It is the same figure whether the position is being
 // closed or merely valued at the end of a candle, which is why an open position and a
 // closed one contribute to the equity curve through one expression rather than two.
+//
+// It is deliberately gross of the cost of getting out. That cost has not been paid
+// while the position is open, and taking it off every candle would draw an equity
+// curve describing something that has not happened. The account subtracts it at the
+// one moment it becomes real — see BacktestAccountDomain.settleOpenPosition. The
+// price of that honesty is that a replay ending with a position still open reports a
+// final equity one exit charge too kind, which the report card says out loud.
 func (backtestPositionDomain BacktestPositionDomain) ValueAt(
 	price decimal.Decimal,
 ) decimal.Decimal {
@@ -159,9 +188,26 @@ func reachedBy(
 // Why it ended travels with it rather than being inferred by whoever built it: an
 // exit price alone cannot say whether it was a stop or the signal that happened to
 // land on the same figure.
+//
+// What it cost to get out is worked out here, against the money that actually changed
+// hands: the units this bet holds, at the price it left at. That is **not** what the
+// position was worth — for a short, leaving a hundred units at 90 hands over 9000
+// while the bet itself is worth 11000. Charging the second figure would be wrong on
+// every short and on no long, which is the kind of wrong nobody finds by reading the
+// numbers.
+//
+// The profit it leaves behind is net of both charges, because that is what the money
+// actually did. Everything downstream reads it that way without being told: a round
+// trip that gained less than it cost stops counting as a win, and the win rate stops
+// flattering a strategy that scalps a third of a percent in a market that charges
+// nearly half of one. Both charges travel alongside it, so gross is always one
+// addition away.
 func (backtestPositionDomain BacktestPositionDomain) ClosedAt(
 	exitTime time.Time, exitPrice decimal.Decimal, exitReason vo.TradeExitReasonVo,
 ) vo.ClosedTradeVo {
+	exitCost := backtestPositionDomain.transactionCosts.ExitCostFor(
+		backtestPositionDomain.unitCount.Mul(exitPrice))
+
 	return vo.ClosedTradeVo{
 		Direction:  backtestPositionDomain.direction,
 		EntryTime:  backtestPositionDomain.entryTime,
@@ -169,7 +215,10 @@ func (backtestPositionDomain BacktestPositionDomain) ClosedAt(
 		ExitTime:   exitTime.UTC(),
 		ExitPrice:  exitPrice,
 		Stake:      backtestPositionDomain.stake,
-		Profit:     backtestPositionDomain.ProfitAt(exitPrice),
+		EntryCost:  backtestPositionDomain.entryCost,
+		ExitCost:   exitCost,
+		Profit: backtestPositionDomain.ProfitAt(exitPrice).
+			Sub(backtestPositionDomain.entryCost).Sub(exitCost),
 		ExitReason: exitReason,
 	}
 }

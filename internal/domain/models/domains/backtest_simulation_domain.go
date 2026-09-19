@@ -18,11 +18,12 @@ import (
 // what may be replayed change; this one changes when the rules about trading change —
 // fees, stops, filling at the next candle's open. Two reasons to change, two models.
 type BacktestSimulationDomain struct {
-	initialCapital decimal.Decimal
-	positionSizing PositionSizingDomain
-	tradingMode    TradingModeDomain
-	exitLevels     BacktestExitLevelsDomain
-	inputKCandles  []vo.KCandleVo
+	initialCapital   decimal.Decimal
+	positionSizing   PositionSizingDomain
+	tradingMode      TradingModeDomain
+	exitLevels       BacktestExitLevelsDomain
+	transactionCosts BacktestTransactionCostsDomain
+	inputKCandles    []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
 	// candle. The script runner produces one signal per candle or fails the whole
 	// replay, so by here the two lists are always the same length.
@@ -38,16 +39,18 @@ func NewBacktestSimulationDomain(
 	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
 	exitLevels BacktestExitLevelsDomain,
+	transactionCosts BacktestTransactionCostsDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
 ) BacktestSimulationDomain {
 	return BacktestSimulationDomain{
-		initialCapital: initialCapital,
-		positionSizing: positionSizing,
-		tradingMode:    tradingMode,
-		exitLevels:     exitLevels,
-		inputKCandles:  inputKCandles,
-		signals:        signals,
+		initialCapital:   initialCapital,
+		positionSizing:   positionSizing,
+		tradingMode:      tradingMode,
+		exitLevels:       exitLevels,
+		transactionCosts: transactionCosts,
+		inputKCandles:    inputKCandles,
+		signals:          signals,
 	}
 }
 
@@ -61,7 +64,8 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		backtestSimulationDomain.initialCapital,
 		backtestSimulationDomain.positionSizing,
 		backtestSimulationDomain.tradingMode,
-		backtestSimulationDomain.exitLevels)
+		backtestSimulationDomain.exitLevels,
+		backtestSimulationDomain.transactionCosts)
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
 	for candleIndex, inputKCandle := range backtestSimulationDomain.inputKCandles {
@@ -93,6 +97,9 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		// replay made before there were distances to give.
 		StopLossExitCount:   account.ExitCountFor(vo.TradeExitReasonStopLoss),
 		TakeProfitExitCount: account.ExitCountFor(vo.TradeExitReasonTakeProfit),
+		// Zero for a replay given no rates, which is every replay made before there
+		// were rates to give.
+		TotalTransactionCost: account.TotalTransactionCost(),
 	}
 	// The win rate stays absent when nothing was ever closed, which is what keeps "no
 	// trades" from being reported as "every trade lost".

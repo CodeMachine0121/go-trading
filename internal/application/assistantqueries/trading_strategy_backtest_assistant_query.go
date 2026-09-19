@@ -32,6 +32,21 @@ type tradingStrategyBacktestAssistantArguments struct {
 	// figure that goes with it. Staking everything needs no figure.
 	PositionSizingMode  string `json:"positionSizingMode"`
 	PositionSizingValue string `json:"positionSizingValue"`
+	// StopLossPercentage and TakeProfitPercentage are the two exit distances this run
+	// simulates, and EntryCostPercentage and ExitCostPercentage what the act of
+	// trading costs at each end. All four are optional; left out, nothing is
+	// simulated and nothing is charged.
+	//
+	// They are here because the assistant's whole job is a loop — build the rules,
+	// replay, read the report card, adjust — and the two most valuable adjustments in
+	// it are hanging a stop and putting the real fees in. An entry point missing them
+	// would hand back a different report card from the one the person gets for the
+	// same settings, with nothing on the page to say the difference came from which
+	// door was used.
+	StopLossPercentage   string `json:"stopLossPercentage"`
+	TakeProfitPercentage string `json:"takeProfitPercentage"`
+	EntryCostPercentage  string `json:"entryCostPercentage"`
+	ExitCostPercentage   string `json:"exitCostPercentage"`
 }
 
 // ToRequestDto turns what the assistant declared into the shape the domain replays,
@@ -43,12 +58,16 @@ type tradingStrategyBacktestAssistantArguments struct {
 // mistake.
 func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
-		Symbol:              arguments.Symbol,
-		StartTime:           arguments.StartTime,
-		EndTime:             arguments.EndTime,
-		InitialCapital:      decimalOrZero(arguments.InitialCapital),
-		PositionSizingMode:  arguments.PositionSizingMode,
-		PositionSizingValue: decimalOrZero(arguments.PositionSizingValue),
+		Symbol:               arguments.Symbol,
+		StartTime:            arguments.StartTime,
+		EndTime:              arguments.EndTime,
+		InitialCapital:       decimalOrZero(arguments.InitialCapital),
+		PositionSizingMode:   arguments.PositionSizingMode,
+		PositionSizingValue:  decimalOrZero(arguments.PositionSizingValue),
+		StopLossPercentage:   decimalOrZero(arguments.StopLossPercentage),
+		TakeProfitPercentage: decimalOrZero(arguments.TakeProfitPercentage),
+		EntryCostPercentage:  decimalOrZero(arguments.EntryCostPercentage),
+		ExitCostPercentage:   decimalOrZero(arguments.ExitCostPercentage),
 	}
 }
 
@@ -162,6 +181,13 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		"成績單裡的「打架棒數」(conflictedCandleCount) 一定要看：它是買入與賣出同時成立的棒數，" +
 		"那幾棒一律不動作。兩百棒裡打架一百八十棒的交易策略，成績單會很漂亮（幾乎沒有交易），" +
 		"但那代表它根本沒有在做決定，不是它很穩。" +
+		"止損止盈（stopLossPercentage／takeProfitPercentage）不給就不模擬，" +
+		"成績單會是照「一路抱到訊號叫你走」算出來的。" +
+		"交易成本（entryCostPercentage／exitCostPercentage）不給就當交易免費——那會讓成績單偏樂觀，" +
+		"而且交易越頻繁偏得越多：台股一趟進出約 0.47%，一年兩百趟光成本就吃掉六成本金。" +
+		"使用者問「扣掉手續費還賺嗎」，或在比較兩支交易頻率差很多的策略時，一定要把費率填進去再跑一次。" +
+		"成績單的 totalTransactionCost 是這次總共付掉多少；每一筆交易的 profit 已經是扣掉成本後的淨額，" +
+		"勝率也是照淨額算的。" +
 		"重演的是過去，不是對未來的保證；結果不留存，每次問都重算一遍。"
 }
 
@@ -174,7 +200,11 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		`"initialCapital":{"type":"string","description":"手上一開始有多少錢，以字串給精確數字（例如 \"500000\"），必須大於零"},` +
 		`"positionSizingMode":{"type":"string","enum":["allIn","percentage","fixedAmount"],` +
 		`"description":"每次開倉押多少：allIn 全押（不必給 positionSizingValue）、percentage 押帳戶的百分之幾、fixedAmount 每次押固定金額"},` +
-		`"positionSizingValue":{"type":"string","description":"配合 positionSizingMode 的數字，以字串給（percentage 給 0 到 100、fixedAmount 給金額）；allIn 時不必給"}` +
+		`"positionSizingValue":{"type":"string","description":"配合 positionSizingMode 的數字，以字串給（percentage 給 0 到 100、fixedAmount 給金額）；allIn 時不必給"},` +
+		`"stopLossPercentage":{"type":"string","description":"止損價離進場價幾個百分點，以字串給（例如 \"2\"）。不給就不模擬止損；0 到 100"},` +
+		`"takeProfitPercentage":{"type":"string","description":"止盈價離進場價幾個百分點，以字串給。不給就不模擬止盈；0 到 100"},` +
+		`"entryCostPercentage":{"type":"string","description":"開倉付的手續費，佔押注金額的百分之幾，以字串給（台股手續費六折約 \"0.0855\"、幣安約 \"0.1\"）。不給就當交易免費；0 到 100"},` +
+		`"exitCostPercentage":{"type":"string","description":"平倉付的手續費與稅，佔成交金額的百分之幾，以字串給（台股六折含證交稅約 \"0.3855\"）。不給就跟 entryCostPercentage 一樣；0 到 100"}` +
 		`},"required":["tradingStrategyId","symbol","startTime","endTime","initialCapital","positionSizingMode"],` +
 		`"additionalProperties":false}`
 }

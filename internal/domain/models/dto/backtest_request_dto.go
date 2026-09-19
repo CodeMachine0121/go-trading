@@ -47,4 +47,15 @@ type BacktestRequestDto struct {
 	// sitting there deciding what they can sit through.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal
+	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
+	// each end, as a percentage of the money that changes hands. Both are optional
+	// and zero means no charge on that side — except that leaving the exit out is
+	// read as "the same as the entry", because the two are the halves of one thing
+	// rather than two separate things.
+	//
+	// They travel with the run for the same reason the capital and the exit distances
+	// do: a strategy script has no opinion about what a broker charges, and the same
+	// script is worth replaying against more than one answer.
+	EntryCostPercentage decimal.Decimal
+	ExitCostPercentage  decimal.Decimal
 }
