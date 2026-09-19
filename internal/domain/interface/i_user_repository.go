@@ -60,7 +60,17 @@ type IUserRepository interface {
 	// account's next state is worked out in one place by the domain. A store that
 	// offered "add one" and "clear" separately would be offering the two halves of
 	// a decision that is only ever made whole.
+	//
+	// observedFailedSignInCount is the streak the caller counted from, and the write only
+	// lands while the row still says that. Anything else is refused with
+	// ErrSignInLockoutStateStale rather than overwritten, because the caller worked
+	// its number out from a row that has since moved: attempts fired at one address
+	// in parallel would otherwise all read the same streak and all write the same
+	// streak, and a hundred guesses would cost one.
 	SaveSignInLockoutState(
-		executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
+		executionContext context.Context,
+		userID uint,
+		observedFailedSignInCount int,
+		state vo.SignInLockoutStateVo,
 	) error
 }

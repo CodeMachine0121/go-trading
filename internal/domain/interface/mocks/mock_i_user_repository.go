@@ -102,15 +102,15 @@ func (mr *MockIUserRepositoryMockRecorder) Save(executionContext, user any) *gom
 }
 
 // SaveSignInLockoutState mocks base method.
-func (m *MockIUserRepository) SaveSignInLockoutState(executionContext context.Context, userID uint, state vo.SignInLockoutStateVo) error {
+func (m *MockIUserRepository) SaveSignInLockoutState(executionContext context.Context, userID uint, observedFailedSignInCount int, state vo.SignInLockoutStateVo) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SaveSignInLockoutState", executionContext, userID, state)
+	ret := m.ctrl.Call(m, "SaveSignInLockoutState", executionContext, userID, observedFailedSignInCount, state)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SaveSignInLockoutState indicates an expected call of SaveSignInLockoutState.
-func (mr *MockIUserRepositoryMockRecorder) SaveSignInLockoutState(executionContext, userID, state any) *gomock.Call {
+func (mr *MockIUserRepositoryMockRecorder) SaveSignInLockoutState(executionContext, userID, observedFailedSignInCount, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSignInLockoutState", reflect.TypeOf((*MockIUserRepository)(nil).SaveSignInLockoutState), executionContext, userID, state)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSignInLockoutState", reflect.TypeOf((*MockIUserRepository)(nil).SaveSignInLockoutState), executionContext, userID, observedFailedSignInCount, state)
 }

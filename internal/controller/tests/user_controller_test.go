@@ -48,7 +48,7 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 	// code comes back, so the recording is allowed and not inspected — what it holds
 	// is asserted where the rule lives, not here at the edge.
 	userRepository.EXPECT().
-		SaveSignInLockoutState(gomock.Any(), gomock.Any(), gomock.Any()).
+		SaveSignInLockoutState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
 	userController := controller.NewUserController(

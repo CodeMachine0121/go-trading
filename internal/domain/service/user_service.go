@@ -88,6 +88,13 @@ func (userService *UserService) RegisterUser(
 	return domains.NewAccountActivationDomain(savedUser, userService.activationPolicy).ToUserDto(), nil
 }
 
+// signInFailureCountingAttempts is how many times counting one wrong password will
+// look again after another attempt beat it to the row.
+//
+// Three, and not a setting: it is a property of how many writes can be lost in a row,
+// not something an operator tunes.
+const signInFailureCountingAttempts = 3
+
 // SignIn checks a pair and opens a session, handing back the two proofs that session
 // is made of.
 //
@@ -129,8 +136,7 @@ func (userService *UserService) SignIn(
 	}
 
 	if !userService.passwordProofProxy.Matches(signIn.Password(), user.PasswordProof) {
-		if recordError := userService.recordSignInOutcome(
-			executionContext, user.ID, lockout.AfterFailure()); recordError != nil {
+		if recordError := userService.countFailedSignIn(executionContext, user); recordError != nil {
 			return dto.SessionTokensDto{}, recordError
 		}
 
@@ -141,7 +147,8 @@ func (userService *UserService) SignIn(
 	// lock would quietly not exist for as long as the store was unwell, and the one
 	// thing nobody would learn is that it had stopped protecting anything.
 	if recordError := userService.recordSignInOutcome(
-		executionContext, user.ID, lockout.AfterSuccess()); recordError != nil {
+		executionContext, user.ID, user.FailedSignInCount,
+		lockout.AfterSuccess()); recordError != nil {
 		return dto.SessionTokensDto{}, recordError
 	}
 
@@ -181,13 +188,62 @@ func (userService *UserService) SignIn(
 // early keeps the promise that an unregistered address leaves no trace and reads
 // exactly like every other wrong pair.
 func (userService *UserService) recordSignInOutcome(
-	executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
+	executionContext context.Context,
+	userID uint,
+	observedFailedSignInCount int,
+	state vo.SignInLockoutStateVo,
 ) error {
 	if userID == 0 {
 		return nil
 	}
 
-	return userService.userRepository.SaveSignInLockoutState(executionContext, userID, state)
+	return userService.userRepository.SaveSignInLockoutState(
+		executionContext, userID, observedFailedSignInCount, state)
+}
+
+// countFailedSignIn adds this wrong password to the account's streak, looking again
+// whenever another attempt got there first.
+//
+// Looking again is the point of it. Reading the streak, spending a bcrypt comparison
+// and writing the next number are three moments, and guesses aimed at one address in
+// parallel land inside that gap on purpose: without the retry they would all read the
+// same number and all write the same number, so a hundred guesses would cost one
+// increment and the threshold would never arrive. That is not two people mistyping at
+// once — it is the cheapest way to defeat this lock, and it belongs to exactly the
+// machine the lock exists for.
+//
+// The budget is small and fixed because it does not need to be big: every round that
+// ends in a refused write is a round where somebody else's number did land, so three
+// rounds cannot all be lost while the threshold is three. Running out is not silently
+// forgiven — an attempt nobody could count is an attempt nobody knows about.
+func (userService *UserService) countFailedSignIn(
+	executionContext context.Context, user entities.User,
+) error {
+	for range signInFailureCountingAttempts {
+		lockout := domains.NewSignInLockoutDomain(user, userService.lockoutPolicy,
+			userService.clockProxy.Now())
+
+		// Somebody else shut it while we were looking. The attempt is accounted
+		// for, and counting on top would work out a fresh moment and push the end
+		// of the lock further out — the one thing it must never do.
+		if lockout.Refusal() != nil {
+			return nil
+		}
+
+		recordError := userService.recordSignInOutcome(
+			executionContext, user.ID, user.FailedSignInCount, lockout.AfterFailure())
+		if !errors.Is(recordError, domains.ErrSignInLockoutStateStale) {
+			return recordError
+		}
+
+		freshUser, findError := userService.userRepository.FindOne(executionContext, user.ID)
+		if findError != nil {
+			return findError
+		}
+		user = freshUser
+	}
+
+	return domains.ErrSignInLockoutStateStale
 }
 
 // RenewSession trades a renewal proof for a fresh pair, and ends the proof it was

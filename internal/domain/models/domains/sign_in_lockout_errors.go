@@ -16,6 +16,21 @@ import (
 // spend the week believing they had forgotten it.
 var ErrSignInLocked = errors.New("這個帳號因為連續登入失敗已被鎖住")
 
+// ErrSignInLockoutStateStale says somebody else counted an attempt against this
+// account between it being read and it being written.
+//
+// It exists because the streak is read, added to in memory, and written back as a
+// whole number — three moments with a deliberately slow password comparison in the
+// middle. Without a guard, attempts fired at one address in parallel all read the
+// same number and all write the same number, so a hundred guesses cost one, and the
+// threshold is never reached. That is not a rare collision between two people
+// mistyping at once; it is the cheapest way to defeat this lock, and it is available
+// to exactly the tireless machine the lock exists for.
+//
+// It never reaches a caller: the sign-in flow answers it by reading the row again
+// and counting against what it actually says now.
+var ErrSignInLockoutStateStale = errors.New("這次登入的計數已被另一次登入改寫")
+
 // SignInLockedError is that refusal carrying the moment it ends.
 //
 // The moment travels inside the error for the same reason the activation

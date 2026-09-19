@@ -2,8 +2,11 @@ package persistence_test
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -300,7 +303,7 @@ func TestUserRepositorySavesAndClearsWhatAnAttemptLeftBehind(t *testing.T) {
 	require.NoError(t, saveError)
 	shutUntil := time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC)
 
-	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID,
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID, 0,
 		vo.SignInLockoutStateVo{FailedSignInCount: 3, LockedUntil: &shutUntil}))
 
 	shutUser, findError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
@@ -311,7 +314,7 @@ func TestUserRepositorySavesAndClearsWhatAnAttemptLeftBehind(t *testing.T) {
 
 	// Clearing has to reach both columns. A count left at three beside an absent
 	// moment would shut the account again on the very next mistake.
-	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID,
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID, 3,
 		vo.SignInLockoutStateVo{FailedSignInCount: 0, LockedUntil: nil}))
 
 	clearedUser, refindError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
@@ -325,7 +328,7 @@ func TestUserRepositoryRefusesToRecordAnAttemptAgainstNobody(t *testing.T) {
 	// account, and the sign-in flow that asked would carry on believing it does.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 
-	recordError := userRepository.SaveSignInLockoutState(t.Context(), 4242,
+	recordError := userRepository.SaveSignInLockoutState(t.Context(), 4242, 0,
 		vo.SignInLockoutStateVo{FailedSignInCount: 1})
 
 	require.ErrorIs(t, recordError, domains.ErrUserNotFound)
@@ -339,7 +342,7 @@ func TestUserRepositoryChangingThePasswordAlsoOpensTheDoor(t *testing.T) {
 	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
 	require.NoError(t, saveError)
 	shutUntil := time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC)
-	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID,
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID, 0,
 		vo.SignInLockoutStateVo{FailedSignInCount: 3, LockedUntil: &shutUntil}))
 
 	require.NoError(t, userRepository.ChangePasswordProof(
@@ -364,10 +367,82 @@ func TestUserRepositorySaysSoWhenTheStoreCannotRecordAnAttempt(t *testing.T) {
 	cancelledContext, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	recordError := userRepository.SaveSignInLockoutState(cancelledContext, savedUser.ID,
+	recordError := userRepository.SaveSignInLockoutState(cancelledContext, savedUser.ID, 0,
 		vo.SignInLockoutStateVo{FailedSignInCount: 1})
 
 	require.Error(t, recordError)
 	assert.NotErrorIs(t, recordError, domains.ErrUserNotFound,
 		"寫不進去與查無此人是兩件事")
+}
+
+func TestUserRepositoryRefusesAWriteCountedFromAStreakThatHasSinceMoved(t *testing.T) {
+	// Two attempts on one address read the same streak, and the slow password
+	// comparison between reading and writing is where the second one lands. Letting
+	// both write their number would throw one of them away, which is how a hundred
+	// parallel guesses come to cost a single increment.
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID, 0,
+		vo.SignInLockoutStateVo{FailedSignInCount: 1}))
+
+	staleError := userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID, 0,
+		vo.SignInLockoutStateVo{FailedSignInCount: 1})
+
+	require.ErrorIs(t, staleError, domains.ErrSignInLockoutStateStale)
+	assert.NotErrorIs(t, staleError, domains.ErrUserNotFound,
+		"這一列還在，只是變了——與查無此人是兩件事，上游對它們的反應不同")
+
+	unchangedUser, findError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
+	require.NoError(t, findError)
+	assert.Equal(t, 1, unchangedUser.FailedSignInCount, "被拒絕的那一次不得改動任何東西")
+}
+
+func TestUserRepositoryLosesNoAttemptWhenManyArriveAtOnce(t *testing.T) {
+	// The whole point of the guard, stated as the thing it protects: fire a batch of
+	// attempts at one address at once, have each one count against the streak it
+	// actually read, and every single attempt must be accounted for. Without the
+	// guard they would all read zero, all write one, and ninety-nine guesses would
+	// be free.
+	const attemptCount = 100
+
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	var attempts sync.WaitGroup
+	var counted atomic.Int64
+	for range attemptCount {
+		attempts.Add(1)
+		go func() {
+			defer attempts.Done()
+			// Each attempt keeps looking until its own increment lands, which is
+			// what the sign-in flow does with its retry budget.
+			for {
+				current, findError := userRepository.FindOne(t.Context(), savedUser.ID)
+				if findError != nil {
+					return
+				}
+				writeError := userRepository.SaveSignInLockoutState(
+					t.Context(), savedUser.ID, current.FailedSignInCount,
+					vo.SignInLockoutStateVo{FailedSignInCount: current.FailedSignInCount + 1})
+				if writeError == nil {
+					counted.Add(1)
+
+					return
+				}
+				if !errors.Is(writeError, domains.ErrSignInLockoutStateStale) {
+					return
+				}
+			}
+		}()
+	}
+	attempts.Wait()
+
+	finalUser, findError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
+	require.NoError(t, findError)
+	assert.Equal(t, int64(attemptCount), counted.Load(), "每一次嘗試都要被算到")
+	assert.Equal(t, attemptCount, finalUser.FailedSignInCount,
+		"同時打進來的猜測不得互相覆蓋——否則一百次猜測只花掉一次")
 }

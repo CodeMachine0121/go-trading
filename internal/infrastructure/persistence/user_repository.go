@@ -166,14 +166,25 @@ func (userRepository *UserRepository) ChangePasswordProof(
 // a row saying two things that cannot both be true, and nothing downstream could tell
 // which half to believe.
 func (userRepository *UserRepository) SaveSignInLockoutState(
-	executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
+	executionContext context.Context,
+	userID uint,
+	observedFailedSignInCount int,
+	state vo.SignInLockoutStateVo,
 ) error {
 	// Both columns are named in Select so that clearing them actually clears them:
 	// an update from a struct skips zero values, and both halves of "nothing held
 	// against this account" are zero.
+	//
+	// The second Where is the whole defence against parallel guessing. The caller
+	// read a streak, spent a deliberately slow comparison, and worked out the next
+	// one — so by now the row may say something else, and writing a whole number
+	// over it would throw the other attempt away. Guarding on the number that was
+	// read turns that into a refusal the caller can answer by looking again, which
+	// is the same shape as rotating a session that was already rotated.
 	saved := userRepository.database.WithContext(executionContext).
 		Model(&entities.User{}).
 		Where(clause.Eq{Column: "id", Value: userID}).
+		Where(clause.Eq{Column: "failed_sign_in_count", Value: observedFailedSignInCount}).
 		Select("failed_sign_in_count", "locked_until").
 		Updates(entities.User{
 			FailedSignInCount: state.FailedSignInCount,
@@ -182,12 +193,21 @@ func (userRepository *UserRepository) SaveSignInLockoutState(
 	if saved.Error != nil {
 		return fmt.Errorf("save sign in lockout state: %w", saved.Error)
 	}
-	// Nobody by that identifier is not a quiet no-op here. The caller is the sign-in
-	// flow recording what just happened, and a record that reached nobody means the
-	// lock silently does not exist for that account.
-	if saved.RowsAffected == 0 {
+	if saved.RowsAffected == 1 {
+		return nil
+	}
+
+	// Nothing was written, and the two reasons need telling apart: the row moved
+	// under us, or there is no row. A missing user is not a quiet no-op here — the
+	// caller is the sign-in flow recording what just happened, and a record that
+	// reached nobody means the lock silently does not exist for that account.
+	if userRepository.database.WithContext(executionContext).
+		Model(&entities.User{}).
+		Where(clause.Eq{Column: "id", Value: userID}).
+		Limit(1).
+		Find(&entities.User{}).RowsAffected == 0 {
 		return domains.ErrUserNotFound
 	}
 
-	return nil
+	return domains.ErrSignInLockoutStateStale
 }
