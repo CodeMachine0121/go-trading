@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
@@ -230,9 +231,23 @@ func (userService *UserService) countFailedSignIn(
 			return nil
 		}
 
+		nextStanding := lockout.AfterFailure()
+
 		recordError := userService.recordSignInOutcome(
-			executionContext, user.ID, user.FailedSignInCount, lockout.AfterFailure())
+			executionContext, user.ID, user.FailedSignInCount, nextStanding)
 		if !errors.Is(recordError, domains.ErrSignInLockoutStateStale) {
+			if recordError == nil && nextStanding.LockedUntil != nil {
+				// Only the moment an account is shut, and never the ordinary single
+				// failure. One wrong password is somebody mistyping; three in a row
+				// is an account being guessed at, and that is the one thing here
+				// worth somebody's attention. Logging every failure instead would
+				// build the running tally of failed sign-ins this feature
+				// deliberately does not keep, only somewhere nobody looks after it.
+				log.Printf("sign in lockout: account %d shut until %s after %d consecutive failures",
+					user.ID, nextStanding.LockedUntil.Format(time.RFC3339),
+					nextStanding.FailedSignInCount)
+			}
+
 			return recordError
 		}
 
