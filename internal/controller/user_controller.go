@@ -201,6 +201,17 @@ func (userController *UserController) respondWithError(ginContext *gin.Context, 
 		ginContext.JSON(http.StatusUnauthorized, gin.H{"message": err.Error()})
 		return
 	}
+	// Too many wrong passwords in a row. It is 429 and deliberately not 401: 401
+	// means "this sign-in no longer counts, go and sign in again", and somebody
+	// acting on it signs in again — which is the one thing that cannot help for as
+	// long as the lock lasts. Nor 423: that says the thing being reached is locked,
+	// where the truth here is that this caller has tried too often and what they
+	// have to do is wait. The moment they can stop waiting is already in the
+	// message, put there by the domain.
+	if errors.Is(err, domains.ErrSignInLocked) {
+		ginContext.JSON(http.StatusTooManyRequests, gin.H{"message": err.Error()})
+		return
+	}
 	// The password given as the one in force was not the one in force. It is 403
 	// and deliberately not 401: in this system 401 means one thing only — "this
 	// sign-in no longer counts, go and sign in again" — and callers act on it by

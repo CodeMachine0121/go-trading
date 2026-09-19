@@ -29,6 +29,7 @@ type UserService struct {
 	clockProxy         domaininterface.IClockProxy
 	sessionLifetimes   vo.SessionLifetimesVo
 	activationPolicy   vo.AccountActivationPolicyVo
+	lockoutPolicy      vo.SignInLockoutPolicyVo
 }
 
 func NewUserService(
@@ -40,6 +41,7 @@ func NewUserService(
 	clockProxy domaininterface.IClockProxy,
 	sessionLifetimes vo.SessionLifetimesVo,
 	activationPolicy vo.AccountActivationPolicyVo,
+	lockoutPolicy vo.SignInLockoutPolicyVo,
 ) *UserService {
 	return &UserService{
 		userRepository:     userRepository,
@@ -50,6 +52,7 @@ func NewUserService(
 		clockProxy:         clockProxy,
 		sessionLifetimes:   sessionLifetimes,
 		activationPolicy:   activationPolicy,
+		lockoutPolicy:      lockoutPolicy,
 	}
 }
 
@@ -113,11 +116,39 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, findError
 	}
 
+	now := userService.clockProxy.Now()
+	lockout := domains.NewSignInLockoutDomain(user, userService.lockoutPolicy, now)
+
+	// Before the comparison, not after. A shut account that still paid for a bcrypt
+	// comparison on every attempt would be paying exactly the cost this lock exists
+	// to stop — and because the flow turns back here, there is no path from a locked
+	// account to the counting below. "Trying again does not extend the lock" is
+	// therefore not a rule anybody has to keep; it is a road that is not there.
+	//
+	// Nobody holding this address reaches this with a zero-valued user, whose lock
+	// is absent, so the decoy comparison below still happens and still takes its
+	// time. What does not happen is any of the recording: a user identifier of zero
+	// matches no row, and an address that is not an account leaves nothing behind.
+	if refusal := lockout.Refusal(); refusal != nil {
+		return dto.SessionTokensDto{}, refusal
+	}
+
 	if !userService.passwordProofProxy.Matches(signIn.Password(), user.PasswordProof) {
+		if recordError := userService.recordSignInOutcome(
+			executionContext, user.ID, lockout.AfterFailure()); recordError != nil {
+			return dto.SessionTokensDto{}, recordError
+		}
+
 		return dto.SessionTokensDto{}, domains.ErrCredentialsRejected
 	}
 
-	now := userService.clockProxy.Now()
+	// A failure to write this is a failure to sign in, deliberately. Swallowed, the
+	// lock would quietly not exist for as long as the store was unwell, and the one
+	// thing nobody would learn is that it had stopped protecting anything.
+	if recordError := userService.recordSignInOutcome(
+		executionContext, user.ID, lockout.AfterSuccess()); recordError != nil {
+		return dto.SessionTokensDto{}, recordError
+	}
 
 	refreshToken, accessToken, materialError := userService.newSessionMaterial(user.ID, now)
 	if materialError != nil {
@@ -143,6 +174,25 @@ func (userService *UserService) SignIn(
 		RefreshToken:          refreshToken,
 		RefreshTokenExpiresAt: savedSession.ExpiresAt,
 	}.ToDto(), nil
+}
+
+// recordSignInOutcome stores what an attempt left behind, and says nothing at all
+// when there was no account to leave it against.
+//
+// The guard is the whole reason this is a method rather than two lines written twice.
+// An address nobody has registered arrives here with an identifier of zero, and a
+// write against zero is a write that names no row — which the store correctly refuses
+// as "no such user", turning a plain wrong-address refusal into a failure. Answering
+// early keeps the promise that an unregistered address leaves no trace and reads
+// exactly like every other wrong pair.
+func (userService *UserService) recordSignInOutcome(
+	executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
+) error {
+	if userID == 0 {
+		return nil
+	}
+
+	return userService.userRepository.SaveSignInLockoutState(executionContext, userID, state)
 }
 
 // RenewSession trades a renewal proof for a fresh pair, and ends the proof it was

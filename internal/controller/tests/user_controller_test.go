@@ -43,6 +43,12 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 	refreshTokenProxy := mocks.NewMockIRefreshTokenProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(userSignInMoment).AnyTimes()
+	// Every sign-in records what it left behind. These tests are about which status
+	// code comes back, so the recording is allowed and not inspected — what it holds
+	// is asserted where the rule lives, not here at the edge.
+	userRepository.EXPECT().
+		SaveSignInLockoutState(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
 
 	userController := controller.NewUserController(
 		application.NewUserApplication(
@@ -51,7 +57,7 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 				refreshTokenProxy, clockProxy, vo.SessionLifetimesVo{
 					AccessToken:  15 * time.Minute,
 					RefreshToken: 30 * 24 * time.Hour,
-				}, testActivationPolicy)))
+				}, testActivationPolicy, vo.SignInLockoutPolicyVo{FailureThreshold: 3, LockoutDuration: 7 * 24 * time.Hour})))
 
 	engine := gin.New()
 	engine.POST("/users", userController.RegisterUser)
@@ -242,6 +248,30 @@ func TestUserRouterSignIn(t *testing.T) {
 
 		require.Equal(t, http.StatusUnauthorized, recorder.Code)
 		assert.JSONEq(t, `{"message":"電子郵件或密碼不正確"}`, recorder.Body.String())
+	})
+
+	t.Run("answers too many requests when the account has been shut", func(t *testing.T) {
+		// 429 and deliberately not 401. In this system 401 means "this sign-in no
+		// longer counts, go and sign in again", and a caller acting on it sends the
+		// person back to the sign-in screen — the one thing that cannot help for as
+		// long as the lock lasts. What they have to do is wait, and 429 is that.
+		fixture := newUserRouterUnderTest(t)
+		shutUser := aStoredUserRow(7)
+		shutUntil := userSignInMoment.Add(7 * 24 * time.Hour)
+		shutUser.FailedSignInCount = 3
+		shutUser.LockedUntil = &shutUntil
+		fixture.userRepository.EXPECT().
+			FindOneByEmail(gomock.Any(), gomock.Any()).
+			Return(shutUser, nil)
+
+		recorder := fixture.send(http.MethodPost, "/sessions", aCredentialsBody, "")
+
+		require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+		// The moment has to reach the person, or they will come back every few
+		// minutes for a week to find out whether it is over yet.
+		assert.Contains(t, recorder.Body.String(), "2026-09-12")
+		assert.NotContains(t, recorder.Body.String(), "電子郵件或密碼不正確",
+			"被鎖住與密碼不對是兩句不同的話")
 	})
 
 	t.Run("answers service unavailable when there is no key to sign with", func(t *testing.T) {

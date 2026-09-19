@@ -205,6 +205,21 @@ type AccountActivationConfig struct {
 	SubjectPrefix string
 }
 
+// SignInLockoutConfig holds how tired the sign-in door is allowed to get.
+//
+// Both halves have defaults and neither is a key: a console that configured nothing
+// still shuts an account after three wrong passwords, because the setting that
+// guards the door should not be one somebody has to remember to switch on.
+//
+// They are settings at all so that a test can watch a week-long lock end without
+// waiting a week.
+type SignInLockoutConfig struct {
+	// FailureThreshold is how many consecutive wrong passwords shut an account.
+	FailureThreshold int
+	// LockoutDuration is how long it stays shut.
+	LockoutDuration time.Duration
+}
+
 // SecretsConfig holds what this system locks away secrets with.
 //
 // The key has no default and cannot have one, for the same reason the access token
@@ -268,6 +283,7 @@ type ApplicationConfig struct {
 	Assistant         AssistantConfig
 	Authentication    AuthenticationConfig
 	AccountActivation AccountActivationConfig
+	SignInLockout     SignInLockoutConfig
 	Secrets           SecretsConfig
 	Telegram          TelegramConfig
 	StrategyBot       StrategyBotConfig
@@ -352,6 +368,16 @@ func Load() ApplicationConfig {
 				"ACCOUNT_ACTIVATION_REQUEST_MAILBOX", "james.afternoon.dev@gmail.com"),
 			SubjectPrefix: stringWithDefault(
 				"ACCOUNT_ACTIVATION_SUBJECT_PREFIX", "go-trading 開通申請"),
+		},
+		SignInLockout: SignInLockoutConfig{
+			FailureThreshold: positiveIntWithDefault("AUTH_SIGN_IN_FAILURE_THRESHOLD", 3),
+			// A week, and the length is the point. A lock measured in minutes only
+			// slows a machine that does not get bored, while costing the account
+			// holder the same shut door; with no self-service way back in and a
+			// handful of people using this console, the cost of erring long is a
+			// conversation and one edited row.
+			LockoutDuration: time.Duration(
+				positiveIntWithDefault("AUTH_SIGN_IN_LOCKOUT_DAYS", 7)) * 24 * time.Hour,
 		},
 		Secrets: SecretsConfig{
 			SealKey: stringWithDefault("SECRET_SEAL_KEY", ""),
