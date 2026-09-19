@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -125,9 +126,17 @@ func (userRepository *UserRepository) ChangePasswordProof(
 ) error {
 	return userRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
+			// The lock goes in the same statement as the proof rather than a
+			// second one: somebody who changed their password has already proved
+			// who they are, and there is no instant in between where the new
+			// password works but the door is still shut.
 			replaced := transaction.Model(&entities.User{}).
 				Where(clause.Eq{Column: "id", Value: userID}).
-				Update("password_proof", newPasswordProof)
+				Updates(map[string]any{
+					"password_proof":       newPasswordProof,
+					"failed_sign_in_count": 0,
+					"locked_until":         nil,
+				})
 			if replaced.Error != nil {
 				return fmt.Errorf("change password proof: %w", replaced.Error)
 			}
@@ -148,4 +157,33 @@ func (userRepository *UserRepository) ChangePasswordProof(
 
 			return nil
 		})
+}
+
+// SaveSignInLockoutState records what one attempt at signing in left behind.
+//
+// Both columns are written every time, including the nil that clears the lock. A
+// partial write — the count without the moment, or the other way round — would leave
+// a row saying two things that cannot both be true, and nothing downstream could tell
+// which half to believe.
+func (userRepository *UserRepository) SaveSignInLockoutState(
+	executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
+) error {
+	saved := userRepository.database.WithContext(executionContext).
+		Model(&entities.User{}).
+		Where(clause.Eq{Column: "id", Value: userID}).
+		Updates(map[string]any{
+			"failed_sign_in_count": state.FailedSignInCount,
+			"locked_until":         state.LockedUntil,
+		})
+	if saved.Error != nil {
+		return fmt.Errorf("save sign in lockout state: %w", saved.Error)
+	}
+	// Nobody by that identifier is not a quiet no-op here. The caller is the sign-in
+	// flow recording what just happened, and a record that reached nobody means the
+	// lock silently does not exist for that account.
+	if saved.RowsAffected == 0 {
+		return domains.ErrUserNotFound
+	}
+
+	return nil
 }

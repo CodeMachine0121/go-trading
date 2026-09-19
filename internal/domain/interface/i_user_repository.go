@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 //go:generate go tool mockgen -source=i_user_repository.go -destination=mocks/mock_i_user_repository.go -package=mocks
@@ -42,5 +43,24 @@ type IUserRepository interface {
 	// The sessions are the user's own — the schema already says so, cascading them
 	// on delete — so this is one aggregate's invariant, not two aggregates being
 	// coordinated.
+	//
+	// Clearing any sign-in lock joins the same transaction, for the same reason the
+	// sessions do. Somebody changing their password has already proved they are the
+	// account holder — they needed a valid proof of identity to get this far — so
+	// keeping them shut out afterwards protects nothing. Left to a second call,
+	// "password changed but still locked out" becomes a state that genuinely exists,
+	// and whether anybody ever sees it depends on the next person to add a third
+	// step knowing why the order was what it was.
 	ChangePasswordProof(executionContext context.Context, userID uint, newPasswordProof string) error
+	// SaveSignInLockoutState records what one attempt at signing in left behind: how
+	// many wrong passwords this account has in a row, and until when it is shut. A
+	// user this identifier matches nobody is refused with ErrUserNotFound.
+	//
+	// It writes the whole standing rather than nudging a counter, because the
+	// account's next state is worked out in one place by the domain. A store that
+	// offered "add one" and "clear" separately would be offering the two halves of
+	// a decision that is only ever made whole.
+	SaveSignInLockoutState(
+		executionContext context.Context, userID uint, state vo.SignInLockoutStateVo,
+	) error
 }

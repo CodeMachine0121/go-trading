@@ -1,12 +1,15 @@
 package persistence_test
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -276,4 +279,95 @@ func TestUserRepositoryChangePasswordProofSaysStorageBrokeRatherThanBlamingTheUs
 	require.NoError(t, findError)
 	assert.Equal(t, "a-password-proof", reloadedUser.PasswordProof,
 		"寫失敗的那一次不得改動任何東西")
+}
+
+func TestUserRepositoryStartsEverybodyWithNothingHeldAgainstThem(t *testing.T) {
+	// The column defaults are what make this safe to add to a table that already has
+	// rows: everybody who was here before this lock existed begins with a clean
+	// record, rather than needing a one-off script somebody has to remember to run.
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+
+	require.NoError(t, saveError)
+	assert.Equal(t, 0, savedUser.FailedSignInCount)
+	assert.Nil(t, savedUser.LockedUntil)
+}
+
+func TestUserRepositorySavesAndClearsWhatAnAttemptLeftBehind(t *testing.T) {
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+	shutUntil := time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC)
+
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID,
+		vo.SignInLockoutStateVo{FailedSignInCount: 3, LockedUntil: &shutUntil}))
+
+	shutUser, findError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
+	require.NoError(t, findError)
+	assert.Equal(t, 3, shutUser.FailedSignInCount)
+	require.NotNil(t, shutUser.LockedUntil)
+	assert.Equal(t, shutUntil, shutUser.LockedUntil.UTC())
+
+	// Clearing has to reach both columns. A count left at three beside an absent
+	// moment would shut the account again on the very next mistake.
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID,
+		vo.SignInLockoutStateVo{FailedSignInCount: 0, LockedUntil: nil}))
+
+	clearedUser, refindError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
+	require.NoError(t, refindError)
+	assert.Equal(t, 0, clearedUser.FailedSignInCount)
+	assert.Nil(t, clearedUser.LockedUntil)
+}
+
+func TestUserRepositoryRefusesToRecordAnAttemptAgainstNobody(t *testing.T) {
+	// Quietly writing nothing would mean the lock silently does not exist for that
+	// account, and the sign-in flow that asked would carry on believing it does.
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+
+	recordError := userRepository.SaveSignInLockoutState(t.Context(), 4242,
+		vo.SignInLockoutStateVo{FailedSignInCount: 1})
+
+	require.ErrorIs(t, recordError, domains.ErrUserNotFound)
+}
+
+func TestUserRepositoryChangingThePasswordAlsoOpensTheDoor(t *testing.T) {
+	// Somebody changing their password needed a valid proof of identity to get
+	// this far, so they have already proved they are the account holder. Keeping
+	// them shut out afterwards protects nothing.
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+	shutUntil := time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC)
+	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID,
+		vo.SignInLockoutStateVo{FailedSignInCount: 3, LockedUntil: &shutUntil}))
+
+	require.NoError(t, userRepository.ChangePasswordProof(
+		t.Context(), savedUser.ID, "a-new-password-proof"))
+
+	changedUser, findError := userRepository.FindOneByEmail(t.Context(), "james@example.com")
+	require.NoError(t, findError)
+	assert.Equal(t, "a-new-password-proof", changedUser.PasswordProof)
+	assert.Equal(t, 0, changedUser.FailedSignInCount)
+	assert.Nil(t, changedUser.LockedUntil)
+}
+
+func TestUserRepositorySaysSoWhenTheStoreCannotRecordAnAttempt(t *testing.T) {
+	// A store that cannot answer is not the same as an account that does not exist,
+	// and the sign-in flow acts differently on each: one is a failed sign-in, the
+	// other is an address nobody holds. Returning the storage failure as itself is
+	// what keeps them apart.
+	userRepository := persistence.NewUserRepository(newTestDatabase(t))
+	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
+	require.NoError(t, saveError)
+
+	cancelledContext, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	recordError := userRepository.SaveSignInLockoutState(cancelledContext, savedUser.ID,
+		vo.SignInLockoutStateVo{FailedSignInCount: 1})
+
+	require.Error(t, recordError)
+	assert.NotErrorIs(t, recordError, domains.ErrUserNotFound,
+		"寫不進去與查無此人是兩件事")
 }

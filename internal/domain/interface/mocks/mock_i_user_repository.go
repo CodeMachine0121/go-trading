@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -98,4 +99,18 @@ func (m *MockIUserRepository) Save(executionContext context.Context, user entiti
 func (mr *MockIUserRepositoryMockRecorder) Save(executionContext, user any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIUserRepository)(nil).Save), executionContext, user)
+}
+
+// SaveSignInLockoutState mocks base method.
+func (m *MockIUserRepository) SaveSignInLockoutState(executionContext context.Context, userID uint, state vo.SignInLockoutStateVo) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveSignInLockoutState", executionContext, userID, state)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveSignInLockoutState indicates an expected call of SaveSignInLockoutState.
+func (mr *MockIUserRepositoryMockRecorder) SaveSignInLockoutState(executionContext, userID, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveSignInLockoutState", reflect.TypeOf((*MockIUserRepository)(nil).SaveSignInLockoutState), executionContext, userID, state)
 }

@@ -36,9 +36,23 @@ type User struct {
 	// somebody in happens outside this system entirely. That is why "nobody can
 	// let themselves in" holds because there is no way to, rather than because
 	// something remembers to check.
-	IsEnabled bool      `gorm:"not null;default:false"`
-	CreatedAt time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt time.Time `gorm:"type:timestamptz;not null"`
+	IsEnabled bool `gorm:"not null;default:false"`
+	// FailedSignInCount is how many wrong passwords this account has collected in a
+	// row. It exists so that a door standing on the open internet can get tired:
+	// without it, a wrong password and a millionth wrong password are the same event.
+	//
+	// The default is what makes this safe to add to a table that already has rows —
+	// everybody who was here before starts with no history held against them, rather
+	// than needing a one-off script somebody has to remember to run.
+	FailedSignInCount int `gorm:"not null;default:0"`
+	// LockedUntil is when this account stops being shut, and nil when it is not shut.
+	//
+	// A pointer rather than a zero time because "never locked" and "was locked, and
+	// that has passed" are different facts. Stored as a zero time they would be the
+	// same value, and the count could never be told which of the two it follows.
+	LockedUntil *time.Time `gorm:"type:timestamptz"`
+	CreatedAt   time.Time  `gorm:"type:timestamptz;not null"`
+	UpdatedAt   time.Time  `gorm:"type:timestamptz;not null"`
 	// Sessions belong to this user and to nobody else. They are declared here so
 	// that "a user who is gone has no sessions" is something the schema enforces
 	// rather than something a piece of code has to remember to do.
