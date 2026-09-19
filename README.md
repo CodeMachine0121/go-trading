@@ -124,6 +124,8 @@ curl localhost:8080/health
 | `AUTH_ACCESS_TOKEN_SIGNING_KEY` | 空 | 簽發登入憑證的鑰匙。**沒有預設值也不該有**——有預設值就是所有人共用一把，那樣的憑證誰都能自己偽造。沒設時：`POST /sessions` 與 `POST /sessions/renewal` 回 `503`，`GET /users/me` 一律 `401`（沒有鑰匙就誰的憑證都認不得）；只有 `POST /users` 與 `POST /sessions/revocation` 照常。產生一把：`openssl rand -base64 48` |
 | `AUTH_ACCESS_TOKEN_LIFETIME_MINUTES` | `15` | 一份**登入憑證**能用多久（分鐘）。它仍然不留存、撤不掉，所以這個數字就等於「登出之後那一張還通得過多久」。**舊的 `AUTH_ACCESS_TOKEN_LIFETIME_HOURS` 已不再讀取**——單位換了，沿用舊名會讓寫著 `24` 的設定安靜地從一天變成 24 分鐘 |
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
+| `AUTH_SIGN_IN_FAILURE_THRESHOLD` | `3` | 連續幾次密碼錯誤就把帳號鎖起來。**到達的那一次本身就被拒絕**，沒有「先放你進去再鎖」；設 `0` 或負值會退回預設值，關不掉這道鎖 |
+| `AUTH_SIGN_IN_LOCKOUT_DAYS` | `7` | 帳號被鎖起來一次要鎖多久（天）。鎖住期間**連正確的密碼也進不來**，而且再試不會把解除時刻往後延。**沒有自助解鎖**——時間到了自己開，等不了就直接改那一列的 `locked_until`（或改密碼，那也會解鎖） |
 | `ANTHROPIC_API_KEY` | 空 | 行情對話助手的憑證。沒設就只有 `/chat` 不能用，其餘功能照常 |
 | `ASSISTANT_MODEL` | `claude-opus-5` | 要問哪一個助手 |
 | `ASSISTANT_EFFORT` | `low` | 助手能想多久。對話不需要想太久；挑錯工具的代價比想得淺重得多，所以模型維持能幹的那個、只把力度調低 |

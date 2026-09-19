@@ -33,6 +33,8 @@
 | NFR-3 | 記下失敗這件事失敗時，整次登入就是失敗 | 回傳儲存的錯誤，不是「密碼不正確」；不發憑證 | `user_service.go:133,144` | `user_application_test.go:1565,1583` | asserts-oracle | produces-oracle | ✅ |
 | NFR-4 | 不得額外多查一次使用者 | 狀態與找人同一次取得 | `user_service.go:120`（`FindOneByEmail` 之後直接包成 domain） | *(靜態閱讀)* | n/a | produces-oracle | ✅ |
 | NFR-5 | 一律以世界標準時間留存與比較 | 解除時刻為 UTC | `sign_in_lockout_domain.go:78`（`.UTC()`） | `sign_in_lockout_domain_test.go:129`（期望值為 UTC 常數） | asserts-oracle | produces-oracle | ✅ |
+| NFR-6 | 一個帳號**被鎖住的那一刻**要留下一筆紀錄 | 鎖住時留下紀錄；一般的單次失敗**不留** | `user_service.go`（`countFailedSignIn` 內，僅在 `LockedUntil != nil` 時 `log.Printf`） | *(靜態閱讀：條件只在剛訂出解除時刻時成立)* | n/a | produces-oracle | ✅ |
+| NFR-7 | 並行送進來的嘗試不得互相覆蓋 | 每一次嘗試都被算到，門檻照常到達 | `user_repository.go`（CAS 守衛）+ `user_service.go`（`countFailedSignIn` 重讀） | `user_repository_test.go`（100 並行，全數算到）、`user_application_test.go`（重讀後從真實數字往上加） | asserts-oracle | produces-oracle | ✅ |
 
 > **AC-1 與 AC-4 共用一個測試**（`:1439`）。兩條的 `Given` 不同（次數 0 vs 次數 2），
 > 而該測試設的是次數 2，因此它直接釘的是 AC-4；AC-1 由 `:1488`（乾淨帳號成功路徑）
@@ -56,9 +58,13 @@
 ## Summary
 
 ```
-✅ 22 conforms · 🔴 0 violations · 🟠 0 mis-asserted · 🟡 0 partial · ❌ 0 gaps · ❔ 0 unclear · ⚠️ 0 orphans
-Conformance: 100%（22 / 22）
+✅ 24 conforms · 🔴 0 violations · 🟠 0 mis-asserted · 🟡 0 partial · ❌ 0 gaps · ❔ 0 unclear · ⚠️ 0 orphans
+Conformance: 100%（24 / 24）
 ```
+
+> **第一版這份矩陣漏了一條，而且漏得不誠實。** PRD §6 Observability（帳號被鎖住的那一刻要留下紀錄）
+> 當時**沒有實作**，而這份矩陣**沒有把它列進條款**——於是「22/22、100%」是把分母做小做出來的。
+> 由 PR 審查抓出來。現在那條實作了、列進來了，並且多了一條 NFR-7（並行不得互相覆蓋）。
 
 **這一輪稽核找到的唯一缺口，已經補上。**
 
