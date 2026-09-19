@@ -28,6 +28,7 @@ type UserService struct {
 	refreshTokenProxy  domaininterface.IRefreshTokenProxy
 	clockProxy         domaininterface.IClockProxy
 	sessionLifetimes   vo.SessionLifetimesVo
+	activationPolicy   vo.AccountActivationPolicyVo
 }
 
 func NewUserService(
@@ -38,6 +39,7 @@ func NewUserService(
 	refreshTokenProxy domaininterface.IRefreshTokenProxy,
 	clockProxy domaininterface.IClockProxy,
 	sessionLifetimes vo.SessionLifetimesVo,
+	activationPolicy vo.AccountActivationPolicyVo,
 ) *UserService {
 	return &UserService{
 		userRepository:     userRepository,
@@ -47,12 +49,18 @@ func NewUserService(
 		refreshTokenProxy:  refreshTokenProxy,
 		clockProxy:         clockProxy,
 		sessionLifetimes:   sessionLifetimes,
+		activationPolicy:   activationPolicy,
 	}
 }
 
-// RegisterUser creates a user and hands them back as stored. A registration that
-// breaks a rule is refused before the password is turned into anything and before
-// anything is written.
+// RegisterUser creates a user and hands them back as stored, which is waiting to be
+// let in. A registration that breaks a rule is refused before the password is turned
+// into anything and before anything is written.
+//
+// The answer carries what to do about the waiting, because this is the one moment the
+// person is certain to be looking. Saying it only here would not be enough — they
+// will have closed the page long before their first refusal — which is why the same
+// instruction comes back with every refusal too.
 func (userService *UserService) RegisterUser(
 	executionContext context.Context, registrationDto dto.UserRegistrationDto,
 ) (dto.UserDto, error) {
@@ -74,7 +82,7 @@ func (userService *UserService) RegisterUser(
 		return dto.UserDto{}, saveError
 	}
 
-	return savedUser.ToDto(), nil
+	return domains.NewAccountActivationDomain(savedUser, userService.activationPolicy).ToUserDto(), nil
 }
 
 // SignIn checks a pair and opens a session, handing back the two proofs that session
@@ -312,33 +320,84 @@ func (userService *UserService) newSessionMaterial(
 	return refreshToken, accessToken, nil
 }
 
-// IdentifyUser says who a proof of identity belongs to.
+// IdentifyUser says who a proof of identity belongs to, whether or not they have
+// been let in.
 //
-// The user is read back rather than taken from the proof, and that is what makes a
-// token stop working when the account behind it is gone. A proof carries who it was
-// issued to, not whether they are still here — those are different questions, and
-// only the store can answer the second.
+// It answers somebody still waiting rather than refusing them, and that is the whole
+// reason it stays a separate question from the one the doors ask. Somebody waiting
+// has exactly one way to find out they have been let in: look at themselves again.
+// Refuse this and the only thing left to them is to keep signing in, which will
+// never tell them anything.
 func (userService *UserService) IdentifyUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {
-	if accessToken == "" {
-		return dto.UserDto{}, domains.ErrAuthenticationRequired
-	}
-
-	userID, identifyError := userService.accessTokenProxy.UserIdentifiedBy(accessToken)
+	user, identifyError := userService.identifiedUser(executionContext, accessToken)
 	if identifyError != nil {
 		return dto.UserDto{}, identifyError
 	}
 
-	user, findError := userService.userRepository.FindOne(executionContext, userID)
-	if errors.Is(findError, domains.ErrUserNotFound) {
-		return dto.UserDto{}, domains.ErrAuthenticationRequired
-	}
-	if findError != nil {
-		return dto.UserDto{}, findError
+	return domains.NewAccountActivationDomain(user, userService.activationPolicy).ToUserDto(), nil
+}
+
+// IdentifyActivatedUser says who a proof of identity belongs to, and refuses unless
+// they have been let in.
+//
+// This is the question every door asks, and it is one question on purpose. A door
+// that asked who somebody was and then decided for itself whether that was good
+// enough would be holding this feature's rule in the HTTP layer — and holding it once
+// per door. Asked this way, the day "let in" grows a second meaning is a day the
+// doors do not change.
+//
+// Recognising comes first and being let in comes second. The other order would answer
+// a broken proof with "your account is not activated yet", which says something about
+// an account nobody managed to identify.
+func (userService *UserService) IdentifyActivatedUser(
+	executionContext context.Context, accessToken string,
+) (dto.UserDto, error) {
+	user, identifyError := userService.identifiedUser(executionContext, accessToken)
+	if identifyError != nil {
+		return dto.UserDto{}, identifyError
 	}
 
-	return user.ToDto(), nil
+	activation := domains.NewAccountActivationDomain(user, userService.activationPolicy)
+	if activation.Pending() {
+		return dto.UserDto{}, activation.NotActivatedError()
+	}
+
+	return activation.ToUserDto(), nil
+}
+
+// identifiedUser reads back the person a proof of identity was issued to.
+//
+// The user is read from the store rather than taken from the proof, and that is what
+// makes a token stop working when the account behind it is gone — and what makes one
+// start working the moment somebody is let in, with no need to sign in again. A proof
+// carries who it was issued to, not what has become of them since; only the store
+// knows that.
+//
+// It is private and shared by exactly the two public methods above, which is what
+// earns it: one caller and it would belong inlined.
+func (userService *UserService) identifiedUser(
+	executionContext context.Context, accessToken string,
+) (entities.User, error) {
+	if accessToken == "" {
+		return entities.User{}, domains.ErrAuthenticationRequired
+	}
+
+	userID, identifyError := userService.accessTokenProxy.UserIdentifiedBy(accessToken)
+	if identifyError != nil {
+		return entities.User{}, identifyError
+	}
+
+	user, findError := userService.userRepository.FindOne(executionContext, userID)
+	if errors.Is(findError, domains.ErrUserNotFound) {
+		return entities.User{}, domains.ErrAuthenticationRequired
+	}
+	if findError != nil {
+		return entities.User{}, findError
+	}
+
+	return user, nil
 }
 
 // ChangePassword replaces the password of the user this identifier names, and ends

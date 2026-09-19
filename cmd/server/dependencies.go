@@ -63,6 +63,10 @@ func registerRoutes(
 				AccessToken:  applicationConfig.Authentication.AccessTokenLifetime,
 				RefreshToken: applicationConfig.Authentication.RefreshTokenLifetime,
 			},
+			vo.AccountActivationPolicyVo{
+				RequestMailbox: applicationConfig.AccountActivation.RequestMailbox,
+				SubjectPrefix:  applicationConfig.AccountActivation.SubjectPrefix,
+			},
 		),
 	)
 

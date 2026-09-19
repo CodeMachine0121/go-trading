@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "go-trading",
-    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -398,7 +398,7 @@
     },
     {
       "name": "使用者登入",
-      "description": "建立使用者 → 登入拿憑證 → 帶著憑證問「我是誰」。\n\n每次執行都用一個當下產生的電子郵件（見 collection 的 pre-request script），所以整包可以重複跑而不會撞到「這個電子郵件已經有人用了」。\n\n**`POST /sessions` 需要伺服器設定 `AUTH_ACCESS_TOKEN_SIGNING_KEY`。**沒設定時它回 503，而且那是對的——沒有鑰匙就簽不出任何人偽造不了的憑證。",
+      "description": "建立使用者 → 登入拿憑證 → 帶著憑證問「我是誰」。\n\n每次執行都用一個當下產生的電子郵件（見 collection 的 pre-request script），所以整包可以重複跑而不會撞到「這個電子郵件已經有人用了」。\n\n**`POST /sessions` 需要伺服器設定 `AUTH_ACCESS_TOKEN_SIGNING_KEY`。**沒設定時它回 503，而且那是對的——沒有鑰匙就簽不出任何人偽造不了的憑證。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。",
       "item": [
         {
           "name": "建立使用者",
@@ -446,6 +446,18 @@
                   "    const body = pm.response.text();",
                   "    pm.expect(body).to.not.include(pm.collectionVariables.get(\"userPassword\"));",
                   "    pm.expect(pm.response.json()).to.not.have.property(\"passwordProof\");",
+                  "});",
+                  "pm.test(\"新建立的使用者是待開通\", function () {",
+                  "    pm.expect(pm.response.json().isEnabled).to.eql(false);",
+                  "});",
+                  "pm.test(\"當場就說了要寄去哪、主旨怎麼寫\", function () {",
+                  "    const instruction = pm.response.json().activationInstruction;",
+                  "    pm.expect(instruction).to.be.an(\"object\");",
+                  "    pm.expect(instruction.requestMailbox).to.be.a(\"string\").and.to.include(\"@\");",
+                  "    // 主旨由系統組好整串交出來，不是前綴加一格讓每個客戶端自己拼——",
+                  "    // 拼法各自不同的主旨，收信的人就對不回是誰在申請。",
+                  "    pm.expect(instruction.subject).to.include(pm.collectionVariables.get(\"userEmail\"));",
+                  "    pm.collectionVariables.set(\"activationSubject\", instruction.subject);",
                   "});"
                 ]
               }
@@ -756,6 +768,73 @@
                   "    const user = pm.response.json();",
                   "    pm.expect(String(user.id)).to.eql(pm.collectionVariables.get(\"userId\"));",
                   "    pm.expect(user.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+                  "});",
+                  "pm.test(\"看得到自己開通了沒\", function () {",
+                  "    // 這是待開通的人唯一能自己確認「放行了沒」的地方，所以它刻意不在門後面。",
+                  "    pm.expect(pm.response.json()).to.have.property(\"isEnabled\");",
+                  "});",
+                  "pm.test(\"還在等的話，指示會再說一次\", function () {",
+                  "    const user = pm.response.json();",
+                  "    if (user.isEnabled) {",
+                  "        pm.expect(user.activationInstruction).to.be.undefined;",
+                  "    } else {",
+                  "        pm.expect(user.activationInstruction.subject).to.include(user.email);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "還沒開通 — 門後面的每一件事都被擋下",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "帶著一份**完全有效**的憑證去做一件需要登入的事。\n\n這一則會在使用者還沒被放行時通過，被放行之後則會變成 200——它測的是那道門，不是策略腳本。\n\n**403 而不是 401**，而這個差別是重點：401 在這個系統裡只有一個意思——「你的登入不算數了，回去重登」，客戶端看到它就會把人丟回登入畫面。這個人的登入好好的，把他丟回登入畫面，他照做也不會有任何改變。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const letIn = pm.response.code === 200;",
+                  "",
+                  "pm.test(\"還沒開通就是 403，不是 401\", function () {",
+                  "    if (letIn) {",
+                  "        pm.expect.fail(\"這個帳號已經被放行了——這一則要測的是還沒放行時的行為\");",
+                  "    }",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"拒絕的理由是尚未開通，不是請重新登入\", function () {",
+                  "    const refusal = pm.response.json();",
+                  "    pm.expect(refusal.message).to.include(\"開通\");",
+                  "    pm.expect(refusal.message).to.not.include(\"重新登入\");",
+                  "});",
+                  "pm.test(\"被擋下來時，指示會再說一次\", function () {",
+                  "    // 他多半早就關掉建立成功的那個畫面了。",
+                  "    const instruction = pm.response.json().activationInstruction;",
+                  "    pm.expect(instruction.requestMailbox).to.be.a(\"string\").and.to.include(\"@\");",
+                  "    pm.expect(instruction.subject)",
+                  "        .to.eql(pm.collectionVariables.get(\"activationSubject\"));",
                   "});"
                 ]
               }

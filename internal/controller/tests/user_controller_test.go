@@ -51,7 +51,7 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 				refreshTokenProxy, clockProxy, vo.SessionLifetimesVo{
 					AccessToken:  15 * time.Minute,
 					RefreshToken: 30 * 24 * time.Hour,
-				})))
+				}, testActivationPolicy)))
 
 	engine := gin.New()
 	engine.POST("/users", userController.RegisterUser)
@@ -124,6 +124,28 @@ func aStoredUserRow(id uint) entities.User {
 	}
 }
 
+// aLetInUserRow is the same person after somebody let them in.
+func aLetInUserRow(id uint) entities.User {
+	user := aStoredUserRow(id)
+	user.IsEnabled = true
+
+	return user
+}
+
+// waitingBody is what a person who has not been let in is told about themselves,
+// including where to write and exactly what to put in the subject line. The subject
+// is spelled out in full rather than assembled here, because assembling it is the
+// thing under test.
+const waitingBody = `{
+	"id": 7,
+	"email": "james@example.com",
+	"isEnabled": false,
+	"activationInstruction": {
+		"requestMailbox": "gatekeeper@example.com",
+		"subject": "console access request：james@example.com"
+	}
+}`
+
 func TestUserRouterRegisterUser(t *testing.T) {
 	t.Run("answers created, and the answer carries no trace of the password", func(t *testing.T) {
 		fixture := newUserRouterUnderTest(t)
@@ -135,7 +157,7 @@ func TestUserRouterRegisterUser(t *testing.T) {
 		recorder := fixture.send(http.MethodPost, "/users", aCredentialsBody, "")
 
 		require.Equal(t, http.StatusCreated, recorder.Code)
-		assert.JSONEq(t, `{"id":7,"email":"james@example.com"}`, recorder.Body.String())
+		assert.JSONEq(t, waitingBody, recorder.Body.String())
 	})
 
 	t.Run("answers bad request for a body that is not readable", func(t *testing.T) {
@@ -266,7 +288,40 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 		recorder := fixture.send(http.MethodGet, "/users/me", "", "Bearer a-signed-token")
 
 		require.Equal(t, http.StatusOK, recorder.Code)
-		assert.JSONEq(t, `{"id":7,"email":"james@example.com"}`, recorder.Body.String())
+		assert.JSONEq(t, waitingBody, recorder.Body.String())
+	})
+
+	t.Run("still answers somebody who has not been let in yet", func(t *testing.T) {
+		// This is the whole reason "who am I" stays outside the door: it is the one
+		// place a person waiting can look to find out whether they still are.
+		fixture := newUserRouterUnderTest(t)
+		fixture.accessTokenProxy.EXPECT().
+			UserIdentifiedBy("a-signed-token").
+			Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aStoredUserRow(7), nil)
+
+		recorder := fixture.send(http.MethodGet, "/users/me", "", "Bearer a-signed-token")
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		assert.JSONEq(t, waitingBody, recorder.Body.String())
+	})
+
+	t.Run("drops the instruction once they have been let in", func(t *testing.T) {
+		fixture := newUserRouterUnderTest(t)
+		fixture.accessTokenProxy.EXPECT().
+			UserIdentifiedBy("a-signed-token").
+			Return(uint(7), nil)
+		fixture.userRepository.EXPECT().
+			FindOne(gomock.Any(), uint(7)).
+			Return(aLetInUserRow(7), nil)
+
+		recorder := fixture.send(http.MethodGet, "/users/me", "", "Bearer a-signed-token")
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		assert.JSONEq(t,
+			`{"id":7,"email":"james@example.com","isEnabled":true}`, recorder.Body.String())
 	})
 
 	t.Run("reads the scheme without regard to case, because HTTP says so", func(t *testing.T) {

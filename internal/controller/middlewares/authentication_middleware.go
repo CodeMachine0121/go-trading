@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -29,6 +30,11 @@ const currentUserKey = "currentUserID"
 //
 // Missing, malformed, expired and pointing at somebody who is gone are one answer,
 // because they are one thing to the holder: sign in again.
+//
+// Being recognised but not yet let in is the one answer that is not that, and it is
+// kept apart deliberately. To the holder those two call for opposite actions — sign
+// in again, or go and ask to be let in — and told the first when the second is true,
+// they would sign in successfully and land right back here.
 type AuthenticationMiddleware struct {
 	userApplication *application.UserApplication
 }
@@ -37,17 +43,44 @@ func NewAuthenticationMiddleware(userApplication *application.UserApplication) *
 	return &AuthenticationMiddleware{userApplication: userApplication}
 }
 
-// Handle is the door. A request that gets through carries an identified user; one
-// that does not gets 401 and no handler runs.
+// Handle is the door. A request that gets through carries an identified user who has
+// been let in; one that does not gets 401 or 403 and no handler runs.
+//
+// The door asks one question and reads the answer. It does not identify somebody and
+// then consult a flag: what counts as being let in belongs to the domain, and asking
+// it here would be this feature's rule written down a second time, in the layer least
+// able to test it.
 func (authenticationMiddleware *AuthenticationMiddleware) Handle(ginContext *gin.Context) {
-	userDto, identifyError := authenticationMiddleware.userApplication.IdentifyUser(
+	userDto, identifyError := authenticationMiddleware.userApplication.IdentifyActivatedUser(
 		ginContext.Request.Context(), accessTokenOf(ginContext))
+
+	// 403 rather than 401, for the same reason a wrong current password is 403 here:
+	// in this system 401 means one thing only — "this sign-in no longer counts, go
+	// and sign in again" — and callers act on it by sending the person back to the
+	// sign-in screen. This person's sign-in is fine. Sending them there would have
+	// them do the one thing that cannot change their situation.
+	//
+	// The instruction is carried by the error rather than assembled here, so that
+	// where letters go stays a fact the domain holds and this layer never learns.
+	var notActivated domains.AccountNotActivatedError
+	if errors.As(identifyError, &notActivated) {
+		ginContext.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"message":               notActivated.Error(),
+			"activationInstruction": notActivated.Instruction,
+		})
+		return
+	}
+
 	if identifyError != nil {
 		ginContext.AbortWithStatusJSON(http.StatusUnauthorized,
 			gin.H{"message": domains.ErrAuthenticationRequired.Error()})
 		return
 	}
 
+	// Only the identifier is left for the handlers, not the standing. Everybody who
+	// reaches a handler has been let in, so there is no second case for a handler to
+	// tell apart — and a value nobody can act on is a value somebody will one day
+	// act on wrongly.
 	ginContext.Set(currentUserKey, userDto.ID)
 	ginContext.Next()
 }

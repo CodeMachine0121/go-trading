@@ -190,6 +190,21 @@ type AuthenticationConfig struct {
 	RefreshTokenLifetime time.Duration
 }
 
+// AccountActivationConfig holds where somebody asks to be let in, and how that letter
+// announces itself.
+//
+// Unlike the two keys above and below, both halves have a default, and the difference
+// is that neither is a key. A mailbox anybody can guess gives nothing away; refusing
+// to start for want of one would take the whole console down over a setting that
+// guards nothing.
+type AccountActivationConfig struct {
+	// RequestMailbox is the address a person waiting to be let in writes to.
+	RequestMailbox string
+	// SubjectPrefix opens that letter's subject; the applicant's own address closes
+	// it, so that the inbox can be read as a list of who is asking.
+	SubjectPrefix string
+}
+
 // SecretsConfig holds what this system locks away secrets with.
 //
 // The key has no default and cannot have one, for the same reason the access token
@@ -249,13 +264,14 @@ type ApplicationConfig struct {
 	// MarketRules is how every market the system recognises behaves. Recognising one
 	// more market is one more entry here and two more sources wired to it; nothing
 	// inside the system branches on which market it is looking at.
-	MarketRules    map[vo.MarketVo]vo.MarketRulesVo
-	Assistant      AssistantConfig
-	Authentication AuthenticationConfig
-	Secrets        SecretsConfig
-	Telegram       TelegramConfig
-	StrategyBot    StrategyBotConfig
-	Database       DatabaseConfig
+	MarketRules       map[vo.MarketVo]vo.MarketRulesVo
+	Assistant         AssistantConfig
+	Authentication    AuthenticationConfig
+	AccountActivation AccountActivationConfig
+	Secrets           SecretsConfig
+	Telegram          TelegramConfig
+	StrategyBot       StrategyBotConfig
+	Database          DatabaseConfig
 }
 
 // Load reads the configuration from the process environment, applying defaults.
@@ -330,6 +346,12 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("AUTH_ACCESS_TOKEN_LIFETIME_MINUTES", 15)) * time.Minute,
 			RefreshTokenLifetime: time.Duration(
 				positiveIntWithDefault("AUTH_REFRESH_TOKEN_LIFETIME_DAYS", 30)) * 24 * time.Hour,
+		},
+		AccountActivation: AccountActivationConfig{
+			RequestMailbox: stringWithDefault(
+				"ACCOUNT_ACTIVATION_REQUEST_MAILBOX", "james.afternoon.dev@gmail.com"),
+			SubjectPrefix: stringWithDefault(
+				"ACCOUNT_ACTIVATION_SUBJECT_PREFIX", "go-trading 開通申請"),
 		},
 		Secrets: SecretsConfig{
 			SealKey: stringWithDefault("SECRET_SEAL_KEY", ""),

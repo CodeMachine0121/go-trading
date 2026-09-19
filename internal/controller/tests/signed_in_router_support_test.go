@@ -34,7 +34,13 @@ func doorOpenFor(t *testing.T, viewerID uint) gin.HandlerFunc {
 
 	userRepository := mocks.NewMockIUserRepository(mockController)
 	userRepository.EXPECT().FindOne(gomock.Any(), viewerID).
-		Return(entities.User{ID: viewerID, Email: "viewer@example.com"}, nil).AnyTimes()
+		Return(entities.User{
+			ID: viewerID, Email: "viewer@example.com",
+			// Let in, because every test that reaches for this door is about the
+			// route behind it rather than about the door. Being turned away for not
+			// having been let in yet has its own tests, next to the door itself.
+			IsEnabled: true,
+		}, nil).AnyTimes()
 
 	accessTokenProxy := mocks.NewMockIAccessTokenProxy(mockController)
 	accessTokenProxy.EXPECT().UserIdentifiedBy("a-proof").Return(viewerID, nil).AnyTimes()
@@ -52,6 +58,7 @@ func doorOpenFor(t *testing.T, viewerID uint) gin.HandlerFunc {
 				mocks.NewMockIRefreshTokenProxy(mockController),
 				clockProxy,
 				vo.SessionLifetimesVo{AccessToken: 15 * time.Minute, RefreshToken: 30 * 24 * time.Hour},
+				testActivationPolicy,
 			),
 		),
 	).Handle
