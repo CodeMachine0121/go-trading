@@ -1,0 +1,21 @@
+# .env first, and it is the only line here that is about safety rather than size.
+# Everything the build copies ends up readable in an image layer, so a secrets file
+# that reaches the build context has effectively been published.
+.env
+
+# Version control and tooling: the build needs the source, not its history.
+.git
+.github
+.claude
+.idea
+.vscode
+.DS_Store
+
+# Specifications, API collections and local build output — none of it is compiled,
+# and bin/ in particular holds host-built binaries that would only confuse the image.
+.sdd
+postman
+bin
+*.out
+*.md
+Makefile

@@ -102,3 +102,63 @@ jobs:
             exit 1
           fi
           echo "storage tests that ran: $(grep -c '^--- PASS' storage.log)"
+
+  # Publishing is a separate job rather than more steps on the one above, so that the
+  # dependency between them is stated rather than implied by ordering: an image is
+  # only built once the storage tests have actually run and passed. An image nothing
+  # verified is worse than no image at all, because it looks deployable.
+  publish:
+    needs: verify
+
+    # Pull requests never reach here. This repository is public, so anyone can open
+    # one, and a fork's PR must not be able to put an image under this name — even
+    # though GitHub already withholds the token's write scope from forks. Saying it
+    # here means the rule holds regardless of what the default happens to be.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # The only addition. With this, the job's built-in token can push to GHCR, so
+      # there is no registry password to create, store or rotate anywhere.
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The commit sha is the version. It is the only tag that still means something
+      # a week later, it is what a deployment manifest names, and it makes a rollback
+      # a one-word edit rather than a rebuild. Short form, because the place it gets
+      # read and typed is a manifest, not a log line.
+      #
+      # `latest` rides along only for running the image by hand. Nothing deployed
+      # should ever reference it — an image that means "whatever was pushed last"
+      # cannot be rolled back to, and makes `kubectl describe` unable to say what is
+      # actually running.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short,prefix=
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache lives with the workflow, so an unchanged go.mod does not
+          # re-download the whole module graph on every push.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
