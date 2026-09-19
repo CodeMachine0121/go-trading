@@ -27,9 +27,14 @@ type SignInLockedError struct {
 }
 
 func (signInLockedError SignInLockedError) Error() string {
+	// UTC, because the moment comes back from storage wearing whatever timezone the
+	// process happens to run in. That would make the same lock read differently on a
+	// laptop and on the cluster, for no reason anybody chose. The caller showing this
+	// to a person converts it to *their* timezone, which is the only local time that
+	// means anything here.
 	return fmt.Sprintf("%s，%s 之後才能再試",
 		ErrSignInLocked.Error(),
-		signInLockedError.LockedUntil.Format(time.RFC3339))
+		signInLockedError.LockedUntil.UTC().Format(time.RFC3339))
 }
 
 // Is lets callers that only want to know which refusal this is keep writing
