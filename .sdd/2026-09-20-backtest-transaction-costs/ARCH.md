@@ -221,9 +221,20 @@ StakeFor(availableCash, transactionCosts) (stake, canStake)
 **三種模式一個判斷。** 全押恆成立（它押的就是上限本身）；
 另外兩種模式使用者講的是一個明確的數字，那個數字連同它的成本付不起，就跳過這次。
 
-**百分比填 100 與全押從此不同**，而這是對的：全押沒有數字、它會自己縮到付得起；
-百分比 100 是使用者**打出來的一個數字**，付不起它與它的成本就跳過——
-與固定金額正好等於可用資金完全一致。
+但「跳過這次」對百分比有一個陷阱：百分比押的是**現金的一個比例**，
+而可押上限也是**現金的一個比例**——兩者一起縮放，所以一個比上限大的百分比
+在**每一根** K 線上都開不了倉，與現金剩多少無關。押 100% 配任何正費率是這樣，
+押 99.99% 配 1% 費率也是。放它跑完，使用者拿到的是一張「從沒交易過」的成績單，
+而畫面上每一個字都在講算式。
+
+所以多一個 `NeverStakesUnder`：**這個宣告在這個費率下永遠押不動嗎**。
+只有百分比答得出來（全押會自己縮、固定金額取決於一個會變的餘額），
+而它把算術交給既有的 `MaximumStakeFrom(100)`——「現金的百分之幾是押得起的」——
+不另寫一次。`BacktestDomain` 在門口用它擋下整次重演，兩條重演路徑共用同一道門。
+
+這與建構子既有的兩個拒絕是**同一類**，理由就是既有註解裡那一句：
+「一個永遠押不動的數字會產生一場沒有交易的重演，在畫面上讀起來就跟系統壞掉一樣。」
+新的只有一點：這個數字是**遇到第二個輸入**才變得押不動的。
 
 ### `BacktestDomain` — 多建一個 model、多一個欄位名
 
@@ -304,6 +315,7 @@ BacktestPositionDomain ────▶ BacktestTransactionCostsDomain
 | AC-02.3 | `StakeFor` 全押回 `maximumStake` |
 | AC-02.4 | `StakeFor` 百分比仍乘 `availableCash` |
 | AC-02.5 | `canStake` 的 `stake ≤ maximumStake` |
+| AC-02.6 | `PositionSizingDomain.NeverStakesUnder` ＋ `BacktestDomain` 的門口拒絕 |
 | AC-03.1 | `EntryCostFor(stake)` |
 | AC-03.2 / 03.3 | `ClosedAt` 用 `unitCount × exitPrice`，不用 `ValueAt` |
 | AC-03.4 | `ExitCostFor` 的絕對值 |

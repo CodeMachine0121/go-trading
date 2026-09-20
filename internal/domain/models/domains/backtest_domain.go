@@ -127,6 +127,20 @@ func NewBacktestDomain(
 			BacktestTransactionCostsField, transactionCostsError.Error())
 	}
 
+	// A percentage bigger than the share the costs leave affordable can never open
+	// anything — not on this candle, on any candle. Left to run, it hands back a
+	// report card of a strategy that never traded, and every word on that screen
+	// points at the algorithm instead of at the two numbers that caused it.
+	//
+	// It points at the percentage rather than at the rates because the rates are a
+	// fact about somebody's broker and the percentage is the knob.
+	if positionSizing.NeverStakesUnder(transactionCosts) {
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestPositionSizingValueField,
+			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
+				"這次重演一筆交易都不會有。要押滿請改用全押——它會自己留出手續費")
+	}
+
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
 	if parametersError != nil {
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, parametersError)

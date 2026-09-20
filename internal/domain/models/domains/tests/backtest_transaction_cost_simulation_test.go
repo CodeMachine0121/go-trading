@@ -253,6 +253,10 @@ func TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge(t *testing.T)
 			expectedPositionOpenCount: 1,
 		},
 		{
+			// Reachable here but not through the front door: a replay declared this
+			// way is refused before it starts, because it could never open anything
+			// on any candle. The account's own rule is still the general one, and
+			// this is where it is stated.
 			name:                      "staking a hundred percent is a figure, and it no longer fits",
 			sizingMode:                "percentage",
 			sizingValue:               "100",

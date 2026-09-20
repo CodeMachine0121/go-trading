@@ -214,6 +214,74 @@ func TestBacktestTransactionCostsMaximumStakeStaysAffordableWhenTheDivisionNever
 	}
 }
 
+// A percentage bigger than the share the costs leave affordable can never open
+// anything. Left to run it produces a report card of a strategy that never traded,
+// and nothing on that screen points at the two numbers that caused it — so it is
+// refused at the door, exactly as a percentage of zero already is.
+func TestPositionSizingKnowsWhenItCouldNeverStake(t *testing.T) {
+	testCases := []struct {
+		name                string
+		declaredMode        string
+		declaredValue       string
+		entryCostPercentage string
+		neverStakes         bool
+	}{
+		{
+			name:                "staking the lot as a percentage, with anything charged",
+			declaredMode:        "percentage",
+			declaredValue:       "100",
+			entryCostPercentage: "0.0855",
+			neverStakes:         true,
+		},
+		{
+			name:                "a percentage just under the lot is caught too",
+			declaredMode:        "percentage",
+			declaredValue:       "99.99",
+			entryCostPercentage: "1",
+			neverStakes:         true,
+		},
+		{
+			name:                "a percentage right at the affordable share still stakes",
+			declaredMode:        "percentage",
+			declaredValue:       "99",
+			entryCostPercentage: "1",
+			neverStakes:         false,
+		},
+		{
+			name:                "the same percentage is fine when trading is free",
+			declaredMode:        "percentage",
+			declaredValue:       "100",
+			entryCostPercentage: "0",
+			neverStakes:         false,
+		},
+		{
+			name:                "staking everything shrinks to fit, so it always stakes",
+			declaredMode:        "allIn",
+			declaredValue:       "0",
+			entryCostPercentage: "100",
+			neverStakes:         false,
+		},
+		{
+			name:                "a fixed amount depends on a balance that moves, so it is not judged here",
+			declaredMode:        "fixedAmount",
+			declaredValue:       "1000000",
+			entryCostPercentage: "100",
+			neverStakes:         false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			positionSizing, sizingError := domains.NewPositionSizingDomain(
+				testCase.declaredMode, decimal.RequireFromString(testCase.declaredValue))
+			require.NoError(t, sizingError)
+
+			assert.Equal(t, testCase.neverStakes, positionSizing.NeverStakesUnder(
+				transactionCostsOf(t, testCase.entryCostPercentage, "0")))
+		})
+	}
+}
+
 // Money leaving is money leaving. A price arriving from outside as a negative would
 // otherwise turn the charge into income — a mistake that improves every report card
 // it touches and never fails.

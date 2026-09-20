@@ -126,6 +126,36 @@ func (positionSizingDomain PositionSizingDomain) Value() decimal.Decimal {
 // with nothing to pay says so in its own words: a bot's position plan hands over the
 // zero value, and that line is the only place the decision to leave live advice alone
 // is visible. A number would have made the same thing read like a coincidence.
+// NeverStakesUnder says whether this sizing could never put anything down under those
+// costs, whatever the account happens to hold at the time.
+//
+// It exists for the reason the constructor's own refusals exist, in the same words: a
+// figure that can never stake anything produces a replay with no trades at all, which
+// reads on screen exactly like a broken system. The only thing new here is that the
+// figure became unstakeable by meeting a *second* input — a percentage that was
+// perfectly usable until somebody said what trading costs.
+//
+// Only the percentage mode can be settled in advance. It stakes a share of whatever is
+// on hand, so if that share is bigger than the share the costs leave affordable, it is
+// bigger on every candle and at every balance — the two scale together. Staking
+// everything shrinks to fit by definition, and a fixed amount depends on a balance
+// that moves, so neither can be judged before the walk begins.
+//
+// The affordable share is the ceiling worked out from a hundred: what proportion of
+// the cash can actually be staked once its own entry charge has to fit beside it. A
+// run paying nothing gets a hundred back, and no percentage may exceed that, so this
+// answers false for every replay made before there were costs to declare.
+func (positionSizingDomain PositionSizingDomain) NeverStakesUnder(
+	transactionCosts BacktestTransactionCostsDomain,
+) bool {
+	if positionSizingDomain.mode != vo.PositionSizingModePercentage {
+		return false
+	}
+
+	return positionSizingDomain.value.GreaterThan(
+		transactionCosts.MaximumStakeFrom(oneHundredPercent))
+}
+
 func (positionSizingDomain PositionSizingDomain) StakeFor(
 	availableCash decimal.Decimal, transactionCosts BacktestTransactionCostsDomain,
 ) (decimal.Decimal, bool) {

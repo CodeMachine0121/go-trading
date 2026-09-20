@@ -34,7 +34,8 @@
 | AC-02.3 | 全押＝部位＋它的進場成本，資金歸零 | 部位略小於可用資金 | `position_sizing_domain.go:139`（全押押 `maximumStake`） | 同 AC-02.1 第一列（部位 10000、曲線 10000、初始 10100） | ✅ conforms |
 | AC-02.4 | 押幾成／固定金額的押注數不變 | 成本另外扣 | `position_sizing_domain.go:141`（百分比仍乘 `availableCash`） | 同 AC-02.1 第二列（部位 5050、曲線 10049.5＝4999.5＋5050） | ✅ conforms |
 | AC-02.5 | 付不起「押注＋進場成本」就跳過 | 不算失敗、不計開倉次數 | `position_sizing_domain.go:144` 的 `stake ≤ maximumStake` | `TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge`（四列：固定金額付不起／不計成本時付得起／百分之百付不起／全押自己縮） | ✅ conforms |
-| — | 押百分之百與全押分道揚鑣（PRD Edge Cases） | 百分之百跳過、全押開得成 | 同上 | 同上第三、四列 | ✅ conforms |
+| AC-02.6 | 一定付不起的百分比**整次拒絕** | 不讓它交出一張空成績單 | `PositionSizingDomain.NeverStakesUnder` ＋ `BacktestDomain` 門口 | `TestPositionSizingKnowsWhenItCouldNeverStake`（六列：100%配費率／99.99%配1%／99%配1%／100%免費／全押／固定金額）＋ `backtest_domain_test.go` 拒絕表格新增一列（指向 `positionSizingValue`，證明兩條重演路徑共用同一道門） | ✅ conforms |
+| — | 帳戶層仍然是「跳過這次」 | 門口擋掉的只是**可預測**的那一種 | `StakeFor` 未改 | `TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge` 第三、四列（單元層仍到得了那個狀態，前門已擋下，測試中已註明） | ✅ conforms |
 
 ### US-03 — 成本按成交金額收，做空也一樣
 

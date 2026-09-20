@@ -8920,7 +8920,7 @@
                 "backtests"
               ]
             },
-            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根最低 90 掃到止損價 117.6，成交金額是 100 × 117.6 = 11,760，出場成本 **117.6**。價差虧 240，這一筆的損益是 **−477.6**（淨額，已扣掉兩筆成本），帳上剩 **11,642.4**。\n\n沒有成本的那一發同樣虧 240 的價差，帳上剩 11,760。兩者相差的 237.6 就是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
+            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根最低 90 掃到止損價 117.6，成交金額是 100 × 117.6 = 11,760，出場成本 **117.6**。價差虧 240，這一筆的損益是 **−477.6**（淨額，已扣掉兩筆成本），帳上剩 **11,642.4**。\n\n沒有成本的那一發同樣虧 240 的價差，帳上剩 11,760。\n\n**別拿兩個餘額相減**——兩發的本金本來就不同（12,000 對 12,120），差的 117.6 說不出任何事情。對得起來的是**淨變化**：不計成本那一發是 −240，這一發是 −477.6，相差的 **237.6** 正是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12120\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\",\n  \"entryCostPercentage\": \"1\",\n  \"exitCostPercentage\": \"1\"\n}",
@@ -9660,12 +9660,17 @@
                   "pm.test(\"成績單說得出總共付了多少\", function () {",
                   "    pm.expect(pm.response.json().summary.totalTransactionCost).to.be.a(\"string\");",
                   "});",
-                  "pm.test(\"每一筆交易都帶著自己的兩筆成本，損益是淨額\", function () {",
+                  "pm.test(\"每一筆交易的損益確實是價差扣掉那兩筆成本\", function () {",
+                  "    // 拿價差自己算一遍再比對。「損益不大於損益加上兩筆成本」那種寫法是恆真的——",
+                  "    // 後端哪天退回報毛額，它照樣會過，那條斷言等於沒有寫。",
                   "    pm.response.json().closedTrades.forEach(function (trade) {",
-                  "        pm.expect(trade.entryCost).to.be.a(\"string\");",
-                  "        pm.expect(trade.exitCost).to.be.a(\"string\");",
-                  "        pm.expect(Number(trade.profit)).to.be.at.most(",
-                  "            Number(trade.entryCost) + Number(trade.exitCost) + Number(trade.profit));",
+                  "        const units = Number(trade.stake) / Number(trade.entryPrice);",
+                  "        const priceMove = Number(trade.exitPrice) - Number(trade.entryPrice);",
+                  "        const gross = trade.direction === \"short\"",
+                  "            ? -units * priceMove",
+                  "            : units * priceMove;",
+                  "        const net = gross - Number(trade.entryCost) - Number(trade.exitCost);",
+                  "        pm.expect(Number(trade.profit)).to.be.closeTo(net, 0.01);",
                   "    });",
                   "});"
                 ]
