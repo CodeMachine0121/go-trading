@@ -18,13 +18,10 @@ import (
 // what may be replayed change; this one changes when the rules about trading change —
 // fees, stops, filling at the next candle's open. Two reasons to change, two models.
 type BacktestSimulationDomain struct {
-	initialCapital   decimal.Decimal
-	positionSizing   PositionSizingDomain
-	tradingMode      TradingModeDomain
-	exitLevels       BacktestExitLevelsDomain
-	leverage         BacktestLeverageDomain
-	transactionCosts BacktestTransactionCostsDomain
-	inputKCandles    []vo.KCandleVo
+	initialCapital decimal.Decimal
+	tradingMode    TradingModeDomain
+	positionTerms  BacktestPositionTermsDomain
+	inputKCandles  []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
 	// candle. The script runner produces one signal per candle or fails the whole
 	// replay, so by here the two lists are always the same length.
@@ -37,23 +34,17 @@ type BacktestSimulationDomain struct {
 // never reaches here — that is a script failure, caught where the script is run.
 func NewBacktestSimulationDomain(
 	initialCapital decimal.Decimal,
-	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
-	exitLevels BacktestExitLevelsDomain,
-	leverage BacktestLeverageDomain,
-	transactionCosts BacktestTransactionCostsDomain,
+	positionTerms BacktestPositionTermsDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
 ) BacktestSimulationDomain {
 	return BacktestSimulationDomain{
-		initialCapital:   initialCapital,
-		positionSizing:   positionSizing,
-		tradingMode:      tradingMode,
-		exitLevels:       exitLevels,
-		leverage:         leverage,
-		transactionCosts: transactionCosts,
-		inputKCandles:    inputKCandles,
-		signals:          signals,
+		initialCapital: initialCapital,
+		tradingMode:    tradingMode,
+		positionTerms:  positionTerms,
+		inputKCandles:  inputKCandles,
+		signals:        signals,
 	}
 }
 
@@ -65,11 +56,8 @@ func NewBacktestSimulationDomain(
 func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestResultDto {
 	account := NewBacktestAccountDomain(
 		backtestSimulationDomain.initialCapital,
-		backtestSimulationDomain.positionSizing,
 		backtestSimulationDomain.tradingMode,
-		backtestSimulationDomain.exitLevels,
-		backtestSimulationDomain.leverage,
-		backtestSimulationDomain.transactionCosts)
+		backtestSimulationDomain.positionTerms)
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
 	for candleIndex, inputKCandle := range backtestSimulationDomain.inputKCandles {

@@ -67,8 +67,9 @@ func leveragedReplayOf(t *testing.T, spec leveragedReplaySpec) dto.BacktestResul
 	}
 
 	return domains.NewBacktestSimulationDomain(
-		decimal.RequireFromString(spec.initialCapital), positionSizing, tradingMode,
-		exitLevels, leverage, transactionCosts,
+		decimal.RequireFromString(spec.initialCapital), tradingMode,
+		domains.NewBacktestPositionTermsDomain(
+			positionSizing, exitLevels, leverage, transactionCosts),
 		inputKCandles, signalDomainsSaying(spec.signals...)).ToDto()
 }
 
@@ -317,8 +318,8 @@ func TestBorrowedPositionChargesBothEndsOnTheExposure(t *testing.T) {
 	leverage, leverageError := leverageOf(t, "5", "0.5")
 	require.NoError(t, leverageError)
 
-	position, isOpened := domains.NewBacktestPositionDomain(
-		vo.PositionDirectionLong, positionEntryTime,
+	position, isOpened := positionTakenOn(
+		t, vo.PositionDirectionLong,
 		decimal.NewFromInt(100), decimal.NewFromInt(10000),
 		domains.BacktestExitLevelsDomain{}, leverage, transactionCosts)
 	require.True(t, isOpened)
@@ -335,8 +336,8 @@ func TestUnborrowedPositionChargesTheStakeAsItAlwaysDid(t *testing.T) {
 		decimal.RequireFromString("0.1"), decimal.Zero)
 	require.NoError(t, costsError)
 
-	position, isOpened := domains.NewBacktestPositionDomain(
-		vo.PositionDirectionLong, positionEntryTime,
+	position, isOpened := positionTakenOn(
+		t, vo.PositionDirectionLong,
 		decimal.NewFromInt(100), decimal.NewFromInt(10000),
 		domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, transactionCosts)
 	require.True(t, isOpened)
@@ -354,8 +355,8 @@ func TestLiquidatedTradeLosesTheStakeAndTheChargeAlreadyPaid(t *testing.T) {
 	leverage, leverageError := leverageOf(t, "4", "0.5")
 	require.NoError(t, leverageError)
 
-	position, isOpened := domains.NewBacktestPositionDomain(
-		vo.PositionDirectionLong, positionEntryTime,
+	position, isOpened := positionTakenOn(
+		t, vo.PositionDirectionLong,
 		decimal.NewFromInt(100), decimal.NewFromInt(10000),
 		domains.BacktestExitLevelsDomain{}, leverage, transactionCosts)
 	require.True(t, isOpened)
@@ -371,8 +372,8 @@ func TestLiquidatedTradeLosesTheStakeAndTheChargeAlreadyPaid(t *testing.T) {
 
 // Every other way out still settles the way it always has.
 func TestUnliquidatedTradeStillReturnsWhatItIsWorth(t *testing.T) {
-	position, isOpened := domains.NewBacktestPositionDomain(
-		vo.PositionDirectionLong, positionEntryTime,
+	position, isOpened := positionTakenOn(
+		t, vo.PositionDirectionLong,
 		decimal.NewFromInt(100), decimal.NewFromInt(10000),
 		domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
 		domains.BacktestTransactionCostsDomain{})
@@ -390,8 +391,8 @@ func TestCashReturnedNeverGoesNegative(t *testing.T) {
 		decimal.RequireFromString("100"), decimal.Zero)
 	require.NoError(t, costsError)
 
-	position, isOpened := domains.NewBacktestPositionDomain(
-		vo.PositionDirectionShort, positionEntryTime,
+	position, isOpened := positionTakenOn(
+		t, vo.PositionDirectionShort,
 		decimal.NewFromInt(100), decimal.NewFromInt(10000),
 		domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, transactionCosts)
 	require.True(t, isOpened)

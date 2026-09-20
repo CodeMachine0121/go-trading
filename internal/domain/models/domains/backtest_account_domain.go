@@ -15,10 +15,7 @@ import (
 // is one position field, so there is nowhere for a second one to go.
 type BacktestAccountDomain struct {
 	tradingMode       TradingModeDomain
-	positionSizing    PositionSizingDomain
-	exitLevels        BacktestExitLevelsDomain
-	leverage          BacktestLeverageDomain
-	transactionCosts  BacktestTransactionCostsDomain
+	positionTerms     BacktestPositionTermsDomain
 	availableCash     decimal.Decimal
 	openPosition      BacktestPositionDomain
 	hasOpenPosition   bool
@@ -28,20 +25,14 @@ type BacktestAccountDomain struct {
 
 func NewBacktestAccountDomain(
 	initialCapital decimal.Decimal,
-	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
-	exitLevels BacktestExitLevelsDomain,
-	leverage BacktestLeverageDomain,
-	transactionCosts BacktestTransactionCostsDomain,
+	positionTerms BacktestPositionTermsDomain,
 ) *BacktestAccountDomain {
 	return &BacktestAccountDomain{
-		tradingMode:      tradingMode,
-		positionSizing:   positionSizing,
-		exitLevels:       exitLevels,
-		leverage:         leverage,
-		transactionCosts: transactionCosts,
-		availableCash:    initialCapital,
-		closedTrades:     make([]vo.ClosedTradeVo, 0),
+		tradingMode:   tradingMode,
+		positionTerms: positionTerms,
+		availableCash: initialCapital,
+		closedTrades:  make([]vo.ClosedTradeVo, 0),
 	}
 }
 
@@ -116,31 +107,23 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	}
 
 	// An opening the account cannot afford simply does not happen: the replay carries
-	// on flat, nothing is counted and nothing is reported. A strategy script that outgrows
-	// its own account is behaving, not failing.
-	// What the account can afford now includes the charge for opening, and that is
-	// the sizing's own answer rather than a second test here — otherwise each of the
-	// three modes would grow its own edge and one of them would eventually get it
-	// wrong.
-	stake, canStake := backtestAccountDomain.positionSizing.StakeFor(
-		backtestAccountDomain.availableCash, backtestAccountDomain.transactionCosts,
-		backtestAccountDomain.leverage)
-	if !canStake {
-		return
-	}
-
-	openedPosition, isOpened := NewBacktestPositionDomain(
-		wantedDirection, candleTime, fillPrice, stake,
-		backtestAccountDomain.exitLevels, backtestAccountDomain.leverage,
-		backtestAccountDomain.transactionCosts)
+	// on flat, nothing is counted and nothing is reported. A strategy script that
+	// outgrows its own account is behaving, not failing.
+	//
+	// How big it would have been, whether that was affordable, what the venue charges
+	// and where it gets out are all one answer from the terms. The account holds money
+	// and a position; it has no business knowing that a stake is a thing that gets
+	// worked out.
+	openedPosition, isOpened := backtestAccountDomain.positionTerms.OpenFor(
+		wantedDirection, candleTime, fillPrice, backtestAccountDomain.availableCash)
 	if !isOpened {
 		return
 	}
 
 	// The stake and what it cost to put it down leave together. They are one
-	// withdrawal in two parts, and the sizing above has already guaranteed both fit.
+	// withdrawal in two parts, and the terms have already guaranteed both fit.
 	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.
-		Sub(stake).Sub(openedPosition.EntryCost())
+		Sub(openedPosition.Stake()).Sub(openedPosition.EntryCost())
 	backtestAccountDomain.openPosition = openedPosition
 	backtestAccountDomain.hasOpenPosition = true
 	backtestAccountDomain.positionOpenCount++

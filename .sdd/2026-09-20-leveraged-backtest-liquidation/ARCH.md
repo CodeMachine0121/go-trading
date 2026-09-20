@@ -50,9 +50,27 @@
 
 | Name | Kind | Responsibility (purpose) | Collaborators | Satisfies (PRD scenario) |
 | :--- | :--- | :--- | :--- | :--- |
+| `BacktestPositionTermsDomain` | Domain Model | **一次重演開一注的全部條件**：倉位大小模式、出場價位、槓桿設定、交易成本。它只回答一個問題——「手上有這麼多現金，在這個價位開一注」——所以押多大、付不付得起、收多少費、停在哪裡是一次回答。零值＝四樣都沒說。 | `PositionSizingDomain`、`BacktestExitLevelsDomain`、`BacktestLeverageDomain`、`BacktestTransactionCostsDomain` | US-03、US-06 全部（並讓其餘每一條都少經過一層） |
 | `BacktestLeverageDomain` | Domain Model | 一次重演的槓桿設定與它的全部規則：讀宣告（留白／零／一＝沒有槓桿）、拒絕（小於一、現貨、維持保證金率為負或大到強平距離不為正）、算曝險金額、算強平距離。**零值＝沒有槓桿**，與出場價位、交易成本兩個既有模型同一個慣例。 | `TradingModeDomain` | US-01 全部、US-02 全部、US-03「開倉時扣的是保證金」、US-04 強平價四則 |
 
-**Depth check.** 它的對外面貌只有四件事：`IsEngaged()`、`ExposureFrom(stake)`、`AdverseDistance()`、`Multiplier()`。
+**為什麼會有 `BacktestPositionTermsDomain`（實作階段加的）。** 這一刀讓三個建構子各長出一個參數：
+`NewBacktestPositionDomain` 變 7 個、`NewBacktestAccountDomain` 6 個、`NewBacktestSimulationDomain` 8 個，
+而下一刀（資金費率）會讓三個再各加一個——這正是淺介面的典型徵狀。
+但那幾個參數其實是同一件事：**一注是用什麼條件開的**。合成一個模型之後：
+
+| | 之前 | 之後 |
+| :--- | ---: | ---: |
+| `NewBacktestSimulationDomain` | 8 個參數 | 5 |
+| `NewBacktestAccountDomain` | 6 | 3 |
+| 開一注 | 帳戶先問 `StakeFor`、再呼叫 `NewBacktestPositionDomain` | `terms.OpenFor(方向, 時間, 價格, 現金)` 一次 |
+| 「這組設定永遠開不了倉嗎」 | `NeverStakesUnder(成本, 槓桿)` | `NeverOpensAnything()`，零參數 |
+
+`NewBacktestPositionDomain` 因此**收成未匯出**：`OpenFor` 是一注唯一的出生入口。
+留一扇收現成押注金額的後門，等於邀請呼叫端自己去算押注金額——而這組條件的重點正是
+**外面沒有人知道「押注金額」是一個要被算出來的東西**。
+交易模式**沒有**被收進去：它管的是「賣出是什麼意思」，與「一注怎麼開」是兩件事，合併會弄丟這個區別。
+
+**Depth check（`BacktestLeverageDomain`）.** 它的對外面貌只有四件事：`IsEngaged()`、`ExposureFrom(stake)`、`AdverseDistance()`、`Multiplier()`。
 呼叫端從來不需要自己乘、自己減、自己判斷「一倍要不要特別處理」——`ExposureFrom` 在沒有槓桿時回傳原值，
 `AdverseDistance` 在沒有槓桿時回答「沒有這個距離」。沒有任何一個呼叫端要排步驟，也沒有 `AndThen` 式的命名。
 
@@ -127,6 +145,8 @@ flowchart TD
   1. 「又一種逆向出場」→ `BacktestExitLevelsDomain.PricesFrom` 裡多一個候選者，**擇近**那段邏輯一個字不用改。
      `ExitOn` 完全不會被動到——那正是這份設計把合併提前到開倉當下的理由。
   2. 「結算時多扣一筆」→ `BacktestPositionDomain.CashReturnedFor` 這一個方法，帳戶不會知道有這回事。
+  3. 「多一個開倉條件」→ `BacktestPositionTermsDomain` 多一個欄位加 `OpenFor` 裡一行。
+     **三個建構子的簽名一個都不會動**，帳戶與逐棒的走法也不會。
 
 - **How to add it：** 新增 `BacktestFundingRateDomain`（比照 `BacktestLeverageDomain`：零值＝不模擬、
   建構子收完宣告就把規則全部結清），在 `PricesFrom` 加它的候選價位、在 `CashReturnedFor` 加它的累計扣款。

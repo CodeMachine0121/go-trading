@@ -25,16 +25,13 @@ const minimumBacktestKCandleCount = 2
 // belongs to BacktestSimulationDomain, which this hands over to — the two change for
 // different reasons and would otherwise be one file edited by two unrelated needs.
 type BacktestDomain struct {
-	symbol           string
-	interval         AggregationIntervalDomain
-	parameters       StrategyScriptParametersDomain
-	initialCapital   decimal.Decimal
-	positionSizing   PositionSizingDomain
-	tradingMode      TradingModeDomain
-	exitLevels       BacktestExitLevelsDomain
-	leverage         BacktestLeverageDomain
-	transactionCosts BacktestTransactionCostsDomain
-	startTime        time.Time
+	symbol         string
+	interval       AggregationIntervalDomain
+	parameters     StrategyScriptParametersDomain
+	initialCapital decimal.Decimal
+	tradingMode    TradingModeDomain
+	positionTerms  BacktestPositionTermsDomain
+	startTime      time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
 	// buckets that opened strictly before it are replayed.
 	readCutoff time.Time
@@ -148,7 +145,10 @@ func NewBacktestDomain(
 	//
 	// It points at the percentage rather than at the rates because the rates are a
 	// fact about somebody's broker and the percentage is the knob.
-	if positionSizing.NeverStakesUnder(transactionCosts, leverage) {
+	positionTerms := NewBacktestPositionTermsDomain(
+		positionSizing, exitLevels, leverage, transactionCosts)
+
+	if positionTerms.NeverOpensAnything() {
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestPositionSizingValueField,
 			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
@@ -189,17 +189,14 @@ func NewBacktestDomain(
 	}
 
 	return BacktestDomain{
-		symbol:           tradingSymbol.Value(),
-		interval:         interval,
-		parameters:       parameters,
-		initialCapital:   requestDto.InitialCapital,
-		positionSizing:   positionSizing,
-		tradingMode:      tradingMode,
-		exitLevels:       exitLevels,
-		leverage:         leverage,
-		transactionCosts: transactionCosts,
-		startTime:        startTime,
-		readCutoff:       readCutoff,
+		symbol:         tradingSymbol.Value(),
+		interval:       interval,
+		parameters:     parameters,
+		initialCapital: requestDto.InitialCapital,
+		tradingMode:    tradingMode,
+		positionTerms:  positionTerms,
+		startTime:      startTime,
+		readCutoff:     readCutoff,
 	}, nil
 }
 
@@ -291,11 +288,8 @@ func (backtestDomain BacktestDomain) ReplayOver(
 ) dto.BacktestResultDto {
 	backtestResultDto := NewBacktestSimulationDomain(
 		backtestDomain.initialCapital,
-		backtestDomain.positionSizing,
 		backtestDomain.tradingMode,
-		backtestDomain.exitLevels,
-		backtestDomain.leverage,
-		backtestDomain.transactionCosts,
+		backtestDomain.positionTerms,
 		inputKCandles,
 		signals).ToDto()
 

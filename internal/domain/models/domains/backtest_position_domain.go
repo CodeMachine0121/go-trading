@@ -46,12 +46,17 @@ type BacktestPositionDomain struct {
 	entryCost decimal.Decimal
 }
 
-// NewBacktestPositionDomain opens a position at a candle's close.
+// newBacktestPositionDomain opens a position at a candle's close.
+//
+// It is unexported so that BacktestPositionTermsDomain.OpenFor is the only way a
+// position comes into being. A second door taking a stake already worked out is an
+// invitation for a caller to work one out — and the point of the terms is that
+// nobody outside them knows a stake is something that gets decided.
 //
 // A non-positive entry price is refused rather than divided by. There is nothing to
 // buy in a market priced at zero, and the alternative — dividing anyway — ends the
 // whole replay with a panic over one bad candle.
-func NewBacktestPositionDomain(
+func newBacktestPositionDomain(
 	direction vo.PositionDirectionVo,
 	entryTime time.Time,
 	entryPrice decimal.Decimal,
@@ -80,6 +85,15 @@ func NewBacktestPositionDomain(
 		transactionCosts: transactionCosts,
 		entryCost:        transactionCosts.EntryCostFor(exposure),
 	}, true
+}
+
+// Stake is the money taken out of the account to hold this — the margin, which is
+// less than what the position is exposed to whenever anything was borrowed.
+//
+// The account asks because it is the account's money; how much that turned out to be
+// is the terms' decision, and this is where the answer comes back.
+func (backtestPositionDomain BacktestPositionDomain) Stake() decimal.Decimal {
+	return backtestPositionDomain.stake
 }
 
 // EntryCost is what was already paid to open this bet. A replay given no rates paid
