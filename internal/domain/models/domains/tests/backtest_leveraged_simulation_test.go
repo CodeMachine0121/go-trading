@@ -198,29 +198,34 @@ func TestLeveragedReplayWipesOutAShortOnTheWayUp(t *testing.T) {
 // wins every time, and one of the two outcomes is an account that survived.
 func TestLeveragedReplayTakesWhicheverAdverseExitIsNearer(t *testing.T) {
 	testCases := []struct {
-		name                string
-		stopLossPercentage  string
-		expectedExitReason  vo.TradeExitReasonVo
-		expectedExitPrice   string
-		expectedFinalEquity string
+		name                 string
+		stopLossPercentage   string
+		expectedExitReason   vo.TradeExitReasonVo
+		expectedExitPrice    string
+		expectedFinalEquity  string
+		expectedStopCount    int
+		expectedLiquidations int
 	}{
 		{
 			name:               "a stop inside the liquidation price saves the account",
 			stopLossPercentage: "5",
 			expectedExitReason: vo.TradeExitReasonStopLoss,
 			expectedExitPrice:  "95", expectedFinalEquity: "7500",
+			expectedStopCount: 1, expectedLiquidations: 0,
 		},
 		{
 			name:               "a stop beyond it never gets a turn",
 			stopLossPercentage: "30",
 			expectedExitReason: vo.TradeExitReasonLiquidation,
 			expectedExitPrice:  "80.5", expectedFinalEquity: "0",
+			expectedStopCount: 0, expectedLiquidations: 1,
 		},
 		{
 			name:               "no stop at all leaves the loan to do it",
 			stopLossPercentage: "",
 			expectedExitReason: vo.TradeExitReasonLiquidation,
 			expectedExitPrice:  "80.5", expectedFinalEquity: "0",
+			expectedStopCount: 0, expectedLiquidations: 1,
 		},
 	}
 
@@ -236,6 +241,12 @@ func TestLeveragedReplayTakesWhicheverAdverseExitIsNearer(t *testing.T) {
 				string(testCase.expectedExitReason), result.ClosedTrades[0].ExitReason)
 			assert.Equal(t, testCase.expectedExitPrice, result.ClosedTrades[0].ExitPrice.String())
 			assert.Equal(t, testCase.expectedFinalEquity, result.Summary.FinalEquity.String())
+			// The two counts are the same fact read from either side: a run whose
+			// stop is nearer can never be liquidated, and one whose stop is farther
+			// can never be stopped out. Both are asserted so neither bucket can
+			// quietly collect the other's trades.
+			assert.Equal(t, testCase.expectedStopCount, result.Summary.StopLossExitCount)
+			assert.Equal(t, testCase.expectedLiquidations, result.Summary.LiquidationExitCount)
 		})
 	}
 }
