@@ -24,6 +24,10 @@ var noBacktestLeverage = decimal.NewFromInt(1)
 // the venues actually use.
 var defaultMaintenanceMarginRate = decimal.NewFromFloat(0.5)
 
+// oneUnit is the boundary between "has digits before the point" and "does not",
+// which is what decides how many places the ceiling is worth printing.
+var oneUnit = decimal.NewFromInt(1)
+
 // BacktestLeverageDomain is how much one replay borrows against what it puts down, and
 // how far a position may fall before the loan is called in.
 //
@@ -106,16 +110,47 @@ func NewBacktestLeverageDomain(
 	// page of zeros that looks like a broken system rather than like a refused figure.
 	maximumMaintenanceMarginRate := oneHundredPercent.Div(declaredMultiplier)
 	if maintenanceMarginRate.GreaterThanOrEqual(maximumMaintenanceMarginRate) {
+		// The ceiling is cut down to four significant figures, **rounded down**, so
+		// that the number in the sentence is one they can actually type: a third of
+		// a hundred says 33.33, and 33.33 really is under the ceiling. Printed in
+		// full it is twenty digits of "here is what to type", which is not an
+		// instruction anybody can follow — and the screen asking the same question
+		// has to be able to print the same figure.
 		return BacktestLeverageDomain{}, fmt.Errorf(
 			"維持保證金率必須小於 %s%%——%s 倍槓桿下，押下去的錢只夠讓價格逆著走這麼多，"+
 				"再多這一注在開倉那一棒就已經撐不住",
-			maximumMaintenanceMarginRate.String(), declaredMultiplier.String())
+			maximumMaintenanceMarginRate.RoundDown(
+				maximumMaintenanceMarginRateScale(maximumMaintenanceMarginRate)).String(),
+			declaredMultiplier.String())
 	}
 
 	return BacktestLeverageDomain{
 		multiplier:            declaredMultiplier,
 		maintenanceMarginRate: maintenanceMarginRate,
 	}, nil
+}
+
+// maximumMaintenanceMarginRateScale is how many decimal places that ceiling is worth
+// printing — four significant figures' worth.
+//
+// Four figures rather than a fixed number of places, because the ceiling spans three
+// orders of magnitude across the multipliers people actually use: twenty times gives
+// five, a thousand times gives a tenth. Two decimal places would print the second as
+// zero, which is a ceiling nobody can get under.
+func maximumMaintenanceMarginRateScale(ceiling decimal.Decimal) int32 {
+	significantFigures := int32(4)
+	// The exponent of the leading digit: 33.33 has one digit before the point, 0.5
+	// has none. Places needed is four figures less whatever sits left of the point.
+	leadingPlaces := int32(len(ceiling.Truncate(0).Abs().String()))
+	if ceiling.Abs().LessThan(oneUnit) {
+		leadingPlaces = 0
+	}
+
+	if leadingPlaces >= significantFigures {
+		return 0
+	}
+
+	return significantFigures - leadingPlaces
 }
 
 // Multiplier is what a stake is multiplied by to get what it actually exposes.

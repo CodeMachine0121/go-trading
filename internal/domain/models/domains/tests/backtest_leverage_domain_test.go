@@ -180,6 +180,44 @@ func TestBacktestLeverageRefusesFiguresItCannotTrade(t *testing.T) {
 
 // Spot is refused only when something is actually being borrowed. A spot replay that
 // says nothing is the one every existing caller sends.
+// The ceiling in the refusal has to be a number they can type. Printed in full, a
+// third of a hundred is twenty digits — and the screen asking the same question has
+// to be able to print the same figure, so it is cut the same way on both sides.
+func TestBacktestLeverageSaysACeilingSomebodyCanActuallyType(t *testing.T) {
+	testCases := []struct {
+		name            string
+		multiplier      string
+		expectedCeiling string
+	}{
+		{name: "a third of a hundred", multiplier: "3", expectedCeiling: "33.33%"},
+		{name: "a whole number needs no places", multiplier: "5", expectedCeiling: "20%"},
+		{name: "a seventh", multiplier: "7", expectedCeiling: "14.28%"},
+		{name: "small enough to need the places", multiplier: "200", expectedCeiling: "0.5%"},
+		{name: "smaller still", multiplier: "1000", expectedCeiling: "0.1%"},
+		// This is the one that says **four figures, not two places**: two places
+		// would print 0.33 here and would print nothing at all once the ceiling
+		// drops below a hundredth — a ceiling nobody can get under.
+		{name: "a third of a percent", multiplier: "300", expectedCeiling: "0.3333%"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, buildError := leverageOf(t, testCase.multiplier, "99")
+
+			require.Error(t, buildError)
+			assert.Contains(t, buildError.Error(), "必須小於 "+testCase.expectedCeiling)
+		})
+	}
+}
+
+// And the figure it prints really does get through, which is the whole point of
+// printing one.
+func TestTheCeilingItPrintsIsOneThatGoesThrough(t *testing.T) {
+	_, buildError := leverageOf(t, "3", "33.33")
+
+	assert.NoError(t, buildError)
+}
+
 func TestBacktestLeverageLetsSpotThroughWhenNothingIsBorrowed(t *testing.T) {
 	for _, multiplier := range []string{"0", "1"} {
 		leverage, buildError := domains.NewBacktestLeverageDomain(
