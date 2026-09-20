@@ -31,6 +31,11 @@ type BacktestPositionDomain struct {
 	stake      decimal.Decimal
 	unitCount  decimal.Decimal
 	exitPrices vo.ExitPricesVo
+	// leverage travels with the position for the reason the costs do: whether
+	// somebody else's money is in this bet decides how it settles, and reading that
+	// from somewhere else later would let a position settle under terms it was never
+	// opened under.
+	leverage BacktestLeverageDomain
 	// transactionCosts travels with the position for the same reason the exit prices
 	// do: what this bet costs to get out of is settled by the rates the run was given,
 	// and reading them from somewhere else later would let a position be charged at a
@@ -81,6 +86,7 @@ func newBacktestPositionDomain(
 		entryPrice:       entryPrice,
 		stake:            stake,
 		unitCount:        exposure.Div(entryPrice),
+		leverage:         leverage,
 		exitPrices:       exitLevels.PricesFrom(direction, entryPrice, leverage),
 		transactionCosts: transactionCosts,
 		entryCost:        transactionCosts.EntryCostFor(exposure),
@@ -259,6 +265,29 @@ func (backtestPositionDomain BacktestPositionDomain) ClosedAt(
 		profit = backtestPositionDomain.stake.Add(backtestPositionDomain.entryCost).Neg()
 	}
 
+	// A borrowed position cannot pay a charge with money it no longer has.
+	//
+	// It can get here: a stop nearer than the liquidation price takes the position
+	// off first, and at a high multiplier the charge on the way out is a large share
+	// of the margin — twenty times with a stop at 4.4% and one percent to leave
+	// costs more than was put down. The loan is called in for the shortfall, so what
+	// is actually paid is whatever the position was still worth, and the whole
+	// margin is gone.
+	//
+	// **It is capped here rather than where the cash is handed back**, so that the
+	// finished trade and the account can never disagree. Capping the cash alone
+	// would leave a trade reporting a loss bigger than the account ever showed, and
+	// the difference would appear as money out of nowhere on the equity curve.
+	//
+	// A position paid for in full is left alone, deliberately. A short bought back
+	// at three times what it sold for really does cost more than it staked, and
+	// every report card made before there was anything to borrow says so.
+	valueAtExit := backtestPositionDomain.ValueAt(exitPrice)
+	if backtestPositionDomain.leverage.IsBorrowed() && valueAtExit.LessThan(exitCost) {
+		exitCost = decimal.Max(valueAtExit, decimal.Zero)
+		profit = backtestPositionDomain.stake.Add(backtestPositionDomain.entryCost).Neg()
+	}
+
 	return vo.ClosedTradeVo{
 		Direction:  backtestPositionDomain.direction,
 		EntryTime:  backtestPositionDomain.entryTime,
@@ -282,11 +311,16 @@ func (backtestPositionDomain BacktestPositionDomain) ClosedAt(
 // living in the account would have split "what one position is worth on the way out"
 // across two models, and the day a third way to leave arrives, split it again.
 //
-// Never negative. A position cannot cost more to hold than was put behind it: the
-// adverse level is reached before the money runs out, and when a candle gaps straight
-// past it the exit still fills there. The floor is the guard for the arithmetic having
-// been asked at a price further out than any exit — which nothing does today, and
-// which nobody should have to prove again before adding the next reason to close.
+// **It does not floor.** A borrowed position is already kept whole by ClosedAt,
+// which caps the charge at what the position was still worth — so the subtraction
+// below cannot go past zero for one, and the finished trade says the same thing.
+// A position paid for in full can still return less than nothing, exactly as it
+// always could: a short bought back at three times what it sold for costs more than
+// it staked, and that is what the account showed before there was anything to borrow.
+//
+// A floor here would have hidden both. It would have rewritten those existing report
+// cards in the flattering direction, and it would have let a trade report a loss the
+// account never took — money appearing out of nowhere on the equity curve.
 func (backtestPositionDomain BacktestPositionDomain) CashReturnedFor(
 	closedTrade vo.ClosedTradeVo,
 ) decimal.Decimal {
@@ -294,10 +328,5 @@ func (backtestPositionDomain BacktestPositionDomain) CashReturnedFor(
 		return decimal.Zero
 	}
 
-	cashReturned := backtestPositionDomain.ValueAt(closedTrade.ExitPrice).Sub(closedTrade.ExitCost)
-	if cashReturned.IsNegative() {
-		return decimal.Zero
-	}
-
-	return cashReturned
+	return backtestPositionDomain.ValueAt(closedTrade.ExitPrice).Sub(closedTrade.ExitCost)
 }

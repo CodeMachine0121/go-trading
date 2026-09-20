@@ -149,10 +149,23 @@ func NewBacktestDomain(
 		positionSizing, exitLevels, leverage, transactionCosts)
 
 	if positionTerms.NeverOpensAnything() {
+		// Borrowing is named when there is any, because it is very likely what
+		// caused this. The charge is levied on the exposure, so a multiplier
+		// multiplies it: a percentage that was perfectly affordable yesterday can
+		// become unaffordable today purely by someone adding leverage. Saying only
+		// "this percentage cannot afford its entry charge" would send them to lower
+		// the percentage — the one knob that was never the problem.
+		borrowedClause := ""
+		if leverage.IsBorrowed() {
+			borrowedClause = "——進場成本是照**放大後的曝險金額**收的，" +
+				"所以槓桿倍數把它一起放大了；調低槓桿倍數與調低這個百分比一樣有效"
+		}
+
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestPositionSizingValueField,
 			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
-				"這次重演一筆交易都不會有。要押滿請改用全押——它會自己留出手續費")
+				"這次重演一筆交易都不會有"+borrowedClause+
+				"。要押滿請改用全押——它會自己留出手續費")
 	}
 
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)

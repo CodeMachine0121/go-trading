@@ -396,23 +396,76 @@ func TestUnliquidatedTradeStillReturnsWhatItIsWorth(t *testing.T) {
 	assert.Equal(t, "11000", position.CashReturnedFor(closedTrade).String())
 }
 
-// Nothing comes back from a position that owes more than it holds, whatever asked.
-func TestCashReturnedNeverGoesNegative(t *testing.T) {
-	transactionCosts, costsError := domains.NewBacktestTransactionCostsDomain(
-		decimal.RequireFromString("100"), decimal.Zero)
-	require.NoError(t, costsError)
-
+// A position paid for in full can still cost more than it staked, and the account
+// says so — exactly as it did before there was anything to borrow.
+//
+// This is the case a floor on the way out would have quietly rewritten: the report
+// card would have bottomed out at zero while the trade went on reporting the real
+// loss, and the difference would have appeared as money out of nowhere.
+func TestAnUnborrowedPositionCanStillCostMoreThanItStaked(t *testing.T) {
 	position, isOpened := positionTakenOn(
 		t, vo.PositionDirectionShort,
 		decimal.NewFromInt(100), decimal.NewFromInt(10000),
-		domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, transactionCosts)
+		domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
+		domains.BacktestTransactionCostsDomain{})
 	require.True(t, isOpened)
 
-	// A short at 100 closed at 300 is worth less than nothing before the charge even
-	// lands, and the charge is the whole of what changed hands.
+	// A hundred units sold at 100 and bought back at 300 loses twice the stake.
 	closedTrade := position.ClosedAt(
 		positionExitTime, decimal.NewFromInt(300), vo.TradeExitReasonSignal)
 
+	assert.Equal(t, "-20000", closedTrade.Profit.String())
+	assert.Equal(t, "-10000", position.CashReturnedFor(closedTrade).String())
+}
+
+// The whole walk, so that the report card and the trade list are read together —
+// that is where a floor would have shown up as a disagreement.
+func TestAnUnborrowedReplayReportsGoingPastZero(t *testing.T) {
+	spec := aBorrowedLongReplay(bar{high: 300, low: 100, close: 300})
+	spec.multiplier = ""
+	spec.maintenanceMarginRate = ""
+	spec.signals = []vo.SignalVo{sellSignal, buySignal}
+
+	result := leveragedReplayOf(t, spec)
+
+	require.Len(t, result.ClosedTrades, 1)
+	assert.Equal(t, "-20000", result.ClosedTrades[0].Profit.String())
+	// Ten thousand staked, twenty thousand lost. The account really is ten thousand
+	// in the hole, and saying zero here would be inventing ten thousand.
+	assert.Equal(t, "-10000", result.Summary.FinalEquity.String())
+}
+
+// A borrowed position is the other way round: the loan is called in for whatever it
+// cannot cover, so the charge is capped at what the position was still worth and the
+// margin is gone. Cash and the finished trade agree, which is the point.
+func TestABorrowedPositionCannotPayAChargeItNoLongerHas(t *testing.T) {
+	transactionCosts, costsError := domains.NewBacktestTransactionCostsDomain(
+		decimal.Zero, decimal.RequireFromString("1"))
+	require.NoError(t, costsError)
+
+	exitLevels, exitLevelsError := domains.NewBacktestExitLevelsDomain(
+		decimal.RequireFromString("4.4"), decimal.Zero)
+	require.NoError(t, exitLevelsError)
+
+	// Twenty times is liquidated at 4.5% under, so a stop at 4.4% takes it off
+	// first — and one percent of the exposure on the way out is more than the
+	// margin has left.
+	leverage, leverageError := leverageOf(t, "20", "0.5")
+	require.NoError(t, leverageError)
+
+	position, isOpened := positionTakenOn(
+		t, vo.PositionDirectionLong,
+		decimal.NewFromInt(100), decimal.NewFromInt(10000),
+		exitLevels, leverage, transactionCosts)
+	require.True(t, isOpened)
+
+	closedTrade := position.ClosedAt(
+		positionExitTime, decimal.RequireFromString("95.6"), vo.TradeExitReasonStopLoss)
+
+	// 2000 units four point four under is 8800 lost, leaving 1200 of the margin —
+	// and the charge would have been 1912.
+	assert.Equal(t, "1200", closedTrade.ExitCost.String())
+	assert.Equal(t, "-10000", closedTrade.Profit.String())
 	assert.Equal(t, "0", position.CashReturnedFor(closedTrade).String())
 }
 
@@ -446,4 +499,55 @@ func TestReportCardCountsNoLiquidationsWithoutALoan(t *testing.T) {
 
 	assert.Equal(t, 0, result.Summary.LiquidationExitCount)
 	assert.Empty(t, result.ClosedTrades)
+}
+
+// A percentage that was affordable yesterday can be refused today purely because
+// somebody added leverage — the charge is levied on the exposure, so the multiplier
+// multiplies it. The refusal has to name that, or the caller goes and lowers the one
+// knob that was never the problem.
+func TestRefusingAnUnstakeablePercentageNamesTheBorrowing(t *testing.T) {
+	requestDto := dto.BacktestRequestDto{
+		Symbol: "BTCUSDT", AggregationInterval: "1h",
+		StartTime: replayStart, EndTime: replayStart.Add(10 * time.Hour),
+		InitialCapital:      decimal.NewFromInt(10000),
+		PositionSizingMode:  "percentage",
+		PositionSizingValue: decimal.NewFromInt(95),
+		EntryCostPercentage: decimal.RequireFromString("0.3"),
+		Leverage:            decimal.NewFromInt(20),
+	}
+
+	_, buildError := domains.NewBacktestDomain(
+		requestDto, 1000, replayStart.Add(20*time.Hour))
+
+	require.Error(t, buildError)
+	// Both halves, each by a phrase that appears nowhere else in the sentence: why
+	// the multiplier did this, and that lowering it is a way out. "槓桿倍數" alone
+	// is not enough — it appears twice, so either half could quietly disappear.
+	assert.Contains(t, buildError.Error(), "進場成本是照**放大後的曝險金額**收的")
+	assert.Contains(t, buildError.Error(), "調低槓桿倍數與調低這個百分比一樣有效")
+	// Still pointed at the figure the caller types, because that is the box on the
+	// screen — the sentence is what says which of the two to change.
+	fieldName, namesField := domains.BacktestFieldName(buildError)
+	require.True(t, namesField)
+	assert.Equal(t, "positionSizingValue", fieldName)
+}
+
+// The same refusal without borrowing says nothing about it — there is nothing to say,
+// and a sentence about leverage would send somebody looking for a box they left empty.
+func TestRefusingAnUnstakeablePercentageStaysQuietWithoutBorrowing(t *testing.T) {
+	requestDto := dto.BacktestRequestDto{
+		Symbol: "BTCUSDT", AggregationInterval: "1h",
+		StartTime: replayStart, EndTime: replayStart.Add(10 * time.Hour),
+		InitialCapital:      decimal.NewFromInt(10000),
+		PositionSizingMode:  "percentage",
+		PositionSizingValue: decimal.NewFromInt(100),
+		EntryCostPercentage: decimal.RequireFromString("0.3"),
+	}
+
+	_, buildError := domains.NewBacktestDomain(
+		requestDto, 1000, replayStart.Add(20*time.Hour))
+
+	require.Error(t, buildError)
+	assert.NotContains(t, buildError.Error(), "曝險金額")
+	assert.NotContains(t, buildError.Error(), "調低槓桿倍數")
 }

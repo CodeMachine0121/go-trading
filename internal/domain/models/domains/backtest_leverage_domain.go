@@ -143,6 +143,17 @@ func (backtestLeverageDomain BacktestLeverageDomain) ExposureFrom(
 	return stake.Mul(backtestLeverageDomain.Multiplier())
 }
 
+// IsBorrowed is whether somebody else's money is in these positions.
+//
+// It is asked by the one rule that may only apply to a borrowed position: that a
+// loss cannot exceed the margin. A position paid for in full has no such rule and
+// never had one — a short bought back at three times what it sold for really does
+// cost more than it staked, and every report card made before there was anything to
+// borrow says so. Capping that would rewrite them.
+func (backtestLeverageDomain BacktestLeverageDomain) IsBorrowed() bool {
+	return backtestLeverageDomain.multiplier.IsPositive()
+}
+
 // AdverseDistance is how far the price may move against a position before the loan is
 // called in, as a percentage of the entry price — and whether that can happen at all.
 //

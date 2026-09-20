@@ -44,10 +44,6 @@ type BacktestRequest struct {
 	// a caller that says nothing gets exactly the report card it got before.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
-	// Leaving both out means trading is free, which is what every replay assumed
-	// before these existed — so a caller that says nothing gets exactly the report
-	// card it got before. Leaving only the exit out means it costs the same as the
-	// entry.
 	// Leverage is how many times the stake each position is exposed to, and
 	// MaintenanceMarginRate how little of that exposure may be left before the loan
 	// is called in and the position is taken off at a loss of the whole stake.
@@ -60,6 +56,10 @@ type BacktestRequest struct {
 	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
 	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
 	// act of trading, at each end, as a percentage of the money that changes hands.
+	// Leaving both out means trading is free, which is what every replay assumed
+	// before these existed — so a caller that says nothing gets exactly the report
+	// card it got before. Leaving only the exit out means it costs the same as the
+	// entry.
 	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
 	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
 }
