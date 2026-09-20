@@ -158,6 +158,7 @@ type replayReport struct {
 		ConflictedCandleCount int      `json:"conflictedCandleCount"`
 		TotalTransactionCost  string   `json:"totalTransactionCost"`
 		StopLossExitCount     int      `json:"stopLossExitCount"`
+		LiquidationExitCount  int      `json:"liquidationExitCount"`
 	} `json:"summary"`
 	ClosedTrades []struct {
 		Direction  string `json:"direction"`
@@ -629,4 +630,66 @@ func TestTradingStrategyBacktestAssistantQuerySaysWhereTheModeComesFrom(t *testi
 	assert.Contains(t, description, string(vo.TradingModeSpot))
 	assert.Contains(t, description, "不能放空")
 	assert.Contains(t, description, "交易策略")
+}
+
+// The assistant can say how much to borrow, because a replay it cannot liquidate is
+// the one report card that is wrong in the direction that costs money.
+func TestTradingStrategyBacktestAssistantQueryCanBorrow(t *testing.T) {
+	t.Run("a multiplier moves the exposure rather than the stake", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(aReplayableTradingStrategy("1h"), nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				replayedCandle(0, "100"), replayedCandle(1, "110"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(replaySignals(vo.SignalBuy, vo.SignalHold), nil)
+
+		report, _ := fixture.replay(t, `{
+  "tradingStrategyId": 11,
+  "symbol": "BTCUSDT",
+  "startTime": "2026-09-10T00:00:00Z",
+  "endTime": "2026-09-10T04:00:00Z",
+  "initialCapital": "10000",
+  "positionSizingMode": "allIn",
+  "leverage": "5"
+}`)
+
+		// Ten percent of five times the stake. Without the multiplier this is 11,000.
+		assert.Equal(t, "15000", report.Summary.FinalEquity)
+		assert.Equal(t, 0, report.Summary.LiquidationExitCount)
+	})
+
+	t.Run("saying nothing replays exactly as it always has", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+		fixture.tradingStrategyRepository.EXPECT().
+			FindOne(gomock.Any(), assistantTradingStrategyID).
+			Return(aReplayableTradingStrategy("1h"), nil)
+		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandle{
+				replayedCandle(0, "100"), replayedCandle(1, "110"),
+			}, nil)
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(replaySignals(vo.SignalBuy, vo.SignalHold), nil)
+
+		report, _ := fixture.replay(t, aReplayArgument)
+
+		assert.Equal(t, "11000", report.Summary.FinalEquity)
+		assert.Equal(t, 0, report.Summary.LiquidationExitCount)
+	})
+
+	t.Run("the tool says the two figures exist and what leaving them out means", func(t *testing.T) {
+		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+
+		schema := fixture.backtestAssistantQuery.ArgumentSchema()
+		assert.Contains(t, schema, "leverage")
+		assert.Contains(t, schema, "maintenanceMarginRate")
+
+		description := fixture.backtestAssistantQuery.Description()
+		assert.Contains(t, description, "liquidationExitCount")
+	})
 }

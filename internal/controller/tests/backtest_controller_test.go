@@ -329,3 +329,120 @@ func TestRunBacktestEndpointCarriesTheTradingMode(t *testing.T) {
 		assert.Contains(t, body.Message, "spot")
 	})
 }
+
+func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
+	t.Run("a borrowed replay moves the exposure rather than the stake", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.expectTwoCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]map[string]vo.IndicatorValueVo{
+				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+			}, nil)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"strategyScriptId":9,
+			"initialCapital":"10000",
+			"positionSizingMode":"allIn",
+			"leverage":"5"
+		}`)
+
+		require.Equal(t, http.StatusOK, response.Code)
+
+		var body struct {
+			Summary struct {
+				FinalEquity          string `json:"finalEquity"`
+				LiquidationExitCount int    `json:"liquidationExitCount"`
+			} `json:"summary"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		// Bought at 100 and still holding at 110. Five times the exposure makes that
+		// fifty percent rather than ten, so 15,000 rather than the 11,000 the same
+		// body without a multiplier answers.
+		assert.Equal(t, "15000", body.Summary.FinalEquity)
+		assert.Equal(t, 0, body.Summary.LiquidationExitCount)
+	})
+
+	t.Run("spot has nobody to borrow from, and the refusal says where to look", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"strategyScriptId":9,
+			"initialCapital":"10000",
+			"positionSizingMode":"allIn",
+			"tradingMode":"spot",
+			"leverage":"3"
+		}`)
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+
+		var body struct {
+			Message string `json:"message"`
+			Field   string `json:"field"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.Equal(t, "leverage", body.Field)
+		assert.Contains(t, body.Message, "現貨")
+	})
+
+	t.Run("a maintenance margin leaving no room names the same input", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"strategyScriptId":9,
+			"initialCapital":"10000",
+			"positionSizingMode":"allIn",
+			"leverage":"5",
+			"maintenanceMarginRate":"25"
+		}`)
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+
+		var body struct {
+			Message string `json:"message"`
+			Field   string `json:"field"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.Equal(t, "leverage", body.Field)
+		// The refusal says what would go through, so nobody has to guess their way to it.
+		assert.Contains(t, body.Message, "20%")
+	})
+
+	t.Run("saying nothing answers exactly as it did before there was anything to say", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.expectTwoCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]map[string]vo.IndicatorValueVo{
+				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+			}, nil)
+
+		response := fixture.post(backtestBody)
+
+		require.Equal(t, http.StatusOK, response.Code)
+
+		var body struct {
+			Summary struct {
+				FinalEquity          string `json:"finalEquity"`
+				LiquidationExitCount int    `json:"liquidationExitCount"`
+			} `json:"summary"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.Equal(t, "11000", body.Summary.FinalEquity)
+		assert.Equal(t, 0, body.Summary.LiquidationExitCount)
+	})
+}
