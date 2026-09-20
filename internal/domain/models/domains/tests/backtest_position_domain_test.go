@@ -50,7 +50,8 @@ func TestNewBacktestPositionDomain(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, isOpened := domains.NewBacktestPositionDomain(
-				vo.PositionDirectionLong, positionEntryTime, testCase.entryPrice, testCase.stake, domains.BacktestExitLevelsDomain{})
+				vo.PositionDirectionLong, positionEntryTime, testCase.entryPrice, testCase.stake,
+				domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
 
 			assert.Equal(t, testCase.expectsOpened, isOpened)
 		})
@@ -126,7 +127,8 @@ func TestBacktestPositionDomainValuation(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			position, isOpened := domains.NewBacktestPositionDomain(
-				testCase.direction, positionEntryTime, testCase.entryPrice, testCase.stake, domains.BacktestExitLevelsDomain{})
+				testCase.direction, positionEntryTime, testCase.entryPrice, testCase.stake,
+				domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
 			require.True(t, isOpened)
 
 			assert.True(t, testCase.expectedProfit.Equal(position.ProfitAt(testCase.price)),
@@ -141,7 +143,8 @@ func TestBacktestPositionDomainClosedAt(t *testing.T) {
 	t.Run("a closed position reports both ends and what it made", func(t *testing.T) {
 		position, isOpened := domains.NewBacktestPositionDomain(
 			vo.PositionDirectionLong, positionEntryTime,
-			decimal.NewFromInt(100), decimal.NewFromInt(10000), domains.BacktestExitLevelsDomain{})
+			decimal.NewFromInt(100), decimal.NewFromInt(10000),
+			domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
 		require.True(t, isOpened)
 
 		closedTrade := position.ClosedAt(positionExitTime, decimal.NewFromInt(112), vo.TradeExitReasonSignal)
@@ -159,7 +162,8 @@ func TestBacktestPositionDomainClosedAt(t *testing.T) {
 	t.Run("breaking even is not a win", func(t *testing.T) {
 		position, isOpened := domains.NewBacktestPositionDomain(
 			vo.PositionDirectionShort, positionEntryTime,
-			decimal.NewFromInt(100), decimal.NewFromInt(10000), domains.BacktestExitLevelsDomain{})
+			decimal.NewFromInt(100), decimal.NewFromInt(10000),
+			domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
 		require.True(t, isOpened)
 
 		closedTrade := position.ClosedAt(positionExitTime, decimal.NewFromInt(100), vo.TradeExitReasonSignal)
@@ -170,7 +174,8 @@ func TestBacktestPositionDomainClosedAt(t *testing.T) {
 	t.Run("a profitable trade is a win", func(t *testing.T) {
 		position, isOpened := domains.NewBacktestPositionDomain(
 			vo.PositionDirectionShort, positionEntryTime,
-			decimal.NewFromInt(100), decimal.NewFromInt(10000), domains.BacktestExitLevelsDomain{})
+			decimal.NewFromInt(100), decimal.NewFromInt(10000),
+			domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
 		require.True(t, isOpened)
 
 		closedTrade := position.ClosedAt(positionExitTime, decimal.NewFromInt(90), vo.TradeExitReasonSignal)

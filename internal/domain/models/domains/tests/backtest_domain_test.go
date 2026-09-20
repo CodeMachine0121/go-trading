@@ -448,6 +448,35 @@ func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 			},
 			expectedField: domains.BacktestExitLevelsField,
 		},
+		{
+			// What trading costs is asked for on this kind of replay too, and for
+			// the same reason as the exits: a set of rules has no opinion about what
+			// its owner's broker charges.
+			name: "what it pays to open",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.EntryCostPercentage = decimal.NewFromInt(-1)
+			},
+			expectedField: domains.BacktestTransactionCostsField,
+		},
+		{
+			name: "and what it pays to close",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.ExitCostPercentage = decimal.NewFromInt(101)
+			},
+			expectedField: domains.BacktestTransactionCostsField,
+		},
+		{
+			// Neither figure is wrong on its own; together they can never open
+			// anything. The refusal points at the percentage because that is the
+			// knob — the rate is a fact about somebody's broker.
+			name: "a percentage that its own entry charge puts out of reach",
+			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
+				requestDto.PositionSizingMode = "percentage"
+				requestDto.PositionSizingValue = decimal.NewFromInt(100)
+				requestDto.EntryCostPercentage = decimal.NewFromInt(1)
+			},
+			expectedField: domains.BacktestPositionSizingValueField,
+		},
 	}
 
 	for _, testCase := range testCases {

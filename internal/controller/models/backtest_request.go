@@ -44,6 +44,14 @@ type BacktestRequest struct {
 	// a caller that says nothing gets exactly the report card it got before.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
+	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
+	// act of trading, at each end, as a percentage of the money that changes hands.
+	// Leaving both out means trading is free, which is what every replay assumed
+	// before these existed — so a caller that says nothing gets exactly the report
+	// card it got before. Leaving only the exit out means it costs the same as the
+	// entry.
+	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
+	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
 }
 
 // ToParameterWriteDtos hands on the knobs an unsaved algorithm declares.
@@ -70,6 +78,8 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 		TradingMode:          backtestRequest.TradingMode,
 		StopLossPercentage:   backtestRequest.StopLossPercentage,
 		TakeProfitPercentage: backtestRequest.TakeProfitPercentage,
+		EntryCostPercentage:  backtestRequest.EntryCostPercentage,
+		ExitCostPercentage:   backtestRequest.ExitCostPercentage,
 	}
 }
 

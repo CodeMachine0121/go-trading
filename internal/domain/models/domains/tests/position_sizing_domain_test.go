@@ -169,7 +169,8 @@ func TestPositionSizingDomainStakeFor(t *testing.T) {
 				testCase.declaredMode, testCase.declaredValue)
 			require.NoError(t, err)
 
-			stake, canOpen := positionSizing.StakeFor(testCase.availableCash)
+			stake, canOpen := positionSizing.StakeFor(
+				testCase.availableCash, domains.BacktestTransactionCostsDomain{})
 
 			assert.Equal(t, testCase.expectsCanOpen, canOpen)
 			if testCase.expectsCanOpen {

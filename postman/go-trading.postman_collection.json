@@ -8900,6 +8900,114 @@
               }
             }
           ]
+        },
+        {
+          "name": "重演：交易成本從可用資金扣，逐筆損益是淨額",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根最低 90 掃到止損價 117.6，成交金額是 100 × 117.6 = 11,760，出場成本 **117.6**。價差虧 240，這一筆的損益是 **−477.6**（淨額，已扣掉兩筆成本），帳上剩 **11,642.4**。\n\n沒有成本的那一發同樣虧 240 的價差，帳上剩 11,760。\n\n**別拿兩個餘額相減**——兩發的本金本來就不同（12,000 對 12,120），差的 117.6 說不出任何事情。對得起來的是**淨變化**：不計成本那一發是 −240，這一發是 −477.6，相差的 **237.6** 正是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12120\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\",\n  \"entryCostPercentage\": \"1\",\n  \"exitCostPercentage\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"兩端各收一筆，出場那筆算的是成交金額\", function () {",
+                  "    // 成交金額是 100 單位 × 117.6 = 11,760，不是那一注當時值的 11,760 以外的任何數字。",
+                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().closedTrades[0].entryCost).to.eql(\"120\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitCost).to.eql(\"117.6\");",
+                  "});",
+                  "pm.test(\"逐筆損益是扣掉兩筆成本之後的淨額\", function () {",
+                  "    // 價差虧 240，再扣 120 與 117.6。",
+                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-477.6\");",
+                  "});",
+                  "pm.test(\"成績單說得出總共付了多少\", function () {",
+                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.eql(\"237.6\");",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"11642.4\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：進場成本率為負",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "負的成本等於交易就送錢——那會讓一支交易越頻繁、成績單越漂亮的策略看起來像個發現。\n\n超過 100 也一樣拒絕（成本不會超過成交金額本身），但**正好 100 送得出去**：整筆成交金額都拿去付成本，荒謬但算得出來。\n\n拒絕指向的欄位是 `transactionCosts`——一個名字蓋住那兩格，由句子本身說出是進場還是出場，與 `exitLevels` 同一個做法。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"entryCostPercentage\": \"-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"說出是哪一格、以及為什麼\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"進場成本率不得為負\");",
+                  "});",
+                  "pm.test(\"指向那一組交易成本\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"transactionCosts\");",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -9504,6 +9612,66 @@
                   "    pm.expect(pm.response.json().summary).to.be.an(\"object\");",
                   "    pm.expect(pm.response.json().equityCurve).to.be.an(\"array\");",
                   "    pm.expect(pm.response.json().closedTrades).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：交易策略也說得出交易成本",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{tradingStrategyId}}",
+                "backtests"
+              ]
+            },
+            "description": "兩個成本率在這裡與重演一支策略腳本**一字不差**——交易策略沒有記著它們，而且也不該記：一套規則對「你的券商收多少」沒有意見，那跟初始資金、止損距離同一類，是坐下來調的時候會換來換去的旋鈕。\n\n留白就完全不計，所以不填的那一發與這一刀之前逐字相同。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\",\n  \"entryCostPercentage\": \"0.0855\",\n  \"exitCostPercentage\": \"0.3855\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"成績單說得出總共付了多少\", function () {",
+                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.be.a(\"string\");",
+                  "});",
+                  "pm.test(\"每一筆交易的損益確實是價差扣掉那兩筆成本\", function () {",
+                  "    // 拿價差自己算一遍再比對。「損益不大於損益加上兩筆成本」那種寫法是恆真的——",
+                  "    // 後端哪天退回報毛額，它照樣會過，那條斷言等於沒有寫。",
+                  "    pm.response.json().closedTrades.forEach(function (trade) {",
+                  "        const units = Number(trade.stake) / Number(trade.entryPrice);",
+                  "        const priceMove = Number(trade.exitPrice) - Number(trade.entryPrice);",
+                  "        const gross = trade.direction === \"short\"",
+                  "            ? -units * priceMove",
+                  "            : units * priceMove;",
+                  "        const net = gross - Number(trade.entryCost) - Number(trade.exitCost);",
+                  "        pm.expect(Number(trade.profit)).to.be.closeTo(net, 0.01);",
+                  "    });",
                   "});"
                 ]
               }

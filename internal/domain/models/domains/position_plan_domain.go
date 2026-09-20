@@ -146,7 +146,12 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		return dto.PositionPlanDto{}, false
 	}
 
-	stake, affordable := positionPlanDomain.sizing.StakeFor(positionPlanDomain.capital)
+	// No costs, stated rather than implied. What a bot suggests each round is advice
+	// about a trade nobody has placed, so there is no charge to have been paid — and
+	// the day that changes, this is the line that changes. Leaving the argument out
+	// was never an option; passing the zero value makes the decision readable.
+	stake, affordable := positionPlanDomain.sizing.StakeFor(
+		positionPlanDomain.capital, BacktestTransactionCostsDomain{})
 	if !affordable {
 		// Said rather than hidden, and not an error: a fixed amount the capital
 		// cannot cover is the same ordinary situation a replay skips an opening for.

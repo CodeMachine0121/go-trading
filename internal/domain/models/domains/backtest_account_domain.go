@@ -17,6 +17,7 @@ type BacktestAccountDomain struct {
 	tradingMode       TradingModeDomain
 	positionSizing    PositionSizingDomain
 	exitLevels        BacktestExitLevelsDomain
+	transactionCosts  BacktestTransactionCostsDomain
 	availableCash     decimal.Decimal
 	openPosition      BacktestPositionDomain
 	hasOpenPosition   bool
@@ -29,13 +30,15 @@ func NewBacktestAccountDomain(
 	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
 	exitLevels BacktestExitLevelsDomain,
+	transactionCosts BacktestTransactionCostsDomain,
 ) *BacktestAccountDomain {
 	return &BacktestAccountDomain{
-		tradingMode:    tradingMode,
-		positionSizing: positionSizing,
-		exitLevels:     exitLevels,
-		availableCash:  initialCapital,
-		closedTrades:   make([]vo.ClosedTradeVo, 0),
+		tradingMode:      tradingMode,
+		positionSizing:   positionSizing,
+		exitLevels:       exitLevels,
+		transactionCosts: transactionCosts,
+		availableCash:    initialCapital,
+		closedTrades:     make([]vo.ClosedTradeVo, 0),
 	}
 }
 
@@ -112,19 +115,27 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	// An opening the account cannot afford simply does not happen: the replay carries
 	// on flat, nothing is counted and nothing is reported. A strategy script that outgrows
 	// its own account is behaving, not failing.
+	// What the account can afford now includes the charge for opening, and that is
+	// the sizing's own answer rather than a second test here — otherwise each of the
+	// three modes would grow its own edge and one of them would eventually get it
+	// wrong.
 	stake, canStake := backtestAccountDomain.positionSizing.StakeFor(
-		backtestAccountDomain.availableCash)
+		backtestAccountDomain.availableCash, backtestAccountDomain.transactionCosts)
 	if !canStake {
 		return
 	}
 
 	openedPosition, isOpened := NewBacktestPositionDomain(
-		wantedDirection, candleTime, fillPrice, stake, backtestAccountDomain.exitLevels)
+		wantedDirection, candleTime, fillPrice, stake,
+		backtestAccountDomain.exitLevels, backtestAccountDomain.transactionCosts)
 	if !isOpened {
 		return
 	}
 
-	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.Sub(stake)
+	// The stake and what it cost to put it down leave together. They are one
+	// withdrawal in two parts, and the sizing above has already guaranteed both fit.
+	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.
+		Sub(stake).Sub(openedPosition.EntryCost())
 	backtestAccountDomain.openPosition = openedPosition
 	backtestAccountDomain.hasOpenPosition = true
 	backtestAccountDomain.positionOpenCount++
@@ -133,17 +144,23 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 // settleOpenPosition is the whole of letting go of a position: the trade joins the
 // list, the cash it is worth comes back, and the account is flat again.
 //
-// It is a method rather than three lines written twice because both ways out — the
+// It is a method rather than four lines written twice because both ways out — the
 // signal asking for something else, and a candle reaching a level — have to do all
-// three. One of two copies missing the cash line is money appearing or vanishing, and
+// four. One of two copies missing the cash line is money appearing or vanishing, and
 // nothing downstream would report it as anything but a very good or very bad strategy.
+//
+// The charge for getting out is the fourth of those four, and it is taken here rather
+// than inside the valuation for a reason worth keeping: this is the only moment it is
+// actually paid. A position merely being looked at on some candle has not paid it,
+// and must not be shown as though it had.
 func (backtestAccountDomain *BacktestAccountDomain) settleOpenPosition(
 	closedTrade vo.ClosedTradeVo,
 ) {
 	backtestAccountDomain.closedTrades = append(
 		backtestAccountDomain.closedTrades, closedTrade)
-	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.Add(
-		backtestAccountDomain.openPosition.ValueAt(closedTrade.ExitPrice))
+	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.
+		Add(backtestAccountDomain.openPosition.ValueAt(closedTrade.ExitPrice)).
+		Sub(closedTrade.ExitCost)
 	backtestAccountDomain.hasOpenPosition = false
 }
 
@@ -188,6 +205,31 @@ func (backtestAccountDomain *BacktestAccountDomain) ExitCountFor(
 	}
 
 	return exitCount
+}
+
+// TotalTransactionCost is everything paid for the act of trading so far: both charges
+// on every finished round trip, plus the entry charge on a position still open.
+//
+// A position still open counts because that money is already gone — it left when the
+// position was opened. What it will cost to close is not here, because it has not
+// been paid and this figure only ever reports money that has moved.
+//
+// It is added up off the trade list rather than tallied as it goes, for the reason the
+// win rate is: a running total is a second place the same fact lives, and the day it
+// disagrees with the list nobody can say which one to believe.
+func (backtestAccountDomain *BacktestAccountDomain) TotalTransactionCost() decimal.Decimal {
+	totalTransactionCost := decimal.Zero
+	for _, closedTrade := range backtestAccountDomain.closedTrades {
+		totalTransactionCost = totalTransactionCost.
+			Add(closedTrade.EntryCost).Add(closedTrade.ExitCost)
+	}
+
+	if backtestAccountDomain.hasOpenPosition {
+		totalTransactionCost = totalTransactionCost.Add(
+			backtestAccountDomain.openPosition.EntryCost())
+	}
+
+	return totalTransactionCost
 }
 
 // PositionOpenCount is how many openings actually happened. One that was skipped for

@@ -25,14 +25,15 @@ const minimumBacktestKCandleCount = 2
 // belongs to BacktestSimulationDomain, which this hands over to — the two change for
 // different reasons and would otherwise be one file edited by two unrelated needs.
 type BacktestDomain struct {
-	symbol         string
-	interval       AggregationIntervalDomain
-	parameters     StrategyScriptParametersDomain
-	initialCapital decimal.Decimal
-	positionSizing PositionSizingDomain
-	tradingMode    TradingModeDomain
-	exitLevels     BacktestExitLevelsDomain
-	startTime      time.Time
+	symbol           string
+	interval         AggregationIntervalDomain
+	parameters       StrategyScriptParametersDomain
+	initialCapital   decimal.Decimal
+	positionSizing   PositionSizingDomain
+	tradingMode      TradingModeDomain
+	exitLevels       BacktestExitLevelsDomain
+	transactionCosts BacktestTransactionCostsDomain
+	startTime        time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
 	// buckets that opened strictly before it are replayed.
 	readCutoff time.Time
@@ -115,6 +116,31 @@ func NewBacktestDomain(
 			BacktestExitLevelsField, exitLevelsError.Error())
 	}
 
+	transactionCosts, transactionCostsError := NewBacktestTransactionCostsDomain(
+		requestDto.EntryCostPercentage, requestDto.ExitCostPercentage)
+	if transactionCostsError != nil {
+		// One name covers both rates, and the sentence says which. They are filled in
+		// as one group on every screen that offers them — the same judgement the exit
+		// distances make, and the same one the time range makes with two moments and
+		// a coarseness.
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestTransactionCostsField, transactionCostsError.Error())
+	}
+
+	// A percentage bigger than the share the costs leave affordable can never open
+	// anything — not on this candle, on any candle. Left to run, it hands back a
+	// report card of a strategy that never traded, and every word on that screen
+	// points at the algorithm instead of at the two numbers that caused it.
+	//
+	// It points at the percentage rather than at the rates because the rates are a
+	// fact about somebody's broker and the percentage is the knob.
+	if positionSizing.NeverStakesUnder(transactionCosts) {
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestPositionSizingValueField,
+			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
+				"這次重演一筆交易都不會有。要押滿請改用全押——它會自己留出手續費")
+	}
+
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
 	if parametersError != nil {
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, parametersError)
@@ -149,15 +175,16 @@ func NewBacktestDomain(
 	}
 
 	return BacktestDomain{
-		symbol:         tradingSymbol.Value(),
-		interval:       interval,
-		parameters:     parameters,
-		initialCapital: requestDto.InitialCapital,
-		positionSizing: positionSizing,
-		tradingMode:    tradingMode,
-		exitLevels:     exitLevels,
-		startTime:      startTime,
-		readCutoff:     readCutoff,
+		symbol:           tradingSymbol.Value(),
+		interval:         interval,
+		parameters:       parameters,
+		initialCapital:   requestDto.InitialCapital,
+		positionSizing:   positionSizing,
+		tradingMode:      tradingMode,
+		exitLevels:       exitLevels,
+		transactionCosts: transactionCosts,
+		startTime:        startTime,
+		readCutoff:       readCutoff,
 	}, nil
 }
 
@@ -252,6 +279,7 @@ func (backtestDomain BacktestDomain) ReplayOver(
 		backtestDomain.positionSizing,
 		backtestDomain.tradingMode,
 		backtestDomain.exitLevels,
+		backtestDomain.transactionCosts,
 		inputKCandles,
 		signals).ToDto()
 

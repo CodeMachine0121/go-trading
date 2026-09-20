@@ -37,6 +37,11 @@ type TradingStrategyBacktestRequestDto struct {
 	// run simulates, both optional, zero meaning no such exit.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal
+	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
+	// each end, both optional. Leaving the exit out is read as "the same as the
+	// entry".
+	EntryCostPercentage decimal.Decimal
+	ExitCostPercentage  decimal.Decimal
 }
 
 // ResolvedSignalSourceDto is one signal source with the script it names already
@@ -78,5 +83,7 @@ func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
 		TradingMode:          requestDto.TradingMode,
 		StopLossPercentage:   requestDto.StopLossPercentage,
 		TakeProfitPercentage: requestDto.TakeProfitPercentage,
+		EntryCostPercentage:  requestDto.EntryCostPercentage,
+		ExitCostPercentage:   requestDto.ExitCostPercentage,
 	}
 }

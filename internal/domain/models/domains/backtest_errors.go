@@ -37,6 +37,12 @@ const (
 	// sentence has already said, and would cost every caller a second mapping to
 	// keep in step.
 	BacktestExitLevelsField = "exitLevels"
+	// BacktestTransactionCostsField is the pair of cost rates, together.
+	//
+	// One name for the same reason the exit distances have one: they are two boxes
+	// filled in as a single group, and the refusal's own sentence already says which
+	// of the two it is about.
+	BacktestTransactionCostsField = "transactionCosts"
 	// BacktestSignalSourcesField is the set of signal sources a trading strategy
 	// replays through — what to go and change when they disagree about coarseness,
 	// or when there are none at all.
