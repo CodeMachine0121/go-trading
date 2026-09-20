@@ -51,7 +51,7 @@ func TestNewBacktestPositionDomain(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, isOpened := domains.NewBacktestPositionDomain(
 				vo.PositionDirectionLong, positionEntryTime, testCase.entryPrice, testCase.stake,
-				domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
+				domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{})
 
 			assert.Equal(t, testCase.expectsOpened, isOpened)
 		})
@@ -128,7 +128,7 @@ func TestBacktestPositionDomainValuation(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			position, isOpened := domains.NewBacktestPositionDomain(
 				testCase.direction, positionEntryTime, testCase.entryPrice, testCase.stake,
-				domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
+				domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{})
 			require.True(t, isOpened)
 
 			assert.True(t, testCase.expectedProfit.Equal(position.ProfitAt(testCase.price)),
@@ -144,7 +144,7 @@ func TestBacktestPositionDomainClosedAt(t *testing.T) {
 		position, isOpened := domains.NewBacktestPositionDomain(
 			vo.PositionDirectionLong, positionEntryTime,
 			decimal.NewFromInt(100), decimal.NewFromInt(10000),
-			domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
+			domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{})
 		require.True(t, isOpened)
 
 		closedTrade := position.ClosedAt(positionExitTime, decimal.NewFromInt(112), vo.TradeExitReasonSignal)
@@ -163,7 +163,7 @@ func TestBacktestPositionDomainClosedAt(t *testing.T) {
 		position, isOpened := domains.NewBacktestPositionDomain(
 			vo.PositionDirectionShort, positionEntryTime,
 			decimal.NewFromInt(100), decimal.NewFromInt(10000),
-			domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
+			domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{})
 		require.True(t, isOpened)
 
 		closedTrade := position.ClosedAt(positionExitTime, decimal.NewFromInt(100), vo.TradeExitReasonSignal)
@@ -175,7 +175,7 @@ func TestBacktestPositionDomainClosedAt(t *testing.T) {
 		position, isOpened := domains.NewBacktestPositionDomain(
 			vo.PositionDirectionShort, positionEntryTime,
 			decimal.NewFromInt(100), decimal.NewFromInt(10000),
-			domains.BacktestExitLevelsDomain{}, domains.BacktestTransactionCostsDomain{})
+			domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{})
 		require.True(t, isOpened)
 
 		closedTrade := position.ClosedAt(positionExitTime, decimal.NewFromInt(90), vo.TradeExitReasonSignal)

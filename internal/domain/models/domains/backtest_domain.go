@@ -32,6 +32,7 @@ type BacktestDomain struct {
 	positionSizing   PositionSizingDomain
 	tradingMode      TradingModeDomain
 	exitLevels       BacktestExitLevelsDomain
+	leverage         BacktestLeverageDomain
 	transactionCosts BacktestTransactionCostsDomain
 	startTime        time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
@@ -116,6 +117,19 @@ func NewBacktestDomain(
 			BacktestExitLevelsField, exitLevelsError.Error())
 	}
 
+	// Built after the trading mode because it needs one — spot cannot borrow — and
+	// before the sizing is judged against the costs, because how much is borrowed
+	// decides how much of the cash a charge eats.
+	leverage, leverageError := NewBacktestLeverageDomain(
+		requestDto.Leverage, requestDto.MaintenanceMarginRate, tradingMode)
+	if leverageError != nil {
+		// The sentence comes from the model; naming which input it is about is this
+		// replay's business. One name covers the multiplier and the rate; the
+		// sentence says which.
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestLeverageField, leverageError.Error())
+	}
+
 	transactionCosts, transactionCostsError := NewBacktestTransactionCostsDomain(
 		requestDto.EntryCostPercentage, requestDto.ExitCostPercentage)
 	if transactionCostsError != nil {
@@ -134,7 +148,7 @@ func NewBacktestDomain(
 	//
 	// It points at the percentage rather than at the rates because the rates are a
 	// fact about somebody's broker and the percentage is the knob.
-	if positionSizing.NeverStakesUnder(transactionCosts) {
+	if positionSizing.NeverStakesUnder(transactionCosts, leverage) {
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestPositionSizingValueField,
 			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
@@ -182,6 +196,7 @@ func NewBacktestDomain(
 		positionSizing:   positionSizing,
 		tradingMode:      tradingMode,
 		exitLevels:       exitLevels,
+		leverage:         leverage,
 		transactionCosts: transactionCosts,
 		startTime:        startTime,
 		readCutoff:       readCutoff,
@@ -279,6 +294,7 @@ func (backtestDomain BacktestDomain) ReplayOver(
 		backtestDomain.positionSizing,
 		backtestDomain.tradingMode,
 		backtestDomain.exitLevels,
+		backtestDomain.leverage,
 		backtestDomain.transactionCosts,
 		inputKCandles,
 		signals).ToDto()

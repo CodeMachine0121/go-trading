@@ -71,7 +71,7 @@ func replayTradingAs(
 	return domains.NewBacktestSimulationDomain(
 		decimal.NewFromInt(initialCapital), positionSizing,
 		tradingModeOf(t, declaredTradingMode), domains.BacktestExitLevelsDomain{},
-		domains.BacktestTransactionCostsDomain{},
+		domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{},
 		inputKCandles, signalDomainsSaying(signals...))
 }
 

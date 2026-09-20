@@ -22,6 +22,7 @@ type BacktestSimulationDomain struct {
 	positionSizing   PositionSizingDomain
 	tradingMode      TradingModeDomain
 	exitLevels       BacktestExitLevelsDomain
+	leverage         BacktestLeverageDomain
 	transactionCosts BacktestTransactionCostsDomain
 	inputKCandles    []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
@@ -39,6 +40,7 @@ func NewBacktestSimulationDomain(
 	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
 	exitLevels BacktestExitLevelsDomain,
+	leverage BacktestLeverageDomain,
 	transactionCosts BacktestTransactionCostsDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
@@ -48,6 +50,7 @@ func NewBacktestSimulationDomain(
 		positionSizing:   positionSizing,
 		tradingMode:      tradingMode,
 		exitLevels:       exitLevels,
+		leverage:         leverage,
 		transactionCosts: transactionCosts,
 		inputKCandles:    inputKCandles,
 		signals:          signals,
@@ -65,6 +68,7 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		backtestSimulationDomain.positionSizing,
 		backtestSimulationDomain.tradingMode,
 		backtestSimulationDomain.exitLevels,
+		backtestSimulationDomain.leverage,
 		backtestSimulationDomain.transactionCosts)
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
@@ -97,6 +101,9 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		// replay made before there were distances to give.
 		StopLossExitCount:   account.ExitCountFor(vo.TradeExitReasonStopLoss),
 		TakeProfitExitCount: account.ExitCountFor(vo.TradeExitReasonTakeProfit),
+		// Zero for a replay that borrowed nothing, which is every replay made before
+		// there was anything to borrow.
+		LiquidationExitCount: account.ExitCountFor(vo.TradeExitReasonLiquidation),
 		// Zero for a replay given no rates, which is every replay made before there
 		// were rates to give.
 		TotalTransactionCost: account.TotalTransactionCost(),

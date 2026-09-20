@@ -51,7 +51,7 @@ func (costedReplaySpec costedReplaySpec) run(t *testing.T) dto.BacktestResultDto
 	return domains.NewBacktestSimulationDomain(
 		decimal.RequireFromString(costedReplaySpec.initialCapital), positionSizing,
 		tradingModeOf(t, costedReplaySpec.tradingMode),
-		domains.BacktestExitLevelsDomain{}, transactionCosts,
+		domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{}, transactionCosts,
 		inputKCandles, signalDomainsSaying(costedReplaySpec.signals...)).ToDto()
 }
 
@@ -415,7 +415,7 @@ func TestBacktestSimulationChargesNothingWhenNoRatesAreNamed(t *testing.T) {
 	require.NoError(t, buildError)
 
 	assert.Equal(t, "10100",
-		transactionCosts.MaximumStakeFrom(decimal.NewFromInt(10100)).String())
+		transactionCosts.MaximumStakeFrom(decimal.NewFromInt(10100), domains.BacktestLeverageDomain{}).String())
 	assert.True(t, transactionCosts.EntryCostFor(decimal.NewFromInt(10100)).IsZero())
 	assert.True(t, transactionCosts.ExitCostFor(decimal.NewFromInt(10100)).IsZero())
 }

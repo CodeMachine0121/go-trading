@@ -77,7 +77,7 @@ func TestBacktestTransactionCostsAllowExactlyAHundred(t *testing.T) {
 	transactionCosts := transactionCostsOf(t, "100", "100")
 
 	assert.Equal(t, "5050",
-		transactionCosts.MaximumStakeFrom(decimal.NewFromInt(10100)).String())
+		transactionCosts.MaximumStakeFrom(decimal.NewFromInt(10100), domains.BacktestLeverageDomain{}).String())
 	assert.Equal(t, "5050",
 		transactionCosts.EntryCostFor(decimal.NewFromInt(5050)).String())
 }
@@ -177,7 +177,8 @@ func TestBacktestTransactionCostsMaximumStakeLeavesRoomForTheEntryCharge(t *test
 
 			assert.Equal(t, testCase.expectedMaximumStake,
 				transactionCosts.MaximumStakeFrom(
-					decimal.RequireFromString(testCase.availableCash)).String())
+					decimal.RequireFromString(testCase.availableCash),
+					domains.BacktestLeverageDomain{}).String())
 		})
 	}
 }
@@ -202,7 +203,7 @@ func TestBacktestTransactionCostsMaximumStakeStaysAffordableWhenTheDivisionNever
 				transactionCosts := transactionCostsOf(t, entryCostPercentage, "0")
 				cash := decimal.RequireFromString(availableCash)
 
-				maximumStake := transactionCosts.MaximumStakeFrom(cash)
+				maximumStake := transactionCosts.MaximumStakeFrom(cash, domains.BacktestLeverageDomain{})
 				spent := maximumStake.Add(transactionCosts.EntryCostFor(maximumStake))
 
 				assert.False(t, spent.GreaterThan(cash),
@@ -276,8 +277,7 @@ func TestPositionSizingKnowsWhenItCouldNeverStake(t *testing.T) {
 				testCase.declaredMode, decimal.RequireFromString(testCase.declaredValue))
 			require.NoError(t, sizingError)
 
-			assert.Equal(t, testCase.neverStakes, positionSizing.NeverStakesUnder(
-				transactionCostsOf(t, testCase.entryCostPercentage, "0")))
+			assert.Equal(t, testCase.neverStakes, positionSizing.NeverStakesUnder(transactionCostsOf(t, testCase.entryCostPercentage, "0"), domains.BacktestLeverageDomain{}))
 		})
 	}
 }

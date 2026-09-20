@@ -17,6 +17,7 @@ type BacktestAccountDomain struct {
 	tradingMode       TradingModeDomain
 	positionSizing    PositionSizingDomain
 	exitLevels        BacktestExitLevelsDomain
+	leverage          BacktestLeverageDomain
 	transactionCosts  BacktestTransactionCostsDomain
 	availableCash     decimal.Decimal
 	openPosition      BacktestPositionDomain
@@ -30,12 +31,14 @@ func NewBacktestAccountDomain(
 	positionSizing PositionSizingDomain,
 	tradingMode TradingModeDomain,
 	exitLevels BacktestExitLevelsDomain,
+	leverage BacktestLeverageDomain,
 	transactionCosts BacktestTransactionCostsDomain,
 ) *BacktestAccountDomain {
 	return &BacktestAccountDomain{
 		tradingMode:      tradingMode,
 		positionSizing:   positionSizing,
 		exitLevels:       exitLevels,
+		leverage:         leverage,
 		transactionCosts: transactionCosts,
 		availableCash:    initialCapital,
 		closedTrades:     make([]vo.ClosedTradeVo, 0),
@@ -120,14 +123,16 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	// three modes would grow its own edge and one of them would eventually get it
 	// wrong.
 	stake, canStake := backtestAccountDomain.positionSizing.StakeFor(
-		backtestAccountDomain.availableCash, backtestAccountDomain.transactionCosts)
+		backtestAccountDomain.availableCash, backtestAccountDomain.transactionCosts,
+		backtestAccountDomain.leverage)
 	if !canStake {
 		return
 	}
 
 	openedPosition, isOpened := NewBacktestPositionDomain(
 		wantedDirection, candleTime, fillPrice, stake,
-		backtestAccountDomain.exitLevels, backtestAccountDomain.transactionCosts)
+		backtestAccountDomain.exitLevels, backtestAccountDomain.leverage,
+		backtestAccountDomain.transactionCosts)
 	if !isOpened {
 		return
 	}
@@ -149,18 +154,19 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 // four. One of two copies missing the cash line is money appearing or vanishing, and
 // nothing downstream would report it as anything but a very good or very bad strategy.
 //
-// The charge for getting out is the fourth of those four, and it is taken here rather
-// than inside the valuation for a reason worth keeping: this is the only moment it is
-// actually paid. A position merely being looked at on some candle has not paid it,
-// and must not be shown as though it had.
+// How much comes back is the position's answer rather than this one's. It used to be
+// worked out here — the position's value less the charge for leaving — which was right
+// while a signal and a level were the only ways out and both answered the same way. A
+// loan called in does not: nothing comes back and nothing more is charged. Asking the
+// position keeps "what one position is worth on the way out" in one model, so the
+// next way out lands there too instead of adding a third case to this method.
 func (backtestAccountDomain *BacktestAccountDomain) settleOpenPosition(
 	closedTrade vo.ClosedTradeVo,
 ) {
 	backtestAccountDomain.closedTrades = append(
 		backtestAccountDomain.closedTrades, closedTrade)
 	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.
-		Add(backtestAccountDomain.openPosition.ValueAt(closedTrade.ExitPrice)).
-		Sub(closedTrade.ExitCost)
+		Add(backtestAccountDomain.openPosition.CashReturnedFor(closedTrade))
 	backtestAccountDomain.hasOpenPosition = false
 }
 
