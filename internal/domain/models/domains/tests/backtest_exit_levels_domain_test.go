@@ -26,7 +26,7 @@ func exitPricesUnderTest(
 		decimal.NewFromInt(stopLoss), decimal.NewFromInt(takeProfit))
 	require.NoError(t, buildError)
 
-	return exitLevels.PricesFrom(direction, anEntryPrice())
+	return exitLevels.PricesFrom(direction, anEntryPrice(), domains.BacktestLeverageDomain{})
 }
 
 // The four directions, written out with real figures. A stop on the wrong side of the
@@ -34,8 +34,8 @@ func exitPricesUnderTest(
 func TestBacktestExitLevelsPlacesALongPositionsExitsOnOppositeSides(t *testing.T) {
 	exitPrices := exitPricesUnderTest(t, 2, 5, vo.PositionDirectionLong)
 
-	assert.True(t, exitPrices.HasStopLoss)
-	assert.Equal(t, "98", exitPrices.StopLossPrice.String())
+	assert.True(t, exitPrices.HasAdverse)
+	assert.Equal(t, "98", exitPrices.AdversePrice.String())
 	assert.True(t, exitPrices.HasTakeProfit)
 	assert.Equal(t, "105", exitPrices.TakeProfitPrice.String())
 }
@@ -44,7 +44,7 @@ func TestBacktestExitLevelsMirrorsAShortPositionsExits(t *testing.T) {
 	exitPrices := exitPricesUnderTest(t, 2, 5, vo.PositionDirectionShort)
 
 	// A short loses as the price rises, so its stop is the one above.
-	assert.Equal(t, "102", exitPrices.StopLossPrice.String())
+	assert.Equal(t, "102", exitPrices.AdversePrice.String())
 	assert.Equal(t, "95", exitPrices.TakeProfitPrice.String())
 }
 
@@ -52,19 +52,19 @@ func TestBacktestExitLevelsMirrorsAShortPositionsExits(t *testing.T) {
 // before this model existed is.
 func TestBacktestExitLevelsZeroValueHasNoExitsAtAll(t *testing.T) {
 	exitPrices := domains.BacktestExitLevelsDomain{}.PricesFrom(
-		vo.PositionDirectionLong, anEntryPrice())
+		vo.PositionDirectionLong, anEntryPrice(), domains.BacktestLeverageDomain{})
 
-	assert.False(t, exitPrices.HasStopLoss)
+	assert.False(t, exitPrices.HasAdverse)
 	assert.False(t, exitPrices.HasTakeProfit)
 }
 
 func TestBacktestExitLevelsTakesOneDistanceWithoutTheOther(t *testing.T) {
 	stopOnly := exitPricesUnderTest(t, 2, 0, vo.PositionDirectionLong)
-	assert.True(t, stopOnly.HasStopLoss)
+	assert.True(t, stopOnly.HasAdverse)
 	assert.False(t, stopOnly.HasTakeProfit)
 
 	targetOnly := exitPricesUnderTest(t, 0, 5, vo.PositionDirectionLong)
-	assert.False(t, targetOnly.HasStopLoss)
+	assert.False(t, targetOnly.HasAdverse)
 	assert.True(t, targetOnly.HasTakeProfit)
 }
 
@@ -74,8 +74,8 @@ func TestBacktestExitLevelsTakesOneDistanceWithoutTheOther(t *testing.T) {
 func TestBacktestExitLevelsAllowsTheWholePriceAsADistance(t *testing.T) {
 	exitPrices := exitPricesUnderTest(t, 100, 100, vo.PositionDirectionLong)
 
-	assert.True(t, exitPrices.HasStopLoss)
-	assert.Equal(t, "0", exitPrices.StopLossPrice.String())
+	assert.True(t, exitPrices.HasAdverse)
+	assert.Equal(t, "0", exitPrices.AdversePrice.String())
 	assert.Equal(t, "200", exitPrices.TakeProfitPrice.String())
 }
 

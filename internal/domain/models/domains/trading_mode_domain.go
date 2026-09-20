@@ -80,6 +80,26 @@ func (tradingModeDomain TradingModeDomain) CanGoShort() bool {
 	return tradingModeDomain.value == vo.TradingModeLongShort
 }
 
+// CanUseLeverage is whether these rules may put on a position worth more than the
+// money behind it.
+//
+// It is named after the mode rather than after what any caller does with the answer,
+// for the reason CanGoShort is: a replay asks it to decide whether to refuse a
+// multiplier, and what a refusal says is the kind of thing that gains a second form
+// next month — whereas "can these rules borrow" is settled for as long as the mode
+// exists.
+//
+// It is a second question rather than a reading of CanGoShort, although the two
+// currently answer alike. Borrowing and facing the other way are different powers,
+// and a venue that lent against long-only positions would make them differ without
+// either of these sentences becoming false.
+//
+// A zero value answers no, by the same rule the rest of this model follows: a mode
+// this does not recognise is the last place to start lending.
+func (tradingModeDomain TradingModeDomain) CanUseLeverage() bool {
+	return tradingModeDomain.value == vo.TradingModeLongShort
+}
+
 // InWords is this mode as a person reads it.
 //
 // Every mode is named rather than one being the fall-through, for the reason TargetFor

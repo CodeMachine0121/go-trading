@@ -47,6 +47,17 @@ type tradingStrategyBacktestAssistantArguments struct {
 	TakeProfitPercentage string `json:"takeProfitPercentage"`
 	EntryCostPercentage  string `json:"entryCostPercentage"`
 	ExitCostPercentage   string `json:"exitCostPercentage"`
+	// Leverage and MaintenanceMarginRate are how much this run borrows and how far a
+	// position may fall before the loan is called in. Both optional; nothing
+	// borrowed means no forced exit is simulated.
+	//
+	// They are here for the reason the four above are, only more so: a replay that
+	// cannot be liquidated is the one report card that is wrong in the direction
+	// that costs money. An assistant asked "what if I run this at five times" and
+	// unable to say so would answer with a page of numbers describing an account
+	// that was never wiped out.
+	Leverage              string `json:"leverage"`
+	MaintenanceMarginRate string `json:"maintenanceMarginRate"`
 }
 
 // ToRequestDto turns what the assistant declared into the shape the domain replays,
@@ -68,6 +79,9 @@ func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.Tr
 		TakeProfitPercentage: decimalOrZero(arguments.TakeProfitPercentage),
 		EntryCostPercentage:  decimalOrZero(arguments.EntryCostPercentage),
 		ExitCostPercentage:   decimalOrZero(arguments.ExitCostPercentage),
+
+		Leverage:              decimalOrZero(arguments.Leverage),
+		MaintenanceMarginRate: decimalOrZero(arguments.MaintenanceMarginRate),
 	}
 }
 
@@ -188,6 +202,13 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		"使用者問「扣掉手續費還賺嗎」，或在比較兩支交易頻率差很多的策略時，一定要把費率填進去再跑一次。" +
 		"成績單的 totalTransactionCost 是這次總共付掉多少；每一筆交易的 profit 已經是扣掉成本後的淨額，" +
 		"勝率也是照淨額算的。" +
+		"槓桿（leverage）不給、給 0 或給 1 都是不借錢：不模擬強制平倉，成績單與沒有槓桿時一字不差。" +
+		"給大於 1 就會模擬：賺賠與手續費都照放大後的曝險金額算，而且價格逆著走到撐不住時那一注會被強制平倉、" +
+		"押下去的錢全沒了，後面的交易照樣繼續。撐得住多遠由槓桿決定——大約是 (100÷槓桿) 個百分點，" +
+		"5 倍約 19.5%、10 倍約 9.5%、20 倍約 4.5%；維持保證金率（maintenanceMarginRate）不給就用 0.5%。" +
+		"止損比強平近時永遠是止損先出場，所以開槓桿一定要一起給 stopLossPercentage——" +
+		"沒給止損的高槓桿回測，成績單上的 liquidationExitCount 會告訴你這個帳戶歸零過幾次。" +
+		"現貨（spot）交易模式開不了槓桿，給大於 1 會整次被拒絕。" +
 		"重演的是過去，不是對未來的保證；結果不留存，每次問都重算一遍。"
 }
 
@@ -204,7 +225,9 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		`"stopLossPercentage":{"type":"string","description":"止損價離進場價幾個百分點，以字串給（例如 \"2\"）。不給就不模擬止損；0 到 100"},` +
 		`"takeProfitPercentage":{"type":"string","description":"止盈價離進場價幾個百分點，以字串給。不給就不模擬止盈；0 到 100"},` +
 		`"entryCostPercentage":{"type":"string","description":"開倉付的手續費，佔押注金額的百分之幾，以字串給（台股手續費六折約 \"0.0855\"、幣安約 \"0.1\"）。不給就當交易免費；0 到 100"},` +
-		`"exitCostPercentage":{"type":"string","description":"平倉付的手續費與稅，佔成交金額的百分之幾，以字串給（台股六折含證交稅約 \"0.3855\"）。不給就跟 entryCostPercentage 一樣；0 到 100"}` +
+		`"exitCostPercentage":{"type":"string","description":"平倉付的手續費與稅，佔成交金額的百分之幾，以字串給（台股六折含證交稅約 \"0.3855\"）。不給就跟 entryCostPercentage 一樣；0 到 100"},` +
+		`"leverage":{"type":"string","description":"開幾倍槓桿，以字串給（例如 \"5\"）。不給、0 或 1 都是不借錢、不模擬強制平倉；必須大於等於 1；現貨交易模式給大於 1 會被拒絕"},` +
+		`"maintenanceMarginRate":{"type":"string","description":"維持保證金率，佔曝險金額的百分之幾，以字串給（幣安常見 \"0.5\"）。不給就是 0.5；必須小於 100÷槓桿，否則那一注開倉當下就撐不住"}` +
 		`},"required":["tradingStrategyId","symbol","startTime","endTime","initialCapital","positionSizingMode"],` +
 		`"additionalProperties":false}`
 }

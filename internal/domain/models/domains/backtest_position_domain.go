@@ -23,9 +23,19 @@ type BacktestPositionDomain struct {
 	direction  vo.PositionDirectionVo
 	entryTime  time.Time
 	entryPrice decimal.Decimal
+	// stake is the money actually taken out of the account to hold this — the
+	// margin. What the position is exposed to is that multiplied by the leverage,
+	// and the two part company the moment anything is borrowed. Everything the
+	// market touches is measured against the exposure; only this comes out of the
+	// cash.
 	stake      decimal.Decimal
 	unitCount  decimal.Decimal
 	exitPrices vo.ExitPricesVo
+	// leverage travels with the position for the reason the costs do: whether
+	// somebody else's money is in this bet decides how it settles, and reading that
+	// from somewhere else later would let a position settle under terms it was never
+	// opened under.
+	leverage BacktestLeverageDomain
 	// transactionCosts travels with the position for the same reason the exit prices
 	// do: what this bet costs to get out of is settled by the rates the run was given,
 	// and reading them from somewhere else later would let a position be charged at a
@@ -41,33 +51,55 @@ type BacktestPositionDomain struct {
 	entryCost decimal.Decimal
 }
 
-// NewBacktestPositionDomain opens a position at a candle's close.
+// newBacktestPositionDomain opens a position at a candle's close.
+//
+// It is unexported so that BacktestPositionTermsDomain.OpenFor is the only way a
+// position comes into being. A second door taking a stake already worked out is an
+// invitation for a caller to work one out — and the point of the terms is that
+// nobody outside them knows a stake is something that gets decided.
 //
 // A non-positive entry price is refused rather than divided by. There is nothing to
 // buy in a market priced at zero, and the alternative — dividing anyway — ends the
 // whole replay with a panic over one bad candle.
-func NewBacktestPositionDomain(
+func newBacktestPositionDomain(
 	direction vo.PositionDirectionVo,
 	entryTime time.Time,
 	entryPrice decimal.Decimal,
 	stake decimal.Decimal,
 	exitLevels BacktestExitLevelsDomain,
+	leverage BacktestLeverageDomain,
 	transactionCosts BacktestTransactionCostsDomain,
 ) (BacktestPositionDomain, bool) {
 	if !entryPrice.IsPositive() || !stake.IsPositive() {
 		return BacktestPositionDomain{}, false
 	}
 
+	// What the market moves is the exposure, not the stake, so both the units held
+	// and the charge for taking them on are measured against it. A replay that
+	// borrows nothing gets its stake back from ExposureFrom unchanged, which is what
+	// keeps every figure on an unleveraged report card exactly where it was.
+	exposure := leverage.ExposureFrom(stake)
+
 	return BacktestPositionDomain{
 		direction:        direction,
 		entryTime:        entryTime.UTC(),
 		entryPrice:       entryPrice,
 		stake:            stake,
-		unitCount:        stake.Div(entryPrice),
-		exitPrices:       exitLevels.PricesFrom(direction, entryPrice),
+		unitCount:        exposure.Div(entryPrice),
+		leverage:         leverage,
+		exitPrices:       exitLevels.PricesFrom(direction, entryPrice, leverage),
 		transactionCosts: transactionCosts,
-		entryCost:        transactionCosts.EntryCostFor(stake),
+		entryCost:        transactionCosts.EntryCostFor(exposure),
 	}, true
+}
+
+// Stake is the money taken out of the account to hold this — the margin, which is
+// less than what the position is exposed to whenever anything was borrowed.
+//
+// The account asks because it is the account's money; how much that turned out to be
+// is the terms' decision, and this is where the answer comes back.
+func (backtestPositionDomain BacktestPositionDomain) Stake() decimal.Decimal {
+	return backtestPositionDomain.stake
 }
 
 // EntryCost is what was already paid to open this bet. A replay given no rates paid
@@ -119,11 +151,17 @@ func (backtestPositionDomain BacktestPositionDomain) ValueAt(
 // happened inside it, and a bar with a low of 97 and a close of 101 would carry a
 // position straight through a stop at 98.
 //
-// **The stop is asked first, and that decides candles that reached both.** A single
-// candle's high and low cannot say which came first — that information is simply not
-// in it — so both readings are defensible and only one of them never flatters the
-// strategy. The cost of the other is a report card that speaks well of a strategy on
-// exactly the bars where it is most doubtful.
+// **The adverse level is asked first, and that decides candles that reached both.** A
+// single candle's high and low cannot say which came first — that information is
+// simply not in it — so both readings are defensible and only one of them never
+// flatters the strategy. The cost of the other is a report card that speaks well of a
+// strategy on exactly the bars where it is most doubtful.
+//
+// There is one adverse level rather than a stop and a liquidation asked in turn,
+// because the two sit on the same side and only the nearer can ever be reached. Which
+// that is was settled when the position opened — see
+// BacktestExitLevelsDomain.PricesFrom — so this asks one question and reads the answer
+// it was given, rather than re-deciding on every bar.
 //
 // Whether this candle is the one the position was entered on is not asked here, and
 // not asked anywhere: the walk examines the levels before applying the candle's
@@ -137,19 +175,19 @@ func (backtestPositionDomain BacktestPositionDomain) ValueAt(
 func (backtestPositionDomain BacktestPositionDomain) ExitOn(
 	kCandle vo.KCandleVo, exitTime time.Time,
 ) (vo.ClosedTradeVo, bool) {
-	// A stop sits against the position: below a long, above a short. So a long's is
-	// reached by the candle's low and a short's by its high — where those prices sit
-	// is settled by BacktestExitLevelsDomain.PricesFrom, and this is the other half
-	// of the same thought.
+	// An adverse level sits against the position: below a long, above a short. So a
+	// long's is reached by the candle's low and a short's by its high — where that
+	// price sits is settled by BacktestExitLevelsDomain.PricesFrom, and this is the
+	// other half of the same thought.
 	isShort := backtestPositionDomain.direction == vo.PositionDirectionShort
 	candleHigh := decimal.NewFromFloat(kCandle.High)
 	candleLow := decimal.NewFromFloat(kCandle.Low)
 
-	if backtestPositionDomain.exitPrices.HasStopLoss &&
-		reachedBy(candleHigh, candleLow, backtestPositionDomain.exitPrices.StopLossPrice, isShort) {
+	if backtestPositionDomain.exitPrices.HasAdverse &&
+		reachedBy(candleHigh, candleLow, backtestPositionDomain.exitPrices.AdversePrice, isShort) {
 		return backtestPositionDomain.ClosedAt(
-			exitTime, backtestPositionDomain.exitPrices.StopLossPrice,
-			vo.TradeExitReasonStopLoss), true
+			exitTime, backtestPositionDomain.exitPrices.AdversePrice,
+			backtestPositionDomain.exitPrices.AdverseReason), true
 	}
 
 	if backtestPositionDomain.exitPrices.HasTakeProfit &&
@@ -168,10 +206,10 @@ func (backtestPositionDomain BacktestPositionDomain) ExitOn(
 // order sitting there would have been filled at, and the alternative would let a stop
 // survive the bar that hit it precisely.
 //
-// One expression rather than four, because all four cases — a long's stop, a long's
-// target, a short's stop, a short's target — are the same two questions asked of a
-// level that is either above or below. Written out four times, one of them would
-// eventually be the one that got a comparison backwards.
+// One expression rather than four, because all four cases — a long's adverse level, a
+// long's target, a short's adverse level, a short's target — are the same two questions
+// asked of a level that is either above or below. Written out four times, one of them
+// would eventually be the one that got a comparison backwards.
 func reachedBy(
 	candleHigh decimal.Decimal, candleLow decimal.Decimal,
 	level decimal.Decimal, isAbove bool,
@@ -207,6 +245,48 @@ func (backtestPositionDomain BacktestPositionDomain) ClosedAt(
 ) vo.ClosedTradeVo {
 	exitCost := backtestPositionDomain.transactionCosts.ExitCostFor(
 		backtestPositionDomain.unitCount.Mul(exitPrice))
+	profit := backtestPositionDomain.ProfitAt(exitPrice).
+		Sub(backtestPositionDomain.entryCost).Sub(exitCost)
+
+	// A loan called in takes the whole margin and charges nothing on the way out.
+	//
+	// Not because the arithmetic says so — at the liquidation price the position is
+	// still worth the maintenance margin — but because that is what is left for the
+	// venue to take, and it takes it. Reporting anything coming back would say the
+	// margin survived, and the one thing everybody knows about being liquidated is
+	// that it did not. The exit charge goes for the same reason it is never charged
+	// twice: there is no money left to pay it with.
+	//
+	// What the account actually receives is CashReturnedFor, below. This sets what
+	// the finished trade says it cost, and the two agree because both read this one
+	// decision.
+	if exitReason == vo.TradeExitReasonLiquidation {
+		exitCost = decimal.Zero
+		profit = backtestPositionDomain.stake.Add(backtestPositionDomain.entryCost).Neg()
+	}
+
+	// A borrowed position cannot pay a charge with money it no longer has.
+	//
+	// It can get here: a stop nearer than the liquidation price takes the position
+	// off first, and at a high multiplier the charge on the way out is a large share
+	// of the margin — twenty times with a stop at 4.4% and one percent to leave
+	// costs more than was put down. The loan is called in for the shortfall, so what
+	// is actually paid is whatever the position was still worth, and the whole
+	// margin is gone.
+	//
+	// **It is capped here rather than where the cash is handed back**, so that the
+	// finished trade and the account can never disagree. Capping the cash alone
+	// would leave a trade reporting a loss bigger than the account ever showed, and
+	// the difference would appear as money out of nowhere on the equity curve.
+	//
+	// A position paid for in full is left alone, deliberately. A short bought back
+	// at three times what it sold for really does cost more than it staked, and
+	// every report card made before there was anything to borrow says so.
+	valueAtExit := backtestPositionDomain.ValueAt(exitPrice)
+	if backtestPositionDomain.leverage.IsBorrowed() && valueAtExit.LessThan(exitCost) {
+		exitCost = decimal.Max(valueAtExit, decimal.Zero)
+		profit = backtestPositionDomain.stake.Add(backtestPositionDomain.entryCost).Neg()
+	}
 
 	return vo.ClosedTradeVo{
 		Direction:  backtestPositionDomain.direction,
@@ -217,8 +297,36 @@ func (backtestPositionDomain BacktestPositionDomain) ClosedAt(
 		Stake:      backtestPositionDomain.stake,
 		EntryCost:  backtestPositionDomain.entryCost,
 		ExitCost:   exitCost,
-		Profit: backtestPositionDomain.ProfitAt(exitPrice).
-			Sub(backtestPositionDomain.entryCost).Sub(exitCost),
+		Profit:     profit,
 		ExitReason: exitReason,
 	}
+}
+
+// CashReturnedFor is what the account gets back for letting this position go.
+//
+// It is the one way out. The account used to work this figure out itself, as the
+// position's value less the charge for leaving — which was right while there was only
+// one way to leave. A loan called in is a second way, and it answers differently in
+// two places at once: nothing comes back, and nothing more is charged. Two exceptions
+// living in the account would have split "what one position is worth on the way out"
+// across two models, and the day a third way to leave arrives, split it again.
+//
+// **It does not floor.** A borrowed position is already kept whole by ClosedAt,
+// which caps the charge at what the position was still worth — so the subtraction
+// below cannot go past zero for one, and the finished trade says the same thing.
+// A position paid for in full can still return less than nothing, exactly as it
+// always could: a short bought back at three times what it sold for costs more than
+// it staked, and that is what the account showed before there was anything to borrow.
+//
+// A floor here would have hidden both. It would have rewritten those existing report
+// cards in the flattering direction, and it would have let a trade report a loss the
+// account never took — money appearing out of nowhere on the equity curve.
+func (backtestPositionDomain BacktestPositionDomain) CashReturnedFor(
+	closedTrade vo.ClosedTradeVo,
+) decimal.Decimal {
+	if closedTrade.ExitReason == vo.TradeExitReasonLiquidation {
+		return decimal.Zero
+	}
+
+	return backtestPositionDomain.ValueAt(closedTrade.ExitPrice).Sub(closedTrade.ExitCost)
 }

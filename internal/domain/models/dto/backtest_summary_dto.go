@@ -29,6 +29,15 @@ type BacktestSummaryDto struct {
 	// stretch of market that empties it. Without these, those two read identically.
 	StopLossExitCount   int `json:"stopLossExitCount"`
 	TakeProfitExitCount int `json:"takeProfitExitCount"`
+	// LiquidationExitCount is how many finished trades ended with the loan behind
+	// them being called in. It is zero for a replay that borrowed nothing.
+	//
+	// It sits beside the other two for the reason they sit beside the return rate:
+	// the same figure tells two entirely different stories. A strategy whose stop is
+	// tighter than its liquidation price is never wiped out and this reads zero; one
+	// run at twenty times with no stop can show a respectable return having been
+	// emptied three times on the way, and without this nothing on the page says so.
+	LiquidationExitCount int `json:"liquidationExitCount"`
 	// TotalTransactionCost is everything this replay paid for the act of trading:
 	// both charges on every finished round trip, plus the entry charge already paid
 	// on a position still open at the end. It is zero when no rates were given.

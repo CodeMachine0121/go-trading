@@ -37,6 +37,15 @@ type TradingStrategyBacktestRequestDto struct {
 	// run simulates, both optional, zero meaning no such exit.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal
+	// Leverage and MaintenanceMarginRate are how much this run borrows and how far a
+	// position may fall before the loan is called in, both optional. Leverage of
+	// nothing, zero or one means nothing is borrowed.
+	//
+	// They are asked for here rather than read off the trading strategy, unlike the
+	// trading mode beside them: how much somebody is willing to borrow is a fact
+	// about their account, not about the rules they are replaying.
+	Leverage              decimal.Decimal
+	MaintenanceMarginRate decimal.Decimal
 	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
 	// each end, both optional. Leaving the exit out is read as "the same as the
 	// entry".
@@ -83,7 +92,11 @@ func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
 		TradingMode:          requestDto.TradingMode,
 		StopLossPercentage:   requestDto.StopLossPercentage,
 		TakeProfitPercentage: requestDto.TakeProfitPercentage,
-		EntryCostPercentage:  requestDto.EntryCostPercentage,
-		ExitCostPercentage:   requestDto.ExitCostPercentage,
+
+		Leverage:              requestDto.Leverage,
+		MaintenanceMarginRate: requestDto.MaintenanceMarginRate,
+
+		EntryCostPercentage: requestDto.EntryCostPercentage,
+		ExitCostPercentage:  requestDto.ExitCostPercentage,
 	}
 }

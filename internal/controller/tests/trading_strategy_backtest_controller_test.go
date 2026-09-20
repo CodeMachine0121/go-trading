@@ -287,3 +287,39 @@ func TestTradingStrategyBacktestRouterTradesTheWayTheRulesSayTheyTrade(t *testin
 	assert.Equal(t, "12000", summary["finalEquity"])
 	assert.Equal(t, float64(1), summary["positionOpenCount"])
 }
+
+// The multiplier is asked for here, unlike the trading mode beside it: how much
+// somebody is willing to borrow is a fact about their account, not about the rules.
+func TestTradingStrategyBacktestRouterCarriesTheLeverage(t *testing.T) {
+	fixture := newTradingStrategyBacktestRouterUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
+		Return(aRoutedTradingStrategy("1h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{
+			aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "110"),
+		}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]vo.IndicatorValueVo{
+			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+		}, nil)
+
+	response := fixture.send("/trading-strategies/11/backtests", `{
+		"symbol":"BTCUSDT",
+		"startTime":"2026-08-29T00:00:00Z",
+		"endTime":"2026-08-29T04:00:00Z",
+		"initialCapital":"10000",
+		"positionSizingMode":"allIn",
+		"leverage":"5"
+	}`)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	summary, isObject := answer["summary"].(map[string]any)
+	require.True(t, isObject)
+	// Ten percent of five times the stake. Without the multiplier this is 11,000.
+	assert.Equal(t, "15000", summary["finalEquity"])
+	assert.Equal(t, float64(0), summary["liquidationExitCount"])
+}

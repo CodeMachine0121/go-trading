@@ -44,6 +44,16 @@ type BacktestRequest struct {
 	// a caller that says nothing gets exactly the report card it got before.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
+	// Leverage is how many times the stake each position is exposed to, and
+	// MaintenanceMarginRate how little of that exposure may be left before the loan
+	// is called in and the position is taken off at a loss of the whole stake.
+	//
+	// Leaving the leverage out — or giving nothing, zero or one — means nothing is
+	// borrowed and no forced exit is simulated, which is what every replay did
+	// before these existed. Leaving only the rate out means the figure the venues
+	// actually use.
+	Leverage              decimal.Decimal `json:"leverage"`
+	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
 	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
 	// act of trading, at each end, as a percentage of the money that changes hands.
 	// Leaving both out means trading is free, which is what every replay assumed
@@ -78,8 +88,12 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 		TradingMode:          backtestRequest.TradingMode,
 		StopLossPercentage:   backtestRequest.StopLossPercentage,
 		TakeProfitPercentage: backtestRequest.TakeProfitPercentage,
-		EntryCostPercentage:  backtestRequest.EntryCostPercentage,
-		ExitCostPercentage:   backtestRequest.ExitCostPercentage,
+
+		Leverage:              backtestRequest.Leverage,
+		MaintenanceMarginRate: backtestRequest.MaintenanceMarginRate,
+
+		EntryCostPercentage: backtestRequest.EntryCostPercentage,
+		ExitCostPercentage:  backtestRequest.ExitCostPercentage,
 	}
 }
 

@@ -9008,6 +9008,207 @@
               }
             }
           ]
+        },
+        {
+          "name": "重演：開了槓桿，價格逆著走就被強制平倉",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "與「止損把那一注掃出場」同一支算式、同一段歷史，只多了一個 `leverage`——而帳戶歸零。\n\n第二根（收盤 120）全押開多，12,000 的保證金在 5 倍下曝險 60,000，拿到 500 單位。撐得住的距離是 (100÷5) − 0.5 = **19.5 個百分點**，所以強制平倉價是 120 × 0.805 = **96.6**。第三根的最低價 90 穿過它，那一注在 96.6 被打掉，**收回 0**。\n\n沒有這一刀的話，同一段行情只會讓成績單少賺一點——而真實帳戶早就沒了，後面每一筆交易都是憑空的。`liquidationExitCount` 就是為了讓這件事說得出口。\n\n`leverage` 留白、給 0 或給 1 都是不借錢：不模擬強制平倉，每個數字與這一刀之前逐字相同。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"在強制平倉價被打掉，不是在最低價\", function () {",
+                  "    // 進場 120，撐得住 19.5%：120 × 0.805 = 96.6。那一根最低 90 是穿過去的，不是成交價。",
+                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"96.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"liquidation\");",
+                  "});",
+                  "pm.test(\"押下去的錢全沒了，而且只沒有那麼多\", function () {",
+                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-12000\");",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"0\");",
+                  "});",
+                  "pm.test(\"成績單數得出這個帳戶歸零過幾次\", function () {",
+                  "    pm.expect(pm.response.json().summary.liquidationExitCount).to.eql(1);",
+                  "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：止損比強平近，那一注就輪不到被強平",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "同一發再加一個 2% 的止損。止損價 117.6 比強制平倉價 96.6 **更靠近進場價**，而兩者在同一邊——價格要先經過近的那個。所以這一注永遠是止損出場，永遠不會被強平。\n\n這不是猜的，是幾何：同一邊的兩個價位，近的必定先到。系統在**開倉當下**就把兩者取近併成一個，不是每一根 K 線再判一次。\n\n成績單上 `liquidationExitCount` 為 0，就是「我的停損一直在擋」這件事的證據。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\",\n  \"stopLossPercentage\": \"2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"近的那個先到：止損 117.6 比強平 96.6 近\", function () {",
+                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"117.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"stopLoss\");",
+                  "});",
+                  "pm.test(\"停損擋下來了，帳戶沒有歸零\", function () {",
+                  "    pm.expect(pm.response.json().summary.liquidationExitCount).to.eql(0);",
+                  "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(1);",
+                  "    // 500 單位從 120 掉到 117.6，虧 1,200；12,000 − 1,200 = 10,800。",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"10800\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：現貨開不了槓桿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "現貨是拿現金換東西，沒有人借錢給你——所以交易模式是 `spot` 又給大於 1 的 `leverage`，是兩句互相矛盾的話，整次重演被拒絕。\n\n被指出來要改的欄位是 `leverage`，與止損止盈併成 `exitLevels`、兩個成本率併成 `transactionCosts` 同一個做法：兩格在畫面上必定併排填，句子本身會說是哪一格。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"spot\",\n  \"leverage\": \"3\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"指出要改的是槓桿那一組，並說出為什麼\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"leverage\");",
+                  "    pm.expect(pm.response.json().message).to.include(\"現貨\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：維持保證金率大到那一注開倉當下就撐不住",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "5 倍槓桿下押下去的錢只夠讓價格逆著走 20 個百分點，維持保證金率再吃掉 25，強平距離就變成負的——那一注在開倉那一棒就已經撐不住，現實中交易所根本不會讓這張單過。\n\n拒絕的句子會**說出這個槓桿下最多能填到多少**（小於 20%）。被擋下來的人要知道該改成什麼，而不是自己一個一個試。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\",\n  \"maintenanceMarginRate\": \"25\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"告訴他最多能填多少\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"leverage\");",
+                  "    pm.expect(pm.response.json().message).to.include(\"20%\");",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -9767,6 +9968,63 @@
                   "pm.test(\"說出現在有哪兩種可選\", function () {",
                   "    pm.expect(pm.response.text()).to.include(\"longShort\");",
                   "    pm.expect(pm.response.text()).to.include(\"spot\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：交易策略也說得出槓桿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{tradingStrategyId}}",
+                "backtests"
+              ]
+            },
+            "description": "槓桿在這裡與重演一支策略腳本**一字不差**——而且與旁邊的交易模式不同，它**不在交易策略身上**：一套規則對「你願意借多少錢」沒有意見，那是關於你的帳戶的事，跟初始資金、止損距離同一類。\n\n留白就是不借錢，所以不填的那一發與這一刀之前逐字相同。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\",\n  \"maintenanceMarginRate\": \"0.5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"成績單多一格強平出場筆數\", function () {",
+                  "    pm.expect(pm.response.json().summary.liquidationExitCount).to.be.a(\"number\");",
+                  "});",
+                  "pm.test(\"每一筆的曝險是保證金的五倍\", function () {",
+                  "    // 毛利應該等於「押注金額 × 5 × 價格變動比例」——曝險是保證金的五倍。",
+                  "    pm.response.json().closedTrades.forEach(function (trade) {",
+                  "        if (trade.exitReason === \"liquidation\") { return; }",
+                  "        const gross = Number(trade.profit) + Number(trade.entryCost) + Number(trade.exitCost);",
+                  "        const move = (Number(trade.exitPrice) - Number(trade.entryPrice)) / Number(trade.entryPrice);",
+                  "        const signed = trade.direction === \"short\" ? -move : move;",
+                  "        pm.expect(gross).to.be.closeTo(Number(trade.stake) * 5 * signed, 0.01);",
+                  "    });",
                   "});"
                 ]
               }

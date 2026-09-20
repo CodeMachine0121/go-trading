@@ -47,6 +47,16 @@ type BacktestRequestDto struct {
 	// sitting there deciding what they can sit through.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal
+	// Leverage is how many times the stake this run's positions are exposed to, and
+	// MaintenanceMarginRate how little of that exposure may be left before the loan
+	// is called in. Both are optional; leverage of nothing, zero or one means
+	// nothing is borrowed and no forced exit is simulated.
+	//
+	// They travel with the run for the same reason the capital and the exit distances
+	// do: a strategy script has no opinion about how much its owner is willing to
+	// borrow, and the same script is worth replaying against more than one answer.
+	Leverage              decimal.Decimal
+	MaintenanceMarginRate decimal.Decimal
 	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
 	// each end, as a percentage of the money that changes hands. Both are optional
 	// and zero means no charge on that side — except that leaving the exit out is

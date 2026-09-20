@@ -25,15 +25,13 @@ const minimumBacktestKCandleCount = 2
 // belongs to BacktestSimulationDomain, which this hands over to — the two change for
 // different reasons and would otherwise be one file edited by two unrelated needs.
 type BacktestDomain struct {
-	symbol           string
-	interval         AggregationIntervalDomain
-	parameters       StrategyScriptParametersDomain
-	initialCapital   decimal.Decimal
-	positionSizing   PositionSizingDomain
-	tradingMode      TradingModeDomain
-	exitLevels       BacktestExitLevelsDomain
-	transactionCosts BacktestTransactionCostsDomain
-	startTime        time.Time
+	symbol         string
+	interval       AggregationIntervalDomain
+	parameters     StrategyScriptParametersDomain
+	initialCapital decimal.Decimal
+	tradingMode    TradingModeDomain
+	positionTerms  BacktestPositionTermsDomain
+	startTime      time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
 	// buckets that opened strictly before it are replayed.
 	readCutoff time.Time
@@ -116,6 +114,19 @@ func NewBacktestDomain(
 			BacktestExitLevelsField, exitLevelsError.Error())
 	}
 
+	// Built after the trading mode because it needs one — spot cannot borrow — and
+	// before the sizing is judged against the costs, because how much is borrowed
+	// decides how much of the cash a charge eats.
+	leverage, leverageError := NewBacktestLeverageDomain(
+		requestDto.Leverage, requestDto.MaintenanceMarginRate, tradingMode)
+	if leverageError != nil {
+		// The sentence comes from the model; naming which input it is about is this
+		// replay's business. One name covers the multiplier and the rate; the
+		// sentence says which.
+		return BacktestDomain{}, BacktestValidationFailure(
+			BacktestLeverageField, leverageError.Error())
+	}
+
 	transactionCosts, transactionCostsError := NewBacktestTransactionCostsDomain(
 		requestDto.EntryCostPercentage, requestDto.ExitCostPercentage)
 	if transactionCostsError != nil {
@@ -134,11 +145,27 @@ func NewBacktestDomain(
 	//
 	// It points at the percentage rather than at the rates because the rates are a
 	// fact about somebody's broker and the percentage is the knob.
-	if positionSizing.NeverStakesUnder(transactionCosts) {
+	positionTerms := NewBacktestPositionTermsDomain(
+		positionSizing, exitLevels, leverage, transactionCosts)
+
+	if positionTerms.NeverOpensAnything() {
+		// Borrowing is named when there is any, because it is very likely what
+		// caused this. The charge is levied on the exposure, so a multiplier
+		// multiplies it: a percentage that was perfectly affordable yesterday can
+		// become unaffordable today purely by someone adding leverage. Saying only
+		// "this percentage cannot afford its entry charge" would send them to lower
+		// the percentage — the one knob that was never the problem.
+		borrowedClause := ""
+		if leverage.IsBorrowed() {
+			borrowedClause = "——進場成本是照**放大後的曝險金額**收的，" +
+				"所以槓桿倍數把它一起放大了；調低槓桿倍數與調低這個百分比一樣有效"
+		}
+
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestPositionSizingValueField,
 			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
-				"這次重演一筆交易都不會有。要押滿請改用全押——它會自己留出手續費")
+				"這次重演一筆交易都不會有"+borrowedClause+
+				"。要押滿請改用全押——它會自己留出手續費")
 	}
 
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
@@ -175,16 +202,14 @@ func NewBacktestDomain(
 	}
 
 	return BacktestDomain{
-		symbol:           tradingSymbol.Value(),
-		interval:         interval,
-		parameters:       parameters,
-		initialCapital:   requestDto.InitialCapital,
-		positionSizing:   positionSizing,
-		tradingMode:      tradingMode,
-		exitLevels:       exitLevels,
-		transactionCosts: transactionCosts,
-		startTime:        startTime,
-		readCutoff:       readCutoff,
+		symbol:         tradingSymbol.Value(),
+		interval:       interval,
+		parameters:     parameters,
+		initialCapital: requestDto.InitialCapital,
+		tradingMode:    tradingMode,
+		positionTerms:  positionTerms,
+		startTime:      startTime,
+		readCutoff:     readCutoff,
 	}, nil
 }
 
@@ -276,10 +301,8 @@ func (backtestDomain BacktestDomain) ReplayOver(
 ) dto.BacktestResultDto {
 	backtestResultDto := NewBacktestSimulationDomain(
 		backtestDomain.initialCapital,
-		backtestDomain.positionSizing,
 		backtestDomain.tradingMode,
-		backtestDomain.exitLevels,
-		backtestDomain.transactionCosts,
+		backtestDomain.positionTerms,
 		inputKCandles,
 		signals).ToDto()
 

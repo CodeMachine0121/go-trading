@@ -43,6 +43,14 @@ const (
 	// filled in as a single group, and the refusal's own sentence already says which
 	// of the two it is about.
 	BacktestTransactionCostsField = "transactionCosts"
+	// BacktestLeverageField is the multiplier and the maintenance margin rate,
+	// together.
+	//
+	// One name for the same reason the exit distances and the cost rates have one:
+	// they are two boxes filled in as a single group — the second one means nothing
+	// without the first — and the refusal's own sentence already says which of the
+	// two it is about.
+	BacktestLeverageField = "leverage"
 	// BacktestSignalSourcesField is the set of signal sources a trading strategy
 	// replays through — what to go and change when they disagree about coarseness,
 	// or when there are none at all.
