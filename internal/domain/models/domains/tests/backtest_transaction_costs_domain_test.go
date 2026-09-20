@@ -186,17 +186,32 @@ func TestBacktestTransactionCostsMaximumStakeLeavesRoomForTheEntryCharge(t *test
 // commission is one — and the ceiling has to stay affordable anyway. Rounding to
 // nearest could hand back a stake whose own charge no longer fits and leave the
 // account a fraction below zero.
+//
+// Swept rather than sampled, because the failure this guards against depends on where
+// the digits fall: one rate and one amount would pass while the pair two rows down
+// overdrew by a fraction of a cent, and nothing else in the system would notice a
+// balance of minus one ten-thousandth of a cent until it showed up on a chart.
 func TestBacktestTransactionCostsMaximumStakeStaysAffordableWhenTheDivisionNeverEnds(t *testing.T) {
-	transactionCosts := transactionCostsOf(t, "0.0855", "0")
-	availableCash := decimal.NewFromInt(1000000)
+	for _, entryCostPercentage := range []string{
+		"0.0855", "0.1425", "0.3855", "1", "3", "7", "33.3333", "99.9999", "100",
+	} {
+		for _, availableCash := range []string{
+			"0.01", "1", "7", "10000", "12345.6789", "1000000", "999999999.99",
+		} {
+			t.Run(entryCostPercentage+"% of "+availableCash, func(t *testing.T) {
+				transactionCosts := transactionCostsOf(t, entryCostPercentage, "0")
+				cash := decimal.RequireFromString(availableCash)
 
-	maximumStake := transactionCosts.MaximumStakeFrom(availableCash)
+				maximumStake := transactionCosts.MaximumStakeFrom(cash)
+				spent := maximumStake.Add(transactionCosts.EntryCostFor(maximumStake))
 
-	assert.False(t,
-		maximumStake.Add(transactionCosts.EntryCostFor(maximumStake)).
-			GreaterThan(availableCash),
-		"staking %s and paying %s exceeds the %s on hand",
-		maximumStake, transactionCosts.EntryCostFor(maximumStake), availableCash)
+				assert.False(t, spent.GreaterThan(cash),
+					"staking %s and paying its charge spends %s out of %s",
+					maximumStake, spent, cash)
+				assert.False(t, maximumStake.IsNegative())
+			})
+		}
+	}
 }
 
 // Money leaving is money leaving. A price arriving from outside as a negative would
