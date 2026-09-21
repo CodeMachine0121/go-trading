@@ -554,3 +554,42 @@ func TestStrategyBotMessageQuotesTheScriptsUnderShortOnlyRules(t *testing.T) {
 	assert.Contains(t, message, "：賣出")
 	assert.NotContains(t, message, "：做空")
 }
+
+// suggestingShortOnlyBotRound is a round that suggests a short under rules that can
+// only ever take one, and does so without borrowing — the pair of answers no other
+// mode produces.
+func suggestingShortOnlyBotRound() dto.StrategyBotRoundDto {
+	botRound := shortOnlyBotRound()
+	botRound.Verdict = string(vo.SignalSell)
+	botRound.PositionPlan = aSuggestedPosition()
+	botRound.PositionPlan.Leveraged = false
+	botRound.PositionPlan.SuggestsShort = true
+	botRound.HasPositionPlan = true
+
+	return botRound
+}
+
+// Naming the mode and printing the multiplier are two different questions, and this
+// is where they answer differently: short-only always needs naming — the position is
+// on borrowed goods whatever the multiplier says — while a plan that multiplies
+// nothing has no notional to print.
+//
+// The plan is real here rather than absent. A round with no plan at all prints no
+// notional either, so asserting its absence against one would pass on any logic.
+func TestStrategyBotMessageNamesShortOnlyEvenWithNoMultiplier(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingShortOnlyBotRound()).Text()
+
+	assert.Contains(t, message, "⚙️ 交易模式 只做空")
+	assert.Contains(t, message, "保證金 5000")
+	assert.NotContains(t, message, "名目")
+}
+
+// A short's stop sits above the price it was opened at, and this mode opens nothing
+// else. Written out in words because 62255.085 reads like an ordinary price
+// whichever side it was meant for.
+func TestStrategyBotMessagePutsAShortOnlyStopAbove(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingShortOnlyBotRound()).Text()
+
+	assert.Contains(t, message, "止損 62255.085（往上，虧 450）")
+	assert.Contains(t, message, "止盈 67389.525（往下，賺 750）")
+}
