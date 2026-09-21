@@ -5,9 +5,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
 	"github.com/stretchr/testify/assert"
@@ -390,20 +392,36 @@ func TestClaudeAssistantProxyTellsTheAssistantEveryTradingModeThereIs(t *testing
 	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
 	require.NoError(t, replyError)
 
-	// Each spelling together with what sets it apart, not the spelling on its own:
-	// every mode is also named in the advice further down, so a bare substring check
-	// stays green on a prompt that lists only two of them.
+	// Ranged over the selectable set rather than a list written out here, which is
+	// the whole point of this test: a mode added to the system and forgotten by this
+	// prompt is invisible, because nothing fails. A literal list was the version that
+	// let exactly that happen — short-only reached the tool schema and never reached
+	// these instructions, and this test stayed green through it.
+	//
+	// Each spelling is checked against the clause that defines it, and the two are
+	// asserted as one string. Every mode is also named in the advice below, so
+	// separate checks pass on a prompt that has two of the descriptions swapped.
+	describedModes := map[vo.TradingModeVo]string{
+		vo.TradingModeLongShort:     "兩邊都做、借得到錢",
+		vo.TradingModeSpot:          "只做多、借不到錢",
+		vo.TradingModeLeveragedLong: "只做多、借得到錢",
+		vo.TradingModeShortOnly:     "只做空、借得到錢",
+	}
+
 	instructions := fixture.sentRequest.System[0].Text
-	for _, describedMode := range []struct {
-		spelling    vo.TradingModeVo
-		description string
-	}{
-		{vo.TradingModeLongShort, "做得了空、也借得到錢"},
-		{vo.TradingModeSpot, "做不了空、也借不到錢"},
-		{vo.TradingModeLeveragedLong, "做不了空、但借得到錢"},
-	} {
-		assert.Contains(t, instructions, string(describedMode.spelling))
-		assert.Contains(t, instructions, describedMode.description)
+
+	for _, selectableMode := range domains.SelectableTradingModes() {
+		description, isDescribed := describedModes[selectableMode]
+		require.Truef(t, isDescribed,
+			"交易模式多了 %s，但這個測試沒說它該被怎麼描述——補上它，再確認指示裡真的有那一句",
+			selectableMode)
+		// Bound to one line rather than checked as two independent substrings:
+		// every mode is also named in the advice below, so separate checks pass on
+		// a prompt that has two of the descriptions swapped.
+		assert.Regexpf(t,
+			regexp.MustCompile(regexp.QuoteMeta(string(selectableMode))+`[^\n]*→ `+
+				regexp.QuoteMeta(description)),
+			instructions, "指示裡沒有描述 %s，或描述接錯了模式", selectableMode)
 	}
 
 	// And the situation that reaches for the newest one. Knowing the spelling is not
@@ -414,5 +432,9 @@ func TestClaudeAssistantProxyTellsTheAssistantEveryTradingModeThereIs(t *testing
 	// from falling through to the default, which would reverse every sell into a
 	// short and say nothing about it.
 	assert.Contains(t, instructions, "場所不決定模式")
-	assert.Contains(t, instructions, "沒問出他放不放空之前不要猜")
+	assert.Contains(t, instructions, "沒問出他做哪一邊之前不要猜")
+	// The situation that reaches for the newest one, and the trick it must not
+	// reach for instead — knowing the spelling exists is not enough.
+	assert.Contains(t, instructions, "只想做空")
+	assert.Contains(t, instructions, "永遠不成立的\n買入條件")
 }

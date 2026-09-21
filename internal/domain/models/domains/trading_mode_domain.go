@@ -16,6 +16,25 @@ var selectableTradingModes = []vo.TradingModeVo{
 	vo.TradingModeShortOnly,
 }
 
+// SelectableTradingModes is every mode a caller may declare, in the order a refusal
+// offers them back.
+//
+// It is exported because "which modes exist" is a question with more than one
+// audience: the refusal lists them, the assistant's instructions have to describe
+// every one of them, and each tool catalog offers them as a choice. Each of those
+// was holding its own copy of the list, and a copy is a thing that can fall behind
+// without failing — the mode simply never gets offered, and whoever needed it is
+// handed the nearest wrong answer.
+//
+// A copy is handed back rather than the slice itself: a caller that appended to it
+// would be adding a mode to the system from the outside.
+func SelectableTradingModes() []vo.TradingModeVo {
+	selectableModes := make([]vo.TradingModeVo, len(selectableTradingModes))
+	copy(selectableModes, selectableTradingModes)
+
+	return selectableModes
+}
+
 // TradingModeDomain is which set of rules a replay trades by, and the one question
 // that difference comes down to: what does this candle's opinion ask the account to
 // be holding?

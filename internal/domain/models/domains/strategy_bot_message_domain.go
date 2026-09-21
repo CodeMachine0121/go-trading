@@ -81,6 +81,20 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		headlineMark = "🔴"
 	}
 
+	// Green is this system's colour for going long, so rules that cannot go long
+	// never get it. Their buy is a close, and 🟢【出場】 is the one pairing where the
+	// mark and the verb point opposite ways — the reader glances at the phone, sees
+	// green, and reads an entry into an account that will never take one. Red is
+	// what every other close already carries, so it is the reading that leaves the
+	// mark meaning one thing throughout.
+	//
+	// Asked of the capability rather than matched against the mode, so that the next
+	// mode which cannot go long lands on this side without anyone remembering to put
+	// it there.
+	if headlineMark == "🟢" && !strategyBotMessageDomain.tradingMode.CanGoLong() {
+		headlineMark = "🔴"
+	}
+
 	// The verb beside the mark, and the one thing the trading mode decides about a
 	// message: a conclusion is read as an instruction, and the signal's own word is
 	// not always one this reader can carry out.

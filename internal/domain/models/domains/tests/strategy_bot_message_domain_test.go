@@ -520,7 +520,10 @@ func TestStrategyBotMessageTellsAShortOnlyAccountToGetOutRatherThanGoLong(t *tes
 	}{
 		// Not 做多: these rules never hold one. Not 買入 either — that reaches them
 		// just as often while they hold nothing to close.
-		{verdict: string(vo.SignalBuy), expectedFirstLine: "🟢【出場】早盤突破 · BTCUSDT"},
+		// Red rather than green. Green is this system's colour for going long, and
+		// these rules never do — the reader who glances at the mark alone must not
+		// come away having read an entry.
+		{verdict: string(vo.SignalBuy), expectedFirstLine: "🔴【出場】早盤突破 · BTCUSDT"},
 		// The same act long-short names, because at this moment it is the same act.
 		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【做空】早盤突破 · BTCUSDT"},
 		{verdict: string(vo.SignalHold), expectedFirstLine: "⚪【持有】早盤突破 · BTCUSDT"},
