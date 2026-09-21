@@ -141,11 +141,18 @@ const tradingStrategyConditionArgumentSchema = `{"type":"object","description":`
 // the identifier is required, and each says that for itself.
 const tradingStrategyWriteArgumentSchema = `` +
 	`"name":{"type":"string","description":"交易策略名稱，不得空白、不得與自己既有的交易策略重複，上限 128 字"},` +
-	`"tradingMode":{"type":"string","enum":["longShort","spot"],` +
-	`"description":"這份規則是寫給哪一種帳戶的：longShort 做得了空（賣出＝平多並反手做空）、` +
-	`spot 只做多（賣出＝平倉把錢收回來，空手時賣出不動作）。不給即 longShort。` +
-	`使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時給 spot——` +
-	`它決定了重演這份規則時用哪一套算法，也決定了機器人的訊息要寫「買入／賣出」還是「做多／做空」"},` +
+	`"tradingMode":{"type":"string","enum":["longShort","spot","leveragedLong"],` +
+	`"description":"這份規則是寫給哪一種帳戶的。它答兩個各自獨立的問題——做不做得了空、` +
+	`借不借得到錢——而三個取值就是那兩個問題的三種合法組合（做得了空卻借不到錢不存在，` +
+	`放空本來就要先借到東西才賣得出去）：longShort 做得了空、也借得到錢（賣出＝平多並反手做空）；` +
+	`spot 做不了空、也借不到錢（賣出＝平倉把錢收回來，空手時賣出不動作）；` +
+	`leveragedLong 做不了空、但借得到錢——倉位行為與 spot 一字不差，差別只在它開得了槓桿。` +
+	`不給即 longShort。` +
+	`使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時給 spot；` +
+	`說他在合約帳戶上只做多、要上一點槓桿（例如幣安永續開多）時給 leveragedLong——` +
+	`這時給 spot 是錯的，他會連回測都跑不了，而他的機器人也建議不了大於 1 倍的部位。` +
+	`它決定了重演這份規則時用哪一套算法、這份規則開不開得了槓桿，` +
+	`也決定了機器人的訊息要寫「買入／出場」還是「做多／做空」"},` +
 	`"signalSources":{"type":"array","description":"這份交易策略聽哪幾支策略腳本說話，上限 10 個。` +
 	`每個來源的彙總刻度必須相同，否則回測與上線都會被拒絕",` +
 	`"items":{"type":"object","properties":{` +
