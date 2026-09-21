@@ -290,6 +290,20 @@ func TestNewStrategyBotDomainRefusesBorrowingRulesCannotDo(t *testing.T) {
 			expectsSaving: true,
 		},
 		{
+			// Not a permission granted to it: selling what you do not have means
+			// borrowing it first, so this mode has no version that does not.
+			name:          "short only borrows because shorting is borrowing",
+			tradingMode:   "shortOnly",
+			leverage:      "1.8",
+			expectsSaving: true,
+		},
+		{
+			name:          "short only suggesting no leverage at all",
+			tradingMode:   "shortOnly",
+			leverage:      "0",
+			expectsSaving: true,
+		},
+		{
 			// No loan, so the rule does not apply. This is the shape of every bot
 			// saved against spot rules before borrowing was a question at all.
 			name:          "spot suggesting no leverage at all",

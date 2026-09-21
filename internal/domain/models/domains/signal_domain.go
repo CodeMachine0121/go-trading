@@ -37,3 +37,27 @@ func NewSignalDomainOf(signal vo.SignalVo) SignalDomain {
 func (signalDomain SignalDomain) Value() vo.SignalVo {
 	return signalDomain.value
 }
+
+// InWords is this opinion as a person reads it.
+//
+// It stays the signal's own vocabulary whichever mode is reading. What somebody has
+// to go and do about one is the trading mode's business — a sell asks one account to
+// open a position and another to close one — and rewriting these words to match that
+// would put them in the strategy scripts' mouths, leaving a reader unable to work
+// back from the conclusion to what produced it.
+//
+// An unrecognised value is written out as it stands rather than replaced with a
+// guess: this is the last place to quietly turn something the system did not
+// understand into one of the three things it did.
+func (signalDomain SignalDomain) InWords() string {
+	switch signalDomain.value {
+	case vo.SignalBuy:
+		return "買入"
+	case vo.SignalSell:
+		return "賣出"
+	case vo.SignalHold:
+		return "持有"
+	}
+
+	return string(signalDomain.value)
+}

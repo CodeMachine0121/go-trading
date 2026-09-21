@@ -551,3 +551,62 @@ func TestRefusingAnUnstakeablePercentageStaysQuietWithoutBorrowing(t *testing.T)
 	assert.NotContains(t, buildError.Error(), "曝險金額")
 	assert.NotContains(t, buildError.Error(), "調低槓桿倍數")
 }
+
+// aBorrowedShortOnlyReplay is the same borrowed replay under rules that only ever
+// short, entered the way those rules enter: on a sell.
+func aBorrowedShortOnlyReplay(secondBar bar) leveragedReplaySpec {
+	return leveragedReplaySpec{
+		initialCapital: "10000", sizingMode: "allIn", tradingMode: "shortOnly",
+		multiplier: "5", maintenanceMarginRate: "0.5",
+		bars:    []bar{anEntryBar(), secondBar},
+		signals: []vo.SignalVo{sellSignal, holdSignal},
+	}
+}
+
+// Short-only borrows, and what it borrows can be called in. Its liquidation sits
+// above the entry because up is the only way its position can go wrong — the mirror
+// of every long the replay has been asked about until now.
+//
+// It is asserted through this mode rather than inferred from the long-short short:
+// the side is read off the position's direction, and nothing had yet checked that
+// a mode which can only produce shorts arrives there.
+func TestLeveragedReplayWipesOutAShortOnlyPositionOnTheWayUp(t *testing.T) {
+	result := leveragedReplayOf(t, aBorrowedShortOnlyReplay(bar{high: 120, low: 100, close: 115}))
+
+	require.Len(t, result.ClosedTrades, 1)
+	assert.Equal(t, string(vo.PositionDirectionShort), result.ClosedTrades[0].Direction)
+	assert.Equal(t, string(vo.TradeExitReasonLiquidation), result.ClosedTrades[0].ExitReason)
+	// Above the entry of 100, not below it.
+	assert.Equal(t, "119.5", result.ClosedTrades[0].ExitPrice.String())
+	assert.Equal(t, "0", result.Summary.FinalEquity.String())
+}
+
+// Falling is where this position is right, so nothing calls the loan in.
+func TestLeveragedReplayLeavesAShortOnlyPositionAloneOnTheWayDown(t *testing.T) {
+	result := leveragedReplayOf(t, aBorrowedShortOnlyReplay(bar{high: 100, low: 80, close: 80}))
+
+	assert.Empty(t, result.ClosedTrades)
+	assert.Equal(t, 0, result.Summary.LiquidationExitCount)
+}
+
+// The stop is nearer than the liquidation, and both are above the entry.
+func TestLeveragedReplayTakesTheNearerExitAboveAShortOnlyEntry(t *testing.T) {
+	spec := aBorrowedShortOnlyReplay(bar{high: 120, low: 100, close: 115})
+	spec.stopLossPercentage = "5"
+
+	result := leveragedReplayOf(t, spec)
+
+	require.Len(t, result.ClosedTrades, 1)
+	assert.Equal(t, string(vo.TradeExitReasonStopLoss), result.ClosedTrades[0].ExitReason)
+	assert.Equal(t, "105", result.ClosedTrades[0].ExitPrice.String())
+}
+
+// Without a loan there is nobody to call one in, whichever way the position faces.
+func TestLeveragedReplayNeverLiquidatesAnUnborrowedShortOnlyPosition(t *testing.T) {
+	spec := aBorrowedShortOnlyReplay(bar{high: 200, low: 100, close: 200})
+	spec.multiplier = ""
+
+	result := leveragedReplayOf(t, spec)
+
+	assert.Equal(t, 0, result.Summary.LiquidationExitCount)
+}

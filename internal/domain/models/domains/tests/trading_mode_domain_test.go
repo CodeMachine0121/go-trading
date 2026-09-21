@@ -32,6 +32,11 @@ func TestTradingModeDomainReadsWhatWasDeclared(t *testing.T) {
 			expectedMode: vo.TradingModeLeveragedLong,
 		},
 		{
+			name:         "short only, spelled out",
+			declaredMode: "shortOnly",
+			expectedMode: vo.TradingModeShortOnly,
+		},
+		{
 			name:         "declaring nothing trades the way a replay always has",
 			declaredMode: "",
 			expectedMode: vo.TradingModeLongShort,
@@ -66,11 +71,12 @@ func TestTradingModeDomainRefusesWhatItCannotRead(t *testing.T) {
 	// ask this question — a replay and a set of rules being saved — and each wraps the
 	// sentence in the sentinel its own controller already maps. That a replay's refusal
 	// names the input is asserted where a replay is: backtest_domain_test.go.
-	// Both spellings are offered back; a refusal that does not say what is allowed
+	// Every spelling is offered back; a refusal that does not say what is allowed
 	// leaves the caller guessing at a string.
 	assert.Contains(t, err.Error(), string(vo.TradingModeLongShort))
 	assert.Contains(t, err.Error(), string(vo.TradingModeSpot))
 	assert.Contains(t, err.Error(), string(vo.TradingModeLeveragedLong))
+	assert.Contains(t, err.Error(), string(vo.TradingModeShortOnly))
 }
 
 func TestTradingModeDomainTargetFor(t *testing.T) {
@@ -137,6 +143,27 @@ func TestTradingModeDomainTargetFor(t *testing.T) {
 			signal:         vo.SignalHold,
 			expectedTarget: vo.TargetPositionUnchanged,
 		},
+		{
+			// The mirror of what spot answers a sell. These rules cannot face this
+			// way, so the signal asking them to is asking them to hold nothing —
+			// and holding nothing while already flat is where the account stops.
+			name:           "short only: buying asks to be in cash",
+			declaredMode:   "shortOnly",
+			signal:         vo.SignalBuy,
+			expectedTarget: vo.TargetPositionFlat,
+		},
+		{
+			name:           "short only: selling asks to be short",
+			declaredMode:   "shortOnly",
+			signal:         vo.SignalSell,
+			expectedTarget: vo.TargetPositionShort,
+		},
+		{
+			name:           "short only: holding asks for nothing",
+			declaredMode:   "shortOnly",
+			signal:         vo.SignalHold,
+			expectedTarget: vo.TargetPositionUnchanged,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -199,6 +226,11 @@ func TestTradingModeDomainAsksForNothingWhenItDoesNotRecogniseTheMode(t *testing
 	// simulation models both take a mode by parameter, so one can reach them.
 	unrecognizedMode := domains.TradingModeDomain{}
 
+	// Buying is asserted alongside the other two rather than left out. Before the
+	// target was read off the direction predicates, a buy was answered with a long
+	// whatever the mode — which contradicted the sentence this test is named after,
+	// and no test said so.
+	assert.Equal(t, vo.TargetPositionUnchanged, unrecognizedMode.TargetFor(signalOf(vo.SignalBuy)))
 	assert.Equal(t, vo.TargetPositionUnchanged, unrecognizedMode.TargetFor(signalOf(vo.SignalSell)))
 	assert.Equal(t, vo.TargetPositionUnchanged, unrecognizedMode.TargetFor(signalOf(vo.SignalHold)))
 }
@@ -246,6 +278,12 @@ func TestTradingModeDomainCanGoShort(t *testing.T) {
 			canGoShort:      false,
 		},
 		{
+			name:            "short only shorts, and does nothing else",
+			declaredMode:    "shortOnly",
+			expectedInWords: "只做空",
+			canGoShort:      true,
+		},
+		{
 			name:            "declaring nothing reads as long-short, and so can short",
 			declaredMode:    "",
 			expectedInWords: "多空反手",
@@ -271,6 +309,166 @@ func TestTradingModeDomainZeroValueCannotGoShort(t *testing.T) {
 	assert.False(t, domains.TradingModeDomain{}.CanGoShort())
 }
 
+// Whether a mode may go long reads like a question with only one answer, and until
+// short-only existed it had one. What stood in for it was CanGoShort saying no —
+// and short-only is where that stand-in stops being true.
+func TestTradingModeDomainCanGoLong(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declaredMode string
+		canGoLong    bool
+	}{
+		{
+			name:         "long-short faces both ways",
+			declaredMode: "longShort",
+			canGoLong:    true,
+		},
+		{
+			name:         "spot only ever goes long",
+			declaredMode: "spot",
+			canGoLong:    true,
+		},
+		{
+			name:         "leveraged long only ever goes long, borrowed or not",
+			declaredMode: "leveragedLong",
+			canGoLong:    true,
+		},
+		{
+			name:         "short only cannot, which is the whole of what makes it new",
+			declaredMode: "shortOnly",
+			canGoLong:    false,
+		},
+		{
+			name:         "declaring nothing reads as long-short, and so goes long",
+			declaredMode: "",
+			canGoLong:    true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.canGoLong, tradingMode.CanGoLong())
+		})
+	}
+}
+
+func TestTradingModeDomainZeroValueCannotGoLong(t *testing.T) {
+	// Facing neither way is what marks a mode nobody declared. Both predicates have
+	// to say no for TargetFor to reach the answer it gives such a mode.
+	assert.False(t, domains.TradingModeDomain{}.CanGoLong())
+}
+
+// Every cell of the table, not only the new mode's three. The verb used to be
+// assembled at the message's end from two readings of the mode, and the whole reason
+// it moved here is that the assembly held only while "cannot short" and "only goes
+// long" were the same sentence.
+func TestTradingModeDomainHeadlineVerbFor(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declaredMode string
+		signal       vo.SignalVo
+		expectedVerb string
+	}{
+		{
+			name:         "long-short opens a position either way, so the act is named by direction",
+			declaredMode: "longShort",
+			signal:       vo.SignalBuy,
+			expectedVerb: "做多",
+		},
+		{
+			name:         "long-short selling is opening the other way",
+			declaredMode: "longShort",
+			signal:       vo.SignalSell,
+			expectedVerb: "做空",
+		},
+		{
+			name:         "long-short holding keeps the signal's own word",
+			declaredMode: "longShort",
+			signal:       vo.SignalHold,
+			expectedVerb: "持有",
+		},
+		{
+			name:         "spot buying is cash for goods, which 買入 already says",
+			declaredMode: "spot",
+			signal:       vo.SignalBuy,
+			expectedVerb: "買入",
+		},
+		{
+			name:         "spot selling reaches a reader who is usually flat",
+			declaredMode: "spot",
+			signal:       vo.SignalSell,
+			expectedVerb: "出場",
+		},
+		{
+			name:         "spot holding keeps the signal's own word",
+			declaredMode: "spot",
+			signal:       vo.SignalHold,
+			expectedVerb: "持有",
+		},
+		{
+			name:         "leveraged long buys with the same word spot does",
+			declaredMode: "leveragedLong",
+			signal:       vo.SignalBuy,
+			expectedVerb: "買入",
+		},
+		{
+			name:         "leveraged long sells with the same word spot does",
+			declaredMode: "leveragedLong",
+			signal:       vo.SignalSell,
+			expectedVerb: "出場",
+		},
+		{
+			name:         "leveraged long holding keeps the signal's own word",
+			declaredMode: "leveragedLong",
+			signal:       vo.SignalHold,
+			expectedVerb: "持有",
+		},
+		{
+			// Not 做多, which this reader can never do, and not 買入, which reaches
+			// them just as often while they hold nothing to close.
+			name:         "short only buying is closing what is open, if anything is",
+			declaredMode: "shortOnly",
+			signal:       vo.SignalBuy,
+			expectedVerb: "出場",
+		},
+		{
+			name:         "short only selling is opening, the same act long-short names",
+			declaredMode: "shortOnly",
+			signal:       vo.SignalSell,
+			expectedVerb: "做空",
+		},
+		{
+			name:         "short only holding keeps the signal's own word",
+			declaredMode: "shortOnly",
+			signal:       vo.SignalHold,
+			expectedVerb: "持有",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectedVerb,
+				tradingMode.HeadlineVerbFor(signalOf(testCase.signal)))
+		})
+	}
+}
+
+// A mode nobody declared quotes the signal rather than naming an act. Inventing one
+// here would be inventing a direction for somebody to trade in.
+func TestTradingModeDomainHeadlineVerbForUnrecognisedModeQuotesTheSignal(t *testing.T) {
+	unrecognizedMode := domains.TradingModeDomain{}
+
+	assert.Equal(t, "買入", unrecognizedMode.HeadlineVerbFor(signalOf(vo.SignalBuy)))
+	assert.Equal(t, "賣出", unrecognizedMode.HeadlineVerbFor(signalOf(vo.SignalSell)))
+	assert.Equal(t, "持有", unrecognizedMode.HeadlineVerbFor(signalOf(vo.SignalHold)))
+}
+
 // Whether a mode may short and whether it may borrow are separate questions, and
 // leveraged long is where they first give different answers.
 func TestTradingModeDomainCanUseLeverage(t *testing.T) {
@@ -292,6 +490,13 @@ func TestTradingModeDomainCanUseLeverage(t *testing.T) {
 		{
 			name:           "leveraged long borrows although it never faces the other way",
 			declaredMode:   "leveragedLong",
+			canUseLeverage: true,
+		},
+		{
+			// Not a convenience granted to it: selling what you do not have means
+			// borrowing it first, so there is no version of this mode that does not.
+			name:           "short only borrows because shorting is borrowing",
+			declaredMode:   "shortOnly",
 			canUseLeverage: true,
 		},
 		{
@@ -359,4 +564,56 @@ func TestTradingModeDomainBorrowingRefusal(t *testing.T) {
 			assert.Contains(t, refusal.Error(), testCase.expectedNaming)
 		})
 	}
+}
+
+// Whether the verb has left the reader something to find out. Cash for goods is the
+// one set of rules where it has not.
+func TestTradingModeDomainActNeedsTheModeNamed(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declaredMode string
+		needsNaming  bool
+	}{
+		{
+			// The act may be opening a position rather than closing one, and it is
+			// held on borrowed money besides.
+			name:         "long-short leaves both questions open",
+			declaredMode: "longShort",
+			needsNaming:  true,
+		},
+		{
+			// 買入 is handing money over for a thing, full stop. A line naming the
+			// mode here would be a sentence about the system, not about the market.
+			name:         "spot is the one where the verb says everything",
+			declaredMode: "spot",
+			needsNaming:  false,
+		},
+		{
+			// Same two words spot uses, but the position is held on somebody else's
+			// money and can be taken away at a price.
+			name:         "leveraged long borrows, and the verb cannot say so",
+			declaredMode: "leveragedLong",
+			needsNaming:  true,
+		},
+		{
+			name:         "short only both shorts and borrows",
+			declaredMode: "shortOnly",
+			needsNaming:  true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.needsNaming, tradingMode.ActNeedsTheModeNamed())
+		})
+	}
+}
+
+// A mode nobody declared names nothing, by the same rule its verb quotes the signal:
+// there is no act to describe when the rules cannot be read.
+func TestTradingModeDomainZeroValueNamesNoMode(t *testing.T) {
+	assert.False(t, domains.TradingModeDomain{}.ActNeedsTheModeNamed())
 }

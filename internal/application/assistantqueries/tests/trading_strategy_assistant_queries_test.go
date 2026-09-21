@@ -439,21 +439,29 @@ func TestTradingStrategyWritingAssistantQueriesTellTheAssistantWhatAModeMeans(t 
 		assert.Contains(t, schema, string(vo.TradingModeLongShort))
 		assert.Contains(t, schema, string(vo.TradingModeSpot))
 		assert.Contains(t, schema, string(vo.TradingModeLeveragedLong))
+		assert.Contains(t, schema, string(vo.TradingModeShortOnly))
 		assert.Contains(t, schema, "不能放空")
 		// The third mode is the one it would otherwise never reach for: somebody who
 		// only goes long looks like spot until the leverage comes up, and spot is the
 		// answer that leaves them unable to replay what their bot is doing.
 		assert.Contains(t, schema, "只做多、要上一點槓桿")
+		// The fourth has a worse failure than being unreachable: it is reachable
+		// through a trick. Long-short with a buy condition that can never hold trades
+		// exactly like it, so an assistant that has not been told this mode exists
+		// will build that instead — and leave behind rules that say they face both
+		// ways while only ever facing one.
+		assert.Contains(t, schema, "只想做空")
+		assert.Contains(t, schema, "永遠不成立的買入條件")
 		// Naming the venue has not answered the question, and saying so is the only
 		// thing standing between "我在幣安永續" and the default.
 		//
-		// Two of the three modes run there, so that sentence rules nothing out. And
+		// Three of the four modes run there, so that sentence rules nothing out. And
 		// the two ways of being wrong are not equally survivable: reaching for spot
 		// is refused, which the person sees; reaching for long-short — or reaching
-		// for nothing, since that is the default — reverses every sell into a short
-		// they never asked for, and hands back a report card that reads fine.
+		// for nothing, since that is the default — reverses every signal into a
+		// position they never asked for, and hands back a report card that reads fine.
 		assert.Contains(t, schema, "場所不決定模式")
-		assert.Contains(t, schema, "沒問出他放不放空之前不要猜")
+		assert.Contains(t, schema, "沒問出他做哪一邊之前不要猜")
 		// Read out of the enum rather than found anywhere in the text. Every spelling
 		// also appears in the prose beside it, so a substring check passes on a
 		// schema that offers the assistant only two of the three to choose from.
@@ -469,6 +477,7 @@ func TestTradingStrategyWritingAssistantQueriesTellTheAssistantWhatAModeMeans(t 
 			string(vo.TradingModeLongShort),
 			string(vo.TradingModeSpot),
 			string(vo.TradingModeLeveragedLong),
+			string(vo.TradingModeShortOnly),
 		}, declaredModes.Properties.TradingMode.Enum)
 		// Not required: a mode nobody stated is the default, not a missing argument.
 		declaredSchema := struct {

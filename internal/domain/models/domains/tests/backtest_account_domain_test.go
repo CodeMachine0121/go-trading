@@ -277,3 +277,81 @@ func TestBacktestAccountDomainSellingWhileFlatSplitsTheModes(t *testing.T) {
 	assert.Equal(t, 1, longShortAccount.PositionOpenCount())
 	assert.Equal(t, 0, spotAccount.PositionOpenCount())
 }
+
+// The mirror of what spot does, asserted at the account rather than at the target:
+// the mode decides what to aim for, but whether money moved and which way the
+// position faces is something only the account can say.
+func TestBacktestAccountDomainUnderShortOnlyRules(t *testing.T) {
+	t.Run("selling while flat opens a short", func(t *testing.T) {
+		account := accountStakingEverythingIn(t, 10000, "shortOnly")
+
+		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
+
+		assert.Equal(t, 1, account.PositionOpenCount())
+		// A short gains as the price falls: 10,000 staked at 100, worth 12,000 at 80.
+		assert.True(t, decimal.NewFromInt(12000).Equal(account.EquityAt(decimal.NewFromInt(80))))
+	})
+
+	t.Run("a repeated sell is heard once", func(t *testing.T) {
+		account := accountStakingEverythingIn(t, 10000, "shortOnly")
+
+		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(80))
+
+		assert.Equal(t, 1, account.PositionOpenCount())
+		assert.Empty(t, account.ClosedTradeDtos())
+		assert.True(t, decimal.NewFromInt(12000).Equal(account.EquityAt(decimal.NewFromInt(80))))
+	})
+
+	t.Run("buying closes the short back to cash rather than opening a long", func(t *testing.T) {
+		account := accountStakingEverythingIn(t, 10000, "shortOnly")
+
+		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(80))
+
+		closedTrades := account.ClosedTradeDtos()
+		require.Len(t, closedTrades, 1)
+		assert.Equal(t, string(vo.PositionDirectionShort), closedTrades[0].Direction)
+		// Still one opening: the buy closed, it did not open the other way. Were it
+		// opening a long, the count would be two and the equity would then move with
+		// the price rather than sitting in cash.
+		assert.Equal(t, 1, account.PositionOpenCount())
+		assert.True(t, decimal.NewFromInt(12000).Equal(account.EquityAt(decimal.NewFromInt(999))))
+	})
+
+	t.Run("buying while flat does nothing at all", func(t *testing.T) {
+		account := accountStakingEverythingIn(t, 10000, "shortOnly")
+
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+
+		assert.Equal(t, 0, account.PositionOpenCount())
+		assert.Empty(t, account.ClosedTradeDtos())
+		assert.True(t, decimal.NewFromInt(10000).Equal(account.EquityAt(decimal.NewFromInt(999))))
+	})
+
+	t.Run("no trade it ever books faces long", func(t *testing.T) {
+		account := accountStakingEverythingIn(t, 10000, "shortOnly")
+
+		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
+		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(90))
+		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(90))
+
+		for _, closedTrade := range account.ClosedTradeDtos() {
+			assert.Equal(t, string(vo.PositionDirectionShort), closedTrade.Direction)
+		}
+	})
+}
+
+// Buying while flat is where short-only and the long-only modes part company, and it
+// is the one line that says a short-only replay can never take the long side.
+func TestBacktestAccountDomainBuyingWhileFlatSplitsTheModes(t *testing.T) {
+	longOnlyAccount := accountStakingEverythingIn(t, 10000, "spot")
+	shortOnlyAccount := accountStakingEverythingIn(t, 10000, "shortOnly")
+
+	longOnlyAccount.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+	shortOnlyAccount.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
+
+	assert.Equal(t, 1, longOnlyAccount.PositionOpenCount())
+	assert.Equal(t, 0, shortOnlyAccount.PositionOpenCount())
+}

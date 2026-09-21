@@ -28,13 +28,10 @@ const strategyBotMessageTimeLayout = "2006-01-02 15:04 UTC"
 // what separates the conclusion from what it was concluded from.
 //
 // The headline is worded by the trading mode of the rules this round was judged by,
-// because a conclusion is read as an instruction — and 賣出 is an instruction neither
-// account can reliably carry out. To one that can short, the act is 做空: open a
-// position that gains as the price falls, and a reader told to 賣出 asks what they
-// are meant to be selling. To one that cannot, the act is 出場: close whatever is
-// open, and a reader told to 賣出 asks the same question every time they are flat —
-// which is most of the time, because a sell reaches them on the strength of the
-// signal alone and the signal has never known what they hold.
+// because a conclusion is read as an instruction and the signal's own word is not one
+// every account can carry out. Which word to put there is the mode's answer, not this
+// model's — it depends on which ways those rules can face, and that is knowledge only
+// the mode has.
 //
 // Only the headline speaks of acts. The source lines below keep quoting the scripts
 // in 買入／賣出／持有, which is how a reader works back from the conclusion.
@@ -64,6 +61,11 @@ func NewStrategyBotMessageDomain(round dto.StrategyBotRoundDto) StrategyBotMessa
 
 // Text is the message.
 func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
+	// What this round concluded, read once. Both halves of the headline ask about it
+	// — the mark and the verb — and a round carries it as a string, so converting it
+	// at each of them is the same conversion written twice.
+	verdict := NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict))
+
 	// A coloured mark so the direction survives being skimmed. It opens the line
 	// rather than replacing any of the words: a reader who cannot see colour, or
 	// whose device draws these differently, still has 【買入】 written out — the mark
@@ -72,45 +74,38 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// way somebody should trade.
 	headlineMark := "⚪"
 
-	switch vo.SignalVo(strategyBotMessageDomain.round.Verdict) {
+	switch verdict.Value() {
 	case vo.SignalBuy:
 		headlineMark = "🟢"
 	case vo.SignalSell:
 		headlineMark = "🔴"
 	}
 
-	// The verb beside the mark, and the one thing the trading mode decides about a
-	// message: a conclusion is read as an instruction. It starts as the signal's own
-	// word and is replaced only where the word and the act part company. An opinion
-	// nobody can read keeps its own wording — a message is the last place to invent a
-	// direction.
+	// Green is this system's colour for going long, so rules that cannot go long
+	// never get it. Their buy is a close, and 🟢【出場】 is the one pairing where the
+	// mark and the verb point opposite ways — the reader glances at the phone, sees
+	// green, and reads an entry into an account that will never take one. Red is
+	// what every other close already carries, so it is the reading that leaves the
+	// mark meaning one thing throughout.
 	//
-	// Both replacements are the same failure in two modes: 賣出 is an instruction the
-	// reader may be unable to carry out, and which one they cannot carry out is what
-	// the mode decides. Told 賣出 by rules that can short, they ask what they are
-	// meant to be selling — the act is to open a position. Told it by rules that
-	// cannot, they ask it whenever they are flat, which is most of the time: a sell
-	// reaches them on the strength of the signal alone, and the signal has never
-	// known what they hold. 出場 is the one wording both of those readers can act on.
-	headlineVerb := strategyBotMessageDomain.signalInWords(strategyBotMessageDomain.round.Verdict)
-
-	if strategyBotMessageDomain.tradingMode.CanGoShort() {
-		switch vo.SignalVo(strategyBotMessageDomain.round.Verdict) {
-		case vo.SignalBuy:
-			headlineVerb = "做多"
-		case vo.SignalSell:
-			headlineVerb = "做空"
-		}
-	} else if strategyBotMessageDomain.tradingMode.TargetFor(
-		NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict)),
-	) == vo.TargetPositionFlat {
-		// Asked of the mode rather than matched against the signal here, because the
-		// mode is what knows that its sell asks for nothing to be held. It also
-		// settles the unreadable mode for free: that one asks for nothing at all
-		// rather than for flat, so its message keeps quoting the signal, which is
-		// the rule for a mode this cannot read.
-		headlineVerb = "出場"
+	// Asked of the capability rather than matched against the mode, so that the next
+	// mode which cannot go long lands on this side without anyone remembering to put
+	// it there.
+	if headlineMark == "🟢" && !strategyBotMessageDomain.tradingMode.CanGoLong() {
+		headlineMark = "🔴"
 	}
+
+	// The verb beside the mark, and the one thing the trading mode decides about a
+	// message: a conclusion is read as an instruction, and the signal's own word is
+	// not always one this reader can carry out.
+	//
+	// Asked of the mode as one question rather than worked out here, because the
+	// answer is a table of four modes by three signals and only the mode knows which
+	// way its rules can face. Assembling it at this end used to mean asking the mode
+	// twice and rewriting the word in between, which held only while "cannot short"
+	// and "only goes long" were the same sentence — and short-only is the mode where
+	// they part company.
+	headlineVerb := strategyBotMessageDomain.tradingMode.HeadlineVerbFor(verdict)
 
 	lines := []string{
 		fmt.Sprintf("%s【%s】%s · %s",
@@ -137,24 +132,14 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
 	}
 
-	// Named where the headline's verb does not already say everything the act
-	// involves — which is every mode but one.
-	//
-	// Cash for goods is the exception: 買入 there means handing over money for a
-	// thing, and there is no second reading, so the line would be a sentence about
-	// the system rather than about the market. The other two each carry something
-	// the verb cannot say. Shorting rules may be telling the reader to open a
-	// position rather than close one. Borrowing rules turn the very same 買入 into
-	// a position held on somebody else's money, which can be taken away from them at
-	// a price — and a reader who executes that in a cash frame of mind has been
-	// misled by a message that was technically correct.
+	// Named wherever the verb has left the reader something to find out, which is
+	// the mode's answer rather than this model's — see ActNeedsTheModeNamed.
 	//
 	// It opens with a blank line of its own, like every other block below the
 	// headline. Without one it renders glued to the reference moment, and a reader
 	// skimming a phone reads the two as one paragraph — as though the mode were
 	// something about that price rather than about the rules that judged the round.
-	if strategyBotMessageDomain.tradingMode.CanGoShort() ||
-		strategyBotMessageDomain.tradingMode.CanUseLeverage() {
+	if strategyBotMessageDomain.tradingMode.ActNeedsTheModeNamed() {
 		lines = append(lines, "",
 			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
 	}
@@ -174,7 +159,7 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, fmt.Sprintf("　・%s（%s）：%s",
 			sourceSignal.Label,
 			sourceSignal.AggregationInterval,
-			strategyBotMessageDomain.signalInWords(sourceSignal.Signal)))
+			NewSignalDomainOf(vo.SignalVo(sourceSignal.Signal)).InWords()))
 	}
 
 	return strings.Join(lines, "\n")
@@ -255,27 +240,4 @@ func exitDirectionInWords(above bool) string {
 	}
 
 	return "往下"
-}
-
-// signalInWords is a signal as a person reads it. Both the headline and every source
-// line need it, which is what earns it a name of its own.
-//
-// It stays the signal's own vocabulary — buy, sell, hold — whatever mode is reading.
-// What somebody has to go and do about one is the headline's business, above, and
-// rewriting these words to match it would put them in the strategy scripts' mouths.
-//
-// An unrecognised value is written out as it stands rather than replaced with a
-// guess: a message is the last place to quietly turn something the system did not
-// understand into one of the three things it did.
-func (strategyBotMessageDomain StrategyBotMessageDomain) signalInWords(signal string) string {
-	switch vo.SignalVo(signal) {
-	case vo.SignalBuy:
-		return "買入"
-	case vo.SignalSell:
-		return "賣出"
-	case vo.SignalHold:
-		return "持有"
-	default:
-		return signal
-	}
 }
