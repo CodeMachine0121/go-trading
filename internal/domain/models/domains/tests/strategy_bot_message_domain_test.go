@@ -496,3 +496,61 @@ func TestStrategyBotMessagePutsTheSuggestionBeforeTheWorking(t *testing.T) {
 		strings.Index(message, "📐 建議部位"), strings.Index(message, "📊 各來源怎麼說"))
 	assert.Less(t, strings.Index(message, "💰 參考價"), strings.Index(message, "📐 建議部位"))
 }
+
+// shortOnlyBotRound is one round of a bot following rules that only ever short — the
+// same round the others carry, so that what differs between the messages is only what
+// the mode changes.
+func shortOnlyBotRound() dto.StrategyBotRoundDto {
+	botRound := aBotRound()
+	botRound.TradingMode = string(vo.TradingModeShortOnly)
+
+	return botRound
+}
+
+// The mode where the two halves of the verb rule finally disagree.
+//
+// Every mode before it could go long, so "cannot short" was enough to decide both
+// words. This one shorts and cannot go long, and reading only the first half hands
+// its reader 做多 — an act their account will never carry out, in a message that
+// looks entirely ordinary.
+func TestStrategyBotMessageTellsAShortOnlyAccountToGetOutRatherThanGoLong(t *testing.T) {
+	testCases := []struct {
+		verdict           string
+		expectedFirstLine string
+	}{
+		// Not 做多: these rules never hold one. Not 買入 either — that reaches them
+		// just as often while they hold nothing to close.
+		{verdict: string(vo.SignalBuy), expectedFirstLine: "🟢【出場】早盤突破 · BTCUSDT"},
+		// The same act long-short names, because at this moment it is the same act.
+		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【做空】早盤突破 · BTCUSDT"},
+		{verdict: string(vo.SignalHold), expectedFirstLine: "⚪【持有】早盤突破 · BTCUSDT"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.verdict, func(t *testing.T) {
+			botRound := shortOnlyBotRound()
+			botRound.Verdict = testCase.verdict
+
+			firstLine := strings.Split(domains.NewStrategyBotMessageDomain(botRound).Text(), "\n")[0]
+
+			assert.Equal(t, testCase.expectedFirstLine, firstLine)
+		})
+	}
+}
+
+// It borrows, and borrowing is what earns a mode this line: the position can be taken
+// away from its holder at a price, and nothing in 做空 says so.
+func TestStrategyBotMessageNamesTheShortOnlyMode(t *testing.T) {
+	assert.Contains(t,
+		domains.NewStrategyBotMessageDomain(shortOnlyBotRound()).Text(), "⚙️ 交易模式 只做空")
+}
+
+// The scripts still testify in their own three words. Only the conclusion speaks of
+// acts — otherwise a reader cannot work back from it to what produced it.
+func TestStrategyBotMessageQuotesTheScriptsUnderShortOnlyRules(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(shortOnlyBotRound()).Text()
+
+	assert.Contains(t, message, "【做空】")
+	assert.Contains(t, message, "：賣出")
+	assert.NotContains(t, message, "：做空")
+}

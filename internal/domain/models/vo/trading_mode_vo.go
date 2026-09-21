@@ -16,9 +16,15 @@ const (
 	// TradingModeLeveragedLong holds a position exactly as spot does — it only ever
 	// goes long, a sell closes back to cash, and a sell while flat does nothing —
 	// but it may hold a position worth more than the money behind it.
-	//
-	// It is the third of the three combinations that exist. Whether a mode may short
-	// and whether it may borrow are separate questions, and only shorting-without-
-	// borrowing is impossible: selling what you do not have means borrowing it first.
 	TradingModeLeveragedLong TradingModeVo = "leveragedLong"
+	// TradingModeShortOnly is the mirror of leveraged-long: it only ever goes short.
+	// A sell opens a short, a buy closes back to cash, and a buy while flat does
+	// nothing at all — there is nothing to close, and this mode cannot go long.
+	//
+	// It may borrow, and that is not a convenience: selling what you do not have
+	// means borrowing it first, so there is no version of this mode that does not.
+	// That is also why "leveraged" stays out of its name, where leveraged-long needs
+	// it — borrowing is the only thing separating that one from spot, while here it
+	// is not a choice anyone could have made differently.
+	TradingModeShortOnly TradingModeVo = "shortOnly"
 )
