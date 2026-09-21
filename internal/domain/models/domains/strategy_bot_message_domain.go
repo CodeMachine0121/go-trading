@@ -61,6 +61,11 @@ func NewStrategyBotMessageDomain(round dto.StrategyBotRoundDto) StrategyBotMessa
 
 // Text is the message.
 func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
+	// What this round concluded, read once. Both halves of the headline ask about it
+	// — the mark and the verb — and a round carries it as a string, so converting it
+	// at each of them is the same conversion written twice.
+	verdict := NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict))
+
 	// A coloured mark so the direction survives being skimmed. It opens the line
 	// rather than replacing any of the words: a reader who cannot see colour, or
 	// whose device draws these differently, still has 【買入】 written out — the mark
@@ -69,7 +74,7 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// way somebody should trade.
 	headlineMark := "⚪"
 
-	switch vo.SignalVo(strategyBotMessageDomain.round.Verdict) {
+	switch verdict.Value() {
 	case vo.SignalBuy:
 		headlineMark = "🟢"
 	case vo.SignalSell:
@@ -86,8 +91,7 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// twice and rewriting the word in between, which held only while "cannot short"
 	// and "only goes long" were the same sentence — and short-only is the mode where
 	// they part company.
-	headlineVerb := strategyBotMessageDomain.tradingMode.HeadlineVerbFor(
-		NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict)))
+	headlineVerb := strategyBotMessageDomain.tradingMode.HeadlineVerbFor(verdict)
 
 	lines := []string{
 		fmt.Sprintf("%s【%s】%s · %s",
@@ -114,24 +118,14 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
 	}
 
-	// Named where the headline's verb does not already say everything the act
-	// involves — which is every mode but one.
-	//
-	// Cash for goods is the exception: 買入 there means handing over money for a
-	// thing, and there is no second reading, so the line would be a sentence about
-	// the system rather than about the market. The other two each carry something
-	// the verb cannot say. Shorting rules may be telling the reader to open a
-	// position rather than close one. Borrowing rules turn the very same 買入 into
-	// a position held on somebody else's money, which can be taken away from them at
-	// a price — and a reader who executes that in a cash frame of mind has been
-	// misled by a message that was technically correct.
+	// Named wherever the verb has left the reader something to find out, which is
+	// the mode's answer rather than this model's — see ActNeedsTheModeNamed.
 	//
 	// It opens with a blank line of its own, like every other block below the
 	// headline. Without one it renders glued to the reference moment, and a reader
 	// skimming a phone reads the two as one paragraph — as though the mode were
 	// something about that price rather than about the rules that judged the round.
-	if strategyBotMessageDomain.tradingMode.CanGoShort() ||
-		strategyBotMessageDomain.tradingMode.CanUseLeverage() {
+	if strategyBotMessageDomain.tradingMode.ActNeedsTheModeNamed() {
 		lines = append(lines, "",
 			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
 	}

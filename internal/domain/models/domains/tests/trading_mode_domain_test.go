@@ -565,3 +565,55 @@ func TestTradingModeDomainBorrowingRefusal(t *testing.T) {
 		})
 	}
 }
+
+// Whether the verb has left the reader something to find out. Cash for goods is the
+// one set of rules where it has not.
+func TestTradingModeDomainActNeedsTheModeNamed(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declaredMode string
+		needsNaming  bool
+	}{
+		{
+			// The act may be opening a position rather than closing one, and it is
+			// held on borrowed money besides.
+			name:         "long-short leaves both questions open",
+			declaredMode: "longShort",
+			needsNaming:  true,
+		},
+		{
+			// 買入 is handing money over for a thing, full stop. A line naming the
+			// mode here would be a sentence about the system, not about the market.
+			name:         "spot is the one where the verb says everything",
+			declaredMode: "spot",
+			needsNaming:  false,
+		},
+		{
+			// Same two words spot uses, but the position is held on somebody else's
+			// money and can be taken away at a price.
+			name:         "leveraged long borrows, and the verb cannot say so",
+			declaredMode: "leveragedLong",
+			needsNaming:  true,
+		},
+		{
+			name:         "short only both shorts and borrows",
+			declaredMode: "shortOnly",
+			needsNaming:  true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.needsNaming, tradingMode.ActNeedsTheModeNamed())
+		})
+	}
+}
+
+// A mode nobody declared names nothing, by the same rule its verb quotes the signal:
+// there is no act to describe when the rules cannot be read.
+func TestTradingModeDomainZeroValueNamesNoMode(t *testing.T) {
+	assert.False(t, domains.TradingModeDomain{}.ActNeedsTheModeNamed())
+}

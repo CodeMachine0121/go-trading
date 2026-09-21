@@ -125,6 +125,31 @@ func (tradingModeDomain TradingModeDomain) CanUseLeverage() bool {
 		tradingModeDomain.value == vo.TradingModeShortOnly
 }
 
+// ActNeedsTheModeNamed is whether a reader told only the verb still has something
+// left to find out about what they are being asked to do.
+//
+// Cash for goods is the one case where they do not: 買入 there means handing money
+// over for a thing, full stop, and a line naming the mode would be a sentence about
+// the system rather than about the market. Every other set of rules carries something
+// the verb cannot say — that the act may be opening a position rather than closing
+// one, or that the position is held on somebody else's money and can be taken away at
+// a price. A reader who executes that in a cash frame of mind has been misled by a
+// message that was technically correct.
+//
+// It is one question here rather than two predicates combined where the message is
+// written, because combining them is a decision, and a decision at the call site is
+// one the next mode can land on the wrong side of without anything saying so.
+//
+// **The shorting half is currently subsumed by the borrowing half**, and no test can
+// tell the two apart: every mode that can short can also borrow, because selling what
+// you do not have means borrowing it first. It is written out anyway because the two
+// are separate reasons — one is about which way the act faces, the other about whose
+// money it is held on — and reading only the borrowing half would leave the next
+// person thinking a mode names itself because of leverage alone.
+func (tradingModeDomain TradingModeDomain) ActNeedsTheModeNamed() bool {
+	return tradingModeDomain.CanGoShort() || tradingModeDomain.CanUseLeverage()
+}
+
 // BorrowingRefusal is why these rules may not hold a position worth more than the
 // money behind them — or nil when they may.
 //
