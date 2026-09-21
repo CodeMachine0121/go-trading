@@ -111,6 +111,19 @@ func validatedDistance(distance decimal.Decimal, name string) error {
 	return nil
 }
 
+// IsBorrowed is whether what this plan suggests putting on is worth more than the
+// money behind it.
+//
+// It is the word BacktestLeverageDomain already uses for the same question, so that a
+// bot and a replay cannot end up disagreeing about when a multiplier counts as a loan.
+//
+// The multiplier alone answers it, with no second look at the capital: a plan without
+// capital never got past the constructor's first line, so its multiplier is zero — and
+// one times is not a loan either. The same arithmetic the rest of this model runs on.
+func (positionPlanDomain PositionPlanDomain) IsBorrowed() bool {
+	return positionPlanDomain.leverage.GreaterThan(noLeverage)
+}
+
 // ToSettingsDto is these settings as they are stored and handed back.
 func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{

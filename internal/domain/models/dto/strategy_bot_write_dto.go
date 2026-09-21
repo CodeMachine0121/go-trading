@@ -21,4 +21,11 @@ type StrategyBotWriteDto struct {
 	// declared. Whether it was filled in at all is read from the capital: leaving the
 	// whole group empty is an ordinary thing to do, and such a bot suggests nothing.
 	PositionPlan PositionPlanSettingsDto
+	// TradingMode is how the rules this bot names trade — read from those rules, not
+	// from the request, the same way OwnerID is read from whoever is signed in.
+	//
+	// It is here because one rule about a position plan is not a rule about the plan
+	// at all: what a bot may suggest borrowing is limited by what its rules may
+	// borrow, and the plan alone cannot answer that.
+	TradingMode string
 }
