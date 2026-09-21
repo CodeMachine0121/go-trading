@@ -328,6 +328,23 @@ func TestNewStrategyBotDomainRefusesBorrowingRulesCannotDo(t *testing.T) {
 	}
 }
 
+// A negative multiplier is refused, where saving a bot used to read it as one times
+// and save it.
+//
+// A replay always refused it; only this path did not, because it had its own copy of
+// the rule and that copy answered a negative before it answered "below one". The two
+// share one model now, so there is no longer a figure the two doors disagree about.
+func TestNewStrategyBotDomainRefusesANegativeMultiplierRatherThanReadingItAsOne(t *testing.T) {
+	writeDto := aPositionPlannedBotWriteDto()
+	writeDto.PositionPlan.Leverage = decimal.RequireFromString("-2")
+
+	_, buildError := domains.NewStrategyBotDomain(writeDto)
+
+	require.Error(t, buildError)
+	assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
+	assert.Contains(t, buildError.Error(), "槓桿倍數不得小於 1 倍")
+}
+
 // A bot whose rules say nothing about how they trade is read the way every other
 // path reads that: always in the market, and therefore able to borrow. Existing bots
 // arrive this way, and none of them may start being refused.
