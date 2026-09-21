@@ -163,15 +163,26 @@ func (strategyBotService *StrategyBotService) ReadReferencesTo(
 	}
 
 	runningBotNames := make([]string, 0, len(bots))
+	borrowingBotNames := make([]string, 0, len(bots))
 	for _, bot := range bots {
 		if vo.StrategyBotRunStateVo(bot.RunState) == vo.StrategyBotRunning {
 			runningBotNames = append(runningBotNames, bot.Name)
 		}
+
+		// Read through the model that decides it everywhere else, so that "this bot
+		// is borrowing" cannot mean one thing here and another where a bot is saved.
+		// Settings that cannot be read are not borrowing: they were refused before
+		// they were ever stored, and a bot nobody can read is not a bot to strand.
+		positionPlan, positionPlanError := domains.NewPositionPlanDomain(bot.PositionPlanSettingsDto())
+		if positionPlanError == nil && positionPlan.IsBorrowed() {
+			borrowingBotNames = append(borrowingBotNames, bot.Name)
+		}
 	}
 
 	return dto.TradingStrategyReferencesDto{
-		TotalCount:      len(bots),
-		RunningBotNames: runningBotNames,
+		TotalCount:        len(bots),
+		RunningBotNames:   runningBotNames,
+		BorrowingBotNames: borrowingBotNames,
 	}, nil
 }
 

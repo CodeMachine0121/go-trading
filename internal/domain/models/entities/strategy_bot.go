@@ -110,10 +110,15 @@ type StrategyBot struct {
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
-// positionPlanSettingsDto is this bot's five position plan settings, in the shape the
+// PositionPlanSettingsDto is this bot's five position plan settings, in the shape the
 // domain hands outwards. It is on the row because every field it reads is the row's
 // own.
-func (strategyBot StrategyBot) positionPlanSettingsDto() dto.PositionPlanSettingsDto {
+//
+// Exported because a second reader arrived: answering "is this bot suggesting a loan"
+// means building the plan from these five, and that question is asked from outside
+// this package. A shape conversion reading only the row's own fields is not business
+// logic, so it stays here rather than moving.
+func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              strategyBot.PositionPlanCapital,
 		SizingMode:           strategyBot.PositionPlanSizingMode,
@@ -142,7 +147,7 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		Name:                   strategyBot.Name,
 		Symbol:                 strategyBot.Symbol,
 		TriggerIntervalMinutes: strategyBot.TriggerIntervalMinutes,
-		PositionPlan:           strategyBot.positionPlanSettingsDto(),
+		PositionPlan:           strategyBot.PositionPlanSettingsDto(),
 		NextRunAt:              strategyBot.NextRunAt.UTC(),
 		TradingStrategyID:      strategyBot.TradingStrategyID,
 		TradingStrategyName:    strategyBot.TradingStrategy.Name,

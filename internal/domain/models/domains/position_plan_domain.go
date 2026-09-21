@@ -111,7 +111,16 @@ func (positionPlanDomain PositionPlanDomain) IsBorrowed() bool {
 }
 
 // ToSettingsDto is these settings as they are stored and handed back.
+//
+// A bot with no position plan hands back nothing at all, leverage included. The
+// multiplier answers one for a plan that borrows nothing, which is right everywhere
+// it is used as arithmetic — but written down it would put a multiplier on a bot that
+// has no stake to multiply, and hand that back on every read.
 func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSettingsDto {
+	if !positionPlanDomain.capital.IsPositive() {
+		return dto.PositionPlanSettingsDto{}
+	}
+
 	return dto.PositionPlanSettingsDto{
 		Capital:              positionPlanDomain.capital,
 		SizingMode:           string(positionPlanDomain.sizing.Mode()),
