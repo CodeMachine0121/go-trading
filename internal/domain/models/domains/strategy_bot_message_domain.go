@@ -137,18 +137,24 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
 	}
 
-	// Named only where these rules can short, which is the one case a reader needs it:
-	// the headline may be telling them to open a position rather than to close one,
-	// and which account these rules were written for is what makes that the right
-	// act. An account that cannot short is told 買入／出場, and neither of those can
-	// be mistaken for opening a short — so the line would be a sentence about the
-	// system, not the market.
+	// Named where the headline's verb does not already say everything the act
+	// involves — which is every mode but one.
+	//
+	// Cash for goods is the exception: 買入 there means handing over money for a
+	// thing, and there is no second reading, so the line would be a sentence about
+	// the system rather than about the market. The other two each carry something
+	// the verb cannot say. Shorting rules may be telling the reader to open a
+	// position rather than close one. Borrowing rules turn the very same 買入 into
+	// a position held on somebody else's money, which can be taken away from them at
+	// a price — and a reader who executes that in a cash frame of mind has been
+	// misled by a message that was technically correct.
 	//
 	// It opens with a blank line of its own, like every other block below the
 	// headline. Without one it renders glued to the reference moment, and a reader
 	// skimming a phone reads the two as one paragraph — as though the mode were
 	// something about that price rather than about the rules that judged the round.
-	if strategyBotMessageDomain.tradingMode.CanGoShort() {
+	if strategyBotMessageDomain.tradingMode.CanGoShort() ||
+		strategyBotMessageDomain.tradingMode.CanUseLeverage() {
 		lines = append(lines, "",
 			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
 	}

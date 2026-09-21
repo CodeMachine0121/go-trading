@@ -374,3 +374,40 @@ func TestClaudeAssistantProxyTellsTheAssistantHowAReplayTrades(t *testing.T) {
 	// is what made the old wording false rather than merely incomplete.
 	assert.NotContains(t, instructions, "賣出（開空）")
 }
+
+// The assistant learns what a trading mode may be from exactly two places: the tool
+// schema for writing a strategy, and these instructions. For a strategy-script replay
+// there is no schema — the assistant names the mode itself — so these instructions are
+// the only place it could ever hear of a mode.
+//
+// Asserted against the selectable set rather than a list written out here. That is the
+// whole point: a mode added to the system and forgotten by this prompt is invisible,
+// because nothing fails. The assistant simply never offers it, and whoever needed it
+// gets the nearest wrong answer instead.
+func TestClaudeAssistantProxyTellsTheAssistantEveryTradingModeThereIs(t *testing.T) {
+	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
+
+	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
+	require.NoError(t, replyError)
+
+	// Each spelling together with what sets it apart, not the spelling on its own:
+	// every mode is also named in the advice further down, so a bare substring check
+	// stays green on a prompt that lists only two of them.
+	instructions := fixture.sentRequest.System[0].Text
+	for _, describedMode := range []struct {
+		spelling    vo.TradingModeVo
+		description string
+	}{
+		{vo.TradingModeLongShort, "做得了空、也借得到錢"},
+		{vo.TradingModeSpot, "做不了空、也借不到錢"},
+		{vo.TradingModeLeveragedLong, "做不了空、但借得到錢"},
+	} {
+		assert.Contains(t, instructions, string(describedMode.spelling))
+		assert.Contains(t, instructions, describedMode.description)
+	}
+
+	// And the situation that reaches for the newest one. Knowing the spelling is not
+	// enough: somebody who only goes long reads as spot right up until the leverage
+	// comes up, and spot is the answer that leaves them unable to replay what they run.
+	assert.Contains(t, instructions, "只做多、要上一點槓桿")
+}

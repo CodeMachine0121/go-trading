@@ -108,9 +108,23 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	waitGroup := sync.WaitGroup{}
 	roundsRun := 0
 	roundsRunMutex := sync.Mutex{}
+	// One round per bot per scan, decided here rather than left to the guard.
+	//
+	// The guard answers a different question — is this bot mid-round, perhaps from a
+	// scan that has not finished yet — and it answers it at the moment it is asked. A
+	// batch naming the same bot twice would get past it whenever the first round
+	// finished before the loop reached the second entry, which is a matter of how
+	// fast the round happened to be. Same bot, same candles, same answer, and a
+	// second message saying it.
+	scannedBotIDs := map[uint]struct{}{}
 
 	for index := range dueBots {
 		botDto := dueBots[index]
+
+		if _, alreadyScanned := scannedBotIDs[botDto.ID]; alreadyScanned {
+			continue
+		}
+		scannedBotIDs[botDto.ID] = struct{}{}
 
 		// A bot already mid-round is skipped rather than queued behind itself. The
 		// round waiting would read the same candles and reach the same answer, and

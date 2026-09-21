@@ -8,11 +8,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// noLeverage is a position worth exactly what was put down for it. It is also what
-// nothing at all is read as, so "no leverage" and "one times leverage" are the same
-// thing everywhere below rather than two cases to keep in step.
-var noLeverage = decimal.NewFromInt(1)
-
 // PositionPlanDomain is what a bot suggests putting down, and where it suggests
 // getting out — plus every rule about the five figures that decide it.
 //
@@ -31,7 +26,7 @@ type PositionPlanDomain struct {
 	// stake, and that fact cannot disagree with itself.
 	capital    decimal.Decimal
 	sizing     PositionSizingDomain
-	leverage   decimal.Decimal
+	leverage   LeverageMultiplierDomain
 	stopLoss   decimal.Decimal
 	takeProfit decimal.Decimal
 }
@@ -58,16 +53,11 @@ func NewPositionPlanDomain(
 		return PositionPlanDomain{}, sizingError
 	}
 
-	leverage := settings.Leverage
-	if !leverage.IsPositive() {
-		leverage = noLeverage
-	}
-
-	// Below one is refused rather than read as none. Somebody who typed 0.5 meant
-	// something by it — half a position, probably — and quietly reading that as a
-	// whole one would double what they asked for without telling them.
-	if leverage.LessThan(noLeverage) {
-		return PositionPlanDomain{}, fmt.Errorf("槓桿倍數不得小於 1 倍")
+	// Asked of the model a replay asks, so that the same figure typed into either
+	// comes back with the same sentence.
+	leverage, leverageError := NewLeverageMultiplierDomain(settings.Leverage)
+	if leverageError != nil {
+		return PositionPlanDomain{}, leverageError
 	}
 
 	if stopLossError := validatedDistance(settings.StopLossPercentage, "停損距離"); stopLossError != nil {
@@ -111,13 +101,31 @@ func validatedDistance(distance decimal.Decimal, name string) error {
 	return nil
 }
 
+// IsBorrowed is whether what this plan suggests putting on is worth more than the
+// money behind it.
+//
+// It is asked of the multiplier itself, the same model a replay asks, so that a bot
+// and a replay cannot end up disagreeing about when a figure counts as a loan.
+func (positionPlanDomain PositionPlanDomain) IsBorrowed() bool {
+	return positionPlanDomain.leverage.IsBorrowed()
+}
+
 // ToSettingsDto is these settings as they are stored and handed back.
+//
+// A bot with no position plan hands back nothing at all, leverage included. The
+// multiplier answers one for a plan that borrows nothing, which is right everywhere
+// it is used as arithmetic — but written down it would put a multiplier on a bot that
+// has no stake to multiply, and hand that back on every read.
 func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSettingsDto {
+	if !positionPlanDomain.capital.IsPositive() {
+		return dto.PositionPlanSettingsDto{}
+	}
+
 	return dto.PositionPlanSettingsDto{
 		Capital:              positionPlanDomain.capital,
 		SizingMode:           string(positionPlanDomain.sizing.Mode()),
 		SizingValue:          positionPlanDomain.sizing.Value(),
-		Leverage:             positionPlanDomain.leverage,
+		Leverage:             positionPlanDomain.leverage.Multiplier(),
 		StopLossPercentage:   positionPlanDomain.stopLoss,
 		TakeProfitPercentage: positionPlanDomain.takeProfit,
 	}
@@ -160,13 +168,13 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	}
 
 	suggestsShort := target == vo.TargetPositionShort
-	notional := stake.Mul(positionPlanDomain.leverage)
+	notional := stake.Mul(positionPlanDomain.leverage.Multiplier())
 
 	positionPlanDto := dto.PositionPlanDto{
 		Stake:         stake,
 		Affordable:    true,
 		Notional:      notional,
-		Leveraged:     positionPlanDomain.leverage.GreaterThan(noLeverage),
+		Leveraged:     positionPlanDomain.leverage.IsBorrowed(),
 		HasStopLoss:   positionPlanDomain.stopLoss.IsPositive(),
 		HasTakeProfit: positionPlanDomain.takeProfit.IsPositive(),
 		SuggestsShort: suggestsShort,

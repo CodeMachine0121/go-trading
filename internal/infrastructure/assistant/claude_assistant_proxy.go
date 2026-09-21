@@ -67,10 +67,16 @@ KCandle 可用欄位（全是 float64，除了 OpenTimeUnixSeconds 是 int64）�
 結果 map 的 key "signal" 是唯一的交易指令：正數 → 買進；負數 → 賣出；0 / 不存在 / NaN / Inf → 持平不動。
 成交在當根 K 線收盤，這根訊號這根成交。
 positionSizingMode：allIn（預設，全押）；percentage（需給 1–100 的百分比值）；fixedAmount（需給正數金額）。
-tradingMode 決定「賣出」是什麼意思，不給就是 longShort：
-  longShort（預設）→ 永遠在市場裡：賣出把多倉平掉，並在同一根反手開空；空手時賣出直接開空。
-  spot            → 只做多：賣出就平倉把錢收回來、之後空手等下一個買點；空手時賣出什麼都不做，永遠不開空。
-使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時要給 spot——用錯的那一個，成績單會是照他做不到的操作算出來的。`
+tradingMode 答兩個各自獨立的問題——做不做得了空、借不借得到錢——三個取值就是那兩個問題的三種合法組合
+（做得了空卻借不到錢不存在：放空本來就要先借到東西才賣得出去）。不給就是 longShort：
+  longShort（預設）→ 做得了空、也借得到錢：賣出把多倉平掉，並在同一根反手開空；空手時賣出直接開空。
+  spot            → 做不了空、也借不到錢：賣出就平倉把錢收回來、之後空手等下一個買點；空手時賣出什麼都不做，永遠不開空。
+  leveragedLong   → 做不了空、但借得到錢：進出場與 spot 一字不差，差別只有它開得了槓桿。
+使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時要給 spot。
+他說他在合約帳戶上只做多、要上一點槓桿（例如幣安永續開多）時要給 leveragedLong——
+這時給 spot 是錯的：他上線在用的槓桿會讓每一次重演被整份拒絕，於是他驗證不了自己真正在做的事，
+他的機器人也存不進大於 1 倍的部位。
+用錯的那一個，成績單會是照他做不到的操作算出來的。`
 
 // queryLimitReachedNote is what the assistant is told once its queries are spent. It
 // is appended to the last message rather than added to the instructions above,

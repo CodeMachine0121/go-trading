@@ -6,12 +6,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// noBacktestLeverage is a position worth exactly what was put down for it, written as
-// the multiplier a caller would type. It is also what a replay with no leverage at all
-// multiplies by, so "no leverage" and "one times leverage" are the same arithmetic
-// everywhere below rather than two cases to keep in step.
-var noBacktestLeverage = decimal.NewFromInt(1)
-
 // defaultMaintenanceMarginRate is what a replay is charged with holding when it opened
 // leverage and said nothing about where the line is.
 //
@@ -69,30 +63,25 @@ func NewBacktestLeverageDomain(
 			"維持保證金率不得為負——負的維持保證金等於倉位賠光了還撐得住")
 	}
 
-	// Nothing typed at all. Not a loan of nothing, not a loan of one: no loan.
-	if declaredMultiplier.IsZero() {
+	// What the figure means on its own — nothing, one times, or half a position —
+	// is the multiplier's own question, and a bot's position plan asks it in these
+	// same words. Whatever it answers here, it answers there.
+	multiplier, multiplierError := NewLeverageMultiplierDomain(declaredMultiplier)
+	if multiplierError != nil {
+		return BacktestLeverageDomain{}, multiplierError
+	}
+
+	// A position paid for in full has no lender, so there is nothing below to
+	// simulate and nothing below has to ask.
+	if !multiplier.IsBorrowed() {
 		return BacktestLeverageDomain{}, nil
 	}
 
-	// Below one is refused rather than read as none. Somebody who typed 0.5 meant
-	// something by it — half a position, probably — and quietly reading that as a
-	// whole one would double what they asked for without telling them. The same
-	// sentence a bot's position plan uses, because the same figure has to be answered
-	// the same way wherever it is typed.
-	if declaredMultiplier.LessThan(noBacktestLeverage) {
-		return BacktestLeverageDomain{}, fmt.Errorf("槓桿倍數不得小於 1 倍")
-	}
-
-	// Exactly one is a position paid for in full. See the type's own comment: there is
-	// no lender, so there is nothing to simulate, and saying so here is what keeps
-	// every caller below from asking.
-	if declaredMultiplier.Equal(noBacktestLeverage) {
-		return BacktestLeverageDomain{}, nil
-	}
-
-	if !tradingMode.CanUseLeverage() {
-		return BacktestLeverageDomain{}, fmt.Errorf(
-			"%s交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你", tradingMode.InWords())
+	// Asked of the mode rather than composed here. A bot's position plan refuses the
+	// same multiplier against the same rules, and two refusals only stay word for word
+	// identical while there is one of them.
+	if borrowingRefusal := tradingMode.BorrowingRefusal(); borrowingRefusal != nil {
+		return BacktestLeverageDomain{}, borrowingRefusal
 	}
 
 	maintenanceMarginRate := declaredMaintenanceMarginRate
@@ -160,7 +149,7 @@ func maximumMaintenanceMarginRateScale(ceiling decimal.Decimal) int32 {
 // can be staked — is written once and needs no branch for the ordinary case.
 func (backtestLeverageDomain BacktestLeverageDomain) Multiplier() decimal.Decimal {
 	if !backtestLeverageDomain.multiplier.IsPositive() {
-		return noBacktestLeverage
+		return noLeverage
 	}
 
 	return backtestLeverageDomain.multiplier

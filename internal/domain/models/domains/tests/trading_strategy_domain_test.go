@@ -344,6 +344,15 @@ func TestNewTradingStrategyDomainReadsTheTradingMode(t *testing.T) {
 			declaredMode: "SPOT",
 			expectedMode: vo.TradingModeSpot,
 		},
+		{
+			// Rules for an account that never shorts and borrows anyway. It reaches
+			// this model the way the other two do, and had to be walked once rather
+			// than left to the mode model's own tests: what is being checked here is
+			// that a trading strategy stores it, not that the mode can be read.
+			name:         "declared long only but borrowing",
+			declaredMode: "leveragedLong",
+			expectedMode: vo.TradingModeLeveragedLong,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -370,10 +379,19 @@ func TestNewTradingStrategyDomainRefusesATradingModeItCannotRead(t *testing.T) {
 	// The one sentinel every refused trading strategy carries, so that a controller
 	// maps this without learning a second one.
 	assert.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-	// Both spellings are offered back, in the very sentence a replay's refusal uses:
+	// Every spelling is offered back, in the very sentence a replay's refusal uses:
 	// a caller who reaches one refusal has already read the other.
-	assert.Contains(t, buildError.Error(), string(vo.TradingModeLongShort))
-	assert.Contains(t, buildError.Error(), string(vo.TradingModeSpot))
+	//
+	// Asserted against the whole selectable set rather than against a list written
+	// out here. A mode added to the system and forgotten by this refusal leaves
+	// somebody unable to discover it from the one message that was supposed to say
+	// what is allowed — and a hand-written list of two stayed green through exactly
+	// that, which is why it is derived now.
+	for _, selectableMode := range []vo.TradingModeVo{
+		vo.TradingModeLongShort, vo.TradingModeSpot, vo.TradingModeLeveragedLong,
+	} {
+		assert.Contains(t, buildError.Error(), string(selectableMode))
+	}
 }
 
 func TestNewTradingStrategyDomainRefusesAnUnreadableModeInTheSameWordsAReplayDoes(t *testing.T) {

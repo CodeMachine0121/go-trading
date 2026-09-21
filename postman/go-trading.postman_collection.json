@@ -9165,6 +9165,57 @@
           ]
         },
         {
+          "name": "重演：槓桿做多借得到錢",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "`leveragedLong` 的進出場與 `spot` 一字不差——只做多，賣出就平倉回現金——但它**借得到錢**。同一組 `leverage: 3` 在 `spot` 上被整次拒絕，在這裡跑得完。\n\n這是「做不做得了空」與「借不借得到錢」兩個問題分開問之後，第三種合法組合：合約帳戶上只做多。少了它，這種帳戶只能挑 `spot`，於是上線用得了的槓桿在這裡驗證不了。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"leveragedLong\",\n  \"leverage\": \"3\",\n  \"maintenanceMarginRate\": \"0.5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"成績單交得出來，而且數得出強平\", function () {",
+                  "    const summary = pm.response.json().summary;",
+                  "    pm.expect(summary).to.have.property(\"liquidationExitCount\");",
+                  "});",
+                  "pm.test(\"只做多：每一筆交易都是多倉，從來沒有空倉\", function () {",
+                  "    for (const trade of pm.response.json().closedTrades) {",
+                  "        pm.expect(trade.direction).to.eql(\"long\");",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "拒絕：維持保證金率大到那一注開倉當下就撐不住",
           "request": {
             "method": "POST",
@@ -10835,6 +10886,211 @@
                   "    // 這個人在存一台機器人，不是在跑回測——那個詞不該出現在他眼前。",
                   "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "備妥一份現貨交易策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies"
+              ]
+            },
+            "description": "下一個案例需要一份**借不到錢**的規則。這一段其餘案例用的那一份是 `longShort`，借得到。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"現貨規則 {{$timestamp}}\",\n  \"tradingMode\": \"spot\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"spotTradingStrategyId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：這份規則借不到錢，機器人就建議不了槓桿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一台機器人建議得了多少槓桿，受限於**它所引用的那份交易策略**借不借得到錢。\n\n在這一刀之前這裡是放行的：機器人只記著「我用哪一份交易策略」，驗證自己的部位規劃時手上根本沒有那份規則，所以擋不了。結果是一台跑得起來、卻怎麼樣都重演不出來的機器人——同一組設定送去重演會被整次拒絕。\n\n拒絕的句子與重演那一邊**一字不差**，因為兩邊問的是同一個模型要同一句話。\n\n要修的多半是那份交易策略：在合約帳戶上只做多的人，它該是 `leveragedLong`，不是 `spot`。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"槓桿現貨機 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{spotTradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"150\",\n    \"sizingMode\": \"allIn\",\n    \"leverage\": \"1.8\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說的是重演那一邊說的同一句話\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(",
+                  "        \"現貨交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你\");",
+                  "    // 這個人在存一台機器人，不是在跑回測。",
+                  "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "同一台機器人，改用槓桿做多的規則就存得起來",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "一字未改的部位規劃，換一份**借得到錢**的規則就通過了——證明被擋下的是那一組搭配，不是那個槓桿倍數本身。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"槓桿做多機 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"150\",\n    \"sizingMode\": \"allIn\",\n    \"leverage\": \"1.8\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"那個槓桿原封不動地存下來了\", function () {",
+                  "    pm.expect(pm.response.json().positionPlan.leverage).to.eql(\"1.8\");",
+                  "});",
+                  "pm.collectionVariables.set(\"borrowingBotId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉那一台借錢的機器人",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{borrowingBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{borrowingBotId}}"
+              ]
+            },
+            "description": "收乾淨，不留給下一次跑。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "清掉那一份現貨交易策略",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{spotTradingStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{spotTradingStrategyId}}"
+              ]
+            },
+            "description": "收乾淨，不留給下一次跑。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
                 ]
               }
             }

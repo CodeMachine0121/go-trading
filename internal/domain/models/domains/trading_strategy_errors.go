@@ -43,6 +43,25 @@ func TradingStrategyBotRunning(runningBotNames []string) error {
 		ErrTradingStrategyBotRunning, strings.Join(runningBotNames, "、"))
 }
 
+// ErrTradingStrategyBotBorrowing is a rewrite refused because it would take away
+// borrowing from rules a stopped bot is already suggesting a loan against.
+//
+// Saving such a bot is refused, so the only way to arrive at one is from this side:
+// save it while the rules could borrow, then change the rules. The bot would then run
+// suggesting a loan nobody could replay — the exact state the save gate exists to
+// prevent, reached by the back door.
+var ErrTradingStrategyBotBorrowing = errors.New(
+	"a bot following this trading strategy suggests borrowing")
+
+// TradingStrategyBotBorrowing is that refusal, naming the bots whose suggested
+// leverage has to go first.
+func TradingStrategyBotBorrowing(borrowingBotNames []string) error {
+	return fmt.Errorf(
+		"%w: 這幾台機器人正在用它建議槓桿：%s，改成借不到錢的交易模式會讓它們建議一個重演不出來的部位，"+
+			"請先把那幾台的槓桿拿掉",
+		ErrTradingStrategyBotBorrowing, strings.Join(borrowingBotNames, "、"))
+}
+
 // ErrTradingStrategyInUse is a delete refused because bots still follow these rules,
 // running or not. Deleting would leave them pointing at something that is gone, and
 // a bot that cannot reach its rules is indistinguishable from a broken one.

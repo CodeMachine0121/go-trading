@@ -782,13 +782,20 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 	require.NoError(t, runError)
 }
 
+// One round per bot per scan, whatever the batch says.
+//
+// This used to lean on the mid-round claim to skip the second entry, which only held
+// while the first round was still in flight. A round that finished before the loop
+// reached the second entry released the claim, the second entry took it, and the same
+// bot ran twice — two messages, same candles, same answer. Whether that happened came
+// down to how fast the round was, so the test passed on one machine and failed on
+// another. The scan decides it now, before anything is dispatched.
 func TestStrategyBotRunApplicationLeavesABotThatIsAlreadyMidRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot(""), aDueBot("")}, nil)
-	// Both entries name the same bot, so the second finds the claim taken and is
-	// skipped. Anything else would send the same message twice.
+	// Both entries name the same bot, so the second is dropped by the scan.
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).Times(1)
 	underTest.expectDeliverySetting()
@@ -1241,6 +1248,55 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 	assert.Equal(t, "5000", recorded.PositionPlan.Stake.String())
 	assert.Equal(t, "62255.085", recorded.PositionPlan.StopLossPrice.String())
 	assert.Equal(t, "67389.525", recorded.PositionPlan.TakeProfitPrice.String())
+}
+
+// A bot that was saved before borrowing was gated keeps running, untouched.
+//
+// This is the promise that lets the gate exist at all. Bots following spot rules while
+// suggesting leverage are out there right now — they were saveable until this slice —
+// and the gate was deliberately put on saving rather than on the round for exactly
+// this reason. Refusing here would stop a machine somebody is using in order to gain
+// consistency, and take away more than it fixed.
+//
+// So the round goes through, the message goes out, and the figures are the ones the
+// stored settings ask for. Whoever wants it consistent goes and changes the mode.
+func TestStrategyBotRunApplicationKeepsRunningABotSavedBeforeBorrowingWasGated(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+	// Rules that cannot borrow, under a plan that does. Saving this pair is refused
+	// now; one already stored is not.
+	underTest.tradingStrategy.TradingMode = string(vo.TradingModeSpot)
+
+	plannedBot := aPositionPlannedDueBot()
+	plannedBot.PositionPlanLeverage = decimal.RequireFromString("1.8")
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{plannedBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(plannedBot, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			// A tenth of fifty thousand, 1.8 times over — the stored figures, applied.
+			assert.Contains(t, message, "保證金 5000")
+			assert.Contains(t, message, "名目 9000")
+
+			return vo.DeliveryFailureNone, nil
+		})
+
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
+
+	// It ran, and it was recorded — not skipped, not halted.
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	assert.True(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
 }
 
 // A spot sell clears out, so there is nothing to size. Suggesting one would have

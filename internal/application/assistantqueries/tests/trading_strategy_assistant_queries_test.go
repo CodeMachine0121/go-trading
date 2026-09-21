@@ -438,7 +438,28 @@ func TestTradingStrategyWritingAssistantQueriesTellTheAssistantWhatAModeMeans(t 
 		assert.Contains(t, schema, "tradingMode")
 		assert.Contains(t, schema, string(vo.TradingModeLongShort))
 		assert.Contains(t, schema, string(vo.TradingModeSpot))
+		assert.Contains(t, schema, string(vo.TradingModeLeveragedLong))
 		assert.Contains(t, schema, "不能放空")
+		// The third mode is the one it would otherwise never reach for: somebody who
+		// only goes long looks like spot until the leverage comes up, and spot is the
+		// answer that leaves them unable to replay what their bot is doing.
+		assert.Contains(t, schema, "只做多、要上一點槓桿")
+		// Read out of the enum rather than found anywhere in the text. Every spelling
+		// also appears in the prose beside it, so a substring check passes on a
+		// schema that offers the assistant only two of the three to choose from.
+		declaredModes := struct {
+			Properties struct {
+				TradingMode struct {
+					Enum []string `json:"enum"`
+				} `json:"tradingMode"`
+			} `json:"properties"`
+		}{}
+		require.NoError(t, json.Unmarshal([]byte(schema), &declaredModes))
+		assert.ElementsMatch(t, []string{
+			string(vo.TradingModeLongShort),
+			string(vo.TradingModeSpot),
+			string(vo.TradingModeLeveragedLong),
+		}, declaredModes.Properties.TradingMode.Enum)
 		// Not required: a mode nobody stated is the default, not a missing argument.
 		declaredSchema := struct {
 			Required []string `json:"required"`

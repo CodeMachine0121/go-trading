@@ -227,14 +227,55 @@ func TestStrategyBotMessageLeavesTheSourceLinesSpeakingInSignals(t *testing.T) {
 	assert.NotContains(t, message, "均線黃金交叉（1h）：做空")
 }
 
-// Named only when the headline has stopped quoting the signal, which is the one case a
-// reader needs it: they are being told to open a short, and which account these rules
-// were written for is what makes that the right act.
-func TestStrategyBotMessageNamesTheModeOnlyWhenItRestatesTheSignal(t *testing.T) {
+// Named wherever the headline's verb does not already say everything the act
+// involves, and nowhere else.
+//
+// Cash for goods is the only mode where it does: 買入 there is handing money over for
+// a thing, full stop. Shorting rules may be asking the reader to open rather than
+// close. Borrowing rules turn that same 買入 into a position held on somebody else's
+// money — same three characters, a risk an order of magnitude apart.
+func TestStrategyBotMessageNamesTheModeWhereTheVerbDoesNotSayEverything(t *testing.T) {
 	assert.Contains(t,
 		domains.NewStrategyBotMessageDomain(shortableBotRound()).Text(), "⚙️ 交易模式 多空反手")
+	assert.Contains(t,
+		domains.NewStrategyBotMessageDomain(borrowingBotRound()).Text(), "⚙️ 交易模式 槓桿做多")
 	assert.NotContains(t,
 		domains.NewStrategyBotMessageDomain(aBotRound()).Text(), "交易模式")
+}
+
+// borrowingBotRound is one round of a bot following rules that never short and may
+// borrow — the same sell the spot round carries, so that what differs between the two
+// messages is only what the mode changes.
+func borrowingBotRound() dto.StrategyBotRoundDto {
+	botRound := aBotRound()
+	botRound.TradingMode = string(vo.TradingModeLeveragedLong)
+
+	return botRound
+}
+
+// A reader who cannot short is told the same two words whether or not the position is
+// borrowed, because borrowing does not give them a sell they can carry out.
+//
+// This is the half that must not follow the mode line: it would have been easy to
+// word the borrowing modes together and hand somebody 做空 on rules that never short.
+func TestStrategyBotMessageStillTellsABorrowingLongAccountToGetOut(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(borrowingBotRound()).Text()
+
+	assert.Contains(t, message, "【出場】")
+	assert.NotContains(t, message, "【賣出】")
+	assert.NotContains(t, message, "【做空】")
+	// And the scripts still testify in signals, as under every other mode.
+	assert.Contains(t, message, "均線黃金交叉（1h）：賣出")
+}
+
+func TestStrategyBotMessageTellsABorrowingLongAccountToBuyRatherThanGoLong(t *testing.T) {
+	botRound := borrowingBotRound()
+	botRound.Verdict = string(vo.SignalBuy)
+
+	message := domains.NewStrategyBotMessageDomain(botRound).Text()
+
+	assert.Contains(t, message, "【買入】")
+	assert.NotContains(t, message, "【做多】")
 }
 
 // The mode is a block of its own, like everything else under the headline. Glued to

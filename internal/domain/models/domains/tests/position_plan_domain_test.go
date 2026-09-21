@@ -415,3 +415,23 @@ func TestPositionPlanDomainStoresUnstatedLeverageAsOne(t *testing.T) {
 
 	assert.Equal(t, "1", positionPlan.ToSettingsDto().Leverage.String())
 }
+
+// A bot with no position plan stores nothing — not even a multiplier.
+//
+// One is the right answer to "what does a stake get multiplied by" when nothing is
+// borrowed, and every formula reads it that way. It is the wrong thing to write down:
+// a bot that never had a plan would come back out of storage, and out of the API,
+// claiming a leverage of one on a stake it does not have.
+func TestPositionPlanDomainStoresNothingForABotWithNoPlan(t *testing.T) {
+	plan, buildError := domains.NewPositionPlanDomain(dto.PositionPlanSettingsDto{})
+	require.NoError(t, buildError)
+
+	settings := plan.ToSettingsDto()
+
+	assert.Equal(t, "0", settings.Capital.String())
+	assert.Equal(t, "0", settings.Leverage.String())
+	assert.Equal(t, "", settings.SizingMode)
+	assert.Equal(t, "0", settings.SizingValue.String())
+	assert.Equal(t, "0", settings.StopLossPercentage.String())
+	assert.Equal(t, "0", settings.TakeProfitPercentage.String())
+}

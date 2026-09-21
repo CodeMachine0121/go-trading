@@ -13,6 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -96,6 +97,19 @@ func (underTest strategyBotApplicationUnderTest) expectTheNamedTradingStrategyIs
 		FindOne(gomock.Any(), botsTradingStrategyID).
 		Return(entities.TradingStrategy{
 			ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
+		}, nil)
+}
+
+// expectTheNamedTradingStrategyTradesThisWay is the same question, of rules that say
+// how they trade — which is the half saving a bot now also reads.
+func (underTest strategyBotApplicationUnderTest) expectTheNamedTradingStrategyTradesThisWay(
+	tradingMode string,
+) {
+	underTest.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), botsTradingStrategyID).
+		Return(entities.TradingStrategy{
+			ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
+			TradingMode: tradingMode,
 		}, nil)
 }
 
@@ -616,4 +630,54 @@ func TestStrategyBotApplicationRefusesSomebodyElsesHistory(t *testing.T) {
 		context.Background(), strategyBotStrangerID, strategyBotID)
 
 	require.ErrorIs(t, listError, domains.ErrStrategyBotNotFound)
+}
+
+// Saving a bot reads how the rules it names trade, not only whose they are — because
+// what a bot may suggest borrowing is limited by what those rules may borrow.
+//
+// This is the wiring the domain rule needs: refusing in the domain is worth nothing
+// if the layer that can read the rules keeps throwing that answer away, which is
+// exactly what it did before.
+func TestStrategyBotApplicationCreateRefusesBorrowingTheNamedRulesCannotDo(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.expectTheNamedTradingStrategyTradesThisWay(string(vo.TradingModeSpot))
+
+	writeDto := aBotWrite()
+	writeDto.PositionPlan = dto.PositionPlanSettingsDto{
+		Capital:  decimal.NewFromInt(150),
+		Leverage: decimal.RequireFromString("1.8"),
+	}
+
+	_, createError := underTest.strategyBotApplication.CreateStrategyBot(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.Error(t, createError)
+	require.ErrorIs(t, createError, domains.ErrStrategyBotValidation)
+	assert.Contains(t, createError.Error(),
+		"現貨交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你")
+}
+
+func TestStrategyBotApplicationCreateAcceptsBorrowingTheNamedRulesAllow(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+
+	underTest.expectTheNamedTradingStrategyTradesThisWay(string(vo.TradingModeLeveragedLong))
+	underTest.strategyBotRepository.EXPECT().
+		Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
+			assert.Equal(t, "1.8", bot.PositionPlanLeverage.String())
+
+			return storedBot(vo.StrategyBotStopped), nil
+		})
+
+	writeDto := aBotWrite()
+	writeDto.PositionPlan = dto.PositionPlanSettingsDto{
+		Capital:  decimal.NewFromInt(150),
+		Leverage: decimal.RequireFromString("1.8"),
+	}
+
+	_, createError := underTest.strategyBotApplication.CreateStrategyBot(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.NoError(t, createError)
 }
