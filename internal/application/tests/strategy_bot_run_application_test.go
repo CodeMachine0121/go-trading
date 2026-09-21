@@ -782,13 +782,20 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 	require.NoError(t, runError)
 }
 
+// One round per bot per scan, whatever the batch says.
+//
+// This used to lean on the mid-round claim to skip the second entry, which only held
+// while the first round was still in flight. A round that finished before the loop
+// reached the second entry released the claim, the second entry took it, and the same
+// bot ran twice — two messages, same candles, same answer. Whether that happened came
+// down to how fast the round was, so the test passed on one machine and failed on
+// another. The scan decides it now, before anything is dispatched.
 func TestStrategyBotRunApplicationLeavesABotThatIsAlreadyMidRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot(""), aDueBot("")}, nil)
-	// Both entries name the same bot, so the second finds the claim taken and is
-	// skipped. Anything else would send the same message twice.
+	// Both entries name the same bot, so the second is dropped by the scan.
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).Times(1)
 	underTest.expectDeliverySetting()
