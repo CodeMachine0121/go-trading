@@ -90,9 +90,11 @@ func NewBacktestLeverageDomain(
 		return BacktestLeverageDomain{}, nil
 	}
 
-	if !tradingMode.CanUseLeverage() {
-		return BacktestLeverageDomain{}, fmt.Errorf(
-			"%s交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你", tradingMode.InWords())
+	// Asked of the mode rather than composed here. A bot's position plan refuses the
+	// same multiplier against the same rules, and two refusals only stay word for word
+	// identical while there is one of them.
+	if borrowingRefusal := tradingMode.BorrowingRefusal(); borrowingRefusal != nil {
+		return BacktestLeverageDomain{}, borrowingRefusal
 	}
 
 	maintenanceMarginRate := declaredMaintenanceMarginRate

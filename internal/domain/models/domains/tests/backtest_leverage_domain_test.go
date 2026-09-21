@@ -228,6 +228,68 @@ func TestBacktestLeverageLetsSpotThroughWhenNothingIsBorrowed(t *testing.T) {
 	}
 }
 
+// Leveraged long is the mode the borrowing gate exists to let through: it never faces
+// the other way, and somebody lends against it anyway.
+//
+// The distance it may fall is asserted alongside, because that is the half a refusal
+// would have hidden — a mode let through the door but handed no lender would build
+// without error and then never liquidate anything.
+func TestBacktestLeverageLetsLeveragedLongBorrow(t *testing.T) {
+	leverage, buildError := domains.NewBacktestLeverageDomain(
+		decimal.RequireFromString("5"), decimal.RequireFromString("0.5"),
+		tradingModeOf(t, "leveragedLong"))
+
+	require.NoError(t, buildError)
+	assert.Equal(t, "5", leverage.Multiplier().String())
+	assert.True(t, leverage.IsBorrowed())
+
+	adverseDistance, canBeLiquidated := leverage.AdverseDistance()
+	require.True(t, canBeLiquidated)
+	assert.Equal(t, "19.5", adverseDistance.String())
+}
+
+// Every rule that is not about who may borrow applies to the new mode unchanged.
+func TestBacktestLeverageHoldsLeveragedLongToEveryOtherRule(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		multiplier            string
+		maintenanceMarginRate string
+		expectedMessage       string
+	}{
+		{
+			name:                  "half a times was meant as half a position",
+			multiplier:            "0.5",
+			maintenanceMarginRate: "0",
+			expectedMessage:       "槓桿倍數不得小於 1 倍",
+		},
+		{
+			name:                  "a negative rate means a wiped-out position still holds",
+			multiplier:            "5",
+			maintenanceMarginRate: "-1",
+			expectedMessage:       "維持保證金率不得為負——負的維持保證金等於倉位賠光了還撐得住",
+		},
+		{
+			name:                  "a rate that leaves no room at all",
+			multiplier:            "5",
+			maintenanceMarginRate: "20",
+			expectedMessage: "維持保證金率必須小於 20%——5 倍槓桿下，" +
+				"押下去的錢只夠讓價格逆著走這麼多，再多這一注在開倉那一棒就已經撐不住",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, buildError := domains.NewBacktestLeverageDomain(
+				decimal.RequireFromString(testCase.multiplier),
+				decimal.RequireFromString(testCase.maintenanceMarginRate),
+				tradingModeOf(t, "leveragedLong"))
+
+			require.Error(t, buildError)
+			assert.Equal(t, testCase.expectedMessage, buildError.Error())
+		})
+	}
+}
+
 // The zero value is a replay that borrows nothing, so that every model downstream can
 // hold one without asking whether there is any.
 func TestBacktestLeverageZeroValueBorrowsNothing(t *testing.T) {

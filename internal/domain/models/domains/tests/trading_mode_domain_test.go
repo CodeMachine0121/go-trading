@@ -27,6 +27,11 @@ func TestTradingModeDomainReadsWhatWasDeclared(t *testing.T) {
 			expectedMode: vo.TradingModeSpot,
 		},
 		{
+			name:         "long only but borrowing, spelled out",
+			declaredMode: "leveragedLong",
+			expectedMode: vo.TradingModeLeveragedLong,
+		},
+		{
 			name:         "declaring nothing trades the way a replay always has",
 			declaredMode: "",
 			expectedMode: vo.TradingModeLongShort,
@@ -65,6 +70,7 @@ func TestTradingModeDomainRefusesWhatItCannotRead(t *testing.T) {
 	// leaves the caller guessing at a string.
 	assert.Contains(t, err.Error(), string(vo.TradingModeLongShort))
 	assert.Contains(t, err.Error(), string(vo.TradingModeSpot))
+	assert.Contains(t, err.Error(), string(vo.TradingModeLeveragedLong))
 }
 
 func TestTradingModeDomainTargetFor(t *testing.T) {
@@ -107,6 +113,27 @@ func TestTradingModeDomainTargetFor(t *testing.T) {
 		{
 			name:           "long only: holding asks for nothing",
 			declaredMode:   "spot",
+			signal:         vo.SignalHold,
+			expectedTarget: vo.TargetPositionUnchanged,
+		},
+		{
+			name:           "long only but borrowing: buying asks to be long",
+			declaredMode:   "leveragedLong",
+			signal:         vo.SignalBuy,
+			expectedTarget: vo.TargetPositionLong,
+		},
+		{
+			// Word for word what spot answers. The two differ over borrowing, not
+			// over which way a position faces, so a replay that never borrows cannot
+			// tell them apart — and that is the point rather than an oversight.
+			name:           "long only but borrowing: selling asks to be in cash",
+			declaredMode:   "leveragedLong",
+			signal:         vo.SignalSell,
+			expectedTarget: vo.TargetPositionFlat,
+		},
+		{
+			name:           "long only but borrowing: holding asks for nothing",
+			declaredMode:   "leveragedLong",
 			signal:         vo.SignalHold,
 			expectedTarget: vo.TargetPositionUnchanged,
 		},
@@ -213,6 +240,12 @@ func TestTradingModeDomainCanGoShort(t *testing.T) {
 			canGoShort:      false,
 		},
 		{
+			name:            "leveraged long cannot short either, for all that it borrows",
+			declaredMode:    "leveragedLong",
+			expectedInWords: "槓桿做多",
+			canGoShort:      false,
+		},
+		{
 			name:            "declaring nothing reads as long-short, and so can short",
 			declaredMode:    "",
 			expectedInWords: "多空反手",
@@ -236,4 +269,94 @@ func TestTradingModeDomainZeroValueCannotGoShort(t *testing.T) {
 	// TargetFor answers "unchanged": a mode this does not recognise is the last place
 	// to guess which way somebody should trade.
 	assert.False(t, domains.TradingModeDomain{}.CanGoShort())
+}
+
+// Whether a mode may short and whether it may borrow are separate questions, and
+// leveraged long is where they first give different answers.
+func TestTradingModeDomainCanUseLeverage(t *testing.T) {
+	testCases := []struct {
+		name           string
+		declaredMode   string
+		canUseLeverage bool
+	}{
+		{
+			name:           "long-short borrows",
+			declaredMode:   "longShort",
+			canUseLeverage: true,
+		},
+		{
+			name:           "spot is cash for goods, so nobody lends against it",
+			declaredMode:   "spot",
+			canUseLeverage: false,
+		},
+		{
+			name:           "leveraged long borrows although it never faces the other way",
+			declaredMode:   "leveragedLong",
+			canUseLeverage: true,
+		},
+		{
+			name:           "declaring nothing reads as long-short, and so borrows",
+			declaredMode:   "",
+			canUseLeverage: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.canUseLeverage, tradingMode.CanUseLeverage())
+		})
+	}
+}
+
+func TestTradingModeDomainZeroValueCannotUseLeverage(t *testing.T) {
+	// A mode this model does not recognise is the last place to start lending.
+	assert.False(t, domains.TradingModeDomain{}.CanUseLeverage())
+	require.Error(t, domains.TradingModeDomain{}.BorrowingRefusal())
+}
+
+// The refusal is a sentence rather than a boolean because two worlds say it — a
+// replay handed a multiplier, and a bot being saved with one — and they have to say
+// it in the same words.
+func TestTradingModeDomainBorrowingRefusal(t *testing.T) {
+	testCases := []struct {
+		name           string
+		declaredMode   string
+		expectsRefusal bool
+		expectedNaming string
+	}{
+		{
+			name:         "long-short is not refused",
+			declaredMode: "longShort",
+		},
+		{
+			name:         "leveraged long is not refused",
+			declaredMode: "leveragedLong",
+		},
+		{
+			name:           "spot is refused, and the sentence names it",
+			declaredMode:   "spot",
+			expectsRefusal: true,
+			expectedNaming: "現貨",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tradingMode, err := domains.NewTradingModeDomain(testCase.declaredMode)
+			require.NoError(t, err)
+
+			refusal := tradingMode.BorrowingRefusal()
+
+			if !testCase.expectsRefusal {
+				assert.NoError(t, refusal)
+				return
+			}
+
+			require.Error(t, refusal)
+			assert.Contains(t, refusal.Error(), testCase.expectedNaming)
+		})
+	}
 }

@@ -12,6 +12,7 @@ import (
 var selectableTradingModes = []vo.TradingModeVo{
 	vo.TradingModeLongShort,
 	vo.TradingModeSpot,
+	vo.TradingModeLeveragedLong,
 }
 
 // TradingModeDomain is which set of rules a replay trades by, and the one question
@@ -65,7 +66,7 @@ func (tradingModeDomain TradingModeDomain) Value() vo.TradingModeVo {
 	return tradingModeDomain.value
 }
 
-// CanGoShort is what the two modes actually differ by: whether these rules may hold
+// CanGoShort is one of the two questions a mode answers: whether these rules may hold
 // a position that gains when the price falls.
 //
 // It is named after the mode rather than after what any caller does with the answer.
@@ -89,22 +90,45 @@ func (tradingModeDomain TradingModeDomain) CanGoShort() bool {
 // next month — whereas "can these rules borrow" is settled for as long as the mode
 // exists.
 //
-// It is a second question rather than a reading of CanGoShort, although the two
-// currently answer alike. Borrowing and facing the other way are different powers,
-// and a venue that lent against long-only positions would make them differ without
-// either of these sentences becoming false.
+// It is a second question rather than a reading of CanGoShort, and the two now give
+// different answers: leveraged-long borrows without ever facing the other way, which
+// is what a venue lending against long-only positions looks like.
+//
+// Those two questions have four combinations and only three modes, because the fourth
+// cannot exist: selling what you do not have means borrowing it first, so nothing can
+// short without also being able to borrow.
 //
 // A zero value answers no, by the same rule the rest of this model follows: a mode
 // this does not recognise is the last place to start lending.
 func (tradingModeDomain TradingModeDomain) CanUseLeverage() bool {
-	return tradingModeDomain.value == vo.TradingModeLongShort
+	return tradingModeDomain.value == vo.TradingModeLongShort ||
+		tradingModeDomain.value == vo.TradingModeLeveragedLong
+}
+
+// BorrowingRefusal is why these rules may not hold a position worth more than the
+// money behind them — or nil when they may.
+//
+// It is the sentence rather than the answer because two worlds now ask this: a replay
+// being handed a multiplier, and a bot being saved with one in its position plan. Both
+// have to refuse in the same words, and the only way two refusals stay identical is
+// for there to be one of them.
+//
+// It lives here for the reason the question does: refusing needs both whether the mode
+// may borrow and what the mode is called, and this is the only model that has either.
+func (tradingModeDomain TradingModeDomain) BorrowingRefusal() error {
+	if tradingModeDomain.CanUseLeverage() {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%s交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你", tradingModeDomain.InWords())
 }
 
 // InWords is this mode as a person reads it.
 //
 // Every mode is named rather than one being the fall-through, for the reason TargetFor
 // names them all: a third mode added to the selectable set and forgotten here comes out
-// as its own stored spelling, which is odd to read but true — not as one of the two
+// as its own stored spelling, which is odd to read but true — not as one of the modes
 // this does recognise.
 func (tradingModeDomain TradingModeDomain) InWords() string {
 	switch tradingModeDomain.value {
@@ -112,6 +136,8 @@ func (tradingModeDomain TradingModeDomain) InWords() string {
 		return "多空反手"
 	case vo.TradingModeSpot:
 		return "現貨"
+	case vo.TradingModeLeveragedLong:
+		return "槓桿做多"
 	}
 
 	return string(tradingModeDomain.value)
@@ -120,10 +146,11 @@ func (tradingModeDomain TradingModeDomain) InWords() string {
 // TargetFor is what this opinion asks the account to be holding once the candle is
 // over, under this mode's rules.
 //
-// The two modes part company on exactly one row of the table — what a sell asks for —
+// The modes part company on exactly one row of the table — what a sell asks for —
 // and that is the whole of the difference between being able to short and not.
 // Everything else they answer identically, which is why a replay whose script never
-// says sell produces the same report card either way.
+// says sell produces the same report card whichever mode ran it, and why spot and
+// leveraged-long differ here not at all: they differ over borrowing, not direction.
 func (tradingModeDomain TradingModeDomain) TargetFor(signal SignalDomain) vo.TargetPositionVo {
 	if signal.Value() == vo.SignalBuy {
 		return vo.TargetPositionLong
@@ -135,16 +162,16 @@ func (tradingModeDomain TradingModeDomain) TargetFor(signal SignalDomain) vo.Tar
 
 	// Every mode is named here rather than one being the fall-through. A mode this
 	// does not recognise — a zero value that never went through the constructor, or a
-	// third one added to the selectable set and forgotten here — asks for nothing at
+	// new one added to the selectable set and forgotten here — asks for nothing at
 	// all, so the replay makes no trades.
 	//
-	// That is the loud failure of the two available. Falling through to a short would
+	// That is the loud failure of the ones available. Falling through to a short would
 	// produce a complete, entirely plausible long-short report card for a mode nobody
 	// meant to replay, and nothing about it would look wrong.
 	switch tradingModeDomain.value {
 	case vo.TradingModeLongShort:
 		return vo.TargetPositionShort
-	case vo.TradingModeSpot:
+	case vo.TradingModeSpot, vo.TradingModeLeveragedLong:
 		return vo.TargetPositionFlat
 	}
 
