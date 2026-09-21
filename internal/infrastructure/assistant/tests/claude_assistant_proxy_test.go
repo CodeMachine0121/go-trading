@@ -410,4 +410,9 @@ func TestClaudeAssistantProxyTellsTheAssistantEveryTradingModeThereIs(t *testing
 	// enough: somebody who only goes long reads as spot right up until the leverage
 	// comes up, and spot is the answer that leaves them unable to replay what they run.
 	assert.Contains(t, instructions, "只做多、要上一點槓桿")
+	// And that the venue settles nothing — the sentence that keeps "我在幣安永續"
+	// from falling through to the default, which would reverse every sell into a
+	// short and say nothing about it.
+	assert.Contains(t, instructions, "場所不決定模式")
+	assert.Contains(t, instructions, "沒問出他放不放空之前不要猜")
 }
