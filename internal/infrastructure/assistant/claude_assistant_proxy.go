@@ -76,6 +76,11 @@ tradingMode 答兩個各自獨立的問題——做不做得了空、借不借�
 他說他在合約帳戶上只做多、要上一點槓桿（例如幣安永續開多）時要給 leveragedLong——
 這時給 spot 是錯的：他上線在用的槓桿會讓每一次重演被整份拒絕，於是他驗證不了自己真正在做的事，
 他的機器人也存不進大於 1 倍的部位。
+場所不決定模式，做不做空才決定。「我在幣安永續」「我開合約」只講了場所——longShort 與
+leveragedLong 都跑在那裡，那句話一個都沒排除掉。沒問出他放不放空之前不要猜：該給 leveragedLong
+卻給了 spot，他會被拒絕，至少他知道；該給 leveragedLong 卻給了 longShort（也就是不給，因為那是
+預設），他每一次賣出都會被反手做空，而成績單照樣跑得出來、看起來完全合理，他不會發現。
+不確定就問一句：「賣出的時候，要幫你反手做空，還是把錢收回來等下一個買點？」
 用錯的那一個，成績單會是照他做不到的操作算出來的。`
 
 // queryLimitReachedNote is what the assistant is told once its queries are spent. It

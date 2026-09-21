@@ -191,6 +191,7 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		"賣出會把多倉平掉並在同一棒反手做空；spot 只做多，賣出就平倉把錢收回來、之後空手等下一個買點，" +
 		"空手時聽到賣出什麼都不做；leveragedLong 的倉位行為與 spot 一字不差，差別只在它借得到錢、" +
 		"開得了槓桿（合約帳戶只做多就是這一種）。" +
+		"場所不決定模式：longShort 與 leveragedLong 都跑在永續合約上，差的是賣出要不要反手做空。" +
 		"使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時，" +
 		"要去改那份交易策略的交易模式（trading_strategy 的 tradingMode），不是在這裡指定——" +
 		"用錯的那一個，成績單會是照他做不到的操作算出來的。" +
