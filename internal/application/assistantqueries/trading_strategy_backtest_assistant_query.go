@@ -190,8 +190,9 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		"交易模式也沒有可以給——那是這份交易策略自己記著的：longShort 永遠在市場裡，" +
 		"賣出會把多倉平掉並在同一棒反手做空；spot 只做多，賣出就平倉把錢收回來、之後空手等下一個買點，" +
 		"空手時聽到賣出什麼都不做；leveragedLong 的倉位行為與 spot 一字不差，差別只在它借得到錢、" +
-		"開得了槓桿（合約帳戶只做多就是這一種）。" +
-		"場所不決定模式：longShort 與 leveragedLong 都跑在永續合約上，差的是賣出要不要反手做空。" +
+		"開得了槓桿（合約帳戶只做多就是這一種）；shortOnly 是 leveragedLong 的鏡像，只做空——" +
+		"賣出開空倉，買入就平倉把錢收回來，空手時聽到買入什麼都不做，永遠不會有多倉。" +
+		"場所不決定模式：longShort、leveragedLong 與 shortOnly 都跑在永續合約上，差的是做哪一邊。" +
 		"使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時，" +
 		"要去改那份交易策略的交易模式（trading_strategy 的 tradingMode），不是在這裡指定——" +
 		"用錯的那一個，成績單會是照他做不到的操作算出來的。" +
@@ -211,7 +212,7 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		"5 倍約 19.5%、10 倍約 9.5%、20 倍約 4.5%；維持保證金率（maintenanceMarginRate）不給就用 0.5%。" +
 		"止損比強平近時永遠是止損先出場，所以開槓桿一定要一起給 stopLossPercentage——" +
 		"沒給止損的高槓桿回測，成績單上的 liquidationExitCount 會告訴你這個帳戶歸零過幾次。" +
-		"借不借得到錢由交易模式決定：longShort 與 leveragedLong 借得到，" +
+		"借不借得到錢由交易模式決定：longShort、leveragedLong 與 shortOnly 借得到，" +
 		"現貨（spot）借不到——給大於 1 會整次被拒絕。使用者是在合約帳戶上只做多的話，" +
 		"要改的是那份交易策略的交易模式（改成 leveragedLong），不是把槓桿拿掉。" +
 		"重演的是過去，不是對未來的保證；結果不留存，每次問都重算一遍。"

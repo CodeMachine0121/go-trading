@@ -624,10 +624,12 @@ func TestTradingStrategyBacktestAssistantQuerySaysWhereTheModeComesFrom(t *testi
 	assert.NotContains(t, argumentSchema, "tradingMode")
 	assert.Contains(t, argumentSchema, `"additionalProperties":false`)
 
-	// It still has to understand what the two modes do, so that it can go and change
-	// the right one when the person says their account cannot short.
+	// It still has to understand what every mode does, so that it can go and change
+	// the right one when the person says which way their account may face.
 	assert.Contains(t, description, string(vo.TradingModeLongShort))
 	assert.Contains(t, description, string(vo.TradingModeSpot))
+	assert.Contains(t, description, string(vo.TradingModeLeveragedLong))
+	assert.Contains(t, description, string(vo.TradingModeShortOnly))
 	assert.Contains(t, description, "不能放空")
 	assert.Contains(t, description, "交易策略")
 }

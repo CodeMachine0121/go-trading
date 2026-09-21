@@ -141,24 +141,27 @@ const tradingStrategyConditionArgumentSchema = `{"type":"object","description":`
 // the identifier is required, and each says that for itself.
 const tradingStrategyWriteArgumentSchema = `` +
 	`"name":{"type":"string","description":"交易策略名稱，不得空白、不得與自己既有的交易策略重複，上限 128 字"},` +
-	`"tradingMode":{"type":"string","enum":["longShort","spot","leveragedLong"],` +
-	`"description":"這份規則是寫給哪一種帳戶的。它答兩個各自獨立的問題——做不做得了空、` +
-	`借不借得到錢——而三個取值就是那兩個問題的三種合法組合（做得了空卻借不到錢不存在，` +
-	`放空本來就要先借到東西才賣得出去）：longShort 做得了空、也借得到錢（賣出＝平多並反手做空）；` +
-	`spot 做不了空、也借不到錢（賣出＝平倉把錢收回來，空手時賣出不動作）；` +
-	`leveragedLong 做不了空、但借得到錢——倉位行為與 spot 一字不差，差別只在它開得了槓桿。` +
-	`不給即 longShort。` +
+	`"tradingMode":{"type":"string","enum":["longShort","spot","leveragedLong","shortOnly"],` +
+	`"description":"這份規則是寫給哪一種帳戶的。它答兩個各自獨立的問題——做得了哪一邊、` +
+	`借不借得到錢——而四個取值就是那兩個問題的四種合法組合（做得了空卻借不到錢不存在，` +
+	`放空本來就要先借到東西才賣得出去）：longShort 兩邊都做、借得到錢（賣出＝平多並反手做空）；` +
+	`spot 只做多、借不到錢（賣出＝平倉把錢收回來，空手時賣出不動作）；` +
+	`leveragedLong 只做多、借得到錢——倉位行為與 spot 一字不差，差別只在它開得了槓桿；` +
+	`shortOnly 只做空、借得到錢——它是 leveragedLong 的鏡像（賣出＝開空倉，買入＝平倉把錢收回來，` +
+	`空手時買入不動作，永遠不會有多倉）。不給即 longShort。` +
 	`使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時給 spot；` +
-	`說他在合約帳戶上只做多、要上一點槓桿（例如幣安永續開多）時給 leveragedLong——` +
-	`這時給 spot 是錯的，他會連回測都跑不了，而他的機器人也建議不了大於 1 倍的部位。` +
-	`**場所不決定模式，做不做空才決定。**「我在幣安永續」「我開合約」只講了場所——` +
-	`longShort 與 leveragedLong 都跑在那裡，那句話一個都沒排除掉。` +
-	`**沒問出他放不放空之前不要猜**，因為兩邊猜錯的代價差很多：該給 leveragedLong 卻給了 spot，` +
-	`他會被拒絕，至少他知道；該給 leveragedLong 卻給了 longShort（也就是不給，因為那是預設），` +
-	`他每一次賣出都會被反手做空，而成績單照樣跑得出來、看起來完全合理，他不會發現。` +
-	`不確定就問一句：「賣出的時候，要幫你反手做空，還是把錢收回來等下一個買點？」` +
+	`說他在合約帳戶上只做多、要上一點槓桿（例如幣安永續開多）時給 leveragedLong；` +
+	`**說他這段時間只想做空、不要叫他做多時給 shortOnly**——` +
+	`這時千萬不要用「longShort 加一個永遠不成立的買入條件」去湊，那份規則會寫著兩邊都做、` +
+	`實際上只做空，下一個讀到它的人（包括三個月後的他自己）看不出來。` +
+	`**場所不決定模式，做哪一邊才決定。**「我在幣安永續」「我開合約」只講了場所——` +
+	`longShort、leveragedLong 與 shortOnly 都跑在那裡，那句話一個都沒排除掉。` +
+	`**沒問出他做哪一邊之前不要猜**，因為猜錯的代價差很多：該給 leveragedLong 卻給了 spot，` +
+	`他會被拒絕，至少他知道；該給 leveragedLong 或 shortOnly 卻給了 longShort（也就是不給，` +
+	`因為那是預設），他每一次反向信號都會被反手，而成績單照樣跑得出來、看起來完全合理，他不會發現。` +
+	`不確定就問一句：「你要兩邊都做、只做多、還是只做空？」` +
 	`它決定了重演這份規則時用哪一套算法、這份規則開不開得了槓桿，` +
-	`也決定了機器人的訊息要寫「買入／出場」還是「做多／做空」"},` +
+	`也決定了機器人的訊息要寫「買入／出場」「做多／做空」還是「做空／出場」"},` +
 	`"signalSources":{"type":"array","description":"這份交易策略聽哪幾支策略腳本說話，上限 10 個。` +
 	`每個來源的彙總刻度必須相同，否則回測與上線都會被拒絕",` +
 	`"items":{"type":"object","properties":{` +
