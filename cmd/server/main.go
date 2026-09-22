@@ -28,8 +28,9 @@ func main() {
 	}
 
 	engine := gin.Default()
-	kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication,
-		assistantConversationApplication := registerRoutes(engine, database, applicationConfig)
+	kCandleFollowApplication, kCandleIngestionApplication, kCandleContractIngestionApplication,
+		strategyBotRunApplication, assistantConversationApplication := registerRoutes(
+		engine, database, applicationConfig)
 
 	// An answer being written lives in this process and nowhere else, so every one
 	// the last shutdown cut off is stale the moment this one starts. Left alone each
@@ -63,6 +64,20 @@ func main() {
 			interruptedSyncCount)
 	}
 
+	// The contract runs are their own numbering in their own table, so they need
+	// their own sweep: the one above cannot see them, and a row left saying running
+	// is a progress figure that never moves again.
+	interruptedContractSyncCount, contractSyncSweepError := kCandleContractIngestionApplication.
+		FailInterruptedHistorySyncs(context.Background())
+	if contractSyncSweepError != nil {
+		log.Printf("failed to clear contract history syncs interrupted by the last shutdown: %v",
+			contractSyncSweepError)
+	}
+	if interruptedContractSyncCount > 0 {
+		log.Printf("cleared %d contract k candle history sync(s) interrupted by the last shutdown",
+			interruptedContractSyncCount)
+	}
+
 	// The signals are listened for before anything is started, so an interrupt
 	// arriving during the startup backfill runs the shutdown path instead of falling
 	// back on killing the process. The backfill itself is still cut short — it has
@@ -87,6 +102,7 @@ func main() {
 				applicationConfig,
 				kCandleFollowApplication,
 				kCandleIngestionApplication,
+				kCandleContractIngestionApplication,
 				strategyBotRunApplication)),
 		kCandleFollowApplication.Stop,
 	); serveError != nil {

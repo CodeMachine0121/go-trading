@@ -19,7 +19,7 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 			// markets that limit them. They are separate jobs so that a slow round
 			// cannot hold up a market that has just opened.
 			name:        "switched on assembles the work the system does on its own",
-			switchValue: "true", expectedJobCount: 3,
+			switchValue: "true", expectedJobCount: 4,
 		},
 	}
 
@@ -27,7 +27,7 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv("BACKGROUND_JOBS_ENABLED", testCase.switchValue)
 
-			backgroundJobs := backgroundJobsFor(config.Load(), nil, nil, nil)
+			backgroundJobs := backgroundJobsFor(config.Load(), nil, nil, nil, nil)
 
 			assert.Len(t, backgroundJobs, testCase.expectedJobCount)
 		})

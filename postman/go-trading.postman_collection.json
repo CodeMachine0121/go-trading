@@ -270,6 +270,22 @@
     {
       "key": "mixedIntervalTradingStrategyId",
       "value": ""
+    },
+    {
+      "key": "contractWatchlistSymbol",
+      "value": "BTCUSDT"
+    },
+    {
+      "key": "contractOnlySymbol",
+      "value": "1000PEPEUSDT"
+    },
+    {
+      "key": "settlingContractSymbol",
+      "value": "OMGUSDT"
+    },
+    {
+      "key": "datedContractSymbol",
+      "value": "BTCUSDT_260925"
     }
   ],
   "event": [
@@ -350,7 +366,16 @@
           "",
           "// 一段從來沒有 K 線的遠古區間，用來驗證湊不出足夠根數時的拒絕。",
           "pm.collectionVariables.set('emptyRangeStart', asRfc3339(new Date(latestClosed.getTime() - 400 * 24 * 60 * 60 * 1000)));",
-          "pm.collectionVariables.set('emptyRangeEnd', asRfc3339(new Date(latestClosed.getTime() - 399 * 24 * 60 * 60 * 1000)));"
+          "pm.collectionVariables.set('emptyRangeEnd', asRfc3339(new Date(latestClosed.getTime() - 399 * 24 * 60 * 60 * 1000)));",
+          "pm.collectionVariables.set('contractOpenTime', new Date(Math.floor((Date.now() - 10*60*1000)/60000)*60000).toISOString().replace(/\\.\\d{3}Z$/, 'Z'));",
+          "",
+          "// 合約那一段的查詢區間也在執行當下算出來，理由與上面每一個時間相同：",
+          "// 寫死的日期會過期，而過期的方式是安靜地開始回 400。",
+          "const contractMinuteMark = (minutesAgo) => new Date(",
+          "    Math.floor((Date.now() - minutesAgo * 60 * 1000) / 60000) * 60000)",
+          "    .toISOString().replace(/\\.\\d{3}Z$/, 'Z');",
+          "pm.collectionVariables.set('contractRangeStart', contractMinuteMark(60));",
+          "pm.collectionVariables.set('contractRangeEnd', contractMinuteMark(2));"
         ]
       }
     }
@@ -3520,6 +3545,895 @@
                   "pm.test(\"回應 404\", function () {",
                   "    pm.response.to.have.status(404);",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "永續合約 K 線",
+      "description": "永續合約自成一條路徑，與現貨完全不共用。同一個代號在兩個場所是兩種商品，而合約 K 線多帶一個現貨沒有這個概念的標記價格。\n\n**手寫 CRUD 一律用 CONTRACTTESTONLY**，刻意避開合約追蹤名單，測試資料不會跟真實行情互相干擾。\n\n**追蹤名單那幾條會真的打到幣安合約場所**，所以連得上網路才跑得過；而「回補回來的合約 K 線帶著標記價格與成交筆數」是整個資料夾的重點——前面驗規則，那一條驗的是真的拿回了現貨沒有的東西。",
+      "item": [
+        {
+          "name": "新增一根合約 K 線",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"tradeCount\": 7,\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"帶回標記價格\", () => pm.expect(pm.response.json().markClose).to.eql(\"111\"));",
+                  "pm.test(\"帶回成交筆數\", () => pm.expect(pm.response.json().tradeCount).to.eql(7));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增時漏掉標記價格會被拒絕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"tradeCount\": 7\n}"
+            },
+            "description": "沒有標記價格的就不是一根合約 K 線——這正是它與現貨 K 線唯一的差別。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出是哪一條\", () => pm.expect(pm.response.text()).to.include(\"標記價格\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增時漏掉成交筆數會被拒絕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\"\n}"
+            },
+            "description": "零是一個合法的筆數，所以留白不能被讀成零。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出是哪一條\", () => pm.expect(pm.response.text()).to.include(\"成交筆數\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "依區間查詢合約 K 線",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles?symbol=CONTRACTTESTONLY&startTime={{contractOpenTime}}&endTime={{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "CONTRACTTESTONLY"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{contractOpenTime}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractOpenTime}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"查得到剛剛那根\", () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀取單一合約 K 線",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/CONTRACTTESTONLY/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "CONTRACTTESTONLY",
+                "{{contractOpenTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"標記價格在\", () => pm.expect(pm.response.json()).to.have.property(\"markClose\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "修改合約 K 線",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/CONTRACTTESTONLY/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "CONTRACTTESTONLY",
+                "{{contractOpenTime}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"open\": \"100\", \"high\": \"130\", \"low\": \"90\", \"close\": \"125\",\n  \"volume\": \"12\", \"quoteVolume\": \"1300\",\n  \"takerBuyBaseVolume\": \"6\", \"takerBuyQuoteVolume\": \"700\",\n  \"tradeCount\": 9,\n  \"markOpen\": \"101\", \"markHigh\": \"131\", \"markLow\": \"91\", \"markClose\": \"126\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"數字換成新的\", () => pm.expect(pm.response.json().close).to.eql(\"125\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "修改時不得更換代號",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/CONTRACTTESTONLY/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "CONTRACTTESTONLY",
+                "{{contractOpenTime}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ANOTHERONLY\",\n  \"open\": \"100\", \"high\": \"130\", \"low\": \"90\", \"close\": \"125\",\n  \"volume\": \"12\", \"quoteVolume\": \"1300\",\n  \"takerBuyBaseVolume\": \"6\", \"takerBuyQuoteVolume\": \"700\",\n  \"tradeCount\": 9,\n  \"markOpen\": \"101\", \"markHigh\": \"131\", \"markLow\": \"91\", \"markClose\": \"126\"\n}"
+            },
+            "description": "改的是哪一根由網址決定，不由內文決定。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀一根不存在的合約 K 線",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/NOSUCHCONTRACT/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "NOSUCHCONTRACT",
+                "{{contractOpenTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "列出系統認得的合約標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trading-symbols",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trading-symbols"
+              ]
+            },
+            "description": "與 /trading-symbols 是兩份清單。同一個代號可以兩邊都在，各追各的。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加進合約追蹤名單",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\"\n}"
+            },
+            "description": "會真的打到合約行情來源確認代號存在，確認後立刻回補那一檔。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "合約來源不認得的代號加不進去",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"NOSUCHPAIR\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "已經停止交易的合約加不進去",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{settlingContractSymbol}}\"\n}"
+            },
+            "description": "這一檔在幣安目錄裡還列著（status=SETTLING），但每一次抓都回空手。而永續合約永不推定休市，所以跟進去之後「永遠存不到東西」看起來跟「市場很安靜」一模一樣。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"與查無此代號同一句話\", () => pm.expect(pm.response.text()).to.include(\"找不到\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "有交割日的合約加不進去",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{datedContractSymbol}}\"\n}"
+            },
+            "description": "這份名單講的是永續合約。會到期的東西進來，到期那天就變成上一個情境。注意：這個代號帶著日期，過期後要換成當期的季度合約才試得到。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "只有合約才有的代號加得進去",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractOnlySymbol}}\"\n}"
+            },
+            "description": "這個代號在現貨不存在（現貨叫 PEPEUSDT，價格差一千倍）。加得進來正是兩邊代號宇宙分開的證據。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "手動補齊一檔合約",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/backfill",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "backfill"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "回補回來的合約 K 線帶著標記價格與成交筆數",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles?symbol={{contractWatchlistSymbol}}&startTime={{contractRangeStart}}&endTime={{contractRangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{contractRangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractRangeEnd}}"
+                }
+              ]
+            },
+            "description": "**這一條是整個資料夾的重點。** 前面那些都在驗規則，這一條驗的是「真的從合約場所拿回了現貨沒有的東西」：標記價格四個欄位、成交筆數，以及量沒有被標記那份的佔位零汙染。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const candles = pm.response.json();",
+                  "pm.test(\"回補真的把 K 線帶回來了\", () => pm.expect(candles.length).to.be.above(0));",
+                  "const candle = candles[candles.length - 1];",
+                  "",
+                  "// 這一刀的重點：標記價格是現貨沒有的概念，它必須真的在。",
+                  "pm.test(\"標記價格四個都在而且是正數\", () => {",
+                  "    [\"markOpen\", \"markHigh\", \"markLow\", \"markClose\"].forEach((figure) => {",
+                  "        pm.expect(candle[figure], figure).to.be.a(\"string\").and.not.equal(\"\");",
+                  "        pm.expect(Number(candle[figure]), figure).to.be.above(0);",
+                  "    });",
+                  "});",
+                  "pm.test(\"標記的最高價不低於最低價\", () =>",
+                  "    pm.expect(Number(candle.markHigh)).to.be.at.least(Number(candle.markLow)));",
+                  "",
+                  "// 標記價格那份答案會把量的欄位填上零。那是佔位不是數字——",
+                  "// 漏進來的話，這裡會看到一根成交量為零、卻有上千筆成交的 K 線。",
+                  "pm.test(\"量取自價量那一份,不是標記那份的佔位零\", () => {",
+                  "    pm.expect(Number(candle.volume), \"volume\").to.be.above(0);",
+                  "    pm.expect(Number(candle.quoteVolume), \"quoteVolume\").to.be.above(0);",
+                  "    pm.expect(Number(candle.takerBuyQuoteVolume), \"takerBuyQuoteVolume\").to.be.above(0);",
+                  "});",
+                  "pm.test(\"成交筆數是正整數\", () => {",
+                  "    pm.expect(candle.tradeCount).to.be.a(\"number\");",
+                  "    pm.expect(candle.tradeCount).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "補齊一個沒登錄過的合約",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/backfill",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "backfill"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"NOSUCHCONTRACT\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "同步一段合約歷史",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"lookbackDays\": 1\n}"
+            },
+            "description": "不等抓完——每一根要問兩次，長區間是現貨的兩倍往返。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 202\", () => pm.response.to.have.status(202));",
+                  "pm.test(\"回一筆輪次\", () => pm.expect(pm.response.json().status).to.eql(\"running\"));",
+                  "pm.collectionVariables.set(\"contractHistorySyncRunId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "看那一趟合約同步走到哪",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/history/{{contractHistorySyncRunId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "history",
+                "{{contractHistorySyncRunId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "回溯天數說不通會被拒絕並說出上限",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"lookbackDays\": 99999\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出上限\", () => pm.expect(pm.response.text()).to.include(\"3650\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "從合約追蹤名單移除",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist/{{contractWatchlistSymbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist",
+                "{{contractWatchlistSymbol}}"
+              ]
+            },
+            "description": "只停止追蹤——已抓回的 K 線一根都不刪。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "移除之後 K 線一根都沒有被刪掉",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles?symbol={{contractWatchlistSymbol}}&startTime={{contractRangeStart}}&endTime={{contractRangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{contractRangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractRangeEnd}}"
+                }
+              ]
+            },
+            "description": "移除只停止追蹤——系統仍然認得它，既有的 K 線一根都不刪。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"已經抓回來的還在\", () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：把只有合約才有的那一檔也移除",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist/{{contractOnlySymbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist",
+                "{{contractOnlySymbol}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：刪掉測試用的那根合約 K 線",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/CONTRACTTESTONLY/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "CONTRACTTESTONLY",
+                "{{contractOpenTime}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 204\", () => pm.response.to.have.status(204));"
                 ]
               }
             }

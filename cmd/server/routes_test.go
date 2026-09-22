@@ -32,10 +32,14 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 	slices.Sort(mountedRoutes)
 
 	assert.Equal(t, []string{
-		"DELETE /k-candles/:symbol/:openTime",
 		// Taking a published strategy script off one's own shelf, and taking one's own
 		// strategy script off the shared shelf. Two different withdrawals, so two paths:
 		// one hangs off the marketplace, the other off the strategy script itself.
+		// 永續合約自成一條路徑。同一個代號在兩個場所是兩種商品，所以它有自己的
+		// K 線、自己的追蹤名單、自己的同步輪次，沒有一條會碰到現貨那幾條。
+		"DELETE /contract-k-candles/:symbol/:openTime",
+		"DELETE /contract-watchlist/:symbol",
+		"DELETE /k-candles/:symbol/:openTime",
 		"DELETE /marketplace/strategy-scripts/:id/adoption",
 		"DELETE /strategy-bots/:id",
 		"DELETE /strategy-bots/:id/power",
@@ -54,6 +58,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// three do not widen what a caller can reach either.
 		"GET /chat/conversations",
 		"GET /chat/conversations/:id",
+		"GET /contract-k-candles",
+		"GET /contract-k-candles/:symbol/:openTime",
+		"GET /contract-k-candles/history/:id",
+		"GET /contract-trading-symbols",
 		"GET /health",
 		"GET /k-candles",
 		"GET /k-candles/:symbol/:openTime",
@@ -82,6 +90,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// cannot reach the watchlist either.
 		"POST /backtests",
 		"POST /chat",
+		"POST /contract-k-candles",
+		"POST /contract-k-candles/backfill",
+		"POST /contract-k-candles/history",
+		"POST /contract-watchlist",
 		"POST /indicator-calculations",
 		"POST /k-candles",
 		"POST /k-candles/backfill",
@@ -107,6 +119,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// stored and writes nothing, so it widens nothing.
 		"POST /users/me/telegram-delivery/test-message",
 		"POST /watchlist",
+		"PUT /contract-k-candles/:symbol/:openTime",
 		"PUT /k-candles/:symbol/:openTime",
 		"PUT /strategy-bots/:id",
 		"PUT /strategy-scripts/:id",

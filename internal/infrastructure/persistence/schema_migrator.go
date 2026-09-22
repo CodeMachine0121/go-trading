@@ -106,6 +106,9 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.TradingStrategyConditionNode{},
 		&entities.StrategyBotRunRecord{},
 		&entities.KCandleHistorySyncRun{},
+		&entities.KCandleContract{},
+		&entities.ContractTradingSymbol{},
+		&entities.KCandleContractHistorySyncRun{},
 	}
 
 	// Renaming has to happen before the schema is synced, not after. These three
@@ -218,6 +221,16 @@ const AssistantTurnOneRunningPerConversationIndex = "idx_assistant_turns_one_run
 // is a person asking twice, not a fault.
 const KCandleHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_history_sync_runs_one_running_per_symbol"
 
+// KCandleContractHistorySyncOneRunningPerSymbolIndex keeps one perpetual contract
+// from being fetched by two history syncs at once, for the same reason the spot one
+// does and enforced in the same place — the database, because asking first and
+// starting afterwards lets two requests arriving together both find the symbol free.
+//
+// It is its own index rather than a shared one because the runs live in their own
+// table: the two venues each get one sync per symbol, and a contract sync must not be
+// blocked by a spot sync of the same name.
+const KCandleContractHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_contract_history_sync_runs_one_running_per_symbol"
+
 // createPartialIndexes adds the indexes the ORM's own tags cannot express.
 //
 // A unique index over part of a table has no tag: "unique" there would mean one
@@ -257,6 +270,18 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	if createdHistorySyncIndex.Error != nil {
 		return fmt.Errorf("create index %s: %w",
 			KCandleHistorySyncOneRunningPerSymbolIndex, createdHistorySyncIndex.Error)
+	}
+
+	createdContractHistorySyncIndex := schemaMigrator.database.Exec(
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (symbol) WHERE status = '%s'",
+			vo.KCandleHistorySyncRunning),
+		clause.Column{Name: KCandleContractHistorySyncOneRunningPerSymbolIndex},
+		clause.Table{Name: entities.KCandleContractHistorySyncRun{}.TableName()},
+	)
+	if createdContractHistorySyncIndex.Error != nil {
+		return fmt.Errorf("create index %s: %w",
+			KCandleContractHistorySyncOneRunningPerSymbolIndex, createdContractHistorySyncIndex.Error)
 	}
 
 	return nil

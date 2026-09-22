@@ -47,6 +47,16 @@ func NewRequestPacer(requestsPerMinute int) RequestPacer {
 	}
 }
 
+// Limiter is the allowance this pacer holds people to.
+//
+// It is exposed for one reason: **"one pacer per venue" is a wiring fact, and the
+// only way to check it is to see that two venues do not hold the same one.** Two
+// pacers built from the same number look identical from the outside, so comparing
+// rates would pass on exactly the mistake this is here to catch.
+func (requestPacer RequestPacer) Limiter() *rate.Limiter {
+	return requestPacer.limiter
+}
+
 // WaitForTurn blocks until this request may be sent, or until the caller gives up.
 // A caller that gave up is told so rather than being let through.
 func (pacer RequestPacer) WaitForTurn(executionContext context.Context) error {
