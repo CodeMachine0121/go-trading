@@ -45,6 +45,67 @@ func TestSchemaMigratorDropsColumnsNoEntityClaimsAnyMore(t *testing.T) {
 	}
 }
 
+// The two columns this system stopped reading when a replay became spot-only: which
+// kind of account a set of rules was written for, and how much a bot suggested
+// borrowing.
+//
+// They are asserted separately from the strategy script's because the reason they go is
+// different. A strategy script's columns described the wrong thing; these two describe
+// something the system no longer does at all — and a row still saying "longShort"
+// beside rules that are replayed as spot contradicts the system out loud, to whoever
+// next opens the database wondering what it remembers.
+func TestSchemaMigratorDropsTheColumnsThatOutlivedContractReplays(t *testing.T) {
+	testCases := []struct {
+		name        string
+		table       string
+		column      string
+		columnType  string
+		hasColumnOf func() (any, string)
+	}{
+		{
+			name:       "which kind of account a set of rules was written for",
+			table:      "TradingStrategies",
+			column:     "trading_mode",
+			columnType: "text",
+			hasColumnOf: func() (any, string) {
+				return &entities.TradingStrategy{}, "trading_mode"
+			},
+		},
+		{
+			name:       "how much a bot suggested borrowing",
+			table:      "StrategyBots",
+			column:     "position_plan_leverage",
+			columnType: "numeric",
+			hasColumnOf: func() (any, string) {
+				return &entities.StrategyBot{}, "position_plan_leverage"
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			database := newTestDatabase(t)
+			migrator := database.Migrator()
+
+			// Put back as it was, in raw SQL: syncing the schema works from the
+			// entity, and the entity no longer has this field to name. Raw SQL
+			// belongs to the test alone — this is the one place that has to describe
+			// a database as it was rather than as the code says it should be.
+			require.NoError(t, database.Exec(
+				`ALTER TABLE "`+testCase.table+`" ADD COLUMN IF NOT EXISTS "`+
+					testCase.column+`" `+testCase.columnType).Error)
+			entity, column := testCase.hasColumnOf()
+			require.True(t, migrator.HasColumn(entity, column))
+
+			_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+			require.NoError(t, migrateError)
+			assert.False(t, migrator.HasColumn(entity, column),
+				"%s 應該已經被刪掉", testCase.column)
+		})
+	}
+}
+
 func TestSchemaMigratorRunsTwiceWithTheSameResult(t *testing.T) {
 	// The columns are already gone by the time this runs, so dropping has nothing to
 	// do — and having nothing to do must not be a failure, or the second start of

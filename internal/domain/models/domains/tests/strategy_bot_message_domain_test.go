@@ -219,6 +219,28 @@ func TestStrategyBotMessageSaysWhichWayEachExitLies(t *testing.T) {
 	assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
 }
 
+// What this message no longer says, asserted as an absence because that is the only
+// way it can be asserted.
+//
+// The lines that named which kind of account a round traded by, and what it borrowed
+// against, were deleted along with the behaviour — and so were the assertions that
+// read them. A removed assertion is silence rather than a failure: putting either line
+// back leaves every other test in this file green, and the reader gets a paragraph
+// about a system that no longer exists.
+func TestStrategyBotMessageSaysNothingAboutModesOrBorrowing(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
+
+	for _, goneWording := range []string{"交易模式", "槓桿", "名目", "強制平倉", "維持保證金"} {
+		assert.NotContains(t, message, goneWording)
+	}
+
+	// Asserted beside the absences so that this cannot pass by the message having
+	// emptied out: what it does say is still there, word for word.
+	assert.Contains(t, message, "📐 建議部位（這個系統不下單）")
+	assert.Contains(t, message, "開倉金額 5000")
+	assert.Contains(t, message, "📊 各來源怎麼說")
+}
+
 // The two things this suggestion owes its reader. Nothing here places an order, and
 // every report card they have ever seen was produced without these exits — so a
 // strategy that looks profitable there has never been measured with the stop this

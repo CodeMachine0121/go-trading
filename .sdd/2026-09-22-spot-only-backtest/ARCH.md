@@ -52,7 +52,8 @@
 | `postman/go-trading.postman_collection.json` | **Modify** | 同步移除那幾個欄位 |
 | **合約那條線**（`k_candle_contract_*`、合約 proxy／repository／job／controller、合約追蹤名單） | **Not touched** | **一行都不動。** 它是合約重演將來要站的地基，而且與這一刀完全正交——這一刀只動「重演怎麼算」，不動「行情怎麼來」 |
 | 止損／止盈、交易成本、倉位大小模式 | **Not touched**（只去掉槓桿那個參數） | 現貨一樣用得到，行為逐格不變 |
-| 已存下的資料 | **Not touched** | 不寫 migration、不改任何一列。`AutoMigrate` 不刪欄位，殘留的兩欄從此沒有人讀 |
+| 已存下的**每一列** | **Not touched** | 沒有一份交易策略、沒有一台機器人被改寫，也沒有一列被刪 |
+| 兩欄沒有人讀的欄位（`trading_mode`、`position_plan_leverage`） | **Dropped** | 走 repo 既有的 `retiredColumns`：宣告式、冪等，啟動時清掉。**設計期原本判斷「留著」，實作期改判**——理由見下方 Known debt |
 
 ---
 
@@ -102,7 +103,7 @@ func NewSpotOnlyReplayDomain(
 | `BacktestSimulationDomain` | 逐棒走完 | 去掉 `tradingMode`；成績單去掉 `LiquidationExitCount` |
 | `PositionPlanDomain` | 機器人每一輪建議押多少 | 去掉 `leverage`；`PlanFor` 只剩「要持有」與「不建議」兩條路 |
 | `StrategyBotMessageDomain` | 一輪的訊息 | 結論那一句問 `SignalDomain`；**刪掉交易模式那一行**；建議部位不印槓桿與名目 |
-| `TradingStrategyDomain` · `TradingStrategy` | 一份規則 | 去掉 `tradingMode`（欄位留在資料表上，沒有人讀） |
+| `TradingStrategyDomain` · `TradingStrategy` | 一份規則 | 去掉 `tradingMode`；欄位由 `retiredColumns` 清掉 |
 | `StrategyBotDomain` · `StrategyBot` | 一台機器人 | 去掉 `tradingMode` 與 `PositionPlanLeverage`；建議部位的槓桿改由 `SpotOnlyReplayDomain` 擋 |
 | `StrategyBotApplication` | 建立／修改機器人 | **不再為了讀交易模式而多取一次交易策略**——擁有權那一關照舊，少掉的只是那個欄位 |
 | `TradingStrategyBacktestApplication` | 重演一份交易策略 | 不再把交易策略的交易模式灌進請求 |
@@ -191,12 +192,14 @@ flowchart TD
     由那一刀決定它們怎麼被讀，而不是被拒絕。
   - **`PositionDirectionVo` 只剩一個取值。** 保留是因為交易明細的輸出形狀不該為了這一刀而改。
     它是一個「現在只有一種、日後會有第二種」的列舉，不是壞味道。
-  - ~~**資料表上留著兩個沒有人讀的欄位**，刻意不寫 migration。~~
-    **這個判斷是錯的，已修正。** 它的前提是「清掉欄位需要一支會動到資料的 migration」——
-    而這個 repo 有 `retiredColumns`：一份宣告式、冪等的清單，drop 一個沒有人讀的欄位
-    不會碰到任何一台正在跑的機器人。它自己的註解早就寫下了留著的代價：
+  - **兩個沒有人讀的欄位：設計期說留著，實作期改成清掉。**
+    原本的判斷建立在一個錯的前提上——「清掉欄位需要一支會動到資料的 migration」。
+    這個 repo 有 `retiredColumns`：一份宣告式、冪等的清單，drop 一個沒有人讀的欄位
+    不會碰到任何一台正在跑的機器人，也不需要有人去改自己存下的東西。
+    它自己的註解早就寫下了留著的代價：
     「一個讀到 `trading_mode` 還在的人，有充分理由相信一份交易策略仍然記得它。」
-    兩個欄位已加入該清單。
+    兩欄記的又都是預設值（四份交易策略全是 `spot`、五台機器人全是一倍），
+    所以清掉不會拿走合約重演那一刀日後要用的任何資訊。**兩個欄位已加入該清單。**
 
 ---
 
@@ -215,7 +218,7 @@ flowchart TD
 | US-02 宣告多空反手／槓桿做多／只做空／認不得的詞被整份拒絕 | `SpotOnlyReplayDomain` + `BacktestValidationFailure(BacktestTradingModeField, …)` |
 | US-02 建立交易策略時沒有交易模式可填 | `TradingStrategyWriteDto`／`TradingStrategyRequest`（欄位移除） |
 | US-02 建立交易策略時送來交易模式被整份拒絕 | `SpotOnlyReplayDomain` + `ErrTradingStrategyValidation` |
-| US-02 這一刀之前存下的交易策略照舊跑得動 | `TradingStrategy`（欄位留在表上、沒有人讀） |
+| US-02 這一刀之前存下的交易策略照舊跑得動 | `TradingStrategy`（列不動，欄位交給 `SchemaMigrator` 清） |
 | US-03 不提槓桿的重演跑得完 · 成績單沒有強平那一格 | `BacktestSimulationDomain.ToDto` + `BacktestSummaryDto`（欄位移除） |
 | US-03 槓桿倍數填一／填零等於沒有借錢 | `SpotOnlyReplayDomain`（零與一放行） |
 | US-03 槓桿倍數大於一被整份拒絕 | `SpotOnlyReplayDomain` |
@@ -230,7 +233,7 @@ flowchart TD
 | US-04 建議部位不再印槓桿與名目 | `PositionPlanDto`（欄位移除）+ `StrategyBotMessageDomain` |
 | US-04 建議部位的止損在參考價下方 | `PositionPlanDomain.PlanFor`（做空那一半移除） |
 | US-04 建立機器人時送來大於一的槓桿被整台拒絕 | `SpotOnlyReplayDomain` + `ErrStrategyBotValidation` |
-| US-04 這一刀之前建立的機器人照舊跑 | `StrategyBot`（欄位留在表上、沒有人讀） |
+| US-04 這一刀之前建立的機器人照舊跑 | `StrategyBot`（列不動，欄位交給 `SchemaMigrator` 清） |
 | US-05 助手說不出交易模式與槓桿 | `TradingStrategyWriteAssistantArguments` · `TradingStrategyBacktestAssistantQuery` · `ClaudeAssistantProxy`（工具目錄與說明移除） |
 | US-06 合約追蹤名單／行情／背景抓取原封不動 | **無元件**——這一刀不碰合約那條線的任何檔案 |
 
@@ -251,8 +254,9 @@ flowchart TD
   每一步都讓編譯器指出下一處；編譯器沉默即代表這一層乾淨。
 
 - **五台正在跑的機器人。** 它們的建議部位都記著槓桿一倍。
-  這一刀不寫 migration、不碰資料，`AutoMigrate` 也不會刪欄位，所以它們讀得動、跑得動。
-  **驗收方式**：訊息逐字比對這一刀前後。
+  沒有一列被改寫，欄位本身被 `retiredColumns` 清掉，而那一欄記的正是「等於沒填」，
+  所以它們讀得動、跑得動，建議的每一個數字逐格相同。
+  **驗收方式**：訊息逐行比對這一刀前後——唯一該不同的是「保證金」改稱「開倉金額」。
 
 ### Open decisions (for implementation)
 
