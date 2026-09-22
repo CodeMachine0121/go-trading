@@ -82,10 +82,20 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 		return contractKCandles, nil
 	}
 
-	markPricesByOpenTime, markError := binanceContractMarketDataProxy.fetchMarkPrices(
-		executionContext, window)
+	markRows, markError := binanceContractMarketDataProxy.fetchRows(
+		executionContext, binanceContractMarketDataProxy.markPriceUrl, window)
 	if markError != nil {
 		return nil, markError
+	}
+
+	// Keyed by open time, which is the only thing the two answers have in common.
+	markPricesByOpenTime := make(map[int64]markPriceFigures, len(markRows))
+	for _, markRow := range markRows {
+		markPrice, convertError := markRow.kLine.toMarkPriceFigures()
+		if convertError != nil {
+			return nil, convertError
+		}
+		markPricesByOpenTime[markRow.openTime.UnixMilli()] = markPrice
 	}
 
 	for index, contractKCandle := range contractKCandles {
@@ -101,29 +111,6 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	}
 
 	return contractKCandles, nil
-}
-
-// fetchMarkPrices asks the second address and keys the answer by open time, which is
-// the only thing the two answers have in common.
-func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchMarkPrices(
-	executionContext context.Context, window vo.KCandleFetchWindowVo,
-) (map[int64]markPriceFigures, error) {
-	markRows, fetchError := binanceContractMarketDataProxy.fetchRows(
-		executionContext, binanceContractMarketDataProxy.markPriceUrl, window)
-	if fetchError != nil {
-		return nil, fetchError
-	}
-
-	markPricesByOpenTime := make(map[int64]markPriceFigures, len(markRows))
-	for _, markRow := range markRows {
-		markPrice, convertError := markRow.kLine.toMarkPriceFigures()
-		if convertError != nil {
-			return nil, convertError
-		}
-		markPricesByOpenTime[markRow.openTime.UnixMilli()] = markPrice
-	}
-
-	return markPricesByOpenTime, nil
 }
 
 // fetchRows walks one address across the whole window, page by page, and hands back
@@ -157,6 +144,12 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
 
 // fetchPage asks one address once, keeping only the rows that actually fall inside
 // the stretch it was asked for.
+//
+// **It has one caller and stays a method of its own because of what it encloses: one
+// answer's body, from the moment it arrives to the moment it is let go.** Folded back
+// into the loop above, the deferred close would not run until every page had been
+// fetched — so a stretch of years would hold a thousand answer bodies open at once,
+// and each of the four ways out of here would have to remember to close by hand.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 	executionContext context.Context,
 	address string,
