@@ -36,8 +36,8 @@ func TestNewSignalDomainCarriesTheSignalItWasGiven(t *testing.T) {
 // The three words a signal answers to, and what an unrecognised one comes out as.
 //
 // They live on the signal rather than on the message that prints them because two
-// readers need them now: the message's source lines, and the trading mode working out
-// what act to name in a conclusion. A copy in each is a copy that can drift.
+// readers need them now: the message's source lines, and the headline working out what
+// act to name in a conclusion. A copy in each is a copy that can drift.
 func TestSignalDomainInWords(t *testing.T) {
 	testCases := []struct {
 		signal       vo.SignalVo

@@ -61,11 +61,11 @@ type tradingStrategySignalSourceAssistantArgument struct {
 // on one path and not the other. Which trading strategy is meant is the identifier,
 // and a zero one means none yet.
 type tradingStrategyWriteAssistantArguments struct {
-	TradingStrategyID uint   `json:"tradingStrategyId"`
-	Name              string `json:"name"`
-	SignalSources []tradingStrategySignalSourceAssistantArgument `json:"signalSources"`
-	BuyCondition  tradingStrategyConditionAssistantArgument      `json:"buyCondition"`
-	SellCondition tradingStrategyConditionAssistantArgument      `json:"sellCondition"`
+	TradingStrategyID uint                                           `json:"tradingStrategyId"`
+	Name              string                                         `json:"name"`
+	SignalSources     []tradingStrategySignalSourceAssistantArgument `json:"signalSources"`
+	BuyCondition      tradingStrategyConditionAssistantArgument      `json:"buyCondition"`
+	SellCondition     tradingStrategyConditionAssistantArgument      `json:"sellCondition"`
 }
 
 // ToWriteDto turns what the assistant declared into the shape the domain judges,

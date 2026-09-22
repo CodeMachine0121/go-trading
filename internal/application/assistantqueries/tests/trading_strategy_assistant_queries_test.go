@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
@@ -391,4 +390,3 @@ func TestTradingStrategyWritingAssistantQueriesOfferNoTradingMode(t *testing.T) 
 		assert.NotContains(t, schema, "leveragedLong")
 	}
 }
-

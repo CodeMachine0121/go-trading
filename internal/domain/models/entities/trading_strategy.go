@@ -30,8 +30,8 @@ type TradingStrategy struct {
 	// list of columns a rewrite may touch, so "a trading strategy cannot change
 	// hands" is something the write path cannot express rather than something it
 	// remembers not to do.
-	OwnerID uint   `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
-	Name    string `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
+	OwnerID   uint      `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
+	Name      string    `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
 	CreatedAt time.Time `gorm:"type:timestamptz;not null"`
 	UpdatedAt time.Time `gorm:"type:timestamptz;not null"`
 

@@ -11,8 +11,8 @@ import (
 // PositionPlanDomain is what a bot suggests putting down, and where it suggests
 // getting out — plus every rule about the four figures that decide it.
 //
-// It exists because the four multiplications behind those numbers are the same four
-// every round, against the same unchanged settings, with only the price moving. Its
+// It exists because the multiplications behind those numbers are the same ones every
+// round, against the same unchanged settings, with only the price moving. Its
 // owner was doing them on a phone while doing something else, and the round they got
 // wrong is the one that costs money.
 //

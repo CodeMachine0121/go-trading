@@ -178,7 +178,7 @@ func TestBacktestTransactionCostsMaximumStakeLeavesRoomForTheEntryCharge(t *test
 			assert.Equal(t, testCase.expectedMaximumStake,
 				transactionCosts.MaximumStakeFrom(
 					decimal.RequireFromString(testCase.availableCash),
-					).String())
+				).String())
 		})
 	}
 }

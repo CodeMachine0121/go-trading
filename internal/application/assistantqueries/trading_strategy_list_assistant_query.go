@@ -42,8 +42,8 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Argu
 // tradingStrategyDigest is a trading strategy as it appears in a list: enough to pick
 // one by, and enough to see which ones cannot be replayed, without the trees.
 type tradingStrategyDigest struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
+	ID           uint     `json:"id"`
+	Name         string   `json:"name"`
 	SourceLabels []string `json:"sourceLabels"`
 	// AggregationIntervals is every coarseness this one's sources read, in source
 	// order. More than one distinct value means it cannot be replayed — saying so

@@ -42,11 +42,11 @@ func (signalDomain SignalDomain) Value() vo.SignalVo {
 
 // InWords is this opinion as a person reads it.
 //
-// It stays the signal's own vocabulary whichever mode is reading. What somebody has
-// to go and do about one is the trading mode's business — a sell asks one account to
-// open a position and another to close one — and rewriting these words to match that
-// would put them in the strategy scripts' mouths, leaving a reader unable to work
-// back from the conclusion to what produced it.
+// It stays the signal's own vocabulary. What somebody has to go and do about one is a
+// separate question — HeadlineVerb answers it, because a spot sell reaches a reader
+// just as often while they are holding nothing — and rewriting these words to match
+// the act would put them in the strategy scripts' mouths, leaving a reader unable to
+// work back from the conclusion to what produced it.
 //
 // An unrecognised value is written out as it stands rather than replaced with a
 // guess: this is the last place to quietly turn something the system did not

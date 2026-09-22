@@ -99,7 +99,7 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// deciding whether to act; the evidence is for whoever then wants to check.
 	lines = append(lines, strategyBotMessageDomain.positionPlanLines()...)
 
-	// Always the signals, whichever mode asked. These lines are the strategy scripts'
+	// Always the signals, whatever the headline concluded. These lines are the scripts'
 	// own testimony, and a script only ever says buy, sell or hold — rewriting them as
 	// 做多／做空 would put words in their mouths and leave the reader unable to work
 	// back from the conclusion to what produced it, which is the only reason these

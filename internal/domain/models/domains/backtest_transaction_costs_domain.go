@@ -153,8 +153,8 @@ func (backtestTransactionCostsDomain BacktestTransactionCostsDomain) EntryCostFo
 // arrive from outside this system, and one that came through negative would otherwise
 // turn a cost into income — an error that makes a report card better and never fails.
 func (backtestTransactionCostsDomain BacktestTransactionCostsDomain) ExitCostFor(
-	tradedNotional decimal.Decimal,
+	moneyChangingHands decimal.Decimal,
 ) decimal.Decimal {
-	return tradedNotional.Mul(backtestTransactionCostsDomain.exitCostPercentage).
+	return moneyChangingHands.Mul(backtestTransactionCostsDomain.exitCostPercentage).
 		Div(oneHundredPercent).Abs()
 }
