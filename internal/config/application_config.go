@@ -483,6 +483,10 @@ func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketR
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
 			},
+			// Taiwan is followed from a roster: every watched stock, whether or not
+			// anybody is looking. Crypto is followed by whoever opens a chart, which
+			// is the zero value and therefore says itself.
+			FollowsFixedRoster:         true,
 			SimultaneousChannelCeiling: taiwanStockConfig.SimultaneousChannelCeiling,
 			SymbolsPerLiveChannel:      taiwanStockConfig.SymbolsPerLiveChannel,
 		},

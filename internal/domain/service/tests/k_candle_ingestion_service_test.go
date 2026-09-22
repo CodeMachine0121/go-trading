@@ -128,6 +128,7 @@ func ingestionMarketCatalog() domains.MarketCatalogDomain {
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
 			},
+			FollowsFixedRoster:         true,
 			SimultaneousChannelCeiling: 1,
 			SymbolsPerLiveChannel:      5,
 		},

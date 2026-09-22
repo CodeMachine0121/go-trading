@@ -118,19 +118,19 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 
 	follow, isFollowing := kCandleFollowService.follows[symbol]
 	if !isFollowing {
-		if marketDomain.HasFollowCeiling() {
-			// This market hands its live places out from a roster. A viewer arriving
-			// for a symbol that holds none is told so rather than left watching a
-			// picture that looks live and is not — and rather than being given a place
-			// that would put the market over what its source allows.
+		if marketDomain.FollowsFixedRoster() {
+			// This market is followed from a roster. A viewer arriving for a symbol
+			// that is not on it is told so rather than left watching a picture that
+			// looks live and is not — and rather than being given a follow the roster
+			// never asked for.
 			kCandleFollowService.mutex.Unlock()
 
 			return kCandleFollowService.noLivePlaceUpdates(
 				executionContext, symbol, marketDomain), nil
 		}
 
-		// A market with no ceiling puts one symbol on a channel, so the channel a
-		// viewer starts carries exactly what they came for.
+		// A market followed by whoever looks puts one symbol on a channel, so the
+		// channel a viewer starts carries exactly what they came for.
 		follow = newKCandleFollowSymbol(symbol, marketDomain.Value(), false,
 			domains.NewViewerUpdateThrottleDomain(
 				kCandleFollowService.updateIntervalCeiling,

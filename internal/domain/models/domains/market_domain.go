@@ -231,15 +231,31 @@ func (marketDomain MarketDomain) SymbolsPerLiveChannel() int {
 }
 
 // HasFollowCeiling reports a market that limits how many of its symbols may be
-// followed live at once, and therefore hands its places out from a roster rather
-// than to whoever looks first.
+// followed live at once.
 //
-// It is asked separately from whether the market closes, because the two are
-// different facts that happen to coincide today. A venue could publish round the
-// clock and still cap how many feeds one plan may open, and reading one as the other
-// would then hand out places nobody was allowed to take.
+// That is **all** it reports. It used to double as "and therefore follows a roster",
+// which held only while the one market with a ceiling was also the one followed from
+// a roster. Those parted company the moment a Taiwan feed arrived without a
+// subscription limit: still followed from a roster, no longer capped. Whether a
+// market is followed from a roster is FollowsFixedRoster's to answer.
+//
+// It is also asked separately from whether the market closes, because a venue could
+// publish round the clock and still cap how many feeds one plan may open.
 func (marketDomain MarketDomain) HasFollowCeiling() bool {
 	return marketDomain.rules.SimultaneousChannelCeiling > 0
+}
+
+// FollowsFixedRoster reports a market the system follows from a roster it keeps —
+// every watched symbol, whether or not anybody is looking — rather than one whose
+// follows begin when somebody opens a chart.
+//
+// This is the question that decides whether a symbol nobody asked for is being
+// followed, and whether a viewer arriving for one that is not on the roster is told
+// so. Asking the ceiling instead would mean a market that lifts its subscription
+// limit silently stops following anything until somebody looks, and starts promising
+// live updates for symbols that are not watched at all.
+func (marketDomain MarketDomain) FollowsFixedRoster() bool {
+	return marketDomain.rules.FollowsFixedRoster
 }
 
 // oneCalendarDay is the length of a market's own day, for a market that has no local
