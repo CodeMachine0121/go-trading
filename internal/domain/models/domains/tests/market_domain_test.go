@@ -16,7 +16,7 @@ import (
 var taipeiLocation = time.FixedZone("Asia/Taipei", 8*60*60)
 
 // taiwanStockRules are the rules the requirements name: 09:00 to 13:30 Taipei time,
-// Monday to Friday, five symbols followed live at once.
+// Monday to Friday, followed from a roster, five symbols on one line.
 func taiwanStockRules() vo.MarketRulesVo {
 	return vo.MarketRulesVo{
 		TradingSession: vo.TradingSessionVo{
@@ -27,6 +27,7 @@ func taiwanStockRules() vo.MarketRulesVo {
 				time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 			},
 		},
+		FollowsFixedRoster:         true,
 		SimultaneousChannelCeiling: 1,
 		SymbolsPerLiveChannel:      5,
 	}
@@ -619,4 +620,46 @@ func TestCountingACenturyIsStillAnswered(t *testing.T) {
 		time.Minute)
 
 	assert.Positive(t, bucketCount)
+}
+
+// A market says for itself whether the system follows it from a roster or waits for
+// somebody to look. Reading that off the subscription cap held only while the one
+// capped market was also the one rostered, and this is the pair coming apart.
+func TestAMarketSaysWhetherItIsFollowedFromARoster(t *testing.T) {
+	testCases := []struct {
+		name               string
+		rules              vo.MarketRulesVo
+		followsFixedRoster bool
+		hasFollowCeiling   bool
+	}{
+		{
+			name:               "rostered and capped",
+			rules:              vo.MarketRulesVo{FollowsFixedRoster: true, SimultaneousChannelCeiling: 1},
+			followsFixedRoster: true,
+			hasFollowCeiling:   true,
+		},
+		{
+			name:               "rostered with no cap at all",
+			rules:              vo.MarketRulesVo{FollowsFixedRoster: true},
+			followsFixedRoster: true,
+			hasFollowCeiling:   false,
+		},
+		{
+			name:               "followed by whoever looks",
+			rules:              vo.MarketRulesVo{},
+			followsFixedRoster: false,
+			hasFollowCeiling:   false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			marketDomain := domains.NewMarketCatalogDomain(
+				map[vo.MarketVo]vo.MarketRulesVo{vo.MarketTaiwanStock: testCase.rules}).
+				MarketOf(string(vo.MarketTaiwanStock))
+
+			assert.Equal(t, testCase.followsFixedRoster, marketDomain.FollowsFixedRoster())
+			assert.Equal(t, testCase.hasFollowCeiling, marketDomain.HasFollowCeiling())
+		})
+	}
 }

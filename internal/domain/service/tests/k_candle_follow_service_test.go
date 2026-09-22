@@ -83,6 +83,7 @@ func followMarketCatalog() domains.MarketCatalogDomain {
 			},
 			// One channel carrying two symbols: the ceiling of two these tests were
 			// written against, said the way a plan says it.
+			FollowsFixedRoster:         true,
 			SimultaneousChannelCeiling: 1,
 			SymbolsPerLiveChannel:      2,
 		},
@@ -696,6 +697,48 @@ type taiwanFollowTestBed struct {
 func newTaiwanFollowTestBed(t *testing.T, currentTime time.Time) *taiwanFollowTestBed {
 	t.Helper()
 
+	return newTaiwanFollowTestBedWithCatalog(t, currentTime, followMarketCatalog())
+}
+
+// uncappedFollowMarketCatalog is the same Taiwan session followed from a roster, but
+// with nothing capping how many of it may be followed at once — the shape a venue
+// takes when its quotes are asked for rather than subscribed to.
+//
+// It exists because the capped catalogue above cannot tell two questions apart:
+// there, "is this market rostered" and "is this market capped" have the same answer,
+// so a follow that asked the wrong one would pass every test. This is the catalogue
+// where they differ.
+func uncappedFollowMarketCatalog() domains.MarketCatalogDomain {
+	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+		vo.MarketCrypto: {},
+		vo.MarketTaiwanStock: {
+			TradingSession: vo.TradingSessionVo{
+				Location:   time.FixedZone("Asia/Taipei", 8*60*60),
+				DailyStart: 9 * time.Hour,
+				DailyEnd:   13*time.Hour + 30*time.Minute,
+				Weekdays: []time.Weekday{
+					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
+				},
+			},
+			FollowsFixedRoster:    true,
+			SymbolsPerLiveChannel: 25,
+		},
+	})
+}
+
+func newUncappedTaiwanFollowTestBed(
+	t *testing.T, currentTime time.Time,
+) *taiwanFollowTestBed {
+	t.Helper()
+
+	return newTaiwanFollowTestBedWithCatalog(t, currentTime, uncappedFollowMarketCatalog())
+}
+
+func newTaiwanFollowTestBedWithCatalog(
+	t *testing.T, currentTime time.Time, marketCatalogDomain domains.MarketCatalogDomain,
+) *taiwanFollowTestBed {
+	t.Helper()
+
 	mockController := gomock.NewController(t)
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
@@ -726,7 +769,7 @@ func newTaiwanFollowTestBed(t *testing.T, currentTime time.Time) *taiwanFollowTe
 
 	testBed.service = service.NewKCandleFollowService(
 		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
-		followMarketCatalog(), time.Nanosecond, time.Hour, time.Hour,
+		marketCatalogDomain, time.Nanosecond, time.Hour, time.Hour,
 	)
 	t.Cleanup(testBed.service.Stop)
 
@@ -1707,4 +1750,37 @@ func mustChannelSymbols(
 	require.Equal(t, expectedSymbols, channel.Symbols)
 
 	return feed
+}
+
+// With nothing capping it, every watched stock is followed — which is the whole point
+// of a source that stopped selling subscriptions by the symbol.
+func TestAnUncappedRosteredMarketFollowsEveryWatchedSymbol(t *testing.T) {
+	testBed := newUncappedTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("1101", "1301", "2317", "2330", "2454", "2603", "2609", "2881")
+
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	assert.Equal(t, 8, testBed.service.FollowedSymbolCount())
+}
+
+// A viewer arriving for a stock nobody put on the watchlist is told there are no live
+// updates, even though nothing caps this market.
+//
+// This is the case the capped test bed cannot express. There, a follow deciding by
+// the cap and a follow deciding by the roster behave identically — so a viewer branch
+// that read the cap would sail through every other test in this file and then, in
+// production, hand somebody a chart that claims to be live and never moves.
+func TestAViewerOfAnUnwatchedSymbolIsToldSoEvenWhenNothingCapsTheMarket(t *testing.T) {
+	testBed := newUncappedTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2603")
+
+	require.NoError(t, watchError)
+	update := firstUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusUnavailable, update.Status)
+	assert.Equal(t, "2603", update.Symbol)
+	// Still two: watching an unwatched symbol must not start following it.
+	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
 }

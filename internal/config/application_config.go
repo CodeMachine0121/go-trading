@@ -125,8 +125,19 @@ type TaiwanStockConfig struct {
 	HistoricalCandlesUrl string
 	// TickerUrl is where a code is confirmed to exist before it is watched.
 	TickerUrl string
-	// StreamUrl is where the live feed is opened.
-	StreamUrl string
+	// RealtimeQuoteUrl is where the exchange is asked what the watched stocks are
+	// doing right now. It is a different venue from the three above — history comes
+	// from the market data plan, live comes from the exchange itself — which is why
+	// it has its own pace below rather than sharing theirs.
+	RealtimeQuoteUrl string
+	// RealtimeQuoteInterval is how often that question is asked, and the whole of the
+	// pace kept at the exchange — there is deliberately no separate allowance beside
+	// it, because an allowance and an interval are two numbers that can disagree.
+	//
+	// The exchange refreshes roughly every five seconds, so asking faster buys nothing
+	// and risks being turned away; asking much slower shows up directly as a staler
+	// chart. What it costs is one request per live channel per interval.
+	RealtimeQuoteInterval time.Duration
 	// TimeZone is the zone this market states its hours in. "Nine o'clock" is a fact
 	// about Taipei, and the moment it names universally is not the same one all year
 	// in markets that shift with daylight saving.
@@ -135,15 +146,17 @@ type TaiwanStockConfig struct {
 	// ends.
 	SessionStart time.Duration
 	SessionEnd   time.Duration
-	// SimultaneousChannelCeiling is how many live channels this market's plan allows
-	// open at the same time, and SymbolsPerLiveChannel how many trading symbols one
-	// of them may carry. The plans are sold in exactly these two numbers, and how
-	// many symbols may be followed at once is worked out from them rather than set
-	// beside them — set beside them, the two could contradict each other and nothing
-	// could tell.
-	SimultaneousChannelCeiling int
-	SymbolsPerLiveChannel      int
-	RequestTimeout             time.Duration
+	// SymbolsPerLiveChannel is how many trading symbols one round of questions
+	// covers. Every symbol is asked for under both of the boards it might be listed
+	// on, so the request carries twice this many entries — which is why it is well
+	// under what the exchange answers in one go rather than equal to it.
+	//
+	// It is no longer a subscription limit: the exchange does not sell them. A roster
+	// longer than this is asked in several rounds, and nothing is left unfollowed.
+	// The old pair of numbers were the market data plan's shape, and that plan no
+	// longer supplies the live feed at all.
+	SymbolsPerLiveChannel int
+	RequestTimeout        time.Duration
 	// RequestsPerMinute is how fast this source is asked. It matters more here than
 	// it does for the crypto venue: this one answers about one local day per request,
 	// so a stretch of years is thousands of them in a row.
@@ -483,8 +496,16 @@ func marketRules(taiwanStockConfig TaiwanStockConfig) map[vo.MarketVo]vo.MarketR
 					time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday,
 				},
 			},
-			SimultaneousChannelCeiling: taiwanStockConfig.SimultaneousChannelCeiling,
-			SymbolsPerLiveChannel:      taiwanStockConfig.SymbolsPerLiveChannel,
+			// Taiwan is followed from a roster: every watched stock, whether or not
+			// anybody is looking. Crypto is followed by whoever opens a chart, which
+			// is the zero value and therefore says itself.
+			//
+			// Nothing caps how many may be followed — the exchange does not sell
+			// subscriptions — so the ceiling is left at the zero value that means "no
+			// ceiling". The rule is kept rather than deleted because a capped market
+			// is a thing venues really do sell, and it costs one unread field.
+			FollowsFixedRoster:    true,
+			SymbolsPerLiveChannel: taiwanStockConfig.SymbolsPerLiveChannel,
 		},
 	}
 }
@@ -498,15 +519,15 @@ func loadTaiwanStockConfig() TaiwanStockConfig {
 			"https://api.fugle.tw/marketdata/v1.0/stock/historical/candles"),
 		TickerUrl: stringWithDefault("TAIWAN_STOCK_TICKER_URL",
 			"https://api.fugle.tw/marketdata/v1.0/stock/intraday/ticker"),
-		StreamUrl: stringWithDefault("TAIWAN_STOCK_STREAM_URL",
-			"wss://api.fugle.tw/marketdata/v1.0/stock/streaming"),
+		RealtimeQuoteUrl: stringWithDefault("TAIWAN_STOCK_REALTIME_QUOTE_URL",
+			"https://mis.twse.com.tw/stock/api/getStockInfo.jsp"),
+		RealtimeQuoteInterval: time.Duration(positiveIntWithDefault(
+			"TAIWAN_STOCK_REALTIME_QUOTE_INTERVAL_SECONDS", 3)) * time.Second,
 		TimeZone:     timeZoneWithDefault("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipei"),
 		SessionStart: timeOfDayWithDefault("TAIWAN_STOCK_SESSION_START", 9*time.Hour),
 		SessionEnd:   timeOfDayWithDefault("TAIWAN_STOCK_SESSION_END", 13*time.Hour+30*time.Minute),
-		SimultaneousChannelCeiling: positiveIntWithDefault(
-			"TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING", 1),
 		SymbolsPerLiveChannel: positiveIntWithDefault(
-			"TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL", 5),
+			"TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL", 25),
 		RequestTimeout: time.Duration(
 			positiveIntWithDefault("TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 		RequestsPerMinute: positiveIntWithDefault("TAIWAN_STOCK_REQUESTS_PER_MINUTE", 55),

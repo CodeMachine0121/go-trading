@@ -117,18 +117,18 @@ curl localhost:8080/health
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
 | `LIVE_FEED_QUIET_TIMEOUT_SECONDS` | `30` | 多久沒收到任何東西就當成跟不動。寧可誤判：白重連一次的代價，遠低於讓人盯著停格的圖 |
 | `LIVE_FEED_MAX_RETRY_DELAY_SECONDS` | `30` | 重連間隔逐次加倍的上限；系統不放棄重試 |
-| `TAIWAN_STOCK_API_KEY` | 空 | 台股行情來源的金鑰。沒設時**只有台股**抓不到、加不進觀察清單；加密貨幣與其餘功能照常 |
+| `TAIWAN_STOCK_API_KEY` | 空 | 台股**歷史**行情來源的金鑰。沒設時台股的 K 線抓不到、也加不進觀察清單；**即時跟盤不受影響**（證交所不需金鑰），加密貨幣與其餘功能照常 |
 | `TAIWAN_STOCK_INTRADAY_CANDLES_URL` | Fugle 盤中 K 線網址 | 台股**今天**的 K 線從這裡拿 |
 | `TAIWAN_STOCK_HISTORICAL_CANDLES_URL` | Fugle 歷史 K 線網址 | 台股**更早的日子**從這裡拿。兩個位址是來源自己分開的，不是我們分的 |
 | `TAIWAN_STOCK_TICKER_URL` | Fugle 個股資訊網址 | 加進觀察清單前確認代號存在的位址 |
-| `TAIWAN_STOCK_STREAM_URL` | Fugle 即時行情網址 | 台股即時跟盤的位址 |
+| `TAIWAN_STOCK_REALTIME_QUOTE_URL` | 證交所即時行情網址 | 台股即時跟盤的位址。**與上面三個不是同一家**：歷史問富果、即時問證交所，免費且不限訂閱檔數 |
+| `TAIWAN_STOCK_REALTIME_QUOTE_INTERVAL_SECONDS` | `3` | 多久向證交所問一次，也是對它的**全部**節奏——刻意沒有另一個每分鐘上限，額度與間隔是兩個會互相矛盾的數字。成本一眼可算：每條通道每個間隔一次請求。來源本身約五秒更新一次，因此即時更新最慢約八秒到畫面——仍遠短於一根 K 線，而每個判斷都發生在 K 線走完之後 |
 | `TAIWAN_STOCK_TIME_ZONE` | `Asia/Taipei` | 台股交易時段說在哪個時區裡。「九點開盤」是一件關於台北的事；認不得的時區會退回預設值，**不會**讓這個市場變成永不收盤 |
 | `TAIWAN_STOCK_SESSION_START` | `09:00` | 台股開盤時間（市場當地時間，`HH:MM`） |
 | `TAIWAN_STOCK_SESSION_END` | `13:30` | 台股收盤時間。當天最後一根 K 線是剛好在此收完的那一根（`13:29`） |
-| `TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING` | `1` | 台股同時開得了幾條即時通道。行情方案的限制，換方案就改。**舊的 `TAIWAN_STOCK_SIMULTANEOUS_FOLLOW_CEILING` 已不再讀取**——它被誤讀成「可以開幾條線」，而方案賣的是「幾條線」與「一條線幾檔」兩個數字；沿用舊名會讓寫著 `5` 的設定安靜地退回預設的 `1 × 5` |
-| `TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL` | `5` | 一條即時通道跟得動幾檔。**同時跟得動的檔數是這兩個數字相乘**，不另外設定 |
+| `TAIWAN_STOCK_SYMBOLS_PER_LIVE_CHANNEL` | `25` | 一輪詢問涵蓋幾檔。**這不再是跟盤上限**——觀察清單上的台股全部都跟得到即時更新，超過就分成數輪問，觀看者看不出被分過批。每檔會用上市與上櫃兩種前綴各問一次（掛牌板別無法由代號推得），所以一次請求實際帶兩倍筆數。**`TAIWAN_STOCK_SIMULTANEOUS_CHANNEL_CEILING` 已不再讀取**——它描述的是行情方案的訂閱限制，而即時行情已不從那裡來 |
 | `TAIWAN_STOCK_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向台股來源請求的逾時 |
-| `TAIWAN_STOCK_REQUESTS_PER_MINUTE` | `55` | 每分鐘最多向 Fugle 打幾次（K 線與代號查詢共用這份額度）。這個來源一天一次請求，長區間就是幾千次 |
+| `TAIWAN_STOCK_REQUESTS_PER_MINUTE` | `55` | 每分鐘最多向 Fugle 打幾次（歷史 K 線與代號查詢共用這份額度，即時不吃它）。這個來源一天一次請求，長區間就是幾千次 |
 | `AUTH_ACCESS_TOKEN_SIGNING_KEY` | 空 | 簽發登入憑證的鑰匙。**沒有預設值也不該有**——有預設值就是所有人共用一把，那樣的憑證誰都能自己偽造。沒設時：`POST /sessions` 與 `POST /sessions/renewal` 回 `503`，`GET /users/me` 一律 `401`（沒有鑰匙就誰的憑證都認不得）；只有 `POST /users` 與 `POST /sessions/revocation` 照常。產生一把：`openssl rand -base64 48` |
 | `AUTH_ACCESS_TOKEN_LIFETIME_MINUTES` | `15` | 一份**登入憑證**能用多久（分鐘）。它仍然不留存、撤不掉，所以這個數字就等於「登出之後那一張還通得過多久」。**舊的 `AUTH_ACCESS_TOKEN_LIFETIME_HOURS` 已不再讀取**——單位換了，沿用舊名會讓寫著 `24` 的設定安靜地從一天變成 24 分鐘 |
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |

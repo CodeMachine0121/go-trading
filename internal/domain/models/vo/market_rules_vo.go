@@ -42,6 +42,16 @@ type TradingSessionVo struct {
 // Immutable, no behavior — MarketDomain is where these become answers.
 type MarketRulesVo struct {
 	TradingSession TradingSessionVo
+	// FollowsFixedRoster is whether this market is followed from a roster the system
+	// keeps — every watched symbol, whether or not anybody is looking — rather than
+	// started by whoever opens a chart.
+	//
+	// It is a fact about how the venue's source is reached, not about any limit it
+	// imposes, which is why it is set rather than worked out from the two numbers
+	// below. Reading it off the ceiling worked only while the one market with a
+	// ceiling was also the one followed from a roster; a source that lifts its
+	// subscription limit does not thereby start needing a viewer.
+	FollowsFixedRoster bool
 	// SimultaneousChannelCeiling is how many live channels this market's plan allows
 	// to be open at the same time. Zero means no ceiling.
 	SimultaneousChannelCeiling int

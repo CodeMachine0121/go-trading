@@ -390,7 +390,7 @@ func registerRoutes(
 	// round keeps running, and it is what fills in every candle that closed while
 	// nobody was looking. This path only shortens the wait for whoever is looking.
 	kCandleFollowService := service.NewKCandleFollowService(
-		liveMarketDataProxyFor(applicationConfig),
+		liveMarketDataProxyFor(applicationConfig, venuePacers),
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
@@ -636,7 +636,10 @@ type venuePacers struct {
 	// second contract series added later joins the same budget rather than opening a
 	// second one beside it.
 	cryptoContract marketdata.RequestPacer
-	taiwanStock    marketdata.RequestPacer
+	// taiwanStock is the market data plan's allowance, which the live quotes no longer
+	// spend: they come from the exchange itself, and its pace is the poll interval
+	// rather than an allowance shared with anybody.
+	taiwanStock marketdata.RequestPacer
 }
 
 func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
@@ -678,15 +681,17 @@ func marketDataProxyFor(
 
 // liveMarketDataProxyFor is where every market's live feed is named.
 func liveMarketDataProxyFor(
-	applicationConfig config.ApplicationConfig,
+	applicationConfig config.ApplicationConfig, venuePacers venuePacers,
 ) domaininterface.ILiveMarketDataProxy {
 	return marketdata.NewMarketRoutedLiveMarketDataProxy(
 		map[vo.MarketVo]domaininterface.ILiveMarketDataProxy{
 			vo.MarketCrypto: marketdata.NewBinanceLiveMarketDataProxy(
 				applicationConfig.LiveFollow.MarketDataStreamUrl),
-			vo.MarketTaiwanStock: marketdata.NewFugleLiveMarketDataProxy(
-				applicationConfig.TaiwanStock.StreamUrl,
-				applicationConfig.TaiwanStock.ApiKey,
+			vo.MarketTaiwanStock: marketdata.NewTwseRealtimeLiveMarketDataProxy(
+				applicationConfig.TaiwanStock.RealtimeQuoteUrl,
+				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
+					MarketOf(string(vo.MarketTaiwanStock)),
+				applicationConfig.TaiwanStock.RealtimeQuoteInterval,
 				applicationConfig.TaiwanStock.RequestTimeout),
 		})
 }

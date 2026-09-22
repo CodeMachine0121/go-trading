@@ -9,8 +9,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// LiveFollowRosterDomain is which symbols hold the live places of every market that
-// limits how many may be followed at once.
+// LiveFollowRosterDomain is which symbols the system should be following live, for
+// every market that is followed from a roster rather than by whoever looks.
 //
 // It exists because two very different questions have the same answer: what the
 // system should be following right now, and what the console should say about a
@@ -19,10 +19,15 @@ import (
 // was — and either way nobody would find out until they were watching a picture that
 // did not move.
 //
-// A market with no ceiling holds no places here. Its follows are started by whoever
-// looks at them, so there is no roster to be on; that is the difference between "no
-// place for you" and "nobody has asked yet", and it is why the two are asked about
-// separately.
+// A market whose follows begin when somebody opens a chart holds nothing here —
+// there is no roster to be on; that is the difference between "no place for you" and
+// "nobody has asked yet", and it is why the two are asked about separately.
+//
+// A rostered market may or may not cap how many places it hands out. Capped, the
+// earliest-registered watched symbols take them. Uncapped, every watched symbol is
+// on the roster — which is not the same as the roster being empty, and reading it as
+// such would stop a market being followed at the exact moment its source stopped
+// limiting it.
 type LiveFollowRosterDomain struct {
 	// The market each holder belongs to is kept alongside, because whoever acts on a
 	// place needs to know which venue to open a feed against — and looking it up
@@ -34,8 +39,9 @@ type LiveFollowRosterDomain struct {
 	symbolsPerChannelByMarket map[vo.MarketVo]int
 }
 
-// NewLiveFollowRosterDomain hands each limited market's places to its
-// earliest-registered watched symbols, in the order the watchlist arrives in.
+// NewLiveFollowRosterDomain puts every watched symbol of a rostered market on the
+// roster, in the order the watchlist arrives in — and where that market caps how
+// many may be followed at once, stops at the cap.
 //
 // A market that is shut holds none. There is nothing to follow, and holding places
 // open through the night would spend a limit that the morning needs.
@@ -50,28 +56,35 @@ func NewLiveFollowRosterDomain(
 
 	for _, watchedSymbol := range watchedSymbols {
 		marketDomain := marketCatalogDomain.MarketOf(watchedSymbol.Market)
+
+		// Nothing is rostered for a market whose follows begin when somebody looks.
+		// There is no place to give, and giving one would follow a symbol on behalf
+		// of a viewer who never arrived.
+		if !marketDomain.FollowsFixedRoster() {
+			continue
+		}
+
 		if !marketDomain.IsOpen(currentTime) {
 			continue
 		}
 
-		remaining, hasCounted := placesLeft[marketDomain.Value()]
-		if !hasCounted {
-			remaining = marketDomain.SimultaneousFollowCeiling()
-		}
+		if marketDomain.HasFollowCeiling() {
+			remaining, hasCounted := placesLeft[marketDomain.Value()]
+			if !hasCounted {
+				remaining = marketDomain.SimultaneousFollowCeiling()
+			}
 
-		// A market with no ceiling starts with no places, which is the same answer
-		// arrived at by the same route as a market that has run out of them: there is
-		// nothing here to give this symbol. Saying it twice — once as "no ceiling" and
-		// once as "none left" — would be two spellings of one rule.
-		if remaining <= 0 {
-			placesLeft[marketDomain.Value()] = 0
+			if remaining <= 0 {
+				placesLeft[marketDomain.Value()] = 0
 
-			continue
+				continue
+			}
+
+			placesLeft[marketDomain.Value()] = remaining - 1
 		}
 
 		marketsBySymbol[watchedSymbol.Symbol] = marketDomain.Value()
 		symbolsPerChannelByMarket[marketDomain.Value()] = marketDomain.SymbolsPerLiveChannel()
-		placesLeft[marketDomain.Value()] = remaining - 1
 	}
 
 	return LiveFollowRosterDomain{
@@ -139,14 +152,19 @@ func (liveFollowRosterDomain LiveFollowRosterDomain) Channels() []vo.LiveFollowC
 // HasLiveUpdates reports whether a symbol of this market can be followed live right
 // now, which is the question a console asks before somebody picks it.
 //
-// A market with no ceiling always can: nothing is following it until somebody looks,
-// but looking is all it takes. A limited market can only for the symbols holding its
-// places — and telling somebody otherwise would hand them a chart that looks live and
-// never moves.
+// A market followed by whoever looks always can: nothing is following it until
+// somebody does, but looking is all it takes. A rostered market can only for the
+// symbols on its roster — and telling somebody otherwise would hand them a chart that
+// looks live and never moves.
+//
+// It asks whether the market is rostered rather than whether it is capped, because
+// an uncapped rostered market still follows only what is watched. Reading the cap
+// here would promise live updates for every symbol of that market, including the ones
+// nobody put on the watchlist and nothing is following.
 func (liveFollowRosterDomain LiveFollowRosterDomain) HasLiveUpdates(
 	symbol string, marketDomain MarketDomain,
 ) bool {
-	if !marketDomain.HasFollowCeiling() {
+	if !marketDomain.FollowsFixedRoster() {
 		return true
 	}
 
