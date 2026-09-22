@@ -151,16 +151,14 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 	// perfectly ordinary price whichever side it was meant for, so the side is never
 	// left for the reader to work out.
 	if positionPlan.HasStopLoss {
-		lines = append(lines, fmt.Sprintf("　・止損 %s（%s，虧 %s）",
+		lines = append(lines, fmt.Sprintf("　・止損 %s（往下，虧 %s）",
 			positionPlan.StopLossPrice.String(),
-			exitDirectionInWords(false),
 			positionPlan.LossAtStop.String()))
 	}
 
 	if positionPlan.HasTakeProfit {
-		lines = append(lines, fmt.Sprintf("　・止盈 %s（%s，賺 %s）",
+		lines = append(lines, fmt.Sprintf("　・止盈 %s（往上，賺 %s）",
 			positionPlan.TakeProfitPrice.String(),
-			exitDirectionInWords(true),
 			positionPlan.GainAtTarget.String()))
 	}
 
@@ -174,17 +172,4 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 	}
 
 	return lines
-}
-
-// exitDirectionInWords is which way an exit lies from the reference price.
-//
-// Both exits need it and they need it inverted from one another, which is exactly why
-// it is one function: two copies would let a long's stop and a short's target drift
-// into disagreeing about the same direction.
-func exitDirectionInWords(above bool) string {
-	if above {
-		return "往上"
-	}
-
-	return "往下"
 }

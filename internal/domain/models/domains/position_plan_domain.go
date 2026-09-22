@@ -159,42 +159,31 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 
 	if positionPlanDto.HasStopLoss {
 		// A stop is the price moving against the position, and a suggested position
-		// only ever faces one way, so it sits below the price. Getting this backwards
-		// is the one mistake here that cannot be seen: the wrong figure is still a
-		// plausible price.
-		positionPlanDto.StopLossPrice = movedBy(
-			referencePrice, positionPlanDomain.stopLoss, false)
+		// only ever faces one way, so it is subtracted. Getting this backwards is the
+		// one mistake here that cannot be seen: the wrong figure is still a plausible
+		// price — which is why the side is in the arithmetic rather than in a flag.
+		positionPlanDto.StopLossPrice = referencePrice.Sub(
+			portionOf(referencePrice, positionPlanDomain.stopLoss))
 		positionPlanDto.LossAtStop = portionOf(stake, positionPlanDomain.stopLoss)
 	}
 
 	if positionPlanDto.HasTakeProfit {
 		// And the target is on the other side of the price from the stop, always.
-		positionPlanDto.TakeProfitPrice = movedBy(
-			referencePrice, positionPlanDomain.takeProfit, true)
+		positionPlanDto.TakeProfitPrice = referencePrice.Add(
+			portionOf(referencePrice, positionPlanDomain.takeProfit))
 		positionPlanDto.GainAtTarget = portionOf(stake, positionPlanDomain.takeProfit)
 	}
 
 	return positionPlanDto, true
 }
 
-// movedBy is the price that far away, on the side the caller asked for.
-//
-// Named after the arithmetic rather than after either exit, because it serves both and
-// they lie on opposite sides: a stop is the price moving against the position, a
-// target is it moving in favour. Calling it "moved against" would be right for one
-// caller and a lie to the other.
-func movedBy(
-	price decimal.Decimal, distance decimal.Decimal, upwards bool,
-) decimal.Decimal {
-	moved := portionOf(price, distance)
-	if upwards {
-		return price.Add(moved)
-	}
-
-	return price.Sub(moved)
-}
-
 // portionOf is that percentage of an amount.
+//
+// It is the one piece of arithmetic every exit shares — how far from a price a
+// distance actually is — and which side that lands on is left to whoever is placing
+// it. A version that took the side as well would be a flag whose every caller passes
+// a constant, since a position only ever faces one way; written out, each site says
+// which side it means in the one place a reader will look.
 func portionOf(amount decimal.Decimal, percentage decimal.Decimal) decimal.Decimal {
 	return amount.Mul(percentage).Div(oneHundredPercent)
 }

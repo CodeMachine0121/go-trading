@@ -66,13 +66,13 @@ func (backtestExitLevelsDomain BacktestExitLevelsDomain) PricesFrom(
 	}
 
 	if exitPricesVo.HasStopLoss {
-		exitPricesVo.StopLossPrice = movedBy(
-			entryPrice, backtestExitLevelsDomain.stopLoss, false)
+		exitPricesVo.StopLossPrice = entryPrice.Sub(
+			portionOf(entryPrice, backtestExitLevelsDomain.stopLoss))
 	}
 
 	if exitPricesVo.HasTakeProfit {
-		exitPricesVo.TakeProfitPrice = movedBy(
-			entryPrice, backtestExitLevelsDomain.takeProfit, true)
+		exitPricesVo.TakeProfitPrice = entryPrice.Add(
+			portionOf(entryPrice, backtestExitLevelsDomain.takeProfit))
 	}
 
 	return exitPricesVo
