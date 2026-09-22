@@ -27,7 +27,7 @@ Paths are shortened: `D/` = `internal/domain/models/domains/`, `T/` = `internal/
 |----|--------|------------------------|------|------|------------|------------|--------|
 | AC-7 | 什麼都不宣告就照現貨跑 | 跑完並交出成績單 | `D/spot_only_replay_domain.go:78` | `T/spot_only_replay_domain_test.go` 「nothing declared at all」；`T/backtest_domain_test.go` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-8 | 宣告現貨等於什麼都沒說 | 結果與什麼都不宣告逐格相同 | `D/spot_only_replay_domain.go:80` | `T/spot_only_replay_domain_test.go` 「saying spot out loud」；`C/tests/backtest_controller_test.go` | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-9 | 宣告多空反手被整份拒絕 | 整次拒絕，說出只做現貨，無部分結果 | `D/backtest_domain.go:76` | `T/backtest_domain_test.go` 「any other set of rules is refused」 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-9 | 宣告多空反手被整份拒絕 | 整次拒絕，說出只做現貨，無部分結果 | `D/backtest_domain.go:76`；**兩條重演路徑皆然** | `T/backtest_domain_test.go`「any other set of rules is refused」＋「a trading strategy replay refuses another set of rules in the same words」；`C/tests/trading_strategy_backtest_controller_test.go`「RefusesAnotherSetOfRules」 | asserts-oracle | produces-oracle | ✅ conforms *(fixed)* |
 | AC-10 | 宣告槓桿做多被整份拒絕 | 同上，同一句 | 同上 | 同上（`leveragedLong` 列） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-11 | 宣告只做空被整份拒絕 | 同上，同一句 | 同上 | 同上（`shortOnly` 列） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-12 | 宣告一個認不得的詞同樣被整份拒絕 | 同上，同一句 | 同上 | 同上（`dayTrade` 列）+ `T/spot_only_replay_domain_test.go` 一句話一致性斷言 | asserts-oracle | produces-oracle | ✅ conforms |
@@ -117,14 +117,24 @@ Paths are shortened: `D/` = `internal/domain/models/domains/`, `T/` = `internal/
 - Unclear: 無
 - Orphans: 2（皆良性：一個參數名、兩處說明文字）
 
-### 刻意保留的三項
+### Code review 之後修正的項目
+
+`/code-review` 對這份 diff 跑了一輪，抓到 8 項，其中 2 項是這份稽核**判錯**的：
+
+| 項目 | 原判 | 實況 | 處置 |
+| :--- | :--- | :--- | :--- |
+| **AC-9～AC-12 在「重演一份交易策略」那條路上** | ✅ conforms | **🔴 violation**：那條路的請求沒有宣告 `tradingMode`，所以送來的模式被 Gin **安靜丟棄**，回 200 與一張現貨成績單——正是這一刀存在的理由，從沒人檢查的那一道門進來 | 已補欄位與守門員；新增 domain 與 HTTP 兩層測試，mutation 驗過 |
+| **兩個退役欄位** | 記為「刻意留下的已知債」 | 這個 repo **有** `retiredColumns` 宣告式機制（冪等 drop），而我 ARCH 的理由（「migration 會動到正在跑的機器人」）前提是錯的——沒有人讀那兩欄，drop 不影響任何一台 | 已加入 `retiredColumns` |
+
+其餘 6 項（懸空的 Postman 變數與請求、一段論據已反轉的註解、一個沒人讀的參數、`Leverage` 的文件、「四個呼叫端」的數字）一併修正。
+
+### 刻意保留的兩項
 
 - **AC-15／AC-32（🟡 partial）**：「這一刀之前存下的交易策略／機器人照舊跑得動」。
-  程式碼確實如此——那兩個欄位已不在 entity 上，GORM 既不讀也不寫它們。
+  程式碼確實如此——那兩個欄位已不在 entity 上，而且現在會被 `retiredColumns` 冪等地 drop 掉。
   要**測**它得先造一列帶著舊欄位的資料，而唯一的做法是手寫 SQL 或另立一個測試專用 entity，
   兩者分別違反 `persistence.md`（禁手寫 SQL）與 `testing.md`（禁手寫假物件）。
-  **判斷：不為了補一格綠燈而破規矩**，改以既有的 repository 讀寫測試涵蓋「新列讀得動」，
-  舊列的部分列為已知缺口。
+  **判斷：不為了補一格綠燈而破規矩。**
 
 - **NFR-2（🟠 mis-asserted）**：同上，理由相同。
 

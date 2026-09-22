@@ -35,6 +35,11 @@ type TradingStrategyBacktestRequestDto struct {
 	// run simulates, both optional, zero meaning no such exit.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal
+	// TradingMode is what the caller declared about which rules to trade by, exactly
+	// as they typed it. There is one set of rules left, so nothing is chosen by it —
+	// it is carried only so that a caller asking for a different one is told, rather
+	// than handed a report card of a run they did not ask for.
+	TradingMode string
 	// Leverage is what the caller declared about borrowing. Nothing, zero and one all
 	// describe a position paid for in full, which is the only kind this system
 	// replays; anything above one is carried here only so that it can be refused.
@@ -82,6 +87,7 @@ func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
 		InitialCapital:       requestDto.InitialCapital,
 		PositionSizingMode:   requestDto.PositionSizingMode,
 		PositionSizingValue:  requestDto.PositionSizingValue,
+		TradingMode:          requestDto.TradingMode,
 		StopLossPercentage:   requestDto.StopLossPercentage,
 		TakeProfitPercentage: requestDto.TakeProfitPercentage,
 

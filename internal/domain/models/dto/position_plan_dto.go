@@ -6,24 +6,30 @@ import "github.com/shopspring/decimal"
 // every round, how big a position it is suggesting and where the exits sit.
 //
 // One shape serves three journeys — arriving to be saved, handed back to be read, and
-// carried into a round — because all three are about the same five numbers. Three
-// shapes would drift, and the one that drifted would be the one a round used.
+// carried into a round — because all three are about the same numbers. Three shapes
+// would drift, and the one that drifted would be the one a round used.
 //
-// Every figure is an exact decimal. The leverage and the two distances all multiply
-// into money, so a float would start drifting a price around its tenth digit — and
-// that price is one somebody places an order at.
+// One figure travels inward only; it says so where it is declared.
+//
+// Every figure is an exact decimal. The two distances multiply into money, so a float
+// would start drifting a price around its tenth digit — and that price is one
+// somebody places an order at.
 type PositionPlanSettingsDto struct {
 	// Capital is the money this bot sizes against. It is the switch for the whole
-	// group: without it there is nothing to stake, so the other four do not apply.
+	// group: without it there is nothing to stake, so the others do not apply.
 	Capital decimal.Decimal
 	// SizingMode is how much of that capital one opening stakes, exactly as
 	// declared, and SizingValue the figure that goes with it. The spellings are the
 	// replay's three and not a fourth set.
 	SizingMode  string
 	SizingValue decimal.Decimal
-	// Leverage is what was declared about borrowing. Nothing and one both mean a
-	// position paid for in full, which is the only kind this system suggests; it is
-	// carried only so that anything above one can be refused when the bot is saved.
+	// Leverage is what was declared about borrowing, and it travels **inward only**.
+	//
+	// Saving a bot reads it, to refuse anything above one. Nothing writes it back:
+	// what a bot has is never a loan, so handing a multiplier back out would put a
+	// figure on a plan that has nothing to multiply. A caller that sends one gets it
+	// refused or ignored, and reads back a plan that says nothing about borrowing —
+	// which is the truth about every bot this system stores.
 	Leverage decimal.Decimal
 	// StopLossPercentage and TakeProfitPercentage are how far from the reference
 	// price each exit sits. Either may be left out on its own.

@@ -281,6 +281,30 @@ func TestTradingStrategyBacktestRouterTradesSpot(t *testing.T) {
 	assert.Equal(t, float64(1), summary["positionOpenCount"])
 }
 
+// Naming another set of rules is refused here too.
+//
+// This is the half that can rot in silence: a body that does not declare the field
+// drops it without a word, so the caller gets two hundred and a report card of the
+// run this system *does* perform — which is precisely the outcome the whole slice
+// exists to prevent, arriving through the one door nobody checked.
+func TestTradingStrategyBacktestRouterRefusesAnotherSetOfRules(t *testing.T) {
+	fixture := newTradingStrategyBacktestRouterUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
+		Return(aRoutedTradingStrategy("1h"), nil)
+
+	response := fixture.send("/trading-strategies/11/backtests", `{
+		"symbol":"BTCUSDT",
+		"startTime":"2026-08-29T00:00:00Z",
+		"endTime":"2026-08-29T04:00:00Z",
+		"initialCapital":"10000",
+		"positionSizingMode":"allIn",
+		"tradingMode":"longShort"
+	}`)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, response.Body.String(), "只重演現貨")
+}
+
 // Asking to borrow is refused here in the same words a strategy-script replay refuses
 // it, because both ask the same gate.
 func TestTradingStrategyBacktestRouterRefusesBorrowing(t *testing.T) {

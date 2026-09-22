@@ -122,15 +122,6 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 
 	// What a bot may suggest borrowing is limited by what its rules may borrow. The
 	// two questions were answered in two places until now — a replay refused a spot
-	// strategy handed a multiplier, and saving a bot did not, because a bot names its
-	// rules rather than holding them and so had nothing to ask. The result was a
-	// machine that ran and could not be replayed.
-	//
-	// Asked here rather than inside the position plan because the plan is also built
-	// every round, from settings already stored. Refusing there would stop bots that
-	// were saved before this rule existed — and stopping a machine somebody is using,
-	// to gain consistency, takes away more than it fixes. This is a rule about saving
-	// a bot, which is what this model is.
 	return StrategyBotDomain{
 		id:                     writeDto.ID,
 		ownerID:                writeDto.OwnerID,

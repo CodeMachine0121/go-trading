@@ -12,11 +12,17 @@ import (
 //
 // Which trading strategy is meant comes from the path, never from the body.
 //
-// It carries **no coarseness, no script and no trading mode**. The trading strategy
-// already says all three, so a body with room for them would be a body with two
-// answers and no rule about which one wins.
+// It carries **no coarseness and no script**. The trading strategy already says both,
+// so a body with room for them would be a body with two answers and no rule about
+// which one wins.
 type TradingStrategyBacktestRequest struct {
 	Symbol    string    `json:"symbol"`
+	// TradingMode is carried for the reason Leverage is, and it has to be carried
+	// **here too**: a field this body did not declare would be dropped in silence,
+	// and a caller asking for another set of rules would get two hundred and a spot
+	// report card — the one outcome this whole slice exists to prevent. Both replays
+	// refuse it in the same words because both hand it to the same gate.
+	TradingMode string    `json:"tradingMode"`
 	StartTime time.Time `json:"startTime"`
 	EndTime   time.Time `json:"endTime"`
 	// InitialCapital is what the account starts with.
@@ -50,6 +56,7 @@ type TradingStrategyBacktestRequest struct {
 func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
 		Symbol:               request.Symbol,
+		TradingMode:          request.TradingMode,
 		StartTime:            request.StartTime,
 		EndTime:              request.EndTime,
 		InitialCapital:       request.InitialCapital,

@@ -339,7 +339,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	}
 
 	positionPlan, hasPositionPlan, deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
-		executionContext, botDto, tradingStrategyDto, decision, sourceSignals)
+		executionContext, botDto, decision, sourceSignals)
 	if deliverError != nil {
 		// Not Telegram refusing — this side failing to ask at all. Most of those
 		// are worth waiting out, but one is not: the owner having removed their
@@ -522,7 +522,6 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 // settings by the time anybody reads it back.
 func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	executionContext context.Context, botDto dto.StrategyBotDto,
-	tradingStrategyDto dto.TradingStrategyDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
 ) (dto.PositionPlanDto, bool, vo.DeliveryFailureReasonVo, error) {
 	round := dto.StrategyBotRoundDto{

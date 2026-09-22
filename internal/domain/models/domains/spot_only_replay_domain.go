@@ -24,8 +24,8 @@ var noBorrowing = decimal.NewFromInt(1)
 // sentinel so that whoever asked can point at the right box without matching on prose
 // written for a person.
 //
-// Both sentences live here and nowhere else. Four callers refuse in these words, and
-// four copies would drift apart on the first day somebody improved one of them.
+// Both sentences live here and nowhere else. Every caller refuses in these words, and
+// a second copy would drift apart on the first day somebody improved one of them.
 var (
 	// ErrSpotOnlyTradingMode is any set of rules other than spot being asked for.
 	ErrSpotOnlyTradingMode = errors.New(
@@ -42,7 +42,7 @@ var (
 )
 
 // SpotOnlyReplayDomain is the sentence "this system only ever replays spot", held in
-// one place so that the four callers who have to say it say it identically.
+// one place so that every caller who has to say it says it identically.
 //
 // **Nothing survives it, and that is the point.** It reads what a caller declared,
 // refuses anything only a contract account could have meant, and hands back a value
@@ -57,7 +57,7 @@ var (
 //
 // **It is a gate, not a foundation.** When a replay of contracts lands, those
 // declarations mean something again, and that slice decides what — at which point
-// this goes. Its four callers are already asking the question it would answer.
+// this goes. Its callers are already asking the question it would answer.
 type SpotOnlyReplayDomain struct{}
 
 // NewSpotOnlyReplayDomain reads what the caller declared and settles every rule about

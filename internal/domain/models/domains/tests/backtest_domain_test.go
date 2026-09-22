@@ -382,6 +382,29 @@ func TestBacktestDomainRefusesAnythingOtherThanSpot(t *testing.T) {
 	// A replay run for a whole trading strategy answers this in the same words as one
 	// run for a single script — because it asks the very same gate, rather than
 	// repeating the rule and drifting from it.
+	//
+	// Both halves are checked, and the mode half is the one that can rot silently: a
+	// body that does not declare the field drops it without a word, and the caller
+	// gets two hundred and a report card of a run they did not ask for.
+	t.Run("a trading strategy replay refuses another set of rules in the same words", func(t *testing.T) {
+		scriptRequestDto := backtestRequest()
+		scriptRequestDto.TradingMode = "longShort"
+		_, scriptError := domains.NewBacktestDomain(
+			scriptRequestDto, backtestMaxCandleCount, backtestNow)
+		require.Error(t, scriptError)
+
+		strategyRequestDto := tradingStrategyBacktestRequest()
+		strategyRequestDto.TradingMode = "longShort"
+		_, strategyError := domains.NewTradingStrategyBacktestDomain(
+			strategyRequestDto, backtestMaxCandleCount, backtestNow)
+
+		require.Error(t, strategyError)
+		assert.Equal(t, scriptError.Error(), strategyError.Error())
+		fieldName, namesField := domains.BacktestFieldName(strategyError)
+		require.True(t, namesField)
+		assert.Equal(t, domains.BacktestTradingModeField, fieldName)
+	})
+
 	t.Run("a trading strategy replay refuses borrowing in the same words", func(t *testing.T) {
 		scriptRequestDto := backtestRequest()
 		scriptRequestDto.Leverage = decimal.NewFromInt(20)
