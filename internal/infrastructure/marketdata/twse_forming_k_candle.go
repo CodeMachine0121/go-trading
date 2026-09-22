@@ -51,6 +51,14 @@ type twseFormingKCandle struct {
 	// latestTradeTime is the trade this slot last heard about, so that a quote
 	// republished unchanged is recognised as saying nothing new.
 	latestTradeTime time.Time
+	// joinedMidMinute marks the minute this follow opened in, which is the one minute
+	// whose figures cannot be trusted: the running total was only ever seen from part
+	// way through it, and the first price seen is not the minute's opening price.
+	//
+	// It matters far more than "the first minute after boot" sounds. A follow opens
+	// whenever the roster is rebuilt — market open, any watchlist change, every
+	// retry after a stall — and each one lands part way through a minute.
+	joinedMidMinute bool
 }
 
 func newTwseFormingKCandle(symbol string) *twseFormingKCandle {
@@ -69,6 +77,9 @@ func newTwseFormingKCandle(symbol string) *twseFormingKCandle {
 // a real volume and this source has no way to say "nothing happened" other than by
 // repeating itself, so a minute whose running total never moved is a minute with no
 // candle — which is the same thing the history source says about it by leaving it out.
+//
+// The minute the follow opened in is reported only while it is in progress, never as
+// finished. See the note where that is decided for why storing it would be permanent.
 func (twseFormingKCandle *twseFormingKCandle) absorb(
 	quotedKCandle vo.LiveKCandleVo,
 ) []vo.LiveKCandleVo {
@@ -93,12 +104,21 @@ func (twseFormingKCandle *twseFormingKCandle) absorb(
 	reportedKCandles := make([]vo.LiveKCandleVo, 0, 2)
 
 	if twseFormingKCandle.slotOpenTime.IsZero() {
+		twseFormingKCandle.joinedMidMinute = true
 		twseFormingKCandle.startSlot(slotOpenTime, quotedKCandle)
 	} else if slotOpenTime.After(twseFormingKCandle.slotOpenTime) {
-		if finishedKCandle, hasFinished := twseFormingKCandle.finishedSlot(); hasFinished {
+		// The minute this follow opened in is never reported finished, because a
+		// finished candle is the one that gets **stored** — and stored, it wins for
+		// good: the live path saves by overwriting, while the scheduled round only
+		// fills in what is missing. A minute counted from part way through would
+		// therefore be the permanent answer for that minute, with no later round able
+		// to correct it. Left unreported, the scheduled round supplies it whole.
+		if finishedKCandle, hasFinished := twseFormingKCandle.finishedSlot(); hasFinished &&
+			!twseFormingKCandle.joinedMidMinute {
 			reportedKCandles = append(reportedKCandles, finishedKCandle)
 		}
 
+		twseFormingKCandle.joinedMidMinute = false
 		twseFormingKCandle.startSlot(slotOpenTime, quotedKCandle)
 	} else {
 		twseFormingKCandle.foldIntoSlot(quotedKCandle)

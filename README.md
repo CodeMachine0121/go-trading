@@ -122,8 +122,7 @@ curl localhost:8080/health
 | `TAIWAN_STOCK_HISTORICAL_CANDLES_URL` | Fugle 歷史 K 線網址 | 台股**更早的日子**從這裡拿。兩個位址是來源自己分開的，不是我們分的 |
 | `TAIWAN_STOCK_TICKER_URL` | Fugle 個股資訊網址 | 加進觀察清單前確認代號存在的位址 |
 | `TAIWAN_STOCK_REALTIME_QUOTE_URL` | 證交所即時行情網址 | 台股即時跟盤的位址。**與上面三個不是同一家**：歷史問富果、即時問證交所，免費且不限訂閱檔數 |
-| `TAIWAN_STOCK_REALTIME_QUOTE_INTERVAL_SECONDS` | `3` | 多久向證交所問一次。來源本身約五秒更新一次，因此即時更新最慢約八秒到畫面——仍遠短於一根 K 線，而每個判斷都發生在 K 線走完之後 |
-| `TAIWAN_STOCK_REALTIME_REQUESTS_PER_MINUTE` | `20` | 每分鐘最多向證交所問幾次。它沒有公布限制，這是禮貌而非算出來的數字；與富果的額度各算各的 |
+| `TAIWAN_STOCK_REALTIME_QUOTE_INTERVAL_SECONDS` | `3` | 多久向證交所問一次，也是對它的**全部**節奏——刻意沒有另一個每分鐘上限，額度與間隔是兩個會互相矛盾的數字。成本一眼可算：每條通道每個間隔一次請求。來源本身約五秒更新一次，因此即時更新最慢約八秒到畫面——仍遠短於一根 K 線，而每個判斷都發生在 K 線走完之後 |
 | `TAIWAN_STOCK_TIME_ZONE` | `Asia/Taipei` | 台股交易時段說在哪個時區裡。「九點開盤」是一件關於台北的事；認不得的時區會退回預設值，**不會**讓這個市場變成永不收盤 |
 | `TAIWAN_STOCK_SESSION_START` | `09:00` | 台股開盤時間（市場當地時間，`HH:MM`） |
 | `TAIWAN_STOCK_SESSION_END` | `13:30` | 台股收盤時間。當天最後一根 K 線是剛好在此收完的那一根（`13:29`） |

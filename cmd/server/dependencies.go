@@ -636,12 +636,10 @@ type venuePacers struct {
 	// second contract series added later joins the same budget rather than opening a
 	// second one beside it.
 	cryptoContract marketdata.RequestPacer
-	taiwanStock    marketdata.RequestPacer
-	// taiwanStockRealtime is a second pace for the same market, because the live
-	// quotes come from the exchange itself rather than from the market data plan the
-	// history is bought from. One allowance shared between two venues would hold back
-	// whichever asked second for a limit the other imposed.
-	taiwanStockRealtime marketdata.RequestPacer
+	// taiwanStock is the market data plan's allowance, which the live quotes no longer
+	// spend: they come from the exchange itself, and its pace is the poll interval
+	// rather than an allowance shared with anybody.
+	taiwanStock marketdata.RequestPacer
 }
 
 func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
@@ -652,8 +650,6 @@ func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 			applicationConfig.ContractIngestion.RequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
-		taiwanStockRealtime: marketdata.NewRequestPacer(
-			applicationConfig.TaiwanStock.RealtimeRequestsPerMinute),
 	}
 }
 
@@ -696,8 +692,7 @@ func liveMarketDataProxyFor(
 				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
 					MarketOf(string(vo.MarketTaiwanStock)),
 				applicationConfig.TaiwanStock.RealtimeQuoteInterval,
-				applicationConfig.TaiwanStock.RequestTimeout,
-				venuePacers.taiwanStockRealtime),
+				applicationConfig.TaiwanStock.RequestTimeout),
 		})
 }
 

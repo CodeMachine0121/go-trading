@@ -130,13 +130,14 @@ type TaiwanStockConfig struct {
 	// from the market data plan, live comes from the exchange itself — which is why
 	// it has its own pace below rather than sharing theirs.
 	RealtimeQuoteUrl string
-	// RealtimeQuoteInterval is how often that question is asked. The exchange
-	// refreshes roughly every five seconds, so asking faster buys nothing and risks
-	// being turned away; asking much slower shows up directly as a staler chart.
+	// RealtimeQuoteInterval is how often that question is asked, and the whole of the
+	// pace kept at the exchange — there is deliberately no separate allowance beside
+	// it, because an allowance and an interval are two numbers that can disagree.
+	//
+	// The exchange refreshes roughly every five seconds, so asking faster buys nothing
+	// and risks being turned away; asking much slower shows up directly as a staler
+	// chart. What it costs is one request per live channel per interval.
 	RealtimeQuoteInterval time.Duration
-	// RealtimeRequestsPerMinute is the pace held to at the exchange. It publishes no
-	// limit, so this is politeness rather than arithmetic against a published figure.
-	RealtimeRequestsPerMinute int
 	// TimeZone is the zone this market states its hours in. "Nine o'clock" is a fact
 	// about Taipei, and the moment it names universally is not the same one all year
 	// in markets that shift with daylight saving.
@@ -522,8 +523,6 @@ func loadTaiwanStockConfig() TaiwanStockConfig {
 			"https://mis.twse.com.tw/stock/api/getStockInfo.jsp"),
 		RealtimeQuoteInterval: time.Duration(positiveIntWithDefault(
 			"TAIWAN_STOCK_REALTIME_QUOTE_INTERVAL_SECONDS", 3)) * time.Second,
-		RealtimeRequestsPerMinute: positiveIntWithDefault(
-			"TAIWAN_STOCK_REALTIME_REQUESTS_PER_MINUTE", 20),
 		TimeZone:     timeZoneWithDefault("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipei"),
 		SessionStart: timeOfDayWithDefault("TAIWAN_STOCK_SESSION_START", 9*time.Hour),
 		SessionEnd:   timeOfDayWithDefault("TAIWAN_STOCK_SESSION_END", 13*time.Hour+30*time.Minute),

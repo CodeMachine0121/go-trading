@@ -1,10 +1,14 @@
 package marketdata_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +28,7 @@ func followTwseExpectingFailure(
 
 	proxy := marketdata.NewTwseRealtimeLiveMarketDataProxy(
 		source.server.URL, twseTaiwanStockMarket(), time.Millisecond,
-		2*time.Second, marketdata.NewRequestPacer(0))
+		2*time.Second)
 
 	liveKCandles, followError := proxy.FollowKCandles(
 		executionContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, symbols))
@@ -308,7 +312,7 @@ func TestAFollowAskedForAfterTheWorkWasCalledOffNeverOpens(t *testing.T) {
 
 	proxy := marketdata.NewTwseRealtimeLiveMarketDataProxy(
 		source.server.URL, twseTaiwanStockMarket(), time.Millisecond,
-		2*time.Second, marketdata.NewRequestPacer(60))
+		2*time.Second)
 
 	liveKCandles, followError := proxy.FollowKCandles(
 		executionContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
@@ -375,7 +379,7 @@ func TestEndingAFollowWaitingForItsNextRoundEndsItAtOnce(t *testing.T) {
 	// rounds rather than in the middle of one.
 	proxy := marketdata.NewTwseRealtimeLiveMarketDataProxy(
 		source.server.URL, twseTaiwanStockMarket(), time.Hour,
-		2*time.Second, marketdata.NewRequestPacer(0))
+		2*time.Second)
 
 	liveKCandles, followError := proxy.FollowKCandles(
 		executionContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"2330"}))
@@ -400,7 +404,7 @@ func TestEndingAFollowWaitingForItsNextRoundEndsItAtOnce(t *testing.T) {
 func TestAnAddressThatCannotBeReachedIsRefusedAtOnce(t *testing.T) {
 	proxy := marketdata.NewTwseRealtimeLiveMarketDataProxy(
 		"://not-an-address", twseTaiwanStockMarket(), time.Millisecond,
-		2*time.Second, marketdata.NewRequestPacer(0))
+		2*time.Second)
 
 	liveKCandles, followError := proxy.FollowKCandles(
 		context.Background(),
@@ -408,4 +412,53 @@ func TestAnAddressThatCannotBeReachedIsRefusedAtOnce(t *testing.T) {
 
 	assert.Error(t, followError)
 	assert.Nil(t, liveKCandles)
+}
+
+// A field the exchange cannot state is usually not a one-off — it is that symbol, for
+// the whole session — and a follow asks again every few seconds. Written down every
+// time, one bad field becomes twenty lines a minute for hours, and the next genuine
+// problem is buried under it. Written once, it is still findable.
+func TestAnUnreadableQuoteIsWrittenDownOncePerFollowRatherThanEveryPoll(t *testing.T) {
+	writtenDown := &lockedLogBuffer{}
+	log.SetOutput(writtenDown)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	unreadable := twseQuote{
+		Symbol: "2330", LatestPrice: "2500", CumulativeVolume: "lots and lots",
+		LatestTradeTime: "10:00:05", TradingDate: "20260922",
+	}
+	source := newTwseSourceUnderTest(t, []twseQuote{unreadable})
+
+	_, _ = followTwse(t, source, "2330")
+
+	// Long enough for many rounds at the one-millisecond interval these tests poll at.
+	require.Eventually(t, func() bool {
+		return strings.Contains(writtenDown.text(), "unreadable quote")
+	}, 3*time.Second, 10*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+
+	assert.Equal(t, 1, strings.Count(writtenDown.text(), "unreadable quote"),
+		"the same symbol must not be written down again on every round")
+}
+
+// lockedLogBuffer collects what was written down while a follow is running. The
+// follow writes from its own goroutine and the test reads from this one, so the two
+// have to be kept apart — a plain buffer here is a data race, not a shortcut.
+type lockedLogBuffer struct {
+	mutex   sync.Mutex
+	written bytes.Buffer
+}
+
+func (lockedLogBuffer *lockedLogBuffer) Write(entry []byte) (int, error) {
+	lockedLogBuffer.mutex.Lock()
+	defer lockedLogBuffer.mutex.Unlock()
+
+	return lockedLogBuffer.written.Write(entry)
+}
+
+func (lockedLogBuffer *lockedLogBuffer) text() string {
+	lockedLogBuffer.mutex.Lock()
+	defer lockedLogBuffer.mutex.Unlock()
+
+	return lockedLogBuffer.written.String()
 }

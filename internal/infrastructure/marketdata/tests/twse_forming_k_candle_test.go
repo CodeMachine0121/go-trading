@@ -137,7 +137,7 @@ func followTwse(
 
 	proxy := marketdata.NewTwseRealtimeLiveMarketDataProxy(
 		source.server.URL, twseTaiwanStockMarket(), time.Millisecond,
-		2*time.Second, marketdata.NewRequestPacer(0))
+		2*time.Second)
 
 	liveKCandles, followError := proxy.FollowKCandles(
 		executionContext, vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, symbols))
@@ -211,27 +211,65 @@ func TestAMinuteNothingTradedInIsNotReported(t *testing.T) {
 
 // A quote landing in a later minute is what proves the earlier one finished, and the
 // finished one is reported first so that no chart ever goes backwards.
+//
+// The minute measured here is the second one, because it is the first the follow saw
+// whole. See the test below for why the one it joined in is never finished.
 func TestAQuoteInALaterMinuteFinishesTheEarlierOneFirst(t *testing.T) {
 	source := newTwseSourceUnderTest(t,
 		[]twseQuote{quoteAt("10:00:05", "2500", "500")},
-		[]twseQuote{quoteAt("10:00:45", "2510", "560")},
 		[]twseQuote{quoteAt("10:01:10", "2520", "600")},
+		[]twseQuote{quoteAt("10:01:50", "2530", "660")},
+		[]twseQuote{quoteAt("10:02:10", "2540", "700")},
 	)
 
 	liveKCandles, _ := followTwse(t, source, "2330")
 
-	forming := nextKCandle(t, liveKCandles)
-	require.False(t, forming.Closed)
+	finished := firstFinishedKCandle(t, liveKCandles)
+	assert.Equal(t,
+		time.Date(2026, 9, 22, 10, 1, 0, 0, twseTaipeiLocation).UTC(),
+		finished.OpenTime.UTC())
+	assert.Equal(t, "160000", finished.Volume.String())
+	assert.Equal(t, "2520", finished.Open.String())
+	assert.Equal(t, "2530", finished.Close.String())
+}
 
-	finished := nextKCandle(t, liveKCandles)
-	assert.True(t, finished.Closed)
-	assert.Equal(t, "60000", finished.Volume.String())
-	assert.Equal(t, "2500", finished.Open.String())
-	assert.Equal(t, "2510", finished.Close.String())
+// The minute a follow opens in is never reported finished, however much trades in it
+// afterwards.
+//
+// A finished candle is the one that gets stored, and stored it is permanent: the live
+// path saves by overwriting, while the scheduled round only fills in what is missing.
+// A minute counted from part way through — which is every minute a follow opens in —
+// would therefore become the lasting answer for that minute, with the round that
+// could have supplied it whole locked out for good.
+//
+// It matters far beyond start-up: a follow opens on every roster rebuild, which is
+// every watchlist change and every recovery from a stall.
+func TestTheMinuteAFollowJoinsIsNeverReportedFinished(t *testing.T) {
+	joinedMinute := time.Date(2026, 9, 22, 10, 0, 0, 0, twseTaipeiLocation).UTC()
 
-	started := nextKCandle(t, liveKCandles)
-	assert.False(t, started.Closed)
-	assert.Equal(t, "40000", started.Volume.String())
+	source := newTwseSourceUnderTest(t,
+		[]twseQuote{quoteAt("10:00:05", "2500", "500")},
+		[]twseQuote{quoteAt("10:00:45", "2510", "560")},
+		[]twseQuote{quoteAt("10:01:10", "2520", "600")},
+		[]twseQuote{quoteAt("10:01:50", "2530", "640")},
+		[]twseQuote{quoteAt("10:02:10", "2540", "700")},
+	)
+
+	liveKCandles, _ := followTwse(t, source, "2330")
+
+	// Read until a later minute has been finished, which proves the joined one was
+	// passed over rather than merely not reported yet.
+	for range 12 {
+		liveKCandle := nextKCandle(t, liveKCandles)
+		assert.False(t, liveKCandle.Closed && liveKCandle.OpenTime.Equal(joinedMinute),
+			"the minute the follow joined must never be stored")
+
+		if liveKCandle.Closed {
+			return
+		}
+	}
+
+	t.Fatal("no later minute was ever finished")
 }
 
 // A running total that goes backwards is a new day or a source that restarted its
@@ -258,25 +296,45 @@ func TestARunningTotalGoingBackwardsNeverProducesANegativeVolume(t *testing.T) {
 // reached either way, and where it stands. Taking this source's own high and low
 // would take the whole day's.
 func TestAMinuteTakesItsShapeFromThePointsInsideIt(t *testing.T) {
+	// The shape is measured on the second minute: the one the follow joined is never
+	// finished, and its opening price is whatever happened to be quoted when we
+	// arrived rather than the minute's own open.
 	source := newTwseSourceUnderTest(t,
 		[]twseQuote{quoteAt("10:00:05", "2500", "500")},
-		[]twseQuote{quoteAt("10:00:20", "2530", "510")},
-		[]twseQuote{quoteAt("10:00:40", "2480", "520")},
-		[]twseQuote{quoteAt("10:00:55", "2495", "530")},
-		[]twseQuote{quoteAt("10:01:10", "2495", "540")},
+		[]twseQuote{quoteAt("10:01:02", "2505", "510")},
+		[]twseQuote{quoteAt("10:01:20", "2530", "515")},
+		[]twseQuote{quoteAt("10:01:40", "2480", "520")},
+		[]twseQuote{quoteAt("10:01:55", "2495", "530")},
+		[]twseQuote{quoteAt("10:02:10", "2495", "540")},
 	)
 
 	liveKCandles, _ := followTwse(t, source, "2330")
 
-	var finished vo.LiveKCandleVo
-	for !finished.Closed {
-		finished = nextKCandle(t, liveKCandles)
-	}
+	finished := firstFinishedKCandle(t, liveKCandles)
 
-	assert.Equal(t, "2500", finished.Open.String())
+	assert.Equal(t, "2505", finished.Open.String())
 	assert.Equal(t, "2530", finished.High.String())
 	assert.Equal(t, "2480", finished.Low.String())
 	assert.Equal(t, "2495", finished.Close.String())
+}
+
+// firstFinishedKCandle reads until a minute is reported finished, which is the only
+// kind that gets stored and therefore the only kind worth measuring figures on.
+func firstFinishedKCandle(
+	t *testing.T, liveKCandles <-chan vo.LiveKCandleVo,
+) vo.LiveKCandleVo {
+	t.Helper()
+
+	for range 12 {
+		liveKCandle := nextKCandle(t, liveKCandles)
+		if liveKCandle.Closed {
+			return liveKCandle
+		}
+	}
+
+	t.Fatal("no minute was ever reported finished")
+
+	return vo.LiveKCandleVo{}
 }
 
 // The minute a candle belongs to is decided by when the trade happened, never by when

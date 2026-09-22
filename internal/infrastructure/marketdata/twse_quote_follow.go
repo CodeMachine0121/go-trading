@@ -31,6 +31,12 @@ type twseQuoteFollow struct {
 	// with no zone names a different moment in every reader.
 	marketZone   *time.Location
 	liveKCandles chan<- vo.LiveKCandleVo
+	// unreadableSymbolsReported is which symbols have already had an unreadable quote
+	// written down. A field this source cannot state is usually not a one-off — it is
+	// that symbol, all session — and this follow asks again every few seconds. Said
+	// every time, one bad field becomes twenty lines a minute for hours, and the next
+	// genuine problem is buried under it. Said once, it is still findable.
+	unreadableSymbolsReported map[string]bool
 }
 
 func newTwseQuoteFollow(
@@ -44,10 +50,11 @@ func newTwseQuoteFollow(
 	}
 
 	return &twseQuoteFollow{
-		channel:         channel,
-		formingBySymbol: formingBySymbol,
-		marketZone:      marketZone,
-		liveKCandles:    liveKCandles,
+		channel:                   channel,
+		formingBySymbol:           formingBySymbol,
+		marketZone:                marketZone,
+		liveKCandles:              liveKCandles,
+		unreadableSymbolsReported: make(map[string]bool, len(channel.Symbols)),
 	}
 }
 
@@ -79,7 +86,11 @@ func (twseQuoteFollow *twseQuoteFollow) publish(
 		quotedKCandle, hasQuote, convertError := quote.toLiveKCandleVo(
 			twseQuoteFollow.marketZone)
 		if convertError != nil {
-			log.Printf("live market data: unreadable quote: %v", convertError)
+			if !twseQuoteFollow.unreadableSymbolsReported[quote.Symbol] {
+				twseQuoteFollow.unreadableSymbolsReported[quote.Symbol] = true
+				log.Printf("live market data: unreadable quote, said once per follow: %v",
+					convertError)
+			}
 
 			continue
 		}

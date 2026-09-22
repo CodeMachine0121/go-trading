@@ -49,10 +49,18 @@ type TwseRealtimeLiveMarketDataProxy struct {
 	quoteUrl string
 	// marketZone is the zone this source states its trade times in. A time of day
 	// with no zone names a different moment in every reader.
-	marketZone   *time.Location
+	marketZone *time.Location
+	// pollInterval is the whole of this source's pace, deliberately.
+	//
+	// There is no separate allowance to spend here. An allowance and an interval are
+	// two numbers that can disagree: a budget sized for one channel silently stretches
+	// every channel's round once there are two, and far enough out the stretch passes
+	// the silence a caller reads as a dead feed — so watching more stocks would end
+	// with none of them updating. One number cannot contradict itself. What it costs
+	// a venue is plain from it: one request per channel per interval, and a channel
+	// covers as many symbols as one round of questions carries.
 	pollInterval time.Duration
 	httpClient   *http.Client
-	pacer        RequestPacer
 }
 
 func NewTwseRealtimeLiveMarketDataProxy(
@@ -60,14 +68,12 @@ func NewTwseRealtimeLiveMarketDataProxy(
 	marketDomain domains.MarketDomain,
 	pollInterval time.Duration,
 	requestTimeout time.Duration,
-	pacer RequestPacer,
 ) *TwseRealtimeLiveMarketDataProxy {
 	return &TwseRealtimeLiveMarketDataProxy{
 		quoteUrl:     quoteUrl,
 		marketZone:   marketDomain.Zone(),
 		pollInterval: pollInterval,
 		httpClient:   &http.Client{Timeout: requestTimeout},
-		pacer:        pacer,
 	}
 }
 
@@ -147,11 +153,6 @@ func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) poll(
 func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) ask(
 	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) ([]twseRealtimeQuote, error) {
-	if waitError := twseRealtimeLiveMarketDataProxy.pacer.WaitForTurn(
-		executionContext); waitError != nil {
-		return nil, waitError
-	}
-
 	queryValues := url.Values{}
 	queryValues.Set("ex_ch", twseRealtimeLiveMarketDataProxy.channelQuery(channel))
 	queryValues.Set("json", "1")

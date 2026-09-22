@@ -115,7 +115,6 @@ func TestLoadAppliesTaiwanStockDefaultsWhenNothingIsSet(t *testing.T) {
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.TickerUrl)
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.RealtimeQuoteUrl)
 	assert.Equal(t, 3*time.Second, applicationConfig.TaiwanStock.RealtimeQuoteInterval)
-	assert.Equal(t, 20, applicationConfig.TaiwanStock.RealtimeRequestsPerMinute)
 }
 
 func TestLoadReadsTheTaiwanStockSessionAsATimeOfDay(t *testing.T) {
