@@ -221,18 +221,18 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) syncSymb
 	chunks []vo.KCandleFetchWindowVo,
 	recordProgress func(completedChunks int, symbolReport dto.KCandleSymbolIngestionReportDto),
 ) error {
-	symbolReport := contractKCandleIngestionService.emptyReportFor(registeredSymbol.Symbol)
+	symbolReport := contractKCandleIngestionService.newReportFor(registeredSymbol.Symbol)
 
 	// Everything this walk has to say travels back through recordProgress rather than
 	// through the return, so that whatever it managed before it stopped is already
 	// written down.
 	for chunkIndex, chunk := range chunks {
-		recordProgress(chunkIndex, symbolReport)
+		recordProgress(chunkIndex, symbolReport.ToDto())
 
 		alreadyHeld, countError := contractKCandleIngestionService.kCandleContractRepository.
 			CountInRange(executionContext, registeredSymbol.Symbol, chunk.StartTime, chunk.EndTime)
 		if countError != nil {
-			recordProgress(chunkIndex, symbolReport)
+			recordProgress(chunkIndex, symbolReport.ToDto())
 
 			return countError
 		}
@@ -248,30 +248,30 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) syncSymb
 			// The rest of the stretch is abandoned rather than attempted. A source
 			// that just refused one chunk will refuse the next two thousand the same
 			// way, and hammering it is how a rate limit becomes a ban.
-			symbolReport.FetchFailureReason = fetchError.Error()
-			recordProgress(chunkIndex, symbolReport)
+			symbolReport.NoteFetchFailure(fetchError.Error())
+			recordProgress(chunkIndex, symbolReport.ToDto())
 
 			return nil
 		}
 
-		symbolReport.WasAsked = true
+		symbolReport.NoteAsked()
 
 		judgedCandles, skippedCandles := contractKCandleIngestionService.judge(
 			reportedCandles, ingestionDomain)
-		contractKCandleIngestionService.noteSkipped(&symbolReport, skippedCandles...)
+		symbolReport.NoteSkipped(skippedCandles...)
 
 		storedCount, saveError := contractKCandleIngestionService.kCandleContractRepository.
 			SaveAllIfAbsent(executionContext, judgedCandles)
 		if saveError != nil {
-			recordProgress(chunkIndex, symbolReport)
+			recordProgress(chunkIndex, symbolReport.ToDto())
 
 			return saveError
 		}
 
-		symbolReport.StoredCount += storedCount
+		symbolReport.NoteStored(storedCount)
 	}
 
-	recordProgress(len(chunks), symbolReport)
+	recordProgress(len(chunks), symbolReport.ToDto())
 
 	return nil
 }
@@ -390,84 +390,61 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) ingestSy
 	ingestionDomain domains.KCandleIngestionDomain,
 	windowOf func(watchedSymbol entities.ContractTradingSymbol) (vo.KCandleFetchWindowVo, error),
 ) dto.KCandleSymbolIngestionReportDto {
-	symbolReport := contractKCandleIngestionService.emptyReportFor(watchedSymbol.Symbol)
+	symbolReport := contractKCandleIngestionService.newReportFor(watchedSymbol.Symbol)
 
 	window, windowError := windowOf(watchedSymbol)
 	if windowError != nil {
-		symbolReport.FetchFailureReason = windowError.Error()
+		symbolReport.NoteFetchFailure(windowError.Error())
 
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
 	// The window is not narrowed to a trading session, because a perpetual contract
 	// has none: every minute of it is market.
 	if window.IsEmpty() {
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
 	reportedCandles, fetchError := contractKCandleIngestionService.contractMarketDataProxy.
 		FetchKCandles(executionContext, window)
 	if fetchError != nil {
-		symbolReport.FetchFailureReason = fetchError.Error()
+		symbolReport.NoteFetchFailure(fetchError.Error())
 
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
-	symbolReport.WasAsked = true
+	symbolReport.NoteAsked()
 
 	judgedCandles, skippedCandles := contractKCandleIngestionService.judge(
 		reportedCandles, ingestionDomain)
-	contractKCandleIngestionService.noteSkipped(&symbolReport, skippedCandles...)
+	symbolReport.NoteSkipped(skippedCandles...)
 
 	for _, judgedCandle := range judgedCandles {
 		if _, saveError := contractKCandleIngestionService.kCandleContractRepository.Save(
 			executionContext, judgedCandle); saveError != nil {
-			contractKCandleIngestionService.noteSkipped(&symbolReport, dto.SkippedKCandleDto{
+			symbolReport.NoteSkipped(dto.SkippedKCandleDto{
 				OpenTime: judgedCandle.OpenTime.UTC(),
 				Reason:   saveError.Error(),
 			})
 			continue
 		}
 
-		symbolReport.StoredCount++
+		symbolReport.NoteStored(1)
 	}
 
-	return symbolReport
+	return symbolReport.ToDto()
 }
 
-// emptyReportFor is what one contract's report looks like before anything has been
-// asked, built in one place so that every way out of a fetch answers with a skipped
-// list rather than a nil one.
+// newReportFor starts one contract's report.
 //
 // The market is named as the round-the-clock one because that is the calendar these
 // contracts keep, and a report with the field left blank would read as a market
 // nobody recognised.
-func (contractKCandleIngestionService *ContractKCandleIngestionService) emptyReportFor(
+func (contractKCandleIngestionService *ContractKCandleIngestionService) newReportFor(
 	symbol string,
-) dto.KCandleSymbolIngestionReportDto {
-	return dto.KCandleSymbolIngestionReportDto{
-		Symbol:          symbol,
-		Market:          string(contractKCandleIngestionService.roundTheClockMarket.Value()),
-		SkippedKCandles: make([]dto.SkippedKCandleDto, 0),
-	}
-}
-
-// noteSkipped writes candles that did not make it into the report, counting all of
-// them and naming them up to the limit.
-func (contractKCandleIngestionService *ContractKCandleIngestionService) noteSkipped(
-	symbolReport *dto.KCandleSymbolIngestionReportDto, skippedCandles ...dto.SkippedKCandleDto,
-) {
-	for _, skippedCandle := range skippedCandles {
-		symbolReport.SkippedCount++
-
-		if len(symbolReport.SkippedKCandles) >= maxNamedSkippedKCandles {
-			symbolReport.SkippedKCandlesTruncated = true
-
-			continue
-		}
-
-		symbolReport.SkippedKCandles = append(symbolReport.SkippedKCandles, skippedCandle)
-	}
+) *domains.KCandleSymbolIngestionReportDomain {
+	return domains.NewKCandleSymbolIngestionReportDomain(
+		symbol, contractKCandleIngestionService.roundTheClockMarket.Value())
 }
 
 // judge puts everything the source answered with through the contract K candle rules,

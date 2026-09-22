@@ -14,15 +14,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// maxNamedSkippedKCandles is how many skipped candles one symbol's report names
-// before it stops naming them and only counts them.
-//
-// It is generous on purpose. Anything short of a broken source produces a handful,
-// and a handful is what somebody reads a report for; the limit is only there so that
-// a source answering with rubbish for four years cannot turn the report into
-// something nobody can open.
-const maxNamedSkippedKCandles = 200
-
 // KCandleIngestionService keeps the stored K candles current without anyone asking.
 // Its two public use cases never call one another: the backfill closes the gap left
 // while nothing was running, the periodic round keeps up with the market afterwards.
@@ -293,11 +284,8 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 	recordProgress func(completedChunks int, symbolReport dto.KCandleSymbolIngestionReportDto),
 ) error {
 	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(registeredSymbol.Market)
-	symbolReport := dto.KCandleSymbolIngestionReportDto{
-		Symbol:          registeredSymbol.Symbol,
-		Market:          string(marketDomain.Value()),
-		SkippedKCandles: make([]dto.SkippedKCandleDto, 0),
-	}
+	symbolReport := domains.NewKCandleSymbolIngestionReportDomain(
+		registeredSymbol.Symbol, marketDomain.Value())
 
 	// Everything this walk has to say travels back through recordProgress rather than
 	// through the return, so that **whatever it managed before it stopped is already
@@ -305,7 +293,7 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 	// stored five chunks' worth, and a caller handed an error and nothing else would
 	// have to report that as zero.
 	for chunkIndex, chunk := range chunks {
-		recordProgress(chunkIndex, symbolReport)
+		recordProgress(chunkIndex, symbolReport.ToDto())
 
 		tradableChunk := marketDomain.ClampToTradingSession(chunk)
 		if tradableChunk.IsEmpty() {
@@ -316,7 +304,7 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			executionContext, registeredSymbol.Symbol,
 			tradableChunk.StartTime, tradableChunk.EndTime)
 		if countError != nil {
-			recordProgress(chunkIndex, symbolReport)
+			recordProgress(chunkIndex, symbolReport.ToDto())
 
 			return countError
 		}
@@ -334,17 +322,17 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			// way, and hammering it is how a rate limit becomes a ban. What was
 			// stored before this point stays stored — it is correct, and running
 			// again resumes from it.
-			symbolReport.FetchFailureReason = fetchError.Error()
-			recordProgress(chunkIndex, symbolReport)
+			symbolReport.NoteFetchFailure(fetchError.Error())
+			recordProgress(chunkIndex, symbolReport.ToDto())
 
 			return nil
 		}
 
-		symbolReport.WasAsked = true
+		symbolReport.NoteAsked()
 
 		judgedKCandles, skippedKCandles := kCandleIngestionService.judge(
 			reportedKCandles, ingestionDomain)
-		kCandleIngestionService.noteSkipped(&symbolReport, skippedKCandles...)
+		symbolReport.NoteSkipped(skippedKCandles...)
 
 		storedCount, saveError := kCandleIngestionService.kCandleRepository.SaveAllIfAbsent(
 			executionContext, judgedKCandles)
@@ -354,15 +342,15 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			// did wrong. What the earlier chunks stored is reported on the way out:
 			// it is in the database, and a run claiming otherwise would send somebody
 			// back to fetch it all again.
-			recordProgress(chunkIndex, symbolReport)
+			recordProgress(chunkIndex, symbolReport.ToDto())
 
 			return saveError
 		}
 
-		symbolReport.StoredCount += storedCount
+		symbolReport.NoteStored(storedCount)
 	}
 
-	recordProgress(len(chunks), symbolReport)
+	recordProgress(len(chunks), symbolReport.ToDto())
 
 	return nil
 }
@@ -518,85 +506,54 @@ func (kCandleIngestionService *KCandleIngestionService) ingestSymbol(
 	windowOf func(watchedSymbol entities.TradingSymbol, market vo.MarketVo) (vo.KCandleFetchWindowVo, error),
 ) dto.KCandleSymbolIngestionReportDto {
 	marketDomain := kCandleIngestionService.marketCatalogDomain.MarketOf(watchedSymbol.Market)
-	// The skipped list is built here rather than where the first candle is judged,
-	// so that every way out of this function answers with a list. Left to appear only
-	// on the path that reaches the source, it would be absent on exactly the paths a
-	// reader inspects it on — a shut market, a source that would not answer — and a
-	// caller counting it would break there and nowhere else.
-	symbolReport := dto.KCandleSymbolIngestionReportDto{
-		Symbol:          watchedSymbol.Symbol,
-		Market:          string(marketDomain.Value()),
-		SkippedKCandles: make([]dto.SkippedKCandleDto, 0),
-	}
+	symbolReport := domains.NewKCandleSymbolIngestionReportDomain(
+		watchedSymbol.Symbol, marketDomain.Value())
 
 	if kCandleIngestionService.marketClosureLedger.isPresumedClosed(
 		marketDomain.Value(), marketDomain.TradingDateOf(ingestionDomain.CurrentTime())) {
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
 	window, windowError := windowOf(watchedSymbol, marketDomain.Value())
 	if windowError != nil {
-		symbolReport.FetchFailureReason = windowError.Error()
+		symbolReport.NoteFetchFailure(windowError.Error())
 
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
 	tradableWindow := marketDomain.ClampToTradingSession(window)
 	if tradableWindow.IsEmpty() {
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
 	reportedKCandles, fetchError := kCandleIngestionService.marketDataProxy.FetchKCandles(
 		executionContext, tradableWindow)
 	if fetchError != nil {
-		symbolReport.FetchFailureReason = fetchError.Error()
+		symbolReport.NoteFetchFailure(fetchError.Error())
 
-		return symbolReport
+		return symbolReport.ToDto()
 	}
 
-	symbolReport.WasAsked = true
+	symbolReport.NoteAsked()
 
 	judgedKCandles, skippedKCandles := kCandleIngestionService.judge(
 		reportedKCandles, ingestionDomain)
-	kCandleIngestionService.noteSkipped(&symbolReport, skippedKCandles...)
+	symbolReport.NoteSkipped(skippedKCandles...)
 
 	for _, judgedKCandle := range judgedKCandles {
 		if _, saveError := kCandleIngestionService.kCandleRepository.Save(
 			executionContext, judgedKCandle); saveError != nil {
-			kCandleIngestionService.noteSkipped(&symbolReport, dto.SkippedKCandleDto{
+			symbolReport.NoteSkipped(dto.SkippedKCandleDto{
 				OpenTime: judgedKCandle.OpenTime.UTC(),
 				Reason:   saveError.Error(),
 			})
 			continue
 		}
 
-		symbolReport.StoredCount++
+		symbolReport.NoteStored(1)
 	}
 
-	return symbolReport
-}
-
-// noteSkipped writes candles that did not make it into the report, counting all of
-// them and naming them up to the limit.
-//
-// Every path writes a skip through here so that the count and the list mean the same
-// thing wherever they are read. Naming them all was fine while a run covered minutes;
-// a run covering years can turn up more than anybody will read, and the count answers
-// "how bad is it" without the list having to.
-func (kCandleIngestionService *KCandleIngestionService) noteSkipped(
-	symbolReport *dto.KCandleSymbolIngestionReportDto, skippedKCandles ...dto.SkippedKCandleDto,
-) {
-	for _, skippedKCandle := range skippedKCandles {
-		symbolReport.SkippedCount++
-
-		if len(symbolReport.SkippedKCandles) >= maxNamedSkippedKCandles {
-			symbolReport.SkippedKCandlesTruncated = true
-
-			continue
-		}
-
-		symbolReport.SkippedKCandles = append(symbolReport.SkippedKCandles, skippedKCandle)
-	}
+	return symbolReport.ToDto()
 }
 
 // judge puts everything the source answered with through the ordinary K candle rules,
