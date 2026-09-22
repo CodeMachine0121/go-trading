@@ -106,15 +106,35 @@ func TestAQuoteForAnUnfollowedSymbolIsDiscarded(t *testing.T) {
 
 // A source refusing from the outset is a failure to open, not a feed that opened and
 // went quiet — and the two lead the caller to do different things.
+//
+// **The reasons have to stay told apart.** Being turned away, being refused inside a
+// perfectly ordinary body, and not being answered at all are three different things
+// to find in a log at four in the afternoon: one says slow down, one says the request
+// was wrong, one says the network was. Collapsed into one sentence they would all read
+// as "the feed failed", which is the state this leaves somebody in for a whole
+// session. Asserting only that an error came back would not notice the collapse.
 func TestASourceThatWillNotAnswerNeverHandsBackAFeed(t *testing.T) {
 	testCases := []struct {
-		name       string
-		statusCode int
-		returnCode string
+		name         string
+		statusCode   int
+		returnCode   string
+		saysInReason string
 	}{
-		{name: "refused outright", statusCode: http.StatusTooManyRequests, returnCode: "0000"},
-		{name: "refused inside a perfectly ordinary body", statusCode: http.StatusOK, returnCode: "5001"},
+		{
+			name:         "turned away",
+			statusCode:   http.StatusTooManyRequests,
+			returnCode:   "0000",
+			saysInReason: "429",
+		},
+		{
+			name:         "refused inside a perfectly ordinary body",
+			statusCode:   http.StatusOK,
+			returnCode:   "5001",
+			saysInReason: "5001",
+		},
 	}
+
+	reasonsGiven := make(map[string]string, len(testCases))
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -123,9 +143,38 @@ func TestASourceThatWillNotAnswerNeverHandsBackAFeed(t *testing.T) {
 			source.statusCode = testCase.statusCode
 			source.returnCode = testCase.returnCode
 
-			assert.Error(t, followTwseExpectingFailure(t, source, "2330"))
+			followError := followTwseExpectingFailure(t, source, "2330")
+
+			require.Error(t, followError)
+			assert.Contains(t, followError.Error(), testCase.saysInReason,
+				"the reason must name what the source actually said")
+			reasonsGiven[testCase.name] = followError.Error()
 		})
 	}
+
+	assert.NotEqual(t, reasonsGiven["turned away"],
+		reasonsGiven["refused inside a perfectly ordinary body"],
+		"two different refusals must not arrive as the same sentence")
+}
+
+// Not being answered at all is the third reason, and it must not read like either
+// refusal. A source that is simply unreachable is the one case where waiting and
+// trying again is the right thing to do.
+func TestASourceThatCannotBeReachedSaysSoDifferentlyFromOneThatRefuses(t *testing.T) {
+	unreachable := newTwseSourceUnderTest(t)
+	unreachable.server.Close()
+
+	refusing := newTwseSourceUnderTest(t, []twseQuote{quoteAt("10:00:05", "2500", "500")})
+	refusing.statusCode = http.StatusTooManyRequests
+
+	unreachableError := followTwseExpectingFailure(t, unreachable, "2330")
+	refusedError := followTwseExpectingFailure(t, refusing, "2330")
+
+	require.Error(t, unreachableError)
+	require.Error(t, refusedError)
+	assert.NotContains(t, unreachableError.Error(), "429",
+		"an unreachable source must not be reported as having said anything")
+	assert.NotEqual(t, unreachableError.Error(), refusedError.Error())
 }
 
 // Ending a follow closes the feed, which is the one way a caller ever learns that it
