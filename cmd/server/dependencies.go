@@ -390,7 +390,7 @@ func registerRoutes(
 	// round keeps running, and it is what fills in every candle that closed while
 	// nobody was looking. This path only shortens the wait for whoever is looking.
 	kCandleFollowService := service.NewKCandleFollowService(
-		liveMarketDataProxyFor(applicationConfig),
+		liveMarketDataProxyFor(applicationConfig, venuePacers),
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
 		clock.NewSystemClockProxy(),
@@ -637,6 +637,11 @@ type venuePacers struct {
 	// second one beside it.
 	cryptoContract marketdata.RequestPacer
 	taiwanStock    marketdata.RequestPacer
+	// taiwanStockRealtime is a second pace for the same market, because the live
+	// quotes come from the exchange itself rather than from the market data plan the
+	// history is bought from. One allowance shared between two venues would hold back
+	// whichever asked second for a limit the other imposed.
+	taiwanStockRealtime marketdata.RequestPacer
 }
 
 func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
@@ -647,6 +652,8 @@ func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 			applicationConfig.ContractIngestion.RequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
+		taiwanStockRealtime: marketdata.NewRequestPacer(
+			applicationConfig.TaiwanStock.RealtimeRequestsPerMinute),
 	}
 }
 
@@ -678,16 +685,19 @@ func marketDataProxyFor(
 
 // liveMarketDataProxyFor is where every market's live feed is named.
 func liveMarketDataProxyFor(
-	applicationConfig config.ApplicationConfig,
+	applicationConfig config.ApplicationConfig, venuePacers venuePacers,
 ) domaininterface.ILiveMarketDataProxy {
 	return marketdata.NewMarketRoutedLiveMarketDataProxy(
 		map[vo.MarketVo]domaininterface.ILiveMarketDataProxy{
 			vo.MarketCrypto: marketdata.NewBinanceLiveMarketDataProxy(
 				applicationConfig.LiveFollow.MarketDataStreamUrl),
-			vo.MarketTaiwanStock: marketdata.NewFugleLiveMarketDataProxy(
-				applicationConfig.TaiwanStock.StreamUrl,
-				applicationConfig.TaiwanStock.ApiKey,
-				applicationConfig.TaiwanStock.RequestTimeout),
+			vo.MarketTaiwanStock: marketdata.NewTwseRealtimeLiveMarketDataProxy(
+				applicationConfig.TaiwanStock.RealtimeQuoteUrl,
+				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
+					MarketOf(string(vo.MarketTaiwanStock)),
+				applicationConfig.TaiwanStock.RealtimeQuoteInterval,
+				applicationConfig.TaiwanStock.RequestTimeout,
+				venuePacers.taiwanStockRealtime),
 		})
 }
 

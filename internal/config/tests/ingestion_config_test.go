@@ -108,13 +108,14 @@ func TestLoadAppliesTaiwanStockDefaultsWhenNothingIsSet(t *testing.T) {
 
 	assert.Equal(t, 9*time.Hour, applicationConfig.TaiwanStock.SessionStart)
 	assert.Equal(t, 13*time.Hour+30*time.Minute, applicationConfig.TaiwanStock.SessionEnd)
-	assert.Equal(t, 1, applicationConfig.TaiwanStock.SimultaneousChannelCeiling)
-	assert.Equal(t, 5, applicationConfig.TaiwanStock.SymbolsPerLiveChannel)
+	assert.Equal(t, 25, applicationConfig.TaiwanStock.SymbolsPerLiveChannel)
 	assert.Equal(t, "Asia/Taipei", applicationConfig.TaiwanStock.TimeZone.String())
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.IntradayCandlesUrl)
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.HistoricalCandlesUrl)
 	assert.NotEmpty(t, applicationConfig.TaiwanStock.TickerUrl)
-	assert.NotEmpty(t, applicationConfig.TaiwanStock.StreamUrl)
+	assert.NotEmpty(t, applicationConfig.TaiwanStock.RealtimeQuoteUrl)
+	assert.Equal(t, 3*time.Second, applicationConfig.TaiwanStock.RealtimeQuoteInterval)
+	assert.Equal(t, 20, applicationConfig.TaiwanStock.RealtimeRequestsPerMinute)
 }
 
 func TestLoadReadsTheTaiwanStockSessionAsATimeOfDay(t *testing.T) {
@@ -154,14 +155,20 @@ func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 
 	// The round-the-clock market says it never closes by having no zone to state hours
 	// in, no ceiling on how many channels may be open, and no need to say how many
-	// symbols one carries — every unfilled number is the zero value.
+	// symbols one carries — every unfilled number is the zero value. It is also
+	// followed by whoever looks rather than from a roster, which is the same zero.
 	assert.Nil(t, applicationConfig.MarketRules[vo.MarketCrypto].TradingSession.Location)
+	assert.False(t, applicationConfig.MarketRules[vo.MarketCrypto].FollowsFixedRoster)
 	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SimultaneousChannelCeiling)
 	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SymbolsPerLiveChannel)
 
+	// Taiwan is followed from a roster with nothing capping it: the exchange it is
+	// asked of does not sell subscriptions, so every watched stock is followed and
+	// the ceiling stays at the value that means there is none.
 	taiwanStockRules := applicationConfig.MarketRules[vo.MarketTaiwanStock]
-	assert.Equal(t, 1, taiwanStockRules.SimultaneousChannelCeiling)
-	assert.Equal(t, 5, taiwanStockRules.SymbolsPerLiveChannel)
+	assert.True(t, taiwanStockRules.FollowsFixedRoster)
+	assert.Equal(t, 0, taiwanStockRules.SimultaneousChannelCeiling)
+	assert.Equal(t, 25, taiwanStockRules.SymbolsPerLiveChannel)
 	assert.Equal(t, 9*time.Hour, taiwanStockRules.TradingSession.DailyStart)
 	assert.Len(t, taiwanStockRules.TradingSession.Weekdays, 5)
 }
