@@ -8979,6 +8979,57 @@
           ]
         },
         {
+          "name": "拒絕：這個系統沒有維持保證金率",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "維持保證金率說的是「抵押品不夠時什麼時候被強制平倉」——只有借了錢的帳戶會被平掉，而這裡的重演一毛都不借。\n\n送來它一樣**整次拒絕**，不當作沒看見：會填這一格的人心裡想的是另一種系統，而默默給他一張現貨成績單，正是這整件事要避免的那個結果。\n\n被指出來要改的是 `leverage` 那一組——倍數與保證金率是同一組裡的兩格，句子自己會說是哪一格。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"maintenanceMarginRate\": \"0.5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "// 只有借了錢的帳戶會被強制平倉，而這裡一毛都不借。",
+                  "pm.test(\"說出這個系統沒有維持保證金率\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"沒有維持保證金率\");",
+                  "});",
+                  "pm.test(\"指名是哪一組要改\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"leverage\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "（先存）重演：每次只押可用資金的一半",
           "request": {
             "method": "POST",
