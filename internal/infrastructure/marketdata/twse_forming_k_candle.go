@@ -115,27 +115,20 @@ func (twseFormingKCandle *twseFormingKCandle) absorb(
 
 // startSlot begins a new minute, measuring its volume from wherever the running total
 // stood at the end of the last one.
-//
-// A running total that has gone backwards is a new day, or a source that restarted
-// its count. Either way the figure in hand is the truth from here on, and carrying the
-// old opening figure forward would make this minute's volume negative — a number
-// nothing downstream is built to disbelieve.
 func (twseFormingKCandle *twseFormingKCandle) startSlot(
 	slotOpenTime time.Time, quotedKCandle vo.LiveKCandleVo,
 ) {
-	openingCumulativeVolume := twseFormingKCandle.latestCumulativeVolume
-	if twseFormingKCandle.slotOpenTime.IsZero() ||
-		quotedKCandle.Volume.LessThan(openingCumulativeVolume) {
-		// Nothing to measure from: either this is the first quote ever seen for this
-		// symbol, or the count restarted. Measuring from here means the first minute
-		// counts only what traded after we started listening, which is the honest
-		// answer to a question we arrived too late to answer fully.
-		openingCumulativeVolume = quotedKCandle.Volume
+	twseFormingKCandle.openingCumulativeVolume = twseFormingKCandle.latestCumulativeVolume
+	if twseFormingKCandle.slotOpenTime.IsZero() {
+		// Nothing to measure from: this is the first quote ever seen for this symbol.
+		// Measuring from itself means the first minute counts only what traded after
+		// we started listening, which is the honest answer to a question we arrived
+		// too late to answer fully.
+		twseFormingKCandle.openingCumulativeVolume = quotedKCandle.Volume
 	}
 
 	twseFormingKCandle.slotOpenTime = slotOpenTime
-	twseFormingKCandle.openingCumulativeVolume = openingCumulativeVolume
-	twseFormingKCandle.latestCumulativeVolume = quotedKCandle.Volume
+	twseFormingKCandle.recordCumulativeVolume(quotedKCandle.Volume)
 	twseFormingKCandle.openPrice = quotedKCandle.Close
 	twseFormingKCandle.highPrice = quotedKCandle.Close
 	twseFormingKCandle.lowPrice = quotedKCandle.Close
@@ -154,15 +147,27 @@ func (twseFormingKCandle *twseFormingKCandle) foldIntoSlot(quotedKCandle vo.Live
 	}
 
 	twseFormingKCandle.closePrice = quotedKCandle.Close
+	twseFormingKCandle.recordCumulativeVolume(quotedKCandle.Volume)
+}
 
-	// A running total that went backwards inside one minute is the same restart as one
-	// between minutes, and is treated the same way: measure from here rather than
-	// report a negative.
-	if quotedKCandle.Volume.LessThan(twseFormingKCandle.openingCumulativeVolume) {
-		twseFormingKCandle.openingCumulativeVolume = quotedKCandle.Volume
+// recordCumulativeVolume takes in the day's running total as this source last stated
+// it, and is the only place that total is ever written.
+//
+// It exists because the rule guarding it has to hold on both ways in — opening a
+// minute and adding to one — and written at each of them it would be two rules that
+// only look like one. **A running total below what this minute is measured from means
+// the count restarted**: a new day, or the source starting over. The figure in hand is
+// the truth from there, and carrying the old opening figure forward would make the
+// minute's volume negative, which is a number nothing downstream is built to
+// disbelieve.
+func (twseFormingKCandle *twseFormingKCandle) recordCumulativeVolume(
+	cumulativeVolume decimal.Decimal,
+) {
+	if cumulativeVolume.LessThan(twseFormingKCandle.openingCumulativeVolume) {
+		twseFormingKCandle.openingCumulativeVolume = cumulativeVolume
 	}
 
-	twseFormingKCandle.latestCumulativeVolume = quotedKCandle.Volume
+	twseFormingKCandle.latestCumulativeVolume = cumulativeVolume
 }
 
 // formingSlot is the minute as it currently stands, if anything traded in it.

@@ -82,22 +82,15 @@ func NewTwseRealtimeLiveMarketDataProxy(
 func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) FollowKCandles(
 	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
-	// One folder per symbol. They cannot share one: folding is about which minute a
-	// quote falls in and what the running total stood at when that minute opened, and
-	// two symbols answering alternately would each keep resetting the other's.
-	formingBySymbol := make(map[string]*twseFormingKCandle, len(channel.Symbols))
-	for _, symbol := range channel.Symbols {
-		formingBySymbol[symbol] = newTwseFormingKCandle(symbol)
-	}
-
 	firstQuotes, askError := twseRealtimeLiveMarketDataProxy.ask(executionContext, channel)
 	if askError != nil {
 		return nil, askError
 	}
 
 	liveKCandles := make(chan vo.LiveKCandleVo, liveKCandleBufferSize)
-	go twseRealtimeLiveMarketDataProxy.poll(
-		executionContext, channel, formingBySymbol, firstQuotes, liveKCandles)
+	go twseRealtimeLiveMarketDataProxy.poll(executionContext,
+		newTwseQuoteFollow(channel, twseRealtimeLiveMarketDataProxy.marketZone, liveKCandles),
+		firstQuotes)
 
 	return liveKCandles, nil
 }
@@ -107,12 +100,10 @@ func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) FollowKC
 // ending in exactly one way.
 func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) poll(
 	executionContext context.Context,
-	channel vo.LiveFollowChannelVo,
-	formingBySymbol map[string]*twseFormingKCandle,
+	quoteFollow *twseQuoteFollow,
 	firstQuotes []twseRealtimeQuote,
-	liveKCandles chan<- vo.LiveKCandleVo,
 ) {
-	defer close(liveKCandles)
+	defer quoteFollow.end()
 
 	ticker := time.NewTicker(twseRealtimeLiveMarketDataProxy.pollInterval)
 	defer ticker.Stop()
@@ -124,8 +115,7 @@ func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) poll(
 	quotes := firstQuotes
 
 	for {
-		if !twseRealtimeLiveMarketDataProxy.publish(
-			executionContext, formingBySymbol, quotes, liveKCandles) {
+		if !quoteFollow.publish(executionContext, quotes) {
 			return
 		}
 
@@ -135,12 +125,14 @@ func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) poll(
 		case <-ticker.C:
 		}
 
-		polledQuotes, askError := twseRealtimeLiveMarketDataProxy.ask(executionContext, channel)
+		polledQuotes, askError := twseRealtimeLiveMarketDataProxy.ask(
+			executionContext, quoteFollow.channel)
 		if askError != nil {
 			// A follow the system ended on purpose is not a feed that broke, and
 			// saying so would put a line in the log for every orderly shutdown.
 			if executionContext.Err() == nil {
-				log.Printf("live market data: the feed for %s ended: %v", channel.Key, askError)
+				log.Printf("live market data: the feed for %s ended: %v",
+					quoteFollow.channel.Key, askError)
 			}
 
 			return
@@ -148,47 +140,6 @@ func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) poll(
 
 		quotes = polledQuotes
 	}
-}
-
-// publish folds one answer into the candles it changes and sends them on, reporting
-// whether the follow should carry on.
-//
-// A quote about a symbol this channel never asked for belongs to nobody here. Whether
-// a quote says anything at all is the quote's own to answer — see toLiveKCandleVo for
-// the two everyday ways it says nothing.
-func (twseRealtimeLiveMarketDataProxy *TwseRealtimeLiveMarketDataProxy) publish(
-	executionContext context.Context,
-	formingBySymbol map[string]*twseFormingKCandle,
-	quotes []twseRealtimeQuote,
-	liveKCandles chan<- vo.LiveKCandleVo,
-) bool {
-	for _, quote := range quotes {
-		forming, isFollowed := formingBySymbol[quote.Symbol]
-		if !isFollowed {
-			continue
-		}
-
-		quotedKCandle, hasQuote, convertError := quote.toLiveKCandleVo(
-			twseRealtimeLiveMarketDataProxy.marketZone)
-		if convertError != nil {
-			log.Printf("live market data: unreadable quote: %v", convertError)
-
-			continue
-		}
-		if !hasQuote {
-			continue
-		}
-
-		for _, liveKCandle := range forming.absorb(quotedKCandle) {
-			select {
-			case liveKCandles <- liveKCandle:
-			case <-executionContext.Done():
-				return false
-			}
-		}
-	}
-
-	return true
 }
 
 // ask makes one request for the whole channel and normalizes whatever it answers
