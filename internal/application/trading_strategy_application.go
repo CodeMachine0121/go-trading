@@ -100,20 +100,6 @@ func (tradingStrategyApplication *TradingStrategyApplication) UpdateTradingStrat
 		return dto.TradingStrategyDto{}, domains.TradingStrategyBotRunning(references.RunningBotNames)
 	}
 
-	// Taking borrowing away from rules a bot is already borrowing against would leave
-	// that bot suggesting a loan its rules cannot carry — which saving a bot refuses,
-	// and which a replay of the same pair refuses too. Stopping it here is what keeps
-	// the two doors from disagreeing again through a change made on the other side.
-	//
-	// A mode nothing can read is left alone: the rewrite is about to be refused for
-	// that, in its own words, and answering it here would hide which mistake was made.
-	tradingMode, tradingModeError := domains.NewTradingModeDomain(writeDto.TradingMode)
-	if tradingModeError == nil && tradingMode.BorrowingRefusal() != nil &&
-		len(references.BorrowingBotNames) > 0 {
-		return dto.TradingStrategyDto{},
-			domains.TradingStrategyBotBorrowing(references.BorrowingBotNames)
-	}
-
 	resolvedWriteDto, resolveError := tradingStrategyApplication.withResolvedStrategyScripts(
 		executionContext, viewerID, writeDto)
 	if resolveError != nil {

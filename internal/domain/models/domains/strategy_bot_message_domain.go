@@ -27,36 +27,19 @@ const strategyBotMessageTimeLayout = "2006-01-02 15:04 UTC"
 // perfectly well be met by a source that says hold. Saying "各來源怎麼說" out loud is
 // what separates the conclusion from what it was concluded from.
 //
-// The headline is worded by the trading mode of the rules this round was judged by,
-// because a conclusion is read as an instruction and the signal's own word is not one
-// every account can carry out. Which word to put there is the mode's answer, not this
-// model's — it depends on which ways those rules can face, and that is knowledge only
-// the mode has.
+// The headline is worded by the conclusion itself, because a conclusion is read as an
+// instruction and the signal's own word is not always one its reader can carry out —
+// see SignalDomain.HeadlineVerb.
 //
 // Only the headline speaks of acts. The source lines below keep quoting the scripts
 // in 買入／賣出／持有, which is how a reader works back from the conclusion.
 type StrategyBotMessageDomain struct {
-	round       dto.StrategyBotRoundDto
-	tradingMode TradingModeDomain
+	round dto.StrategyBotRoundDto
 }
 
 // NewStrategyBotMessageDomain takes a round to be written out.
-//
-// A mode this cannot read is written as no mode at all: the zero value cannot short,
-// so the message quotes the signal's own words and names nothing. That is the same
-// rule the headline's coloured mark follows for a conclusion it does not recognise —
-// a message is the last place to guess which way somebody should trade, and guessing
-// 做空 here would be exactly that.
-//
-// Unreachable through the save gate, which refuses a mode it cannot read before it is
-// ever stored. It is written down because the alternative to a rule is an accident.
 func NewStrategyBotMessageDomain(round dto.StrategyBotRoundDto) StrategyBotMessageDomain {
-	tradingMode, tradingModeError := NewTradingModeDomain(round.TradingMode)
-	if tradingModeError != nil {
-		return StrategyBotMessageDomain{round: round}
-	}
-
-	return StrategyBotMessageDomain{round: round, tradingMode: tradingMode}
+	return StrategyBotMessageDomain{round: round}
 }
 
 // Text is the message.
@@ -81,31 +64,11 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		headlineMark = "🔴"
 	}
 
-	// Green is this system's colour for going long, so rules that cannot go long
-	// never get it. Their buy is a close, and 🟢【出場】 is the one pairing where the
-	// mark and the verb point opposite ways — the reader glances at the phone, sees
-	// green, and reads an entry into an account that will never take one. Red is
-	// what every other close already carries, so it is the reading that leaves the
-	// mark meaning one thing throughout.
-	//
-	// Asked of the capability rather than matched against the mode, so that the next
-	// mode which cannot go long lands on this side without anyone remembering to put
-	// it there.
-	if headlineMark == "🟢" && !strategyBotMessageDomain.tradingMode.CanGoLong() {
-		headlineMark = "🔴"
-	}
-
-	// The verb beside the mark, and the one thing the trading mode decides about a
-	// message: a conclusion is read as an instruction, and the signal's own word is
-	// not always one this reader can carry out.
-	//
-	// Asked of the mode as one question rather than worked out here, because the
-	// answer is a table of four modes by three signals and only the mode knows which
-	// way its rules can face. Assembling it at this end used to mean asking the mode
-	// twice and rewriting the word in between, which held only while "cannot short"
-	// and "only goes long" were the same sentence — and short-only is the mode where
-	// they part company.
-	headlineVerb := strategyBotMessageDomain.tradingMode.HeadlineVerbFor(verdict)
+	// The verb beside the mark: a conclusion is read as an instruction, and the
+	// signal's own word is not always one this reader can carry out. Asked of the
+	// conclusion rather than worked out here — what an opinion asks somebody to go and
+	// do is part of what that opinion means.
+	headlineVerb := verdict.HeadlineVerb()
 
 	lines := []string{
 		fmt.Sprintf("%s【%s】%s · %s",
@@ -132,23 +95,11 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
 	}
 
-	// Named wherever the verb has left the reader something to find out, which is
-	// the mode's answer rather than this model's — see ActNeedsTheModeNamed.
-	//
-	// It opens with a blank line of its own, like every other block below the
-	// headline. Without one it renders glued to the reference moment, and a reader
-	// skimming a phone reads the two as one paragraph — as though the mode were
-	// something about that price rather than about the rules that judged the round.
-	if strategyBotMessageDomain.tradingMode.ActNeedsTheModeNamed() {
-		lines = append(lines, "",
-			fmt.Sprintf("⚙️ 交易模式 %s", strategyBotMessageDomain.tradingMode.InWords()))
-	}
-
 	// What to put down, before the working. Somebody skimming this on a phone is
 	// deciding whether to act; the evidence is for whoever then wants to check.
 	lines = append(lines, strategyBotMessageDomain.positionPlanLines()...)
 
-	// Always the signals, whichever mode asked. These lines are the strategy scripts'
+	// Always the signals, whatever the headline concluded. These lines are the scripts'
 	// own testimony, and a script only ever says buy, sell or hold — rewriting them as
 	// 做多／做空 would put words in their mouths and leave the reader unable to work
 	// back from the conclusion to what produced it, which is the only reason these
@@ -194,26 +145,20 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 			"　・部位資金不足，押不下 %s", positionPlan.Stake.String()))
 	}
 
-	lines = append(lines, fmt.Sprintf("　・保證金 %s", positionPlan.Stake.String()))
+	lines = append(lines, fmt.Sprintf("　・開倉金額 %s", positionPlan.Stake.String()))
 
-	if positionPlan.Leveraged {
-		lines = append(lines, fmt.Sprintf("　・名目 %s", positionPlan.Notional.String()))
-	}
-
-	// Which way each exit lies is written out in words. A short's stop sits above the
-	// price, and 66105.915 reads like a perfectly ordinary price whichever side it was
-	// meant for — so the side is never left for the reader to work out.
+	// Which way each exit lies is written out in words. 66105.915 reads like a
+	// perfectly ordinary price whichever side it was meant for, so the side is never
+	// left for the reader to work out.
 	if positionPlan.HasStopLoss {
-		lines = append(lines, fmt.Sprintf("　・止損 %s（%s，虧 %s）",
+		lines = append(lines, fmt.Sprintf("　・止損 %s（往下，虧 %s）",
 			positionPlan.StopLossPrice.String(),
-			exitDirectionInWords(positionPlan.SuggestsShort),
 			positionPlan.LossAtStop.String()))
 	}
 
 	if positionPlan.HasTakeProfit {
-		lines = append(lines, fmt.Sprintf("　・止盈 %s（%s，賺 %s）",
+		lines = append(lines, fmt.Sprintf("　・止盈 %s（往上，賺 %s）",
 			positionPlan.TakeProfitPrice.String(),
-			exitDirectionInWords(!positionPlan.SuggestsShort),
 			positionPlan.GainAtTarget.String()))
 	}
 
@@ -227,17 +172,4 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 	}
 
 	return lines
-}
-
-// exitDirectionInWords is which way an exit lies from the reference price.
-//
-// Both exits need it and they need it inverted from one another, which is exactly why
-// it is one function: two copies would let a long's stop and a short's target drift
-// into disagreeing about the same direction.
-func exitDirectionInWords(above bool) string {
-	if above {
-		return "往上"
-	}
-
-	return "往下"
 }

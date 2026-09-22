@@ -5,11 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"testing"
 	"time"
 
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
 	"github.com/stretchr/testify/assert"
@@ -350,15 +348,14 @@ func TestClaudeAssistantProxyLeavesOutANarrationThatWasNotThere(t *testing.T) {
 	assert.Equal(t, "tool_use", assistantTurn.Content[0].Type)
 }
 
-// The standing instructions tell the assistant how a replay trades. They are prose in
-// a cached string with nothing pointing at them, so when the trading rules changed
-// they simply stayed as they were — still asserting that a sell always opens a short,
-// while the capability beside them had grown a mode where it never does.
+// The assistant hears what a replay actually does, because it is the only place it
+// could hear it: there is no tool schema for a set of rules to trade by any more.
 //
-// The cost of that drift is exactly the thing this feature exists to remove: someone
-// says their account cannot short, the assistant follows instructions that never
-// mention a choice, and hands back a report card built on short positions.
-func TestClaudeAssistantProxyTellsTheAssistantHowAReplayTrades(t *testing.T) {
+// The cost of these instructions drifting is exactly what this slice removes:
+// somebody says they want to short or to use leverage, the assistant follows
+// instructions that never say otherwise, and hands back a report card built on
+// positions this system cannot model.
+func TestClaudeAssistantProxyTellsTheAssistantAReplayOnlyEverTradesSpot(t *testing.T) {
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
@@ -367,74 +364,20 @@ func TestClaudeAssistantProxyTellsTheAssistantHowAReplayTrades(t *testing.T) {
 	require.Len(t, fixture.sentRequest.System, 1)
 	instructions := fixture.sentRequest.System[0].Text
 
-	// Both modes are named, so the assistant knows a choice exists at all.
-	assert.Contains(t, instructions, string(vo.TradingModeLongShort))
-	assert.Contains(t, instructions, string(vo.TradingModeSpot))
-	// And which one it gets by saying nothing, so it does not have to guess.
-	assert.Contains(t, instructions, "不給就是 longShort")
-	// A sell no longer means one thing regardless of mode. Saying so unconditionally
-	// is what made the old wording false rather than merely incomplete.
+	// What it does: a buy opens, a sell returns to cash, and a sell while flat does
+	// nothing at all.
+	assert.Contains(t, instructions, "只做現貨")
+	assert.Contains(t, instructions, "空手時賣出什麼都不做")
+	// What it cannot do, said out loud rather than left to be discovered by refusal.
+	assert.Contains(t, instructions, "沒有交易模式可以指定")
+	assert.Contains(t, instructions, "開不了槓桿")
+	// And what to tell somebody who asks for one of those, so the assistant does not
+	// quietly substitute a setting that replays something else.
+	assert.Contains(t, instructions, "不要替他改成別的設定去湊")
+	// A sell no longer opens anything, and no set of rules is on offer. Saying
+	// otherwise is what made the old wording false rather than merely incomplete.
 	assert.NotContains(t, instructions, "賣出（開空）")
-}
-
-// The assistant learns what a trading mode may be from exactly two places: the tool
-// schema for writing a strategy, and these instructions. For a strategy-script replay
-// there is no schema — the assistant names the mode itself — so these instructions are
-// the only place it could ever hear of a mode.
-//
-// Asserted against the selectable set rather than a list written out here. That is the
-// whole point: a mode added to the system and forgotten by this prompt is invisible,
-// because nothing fails. The assistant simply never offers it, and whoever needed it
-// gets the nearest wrong answer instead.
-func TestClaudeAssistantProxyTellsTheAssistantEveryTradingModeThereIs(t *testing.T) {
-	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
-
-	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
-	require.NoError(t, replyError)
-
-	// Ranged over the selectable set rather than a list written out here, which is
-	// the whole point of this test: a mode added to the system and forgotten by this
-	// prompt is invisible, because nothing fails. A literal list was the version that
-	// let exactly that happen — short-only reached the tool schema and never reached
-	// these instructions, and this test stayed green through it.
-	//
-	// Each spelling is checked against the clause that defines it, and the two are
-	// asserted as one string. Every mode is also named in the advice below, so
-	// separate checks pass on a prompt that has two of the descriptions swapped.
-	describedModes := map[vo.TradingModeVo]string{
-		vo.TradingModeLongShort:     "兩邊都做、借得到錢",
-		vo.TradingModeSpot:          "只做多、借不到錢",
-		vo.TradingModeLeveragedLong: "只做多、借得到錢",
-		vo.TradingModeShortOnly:     "只做空、借得到錢",
-	}
-
-	instructions := fixture.sentRequest.System[0].Text
-
-	for _, selectableMode := range domains.SelectableTradingModes() {
-		description, isDescribed := describedModes[selectableMode]
-		require.Truef(t, isDescribed,
-			"交易模式多了 %s，但這個測試沒說它該被怎麼描述——補上它，再確認指示裡真的有那一句",
-			selectableMode)
-		// Bound to one line rather than checked as two independent substrings:
-		// every mode is also named in the advice below, so separate checks pass on
-		// a prompt that has two of the descriptions swapped.
-		assert.Regexpf(t,
-			regexp.MustCompile(regexp.QuoteMeta(string(selectableMode))+`[^\n]*→ `+
-				regexp.QuoteMeta(description)),
-			instructions, "指示裡沒有描述 %s，或描述接錯了模式", selectableMode)
-	}
-
-	// And the situation that reaches for the newest one. Knowing the spelling is not
-	// enough: somebody who only goes long reads as spot right up until the leverage
-	// comes up, and spot is the answer that leaves them unable to replay what they run.
-	assert.Contains(t, instructions, "只做多、要上一點槓桿")
-	// And that the venue settles nothing — the sentence that keeps "我在幣安永續"
-	// from falling through to the default, which would reverse every sell into a
-	// short and say nothing about it.
-	assert.Contains(t, instructions, "場所不決定模式")
-	assert.Contains(t, instructions, "沒問出他做哪一邊之前不要猜")
-	// The situation that reaches for the newest one, and the trick it must not
-	// reach for instead — knowing the spelling exists is not enough.
-	assert.Contains(t, instructions, "只想做空")
-	assert.Contains(t, instructions, "永遠不成立的\n買入條件")
+	assert.NotContains(t, instructions, "longShort")
+	assert.NotContains(t, instructions, "shortOnly")
+	assert.NotContains(t, instructions, "leveragedLong")
 }

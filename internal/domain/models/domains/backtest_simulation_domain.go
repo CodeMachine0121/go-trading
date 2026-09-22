@@ -19,7 +19,6 @@ import (
 // fees, stops, filling at the next candle's open. Two reasons to change, two models.
 type BacktestSimulationDomain struct {
 	initialCapital decimal.Decimal
-	tradingMode    TradingModeDomain
 	positionTerms  BacktestPositionTermsDomain
 	inputKCandles  []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
@@ -34,14 +33,12 @@ type BacktestSimulationDomain struct {
 // never reaches here — that is a script failure, caught where the script is run.
 func NewBacktestSimulationDomain(
 	initialCapital decimal.Decimal,
-	tradingMode TradingModeDomain,
 	positionTerms BacktestPositionTermsDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
 ) BacktestSimulationDomain {
 	return BacktestSimulationDomain{
 		initialCapital: initialCapital,
-		tradingMode:    tradingMode,
 		positionTerms:  positionTerms,
 		inputKCandles:  inputKCandles,
 		signals:        signals,
@@ -56,7 +53,6 @@ func NewBacktestSimulationDomain(
 func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestResultDto {
 	account := NewBacktestAccountDomain(
 		backtestSimulationDomain.initialCapital,
-		backtestSimulationDomain.tradingMode,
 		backtestSimulationDomain.positionTerms)
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
@@ -89,9 +85,6 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		// replay made before there were distances to give.
 		StopLossExitCount:   account.ExitCountFor(vo.TradeExitReasonStopLoss),
 		TakeProfitExitCount: account.ExitCountFor(vo.TradeExitReasonTakeProfit),
-		// Zero for a replay that borrowed nothing, which is every replay made before
-		// there was anything to borrow.
-		LiquidationExitCount: account.ExitCountFor(vo.TradeExitReasonLiquidation),
 		// Zero for a replay given no rates, which is every replay made before there
 		// were rates to give.
 		TotalTransactionCost: account.TotalTransactionCost(),

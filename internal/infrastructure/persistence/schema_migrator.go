@@ -38,6 +38,12 @@ var retiredColumns = []retiredColumn{
 	// algorithm, not the algorithm; they moved onto the calculation request.
 	{entity: &entities.StrategyScript{}, name: "aggregation_interval"},
 	{entity: &entities.StrategyScript{}, name: "candle_count"},
+	// Which kind of account a set of rules was written for, and how much a bot
+	// suggested borrowing. The replay only does spot now, so nothing reads either —
+	// and a column still holding 'longShort' beside rules that are replayed as spot
+	// is a row that contradicts the system out loud.
+	{entity: &entities.TradingStrategy{}, name: "trading_mode"},
+	{entity: &entities.StrategyBot{}, name: "position_plan_leverage"},
 }
 
 // retiredIndex is an index an entity used to carry. AutoMigrate adds indexes but

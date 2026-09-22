@@ -8867,7 +8867,7 @@
           ]
         },
         {
-          "name": "重演：現貨模式賣出就平倉回現金",
+          "name": "重演：賣出就平倉回現金",
           "request": {
             "method": "POST",
             "header": [
@@ -8885,10 +8885,10 @@
                 "backtests"
               ]
             },
-            "description": "**與上一發同一支算式、同一段歷史，只換了交易模式。**\n\n現貨模式只做多：聽到賣出就把多倉平掉、錢收回來，之後空手等下一個買點，**不會反手做空**。收盤 110 開多倉，收盤 140 那根平倉、3,000 入袋，最後一根漲到 150 時手上是現金，與他無關。\n\n所以最後剩 14,000，而上一發是 13,000——差的那 1,000 是上一發那個空倉的浮虧，一筆做不到放空的帳戶永遠不會有的損益。",
+            "description": "這個系統的重演**只做現貨**：買入時空手就開倉，賣出就平倉把錢收回來、之後空手等下一個買點，空手時聽到賣出什麼都不做。\n\n沒有交易模式可以指定——說 `spot` 與什麼都不說是同一件事，說別的整次被拒絕。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"spot\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8928,7 +8928,7 @@
           ]
         },
         {
-          "name": "拒絕：交易模式認不得",
+          "name": "拒絕：這個系統只重演現貨",
           "request": {
             "method": "POST",
             "header": [
@@ -8946,10 +8946,10 @@
                 "backtests"
               ]
             },
-            "description": "交易模式有四種：longShort（兩邊都做、借得到錢）、spot（只做多、借不到錢）、leveragedLong（只做多、借得到錢）、shortOnly（只做空、借得到錢）。認不得的值**整次拒絕**，並說出有哪四種可選——不默默退回預設，否則使用者會拿著一張用另一套規矩跑出來的成績單做決定，而且完全不知道。",
+            "description": "借錢、做空與強制平倉是合約帳戶的事，那是另外一件事——這個系統的重演只做現貨。\n\n送來任何一種交易模式（`spot` 以外）一律**整次拒絕**，不默默照現貨跑完：跑完的話使用者會拿著一張用另一套規矩算出來的成績單做決定，而且完全不知道。\n\n被指出來要改的欄位是 `tradingMode`；送來大於 1 的 `leverage` 則指向 `leverage`。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"dayTrade\"\n}",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"longShort\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -8966,12 +8966,63 @@
                   "pm.test(\"回應 400\", function () {",
                   "    pm.response.to.have.status(400);",
                   "});",
-                  "pm.test(\"指名是哪一個輸入不對\", function () {",
-                  "    pm.expect(pm.response.json().field).to.eql(\"tradingMode\");",
+                  "// 不默默照現貨跑完：跑完的話他會拿著一張用另一套規矩算出來的成績單做決定，而且完全不知道。",
+                  "pm.test(\"說出這個系統只重演現貨\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"只重演現貨\");",
                   "});",
-                  "pm.test(\"說出現在有哪兩種可選\", function () {",
-                  "    pm.expect(pm.response.json().message).to.include(\"longShort\");",
-                  "    pm.expect(pm.response.json().message).to.include(\"spot\");",
+                  "pm.test(\"指名是哪一格要改\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"tradingMode\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：這個系統沒有維持保證金率",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            },
+            "description": "維持保證金率說的是「抵押品不夠時什麼時候被強制平倉」——只有借了錢的帳戶會被平掉，而這裡的重演一毛都不借。\n\n送來它一樣**整次拒絕**，不當作沒看見：會填這一格的人心裡想的是另一種系統，而默默給他一張現貨成績單，正是這整件事要避免的那個結果。\n\n被指出來要改的是 `leverage` 那一組——倍數與保證金率是同一組裡的兩格，句子自己會說是哪一格。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktest2}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"11000\",\n  \"positionSizingMode\": \"allIn\",\n  \"maintenanceMarginRate\": \"0.5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "// 只有借了錢的帳戶會被強制平倉，而這裡一毛都不借。",
+                  "pm.test(\"說出這個系統沒有維持保證金率\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"沒有維持保證金率\");",
+                  "});",
+                  "pm.test(\"指名是哪一組要改\", function () {",
+                  "    pm.expect(pm.response.json().field).to.eql(\"leverage\");",
                   "});"
                 ]
               }
@@ -9922,258 +9973,6 @@
               }
             }
           ]
-        },
-        {
-          "name": "重演：開了槓桿，價格逆著走就被強制平倉",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/backtests",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "backtests"
-              ]
-            },
-            "description": "與「止損把那一注掃出場」同一支算式、同一段歷史，只多了一個 `leverage`——而帳戶歸零。\n\n第二根（收盤 120）全押開多，12,000 的保證金在 5 倍下曝險 60,000，拿到 500 單位。撐得住的距離是 (100÷5) − 0.5 = **19.5 個百分點**，所以強制平倉價是 120 × 0.805 = **96.6**。第三根的最低價 90 穿過它，那一注在 96.6 被打掉，**收回 0**。\n\n沒有這一刀的話，同一段行情只會讓成績單少賺一點——而真實帳戶早就沒了，後面每一筆交易都是憑空的。`liquidationExitCount` 就是為了讓這件事說得出口。\n\n`leverage` 留白、給 0 或給 1 都是不借錢：不模擬強制平倉，每個數字與這一刀之前逐字相同。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"在強制平倉價被打掉，不是在最低價\", function () {",
-                  "    // 進場 120，撐得住 19.5%：120 × 0.805 = 96.6。那一根最低 90 是穿過去的，不是成交價。",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"96.6\");",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"liquidation\");",
-                  "});",
-                  "pm.test(\"押下去的錢全沒了，而且只沒有那麼多\", function () {",
-                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-12000\");",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"0\");",
-                  "});",
-                  "pm.test(\"成績單數得出這個帳戶歸零過幾次\", function () {",
-                  "    pm.expect(pm.response.json().summary.liquidationExitCount).to.eql(1);",
-                  "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(0);",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "重演：止損比強平近，那一注就輪不到被強平",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/backtests",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "backtests"
-              ]
-            },
-            "description": "同一發再加一個 2% 的止損。止損價 117.6 比強制平倉價 96.6 **更靠近進場價**，而兩者在同一邊——價格要先經過近的那個。所以這一注永遠是止損出場，永遠不會被強平。\n\n這不是猜的，是幾何：同一邊的兩個價位，近的必定先到。系統在**開倉當下**就把兩者取近併成一個，不是每一根 K 線再判一次。\n\n成績單上 `liquidationExitCount` 為 0，就是「我的停損一直在擋」這件事的證據。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\",\n  \"stopLossPercentage\": \"2\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"近的那個先到：止損 117.6 比強平 96.6 近\", function () {",
-                  "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"117.6\");",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"stopLoss\");",
-                  "});",
-                  "pm.test(\"停損擋下來了，帳戶沒有歸零\", function () {",
-                  "    pm.expect(pm.response.json().summary.liquidationExitCount).to.eql(0);",
-                  "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(1);",
-                  "    // 500 單位從 120 掉到 117.6，虧 1,200；12,000 − 1,200 = 10,800。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"10800\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：現貨開不了槓桿",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/backtests",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "backtests"
-              ]
-            },
-            "description": "現貨是拿現金換東西，沒有人借錢給你——所以交易模式是 `spot` 又給大於 1 的 `leverage`，是兩句互相矛盾的話，整次重演被拒絕。\n\n被指出來要改的欄位是 `leverage`，與止損止盈併成 `exitLevels`、兩個成本率併成 `transactionCosts` 同一個做法：兩格在畫面上必定併排填，句子本身會說是哪一格。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"spot\",\n  \"leverage\": \"3\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
-                  "pm.test(\"指出要改的是槓桿那一組，並說出為什麼\", function () {",
-                  "    pm.expect(pm.response.json().field).to.eql(\"leverage\");",
-                  "    pm.expect(pm.response.json().message).to.include(\"現貨\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "重演：槓桿做多借得到錢",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/backtests",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "backtests"
-              ]
-            },
-            "description": "`leveragedLong` 的進出場與 `spot` 一字不差——只做多，賣出就平倉回現金——但它**借得到錢**。同一組 `leverage: 3` 在 `spot` 上被整次拒絕，在這裡跑得完。\n\n這是「做不做得了空」與「借不借得到錢」兩個問題分開問之後，第三種合法組合：合約帳戶上只做多。少了它，這種帳戶只能挑 `spot`，於是上線用得了的槓桿在這裡驗證不了。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"tradingMode\": \"leveragedLong\",\n  \"leverage\": \"3\",\n  \"maintenanceMarginRate\": \"0.5\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"成績單交得出來，而且數得出強平\", function () {",
-                  "    const summary = pm.response.json().summary;",
-                  "    pm.expect(summary).to.have.property(\"liquidationExitCount\");",
-                  "});",
-                  "pm.test(\"只做多：每一筆交易都是多倉，從來沒有空倉\", function () {",
-                  "    for (const trade of pm.response.json().closedTrades) {",
-                  "        pm.expect(trade.direction).to.eql(\"long\");",
-                  "    }",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：維持保證金率大到那一注開倉當下就撐不住",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/backtests",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "backtests"
-              ]
-            },
-            "description": "5 倍槓桿下押下去的錢只夠讓價格逆著走 20 個百分點，維持保證金率再吃掉 25，強平距離就變成負的——那一注在開倉那一棒就已經撐不住，現實中交易所根本不會讓這張單過。\n\n拒絕的句子會**說出這個槓桿下最多能填到多少**（小於 20%）。被擋下來的人要知道該改成什麼，而不是自己一個一個試。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\",\n  \"maintenanceMarginRate\": \"25\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
-                  "pm.test(\"告訴他最多能填多少\", function () {",
-                  "    pm.expect(pm.response.json().field).to.eql(\"leverage\");",
-                  "    pm.expect(pm.response.json().message).to.include(\"20%\");",
-                  "});"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
@@ -10246,7 +10045,7 @@
             "description": "存起來只是被記住，不會因此被執行——執行是機器人的事。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"spot\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -10267,7 +10066,6 @@
                   "    pm.expect(saved.buyCondition.operator).to.eql(\"and\");",
                   "    pm.expect(saved.sellCondition.sourceLabel).to.eql(\"A\");",
                   "});",
-                  "pm.test(\"交易模式跟著這一份存起來了\", function () {\n    pm.expect(pm.response.json().tradingMode).to.eql(\"spot\");\n});",
                   "pm.collectionVariables.set(\"tradingStrategyId\", pm.response.json().id);"
                 ]
               }
@@ -10306,8 +10104,7 @@
                   "    pm.expect(found.signalSources[1].aggregationInterval).to.eql(\"1h\");",
                   "    pm.expect(found.signalSources[0]).to.not.have.property(\"script\");",
                   "    pm.expect(found).to.not.have.property(\"ownerId\");",
-                  "});",
-                  "pm.test(\"交易模式一起回來，畫面才填得出現值\", function () {\n    pm.expect(pm.response.json().tradingMode).to.eql(\"spot\");\n});"
+                  "});"
                 ]
               }
             }
@@ -10688,53 +10485,7 @@
           ]
         },
         {
-          "name": "改成多空反手：交易模式改得動",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "trading-strategies",
-                "{{tradingStrategyId}}"
-              ]
-            },
-            "description": "存起來只是被記住，不會因此被執行——執行是機器人的事。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"longShort\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"交易模式換過來了\", function () {",
-                  "    pm.expect(pm.response.json().tradingMode).to.eql(\"longShort\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "重演：交易模式跟著那一份走，不必再講一次",
+          "name": "重演：賣出就平倉回現金，不可能出現空倉",
           "request": {
             "method": "POST",
             "header": [
@@ -10754,7 +10505,7 @@
                 "backtests"
               ]
             },
-            "description": "**與上一發同一份交易策略、同一段歷史，只換了交易模式。**\n\n交易模式走的是與重演一支策略腳本完全相同的那一道關卡，所以留白即多空反手、認不得即整次拒絕，兩條路一字不差。現貨模式下賣出只平倉回現金，因此交易明細裡不可能出現空倉。",
+            "description": "**與上一發同一份交易策略、同一段歷史。**\n\n重演走的是與重演一支策略腳本完全相同的那一道關卡：只做現貨，賣出只平倉回現金，因此交易明細裡不可能出現空倉。\n\n請求裡沒有交易模式可以給，也沒有槓桿可以開——送來任何一種，兩條路一字不差地整次拒絕。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\"\n}",
@@ -10893,7 +10644,7 @@
           ]
         },
         {
-          "name": "拒絕：交易模式認不得",
+          "name": "拒絕：一份交易策略沒有第二種規則可寫",
           "request": {
             "method": "POST",
             "header": [
@@ -10911,10 +10662,10 @@
                 "trading-strategies"
               ]
             },
-            "description": "存起來只是被記住，不會因此被執行——執行是機器人的事。",
+            "description": "一份交易策略是寫給這個系統唯一重演得了的那種帳戶的——現貨。\n\n送來任何一種交易模式（`spot` 以外）一律**整份拒絕**，措辭與重演那一邊一字不差：不默默退回預設，否則使用者會拿著一份性質與他以為的不一樣的交易策略去上線。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"dayTrade\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"tradingMode\": \"longShort\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    },\n    {\n      \"label\": \"B\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\"\n    }\n  ],\n  \"buyCondition\": {\n    \"operator\": \"and\",\n    \"conditions\": [\n      {\n        \"sourceLabel\": \"A\",\n        \"signal\": \"buy\"\n      },\n      {\n        \"sourceLabel\": \"B\",\n        \"signal\": \"buy\"\n      }\n    ]\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -10929,67 +10680,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
-                  "// 不默默退回預設：退回去的話，使用者會拿著一份性質與他以為的不一樣的交易策略去上線。",
-                  "pm.test(\"說出現在有哪兩種可選\", function () {",
-                  "    pm.expect(pm.response.text()).to.include(\"longShort\");",
-                  "    pm.expect(pm.response.text()).to.include(\"spot\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "重演：交易策略也說得出槓桿",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/trading-strategies/{{tradingStrategyId}}/backtests",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "trading-strategies",
-                "{{tradingStrategyId}}",
-                "backtests"
-              ]
-            },
-            "description": "槓桿在這裡與重演一支策略腳本**一字不差**——而且與旁邊的交易模式不同，它**不在交易策略身上**：一套規則對「你願意借多少錢」沒有意見，那是關於你的帳戶的事，跟初始資金、止損距離同一類。\n\n留白就是不借錢，所以不填的那一發與這一刀之前逐字相同。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"startTime\": \"{{backtestStartTime}}\",\n  \"endTime\": \"{{backtestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"positionSizingMode\": \"allIn\",\n  \"leverage\": \"5\",\n  \"maintenanceMarginRate\": \"0.5\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
-                  "pm.test(\"成績單多一格強平出場筆數\", function () {",
-                  "    pm.expect(pm.response.json().summary.liquidationExitCount).to.be.a(\"number\");",
-                  "});",
-                  "pm.test(\"每一筆的曝險是保證金的五倍\", function () {",
-                  "    // 毛利應該等於「押注金額 × 5 × 價格變動比例」——曝險是保證金的五倍。",
-                  "    pm.response.json().closedTrades.forEach(function (trade) {",
-                  "        if (trade.exitReason === \"liquidation\") { return; }",
-                  "        const gross = Number(trade.profit) + Number(trade.entryCost) + Number(trade.exitCost);",
-                  "        const move = (Number(trade.exitPrice) - Number(trade.entryPrice)) / Number(trade.entryPrice);",
-                  "        const signed = trade.direction === \"short\" ? -move : move;",
-                  "        pm.expect(gross).to.be.closeTo(Number(trade.stake) * 5 * signed, 0.01);",
-                  "    });",
+                  "pm.test(\"說出這個系統只重演現貨\", function () {",
+                  "    pm.expect(pm.response.text()).to.include(\"只重演現貨\");",
                   "});"
                 ]
               }
@@ -11023,7 +10715,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -11045,7 +10737,6 @@
                   "        Number(pm.collectionVariables.get(\"tradingStrategyId\")));",
                   "    pm.expect(saved.tradingStrategyName).to.be.a(\"string\");",
                   "});",
-                  "pm.test(\"部位規劃跟著這一台存起來了\", function () {\n    const plan = pm.response.json().positionPlan;\n    pm.expect(plan.capital).to.eql(\"50000\");\n    pm.expect(plan.sizingMode).to.eql(\"percentage\");\n    pm.expect(plan.leverage).to.eql(\"3\");\n    pm.expect(plan.stopLossPercentage).to.eql(\"3\");\n    pm.expect(plan.takeProfitPercentage).to.eql(\"5\");\n});",
                   "pm.collectionVariables.set(\"strategyBotId\", pm.response.json().id);"
                 ]
               }
@@ -11473,7 +11164,7 @@
             "description": "建立時的每一條規則，修改時一字不差地同樣適用；改回自己原本的名稱不算重複。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"positionPlan\": {\n    \"capital\": \"80000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"0\"\n  }\n}",
+              "raw": "{\n  \"name\": \"{{strategyBotName}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 15,\n  \"positionPlan\": {\n    \"capital\": \"80000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"0\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -11733,7 +11424,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"150\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"150\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -11753,258 +11444,6 @@
                   "    // 這個人在存一台機器人，不是在跑回測——那個詞不該出現在他眼前。",
                   "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
                   "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：槓桿小於一倍",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategy-bots",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategy-bots"
-              ]
-            },
-            "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"0.5\",\n    \"stopLossPercentage\": \"3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
-                  "pm.test(\"說出哪裡不對\", function () {",
-                  "    pm.expect(pm.response.text()).to.include(\"槓桿倍數不得小於 1 倍\");",
-                  "    // 這個人在存一台機器人，不是在跑回測——那個詞不該出現在他眼前。",
-                  "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "備妥一份現貨交易策略",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/trading-strategies",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "trading-strategies"
-              ]
-            },
-            "description": "下一個案例需要一份**借不到錢**的規則。這一段其餘案例用的那一份是 `longShort`，借得到。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"現貨規則 {{$timestamp}}\",\n  \"tradingMode\": \"spot\",\n  \"signalSources\": [\n    {\n      \"label\": \"A\",\n      \"strategyScriptId\": \"{{botStrategyScriptId}}\",\n      \"aggregationInterval\": \"1h\",\n      \"parameterValues\": [\n        {\n          \"name\": \"期數\",\n          \"value\": 2\n        }\n      ]\n    }\n  ],\n  \"buyCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"buy\"\n  },\n  \"sellCondition\": {\n    \"sourceLabel\": \"A\",\n    \"signal\": \"sell\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
-                  "pm.collectionVariables.set(\"spotTradingStrategyId\", pm.response.json().id);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "拒絕：這份規則借不到錢，機器人就建議不了槓桿",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategy-bots",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategy-bots"
-              ]
-            },
-            "description": "一台機器人建議得了多少槓桿，受限於**它所引用的那份交易策略**借不借得到錢。\n\n在這一刀之前這裡是放行的：機器人只記著「我用哪一份交易策略」，驗證自己的部位規劃時手上根本沒有那份規則，所以擋不了。結果是一台跑得起來、卻怎麼樣都重演不出來的機器人——同一組設定送去重演會被整次拒絕。\n\n拒絕的句子與重演那一邊**一字不差**，因為兩邊問的是同一個模型要同一句話。\n\n要修的多半是那份交易策略：在合約帳戶上只做多的人，它該是 `leveragedLong`，不是 `spot`。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"槓桿現貨機 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{spotTradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"150\",\n    \"sizingMode\": \"allIn\",\n    \"leverage\": \"1.8\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
-                  "pm.test(\"說的是重演那一邊說的同一句話\", function () {",
-                  "    pm.expect(pm.response.text()).to.include(",
-                  "        \"現貨交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你\");",
-                  "    // 這個人在存一台機器人，不是在跑回測。",
-                  "    pm.expect(pm.response.text()).to.not.include(\"backtest\");",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "同一台機器人，改用槓桿做多的規則就存得起來",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategy-bots",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategy-bots"
-              ]
-            },
-            "description": "一字未改的部位規劃，換一份**借得到錢**的規則就通過了——證明被擋下的是那一組搭配，不是那個槓桿倍數本身。",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"槓桿做多機 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"150\",\n    \"sizingMode\": \"allIn\",\n    \"leverage\": \"1.8\"\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
-                  "pm.test(\"那個槓桿原封不動地存下來了\", function () {",
-                  "    pm.expect(pm.response.json().positionPlan.leverage).to.eql(\"1.8\");",
-                  "});",
-                  "pm.collectionVariables.set(\"borrowingBotId\", pm.response.json().id);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "清掉那一台借錢的機器人",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/strategy-bots/{{borrowingBotId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "strategy-bots",
-                "{{borrowingBotId}}"
-              ]
-            },
-            "description": "收乾淨，不留給下一次跑。"
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "清掉那一份現貨交易策略",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/trading-strategies/{{spotTradingStrategyId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "trading-strategies",
-                "{{spotTradingStrategyId}}"
-              ]
-            },
-            "description": "收乾淨，不留給下一次跑。"
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
                 ]
               }
             }
@@ -12032,7 +11471,7 @@
             "description": "一台機器人指名一份自己的交易策略，加上盯哪個市場、多久醒一次。存起來一律是已停止——存下來不會讓它跑起來。",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"leverage\": \"3\",\n    \"stopLossPercentage\": \"-3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
+              "raw": "{\n  \"name\": \"早盤突破 {{$timestamp}}\",\n  \"symbol\": \"{{symbol}}\",\n  \"tradingStrategyId\": \"{{tradingStrategyId}}\",\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"50000\",\n    \"sizingMode\": \"percentage\",\n    \"sizingValue\": \"10\",\n    \"stopLossPercentage\": \"-3\",\n    \"takeProfitPercentage\": \"5\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"

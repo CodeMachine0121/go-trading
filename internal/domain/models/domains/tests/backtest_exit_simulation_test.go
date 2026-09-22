@@ -34,21 +34,6 @@ func replayWithExitsOf(
 ) dto.BacktestResultDto {
 	t.Helper()
 
-	return replayWithExitsTradingAs(
-		t, "longShort", stopLossPercentage, takeProfitPercentage, bars, signals...)
-}
-
-// replayWithExitsTradingAs is the same walk under a named trading mode.
-func replayWithExitsTradingAs(
-	t *testing.T,
-	declaredTradingMode string,
-	stopLossPercentage int64,
-	takeProfitPercentage int64,
-	bars []bar,
-	signals ...vo.SignalVo,
-) dto.BacktestResultDto {
-	t.Helper()
-
 	positionSizing, sizingError := domains.NewPositionSizingDomain("allIn", decimal.Zero)
 	require.NoError(t, sizingError)
 
@@ -68,9 +53,9 @@ func replayWithExitsTradingAs(
 	}
 
 	return domains.NewBacktestSimulationDomain(
-		decimal.NewFromInt(10000), tradingModeOf(t, declaredTradingMode),
+		decimal.NewFromInt(10000),
 		domains.NewBacktestPositionTermsDomain(positionSizing, exitLevels,
-			domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{}),
+			domains.BacktestTransactionCostsDomain{}),
 		inputKCandles, signalDomainsSaying(signals...)).ToDto()
 }
 
@@ -173,34 +158,10 @@ func TestBacktestSimulationCountsACandleReachingBothLevelsAsAStop(t *testing.T) 
 	assert.Equal(t, "9800", result.Summary.FinalEquity.String())
 }
 
-func TestBacktestSimulationMirrorsTheLevelsForAShort(t *testing.T) {
-	t.Run("a short's stop is the one above it", func(t *testing.T) {
-		result := replayWithExitsOf(t, 2, 0,
-			[]bar{{high: 100, low: 100, close: 100}, {high: 103, low: 99, close: 101}},
-			sellSignal, holdSignal)
-
-		require.Len(t, result.ClosedTrades, 1)
-		assert.Equal(t, "short", result.ClosedTrades[0].Direction)
-		assert.Equal(t, "102", result.ClosedTrades[0].ExitPrice.String())
-		assert.Equal(t, "-200", result.ClosedTrades[0].Profit.String())
-		assert.Equal(t, "9800", result.Summary.FinalEquity.String())
-	})
-
-	t.Run("and its target the one below", func(t *testing.T) {
-		result := replayWithExitsOf(t, 0, 5,
-			[]bar{{high: 100, low: 100, close: 100}, {high: 101, low: 94, close: 96}},
-			sellSignal, holdSignal)
-
-		require.Len(t, result.ClosedTrades, 1)
-		assert.Equal(t, "95", result.ClosedTrades[0].ExitPrice.String())
-		assert.Equal(t, "500", result.ClosedTrades[0].Profit.String())
-		assert.Equal(t, "10500", result.Summary.FinalEquity.String())
-	})
-}
-
-// Spot only ever goes long, so it only ever has the one arrangement — but it has it.
-func TestBacktestSimulationHonoursTheLevelsInSpotToo(t *testing.T) {
-	result := replayWithExitsTradingAs(t, "spot", 2, 0,
+// A replay only ever goes long, so it only ever has the one arrangement of levels —
+// the stop below the entry and the target above it.
+func TestBacktestSimulationHonoursTheLevelsOnItsOneSide(t *testing.T) {
+	result := replayWithExitsOf(t, 2, 0,
 		[]bar{{high: 100, low: 100, close: 100}, aDippingBar()},
 		buySignal, holdSignal)
 
@@ -277,4 +238,41 @@ func TestBacktestSimulationCallsEverySignalledExitWhatItIs(t *testing.T) {
 	assert.Equal(t, string(vo.TradeExitReasonSignal), result.ClosedTrades[0].ExitReason)
 	assert.Equal(t, 0, result.Summary.StopLossExitCount)
 	assert.Equal(t, 0, result.Summary.TakeProfitExitCount)
+}
+
+// Three ways out and no fourth. A position is never taken off because the money
+// behind it ran out — nothing here borrows, so there is nobody to call a loan in.
+//
+// Asserted over a walk that exits every way it can, rather than by reading the set of
+// spellings: what matters is that no replay ever produces a fourth one.
+func TestBacktestSimulationEndsEveryTradeOneOfThreeWays(t *testing.T) {
+	result := replayWithExitsOf(t, 2, 5,
+		[]bar{
+			{high: 100, low: 100, close: 100},
+			aDippingBar(),
+			{high: 100, low: 100, close: 100},
+			{high: 106, low: 99, close: 100},
+			{high: 100, low: 100, close: 100},
+			{high: 101, low: 99, close: 100},
+		},
+		buySignal, holdSignal, buySignal, holdSignal, buySignal, sellSignal)
+
+	require.Len(t, result.ClosedTrades, 3)
+	exitReasons := make([]string, 0, len(result.ClosedTrades))
+	for _, closedTrade := range result.ClosedTrades {
+		assert.Contains(t, []string{
+			string(vo.TradeExitReasonSignal),
+			string(vo.TradeExitReasonStopLoss),
+			string(vo.TradeExitReasonTakeProfit),
+		}, closedTrade.ExitReason)
+		exitReasons = append(exitReasons, closedTrade.ExitReason)
+	}
+
+	// All three really happened, so this is not passing on a walk that only ever
+	// exited one way.
+	assert.ElementsMatch(t, []string{
+		string(vo.TradeExitReasonStopLoss),
+		string(vo.TradeExitReasonTakeProfit),
+		string(vo.TradeExitReasonSignal),
+	}, exitReasons)
 }

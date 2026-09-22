@@ -319,7 +319,10 @@ func TestBacktestDomainSimulation(t *testing.T) {
 	})
 }
 
-func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
+// This system replays one thing. Saying so is free, asking for anything else is
+// refused outright — the alternative is a report card of a run nobody asked for, with
+// nothing on the page to say which run it was.
+func TestBacktestDomainRefusesAnythingOtherThanSpot(t *testing.T) {
 	t.Run("a request that names no trading mode is accepted", func(t *testing.T) {
 		requestDto := backtestRequest()
 
@@ -328,7 +331,7 @@ func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("a request naming the long only mode is accepted", func(t *testing.T) {
+	t.Run("a request saying spot out loud is accepted", func(t *testing.T) {
 		requestDto := backtestRequest()
 		requestDto.TradingMode = "spot"
 
@@ -337,9 +340,24 @@ func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("a trading mode nobody offers is refused", func(t *testing.T) {
+	t.Run("any other set of rules is refused, and the refusal names the box", func(t *testing.T) {
+		for _, declaredMode := range []string{"longShort", "leveragedLong", "shortOnly", "dayTrade"} {
+			requestDto := backtestRequest()
+			requestDto.TradingMode = declaredMode
+
+			_, err := domains.NewBacktestDomain(requestDto, backtestMaxCandleCount, backtestNow)
+
+			require.Error(t, err, declaredMode)
+			assert.ErrorIs(t, err, domains.ErrBacktestValidation)
+			fieldName, namesField := domains.BacktestFieldName(err)
+			require.True(t, namesField)
+			assert.Equal(t, domains.BacktestTradingModeField, fieldName)
+		}
+	})
+
+	t.Run("borrowing is refused, and that refusal names its own box", func(t *testing.T) {
 		requestDto := backtestRequest()
-		requestDto.TradingMode = "dayTrade"
+		requestDto.Leverage = decimal.NewFromInt(20)
 
 		_, err := domains.NewBacktestDomain(requestDto, backtestMaxCandleCount, backtestNow)
 
@@ -347,21 +365,36 @@ func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
 		fieldName, namesField := domains.BacktestFieldName(err)
 		require.True(t, namesField)
-		assert.Equal(t, domains.BacktestTradingModeField, fieldName)
+		assert.Equal(t, domains.BacktestLeverageField, fieldName)
+	})
+
+	t.Run("nothing borrowed is accepted however it was written", func(t *testing.T) {
+		for _, declaredLeverage := range []string{"0", "1", "1.0"} {
+			requestDto := backtestRequest()
+			requestDto.Leverage = decimal.RequireFromString(declaredLeverage)
+
+			_, err := domains.NewBacktestDomain(requestDto, backtestMaxCandleCount, backtestNow)
+
+			require.NoError(t, err, declaredLeverage)
+		}
 	})
 
 	// A replay run for a whole trading strategy answers this in the same words as one
 	// run for a single script — because it asks the very same gate, rather than
 	// repeating the rule and drifting from it.
-	t.Run("a trading strategy replay refuses it in the same words", func(t *testing.T) {
+	//
+	// Both halves are checked, and the mode half is the one that can rot silently: a
+	// body that does not declare the field drops it without a word, and the caller
+	// gets two hundred and a report card of a run they did not ask for.
+	t.Run("a trading strategy replay refuses another set of rules in the same words", func(t *testing.T) {
 		scriptRequestDto := backtestRequest()
-		scriptRequestDto.TradingMode = "dayTrade"
+		scriptRequestDto.TradingMode = "longShort"
 		_, scriptError := domains.NewBacktestDomain(
 			scriptRequestDto, backtestMaxCandleCount, backtestNow)
 		require.Error(t, scriptError)
 
 		strategyRequestDto := tradingStrategyBacktestRequest()
-		strategyRequestDto.TradingMode = "dayTrade"
+		strategyRequestDto.TradingMode = "longShort"
 		_, strategyError := domains.NewTradingStrategyBacktestDomain(
 			strategyRequestDto, backtestMaxCandleCount, backtestNow)
 
@@ -372,14 +405,23 @@ func TestBacktestDomainReadsTheTradingMode(t *testing.T) {
 		assert.Equal(t, domains.BacktestTradingModeField, fieldName)
 	})
 
-	t.Run("a trading strategy replay accepts the long only mode", func(t *testing.T) {
-		strategyRequestDto := tradingStrategyBacktestRequest()
-		strategyRequestDto.TradingMode = "spot"
+	t.Run("a trading strategy replay refuses borrowing in the same words", func(t *testing.T) {
+		scriptRequestDto := backtestRequest()
+		scriptRequestDto.Leverage = decimal.NewFromInt(20)
+		_, scriptError := domains.NewBacktestDomain(
+			scriptRequestDto, backtestMaxCandleCount, backtestNow)
+		require.Error(t, scriptError)
 
-		_, err := domains.NewTradingStrategyBacktestDomain(
+		strategyRequestDto := tradingStrategyBacktestRequest()
+		strategyRequestDto.Leverage = decimal.NewFromInt(20)
+		_, strategyError := domains.NewTradingStrategyBacktestDomain(
 			strategyRequestDto, backtestMaxCandleCount, backtestNow)
 
-		require.NoError(t, err)
+		require.Error(t, strategyError)
+		assert.Equal(t, scriptError.Error(), strategyError.Error())
+		fieldName, namesField := domains.BacktestFieldName(strategyError)
+		require.True(t, namesField)
+		assert.Equal(t, domains.BacktestLeverageField, fieldName)
 	})
 }
 
@@ -425,11 +467,11 @@ func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 			expectedField: domains.BacktestPositionSizingValueField,
 		},
 		{
-			name: "which way it trades",
+			name: "asking to borrow",
 			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
-				requestDto.TradingMode = "dayTrade"
+				requestDto.Leverage = decimal.NewFromInt(20)
 			},
-			expectedField: domains.BacktestTradingModeField,
+			expectedField: domains.BacktestLeverageField,
 		},
 		{
 			// The exits are asked for on this kind of replay too, and refused by it

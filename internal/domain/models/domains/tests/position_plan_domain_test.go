@@ -12,13 +12,12 @@ import (
 )
 
 // aPositionPlanSettings is a fully filled plan: fifty thousand, staking a tenth of it,
-// three times over, out at three percent against and five percent in favour.
+// out at three percent against and five percent in favour.
 func aPositionPlanSettings() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              decimal.NewFromInt(50000),
 		SizingMode:           string(vo.PositionSizingModePercentage),
 		SizingValue:          decimal.NewFromInt(10),
-		Leverage:             decimal.NewFromInt(3),
 		StopLossPercentage:   decimal.NewFromInt(3),
 		TakeProfitPercentage: decimal.NewFromInt(5),
 	}
@@ -43,48 +42,25 @@ func planUnderTest(
 	return positionPlan.PlanFor(target, aReferencePrice(), true)
 }
 
-// The four multiplications, written out. They are here with real figures rather than
+// The multiplications, written out. They are here with real figures rather than
 // described in prose because the arithmetic is the whole of what this model does, and
 // a formula restated in a test is a formula that agrees with itself.
-func TestPositionPlanDomainSizesALongPosition(t *testing.T) {
+func TestPositionPlanDomainSizesAPosition(t *testing.T) {
 	positionPlanDto, suggests := planUnderTest(
 		t, aPositionPlanSettings(), vo.TargetPositionLong)
 
 	require.True(t, suggests)
 	assert.True(t, positionPlanDto.Affordable)
-	assert.False(t, positionPlanDto.SuggestsShort)
-	// A tenth of fifty thousand, three times over.
+	// A tenth of fifty thousand.
 	assert.Equal(t, "5000", positionPlanDto.Stake.String())
-	assert.Equal(t, "15000", positionPlanDto.Notional.String())
-	assert.True(t, positionPlanDto.Leveraged)
-	// Against a long, the price falling is the loss — so the stop sits below.
+	// The price falling is the loss — so the stop sits below, and the target above.
 	assert.Equal(t, "62255.085", positionPlanDto.StopLossPrice.String())
 	assert.Equal(t, "67389.525", positionPlanDto.TakeProfitPrice.String())
-	// Measured against the notional, which is exactly what leverage changes.
-	assert.Equal(t, "450", positionPlanDto.LossAtStop.String())
-	assert.Equal(t, "750", positionPlanDto.GainAtTarget.String())
-}
-
-// The one mistake here that cannot be seen: a short's stop sits **above** the price,
-// and 66105 reads like a perfectly ordinary price whichever side it was meant for.
-// So long and short are two criteria rather than one parameterised case.
-func TestPositionPlanDomainPutsAShortsStopAboveThePrice(t *testing.T) {
-	positionPlanDto, suggests := planUnderTest(
-		t, aPositionPlanSettings(), vo.TargetPositionShort)
-
-	require.True(t, suggests)
-	assert.True(t, positionPlanDto.SuggestsShort)
-	// The money is the same either way: only the two prices swap sides.
-	assert.Equal(t, "5000", positionPlanDto.Stake.String())
-	assert.Equal(t, "15000", positionPlanDto.Notional.String())
-	assert.Equal(t, "66105.915", positionPlanDto.StopLossPrice.String())
-	assert.Equal(t, "60971.475", positionPlanDto.TakeProfitPrice.String())
-	assert.Equal(t, "450", positionPlanDto.LossAtStop.String())
-	assert.Equal(t, "750", positionPlanDto.GainAtTarget.String())
-	// Said out loud: the stop is above and the target below, which is only true of a
-	// short. A long asserting the same two comparisons would be the bug.
-	assert.True(t, positionPlanDto.StopLossPrice.GreaterThan(aReferencePrice()))
-	assert.True(t, positionPlanDto.TakeProfitPrice.LessThan(aReferencePrice()))
+	assert.True(t, positionPlanDto.StopLossPrice.LessThan(aReferencePrice()))
+	assert.True(t, positionPlanDto.TakeProfitPrice.GreaterThan(aReferencePrice()))
+	// Measured against the stake, which is the whole of what is in the market.
+	assert.Equal(t, "150", positionPlanDto.LossAtStop.String())
+	assert.Equal(t, "250", positionPlanDto.GainAtTarget.String())
 }
 
 func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
@@ -92,8 +68,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 		name             string
 		adjust           func(settings *dto.PositionPlanSettingsDto)
 		expectedStake    string
-		expectedNotional string
-		expectLeveraged  bool
 		expectStopLoss   bool
 		expectTakeProfit bool
 	}{
@@ -104,8 +78,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 				settings.SizingValue = decimal.Zero
 			},
 			expectedStake:    "50000",
-			expectedNotional: "150000",
-			expectLeveraged:  true,
 			expectStopLoss:   true,
 			expectTakeProfit: true,
 		},
@@ -116,30 +88,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 				settings.SizingValue = decimal.NewFromInt(8000)
 			},
 			expectedStake:    "8000",
-			expectedNotional: "24000",
-			expectLeveraged:  true,
-			expectStopLoss:   true,
-			expectTakeProfit: true,
-		},
-		{
-			name: "no leverage leaves the notional equal to the stake, and says so",
-			adjust: func(settings *dto.PositionPlanSettingsDto) {
-				settings.Leverage = decimal.Zero
-			},
-			expectedStake:    "5000",
-			expectedNotional: "5000",
-			expectLeveraged:  false,
-			expectStopLoss:   true,
-			expectTakeProfit: true,
-		},
-		{
-			name: "one times leverage reads exactly as none",
-			adjust: func(settings *dto.PositionPlanSettingsDto) {
-				settings.Leverage = decimal.NewFromInt(1)
-			},
-			expectedStake:    "5000",
-			expectedNotional: "5000",
-			expectLeveraged:  false,
 			expectStopLoss:   true,
 			expectTakeProfit: true,
 		},
@@ -149,8 +97,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 				settings.TakeProfitPercentage = decimal.Zero
 			},
 			expectedStake:    "5000",
-			expectedNotional: "15000",
-			expectLeveraged:  true,
 			expectStopLoss:   true,
 			expectTakeProfit: false,
 		},
@@ -160,8 +106,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 				settings.StopLossPercentage = decimal.Zero
 			},
 			expectedStake:    "5000",
-			expectedNotional: "15000",
-			expectLeveraged:  true,
 			expectStopLoss:   false,
 			expectTakeProfit: true,
 		},
@@ -172,8 +116,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 				settings.TakeProfitPercentage = decimal.Zero
 			},
 			expectedStake:    "5000",
-			expectedNotional: "15000",
-			expectLeveraged:  true,
 			expectStopLoss:   false,
 			expectTakeProfit: false,
 		},
@@ -188,8 +130,6 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 
 			require.True(t, suggests)
 			assert.Equal(t, testCase.expectedStake, positionPlanDto.Stake.String())
-			assert.Equal(t, testCase.expectedNotional, positionPlanDto.Notional.String())
-			assert.Equal(t, testCase.expectLeveraged, positionPlanDto.Leveraged)
 			assert.Equal(t, testCase.expectStopLoss, positionPlanDto.HasStopLoss)
 			assert.Equal(t, testCase.expectTakeProfit, positionPlanDto.HasTakeProfit)
 		})
@@ -210,7 +150,6 @@ func TestPositionPlanDomainSaysSoWhenTheCapitalCannotCoverTheStake(t *testing.T)
 	require.True(t, suggests, "有設定就有建議，只是那個建議是「押不下去」")
 	assert.False(t, positionPlanDto.Affordable)
 	// Nothing computed on top of a stake that cannot be put down.
-	assert.True(t, positionPlanDto.Notional.IsZero())
 	assert.False(t, positionPlanDto.HasStopLoss)
 	assert.False(t, positionPlanDto.HasTakeProfit)
 }
@@ -232,8 +171,8 @@ func TestPositionPlanDomainSuggestsNothingWhenThereIsNothingToSuggest(t *testing
 			hasReference: true,
 		},
 		{
-			// A spot sell clears out. There is nothing to size, and a suggestion here
-			// would have somebody putting money down to close a position.
+			// A sell clears out. There is nothing to size, and a suggestion here would
+			// have somebody putting money down to close a position.
 			name:         "the round is asking to stand aside",
 			settings:     aPositionPlanSettings(),
 			target:       vo.TargetPositionFlat,
@@ -269,9 +208,8 @@ func TestPositionPlanDomainSuggestsNothingWhenThereIsNothingToSuggest(t *testing
 	}
 }
 
-// A mode that never went through the constructor suggests nothing, by the same rule
-// the trading mode answers "unchanged" for one: a model that cannot read itself is the
-// last place to size somebody's position.
+// A plan that never went through the constructor suggests nothing: a model that
+// cannot read itself is the last place to size somebody's position.
 func TestPositionPlanDomainZeroValueSuggestsNothing(t *testing.T) {
 	_, suggests := domains.PositionPlanDomain{}.PlanFor(
 		vo.TargetPositionLong, aReferencePrice(), true)
@@ -307,15 +245,6 @@ func TestNewPositionPlanDomainRefusesSettingsItCannotUse(t *testing.T) {
 				settings.SizingMode = "dayTrade"
 			},
 			expectedWords: "每次開倉押多少只能是",
-		},
-		{
-			// Somebody who typed half a times meant something by it. Reading that as a
-			// whole one would double what they asked for without telling them.
-			name: "leverage below one times",
-			adjust: func(settings *dto.PositionPlanSettingsDto) {
-				settings.Leverage = decimal.RequireFromString("0.5")
-			},
-			expectedWords: "槓桿倍數不得小於 1 倍",
 		},
 		{
 			name: "a negative stop distance",
@@ -399,29 +328,11 @@ func TestPositionPlanDomainHandsItsSettingsBack(t *testing.T) {
 	assert.Equal(t, "50000", settingsDto.Capital.String())
 	assert.Equal(t, string(vo.PositionSizingModePercentage), settingsDto.SizingMode)
 	assert.Equal(t, "10", settingsDto.SizingValue.String())
-	assert.Equal(t, "3", settingsDto.Leverage.String())
 	assert.Equal(t, "3", settingsDto.StopLossPercentage.String())
 	assert.Equal(t, "5", settingsDto.TakeProfitPercentage.String())
 }
 
-// Leverage nobody stated is stored as one rather than as nothing, so that reading it
-// back cannot produce a bot whose notional is zero.
-func TestPositionPlanDomainStoresUnstatedLeverageAsOne(t *testing.T) {
-	settings := aPositionPlanSettings()
-	settings.Leverage = decimal.Zero
-
-	positionPlan, buildError := domains.NewPositionPlanDomain(settings)
-	require.NoError(t, buildError)
-
-	assert.Equal(t, "1", positionPlan.ToSettingsDto().Leverage.String())
-}
-
-// A bot with no position plan stores nothing — not even a multiplier.
-//
-// One is the right answer to "what does a stake get multiplied by" when nothing is
-// borrowed, and every formula reads it that way. It is the wrong thing to write down:
-// a bot that never had a plan would come back out of storage, and out of the API,
-// claiming a leverage of one on a stake it does not have.
+// A bot with no position plan stores nothing at all.
 func TestPositionPlanDomainStoresNothingForABotWithNoPlan(t *testing.T) {
 	plan, buildError := domains.NewPositionPlanDomain(dto.PositionPlanSettingsDto{})
 	require.NoError(t, buildError)
@@ -429,7 +340,6 @@ func TestPositionPlanDomainStoresNothingForABotWithNoPlan(t *testing.T) {
 	settings := plan.ToSettingsDto()
 
 	assert.Equal(t, "0", settings.Capital.String())
-	assert.Equal(t, "0", settings.Leverage.String())
 	assert.Equal(t, "", settings.SizingMode)
 	assert.Equal(t, "0", settings.SizingValue.String())
 	assert.Equal(t, "0", settings.StopLossPercentage.String())

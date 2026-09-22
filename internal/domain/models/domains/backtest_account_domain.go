@@ -14,7 +14,6 @@ import (
 // Holding at most one position is not a check this makes but the shape it has — there
 // is one position field, so there is nowhere for a second one to go.
 type BacktestAccountDomain struct {
-	tradingMode       TradingModeDomain
 	positionTerms     BacktestPositionTermsDomain
 	availableCash     decimal.Decimal
 	openPosition      BacktestPositionDomain
@@ -25,11 +24,9 @@ type BacktestAccountDomain struct {
 
 func NewBacktestAccountDomain(
 	initialCapital decimal.Decimal,
-	tradingMode TradingModeDomain,
 	positionTerms BacktestPositionTermsDomain,
 ) *BacktestAccountDomain {
 	return &BacktestAccountDomain{
-		tradingMode:   tradingMode,
 		positionTerms: positionTerms,
 		availableCash: initialCapital,
 		closedTrades:  make([]vo.ClosedTradeVo, 0),
@@ -63,16 +60,13 @@ func (backtestAccountDomain *BacktestAccountDomain) ApplyExitLevels(
 
 // Apply carries out one candle's opinion at that candle's fill price.
 //
-// It is one method rather than "close this, then open that" because closing and
-// reopening on the same candle is a single decision — reversing — and a caller given
-// the two halves separately could reverse into a position while the old one was still
-// counted, or forget the second half entirely.
+// It is one method rather than "close this, then open that" because what to let go of
+// and what to take on is a single decision, and a caller given the two halves
+// separately could forget the second one.
 //
-// What the opinion actually asks for is the trading mode's answer, not this method's:
-// a sell asks a long-short replay to face the other way and a spot replay to get out
-// into cash. Reading it as one target rather than as a signal is what lets both modes
-// share the walk below — the reversal and the close-to-cash are two exits from one
-// path, not two copies of it.
+// What the opinion asks for is the signal's own answer, not this method's — see
+// SignalDomain.TargetPosition. Reading it as a target rather than as a signal is what
+// keeps the walk below free of any branch about which word arrived.
 //
 // An opinion asking for what is already held does nothing at all: no trade, no
 // counted opening, no cash moved. Hearing "buy" twice is hearing it once, and so is
@@ -80,7 +74,7 @@ func (backtestAccountDomain *BacktestAccountDomain) ApplyExitLevels(
 func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	signal SignalDomain, candleTime time.Time, fillPrice decimal.Decimal,
 ) {
-	targetPosition := backtestAccountDomain.tradingMode.TargetFor(signal)
+	targetPosition := signal.TargetPosition()
 	// Having no opinion is not the same as asking for cash, and this is the line that
 	// keeps them apart: an unchanged target leaves an open position alone, where a
 	// flat one would go on to close it.
@@ -88,10 +82,10 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 		return
 	}
 
-	wantedDirection, wantsPosition := targetPosition.WantedDirection()
+	wantsPosition := targetPosition.WantsPosition()
 
 	if backtestAccountDomain.hasOpenPosition {
-		if wantsPosition && backtestAccountDomain.openPosition.Direction() == wantedDirection {
+		if wantsPosition {
 			return
 		}
 
@@ -100,8 +94,8 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 				candleTime, fillPrice, vo.TradeExitReasonSignal))
 	}
 
-	// Cash was what it asked for, and cash is what it now holds. This is where a spot
-	// sell stops, and the only reason the opening below is not reached by every target.
+	// Cash was what it asked for, and cash is what it now holds. This is where a sell
+	// stops, and the only reason the opening below is not reached by every target.
 	if !wantsPosition {
 		return
 	}
@@ -115,7 +109,7 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	// and a position; it has no business knowing that a stake is a thing that gets
 	// worked out.
 	openedPosition, isOpened := backtestAccountDomain.positionTerms.OpenFor(
-		wantedDirection, candleTime, fillPrice, backtestAccountDomain.availableCash)
+		candleTime, fillPrice, backtestAccountDomain.availableCash)
 	if !isOpened {
 		return
 	}
@@ -137,12 +131,9 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 // four. One of two copies missing the cash line is money appearing or vanishing, and
 // nothing downstream would report it as anything but a very good or very bad strategy.
 //
-// How much comes back is the position's answer rather than this one's. It used to be
-// worked out here — the position's value less the charge for leaving — which was right
-// while a signal and a level were the only ways out and both answered the same way. A
-// loan called in does not: nothing comes back and nothing more is charged. Asking the
-// position keeps "what one position is worth on the way out" in one model, so the
-// next way out lands there too instead of adding a third case to this method.
+// How much comes back is the position's answer rather than this one's, so that "what
+// one position is worth on the way out" lives in one model — the day a way out answers
+// differently, it lands there instead of adding a case to this method.
 func (backtestAccountDomain *BacktestAccountDomain) settleOpenPosition(
 	closedTrade vo.ClosedTradeVo,
 ) {

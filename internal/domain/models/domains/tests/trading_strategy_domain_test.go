@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -311,100 +312,46 @@ func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.
 		tradingStrategy.ToEntity().SignalSources[0].AggregationInterval)
 }
 
-func TestNewTradingStrategyDomainReadsTheTradingMode(t *testing.T) {
-	testCases := []struct {
-		name         string
-		declaredMode string
-		expectedMode vo.TradingModeVo
-	}{
-		{
-			name:         "declared spot",
-			declaredMode: "spot",
-			expectedMode: vo.TradingModeSpot,
-		},
-		{
-			name:         "declared long-short",
-			declaredMode: "longShort",
-			expectedMode: vo.TradingModeLongShort,
-		},
-		{
-			// Word for word what a replay does with a blank one, because there is one
-			// model that knows what a trading mode may be and both ask it.
-			name:         "declared nothing at all",
-			declaredMode: "",
-			expectedMode: vo.TradingModeLongShort,
-		},
-		{
-			name:         "declared blanks",
-			declaredMode: "   ",
-			expectedMode: vo.TradingModeLongShort,
-		},
-		{
-			name:         "the spelling is read however it was typed",
-			declaredMode: "SPOT",
-			expectedMode: vo.TradingModeSpot,
-		},
-		{
-			// Rules for an account that never shorts and borrows anyway. It reaches
-			// this model the way the other two do, and had to be walked once rather
-			// than left to the mode model's own tests: what is being checked here is
-			// that a trading strategy stores it, not that the mode can be read.
-			name:         "declared long only but borrowing",
-			declaredMode: "leveragedLong",
-			expectedMode: vo.TradingModeLeveragedLong,
-		},
-	}
+// A set of rules is written for the one kind of account this system replays, so there
+// is nothing to declare. Saying spot is free; saying anything else is refused, rather
+// than quietly stored as the one set of rules that does exist.
+func TestNewTradingStrategyDomainAcceptsOnlySpotOrSilence(t *testing.T) {
+	for _, declaredMode := range []string{"", "   ", "spot", "SPOT"} {
+		writeDto := aTradingStrategyWriteDto()
+		writeDto.TradingMode = declaredMode
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			writeDto := aTradingStrategyWriteDto()
-			writeDto.TradingMode = testCase.declaredMode
+		_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
-			tradingStrategy, buildError := domains.NewTradingStrategyDomain(writeDto)
-
-			require.NoError(t, buildError)
-			assert.Equal(t,
-				string(testCase.expectedMode), tradingStrategy.ToEntity().TradingMode)
-		})
+		assert.NoError(t, buildError, declaredMode)
 	}
 }
 
-func TestNewTradingStrategyDomainRefusesATradingModeItCannotRead(t *testing.T) {
-	writeDto := aTradingStrategyWriteDto()
-	writeDto.TradingMode = "dayTrade"
+func TestNewTradingStrategyDomainRefusesAnyOtherSetOfRules(t *testing.T) {
+	for _, declaredMode := range []string{"longShort", "leveragedLong", "shortOnly", "dayTrade"} {
+		writeDto := aTradingStrategyWriteDto()
+		writeDto.TradingMode = declaredMode
 
-	_, buildError := domains.NewTradingStrategyDomain(writeDto)
+		_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
-	require.Error(t, buildError)
-	// The one sentinel every refused trading strategy carries, so that a controller
-	// maps this without learning a second one.
-	assert.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-	// Every spelling is offered back, in the very sentence a replay's refusal uses:
-	// a caller who reaches one refusal has already read the other.
-	//
-	// Asserted against the whole selectable set rather than against a list written
-	// out here. A mode added to the system and forgotten by this refusal leaves
-	// somebody unable to discover it from the one message that was supposed to say
-	// what is allowed — and a hand-written list of two stayed green through exactly
-	// that, which is why it is derived now.
-	for _, selectableMode := range []vo.TradingModeVo{
-		vo.TradingModeLongShort, vo.TradingModeSpot, vo.TradingModeLeveragedLong,
-	} {
-		assert.Contains(t, buildError.Error(), string(selectableMode))
+		require.Error(t, buildError, declaredMode)
+		// The one sentinel every refused trading strategy carries, so that a
+		// controller maps this without learning a second one.
+		assert.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
+		assert.Contains(t, buildError.Error(), "只重演現貨")
 	}
 }
 
-func TestNewTradingStrategyDomainRefusesAnUnreadableModeInTheSameWordsAReplayDoes(t *testing.T) {
+// Not merely similar: the reason is the one sentence, carried through. Two separately
+// worded refusals would eventually disagree, and a person reading one of them would be
+// told something untrue.
+func TestNewTradingStrategyDomainRefusesInTheSameWordsAReplayDoes(t *testing.T) {
 	writeDto := aTradingStrategyWriteDto()
-	writeDto.TradingMode = "dayTrade"
+	writeDto.TradingMode = "longShort"
 
 	_, saveError := domains.NewTradingStrategyDomain(writeDto)
-	_, modeError := domains.NewTradingModeDomain("dayTrade")
+	_, replayError := domains.NewSpotOnlyReplayDomain("longShort", decimal.Zero, decimal.Zero)
 
 	require.Error(t, saveError)
-	require.Error(t, modeError)
-	// Not merely similar: the reason is the mode's own sentence, carried through. Two
-	// separately worded lists of what a trading mode may be would eventually disagree,
-	// and a person reading one of them would be told something untrue.
-	assert.Contains(t, saveError.Error(), modeError.Error())
+	require.Error(t, replayError)
+	assert.Contains(t, saveError.Error(), replayError.Error())
 }

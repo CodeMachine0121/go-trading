@@ -163,26 +163,15 @@ func (strategyBotService *StrategyBotService) ReadReferencesTo(
 	}
 
 	runningBotNames := make([]string, 0, len(bots))
-	borrowingBotNames := make([]string, 0, len(bots))
 	for _, bot := range bots {
 		if vo.StrategyBotRunStateVo(bot.RunState) == vo.StrategyBotRunning {
 			runningBotNames = append(runningBotNames, bot.Name)
 		}
-
-		// Read through the model that decides it everywhere else, so that "this bot
-		// is borrowing" cannot mean one thing here and another where a bot is saved.
-		// Settings that cannot be read are not borrowing: they were refused before
-		// they were ever stored, and a bot nobody can read is not a bot to strand.
-		positionPlan, positionPlanError := domains.NewPositionPlanDomain(bot.PositionPlanSettingsDto())
-		if positionPlanError == nil && positionPlan.IsBorrowed() {
-			borrowingBotNames = append(borrowingBotNames, bot.Name)
-		}
 	}
 
 	return dto.TradingStrategyReferencesDto{
-		TotalCount:        len(bots),
-		RunningBotNames:   runningBotNames,
-		BorrowingBotNames: borrowingBotNames,
+		TotalCount:      len(bots),
+		RunningBotNames: runningBotNames,
 	}, nil
 }
 
@@ -355,15 +344,9 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 		return round
 	}
 
-	tradingMode, tradingModeError := domains.NewTradingModeDomain(round.TradingMode)
-	if tradingModeError != nil {
-		return round
-	}
-
-	// What this round's conclusion asks the account to hold is the trading mode's
-	// answer, and it is the whole of what a plan needs: whether to suggest at all,
-	// and which way round the two exits go.
-	target := tradingMode.TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
+	// What this round's conclusion asks the account to hold is the whole of what a
+	// plan needs: whether there is anything to suggest opening at all.
+	target := domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)).TargetPosition()
 
 	round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(
 		target, round.ReferencePrice, round.HasReference)

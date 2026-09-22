@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 // strategyBotNameMaxLength is how long a bot's name may be, counted after the blanks
@@ -120,28 +121,18 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 必須指名這台機器人要用哪一份交易策略", ErrStrategyBotValidation)
 	}
 
-	// What a bot may suggest borrowing is limited by what its rules may borrow. The
-	// two questions were answered in two places until now — a replay refused a spot
-	// strategy handed a multiplier, and saving a bot did not, because a bot names its
-	// rules rather than holding them and so had nothing to ask. The result was a
-	// machine that ran and could not be replayed.
+	// Nothing here lends, so a bot may only ever suggest what a replay could have
+	// modelled. The sentence comes from the model a replay asks, so that the same
+	// figure typed into either comes back with the same words.
 	//
 	// Asked here rather than inside the position plan because the plan is also built
 	// every round, from settings already stored. Refusing there would stop bots that
-	// were saved before this rule existed — and stopping a machine somebody is using,
-	// to gain consistency, takes away more than it fixes. This is a rule about saving
-	// a bot, which is what this model is.
-	tradingMode, tradingModeError := NewTradingModeDomain(writeDto.TradingMode)
-	if tradingModeError != nil {
+	// were saved before this rule existed — and it would stop them silently, one
+	// round at a time, where nobody is reading.
+	if _, borrowingRefusal := NewSpotOnlyReplayDomain(
+		"", writeDto.DeclaredLeverage, decimal.Zero); borrowingRefusal != nil {
 		return StrategyBotDomain{}, fmt.Errorf(
-			"%w: %s", ErrStrategyBotValidation, tradingModeError)
-	}
-
-	if positionPlan.IsBorrowed() {
-		if borrowingRefusal := tradingMode.BorrowingRefusal(); borrowingRefusal != nil {
-			return StrategyBotDomain{}, fmt.Errorf(
-				"%w: %s", ErrStrategyBotValidation, borrowingRefusal)
-		}
+			"%w: %s", ErrStrategyBotValidation, borrowingRefusal)
 	}
 
 	return StrategyBotDomain{
@@ -174,7 +165,6 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		PositionPlanCapital:              positionPlanSettings.Capital,
 		PositionPlanSizingMode:           positionPlanSettings.SizingMode,
 		PositionPlanSizingValue:          positionPlanSettings.SizingValue,
-		PositionPlanLeverage:             positionPlanSettings.Leverage,
 		PositionPlanStopLossPercentage:   positionPlanSettings.StopLossPercentage,
 		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
 		RunState:                         string(vo.StrategyBotStopped),

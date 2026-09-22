@@ -12,7 +12,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -244,92 +243,6 @@ func TestTradingStrategyApplicationUpdateRefusesWhileABotFollowingItIsRunning(t 
 	// The refusal names the bot to go and stop; a count alone would leave somebody
 	// opening every bot they own to find out which one.
 	assert.ErrorContains(t, updateError, "幣安盯盤")
-}
-
-// aBorrowingBotFollowingTheRules is a stopped bot suggesting more than the money
-// behind it — saveable only while its rules could borrow.
-func aBorrowingBotFollowingTheRules(name string) entities.StrategyBot {
-	bot := aBotFollowingTheRules(name, vo.StrategyBotStopped)
-	bot.PositionPlanCapital = decimal.NewFromInt(150)
-	bot.PositionPlanSizingMode = string(vo.PositionSizingModeAllIn)
-	bot.PositionPlanLeverage = decimal.RequireFromString("1.8")
-
-	return bot
-}
-
-// Taking borrowing away from rules a stopped bot is already borrowing against is
-// refused.
-//
-// Saving that pair is refused, so the only route to it is from this side: save the
-// bot while the rules could borrow, stop it, then change the rules. "Is it running"
-// does not catch it — a stopped bot is exactly what this needs — and the bot would
-// come back suggesting a loan that no replay of those rules could ever produce. That
-// is the state the whole gate exists to prevent, reached through the back door.
-func TestTradingStrategyApplicationUpdateRefusesTakingBorrowingFromABotThatBorrows(t *testing.T) {
-	underTest := newTradingStrategyApplicationUnderTest(t)
-
-	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
-		Return(storedTradingStrategy(), nil)
-	underTest.expectFollowingBots(aBorrowingBotFollowingTheRules("幣安永續"))
-
-	writeDto := aTradingStrategyWrite()
-	writeDto.ID = tradingStrategyID
-	writeDto.TradingMode = string(vo.TradingModeSpot)
-
-	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
-		context.Background(), strategyBotOwnerID, writeDto)
-
-	require.ErrorIs(t, updateError, domains.ErrTradingStrategyBotBorrowing)
-	// Names the bot whose leverage has to go, for the reason the running refusal
-	// names one: a count leaves somebody opening every bot they own.
-	assert.ErrorContains(t, updateError, "幣安永續")
-}
-
-// Moving the other way is fine, and so is staying where borrowing is allowed.
-func TestTradingStrategyApplicationUpdateLetsBorrowingRulesStayBorrowing(t *testing.T) {
-	underTest := newTradingStrategyApplicationUnderTest(t)
-
-	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
-		Return(storedTradingStrategy(), nil).Times(2)
-	underTest.expectFollowingBots(aBorrowingBotFollowingTheRules("幣安永續"))
-	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(aScriptOwnedByTheCaller(9), nil)
-	underTest.expectNoMarketplaceQuestion()
-	underTest.tradingStrategyRepository.EXPECT().
-		Save(gomock.Any(), gomock.Any()).Return(storedTradingStrategy(), nil)
-
-	writeDto := aTradingStrategyWrite()
-	writeDto.ID = tradingStrategyID
-	writeDto.TradingMode = string(vo.TradingModeLeveragedLong)
-
-	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
-		context.Background(), strategyBotOwnerID, writeDto)
-
-	require.NoError(t, updateError)
-}
-
-// A bot that suggests no loan is not stranded by rules that stop being able to lend,
-// so the ordinary move to spot is not blocked by having bots at all.
-func TestTradingStrategyApplicationUpdateLetsRulesStopBorrowingWhenNoBotBorrows(t *testing.T) {
-	underTest := newTradingStrategyApplicationUnderTest(t)
-
-	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
-		Return(storedTradingStrategy(), nil).Times(2)
-	underTest.expectFollowingBots(aBotFollowingTheRules("沒有部位規劃的", vo.StrategyBotStopped))
-	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
-		Return(aScriptOwnedByTheCaller(9), nil)
-	underTest.expectNoMarketplaceQuestion()
-	underTest.tradingStrategyRepository.EXPECT().
-		Save(gomock.Any(), gomock.Any()).Return(storedTradingStrategy(), nil)
-
-	writeDto := aTradingStrategyWrite()
-	writeDto.ID = tradingStrategyID
-	writeDto.TradingMode = string(vo.TradingModeSpot)
-
-	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
-		context.Background(), strategyBotOwnerID, writeDto)
-
-	require.NoError(t, updateError)
 }
 
 func TestTradingStrategyApplicationUpdateGoesAheadWhenEveryFollowingBotIsStopped(t *testing.T) {

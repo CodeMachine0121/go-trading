@@ -356,23 +356,14 @@ func TestTradingStrategyRouterRefusesAnUnreadableBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 
-// In on the request and back out on the answer. The rewrite path shares this very
-// conversion, so it is covered by the same line rather than by a second test.
-func TestTradingStrategyRouterCarriesTheTradingModeInAndBackOut(t *testing.T) {
+// Saying spot out loud is free — it is the one set of rules these are written for
+// either way — and the answer no longer carries a mode at all.
+func TestTradingStrategyRouterAcceptsSpotAndAnswersWithoutAMode(t *testing.T) {
 	fixture := newTradingStrategyRouterUnderTest(t)
 	fixture.expectResolvableStrategyScript()
 
 	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, tradingStrategy entities.TradingStrategy,
-		) (entities.TradingStrategy, error) {
-			assert.Equal(t, string(vo.TradingModeSpot), tradingStrategy.TradingMode)
-
-			storedRow := aStoredTradingStrategyRow()
-			storedRow.TradingMode = tradingStrategy.TradingMode
-
-			return storedRow, nil
-		})
+		Return(aStoredTradingStrategyRow(), nil)
 
 	spotBody := strings.Replace(
 		aTradingStrategyBody, `"name": "黃金交叉",`, `"name": "黃金交叉", "tradingMode": "spot",`, 1)
@@ -382,26 +373,25 @@ func TestTradingStrategyRouterCarriesTheTradingModeInAndBackOut(t *testing.T) {
 	require.Equal(t, http.StatusCreated, response.Code)
 	answer := map[string]any{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
-	// It leaves in the answer as well: a screen offering to replay these rules has to
-	// show which mode that will be, and it never asks for one of its own again.
-	assert.Equal(t, string(vo.TradingModeSpot), answer["tradingMode"])
+	assert.NotContains(t, answer, "tradingMode")
 }
 
-func TestTradingStrategyRouterRefusesATradingModeItCannotRead(t *testing.T) {
+// Any other set of rules is refused rather than quietly stored as the one that does
+// exist — the caller would otherwise get a report card of a run they did not ask for.
+func TestTradingStrategyRouterRefusesAnyOtherSetOfRules(t *testing.T) {
 	fixture := newTradingStrategyRouterUnderTest(t)
 	fixture.expectResolvableStrategyScript()
 
-	dayTradeBody := strings.Replace(
+	shortableBody := strings.Replace(
 		aTradingStrategyBody, `"name": "黃金交叉",`,
-		`"name": "黃金交叉", "tradingMode": "dayTrade",`, 1)
+		`"name": "黃金交叉", "tradingMode": "longShort",`, 1)
 
-	response := fixture.send(http.MethodPost, "/trading-strategies", dayTradeBody)
+	response := fixture.send(http.MethodPost, "/trading-strategies", shortableBody)
 
 	// The same status every other refused trading strategy gets, because it carries
 	// the same sentinel — no controller learned a second one.
 	require.Equal(t, http.StatusBadRequest, response.Code)
 	// Nothing was stored: the repository was never told to save, which gomock enforces
 	// by having no expectation for it.
-	assert.Contains(t, response.Body.String(), string(vo.TradingModeSpot))
-	assert.Contains(t, response.Body.String(), string(vo.TradingModeLongShort))
+	assert.Contains(t, response.Body.String(), "只重演現貨")
 }

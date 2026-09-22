@@ -18,11 +18,6 @@ type StrategyBotRoundDto struct {
 	// Verdict is this round's conclusion: buy or sell. A round with nothing to say
 	// never reaches a message.
 	Verdict string
-	// TradingMode is the mode of the trading strategy this bot follows, exactly as
-	// stored. It is here because a conclusion is read as an instruction, and a sell
-	// asks for two different acts depending on which account these rules were written
-	// for: get out into cash, or open a short.
-	TradingMode string
 	// ReferencePrice is the close of this symbol's latest finished one-minute
 	// candle, and HasReference says whether there was one to read. It is deliberately
 	// not a fill price: nothing here buys anything, and a message that called it an

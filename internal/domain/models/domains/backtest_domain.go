@@ -1,6 +1,7 @@
 package domains
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,7 +30,6 @@ type BacktestDomain struct {
 	interval       AggregationIntervalDomain
 	parameters     StrategyScriptParametersDomain
 	initialCapital decimal.Decimal
-	tradingMode    TradingModeDomain
 	positionTerms  BacktestPositionTermsDomain
 	startTime      time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
@@ -66,6 +66,25 @@ func NewBacktestDomain(
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, symbolError)
 	}
 
+	// Asked before anything else is built, because what it refuses is a request for a
+	// different kind of replay altogether — there is no point checking how much of the
+	// cash it would stake.
+	//
+	// Which box to point at is this replay's business rather than the refusal's: the
+	// sentence is shared with three other callers, and each of them calls its boxes
+	// something different.
+	if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
+		requestDto.TradingMode, requestDto.Leverage,
+		requestDto.MaintenanceMarginRate); spotOnlyRefusal != nil {
+		refusedField := BacktestLeverageField
+		if errors.Is(spotOnlyRefusal, ErrSpotOnlyTradingMode) {
+			refusedField = BacktestTradingModeField
+		}
+
+		return BacktestDomain{}, BacktestValidationFailure(
+			refusedField, spotOnlyRefusal.Error())
+	}
+
 	interval, intervalError := NewAggregationIntervalDomain(requestDto.AggregationInterval)
 	if intervalError != nil {
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, intervalError)
@@ -93,16 +112,6 @@ func NewBacktestDomain(
 			"%w: %s", ErrBacktestValidation, positionSizingError)
 	}
 
-	tradingMode, tradingModeError := NewTradingModeDomain(requestDto.TradingMode)
-	if tradingModeError != nil {
-		// The sentence comes from the mode; naming which input it is about is this
-		// replay's business, because "tradingMode" is what a replay calls the thing a
-		// caller has to go and change. A set of rules being saved wraps the same
-		// sentence in its own sentinel instead.
-		return BacktestDomain{}, BacktestValidationFailure(
-			BacktestTradingModeField, tradingModeError.Error())
-	}
-
 	exitLevels, exitLevelsError := NewBacktestExitLevelsDomain(
 		requestDto.StopLossPercentage, requestDto.TakeProfitPercentage)
 	if exitLevelsError != nil {
@@ -112,19 +121,6 @@ func NewBacktestDomain(
 		// says which.
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestExitLevelsField, exitLevelsError.Error())
-	}
-
-	// Built after the trading mode because it needs one — spot cannot borrow — and
-	// before the sizing is judged against the costs, because how much is borrowed
-	// decides how much of the cash a charge eats.
-	leverage, leverageError := NewBacktestLeverageDomain(
-		requestDto.Leverage, requestDto.MaintenanceMarginRate, tradingMode)
-	if leverageError != nil {
-		// The sentence comes from the model; naming which input it is about is this
-		// replay's business. One name covers the multiplier and the rate; the
-		// sentence says which.
-		return BacktestDomain{}, BacktestValidationFailure(
-			BacktestLeverageField, leverageError.Error())
 	}
 
 	transactionCosts, transactionCostsError := NewBacktestTransactionCostsDomain(
@@ -146,26 +142,13 @@ func NewBacktestDomain(
 	// It points at the percentage rather than at the rates because the rates are a
 	// fact about somebody's broker and the percentage is the knob.
 	positionTerms := NewBacktestPositionTermsDomain(
-		positionSizing, exitLevels, leverage, transactionCosts)
+		positionSizing, exitLevels, transactionCosts)
 
 	if positionTerms.NeverOpensAnything() {
-		// Borrowing is named when there is any, because it is very likely what
-		// caused this. The charge is levied on the exposure, so a multiplier
-		// multiplies it: a percentage that was perfectly affordable yesterday can
-		// become unaffordable today purely by someone adding leverage. Saying only
-		// "this percentage cannot afford its entry charge" would send them to lower
-		// the percentage — the one knob that was never the problem.
-		borrowedClause := ""
-		if leverage.IsBorrowed() {
-			borrowedClause = "——進場成本是照**放大後的曝險金額**收的，" +
-				"所以槓桿倍數把它一起放大了；調低槓桿倍數與調低這個百分比一樣有效"
-		}
-
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestPositionSizingValueField,
 			"這個百分比連同它的進場成本付不起，每一次開倉都會被跳過，"+
-				"這次重演一筆交易都不會有"+borrowedClause+
-				"。要押滿請改用全押——它會自己留出手續費")
+				"這次重演一筆交易都不會有。要押滿請改用全押——它會自己留出手續費")
 	}
 
 	declaredParameters, parametersError := NewStrategyScriptParametersDomain(requestDto.Parameters)
@@ -206,7 +189,6 @@ func NewBacktestDomain(
 		interval:       interval,
 		parameters:     parameters,
 		initialCapital: requestDto.InitialCapital,
-		tradingMode:    tradingMode,
 		positionTerms:  positionTerms,
 		startTime:      startTime,
 		readCutoff:     readCutoff,
@@ -301,7 +283,6 @@ func (backtestDomain BacktestDomain) ReplayOver(
 ) dto.BacktestResultDto {
 	backtestResultDto := NewBacktestSimulationDomain(
 		backtestDomain.initialCapital,
-		backtestDomain.tradingMode,
 		backtestDomain.positionTerms,
 		inputKCandles,
 		signals).ToDto()

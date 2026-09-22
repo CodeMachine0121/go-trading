@@ -34,9 +34,9 @@ type BacktestRequest struct {
 	// chose it may leave the figure out entirely.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
-	// TradingMode is which set of rules this replay trades by. Leaving it out means
-	// always being in the market, which is what a replay did before there was
-	// anything to declare.
+	// TradingMode is carried for the reason Leverage is: there is one set of rules
+	// left, so declaring anything other than spot is refused rather than quietly read
+	// as it.
 	TradingMode string `json:"tradingMode"`
 	// StopLossPercentage and TakeProfitPercentage are how far from its entry a
 	// position may be wrong, and how far right is far enough. Leaving both out means
@@ -44,15 +44,13 @@ type BacktestRequest struct {
 	// a caller that says nothing gets exactly the report card it got before.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
-	// Leverage is how many times the stake each position is exposed to, and
-	// MaintenanceMarginRate how little of that exposure may be left before the loan
-	// is called in and the position is taken off at a loss of the whole stake.
-	//
-	// Leaving the leverage out — or giving nothing, zero or one — means nothing is
-	// borrowed and no forced exit is simulated, which is what every replay did
-	// before these existed. Leaving only the rate out means the figure the venues
-	// actually use.
-	Leverage              decimal.Decimal `json:"leverage"`
+	// Leverage is carried only so that a caller still asking to borrow is told this
+	// system does not. Nothing, zero and one all mean a position paid for in full,
+	// which is what every replay here is; anything above one is refused outright.
+	Leverage decimal.Decimal `json:"leverage"`
+	// MaintenanceMarginRate is carried for the reason Leverage is: it describes when
+	// a borrowed position is closed out for running low on collateral, and nothing
+	// here borrows. Anything other than nothing is refused rather than ignored.
 	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
 	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
 	// act of trading, at each end, as a percentage of the money that changes hands.

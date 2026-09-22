@@ -181,11 +181,12 @@ func TestRunBacktest(t *testing.T) {
 		assert.Equal(t, backtestStart.Add(2*time.Hour), result.EndTime)
 		assert.Equal(t, 3, result.UsedCandleCount)
 		assert.Len(t, result.EquityCurve, 3)
-		// Long 100 to 110 makes 1,000; the short it reversed into is still open at 120.
+		// Bought at 100 and sold at 110 makes 1,000; the account then sits in cash
+		// through the rise to 120.
 		require.Len(t, result.ClosedTrades, 1)
 		assert.True(t, decimal.NewFromInt(1000).Equal(result.ClosedTrades[0].Profit),
 			"profit was %s", result.ClosedTrades[0].Profit)
-		assert.Equal(t, 2, result.Summary.PositionOpenCount)
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
 		// One script cannot disagree with itself, so this is zero for every replay of
 		// a strategy script — the number only ever says something about a trading
 		// strategy whose two condition trees both held.

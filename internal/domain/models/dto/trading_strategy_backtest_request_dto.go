@@ -31,20 +31,22 @@ type TradingStrategyBacktestRequestDto struct {
 	// PositionSizingValue the figure that goes with it.
 	PositionSizingMode  string
 	PositionSizingValue decimal.Decimal
-	// TradingMode is which set of rules the replay trades by, exactly as declared.
-	TradingMode string
 	// StopLossPercentage and TakeProfitPercentage are the two exit distances this
 	// run simulates, both optional, zero meaning no such exit.
 	StopLossPercentage   decimal.Decimal
 	TakeProfitPercentage decimal.Decimal
-	// Leverage and MaintenanceMarginRate are how much this run borrows and how far a
-	// position may fall before the loan is called in, both optional. Leverage of
-	// nothing, zero or one means nothing is borrowed.
-	//
-	// They are asked for here rather than read off the trading strategy, unlike the
-	// trading mode beside them: how much somebody is willing to borrow is a fact
-	// about their account, not about the rules they are replaying.
-	Leverage              decimal.Decimal
+	// TradingMode is what the caller declared about which rules to trade by, exactly
+	// as they typed it. There is one set of rules left, so nothing is chosen by it —
+	// it is carried only so that a caller asking for a different one is told, rather
+	// than handed a report card of a run they did not ask for.
+	TradingMode string
+	// Leverage is what the caller declared about borrowing. Nothing, zero and one all
+	// describe a position paid for in full, which is the only kind this system
+	// replays; anything above one is carried here only so that it can be refused.
+	Leverage decimal.Decimal
+	// MaintenanceMarginRate is what the caller declared about being closed out for
+	// running low on collateral, carried for the reason Leverage is: only a borrowed
+	// position can be, so anything other than nothing exists here to be refused.
 	MaintenanceMarginRate decimal.Decimal
 	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
 	// each end, both optional. Leaving the exit out is read as "the same as the

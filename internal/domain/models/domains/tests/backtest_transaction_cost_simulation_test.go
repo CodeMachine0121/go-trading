@@ -21,7 +21,6 @@ import (
 // be checked in the head.
 type costedReplaySpec struct {
 	initialCapital      string
-	tradingMode         string
 	sizingMode          string
 	sizingValue         string
 	entryCostPercentage string
@@ -50,24 +49,19 @@ func (costedReplaySpec costedReplaySpec) run(t *testing.T) dto.BacktestResultDto
 
 	return domains.NewBacktestSimulationDomain(
 		decimal.RequireFromString(costedReplaySpec.initialCapital),
-		tradingModeOf(t, costedReplaySpec.tradingMode),
 		domains.NewBacktestPositionTermsDomain(positionSizing,
-			domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
-			transactionCosts),
+			domains.BacktestExitLevelsDomain{}, transactionCosts),
 		inputKCandles, signalDomainsSaying(costedReplaySpec.signals...)).ToDto()
 }
 
-// aStakedSpotReplay is the shared setup: spot, everything staked, 10100 on hand.
-// Spot rather than long-short because a sell there returns to cash, which is what
-// makes a single round trip readable — a long-short sell would reverse into a short
-// and the figures afterwards would belong to a second trade.
+// aStakedSpotReplay is the shared setup: everything staked, 10100 on hand. A sell
+// returns to cash, which is what makes a single round trip readable.
 func aStakedSpotReplay(
 	entryCostPercentage string, exitCostPercentage string,
 	closePrices []float64, signals ...vo.SignalVo,
 ) costedReplaySpec {
 	return costedReplaySpec{
 		initialCapital:      "10100",
-		tradingMode:         "spot",
 		sizingMode:          "allIn",
 		sizingValue:         "0",
 		entryCostPercentage: entryCostPercentage,
@@ -121,61 +115,6 @@ func TestBacktestSimulationLosesExactlyTheTwoChargesOnAFlatRoundTrip(t *testing.
 	assert.InDelta(t, 0.0, *result.Summary.WinRate, 1e-9)
 }
 
-// The charge on the way out is taken on the money that changed hands, not on what the
-// bet was worth. For a short those are different numbers, and reading the wrong one is
-// a mistake that shows up on no long and looks perfectly plausible on the page.
-//
-// Closing a short reverses into a long — that is what long-short means — so the
-// account figures afterwards belong to the next trade. What this case is about lives
-// entirely on the round trip that finished.
-func TestBacktestSimulationChargesAShortOnWhatChangedHands(t *testing.T) {
-	testCases := []struct {
-		name               string
-		closePrices        []float64
-		expectedExitCost   string
-		expectedProfit     string
-		costIfReadOffValue string
-	}{
-		{
-			name:               "a winning short leaves at 90",
-			closePrices:        []float64{100, 95, 90},
-			expectedExitCost:   "90",
-			expectedProfit:     "810",
-			costIfReadOffValue: "110",
-		},
-		{
-			name:               "a losing short leaves at 110",
-			closePrices:        []float64{100, 105, 110},
-			expectedExitCost:   "110",
-			expectedProfit:     "-1210",
-			costIfReadOffValue: "90",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			result := costedReplaySpec{
-				initialCapital:      "10100",
-				tradingMode:         "longShort",
-				sizingMode:          "allIn",
-				sizingValue:         "0",
-				entryCostPercentage: "1",
-				exitCostPercentage:  "1",
-				closePrices:         testCase.closePrices,
-				signals:             []vo.SignalVo{sellSignal, holdSignal, buySignal},
-			}.run(t)
-
-			require.Len(t, result.ClosedTrades, 1)
-			closedTrade := result.ClosedTrades[0]
-			assert.Equal(t, "100", closedTrade.EntryCost.String())
-			assert.Equal(t, testCase.expectedExitCost, closedTrade.ExitCost.String())
-			assert.NotEqual(t, testCase.costIfReadOffValue, closedTrade.ExitCost.String(),
-				"the charge was taken on what the position was worth, not on what changed hands")
-			assert.Equal(t, testCase.expectedProfit, closedTrade.Profit.String())
-		})
-	}
-}
-
 // Staking everything means the cash becomes the trade, not the position. The position
 // ends up a little smaller and nothing is left owing.
 func TestBacktestSimulationSplitsTheCashBetweenTheStakeAndItsCharge(t *testing.T) {
@@ -213,7 +152,6 @@ func TestBacktestSimulationSplitsTheCashBetweenTheStakeAndItsCharge(t *testing.T
 		t.Run(testCase.name, func(t *testing.T) {
 			result := costedReplaySpec{
 				initialCapital:      "10100",
-				tradingMode:         "spot",
 				sizingMode:          testCase.sizingMode,
 				sizingValue:         testCase.sizingValue,
 				entryCostPercentage: testCase.entryCostPercentage,
@@ -278,7 +216,6 @@ func TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge(t *testing.T)
 		t.Run(testCase.name, func(t *testing.T) {
 			result := costedReplaySpec{
 				initialCapital:      "10000",
-				tradingMode:         "spot",
 				sizingMode:          testCase.sizingMode,
 				sizingValue:         testCase.sizingValue,
 				entryCostPercentage: testCase.entryCostPercentage,
@@ -303,7 +240,6 @@ func TestBacktestSimulationWinRateCountsOnlyRoundTripsThatBeatTheirOwnCharges(t 
 
 	scalping := costedReplaySpec{
 		initialCapital: "100000",
-		tradingMode:    "spot",
 		sizingMode:     "fixedAmount",
 		sizingValue:    "10000",
 		closePrices:    scalpingBars,
@@ -375,7 +311,6 @@ func TestBacktestSimulationDrawsTheEntryChargeOnTheCurveAtOnce(t *testing.T) {
 func TestBacktestSimulationChargesTaiwanRatesAsymmetrically(t *testing.T) {
 	result := costedReplaySpec{
 		initialCapital:      "1000000",
-		tradingMode:         "spot",
 		sizingMode:          "fixedAmount",
 		sizingValue:         "100000",
 		entryCostPercentage: "0.0855",
@@ -417,7 +352,7 @@ func TestBacktestSimulationChargesNothingWhenNoRatesAreNamed(t *testing.T) {
 	require.NoError(t, buildError)
 
 	assert.Equal(t, "10100",
-		transactionCosts.MaximumStakeFrom(decimal.NewFromInt(10100), domains.BacktestLeverageDomain{}).String())
+		transactionCosts.MaximumStakeFrom(decimal.NewFromInt(10100)).String())
 	assert.True(t, transactionCosts.EntryCostFor(decimal.NewFromInt(10100)).IsZero())
 	assert.True(t, transactionCosts.ExitCostFor(decimal.NewFromInt(10100)).IsZero())
 }

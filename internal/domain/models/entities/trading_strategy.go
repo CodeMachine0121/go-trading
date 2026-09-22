@@ -30,19 +30,10 @@ type TradingStrategy struct {
 	// list of columns a rewrite may touch, so "a trading strategy cannot change
 	// hands" is something the write path cannot express rather than something it
 	// remembers not to do.
-	OwnerID uint   `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
-	Name    string `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
-	// TradingMode is which set of rules these rules are written for: whether a sell
-	// means get out into cash or face the other way. It is what a sell *means*, which
-	// is the rules' business — unlike the market to watch or how often to ask, which
-	// belong to a machine following them.
-	//
-	// It defaults to long-short in the database, so a set of rules saved before this
-	// column existed reads as the one it was actually replayed under. Reading them as
-	// spot instead would change report cards nobody asked to have changed.
-	TradingMode string    `gorm:"size:16;not null;default:'longShort'"`
-	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	OwnerID   uint      `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
+	Name      string    `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
+	CreatedAt time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt time.Time `gorm:"type:timestamptz;not null"`
 
 	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	// SignalSources and ConditionNodes belong to this trading strategy and to
@@ -68,7 +59,6 @@ func (tradingStrategy TradingStrategy) ToDto() dto.TradingStrategyDto {
 		ID:            tradingStrategy.ID,
 		OwnerID:       tradingStrategy.OwnerID,
 		Name:          tradingStrategy.Name,
-		TradingMode:   tradingStrategy.TradingMode,
 		SignalSources: tradingStrategy.signalSourceDtos(),
 		BuyCondition:  tradingStrategy.conditionDto(vo.TradingStrategyConditionSideBuy),
 		SellCondition: tradingStrategy.conditionDto(vo.TradingStrategyConditionSideSell),

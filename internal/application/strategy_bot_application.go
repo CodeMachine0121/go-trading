@@ -37,12 +37,10 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 ) (dto.StrategyBotDto, error) {
 	writeDto.OwnerID = viewerID
 
-	tradingMode, gateError := strategyBotApplication.tradingModeOfOwnedTradingStrategy(
-		executionContext, viewerID, writeDto.TradingStrategyID)
-	if gateError != nil {
+	if gateError := strategyBotApplication.refuseUnownedTradingStrategy(
+		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
 		return dto.StrategyBotDto{}, gateError
 	}
-	writeDto.TradingMode = tradingMode
 
 	return strategyBotApplication.strategyBotService.CreateStrategyBot(executionContext, writeDto)
 }
@@ -51,12 +49,10 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
-	tradingMode, gateError := strategyBotApplication.tradingModeOfOwnedTradingStrategy(
-		executionContext, viewerID, writeDto.TradingStrategyID)
-	if gateError != nil {
+	if gateError := strategyBotApplication.refuseUnownedTradingStrategy(
+		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
 		return dto.StrategyBotDto{}, gateError
 	}
-	writeDto.TradingMode = tradingMode
 
 	return strategyBotApplication.strategyBotService.UpdateStrategyBot(
 		executionContext, viewerID, writeDto)
@@ -152,33 +148,25 @@ func (strategyBotApplication *StrategyBotApplication) announce(
 		executionContext, viewerID, message)
 }
 
-// tradingModeOfOwnedTradingStrategy refuses a bot that names a set of rules this
-// person cannot see, and hands back how those rules trade.
+// refuseUnownedTradingStrategy refuses a bot that names a set of rules this person
+// cannot see.
 //
 // Naming somebody else's fails here with the same sentence as naming one that does
 // not exist, which is what stops the field becoming a way to probe for other
 // people's trading strategies. Nothing else about the rules is checked — they were
 // checked once, where they live.
 //
-// The mode comes back rather than being discarded because one rule about saving a bot
-// needs it: what a bot may suggest borrowing is limited by what its rules may borrow.
-// Reading the rules is this layer's job, so this is where that answer is available
-// without a second trip.
-//
-// Naming nothing hands back nothing, and is not refused here — that a bot must name
-// exactly one set of rules is a rule about bots, answered where bots are validated.
-func (strategyBotApplication *StrategyBotApplication) tradingModeOfOwnedTradingStrategy(
+// Naming nothing passes, and is not refused here — that a bot must name exactly one
+// set of rules is a rule about bots, answered where bots are validated.
+func (strategyBotApplication *StrategyBotApplication) refuseUnownedTradingStrategy(
 	executionContext context.Context, viewerID uint, tradingStrategyID uint,
-) (string, error) {
+) error {
 	if tradingStrategyID == 0 {
-		return "", nil
+		return nil
 	}
 
-	tradingStrategy, findError := strategyBotApplication.tradingStrategyService.GetTradingStrategy(
+	_, findError := strategyBotApplication.tradingStrategyService.GetTradingStrategy(
 		executionContext, viewerID, tradingStrategyID)
-	if findError != nil {
-		return "", findError
-	}
 
-	return tradingStrategy.TradingMode, nil
+	return findError
 }

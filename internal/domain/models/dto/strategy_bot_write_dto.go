@@ -1,5 +1,7 @@
 package dto
 
+import "github.com/shopspring/decimal"
+
 // StrategyBotWriteDto is a strategy bot as it arrives to be saved, before anything
 // about it has been settled: the name still carries whatever blanks were typed
 // around it, and the operators and signals are still just the spellings that came in.
@@ -21,11 +23,13 @@ type StrategyBotWriteDto struct {
 	// declared. Whether it was filled in at all is read from the capital: leaving the
 	// whole group empty is an ordinary thing to do, and such a bot suggests nothing.
 	PositionPlan PositionPlanSettingsDto
-	// TradingMode is how the rules this bot names trade — read from those rules, not
-	// from the request, the same way OwnerID is read from whoever is signed in.
+	// DeclaredLeverage is what the caller said about borrowing, carried only so that
+	// somebody still asking for it is told this system does not do it.
 	//
-	// It is here because one rule about a position plan is not a rule about the plan
-	// at all: what a bot may suggest borrowing is limited by what its rules may
-	// borrow, and the plan alone cannot answer that.
-	TradingMode string
+	// It rides here rather than with the position plan because the two are answered at
+	// different moments: the plan is rebuilt from stored settings every round, and a
+	// rule that refused there would stop a bot that was saved before the rule existed,
+	// every round, forever. This shape is only ever an input, so a refusal read from
+	// it can only ever reach whoever wrote it.
+	DeclaredLeverage decimal.Decimal
 }

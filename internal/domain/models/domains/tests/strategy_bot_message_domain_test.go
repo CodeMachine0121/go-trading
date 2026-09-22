@@ -12,19 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// aBotRound is one round of a bot following rules written for an account that cannot
-// short.
-//
-// Spot rather than the default, because the assertions in this file are what hold a
-// spot message's wording to the letter. Every one of them was written before a mode
-// was a thing, and not one of them changed — which is the whole of what "unchanged"
-// means here. What a shortable account is told is asserted on its own below.
+// aBotRound is one round of a bot, which is the shape every assertion in this file is
+// read in. There is one set of rules this system replays, so there is one wording.
 func aBotRound() dto.StrategyBotRoundDto {
 	return dto.StrategyBotRoundDto{
 		BotName:        "早盤突破",
 		Symbol:         "BTCUSDT",
 		Verdict:        string(vo.SignalSell),
-		TradingMode:    string(vo.TradingModeSpot),
 		ReferencePrice: decimal.RequireFromString("64180.50"),
 		ReferenceTime:  time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC),
 		HasReference:   true,
@@ -176,172 +170,12 @@ func TestStrategyBotMessageWritesAnUnrecognisedSignalOutAsItStands(t *testing.T)
 	assert.Contains(t, domains.NewStrategyBotMessageDomain(botRound).Text(), "【shrug】")
 }
 
-// shortableBotRound is the same round under rules that can short. The market did not
-// change; what its reader has to go and do did.
-func shortableBotRound() dto.StrategyBotRoundDto {
-	botRound := aBotRound()
-	botRound.TradingMode = string(vo.TradingModeLongShort)
-
-	return botRound
-}
-
-// A conclusion is read as an instruction. Somebody whose account can short and is told
-// 賣出 has to translate it themselves — and the round they are most likely to misread
-// is the one they are reading on a phone while doing something else.
-func TestStrategyBotMessageTellsAShortableAccountTheActRatherThanTheSignal(t *testing.T) {
-	testCases := []struct {
-		verdict           string
-		expectedFirstLine string
-	}{
-		{verdict: string(vo.SignalBuy), expectedFirstLine: "🟢【做多】早盤突破 · BTCUSDT"},
-		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【做空】早盤突破 · BTCUSDT"},
-		// Nothing to do is nothing to do, whichever account is reading.
-		{verdict: string(vo.SignalHold), expectedFirstLine: "⚪【持有】早盤突破 · BTCUSDT"},
-		// A message is the last place to guess which way somebody should trade, so an
-		// opinion nobody can read gets no direction invented for it.
-		{verdict: "shrug", expectedFirstLine: "⚪【shrug】早盤突破 · BTCUSDT"},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.verdict, func(t *testing.T) {
-			botRound := shortableBotRound()
-			botRound.Verdict = testCase.verdict
-
-			message := domains.NewStrategyBotMessageDomain(botRound).Text()
-
-			assert.Equal(t, testCase.expectedFirstLine, strings.Split(message, "\n")[0])
-		})
-	}
-}
-
-// The source lines are the strategy scripts' own testimony, and a script only ever
-// says buy, sell or hold. Rewriting them as 做多／做空 would put words in their mouths
-// and leave nobody able to work back from the conclusion to what produced it — which
-// is the only reason those lines are in the message at all.
-func TestStrategyBotMessageLeavesTheSourceLinesSpeakingInSignals(t *testing.T) {
-	message := domains.NewStrategyBotMessageDomain(shortableBotRound()).Text()
-
-	assert.Contains(t, message, "【做空】")
-	assert.Contains(t, message, "均線黃金交叉（1h）：賣出")
-	assert.Contains(t, message, "量能異常（5m）：持有")
-	assert.NotContains(t, message, "均線黃金交叉（1h）：做空")
-}
-
-// Named wherever the headline's verb does not already say everything the act
-// involves, and nowhere else.
-//
-// Cash for goods is the only mode where it does: 買入 there is handing money over for
-// a thing, full stop. Shorting rules may be asking the reader to open rather than
-// close. Borrowing rules turn that same 買入 into a position held on somebody else's
-// money — same three characters, a risk an order of magnitude apart.
-func TestStrategyBotMessageNamesTheModeWhereTheVerbDoesNotSayEverything(t *testing.T) {
-	assert.Contains(t,
-		domains.NewStrategyBotMessageDomain(shortableBotRound()).Text(), "⚙️ 交易模式 多空反手")
-	assert.Contains(t,
-		domains.NewStrategyBotMessageDomain(borrowingBotRound()).Text(), "⚙️ 交易模式 槓桿做多")
-	assert.NotContains(t,
-		domains.NewStrategyBotMessageDomain(aBotRound()).Text(), "交易模式")
-}
-
-// borrowingBotRound is one round of a bot following rules that never short and may
-// borrow — the same sell the spot round carries, so that what differs between the two
-// messages is only what the mode changes.
-func borrowingBotRound() dto.StrategyBotRoundDto {
-	botRound := aBotRound()
-	botRound.TradingMode = string(vo.TradingModeLeveragedLong)
-
-	return botRound
-}
-
-// A reader who cannot short is told the same two words whether or not the position is
-// borrowed, because borrowing does not give them a sell they can carry out.
-//
-// This is the half that must not follow the mode line: it would have been easy to
-// word the borrowing modes together and hand somebody 做空 on rules that never short.
-func TestStrategyBotMessageStillTellsABorrowingLongAccountToGetOut(t *testing.T) {
-	message := domains.NewStrategyBotMessageDomain(borrowingBotRound()).Text()
-
-	assert.Contains(t, message, "【出場】")
-	assert.NotContains(t, message, "【賣出】")
-	assert.NotContains(t, message, "【做空】")
-	// And the scripts still testify in signals, as under every other mode.
-	assert.Contains(t, message, "均線黃金交叉（1h）：賣出")
-}
-
-func TestStrategyBotMessageTellsABorrowingLongAccountToBuyRatherThanGoLong(t *testing.T) {
-	botRound := borrowingBotRound()
-	botRound.Verdict = string(vo.SignalBuy)
-
-	message := domains.NewStrategyBotMessageDomain(botRound).Text()
-
-	assert.Contains(t, message, "【買入】")
-	assert.NotContains(t, message, "【做多】")
-}
-
-// The mode is a block of its own, like everything else under the headline. Glued to
-// the reference moment it reads as one paragraph with it — as though the mode were
-// something about that price rather than about the rules that judged the round.
-func TestStrategyBotMessageGivesTheModeLineItsOwnBlock(t *testing.T) {
-	message := domains.NewStrategyBotMessageDomain(shortableBotRound()).Text()
-
-	assert.Contains(t, message, "\n\n⚙️ 交易模式 多空反手")
-}
-
-// Rules stored before a mode was a thing read as the one they were actually replayed
-// under, so a bot following them words its message that way too.
-func TestStrategyBotMessageWordsARoundWithNoStatedModeAsShortable(t *testing.T) {
-	botRound := aBotRound()
-	botRound.TradingMode = ""
-
-	assert.Contains(t, domains.NewStrategyBotMessageDomain(botRound).Text(), "【做空】")
-}
-
-// A mode nothing can read leaves the message quoting the signal and naming nobody. It
-// is unreachable through the save gate, which refuses such a mode before it is ever
-// stored — written down because the alternative to a rule is an accident.
-func TestStrategyBotMessageQuotesTheSignalWhenItCannotReadTheMode(t *testing.T) {
-	botRound := aBotRound()
-	botRound.TradingMode = "dayTrade"
-
-	message := domains.NewStrategyBotMessageDomain(botRound).Text()
-
-	assert.Contains(t, message, "【賣出】")
-	assert.NotContains(t, message, "交易模式")
-}
-
-// Only the act changed, not the market. A price that read differently under one mode
-// would mean the two messages disagreed about something neither of them decides.
-func TestStrategyBotMessageQuotesThePriceIdenticallyUnderEitherMode(t *testing.T) {
-	spotMessage := domains.NewStrategyBotMessageDomain(aBotRound()).Text()
-	shortableMessage := domains.NewStrategyBotMessageDomain(shortableBotRound()).Text()
-
-	for _, message := range []string{spotMessage, shortableMessage} {
-		assert.Contains(t, message, "💰 參考價 64180.5")
-		assert.Contains(t, message, "2026-09-16 13:00 UTC 那一根一分鐘 K 線的收盤價")
-	}
-
-	spotWithoutPrice := aBotRound()
-	spotWithoutPrice.HasReference = false
-	shortableWithoutPrice := shortableBotRound()
-	shortableWithoutPrice.HasReference = false
-
-	// The same sentence word for word, so nothing downstream has to write two.
-	assert.Contains(t,
-		domains.NewStrategyBotMessageDomain(spotWithoutPrice).Text(),
-		"💰 參考價 目前讀不到這個交易標的的最新 K 線")
-	assert.Contains(t,
-		domains.NewStrategyBotMessageDomain(shortableWithoutPrice).Text(),
-		"💰 參考價 目前讀不到這個交易標的的最新 K 線")
-}
-
-// aSuggestedPosition is what a round came to suggest: five thousand down, fifteen
-// thousand at risk, out at 62255.085 or 67389.525.
+// aSuggestedPosition is what a round came to suggest: five thousand down, out at
+// 62255.085 or 67389.525.
 func aSuggestedPosition() dto.PositionPlanDto {
 	return dto.PositionPlanDto{
 		Stake:           decimal.NewFromInt(5000),
 		Affordable:      true,
-		Notional:        decimal.NewFromInt(15000),
-		Leveraged:       true,
 		StopLossPrice:   decimal.RequireFromString("62255.085"),
 		LossAtStop:      decimal.NewFromInt(450),
 		HasStopLoss:     true,
@@ -351,10 +185,10 @@ func aSuggestedPosition() dto.PositionPlanDto {
 	}
 }
 
-// suggestingBotRound is a round that suggests a long position under rules that can
-// short, which is the shape every figure below is read in.
+// suggestingBotRound is a round that suggests opening, which is the shape every figure
+// below is read in.
 func suggestingBotRound() dto.StrategyBotRoundDto {
-	botRound := shortableBotRound()
+	botRound := aBotRound()
 	botRound.Verdict = string(vo.SignalBuy)
 	botRound.PositionPlan = aSuggestedPosition()
 	botRound.HasPositionPlan = true
@@ -369,26 +203,42 @@ func TestStrategyBotMessageSaysWhatToPutDownAndWhereToGetOut(t *testing.T) {
 	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
 
 	assert.Contains(t, message, "📐 建議部位")
-	assert.Contains(t, message, "保證金 5000")
-	assert.Contains(t, message, "名目 15000")
+	assert.Contains(t, message, "開倉金額 5000")
 	assert.Contains(t, message, "止損 62255.085（往下，虧 450）")
 	assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
 }
 
-// Which way each exit lies is written out, never left for the reader. A short's stop
-// sits above the price, and 66105.915 reads like a perfectly ordinary price whichever
-// side it was meant for.
+// Which way each exit lies is written out, never left for the reader: 62255.085 reads
+// like a perfectly ordinary price whichever side it was meant for. The stop is always
+// the one below and the target always the one above, because a suggested position only
+// ever faces one way.
 func TestStrategyBotMessageSaysWhichWayEachExitLies(t *testing.T) {
-	botRound := suggestingBotRound()
-	botRound.Verdict = string(vo.SignalSell)
-	botRound.PositionPlan.SuggestsShort = true
-	botRound.PositionPlan.StopLossPrice = decimal.RequireFromString("66105.915")
-	botRound.PositionPlan.TakeProfitPrice = decimal.RequireFromString("60971.475")
+	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
 
-	message := domains.NewStrategyBotMessageDomain(botRound).Text()
+	assert.Contains(t, message, "止損 62255.085（往下，虧 450）")
+	assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
+}
 
-	assert.Contains(t, message, "止損 66105.915（往上，虧 450）")
-	assert.Contains(t, message, "止盈 60971.475（往下，賺 750）")
+// What this message no longer says, asserted as an absence because that is the only
+// way it can be asserted.
+//
+// The lines that named which kind of account a round traded by, and what it borrowed
+// against, were deleted along with the behaviour — and so were the assertions that
+// read them. A removed assertion is silence rather than a failure: putting either line
+// back leaves every other test in this file green, and the reader gets a paragraph
+// about a system that no longer exists.
+func TestStrategyBotMessageSaysNothingAboutModesOrBorrowing(t *testing.T) {
+	message := domains.NewStrategyBotMessageDomain(suggestingBotRound()).Text()
+
+	for _, goneWording := range []string{"交易模式", "槓桿", "名目", "強制平倉", "維持保證金"} {
+		assert.NotContains(t, message, goneWording)
+	}
+
+	// Asserted beside the absences so that this cannot pass by the message having
+	// emptied out: what it does say is still there, word for word.
+	assert.Contains(t, message, "📐 建議部位（這個系統不下單）")
+	assert.Contains(t, message, "開倉金額 5000")
+	assert.Contains(t, message, "📊 各來源怎麼說")
 }
 
 // The two things this suggestion owes its reader. Nothing here places an order, and
@@ -409,15 +259,6 @@ func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
 		expectedPresent []string
 		expectedAbsent  []string
 	}{
-		{
-			name: "no leverage leaves out the notional",
-			adjust: func(positionPlan *dto.PositionPlanDto) {
-				positionPlan.Leveraged = false
-			},
-			// Repeating the stake under a second label would read as a mistake.
-			expectedPresent: []string{"保證金 5000"},
-			expectedAbsent:  []string{"名目"},
-		},
 		{
 			name: "a stop on its own",
 			adjust: func(positionPlan *dto.PositionPlanDto) {
@@ -442,7 +283,7 @@ func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
 				positionPlan.HasTakeProfit = false
 			},
 			// Nothing to warn about when no exit was suggested at all.
-			expectedPresent: []string{"保證金 5000"},
+			expectedPresent: []string{"開倉金額 5000"},
 			expectedAbsent:  []string{"・止損", "・止盈", "回測要算進止損止盈，重演時把這兩個距離填上"},
 		},
 		{
@@ -453,7 +294,7 @@ func TestStrategyBotMessagePrintsOnlyTheFiguresItWasGiven(t *testing.T) {
 			},
 			// Named, not printed plain: printed plain, somebody would place it.
 			expectedPresent: []string{"部位資金不足，押不下 8000"},
-			expectedAbsent:  []string{"保證金 8000", "名目", "・止損", "・止盈"},
+			expectedAbsent:  []string{"開倉金額 8000", "・止損", "・止盈"},
 		},
 	}
 
@@ -482,7 +323,7 @@ func TestStrategyBotMessageStaysSilentWhenThereIsNothingToSuggest(t *testing.T) 
 	message := domains.NewStrategyBotMessageDomain(aBotRound()).Text()
 
 	assert.NotContains(t, message, "建議部位")
-	assert.NotContains(t, message, "保證金")
+	assert.NotContains(t, message, "開倉金額")
 	assert.NotContains(t, message, "・止損")
 	assert.NotContains(t, message, "回測要算進止損止盈，重演時把這兩個距離填上")
 }
@@ -495,104 +336,4 @@ func TestStrategyBotMessagePutsTheSuggestionBeforeTheWorking(t *testing.T) {
 	assert.Less(t,
 		strings.Index(message, "📐 建議部位"), strings.Index(message, "📊 各來源怎麼說"))
 	assert.Less(t, strings.Index(message, "💰 參考價"), strings.Index(message, "📐 建議部位"))
-}
-
-// shortOnlyBotRound is one round of a bot following rules that only ever short — the
-// same round the others carry, so that what differs between the messages is only what
-// the mode changes.
-func shortOnlyBotRound() dto.StrategyBotRoundDto {
-	botRound := aBotRound()
-	botRound.TradingMode = string(vo.TradingModeShortOnly)
-
-	return botRound
-}
-
-// The mode where the two halves of the verb rule finally disagree.
-//
-// Every mode before it could go long, so "cannot short" was enough to decide both
-// words. This one shorts and cannot go long, and reading only the first half hands
-// its reader 做多 — an act their account will never carry out, in a message that
-// looks entirely ordinary.
-func TestStrategyBotMessageTellsAShortOnlyAccountToGetOutRatherThanGoLong(t *testing.T) {
-	testCases := []struct {
-		verdict           string
-		expectedFirstLine string
-	}{
-		// Not 做多: these rules never hold one. Not 買入 either — that reaches them
-		// just as often while they hold nothing to close.
-		// Red rather than green. Green is this system's colour for going long, and
-		// these rules never do — the reader who glances at the mark alone must not
-		// come away having read an entry.
-		{verdict: string(vo.SignalBuy), expectedFirstLine: "🔴【出場】早盤突破 · BTCUSDT"},
-		// The same act long-short names, because at this moment it is the same act.
-		{verdict: string(vo.SignalSell), expectedFirstLine: "🔴【做空】早盤突破 · BTCUSDT"},
-		{verdict: string(vo.SignalHold), expectedFirstLine: "⚪【持有】早盤突破 · BTCUSDT"},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.verdict, func(t *testing.T) {
-			botRound := shortOnlyBotRound()
-			botRound.Verdict = testCase.verdict
-
-			firstLine := strings.Split(domains.NewStrategyBotMessageDomain(botRound).Text(), "\n")[0]
-
-			assert.Equal(t, testCase.expectedFirstLine, firstLine)
-		})
-	}
-}
-
-// It borrows, and borrowing is what earns a mode this line: the position can be taken
-// away from its holder at a price, and nothing in 做空 says so.
-func TestStrategyBotMessageNamesTheShortOnlyMode(t *testing.T) {
-	assert.Contains(t,
-		domains.NewStrategyBotMessageDomain(shortOnlyBotRound()).Text(), "⚙️ 交易模式 只做空")
-}
-
-// The scripts still testify in their own three words. Only the conclusion speaks of
-// acts — otherwise a reader cannot work back from it to what produced it.
-func TestStrategyBotMessageQuotesTheScriptsUnderShortOnlyRules(t *testing.T) {
-	message := domains.NewStrategyBotMessageDomain(shortOnlyBotRound()).Text()
-
-	assert.Contains(t, message, "【做空】")
-	assert.Contains(t, message, "：賣出")
-	assert.NotContains(t, message, "：做空")
-}
-
-// suggestingShortOnlyBotRound is a round that suggests a short under rules that can
-// only ever take one, and does so without borrowing — the pair of answers no other
-// mode produces.
-func suggestingShortOnlyBotRound() dto.StrategyBotRoundDto {
-	botRound := shortOnlyBotRound()
-	botRound.Verdict = string(vo.SignalSell)
-	botRound.PositionPlan = aSuggestedPosition()
-	botRound.PositionPlan.Leveraged = false
-	botRound.PositionPlan.SuggestsShort = true
-	botRound.HasPositionPlan = true
-
-	return botRound
-}
-
-// Naming the mode and printing the multiplier are two different questions, and this
-// is where they answer differently: short-only always needs naming — the position is
-// on borrowed goods whatever the multiplier says — while a plan that multiplies
-// nothing has no notional to print.
-//
-// The plan is real here rather than absent. A round with no plan at all prints no
-// notional either, so asserting its absence against one would pass on any logic.
-func TestStrategyBotMessageNamesShortOnlyEvenWithNoMultiplier(t *testing.T) {
-	message := domains.NewStrategyBotMessageDomain(suggestingShortOnlyBotRound()).Text()
-
-	assert.Contains(t, message, "⚙️ 交易模式 只做空")
-	assert.Contains(t, message, "保證金 5000")
-	assert.NotContains(t, message, "名目")
-}
-
-// A short's stop sits above the price it was opened at, and this mode opens nothing
-// else. Written out in words because 62255.085 reads like an ordinary price
-// whichever side it was meant for.
-func TestStrategyBotMessagePutsAShortOnlyStopAbove(t *testing.T) {
-	message := domains.NewStrategyBotMessageDomain(suggestingShortOnlyBotRound()).Text()
-
-	assert.Contains(t, message, "止損 62255.085（往上，虧 450）")
-	assert.Contains(t, message, "止盈 67389.525（往下，賺 750）")
 }

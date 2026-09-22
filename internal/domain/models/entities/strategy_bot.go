@@ -54,21 +54,17 @@ type StrategyBot struct {
 	// and it is the switch for the five columns below it: without money there is
 	// nothing to stake, so a zero here means this bot has no position plan at all.
 	//
-	// All six default to zero, so every bot stored before they existed reads as
+	// All of them default to zero, so every bot stored before they existed reads as
 	// having no plan — and sends the message it sent before plans existed.
 	//
-	// They are exact decimals rather than floats, including the leverage and the two
-	// distances, because all three multiply into money. A float would start drifting
-	// a stop price around its tenth digit, and that price is one somebody places an
-	// order at.
+	// They are exact decimals rather than floats, the two distances included, because
+	// they multiply into money. A float would start drifting a stop price around its
+	// tenth digit, and that price is one somebody places an order at.
 	PositionPlanCapital decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
 	// PositionPlanSizingMode is how much of that capital one opening stakes, in the
 	// replay's own three spellings, and PositionPlanSizingValue the figure beside it.
 	PositionPlanSizingMode  string          `gorm:"size:16;not null;default:''"`
 	PositionPlanSizingValue decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
-	// PositionPlanLeverage is how many times the stake the position is worth. One
-	// means no leverage, and is what nothing at all is stored as.
-	PositionPlanLeverage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
 	// PositionPlanStopLossPercentage and PositionPlanTakeProfitPercentage are how far
 	// from the reference price each exit sits. Either may be left out on its own.
 	PositionPlanStopLossPercentage   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
@@ -110,7 +106,7 @@ type StrategyBot struct {
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
-// PositionPlanSettingsDto is this bot's five position plan settings, in the shape the
+// PositionPlanSettingsDto is this bot's four position plan settings, in the shape the
 // domain hands outwards. It is on the row because every field it reads is the row's
 // own.
 //
@@ -123,7 +119,6 @@ func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSetting
 		Capital:              strategyBot.PositionPlanCapital,
 		SizingMode:           strategyBot.PositionPlanSizingMode,
 		SizingValue:          strategyBot.PositionPlanSizingValue,
-		Leverage:             strategyBot.PositionPlanLeverage,
 		StopLossPercentage:   strategyBot.PositionPlanStopLossPercentage,
 		TakeProfitPercentage: strategyBot.PositionPlanTakeProfitPercentage,
 	}

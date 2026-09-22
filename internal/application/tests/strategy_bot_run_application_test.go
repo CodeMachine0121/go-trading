@@ -185,14 +185,12 @@ func aDueBot(lastSentSignal string) entities.StrategyBot {
 // "sell when A says sell", written for an account that cannot short.
 //
 // Spot rather than the default, because these tests are what holds the wording of a
-// spot bot's message to the letter — it is the half of this that must not move, and
+// bot's message to the letter — it is the half of this that must not move, and
 // asserting it here means any drift shows up as a failing message rather than as a
-// message nobody compared. What a bot following rules that can short says is asserted
-// on its own, in TestStrategyBotRunApplicationTellsAShortableAccountWhatToDo.
+// message nobody compared.
 func aDueTradingStrategy() entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
-		TradingMode: string(vo.TradingModeSpot),
 		SignalSources: []entities.TradingStrategySignalSource{
 			{ID: 20, TradingStrategyID: botsTradingStrategyID, Label: "A",
 				StrategyScriptID: 9, AggregationInterval: "1h"},
@@ -258,103 +256,6 @@ func (underTest strategyBotRunUnderTest) expectSources(
 // test say which source said what without depending on when each one ran.
 func scriptOfStrategyScript(id uint) string {
 	return fmt.Sprintf("the script of %d", id)
-}
-
-// A conclusion is read as an instruction, so it is worded by the rules it was reached
-// under. Somebody whose account can short and is told 賣出 has to work out for
-// themselves that the act is to open a short — and the round they are most likely to
-// misread is the one they are reading on a phone while doing something else.
-func TestStrategyBotRunApplicationTellsAShortableAccountWhatToDo(t *testing.T) {
-	testCases := []struct {
-		name             string
-		signals          []vo.SignalVo
-		expectedHeadline string
-	}{
-		{
-			name:             "a buy is an instruction to go long",
-			signals:          []vo.SignalVo{vo.SignalBuy, vo.SignalBuy},
-			expectedHeadline: "【做多】早盤突破 · BTCUSDT",
-		},
-		{
-			name:             "a sell is an instruction to go short",
-			signals:          []vo.SignalVo{vo.SignalSell, vo.SignalHold},
-			expectedHeadline: "【做空】早盤突破 · BTCUSDT",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			underTest := newStrategyBotRunUnderTest(t)
-			underTest.expectDeliverySetting()
-			underTest.expectSources(testCase.signals[0], testCase.signals[1])
-			underTest.tradingStrategy.TradingMode = string(vo.TradingModeLongShort)
-
-			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
-				Return([]entities.StrategyBot{aDueBot("")}, nil)
-			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-				Return(aDueBot(""), nil).AnyTimes()
-			underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
-				Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
-
-			underTest.messageDeliveryProxy.EXPECT().
-				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(
-					_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-				) (vo.DeliveryFailureReasonVo, error) {
-					assert.Contains(t, message, testCase.expectedHeadline)
-					// Which account these rules were written for is named, because
-					// that is what makes opening a short the right act.
-					assert.Contains(t, message, "交易模式 多空反手")
-					// The sources still give their own testimony. A script only ever
-					// says buy, sell or hold, and rewriting those as 做多／做空 would
-					// leave nobody able to work back from the conclusion.
-					assert.Contains(t, message, "各來源怎麼說")
-					assert.NotContains(t, message, "・A（1h）：做多")
-					assert.NotContains(t, message, "・A（1h）：做空")
-					// The price reads exactly as it does for an account that cannot
-					// short: only the act changed, not the market.
-					assert.Contains(t, message, "💰 參考價 64180.5")
-
-					return vo.DeliveryFailureNone, nil
-				})
-
-			underTest.strategyBotRepository.EXPECT().
-				UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
-
-			underTest.strategyBotRunApplication.RunDueRounds(t.Context())
-		})
-	}
-}
-
-// A set of rules stored before a mode was a thing reads as the one it was actually
-// replayed under, so a bot following it words its message that way too.
-func TestStrategyBotRunApplicationWordsRulesWithNoStatedModeAsShortable(t *testing.T) {
-	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
-	underTest.expectSources(vo.SignalSell, vo.SignalHold)
-	underTest.tradingStrategy.TradingMode = ""
-
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
-		Return([]entities.StrategyBot{aDueBot("")}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil).AnyTimes()
-	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
-		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
-
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			assert.Contains(t, message, "【做空】早盤突破 · BTCUSDT")
-
-			return vo.DeliveryFailureNone, nil
-		})
-
-	underTest.strategyBotRepository.EXPECT().
-		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
-
-	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
 }
 
 func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
@@ -1189,13 +1090,12 @@ func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 }
 
 // aPositionPlannedDueBot is a due bot that suggests a position: fifty thousand,
-// staking a tenth of it, three times over, out at three and five percent.
+// staking a tenth of it, out at three and five percent.
 func aPositionPlannedDueBot() entities.StrategyBot {
 	bot := aDueBot("")
 	bot.PositionPlanCapital = decimal.NewFromInt(50000)
 	bot.PositionPlanSizingMode = string(vo.PositionSizingModePercentage)
 	bot.PositionPlanSizingValue = decimal.NewFromInt(10)
-	bot.PositionPlanLeverage = decimal.NewFromInt(3)
 	bot.PositionPlanStopLossPercentage = decimal.NewFromInt(3)
 	bot.PositionPlanTakeProfitPercentage = decimal.NewFromInt(5)
 
@@ -1209,7 +1109,6 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
-	underTest.tradingStrategy.TradingMode = string(vo.TradingModeLongShort)
 
 	plannedBot := aPositionPlannedDueBot()
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
@@ -1224,11 +1123,10 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
 		) (vo.DeliveryFailureReasonVo, error) {
-			// A tenth of fifty thousand, three times over, out three percent below.
-			assert.Contains(t, message, "保證金 5000")
-			assert.Contains(t, message, "名目 15000")
-			assert.Contains(t, message, "止損 62255.085（往下，虧 450）")
-			assert.Contains(t, message, "止盈 67389.525（往上，賺 750）")
+			// A tenth of fifty thousand, out three percent below and five above.
+			assert.Contains(t, message, "開倉金額 5000")
+			assert.Contains(t, message, "止損 62255.085（往下，虧 150）")
+			assert.Contains(t, message, "止盈 67389.525（往上，賺 250）")
 			assert.Contains(t, message, "這個系統不下單")
 			assert.Contains(t, message, "回測要算進止損止盈，重演時把這兩個距離填上")
 
@@ -1248,91 +1146,4 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 	assert.Equal(t, "5000", recorded.PositionPlan.Stake.String())
 	assert.Equal(t, "62255.085", recorded.PositionPlan.StopLossPrice.String())
 	assert.Equal(t, "67389.525", recorded.PositionPlan.TakeProfitPrice.String())
-}
-
-// A bot that was saved before borrowing was gated keeps running, untouched.
-//
-// This is the promise that lets the gate exist at all. Bots following spot rules while
-// suggesting leverage are out there right now — they were saveable until this slice —
-// and the gate was deliberately put on saving rather than on the round for exactly
-// this reason. Refusing here would stop a machine somebody is using in order to gain
-// consistency, and take away more than it fixed.
-//
-// So the round goes through, the message goes out, and the figures are the ones the
-// stored settings ask for. Whoever wants it consistent goes and changes the mode.
-func TestStrategyBotRunApplicationKeepsRunningABotSavedBeforeBorrowingWasGated(t *testing.T) {
-	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
-	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
-	// Rules that cannot borrow, under a plan that does. Saving this pair is refused
-	// now; one already stored is not.
-	underTest.tradingStrategy.TradingMode = string(vo.TradingModeSpot)
-
-	plannedBot := aPositionPlannedDueBot()
-	plannedBot.PositionPlanLeverage = decimal.RequireFromString("1.8")
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
-		Return([]entities.StrategyBot{plannedBot}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(plannedBot, nil).AnyTimes()
-	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
-		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
-
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			// A tenth of fifty thousand, 1.8 times over — the stored figures, applied.
-			assert.Contains(t, message, "保證金 5000")
-			assert.Contains(t, message, "名目 9000")
-
-			return vo.DeliveryFailureNone, nil
-		})
-
-	underTest.strategyBotRepository.EXPECT().
-		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
-
-	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
-
-	// It ran, and it was recorded — not skipped, not halted.
-	require.Len(t, *underTest.appendedRunRecords, 1)
-	assert.True(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
-}
-
-// A spot sell clears out, so there is nothing to size. Suggesting one would have
-// somebody putting money down in order to close a position.
-func TestStrategyBotRunApplicationSuggestsNothingWhenARoundClearsOut(t *testing.T) {
-	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
-	underTest.expectSources(vo.SignalSell, vo.SignalHold)
-
-	plannedBot := aPositionPlannedDueBot()
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
-		Return([]entities.StrategyBot{plannedBot}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(plannedBot, nil).AnyTimes()
-	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
-		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
-
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			// The fixture's rules are spot, so this round is an exit — and the
-			// headline says so, rather than telling a reader who may be holding
-			// nothing to sell.
-			assert.Contains(t, message, "【出場】")
-			assert.NotContains(t, message, "建議部位")
-
-			return vo.DeliveryFailureNone, nil
-		})
-
-	underTest.strategyBotRepository.EXPECT().
-		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
-
-	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
-
-	require.Len(t, *underTest.appendedRunRecords, 1)
-	assert.False(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
 }

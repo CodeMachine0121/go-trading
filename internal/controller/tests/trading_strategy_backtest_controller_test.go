@@ -243,16 +243,13 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	assert.Contains(t, answer["message"], "5m")
 }
 
-// Replaying a whole set of rules trades the way those rules say they trade. A caller
-// replaying rules written for an account that cannot short would otherwise have to
-// remember to say so every single time, under a default that is wrong for them.
-func TestTradingStrategyBacktestRouterTradesTheWayTheRulesSayTheyTrade(t *testing.T) {
+// Replaying a whole set of rules trades the one way this system replays. A body still
+// naming a set of rules of its own is refused rather than quietly ignored.
+func TestTradingStrategyBacktestRouterTradesSpot(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 
-	spotRules := aRoutedTradingStrategy("1h")
-	spotRules.TradingMode = string(vo.TradingModeSpot)
-
-	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).Return(spotRules, nil)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
+		Return(aRoutedTradingStrategy("1h"), nil)
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]entities.KCandle{
 			aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "120"),
@@ -266,8 +263,35 @@ func TestTradingStrategyBacktestRouterTradesTheWayTheRulesSayTheyTrade(t *testin
 			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
 		}, nil)
 
-	// A body naming a mode of its own: there is no field for one, so this changes
-	// nothing. The rules say spot, and spot is what runs.
+	response := fixture.send("/trading-strategies/11/backtests", `{
+		"symbol":"BTCUSDT",
+		"startTime":"2026-08-29T00:00:00Z",
+		"endTime":"2026-08-29T04:00:00Z",
+		"initialCapital":"10000",
+		"positionSizingMode":"allIn"
+	}`)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	answer := map[string]any{}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
+	summary, isObject := answer["summary"].(map[string]any)
+	require.True(t, isObject)
+	// Sold at 120 and stood aside for the fall to 90.
+	assert.Equal(t, "12000", summary["finalEquity"])
+	assert.Equal(t, float64(1), summary["positionOpenCount"])
+}
+
+// Naming another set of rules is refused here too.
+//
+// This is the half that can rot in silence: a body that does not declare the field
+// drops it without a word, so the caller gets two hundred and a report card of the
+// run this system *does* perform — which is precisely the outcome the whole slice
+// exists to prevent, arriving through the one door nobody checked.
+func TestTradingStrategyBacktestRouterRefusesAnotherSetOfRules(t *testing.T) {
+	fixture := newTradingStrategyBacktestRouterUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
+		Return(aRoutedTradingStrategy("1h"), nil)
+
 	response := fixture.send("/trading-strategies/11/backtests", `{
 		"symbol":"BTCUSDT",
 		"startTime":"2026-08-29T00:00:00Z",
@@ -277,33 +301,16 @@ func TestTradingStrategyBacktestRouterTradesTheWayTheRulesSayTheyTrade(t *testin
 		"tradingMode":"longShort"
 	}`)
 
-	require.Equal(t, http.StatusOK, response.Code)
-	answer := map[string]any{}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
-	summary, isObject := answer["summary"].(map[string]any)
-	require.True(t, isObject)
-	// Sold at 120 and stood aside for the fall to 90. Had the body won, this would be
-	// 15,000 — the short that an account trading these rules cannot place.
-	assert.Equal(t, "12000", summary["finalEquity"])
-	assert.Equal(t, float64(1), summary["positionOpenCount"])
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, response.Body.String(), "只重演現貨")
 }
 
-// The multiplier is asked for here, unlike the trading mode beside it: how much
-// somebody is willing to borrow is a fact about their account, not about the rules.
-func TestTradingStrategyBacktestRouterCarriesTheLeverage(t *testing.T) {
+// Asking to borrow is refused here in the same words a strategy-script replay refuses
+// it, because both ask the same gate.
+func TestTradingStrategyBacktestRouterRefusesBorrowing(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
 		Return(aRoutedTradingStrategy("1h"), nil)
-	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]entities.KCandle{
-			aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "110"),
-		}, nil)
-	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]vo.IndicatorValueVo{
-			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-		}, nil)
 
 	response := fixture.send("/trading-strategies/11/backtests", `{
 		"symbol":"BTCUSDT",
@@ -314,12 +321,27 @@ func TestTradingStrategyBacktestRouterCarriesTheLeverage(t *testing.T) {
 		"leverage":"5"
 	}`)
 
-	require.Equal(t, http.StatusOK, response.Code)
-	answer := map[string]any{}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
-	summary, isObject := answer["summary"].(map[string]any)
-	require.True(t, isObject)
-	// Ten percent of five times the stake. Without the multiplier this is 11,000.
-	assert.Equal(t, "15000", summary["finalEquity"])
-	assert.Equal(t, float64(0), summary["liquidationExitCount"])
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, response.Body.String(), "沒有人借錢給你")
+}
+
+// A rate for being closed out is refused here too, and for the reason a declared set
+// of rules is: a field this body does not declare is dropped without a word, and the
+// caller gets a spot report card back with nothing on it about what they asked for.
+func TestTradingStrategyBacktestRouterRefusesAMaintenanceMarginRate(t *testing.T) {
+	fixture := newTradingStrategyBacktestRouterUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
+		Return(aRoutedTradingStrategy("1h"), nil)
+
+	response := fixture.send("/trading-strategies/11/backtests", `{
+		"symbol":"BTCUSDT",
+		"startTime":"2026-08-29T00:00:00Z",
+		"endTime":"2026-08-29T04:00:00Z",
+		"initialCapital":"10000",
+		"positionSizingMode":"allIn",
+		"maintenanceMarginRate":"0.5"
+	}`)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, response.Body.String(), "沒有維持保證金率")
 }

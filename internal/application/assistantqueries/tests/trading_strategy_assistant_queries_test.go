@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"strings"
-
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
@@ -275,17 +273,13 @@ func TestTradingStrategyGetAssistantQueryAnswersSomebodyElsesAsNotFound(t *testi
 func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testing.T) {
 	// The coarseness travels with the digest so the assistant can tell at a glance
 	// which of these it cannot replay, without reading each one in full first. The
-	// trading mode travels with it for the same kind of reason: "my account cannot
-	// short" is a sentence about every set of rules at once, and answering it one
-	// read at a time spends the query budget on something a list says in a word.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
-
-	spotRules := aStoredTradingStrategy(assistantTradingStrategyID, "動能追蹤", assistantViewerID)
-	spotRules.TradingMode = string(vo.TradingModeSpot)
 
 	fixture.tradingStrategyRepository.EXPECT().
 		FindAllByOwner(gomock.Any(), assistantViewerID).
-		Return([]entities.TradingStrategy{spotRules}, nil)
+		Return([]entities.TradingStrategy{
+			aStoredTradingStrategy(assistantTradingStrategyID, "動能追蹤", assistantViewerID),
+		}, nil)
 
 	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantViewerID, "")
 
@@ -295,7 +289,6 @@ func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testi
 		TradingStrategies []struct {
 			ID                   uint     `json:"id"`
 			Name                 string   `json:"name"`
-			TradingMode          string   `json:"tradingMode"`
 			SourceLabels         []string `json:"sourceLabels"`
 			AggregationIntervals []string `json:"aggregationIntervals"`
 		} `json:"tradingStrategies"`
@@ -304,7 +297,6 @@ func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testi
 	require.Len(t, digests.TradingStrategies, 1)
 	assert.Equal(t, assistantTradingStrategyID, digests.TradingStrategies[0].ID)
 	assert.Equal(t, "動能追蹤", digests.TradingStrategies[0].Name)
-	assert.Equal(t, string(vo.TradingModeSpot), digests.TradingStrategies[0].TradingMode)
 	assert.Equal(t, []string{"A"}, digests.TradingStrategies[0].SourceLabels)
 	assert.Equal(t, []string{"1h"}, digests.TradingStrategies[0].AggregationIntervals)
 }
@@ -383,107 +375,18 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceSetsAK
 	assert.Contains(t, runError.Error(), "這支腳本沒宣告過的參數")
 }
 
-func TestTradingStrategyCreateAssistantQueryCarriesTheTradingModeItWasGiven(t *testing.T) {
-	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
-	fixture.tradingStrategyRepository.EXPECT().
-		Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, stored entities.TradingStrategy) (entities.TradingStrategy, error) {
-			assert.Equal(t, string(vo.TradingModeSpot), stored.TradingMode)
-			stored.ID = assistantTradingStrategyID
-
-			return stored, nil
-		})
-
-	spotArgument := strings.Replace(
-		aWellFormedTradingStrategyArgument, `"name": "動能追蹤",`,
-		`"name": "動能追蹤", "tradingMode": "spot",`, 1)
-
-	outcome, runError := fixture.createAssistantQuery.Run(
-		t.Context(), assistantViewerID, spotArgument)
-
-	require.NoError(t, runError)
-	assert.Contains(t, outcome, `"tradingMode":"spot"`)
-}
-
-func TestTradingStrategyCreateAssistantQueryDefaultsATradingModeTheAssistantDidNotState(t *testing.T) {
-	// Not guessed. Which account the person actually holds is not something the
-	// assistant can work out from the conditions it was asked to write, so silence
-	// means the mode a replay has always defaulted to.
-	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
-	fixture.tradingStrategyRepository.EXPECT().
-		Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, stored entities.TradingStrategy) (entities.TradingStrategy, error) {
-			assert.Equal(t, string(vo.TradingModeLongShort), stored.TradingMode)
-			stored.ID = assistantTradingStrategyID
-
-			return stored, nil
-		})
-
-	_, runError := fixture.createAssistantQuery.Run(
-		t.Context(), assistantViewerID, aWellFormedTradingStrategyArgument)
-
-	require.NoError(t, runError)
-}
-
-func TestTradingStrategyWritingAssistantQueriesTellTheAssistantWhatAModeMeans(t *testing.T) {
-	// Both spellings and what each one does to a sell, on both writing capabilities.
-	// The assistant has to pick this for somebody whose account it cannot see, so the
-	// only thing it can go on is the sentence it is handed here.
+// The assistant has no set of rules to pick, and the schema says so — otherwise it
+// would keep offering a choice that is refused on arrival.
+func TestTradingStrategyWritingAssistantQueriesOfferNoTradingMode(t *testing.T) {
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 
 	for _, schema := range []string{
 		fixture.createAssistantQuery.ArgumentSchema(),
 		fixture.updateAssistantQuery.ArgumentSchema(),
 	} {
-		assert.Contains(t, schema, "tradingMode")
-		assert.Contains(t, schema, string(vo.TradingModeLongShort))
-		assert.Contains(t, schema, string(vo.TradingModeSpot))
-		assert.Contains(t, schema, string(vo.TradingModeLeveragedLong))
-		assert.Contains(t, schema, string(vo.TradingModeShortOnly))
-		assert.Contains(t, schema, "不能放空")
-		// The third mode is the one it would otherwise never reach for: somebody who
-		// only goes long looks like spot until the leverage comes up, and spot is the
-		// answer that leaves them unable to replay what their bot is doing.
-		assert.Contains(t, schema, "只做多、要上一點槓桿")
-		// The fourth has a worse failure than being unreachable: it is reachable
-		// through a trick. Long-short with a buy condition that can never hold trades
-		// exactly like it, so an assistant that has not been told this mode exists
-		// will build that instead — and leave behind rules that say they face both
-		// ways while only ever facing one.
-		assert.Contains(t, schema, "只想做空")
-		assert.Contains(t, schema, "永遠不成立的買入條件")
-		// Naming the venue has not answered the question, and saying so is the only
-		// thing standing between "我在幣安永續" and the default.
-		//
-		// Three of the four modes run there, so that sentence rules nothing out. And
-		// the two ways of being wrong are not equally survivable: reaching for spot
-		// is refused, which the person sees; reaching for long-short — or reaching
-		// for nothing, since that is the default — reverses every signal into a
-		// position they never asked for, and hands back a report card that reads fine.
-		assert.Contains(t, schema, "場所不決定模式")
-		assert.Contains(t, schema, "沒問出他做哪一邊之前不要猜")
-		// Read out of the enum rather than found anywhere in the text. Every spelling
-		// also appears in the prose beside it, so a substring check passes on a
-		// schema that offers the assistant only two of the three to choose from.
-		declaredModes := struct {
-			Properties struct {
-				TradingMode struct {
-					Enum []string `json:"enum"`
-				} `json:"tradingMode"`
-			} `json:"properties"`
-		}{}
-		require.NoError(t, json.Unmarshal([]byte(schema), &declaredModes))
-		assert.ElementsMatch(t, []string{
-			string(vo.TradingModeLongShort),
-			string(vo.TradingModeSpot),
-			string(vo.TradingModeLeveragedLong),
-			string(vo.TradingModeShortOnly),
-		}, declaredModes.Properties.TradingMode.Enum)
-		// Not required: a mode nobody stated is the default, not a missing argument.
-		declaredSchema := struct {
-			Required []string `json:"required"`
-		}{}
-		require.NoError(t, json.Unmarshal([]byte(schema), &declaredSchema))
-		assert.NotContains(t, declaredSchema.Required, "tradingMode")
+		assert.NotContains(t, schema, "tradingMode")
+		assert.NotContains(t, schema, "longShort")
+		assert.NotContains(t, schema, "shortOnly")
+		assert.NotContains(t, schema, "leveragedLong")
 	}
 }

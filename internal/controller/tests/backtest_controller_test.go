@@ -263,10 +263,10 @@ func TestRunBacktestEndpoint(t *testing.T) {
 	})
 }
 
-// The mode a caller declares has to survive the whole way down to the account, and
-// the refusal has to name the box the person types it into.
-func TestRunBacktestEndpointCarriesTheTradingMode(t *testing.T) {
-	t.Run("a long only replay stands aside instead of reversing", func(t *testing.T) {
+// What a caller may still declare about how this replay trades, and what happens to
+// each of it. The refusal has to name the box the person types it into.
+func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
+	t.Run("saying spot out loud replays exactly as saying nothing does", func(t *testing.T) {
 		fixture := newBacktestRouterUnderTest(t)
 		fixture.expectTwoCandles()
 		fixture.indicatorScriptProxy.EXPECT().
@@ -297,13 +297,13 @@ func TestRunBacktestEndpointCarriesTheTradingMode(t *testing.T) {
 			ClosedTrades []map[string]any `json:"closedTrades"`
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		// Bought at 100, sold at 110, now holding 11,000 in cash rather than a short.
+		// Bought at 100, sold at 110, now holding 11,000 in cash.
 		assert.Equal(t, "11000", body.Summary.FinalEquity)
 		assert.Equal(t, 1, body.Summary.PositionOpenCount)
 		assert.Len(t, body.ClosedTrades, 1)
 	})
 
-	t.Run("a trading mode nobody offers names the input at fault", func(t *testing.T) {
+	t.Run("any other set of rules names the input at fault", func(t *testing.T) {
 		fixture := newBacktestRouterUnderTest(t)
 
 		response := fixture.post(`{
@@ -314,7 +314,7 @@ func TestRunBacktestEndpointCarriesTheTradingMode(t *testing.T) {
 			"strategyScriptId":9,
 			"initialCapital":"10000",
 			"positionSizingMode":"allIn",
-			"tradingMode":"dayTrade"
+			"tradingMode":"longShort"
 		}`)
 
 		require.Equal(t, http.StatusBadRequest, response.Code)
@@ -325,50 +325,10 @@ func TestRunBacktestEndpointCarriesTheTradingMode(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 		assert.Equal(t, "tradingMode", body.Field)
-		assert.Contains(t, body.Message, "longShort")
-		assert.Contains(t, body.Message, "spot")
-	})
-}
-
-func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
-	t.Run("a borrowed replay moves the exposure rather than the stake", func(t *testing.T) {
-		fixture := newBacktestRouterUnderTest(t)
-		fixture.expectTwoCandles()
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]map[string]vo.IndicatorValueVo{
-				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
-				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
-			}, nil)
-
-		response := fixture.post(`{
-			"symbol":"BTCUSDT",
-			"aggregationInterval":"1h",
-			"startTime":"2026-08-29T00:00:00Z",
-			"endTime":"2026-08-29T04:00:00Z",
-			"strategyScriptId":9,
-			"initialCapital":"10000",
-			"positionSizingMode":"allIn",
-			"leverage":"5"
-		}`)
-
-		require.Equal(t, http.StatusOK, response.Code)
-
-		var body struct {
-			Summary struct {
-				FinalEquity          string `json:"finalEquity"`
-				LiquidationExitCount int    `json:"liquidationExitCount"`
-			} `json:"summary"`
-		}
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		// Bought at 100 and still holding at 110. Five times the exposure makes that
-		// fifty percent rather than ten, so 15,000 rather than the 11,000 the same
-		// body without a multiplier answers.
-		assert.Equal(t, "15000", body.Summary.FinalEquity)
-		assert.Equal(t, 0, body.Summary.LiquidationExitCount)
+		assert.Contains(t, body.Message, "只重演現貨")
 	})
 
-	t.Run("spot has nobody to borrow from, and the refusal says where to look", func(t *testing.T) {
+	t.Run("asking to borrow names its own box", func(t *testing.T) {
 		fixture := newBacktestRouterUnderTest(t)
 
 		response := fixture.post(`{
@@ -379,7 +339,6 @@ func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
 			"strategyScriptId":9,
 			"initialCapital":"10000",
 			"positionSizingMode":"allIn",
-			"tradingMode":"spot",
 			"leverage":"3"
 		}`)
 
@@ -391,10 +350,14 @@ func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 		assert.Equal(t, "leverage", body.Field)
-		assert.Contains(t, body.Message, "現貨")
+		assert.Contains(t, body.Message, "沒有人借錢給你")
 	})
 
-	t.Run("a maintenance margin leaving no room names the same input", func(t *testing.T) {
+	t.Run("a rate for being closed out is answered, not ignored", func(t *testing.T) {
+		// It only means something to an account that borrowed, so somebody who sent
+		// one was picturing a system this is not. Reading it as "said nothing" would
+		// hand them a spot report card with not a word about the thing they asked
+		// for — the one outcome this whole change exists to prevent.
 		fixture := newBacktestRouterUnderTest(t)
 
 		response := fixture.post(`{
@@ -405,8 +368,7 @@ func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
 			"strategyScriptId":9,
 			"initialCapital":"10000",
 			"positionSizingMode":"allIn",
-			"leverage":"5",
-			"maintenanceMarginRate":"25"
+			"maintenanceMarginRate":"0.5"
 		}`)
 
 		require.Equal(t, http.StatusBadRequest, response.Code)
@@ -416,12 +378,43 @@ func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
 			Field   string `json:"field"`
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		// The same box the multiplier names: the two are filled in as one group, and
+		// the sentence says which of them this is about.
 		assert.Equal(t, "leverage", body.Field)
-		// The refusal says what would go through, so nobody has to guess their way to it.
-		assert.Contains(t, body.Message, "20%")
+		assert.Contains(t, body.Message, "沒有維持保證金率")
 	})
 
-	t.Run("saying nothing answers exactly as it did before there was anything to say", func(t *testing.T) {
+	t.Run("the report card has no column for being liquidated", func(t *testing.T) {
+		// Asserted as an absence, because the way this could come back is by nobody
+		// asking. The assertions that read this column were removed along with the
+		// behaviour, and a removed assertion is silence rather than a failure — the
+		// column stayed on the report card through exactly that, answering zero on
+		// every replay.
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.expectTwoCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]map[string]vo.IndicatorValueVo{
+				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
+			}, nil)
+
+		response := fixture.post(backtestBody)
+
+		require.Equal(t, http.StatusOK, response.Code)
+
+		var body struct {
+			Summary map[string]any `json:"summary"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.NotContains(t, body.Summary, "liquidationExitCount")
+		// The two that remain are still there, so this is not passing because the
+		// report card lost its exit counts altogether.
+		assert.Contains(t, body.Summary, "stopLossExitCount")
+		assert.Contains(t, body.Summary, "takeProfitExitCount")
+	})
+
+	t.Run("saying nothing answers exactly as it always has", func(t *testing.T) {
 		fixture := newBacktestRouterUnderTest(t)
 		fixture.expectTwoCandles()
 		fixture.indicatorScriptProxy.EXPECT().
@@ -437,12 +430,10 @@ func TestRunBacktestEndpointCarriesTheLeverage(t *testing.T) {
 
 		var body struct {
 			Summary struct {
-				FinalEquity          string `json:"finalEquity"`
-				LiquidationExitCount int    `json:"liquidationExitCount"`
+				FinalEquity string `json:"finalEquity"`
 			} `json:"summary"`
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 		assert.Equal(t, "11000", body.Summary.FinalEquity)
-		assert.Equal(t, 0, body.Summary.LiquidationExitCount)
 	})
 }
