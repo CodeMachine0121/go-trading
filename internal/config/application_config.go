@@ -73,6 +73,34 @@ type IngestionConfig struct {
 	MarketDataRequestsPerMinute int
 }
 
+// ContractIngestionConfig holds what reaching the perpetual contract venue runs on.
+//
+// Every value here has a spot counterpart and none of them is shared, which is the
+// point. **The allowance in particular cannot be shared**: the two venues count their
+// request budgets separately, so one pacer across both would spend half of each. And
+// every contract candle takes two questions rather than one, so this side's request
+// count is double the spot side's over the same stretch — a number that has to be
+// settable on its own.
+//
+// The history ceiling is its own for a plainer reason: perpetual contracts have a
+// much shorter past than the spot pairs beside them.
+type ContractIngestionConfig struct {
+	RoundCandleCount           int
+	BackfillLookback           time.Duration
+	HistorySyncMaxLookbackDays int
+	// BaseUrl answers about the traded figures; MarkPriceUrl about the mark price.
+	// They are two addresses because the venue keeps them apart, and one contract
+	// candle is assembled from both.
+	BaseUrl      string
+	MarkPriceUrl string
+	// SymbolCatalogUrl is where a contract is confirmed to exist before it is
+	// watched. This venue answers with its whole catalogue whatever it is asked, so
+	// the address is the same question asked a different way from the spot one.
+	SymbolCatalogUrl  string
+	RequestTimeout    time.Duration
+	RequestsPerMinute int
+}
+
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
 // a number the requirements name, so they are settings rather than constants: a
 // source that behaves differently is a value change, not a code change.
@@ -274,6 +302,7 @@ type ApplicationConfig struct {
 	IndicatorScriptTimeout time.Duration
 	BackgroundJobsEnabled  bool
 	Ingestion              IngestionConfig
+	ContractIngestion      ContractIngestionConfig
 	LiveFollow             LiveFollowConfig
 	TaiwanStock            TaiwanStockConfig
 	// MarketRules is how every market the system recognises behaves. Recognising one
@@ -322,6 +351,29 @@ func Load() ApplicationConfig {
 			// being slower.
 			MarketDataRequestsPerMinute: positiveIntWithDefault(
 				"MARKET_DATA_REQUESTS_PER_MINUTE", 600),
+		},
+		ContractIngestion: ContractIngestionConfig{
+			RoundCandleCount: positiveIntWithDefault(
+				"CONTRACT_KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
+			BackfillLookback: time.Duration(positiveIntWithDefault(
+				"CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
+			HistorySyncMaxLookbackDays: positiveIntWithDefault(
+				"CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
+			BaseUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_BASE_URL", "https://fapi.binance.com/fapi/v1/klines"),
+			MarkPriceUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_MARK_PRICE_URL",
+				"https://fapi.binance.com/fapi/v1/markPriceKlines"),
+			SymbolCatalogUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_SYMBOL_CATALOG_URL",
+				"https://fapi.binance.com/fapi/v1/exchangeInfo"),
+			RequestTimeout: time.Duration(positiveIntWithDefault(
+				"CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+			// Half the spot allowance by default, because each candle here costs two
+			// requests rather than one — so the same number of candles a minute is
+			// reached from half the number written down.
+			RequestsPerMinute: positiveIntWithDefault(
+				"CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE", 300),
 		},
 		LiveFollow: LiveFollowConfig{
 			UpdateIntervalCeiling: time.Duration(

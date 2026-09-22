@@ -35,6 +35,7 @@ func registerRoutes(
 ) (
 	*application.KCandleFollowApplication,
 	*application.KCandleIngestionApplication,
+	*application.KCandleContractIngestionApplication,
 	*application.StrategyBotRunApplication,
 	*application.AssistantConversationApplication,
 ) {
@@ -165,6 +166,85 @@ func registerRoutes(
 	// 所以有自己的路徑。
 	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
 	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
+
+	// 永續合約自成一條路徑,從來源到儲存都不與現貨共用。
+	//
+	// 兩件事逼出這個決定。一是同一個代號在兩個場所是兩種不同的商品,而 K 線以
+	// 「交易標的 ＋ 起始時間」唯一——共用一張表,每分鐘那一輪會安靜地互相覆蓋。
+	// 二是合約 K 線帶著標記價格,而現貨**沒有這個概念**:那不是某個市場不提供的
+	// 一項數字,是一件在現貨那邊不存在的事。
+	//
+	// 它與抓取共用同一個 service 實例,理由與現貨那邊一字不差:加入合約追蹤名單要
+	// 立刻補齊那一檔,手動補齊也是一條路由,兩者都不該等背景工作被打開才存在。
+	contractKCandleRepository := persistence.NewKCandleContractRepository(database)
+	contractTradingSymbolRepository := persistence.NewContractTradingSymbolRepository(database)
+	contractKCandleIngestionService := service.NewContractKCandleIngestionService(
+		contractKCandleRepository,
+		persistence.NewKCandleContractHistorySyncRunRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractMarketDataProxy(
+			applicationConfig.ContractIngestion.BaseUrl,
+			applicationConfig.ContractIngestion.MarkPriceUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+		),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.ContractIngestion.RoundCandleCount,
+		applicationConfig.ContractIngestion.BackfillLookback,
+	)
+	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
+		contractKCandleIngestionService)
+
+	kCandleContractController := controller.NewKCandleContractController(
+		application.NewKCandleContractApplication(service.NewKCandleContractService(
+			contractKCandleRepository,
+			clock.NewSystemClockProxy(),
+			applicationConfig.KCandleQueryMaxResults,
+		)))
+
+	engine.POST("/contract-k-candles", kCandleContractController.CreateKCandleContract)
+	engine.GET("/contract-k-candles", kCandleContractController.GetKCandleContractsInRange)
+	engine.POST("/contract-k-candles/backfill",
+		controller.NewKCandleContractBackfillController(
+			kCandleContractIngestionApplication).CatchUpSymbol)
+
+	kCandleContractHistorySyncController := controller.NewKCandleContractHistorySyncController(
+		kCandleContractIngestionApplication,
+		applicationConfig.ContractIngestion.HistorySyncMaxLookbackDays,
+	)
+	// 這兩條掛在 :symbol/:openTime 之前,因為 history 與一個代號在路由樹上是同一層,
+	// 先註冊具體的那一條才不會被萬用的那一條吃掉。
+	engine.POST("/contract-k-candles/history",
+		kCandleContractHistorySyncController.StartSymbolHistorySync)
+	engine.GET("/contract-k-candles/history/:id",
+		kCandleContractHistorySyncController.GetSymbolHistorySync)
+	engine.GET("/contract-k-candles/:symbol/:openTime",
+		kCandleContractController.GetKCandleContract)
+	engine.PUT("/contract-k-candles/:symbol/:openTime",
+		kCandleContractController.UpdateKCandleContract)
+	engine.DELETE("/contract-k-candles/:symbol/:openTime",
+		kCandleContractController.DeleteKCandleContract)
+
+	contractTradingSymbolController := controller.NewContractTradingSymbolController(
+		application.NewContractTradingSymbolApplication(
+			service.NewContractTradingSymbolService(
+				contractTradingSymbolRepository,
+				contractKCandleRepository,
+				marketdata.NewBinanceContractSymbolLookupProxy(
+					applicationConfig.ContractIngestion.SymbolCatalogUrl,
+					applicationConfig.ContractIngestion.RequestTimeout,
+					venuePacers.cryptoContract,
+				),
+			),
+			contractKCandleIngestionService,
+		))
+
+	engine.GET("/contract-trading-symbols",
+		contractTradingSymbolController.ListContractTradingSymbols)
+	engine.POST("/contract-watchlist", contractTradingSymbolController.AddToWatchlist)
+	engine.DELETE("/contract-watchlist/:symbol",
+		contractTradingSymbolController.RemoveFromWatchlist)
 
 	// A saved strategy script is its own resource: it holds an algorithm, who it belongs
 	// to, and nothing else — how coarse the K candles are, how many of them and up
@@ -453,7 +533,8 @@ func registerRoutes(
 	// 與「它自己跑出來的」就是兩件事，而那正是這顆按鈕要用來排除的東西。
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 
-	return kCandleFollowApplication, kCandleIngestionApplication, strategyBotRunApplication,
+	return kCandleFollowApplication, kCandleIngestionApplication,
+		kCandleContractIngestionApplication, strategyBotRunApplication,
 		assistantConversationApplication
 }
 
@@ -500,6 +581,7 @@ func backgroundJobsFor(
 	applicationConfig config.ApplicationConfig,
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
+	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
 	strategyBotRunApplication *application.StrategyBotRunApplication,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
@@ -508,6 +590,12 @@ func backgroundJobsFor(
 
 	kCandleIngestionJob := job.NewKCandleIngestionJob(
 		kCandleIngestionApplication, job.KCandleIngestionInterval)
+
+	// The contract venue gets a round of its own rather than more work inside the spot
+	// one. The two spend different allowances, and one refusing to answer must not
+	// hold the other up — which is exactly what sharing a round would do.
+	contractKCandleIngestionJob := job.NewContractKCandleIngestionJob(
+		kCandleContractIngestionApplication, job.KCandleIngestionInterval)
 
 	// Handing out a market's live places is its own job rather than another step of
 	// a round: a round held up by a source that will not answer would otherwise hold
@@ -523,7 +611,7 @@ func backgroundJobsFor(
 		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
 
 	return []domaininterface.IBackgroundJob{
-		kCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
+		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 	}
 }
 
@@ -541,14 +629,22 @@ func backgroundJobsFor(
 // would let the two of them together go at twice the rate either was allowed — and
 // the one being paced is the one doing thousands of requests in a row.
 type venuePacers struct {
-	crypto      marketdata.RequestPacer
-	taiwanStock marketdata.RequestPacer
+	crypto marketdata.RequestPacer
+	// cryptoContract is the perpetual contract venue's own. It is **not** the spot
+	// one: the two count their allowances separately, so sharing a pacer would spend
+	// half of each. Every proxy that reaches the contract venue takes this one, so a
+	// second contract series added later joins the same budget rather than opening a
+	// second one beside it.
+	cryptoContract marketdata.RequestPacer
+	taiwanStock    marketdata.RequestPacer
 }
 
 func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 	return venuePacers{
 		crypto: marketdata.NewRequestPacer(
 			applicationConfig.Ingestion.MarketDataRequestsPerMinute),
+		cryptoContract: marketdata.NewRequestPacer(
+			applicationConfig.ContractIngestion.RequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
 	}
