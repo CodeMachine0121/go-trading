@@ -32,6 +32,11 @@ type PositionPlanDomain struct {
 
 // NewPositionPlanDomain reads the four settings and settles every rule about them.
 //
+// **Every rule here is about a figure that is stored**, because this runs again on
+// every round of every bot, from settings saved long ago. A rule about something a
+// caller merely declared — borrowing, most of all — belongs where the bot is settled:
+// refusing it here would stop a bot that predates the rule, silently, every round.
+//
 // No capital is the zero value rather than an error: not filling something in is not
 // the same as filling it in wrongly, and a bot without a position plan is one this
 // system has supported from the day bots existed.
@@ -50,13 +55,6 @@ func NewPositionPlanDomain(
 	sizing, sizingError := NewPositionSizingDomain(settings.SizingMode, settings.SizingValue)
 	if sizingError != nil {
 		return PositionPlanDomain{}, sizingError
-	}
-
-	// Asked of the model a replay asks, so that the same figure typed into either
-	// comes back with the same sentence. Nothing here can borrow, so anything above
-	// one is refused — a bot may only ever suggest what a replay could have modelled.
-	if _, spotOnlyRefusal := NewSpotOnlyReplayDomain("", settings.Leverage); spotOnlyRefusal != nil {
-		return PositionPlanDomain{}, spotOnlyRefusal
 	}
 
 	if stopLossError := validatedDistance(settings.StopLossPercentage, "停損距離"); stopLossError != nil {

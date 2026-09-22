@@ -563,6 +563,33 @@ func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
 	assert.Equal(t, "50000", answer.PositionPlan.Capital)
 	assert.Equal(t, "percentage", answer.PositionPlan.SizingMode)
 	assert.Equal(t, "3", answer.PositionPlan.StopLossPercentage)
+
+	// And a multiplier does not leave with it. A plan that carried one nothing ever
+	// filled in would answer "0" on every bot forever — a figure on the wire saying
+	// this bot suggests no position at all, about a bot that suggests a tenth of
+	// fifty thousand. The word itself is what is checked: a shape nobody declares
+	// cannot be read by a name.
+	assert.NotContains(t, response.Body.String(), "everage")
+}
+
+// Somebody still asking to borrow is told, rather than quietly saved a bot that means
+// something else.
+//
+// It is refused where the bot is settled and nowhere else: a round rebuilds the plan
+// from settings saved long ago, and a rule that refused there would stop a bot that
+// predates it — every round, silently, where nobody is reading.
+func TestStrategyBotRouterRefusesABotThatAsksToBorrow(t *testing.T) {
+	fixture := newStrategyBotRouterUnderTest(t)
+	fixture.expectResolvableTradingStrategy()
+
+	// Nothing is stored: gomock enforces it by having no expectation for Save.
+	response := fixture.send(http.MethodPost, "/strategy-bots", strings.Replace(
+		aPositionPlannedStrategyBotBody,
+		`"capital": "50000",`, `"capital": "50000", "leverage": "3",`, 1))
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	// The replay's own sentence, because there is one of it.
+	assert.Contains(t, response.Body.String(), "沒有人借錢給你")
 }
 
 func TestStrategyBotRouterRefusesAPositionPlanItCannotUse(t *testing.T) {

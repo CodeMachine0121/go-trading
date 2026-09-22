@@ -48,6 +48,10 @@ type BacktestRequest struct {
 	// system does not. Nothing, zero and one all mean a position paid for in full,
 	// which is what every replay here is; anything above one is refused outright.
 	Leverage decimal.Decimal `json:"leverage"`
+	// MaintenanceMarginRate is carried for the reason Leverage is: it describes when
+	// a borrowed position is closed out for running low on collateral, and nothing
+	// here borrows. Anything other than nothing is refused rather than ignored.
+	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
 	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
 	// act of trading, at each end, as a percentage of the money that changes hands.
 	// Leaving both out means trading is free, which is what every replay assumed
@@ -83,7 +87,8 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 		StopLossPercentage:   backtestRequest.StopLossPercentage,
 		TakeProfitPercentage: backtestRequest.TakeProfitPercentage,
 
-		Leverage: backtestRequest.Leverage,
+		Leverage:              backtestRequest.Leverage,
+		MaintenanceMarginRate: backtestRequest.MaintenanceMarginRate,
 
 		EntryCostPercentage: backtestRequest.EntryCostPercentage,
 		ExitCostPercentage:  backtestRequest.ExitCostPercentage,

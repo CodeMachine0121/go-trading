@@ -353,6 +353,37 @@ func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
 		assert.Contains(t, body.Message, "沒有人借錢給你")
 	})
 
+	t.Run("a rate for being closed out is answered, not ignored", func(t *testing.T) {
+		// It only means something to an account that borrowed, so somebody who sent
+		// one was picturing a system this is not. Reading it as "said nothing" would
+		// hand them a spot report card with not a word about the thing they asked
+		// for — the one outcome this whole change exists to prevent.
+		fixture := newBacktestRouterUnderTest(t)
+
+		response := fixture.post(`{
+			"symbol":"BTCUSDT",
+			"aggregationInterval":"1h",
+			"startTime":"2026-08-29T00:00:00Z",
+			"endTime":"2026-08-29T04:00:00Z",
+			"strategyScriptId":9,
+			"initialCapital":"10000",
+			"positionSizingMode":"allIn",
+			"maintenanceMarginRate":"0.5"
+		}`)
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+
+		var body struct {
+			Message string `json:"message"`
+			Field   string `json:"field"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		// The same box the multiplier names: the two are filled in as one group, and
+		// the sentence says which of them this is about.
+		assert.Equal(t, "leverage", body.Field)
+		assert.Contains(t, body.Message, "沒有維持保證金率")
+	})
+
 	t.Run("the report card has no column for being liquidated", func(t *testing.T) {
 		// Asserted as an absence, because the way this could come back is by nobody
 		// asking. The assertions that read this column were removed along with the

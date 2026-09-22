@@ -44,6 +44,10 @@ type TradingStrategyBacktestRequestDto struct {
 	// describe a position paid for in full, which is the only kind this system
 	// replays; anything above one is carried here only so that it can be refused.
 	Leverage decimal.Decimal
+	// MaintenanceMarginRate is what the caller declared about being closed out for
+	// running low on collateral, carried for the reason Leverage is: only a borrowed
+	// position can be, so anything other than nothing exists here to be refused.
+	MaintenanceMarginRate decimal.Decimal
 	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
 	// each end, both optional. Leaving the exit out is read as "the same as the
 	// entry".
@@ -91,7 +95,8 @@ func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
 		StopLossPercentage:   requestDto.StopLossPercentage,
 		TakeProfitPercentage: requestDto.TakeProfitPercentage,
 
-		Leverage: requestDto.Leverage,
+		Leverage:              requestDto.Leverage,
+		MaintenanceMarginRate: requestDto.MaintenanceMarginRate,
 
 		EntryCostPercentage: requestDto.EntryCostPercentage,
 		ExitCostPercentage:  requestDto.ExitCostPercentage,

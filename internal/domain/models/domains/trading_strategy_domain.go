@@ -70,7 +70,7 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 	// there is nothing here to choose. Declaring anything is refused in the same words
 	// a replay refuses it, because there is only one model that owns that sentence.
 	if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
-		writeDto.TradingMode, decimal.Zero); spotOnlyRefusal != nil {
+		writeDto.TradingMode, decimal.Zero, decimal.Zero); spotOnlyRefusal != nil {
 		return TradingStrategyDomain{}, fmt.Errorf(
 			"%w: %s", ErrTradingStrategyValidation, spotOnlyRefusal)
 	}

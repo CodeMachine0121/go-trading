@@ -7,6 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 // strategyBotNameMaxLength is how long a bot's name may be, counted after the blanks
@@ -120,8 +121,20 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 必須指名這台機器人要用哪一份交易策略", ErrStrategyBotValidation)
 	}
 
-	// What a bot may suggest borrowing is limited by what its rules may borrow. The
-	// two questions were answered in two places until now — a replay refused a spot
+	// Nothing here lends, so a bot may only ever suggest what a replay could have
+	// modelled. The sentence comes from the model a replay asks, so that the same
+	// figure typed into either comes back with the same words.
+	//
+	// Asked here rather than inside the position plan because the plan is also built
+	// every round, from settings already stored. Refusing there would stop bots that
+	// were saved before this rule existed — and it would stop them silently, one
+	// round at a time, where nobody is reading.
+	if _, borrowingRefusal := NewSpotOnlyReplayDomain(
+		"", writeDto.DeclaredLeverage, decimal.Zero); borrowingRefusal != nil {
+		return StrategyBotDomain{}, fmt.Errorf(
+			"%w: %s", ErrStrategyBotValidation, borrowingRefusal)
+	}
+
 	return StrategyBotDomain{
 		id:                     writeDto.ID,
 		ownerID:                writeDto.OwnerID,

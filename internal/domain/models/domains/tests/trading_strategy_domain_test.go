@@ -349,7 +349,7 @@ func TestNewTradingStrategyDomainRefusesInTheSameWordsAReplayDoes(t *testing.T) 
 	writeDto.TradingMode = "longShort"
 
 	_, saveError := domains.NewTradingStrategyDomain(writeDto)
-	_, replayError := domains.NewSpotOnlyReplayDomain("longShort", decimal.Zero)
+	_, replayError := domains.NewSpotOnlyReplayDomain("longShort", decimal.Zero, decimal.Zero)
 
 	require.Error(t, saveError)
 	require.Error(t, replayError)

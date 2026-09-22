@@ -627,10 +627,8 @@ func TestStrategyBotApplicationCreateRefusesBorrowing(t *testing.T) {
 	underTest.expectTheNamedTradingStrategyIsThisPersons()
 
 	writeDto := aBotWrite()
-	writeDto.PositionPlan = dto.PositionPlanSettingsDto{
-		Capital:  decimal.NewFromInt(150),
-		Leverage: decimal.RequireFromString("1.8"),
-	}
+	writeDto.PositionPlan = dto.PositionPlanSettingsDto{Capital: decimal.NewFromInt(150)}
+	writeDto.DeclaredLeverage = decimal.RequireFromString("1.8")
 
 	_, createError := underTest.strategyBotApplication.CreateStrategyBot(
 		context.Background(), strategyBotOwnerID, writeDto)

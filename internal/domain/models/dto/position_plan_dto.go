@@ -2,14 +2,17 @@ package dto
 
 import "github.com/shopspring/decimal"
 
-// PositionPlanSettingsDto is the five knobs a bot is given so that it can work out,
+// PositionPlanSettingsDto is the four knobs a bot is given so that it can work out,
 // every round, how big a position it is suggesting and where the exits sit.
 //
 // One shape serves three journeys — arriving to be saved, handed back to be read, and
 // carried into a round — because all three are about the same numbers. Three shapes
 // would drift, and the one that drifted would be the one a round used.
 //
-// One figure travels inward only; it says so where it is declared.
+// **Nothing here is about borrowing.** A multiplier a caller still sends is refused
+// where the bot is settled, and is not carried through this shape: this one is handed
+// back out, and a figure nothing ever fills in would read as "no leverage at all" on
+// every bot forever — a number on the wire that says something untrue.
 //
 // Every figure is an exact decimal. The two distances multiply into money, so a float
 // would start drifting a price around its tenth digit — and that price is one
@@ -23,14 +26,6 @@ type PositionPlanSettingsDto struct {
 	// replay's three and not a fourth set.
 	SizingMode  string
 	SizingValue decimal.Decimal
-	// Leverage is what was declared about borrowing, and it travels **inward only**.
-	//
-	// Saving a bot reads it, to refuse anything above one. Nothing writes it back:
-	// what a bot has is never a loan, so handing a multiplier back out would put a
-	// figure on a plan that has nothing to multiply. A caller that sends one gets it
-	// refused or ignored, and reads back a plan that says nothing about borrowing —
-	// which is the truth about every bot this system stores.
-	Leverage decimal.Decimal
 	// StopLossPercentage and TakeProfitPercentage are how far from the reference
 	// price each exit sits. Either may be left out on its own.
 	StopLossPercentage   decimal.Decimal

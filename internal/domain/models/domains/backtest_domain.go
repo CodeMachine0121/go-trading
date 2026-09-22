@@ -74,7 +74,8 @@ func NewBacktestDomain(
 	// sentence is shared with three other callers, and each of them calls its boxes
 	// something different.
 	if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
-		requestDto.TradingMode, requestDto.Leverage); spotOnlyRefusal != nil {
+		requestDto.TradingMode, requestDto.Leverage,
+		requestDto.MaintenanceMarginRate); spotOnlyRefusal != nil {
 		refusedField := BacktestLeverageField
 		if errors.Is(spotOnlyRefusal, ErrSpotOnlyTradingMode) {
 			refusedField = BacktestTradingModeField

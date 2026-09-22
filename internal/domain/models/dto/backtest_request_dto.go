@@ -53,6 +53,10 @@ type BacktestRequestDto struct {
 	// describe a position paid for in full, which is the only kind this system
 	// replays; anything above one is carried here only so that it can be refused.
 	Leverage decimal.Decimal
+	// MaintenanceMarginRate is what the caller declared about being closed out for
+	// running low on collateral. Only an account that borrowed can be, so anything
+	// other than nothing is carried here only so that it can be refused.
+	MaintenanceMarginRate decimal.Decimal
 	// EntryCostPercentage and ExitCostPercentage are what the act of trading costs at
 	// each end, as a percentage of the money that changes hands. Both are optional
 	// and zero means no charge on that side — except that leaving the exit out is

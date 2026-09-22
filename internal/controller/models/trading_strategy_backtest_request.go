@@ -16,15 +16,15 @@ import (
 // so a body with room for them would be a body with two answers and no rule about
 // which one wins.
 type TradingStrategyBacktestRequest struct {
-	Symbol    string    `json:"symbol"`
+	Symbol string `json:"symbol"`
 	// TradingMode is carried for the reason Leverage is, and it has to be carried
 	// **here too**: a field this body did not declare would be dropped in silence,
 	// and a caller asking for another set of rules would get two hundred and a spot
 	// report card — the one outcome this whole slice exists to prevent. Both replays
 	// refuse it in the same words because both hand it to the same gate.
 	TradingMode string    `json:"tradingMode"`
-	StartTime time.Time `json:"startTime"`
-	EndTime   time.Time `json:"endTime"`
+	StartTime   time.Time `json:"startTime"`
+	EndTime     time.Time `json:"endTime"`
 	// InitialCapital is what the account starts with.
 	InitialCapital decimal.Decimal `json:"initialCapital"`
 	// PositionSizingMode is how much each opening stakes, and PositionSizingValue the
@@ -42,6 +42,11 @@ type TradingStrategyBacktestRequest struct {
 	// system does not. Nothing, zero and one all mean a position paid for in full,
 	// which is what every replay here is; anything above one is refused outright.
 	Leverage decimal.Decimal `json:"leverage"`
+	// MaintenanceMarginRate is carried for the reason Leverage is, and **here too**
+	// for the reason TradingMode is: a field this body did not declare would be
+	// dropped in silence, and the caller would get a spot report card back without a
+	// word about the one they described.
+	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
 	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
 	// act of trading. Asked for here rather than read off the trading strategy for
 	// the same reason the exit distances are: a set of rules has no opinion about
@@ -65,7 +70,8 @@ func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategy
 		StopLossPercentage:   request.StopLossPercentage,
 		TakeProfitPercentage: request.TakeProfitPercentage,
 
-		Leverage: request.Leverage,
+		Leverage:              request.Leverage,
+		MaintenanceMarginRate: request.MaintenanceMarginRate,
 
 		EntryCostPercentage: request.EntryCostPercentage,
 		ExitCostPercentage:  request.ExitCostPercentage,

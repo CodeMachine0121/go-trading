@@ -60,7 +60,7 @@ func TestSpotOnlyReplayDomainAcceptsWhatAlreadyMeansSpot(t *testing.T) {
 			require.NoError(t, parseError)
 
 			_, refusal := domains.NewSpotOnlyReplayDomain(
-				testCase.declaredTradingMode, declaredLeverage)
+				testCase.declaredTradingMode, declaredLeverage, decimal.Zero)
 
 			assert.NoError(t, refusal)
 		})
@@ -97,7 +97,7 @@ func TestSpotOnlyReplayDomainRefusesEveryOtherSetOfRules(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, refusal := domains.NewSpotOnlyReplayDomain(
-				testCase.declaredTradingMode, decimal.Zero)
+				testCase.declaredTradingMode, decimal.Zero, decimal.Zero)
 
 			require.Error(t, refusal)
 			assert.Contains(t, refusal.Error(), "只重演現貨")
@@ -147,7 +147,7 @@ func TestSpotOnlyReplayDomainRefusesBorrowing(t *testing.T) {
 			declaredLeverage, parseError := decimal.NewFromString(testCase.declaredLeverage)
 			require.NoError(t, parseError)
 
-			_, refusal := domains.NewSpotOnlyReplayDomain("", declaredLeverage)
+			_, refusal := domains.NewSpotOnlyReplayDomain("", declaredLeverage, decimal.Zero)
 
 			require.Error(t, refusal)
 			assert.Contains(t, refusal.Error(), testCase.expectedSentence)
@@ -155,10 +155,59 @@ func TestSpotOnlyReplayDomainRefusesBorrowing(t *testing.T) {
 	}
 }
 
-// Both wrong at once is still refused. Which of the two it names does not matter —
-// what matters is that the run does not happen.
-func TestSpotOnlyReplayDomainRefusesWhenBothAreWrong(t *testing.T) {
-	_, refusal := domains.NewSpotOnlyReplayDomain("longShort", decimal.NewFromInt(20))
+// A rate at which a position gets closed out for running low on collateral only means
+// something to an account that borrowed. Sending one is answered rather than ignored,
+// because somebody who sent it was picturing a system this is not.
+func TestSpotOnlyReplayDomainRefusesAMaintenanceMarginRate(t *testing.T) {
+	testCases := []struct {
+		name                          string
+		declaredMaintenanceMarginRate string
+		expectsRefusal                bool
+	}{
+		{
+			name:                          "a rate describes an account that can be closed out",
+			declaredMaintenanceMarginRate: "0.5",
+			expectsRefusal:                true,
+		},
+		{
+			// Nobody typed this meaning a contract account, but it is still a figure
+			// about one — and reading it as "said nothing" would be a guess.
+			name:                          "a rate below a whole percent is still a rate",
+			declaredMaintenanceMarginRate: "0.005",
+			expectsRefusal:                true,
+		},
+		{
+			name:                          "nothing at all is what every caller sends",
+			declaredMaintenanceMarginRate: "0",
+			expectsRefusal:                false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			declaredRate, parseError := decimal.NewFromString(
+				testCase.declaredMaintenanceMarginRate)
+			require.NoError(t, parseError)
+
+			_, refusal := domains.NewSpotOnlyReplayDomain("", decimal.Zero, declaredRate)
+
+			if !testCase.expectsRefusal {
+				assert.NoError(t, refusal)
+				return
+			}
+
+			require.Error(t, refusal)
+			assert.ErrorIs(t, refusal, domains.ErrSpotOnlyMaintenanceMarginRate)
+			assert.Contains(t, refusal.Error(), "沒有維持保證金率")
+		})
+	}
+}
+
+// Every one of the three wrong at once is still refused. Which one it names does not
+// matter — what matters is that the run does not happen.
+func TestSpotOnlyReplayDomainRefusesWhenAllThreeAreWrong(t *testing.T) {
+	_, refusal := domains.NewSpotOnlyReplayDomain(
+		"longShort", decimal.NewFromInt(20), decimal.RequireFromString("0.5"))
 
 	assert.Error(t, refusal)
 }

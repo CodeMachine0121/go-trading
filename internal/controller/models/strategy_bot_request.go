@@ -29,29 +29,35 @@ type StrategyBotRequest struct {
 	PositionPlan PositionPlanRequest `json:"positionPlan"`
 }
 
-// PositionPlanRequest is the five figures behind a suggested position.
+// PositionPlanRequest is the four figures behind a suggested position, plus the one
+// this system no longer does anything with.
 //
 // The money arrives as an exact decimal rather than a JSON number, for the reason it
-// does everywhere else here: the leverage and the two distances all multiply into a
-// price somebody places an order at.
+// does everywhere else here: the two distances multiply into a price somebody places
+// an order at.
 type PositionPlanRequest struct {
-	Capital              decimal.Decimal `json:"capital"`
-	SizingMode           string          `json:"sizingMode"`
-	SizingValue          decimal.Decimal `json:"sizingValue"`
+	Capital     decimal.Decimal `json:"capital"`
+	SizingMode  string          `json:"sizingMode"`
+	SizingValue decimal.Decimal `json:"sizingValue"`
+	// Leverage is read only so that a caller still asking to borrow is told this
+	// system does not, rather than being quietly saved a bot that means something
+	// else. It goes no further than the refusal — see StrategyBotWriteDto.
 	Leverage             decimal.Decimal `json:"leverage"`
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
 }
 
-// ToSettingsDto hands the five figures on untouched. Reading them — a blank sizing
-// mode meaning stake everything, a leverage of nothing meaning one — is the domain's
-// job, the same way it is for every other declared spelling here.
+// ToSettingsDto hands the four stored figures on untouched. Reading them — a blank
+// sizing mode meaning stake everything — is the domain's job, the same way it is for
+// every other declared spelling here.
+//
+// What was declared about borrowing is not among them: it is carried separately,
+// because it is refused rather than stored.
 func (positionPlanRequest PositionPlanRequest) ToSettingsDto() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              positionPlanRequest.Capital,
 		SizingMode:           positionPlanRequest.SizingMode,
 		SizingValue:          positionPlanRequest.SizingValue,
-		Leverage:             positionPlanRequest.Leverage,
 		StopLossPercentage:   positionPlanRequest.StopLossPercentage,
 		TakeProfitPercentage: positionPlanRequest.TakeProfitPercentage,
 	}
@@ -70,5 +76,8 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 		TradingStrategyID:      strategyBotRequest.TradingStrategyID,
 		TriggerIntervalMinutes: strategyBotRequest.TriggerIntervalMinutes,
 		PositionPlan:           strategyBotRequest.PositionPlan.ToSettingsDto(),
+		// Taken separately from the rest of the plan, because it is the one figure
+		// there that is answered rather than stored.
+		DeclaredLeverage: strategyBotRequest.PositionPlan.Leverage,
 	}
 }

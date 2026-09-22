@@ -247,24 +247,6 @@ func TestNewPositionPlanDomainRefusesSettingsItCannotUse(t *testing.T) {
 			expectedWords: "每次開倉押多少只能是",
 		},
 		{
-			// Somebody who typed half a times meant something by it. Reading that as a
-			// whole one would double what they asked for without telling them.
-			name: "leverage below one times",
-			adjust: func(settings *dto.PositionPlanSettingsDto) {
-				settings.Leverage = decimal.RequireFromString("0.5")
-			},
-			expectedWords: "槓桿倍數不得小於 1 倍",
-		},
-		{
-			// Nothing here lends, so a bot may only ever suggest what a replay could
-			// have modelled. The refusal is the replay's own sentence.
-			name: "leverage above one times",
-			adjust: func(settings *dto.PositionPlanSettingsDto) {
-				settings.Leverage = decimal.NewFromInt(20)
-			},
-			expectedWords: "沒有人借錢給你",
-		},
-		{
 			name: "a negative stop distance",
 			adjust: func(settings *dto.PositionPlanSettingsDto) {
 				settings.StopLossPercentage = decimal.NewFromInt(-3)

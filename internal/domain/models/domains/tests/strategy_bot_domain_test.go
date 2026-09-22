@@ -224,13 +224,6 @@ func TestNewStrategyBotDomainRefusesAPositionPlanItCannotUse(t *testing.T) {
 			expectedWords: "每次開倉押多少只能是",
 		},
 		{
-			name: "leverage below one times",
-			adjust: func(settings *dto.PositionPlanSettingsDto) {
-				settings.Leverage = decimal.RequireFromString("0.5")
-			},
-			expectedWords: "槓桿倍數不得小於 1 倍",
-		},
-		{
 			name: "a negative stop distance",
 			adjust: func(settings *dto.PositionPlanSettingsDto) {
 				settings.StopLossPercentage = decimal.NewFromInt(-3)
@@ -287,7 +280,7 @@ func TestNewStrategyBotDomainRefusesBorrowing(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			writeDto := aPositionPlannedBotWriteDto()
-			writeDto.PositionPlan.Leverage = decimal.RequireFromString(testCase.leverage)
+			writeDto.DeclaredLeverage = decimal.RequireFromString(testCase.leverage)
 
 			_, buildError := domains.NewStrategyBotDomain(writeDto)
 
@@ -314,7 +307,7 @@ func TestNewStrategyBotDomainRefusesBorrowing(t *testing.T) {
 // share one model now, so there is no longer a figure the two doors disagree about.
 func TestNewStrategyBotDomainRefusesANegativeMultiplierRatherThanReadingItAsOne(t *testing.T) {
 	writeDto := aPositionPlannedBotWriteDto()
-	writeDto.PositionPlan.Leverage = decimal.RequireFromString("-2")
+	writeDto.DeclaredLeverage = decimal.RequireFromString("-2")
 
 	_, buildError := domains.NewStrategyBotDomain(writeDto)
 

@@ -324,3 +324,24 @@ func TestTradingStrategyBacktestRouterRefusesBorrowing(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, response.Body.String(), "沒有人借錢給你")
 }
+
+// A rate for being closed out is refused here too, and for the reason a declared set
+// of rules is: a field this body does not declare is dropped without a word, and the
+// caller gets a spot report card back with nothing on it about what they asked for.
+func TestTradingStrategyBacktestRouterRefusesAMaintenanceMarginRate(t *testing.T) {
+	fixture := newTradingStrategyBacktestRouterUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
+		Return(aRoutedTradingStrategy("1h"), nil)
+
+	response := fixture.send("/trading-strategies/11/backtests", `{
+		"symbol":"BTCUSDT",
+		"startTime":"2026-08-29T00:00:00Z",
+		"endTime":"2026-08-29T04:00:00Z",
+		"initialCapital":"10000",
+		"positionSizingMode":"allIn",
+		"maintenanceMarginRate":"0.5"
+	}`)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, response.Body.String(), "沒有維持保證金率")
+}
