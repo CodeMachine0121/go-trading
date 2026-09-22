@@ -156,10 +156,13 @@ func TestFetchKCandlesHoldsItselfToTheRateTheSourceAllows(t *testing.T) {
 
 	require.NoError(t, fetchError)
 	require.Greater(t, len(requestTimes), 2)
-	// A hair under is the runtime's timer landing early, not the pacer letting a
-	// request through. What this case is about is the difference between waiting
-	// and not waiting at all, and that is three orders of magnitude away.
-	const timerSlack = 2 * time.Millisecond
+	// A hair under is measurement, not the pacer letting a request through. The
+	// timestamps are taken inside the handler, so each gap carries the difference
+	// between two round trips as well as the wait — and that difference grows with
+	// whatever else the machine is doing. What this case is about is the difference
+	// between waiting and not waiting at all, and that is three orders of magnitude
+	// away from this slack.
+	const timerSlack = 15 * time.Millisecond
 	shortestGapAllowed := time.Minute/requestsPerMinute - timerSlack
 	for index := 1; index < len(requestTimes); index++ {
 		assert.GreaterOrEqual(t,
@@ -198,9 +201,9 @@ func TestEveryProxyReachingOneVenueSharesItsPace(t *testing.T) {
 	require.NoError(t, fetchError)
 
 	require.Len(t, requestTimes, 2)
-	// A hair under is the runtime's timer landing early, not the pacer letting a
-	// request through. See the case above.
-	const timerSlack = 2 * time.Millisecond
+	// A hair under is measurement, not the pacer letting a request through. See the
+	// case above.
+	const timerSlack = 15 * time.Millisecond
 	assert.GreaterOrEqual(t, requestTimes[1].Sub(requestTimes[0]),
 		time.Minute/requestsPerMinute-timerSlack,
 		"同一個來源的兩支 proxy 要共用同一份節奏")
