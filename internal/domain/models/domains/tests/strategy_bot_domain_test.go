@@ -163,14 +163,13 @@ func TestNewStrategyBotDomainStoresTheSymbolInOneCase(t *testing.T) {
 }
 
 // aPositionPlannedBotWriteDto is a bot that suggests a position: fifty thousand,
-// staking a tenth of it, three times over, out at three and five percent.
+// staking a tenth of it, out at three and five percent.
 func aPositionPlannedBotWriteDto() dto.StrategyBotWriteDto {
 	writeDto := aBotWriteDto()
 	writeDto.PositionPlan = dto.PositionPlanSettingsDto{
 		Capital:              decimal.NewFromInt(50000),
 		SizingMode:           string(vo.PositionSizingModePercentage),
 		SizingValue:          decimal.NewFromInt(10),
-		Leverage:             decimal.NewFromInt(3),
 		StopLossPercentage:   decimal.NewFromInt(3),
 		TakeProfitPercentage: decimal.NewFromInt(5),
 	}
@@ -188,7 +187,6 @@ func TestNewStrategyBotDomainKeepsThePositionPlanItWasGiven(t *testing.T) {
 	assert.Equal(t,
 		string(vo.PositionSizingModePercentage), botEntity.PositionPlanSizingMode)
 	assert.Equal(t, "10", botEntity.PositionPlanSizingValue.String())
-	assert.Equal(t, "3", botEntity.PositionPlanLeverage.String())
 	assert.Equal(t, "3", botEntity.PositionPlanStopLossPercentage.String())
 	assert.Equal(t, "5", botEntity.PositionPlanTakeProfitPercentage.String())
 }
@@ -259,61 +257,28 @@ func TestNewStrategyBotDomainRefusesAPositionPlanItCannotUse(t *testing.T) {
 	}
 }
 
-// What a bot may suggest borrowing is limited by what the rules it names may borrow.
-//
-// Until this rule existed the two answers came from two places — a replay refused a
-// spot strategy handed a multiplier, saving a bot did not — so a machine could run
-// while being impossible to replay. Both now refuse in the same words.
-func TestNewStrategyBotDomainRefusesBorrowingRulesCannotDo(t *testing.T) {
+// A bot may only ever suggest what a replay could have modelled, and nothing here
+// lends. The refusal is the replay's own sentence, because there is one of it.
+func TestNewStrategyBotDomainRefusesBorrowing(t *testing.T) {
 	testCases := []struct {
 		name          string
-		tradingMode   string
 		leverage      string
 		expectsSaving bool
 	}{
 		{
-			name:          "spot has nobody to borrow from",
-			tradingMode:   "spot",
+			name:          "there is nobody here to borrow from",
 			leverage:      "1.8",
 			expectsSaving: false,
 		},
 		{
-			name:          "leveraged long borrows although it never shorts",
-			tradingMode:   "leveragedLong",
-			leverage:      "1.8",
-			expectsSaving: true,
-		},
-		{
-			name:          "long-short borrows, as it always did",
-			tradingMode:   "longShort",
-			leverage:      "1.8",
-			expectsSaving: true,
-		},
-		{
-			// Not a permission granted to it: selling what you do not have means
-			// borrowing it first, so this mode has no version that does not.
-			name:          "short only borrows because shorting is borrowing",
-			tradingMode:   "shortOnly",
-			leverage:      "1.8",
-			expectsSaving: true,
-		},
-		{
-			name:          "short only suggesting no leverage at all",
-			tradingMode:   "shortOnly",
-			leverage:      "0",
-			expectsSaving: true,
-		},
-		{
 			// No loan, so the rule does not apply. This is the shape of every bot
-			// saved against spot rules before borrowing was a question at all.
-			name:          "spot suggesting no leverage at all",
-			tradingMode:   "spot",
+			// this system has ever stored.
+			name:          "suggesting no leverage at all",
 			leverage:      "0",
 			expectsSaving: true,
 		},
 		{
-			name:          "spot suggesting one times, which is not a loan",
-			tradingMode:   "spot",
+			name:          "suggesting one times, which is not a loan",
 			leverage:      "1",
 			expectsSaving: true,
 		},
@@ -322,7 +287,6 @@ func TestNewStrategyBotDomainRefusesBorrowingRulesCannotDo(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			writeDto := aPositionPlannedBotWriteDto()
-			writeDto.TradingMode = testCase.tradingMode
 			writeDto.PositionPlan.Leverage = decimal.RequireFromString(testCase.leverage)
 
 			_, buildError := domains.NewStrategyBotDomain(writeDto)
@@ -334,10 +298,10 @@ func TestNewStrategyBotDomainRefusesBorrowingRulesCannotDo(t *testing.T) {
 
 			require.Error(t, buildError)
 			assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
-			// Word for word what a replay says about the same pair, because there is
-			// one sentence and both ask the trading mode for it.
+			// Word for word what a replay says about the same figure, because there
+			// is one sentence and both ask the same model for it.
 			assert.Contains(t, buildError.Error(),
-				"現貨交易模式開不了槓桿——現貨是拿現金換東西，沒有人借錢給你")
+				"這個系統只重演現貨，開不了槓桿——現貨是拿現金換東西，沒有人借錢給你")
 		})
 	}
 }
@@ -357,26 +321,4 @@ func TestNewStrategyBotDomainRefusesANegativeMultiplierRatherThanReadingItAsOne(
 	require.Error(t, buildError)
 	assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
 	assert.Contains(t, buildError.Error(), "槓桿倍數不得小於 1 倍")
-}
-
-// A bot whose rules say nothing about how they trade is read the way every other
-// path reads that: always in the market, and therefore able to borrow. Existing bots
-// arrive this way, and none of them may start being refused.
-func TestNewStrategyBotDomainReadsUnstatedRulesAsAlwaysInTheMarket(t *testing.T) {
-	writeDto := aPositionPlannedBotWriteDto()
-	writeDto.TradingMode = ""
-
-	_, buildError := domains.NewStrategyBotDomain(writeDto)
-
-	require.NoError(t, buildError)
-}
-
-func TestNewStrategyBotDomainRefusesRulesItCannotRead(t *testing.T) {
-	writeDto := aPositionPlannedBotWriteDto()
-	writeDto.TradingMode = "dayTrade"
-
-	_, buildError := domains.NewStrategyBotDomain(writeDto)
-
-	require.Error(t, buildError)
-	assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
 }

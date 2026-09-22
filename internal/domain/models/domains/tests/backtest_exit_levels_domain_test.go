@@ -11,14 +11,14 @@ import (
 )
 
 // anEntryPrice is the price every level below is measured from. A hundred, so that a
-// percentage and a price are the same arithmetic read twice — the four directions are
-// what these cases are about, and a rounder number would hide a sign error.
+// percentage and a price are the same arithmetic read twice — which side each exit
+// lands on is what these cases are about, and a rounder number would hide a sign error.
 func anEntryPrice() decimal.Decimal {
 	return decimal.NewFromInt(100)
 }
 
 func exitPricesUnderTest(
-	t *testing.T, stopLoss int64, takeProfit int64, direction vo.PositionDirectionVo,
+	t *testing.T, stopLoss int64, takeProfit int64,
 ) vo.ExitPricesVo {
 	t.Helper()
 
@@ -26,45 +26,37 @@ func exitPricesUnderTest(
 		decimal.NewFromInt(stopLoss), decimal.NewFromInt(takeProfit))
 	require.NoError(t, buildError)
 
-	return exitLevels.PricesFrom(direction, anEntryPrice(), domains.BacktestLeverageDomain{})
+	return exitLevels.PricesFrom(anEntryPrice())
 }
 
-// The four directions, written out with real figures. A stop on the wrong side of the
-// entry is still a perfectly plausible price, so nothing but the numbers catches it.
-func TestBacktestExitLevelsPlacesALongPositionsExitsOnOppositeSides(t *testing.T) {
-	exitPrices := exitPricesUnderTest(t, 2, 5, vo.PositionDirectionLong)
+// Both sides, written out with real figures. A stop on the wrong side of the entry is
+// still a perfectly plausible price, so nothing but the numbers catches it.
+func TestBacktestExitLevelsPlacesTheTwoExitsOnOppositeSides(t *testing.T) {
+	exitPrices := exitPricesUnderTest(t, 2, 5)
 
-	assert.True(t, exitPrices.HasAdverse)
-	assert.Equal(t, "98", exitPrices.AdversePrice.String())
+	// A spot position loses as the price falls, so its stop is the one below.
+	assert.True(t, exitPrices.HasStopLoss)
+	assert.Equal(t, "98", exitPrices.StopLossPrice.String())
 	assert.True(t, exitPrices.HasTakeProfit)
 	assert.Equal(t, "105", exitPrices.TakeProfitPrice.String())
-}
-
-func TestBacktestExitLevelsMirrorsAShortPositionsExits(t *testing.T) {
-	exitPrices := exitPricesUnderTest(t, 2, 5, vo.PositionDirectionShort)
-
-	// A short loses as the price rises, so its stop is the one above.
-	assert.Equal(t, "102", exitPrices.AdversePrice.String())
-	assert.Equal(t, "95", exitPrices.TakeProfitPrice.String())
 }
 
 // The zero value is a replay that simulates nothing, which is what every call made
 // before this model existed is.
 func TestBacktestExitLevelsZeroValueHasNoExitsAtAll(t *testing.T) {
-	exitPrices := domains.BacktestExitLevelsDomain{}.PricesFrom(
-		vo.PositionDirectionLong, anEntryPrice(), domains.BacktestLeverageDomain{})
+	exitPrices := domains.BacktestExitLevelsDomain{}.PricesFrom(anEntryPrice())
 
-	assert.False(t, exitPrices.HasAdverse)
+	assert.False(t, exitPrices.HasStopLoss)
 	assert.False(t, exitPrices.HasTakeProfit)
 }
 
 func TestBacktestExitLevelsTakesOneDistanceWithoutTheOther(t *testing.T) {
-	stopOnly := exitPricesUnderTest(t, 2, 0, vo.PositionDirectionLong)
-	assert.True(t, stopOnly.HasAdverse)
+	stopOnly := exitPricesUnderTest(t, 2, 0)
+	assert.True(t, stopOnly.HasStopLoss)
 	assert.False(t, stopOnly.HasTakeProfit)
 
-	targetOnly := exitPricesUnderTest(t, 0, 5, vo.PositionDirectionLong)
-	assert.False(t, targetOnly.HasAdverse)
+	targetOnly := exitPricesUnderTest(t, 0, 5)
+	assert.False(t, targetOnly.HasStopLoss)
 	assert.True(t, targetOnly.HasTakeProfit)
 }
 
@@ -72,10 +64,10 @@ func TestBacktestExitLevelsTakesOneDistanceWithoutTheOther(t *testing.T) {
 // arithmetic, and the bot's own plan already answers it this way — two forms asking
 // the same question have to get the same answer.
 func TestBacktestExitLevelsAllowsTheWholePriceAsADistance(t *testing.T) {
-	exitPrices := exitPricesUnderTest(t, 100, 100, vo.PositionDirectionLong)
+	exitPrices := exitPricesUnderTest(t, 100, 100)
 
-	assert.True(t, exitPrices.HasAdverse)
-	assert.Equal(t, "0", exitPrices.AdversePrice.String())
+	assert.True(t, exitPrices.HasStopLoss)
+	assert.Equal(t, "0", exitPrices.StopLossPrice.String())
 	assert.Equal(t, "200", exitPrices.TakeProfitPrice.String())
 }
 

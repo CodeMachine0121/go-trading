@@ -43,22 +43,6 @@ func replayOf(
 ) domains.BacktestSimulationDomain {
 	t.Helper()
 
-	return replayTradingAs(t, "longShort", initialCapital, sizingMode, sizingValue,
-		closePrices, signals...)
-}
-
-// replayTradingAs is the same walk under a named trading mode.
-func replayTradingAs(
-	t *testing.T,
-	declaredTradingMode string,
-	initialCapital int64,
-	sizingMode string,
-	sizingValue int64,
-	closePrices []float64,
-	signals ...vo.SignalVo,
-) domains.BacktestSimulationDomain {
-	t.Helper()
-
 	positionSizing, err := domains.NewPositionSizingDomain(
 		sizingMode, decimal.NewFromInt(sizingValue))
 	require.NoError(t, err)
@@ -69,9 +53,9 @@ func replayTradingAs(
 	}
 
 	return domains.NewBacktestSimulationDomain(
-		decimal.NewFromInt(initialCapital), tradingModeOf(t, declaredTradingMode),
+		decimal.NewFromInt(initialCapital),
 		domains.NewBacktestPositionTermsDomain(positionSizing,
-			domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
+			domains.BacktestExitLevelsDomain{},
 			domains.BacktestTransactionCostsDomain{}),
 		inputKCandles, signalDomainsSaying(signals...))
 }
@@ -89,14 +73,15 @@ func TestBacktestSimulationHoldsOnePositionAtATime(t *testing.T) {
 			"final equity was %s", result.Summary.FinalEquity)
 	})
 
-	t.Run("selling while flat opens a short at that candle's close", func(t *testing.T) {
+	t.Run("selling while flat does nothing at all", func(t *testing.T) {
 		result := replayOf(t, 10000, "allIn", 0,
 			[]float64{100, 90},
 			sellSignal, holdSignal).ToDto()
 
-		assert.Equal(t, 1, result.Summary.PositionOpenCount)
-		// A short of 100 units entered at 100 is worth 11,000 once the price is 90.
-		assert.True(t, decimal.NewFromInt(11000).Equal(result.Summary.FinalEquity),
+		assert.Equal(t, 0, result.Summary.PositionOpenCount)
+		assert.Empty(t, result.ClosedTrades)
+		// There was nothing to sell, so the account never left cash.
+		assert.True(t, decimal.NewFromInt(10000).Equal(result.Summary.FinalEquity),
 			"final equity was %s", result.Summary.FinalEquity)
 	})
 
@@ -112,35 +97,7 @@ func TestBacktestSimulationHoldsOnePositionAtATime(t *testing.T) {
 			"final equity was %s", result.Summary.FinalEquity)
 	})
 
-	t.Run("selling again while short changes nothing", func(t *testing.T) {
-		result := replayOf(t, 10000, "allIn", 0,
-			[]float64{100, 90, 80},
-			sellSignal, sellSignal, holdSignal).ToDto()
-
-		assert.Equal(t, 1, result.Summary.PositionOpenCount)
-		assert.Empty(t, result.ClosedTrades)
-	})
-
-	t.Run("buying while short reverses on the same candle at the same price", func(t *testing.T) {
-		result := replayOf(t, 10000, "allIn", 0,
-			[]float64{200, 100, 110},
-			sellSignal, buySignal, holdSignal).ToDto()
-
-		require.Len(t, result.ClosedTrades, 1)
-		closedTrade := result.ClosedTrades[0]
-		assert.Equal(t, string(vo.PositionDirectionShort), closedTrade.Direction)
-		assert.True(t, decimal.NewFromInt(100).Equal(closedTrade.ExitPrice))
-		// The short entered at 200 with 50 units and exited at 100: it made 5,000.
-		assert.True(t, decimal.NewFromInt(5000).Equal(closedTrade.Profit),
-			"profit was %s", closedTrade.Profit)
-		// Both openings count, and the long entered at that very same 100.
-		assert.Equal(t, 2, result.Summary.PositionOpenCount)
-		// 15,000 staked at 100 is 150 units, worth 16,500 at 110.
-		assert.True(t, decimal.NewFromInt(16500).Equal(result.Summary.FinalEquity),
-			"final equity was %s", result.Summary.FinalEquity)
-	})
-
-	t.Run("selling while long reverses on the same candle at the same price", func(t *testing.T) {
+	t.Run("selling while long closes it back to cash at that candle's close", func(t *testing.T) {
 		result := replayOf(t, 10000, "allIn", 0,
 			[]float64{100, 100, 90},
 			buySignal, sellSignal, holdSignal).ToDto()
@@ -148,7 +105,11 @@ func TestBacktestSimulationHoldsOnePositionAtATime(t *testing.T) {
 		require.Len(t, result.ClosedTrades, 1)
 		assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
 		assert.True(t, decimal.NewFromInt(100).Equal(result.ClosedTrades[0].ExitPrice))
-		assert.Equal(t, 2, result.Summary.PositionOpenCount)
+		// One opening, not two: the sale went to cash rather than out the other way,
+		// so the fall to 90 happened to somebody else.
+		assert.Equal(t, 1, result.Summary.PositionOpenCount)
+		assert.True(t, decimal.NewFromInt(10000).Equal(result.Summary.FinalEquity),
+			"final equity was %s", result.Summary.FinalEquity)
 	})
 
 	t.Run("holding does nothing at all", func(t *testing.T) {
@@ -280,24 +241,24 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 
 	t.Run("the win rate counts only the trades that made money", func(t *testing.T) {
-		// Every reversal closes one round trip and opens the next, so five alternating
-		// opinions leave four finished trades: long 100 to 110, short 110 to 100,
-		// long 100 to 120, short 120 to 130. Only the last one lost.
+		// Each sell closes one round trip and each buy opens the next, so six
+		// alternating opinions leave three finished trades: 100 to 110, 100 to 120
+		// and 130 to 120. Only the last one lost.
 		result := replayOf(t, 10000, "percentage", 10,
-			[]float64{100, 110, 100, 120, 130},
-			buySignal, sellSignal, buySignal, sellSignal, buySignal).ToDto()
+			[]float64{100, 110, 100, 120, 130, 120},
+			buySignal, sellSignal, buySignal, sellSignal, buySignal, sellSignal).ToDto()
 
-		require.Len(t, result.ClosedTrades, 4)
+		require.Len(t, result.ClosedTrades, 3)
 		require.NotNil(t, result.Summary.WinRate)
-		assert.InDelta(t, 0.75, *result.Summary.WinRate, 1e-9)
+		assert.InDelta(t, 2.0/3.0, *result.Summary.WinRate, 1e-9)
 	})
 
 	t.Run("a trade that broke even does not count as a win", func(t *testing.T) {
-		// Long 100 to 110 makes money; the short it reversed into goes out at the very
-		// price it came in at.
+		// Bought at 100 and sold at 110 makes money; bought back at 110 and sold at
+		// that very same price gives nothing back.
 		result := replayOf(t, 10000, "percentage", 10,
-			[]float64{100, 110, 110},
-			buySignal, sellSignal, buySignal).ToDto()
+			[]float64{100, 110, 110, 110},
+			buySignal, sellSignal, buySignal, sellSignal).ToDto()
 
 		require.Len(t, result.ClosedTrades, 2)
 		require.NotNil(t, result.Summary.WinRate)
@@ -313,13 +274,13 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 
 	t.Run("a position still open counts as an opening but not as a trade", func(t *testing.T) {
-		// Long, reverse to short, reverse to long — the last one never closes.
+		// Buy, sell, buy again — the last one never closes.
 		result := replayOf(t, 10000, "percentage", 10,
 			[]float64{100, 110, 120, 120},
 			buySignal, sellSignal, buySignal, holdSignal).ToDto()
 
-		assert.Equal(t, 3, result.Summary.PositionOpenCount)
-		assert.Len(t, result.ClosedTrades, 2)
+		assert.Equal(t, 2, result.Summary.PositionOpenCount)
+		assert.Len(t, result.ClosedTrades, 1)
 	})
 
 	t.Run("what is left includes the position still open", func(t *testing.T) {
@@ -358,61 +319,30 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 }
 
-// The same three candles, the same script, two report cards. This is the whole reason
-// the mode exists: the second one is built on a short position most accounts cannot
-// take, and until now it was the only answer on offer.
-func TestBacktestSimulationTradingModeChangesTheReportCard(t *testing.T) {
-	closePrices := []float64{100, 120, 90}
+// One walk over three candles, read in full: it buys, it sells into cash, and the fall
+// afterwards happens to somebody else.
+func TestBacktestSimulationSitsInCashAfterSelling(t *testing.T) {
+	result := replayOf(t, 10000, "allIn", 0,
+		[]float64{100, 120, 90}, buySignal, sellSignal, holdSignal).ToDto()
 
-	t.Run("a spot replay is in cash for the fall", func(t *testing.T) {
-		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
-			closePrices, buySignal, sellSignal, holdSignal).ToDto()
-
-		// Bought at 100, sold at 120, and the drop to 90 happened to somebody else.
-		assert.True(t, decimal.NewFromInt(12000).Equal(result.Summary.FinalEquity),
-			"final equity was %s", result.Summary.FinalEquity)
-		assert.Equal(t, 1, result.Summary.PositionOpenCount)
-		require.Len(t, result.ClosedTrades, 1)
-		assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
-		assert.True(t, decimal.NewFromInt(2000).Equal(result.ClosedTrades[0].Profit))
-		// The last point sits still because the account is holding cash, not a bet.
-		require.Len(t, result.EquityCurve, 3)
-		assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[1].Equity))
-		assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[2].Equity))
-	})
-
-	t.Run("a long-short replay takes the other side of the fall", func(t *testing.T) {
-		result := replayTradingAs(t, "longShort", 10000, "allIn", 0,
-			closePrices, buySignal, sellSignal, holdSignal).ToDto()
-
-		// The whole 12,000 went straight back out as a short at 120 — the reversal
-		// stakes what the close returned, not the original capital — so the fall to 90
-		// pays it 3,000 more.
-		assert.True(t, decimal.NewFromInt(15000).Equal(result.Summary.FinalEquity),
-			"final equity was %s", result.Summary.FinalEquity)
-		assert.Equal(t, 2, result.Summary.PositionOpenCount)
-		// The short is still open at the end, so it is not among the round trips.
-		require.Len(t, result.ClosedTrades, 1)
-		assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
-	})
-
-	t.Run("without a sell the two modes cannot disagree", func(t *testing.T) {
-		spotResult := replayTradingAs(t, "spot", 10000, "allIn", 0,
-			closePrices, buySignal, holdSignal, holdSignal).ToDto()
-		longShortResult := replayTradingAs(t, "longShort", 10000, "allIn", 0,
-			closePrices, buySignal, holdSignal, holdSignal).ToDto()
-
-		assert.Equal(t, longShortResult.Summary, spotResult.Summary)
-		assert.Equal(t, longShortResult.ClosedTrades, spotResult.ClosedTrades)
-		assert.Equal(t, longShortResult.EquityCurve, spotResult.EquityCurve)
-	})
+	// Bought at 100, sold at 120, and the drop to 90 happened to somebody else.
+	assert.True(t, decimal.NewFromInt(12000).Equal(result.Summary.FinalEquity),
+		"final equity was %s", result.Summary.FinalEquity)
+	assert.Equal(t, 1, result.Summary.PositionOpenCount)
+	require.Len(t, result.ClosedTrades, 1)
+	assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
+	assert.True(t, decimal.NewFromInt(2000).Equal(result.ClosedTrades[0].Profit))
+	// The last point sits still because the account is holding cash, not a bet.
+	require.Len(t, result.EquityCurve, 3)
+	assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[1].Equity))
+	assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[2].Equity))
 }
 
-// Three things a spot replay does that only show up over a whole stretch rather than
-// on one candle.
-func TestBacktestSimulationSpotOverAWholeStretch(t *testing.T) {
+// Three things a replay does that only show up over a whole stretch rather than on
+// one candle.
+func TestBacktestSimulationOverAWholeStretch(t *testing.T) {
 	t.Run("a stretch that never buys finishes with nothing having happened", func(t *testing.T) {
-		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+		result := replayOf(t, 10000, "allIn", 0,
 			[]float64{100, 90, 80},
 			sellSignal, sellSignal, holdSignal).ToDto()
 
@@ -430,7 +360,7 @@ func TestBacktestSimulationSpotOverAWholeStretch(t *testing.T) {
 	t.Run("a fixed stake it cannot cover after a sale skips that opening", func(t *testing.T) {
 		// Stakes 8,000 a time. The first buy fits; the sale returns only 4,000, so the
 		// next buy cannot be placed and the replay carries on in cash.
-		result := replayTradingAs(t, "spot", 10000, "fixedAmount", 8000,
+		result := replayOf(t, 10000, "fixedAmount", 8000,
 			[]float64{100, 50, 60},
 			buySignal, sellSignal, buySignal).ToDto()
 
@@ -442,7 +372,7 @@ func TestBacktestSimulationSpotOverAWholeStretch(t *testing.T) {
 	})
 
 	t.Run("a long still open at the end counts but is not a round trip", func(t *testing.T) {
-		result := replayTradingAs(t, "spot", 10000, "allIn", 0,
+		result := replayOf(t, 10000, "allIn", 0,
 			[]float64{100, 120, 150},
 			buySignal, holdSignal, holdSignal).ToDto()
 

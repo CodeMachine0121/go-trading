@@ -66,9 +66,6 @@ type StrategyBot struct {
 	// replay's own three spellings, and PositionPlanSizingValue the figure beside it.
 	PositionPlanSizingMode  string          `gorm:"size:16;not null;default:''"`
 	PositionPlanSizingValue decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
-	// PositionPlanLeverage is how many times the stake the position is worth. One
-	// means no leverage, and is what nothing at all is stored as.
-	PositionPlanLeverage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
 	// PositionPlanStopLossPercentage and PositionPlanTakeProfitPercentage are how far
 	// from the reference price each exit sits. Either may be left out on its own.
 	PositionPlanStopLossPercentage   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
@@ -123,7 +120,6 @@ func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSetting
 		Capital:              strategyBot.PositionPlanCapital,
 		SizingMode:           strategyBot.PositionPlanSizingMode,
 		SizingValue:          strategyBot.PositionPlanSizingValue,
-		Leverage:             strategyBot.PositionPlanLeverage,
 		StopLossPercentage:   strategyBot.PositionPlanStopLossPercentage,
 		TakeProfitPercentage: strategyBot.PositionPlanTakeProfitPercentage,
 	}

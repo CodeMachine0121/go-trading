@@ -100,16 +100,6 @@ func aReplayableTradingStrategy(intervals ...string) entities.TradingStrategy {
 	}
 }
 
-// tradingTheWay is the same set of rules written for an account that trades the named
-// way. The mode is the trading strategy's own now, which is why a replay of it has
-// nowhere to be told one.
-func tradingTheWay(tradingMode vo.TradingModeVo, intervals ...string) entities.TradingStrategy {
-	tradingStrategy := aReplayableTradingStrategy(intervals...)
-	tradingStrategy.TradingMode = string(tradingMode)
-
-	return tradingStrategy
-}
-
 // replayedCandle builds a stored candle that many hours into the stretch.
 func replayedCandle(hour int, closePrice string) entities.KCandle {
 	return entities.KCandle{
@@ -158,7 +148,6 @@ type replayReport struct {
 		ConflictedCandleCount int      `json:"conflictedCandleCount"`
 		TotalTransactionCost  string   `json:"totalTransactionCost"`
 		StopLossExitCount     int      `json:"stopLossExitCount"`
-		LiquidationExitCount  int      `json:"liquidationExitCount"`
 	} `json:"summary"`
 	ClosedTrades []struct {
 		Direction  string `json:"direction"`
@@ -204,9 +193,9 @@ func TestTradingStrategyBacktestAssistantQueryHandsBackTheReportCard(t *testing.
 	assert.Equal(t, "BTCUSDT", report.Symbol)
 	assert.Equal(t, "1h", report.Interval)
 	assert.Equal(t, "10000", report.Summary.InitialCapital)
-	// Two openings for one round trip: the sell closes the long and turns around
-	// into a short, which is still open when the replay ends.
-	assert.Equal(t, 2, report.Summary.PositionOpenCount)
+	// One opening and one round trip: the sell closed back to cash rather than
+	// turning around.
+	assert.Equal(t, 1, report.Summary.PositionOpenCount)
 	require.Len(t, report.ClosedTrades, 1)
 	assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
 }
@@ -380,77 +369,33 @@ func TestTradingStrategyBacktestAssistantQuerySaysNothingAboutTruncationWhenNoth
 	assert.NotContains(t, outcome, "closedTradesTruncated")
 }
 
-// The assistant converges by replaying, reading and adjusting. Replaying a set of
-// rules the way it can never be traded would have it tune them against trades the
-// person's account cannot place — and nothing in the report card would say so. So the
-// mode comes off the rules themselves and the assistant is never asked for one.
-func TestTradingStrategyBacktestAssistantQueryReplaysTheWayTheRulesSayTheyTrade(t *testing.T) {
-	t.Run("rules written for an account that cannot short keep every round trip long", func(t *testing.T) {
-		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
-		fixture.tradingStrategyRepository.EXPECT().
-			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(tradingTheWay(vo.TradingModeSpot, "1h"), nil)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{
-				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
-			}, nil)
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
+// The assistant converges by replaying, reading and adjusting. There is one set of
+// rules to replay by, so there is nothing for it to declare and nothing to get wrong.
+func TestTradingStrategyBacktestAssistantQueryReplaysSpot(t *testing.T) {
+	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), assistantTradingStrategyID).
+		Return(aReplayableTradingStrategy("1h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{
+			replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
+		}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
-		// The argument says nothing about a mode, because there is nowhere to say it.
-		report, _ := fixture.replay(t, aReplayArgument)
+	report, _ := fixture.replay(t, aReplayArgument)
 
-		// Sold at 120 and stood aside for the fall to 90.
-		assert.Equal(t, "12000", report.Summary.FinalEquity)
-		assert.Equal(t, 1, report.Summary.PositionOpenCount)
-		require.Len(t, report.ClosedTrades, 1)
-		assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
-	})
-
-	t.Run("rules that say nothing replay the way they always have", func(t *testing.T) {
-		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
-		fixture.tradingStrategyRepository.EXPECT().
-			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(aReplayableTradingStrategy("1h"), nil)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{
-				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
-			}, nil)
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
-
-		report, _ := fixture.replay(t, aReplayArgument)
-
-		// The 12,000 went straight back out as a short at 120, and the fall paid it.
-		assert.Equal(t, "15000", report.Summary.FinalEquity)
-		assert.Equal(t, 2, report.Summary.PositionOpenCount)
-	})
-
-	t.Run("rules holding a mode nobody offers are refused rather than replayed", func(t *testing.T) {
-		// Unreachable through the save gate, which refuses this before it is stored.
-		// It is asserted anyway because the day something else writes that column, the
-		// answer has to be a refusal rather than a plausible report card.
-		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
-		fixture.tradingStrategyRepository.EXPECT().
-			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(tradingTheWay("dayTrade", "1h"), nil)
-
-		outcome, runError := fixture.backtestAssistantQuery.Run(
-			t.Context(), assistantViewerID, aReplayArgument)
-
-		require.Error(t, runError)
-		assert.ErrorIs(t, runError, domains.ErrBacktestValidation)
-		// Nothing partial reaches the assistant: half a report card would be read as
-		// a whole one.
-		assert.Empty(t, outcome)
-	})
+	// Sold at 120 and stood aside for the fall to 90.
+	assert.Equal(t, "12000", report.Summary.FinalEquity)
+	assert.Equal(t, 1, report.Summary.PositionOpenCount)
+	require.Len(t, report.ClosedTrades, 1)
+	assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
 }
 
-// What a broker charges is the assistant's to say, unlike the mode: a set of rules
-// has no opinion about it, and the person asking "does this still make money after
-// fees" is asking a question only this capability can answer.
+// What a broker charges is the assistant's to say: a set of rules has no opinion about
+// it, and the person asking "does this still make money after fees" is asking a
+// question only this capability can answer.
 //
 // The two exit distances are here for the same reason, and they arrived late: the
 // capability was built without them, which left the assistant handing back a report
@@ -464,7 +409,7 @@ func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts
 		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 		fixture.tradingStrategyRepository.EXPECT().
 			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(tradingTheWay(vo.TradingModeSpot, "1h"), nil)
+			Return(aReplayableTradingStrategy("1h"), nil)
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{
 				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
@@ -541,7 +486,7 @@ func TestTradingStrategyBacktestAssistantQuerySimulatesTheExitDistancesItWasGive
 		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 		fixture.tradingStrategyRepository.EXPECT().
 			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(tradingTheWay(vo.TradingModeSpot, "1h"), nil)
+			Return(aReplayableTradingStrategy("1h"), nil)
 		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandle{
 				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
@@ -610,88 +555,23 @@ func TestTradingStrategyBacktestAssistantQueryOffersCostsAndExitsWithoutDemandin
 	assert.Contains(t, fixture.backtestAssistantQuery.Description(), "淨額")
 }
 
-// The assistant cannot name a mode here, and has to be told where the answer lives
-// instead — otherwise a person saying "my account cannot short" would be met with a
-// capability that has no way to act on it and no idea what to suggest.
-func TestTradingStrategyBacktestAssistantQuerySaysWhereTheModeComesFrom(t *testing.T) {
+// The assistant has no set of rules to name and no loan to ask for, and the tool says
+// so — otherwise it would keep offering somebody a choice that is refused on arrival.
+func TestTradingStrategyBacktestAssistantQueryOffersNoModeAndNoBorrowing(t *testing.T) {
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 
 	argumentSchema := fixture.backtestAssistantQuery.ArgumentSchema()
 	description := fixture.backtestAssistantQuery.Description()
 
-	// No field for it, the same way there is no field for the coarseness. An argument
-	// it sent anyway is refused by its own gate, since nothing else may be sent.
+	// No box for either, and nothing else may be sent.
 	assert.NotContains(t, argumentSchema, "tradingMode")
+	assert.NotContains(t, argumentSchema, "leverage")
+	assert.NotContains(t, argumentSchema, "maintenanceMarginRate")
 	assert.Contains(t, argumentSchema, `"additionalProperties":false`)
 
-	// It still has to understand what every mode does, so that it can go and change
-	// the right one when the person says which way their account may face.
-	assert.Contains(t, description, string(vo.TradingModeLongShort))
-	assert.Contains(t, description, string(vo.TradingModeSpot))
-	assert.Contains(t, description, string(vo.TradingModeLeveragedLong))
-	assert.Contains(t, description, string(vo.TradingModeShortOnly))
-	assert.Contains(t, description, "不能放空")
-	assert.Contains(t, description, "交易策略")
-}
-
-// The assistant can say how much to borrow, because a replay it cannot liquidate is
-// the one report card that is wrong in the direction that costs money.
-func TestTradingStrategyBacktestAssistantQueryCanBorrow(t *testing.T) {
-	t.Run("a multiplier moves the exposure rather than the stake", func(t *testing.T) {
-		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
-		fixture.tradingStrategyRepository.EXPECT().
-			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(aReplayableTradingStrategy("1h"), nil)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{
-				replayedCandle(0, "100"), replayedCandle(1, "110"),
-			}, nil)
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(replaySignals(vo.SignalBuy, vo.SignalHold), nil)
-
-		report, _ := fixture.replay(t, `{
-  "tradingStrategyId": 11,
-  "symbol": "BTCUSDT",
-  "startTime": "2026-09-10T00:00:00Z",
-  "endTime": "2026-09-10T04:00:00Z",
-  "initialCapital": "10000",
-  "positionSizingMode": "allIn",
-  "leverage": "5"
-}`)
-
-		// Ten percent of five times the stake. Without the multiplier this is 11,000.
-		assert.Equal(t, "15000", report.Summary.FinalEquity)
-		assert.Equal(t, 0, report.Summary.LiquidationExitCount)
-	})
-
-	t.Run("saying nothing replays exactly as it always has", func(t *testing.T) {
-		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
-		fixture.tradingStrategyRepository.EXPECT().
-			FindOne(gomock.Any(), assistantTradingStrategyID).
-			Return(aReplayableTradingStrategy("1h"), nil)
-		fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return([]entities.KCandle{
-				replayedCandle(0, "100"), replayedCandle(1, "110"),
-			}, nil)
-		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(replaySignals(vo.SignalBuy, vo.SignalHold), nil)
-
-		report, _ := fixture.replay(t, aReplayArgument)
-
-		assert.Equal(t, "11000", report.Summary.FinalEquity)
-		assert.Equal(t, 0, report.Summary.LiquidationExitCount)
-	})
-
-	t.Run("the tool says the two figures exist and what leaving them out means", func(t *testing.T) {
-		fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
-
-		schema := fixture.backtestAssistantQuery.ArgumentSchema()
-		assert.Contains(t, schema, "leverage")
-		assert.Contains(t, schema, "maintenanceMarginRate")
-
-		description := fixture.backtestAssistantQuery.Description()
-		assert.Contains(t, description, "liquidationExitCount")
-	})
+	// And it is told what this replay does, so that somebody asking to short or to
+	// borrow gets an answer rather than a setting substituted on their behalf.
+	assert.Contains(t, description, "只做現貨")
+	assert.Contains(t, description, "沒有交易模式可以給")
+	assert.NotContains(t, description, "liquidationExitCount")
 }

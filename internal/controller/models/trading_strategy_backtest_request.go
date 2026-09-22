@@ -32,16 +32,10 @@ type TradingStrategyBacktestRequest struct {
 	// through, and the same set of rules is worth replaying against several answers.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
-	// Leverage is how many times the stake each position is exposed to, and
-	// MaintenanceMarginRate how little of that exposure may be left before the loan
-	// is called in and the position is taken off at a loss of the whole stake.
-	//
-	// Asked for here rather than read off the trading strategy, unlike the trading
-	// mode: how much somebody is willing to borrow is a fact about their account,
-	// not about the rules being replayed. Nothing, zero or one means nothing is
-	// borrowed; leaving only the rate out means the figure the venues actually use.
-	Leverage              decimal.Decimal `json:"leverage"`
-	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
+	// Leverage is carried only so that a caller still asking to borrow is told this
+	// system does not. Nothing, zero and one all mean a position paid for in full,
+	// which is what every replay here is; anything above one is refused outright.
+	Leverage decimal.Decimal `json:"leverage"`
 	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
 	// act of trading. Asked for here rather than read off the trading strategy for
 	// the same reason the exit distances are: a set of rules has no opinion about
@@ -64,8 +58,7 @@ func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategy
 		StopLossPercentage:   request.StopLossPercentage,
 		TakeProfitPercentage: request.TakeProfitPercentage,
 
-		Leverage:              request.Leverage,
-		MaintenanceMarginRate: request.MaintenanceMarginRate,
+		Leverage: request.Leverage,
 
 		EntryCostPercentage: request.EntryCostPercentage,
 		ExitCostPercentage:  request.ExitCostPercentage,

@@ -21,8 +21,9 @@ type PositionPlanSettingsDto struct {
 	// replay's three and not a fourth set.
 	SizingMode  string
 	SizingValue decimal.Decimal
-	// Leverage is how many times the stake the position is worth. Nothing or one
-	// means no leverage at all.
+	// Leverage is what was declared about borrowing. Nothing and one both mean a
+	// position paid for in full, which is the only kind this system suggests; it is
+	// carried only so that anything above one can be refused when the bot is saved.
 	Leverage decimal.Decimal
 	// StopLossPercentage and TakeProfitPercentage are how far from the reference
 	// price each exit sits. Either may be left out on its own.
@@ -30,8 +31,8 @@ type PositionPlanSettingsDto struct {
 	TakeProfitPercentage decimal.Decimal
 }
 
-// PositionPlanDto is what one round suggests: how much to put down, what the position
-// is worth, and where the two exits sit.
+// PositionPlanDto is what one round suggests: how much to put down, and where the two
+// exits sit.
 //
 // It carries a flag beside each optional line rather than leaving a zero to be read
 // as absence. A stop-loss price of zero is a legitimate figure — a hundred percent
@@ -43,15 +44,9 @@ type PositionPlanDto struct {
 	// says so and carries on, the same way a replay skips one opening and continues.
 	Stake      decimal.Decimal
 	Affordable bool
-	// Notional is what the position is worth once leverage is applied, and Leveraged
-	// says whether leverage was asked for at all. Without it the notional equals the
-	// stake, and repeating the same figure under a second label reads as a mistake.
-	Notional  decimal.Decimal
-	Leveraged bool
-	// StopLossPrice is where the loss is cut, and LossAtStop what reaching it costs.
-	// The cost is measured against the notional, not the stake: leverage is exactly
-	// the thing that makes those two differ, and the one that matters is the one the
-	// market moves.
+	// StopLossPrice is where the loss is cut, and LossAtStop what reaching it costs —
+	// measured against the stake, which is the whole of what this position has in the
+	// market.
 	StopLossPrice decimal.Decimal
 	LossAtStop    decimal.Decimal
 	HasStopLoss   bool
@@ -59,9 +54,4 @@ type PositionPlanDto struct {
 	TakeProfitPrice decimal.Decimal
 	GainAtTarget    decimal.Decimal
 	HasTakeProfit   bool
-	// SuggestsShort says which way this position faces. A message needs it to write
-	// "上" or "下" beside each exit in words — a short's stop sits above the price,
-	// and 66105 reads like a perfectly ordinary price whichever side it is meant to
-	// be on.
-	SuggestsShort bool
 }

@@ -131,19 +131,6 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 	// were saved before this rule existed — and stopping a machine somebody is using,
 	// to gain consistency, takes away more than it fixes. This is a rule about saving
 	// a bot, which is what this model is.
-	tradingMode, tradingModeError := NewTradingModeDomain(writeDto.TradingMode)
-	if tradingModeError != nil {
-		return StrategyBotDomain{}, fmt.Errorf(
-			"%w: %s", ErrStrategyBotValidation, tradingModeError)
-	}
-
-	if positionPlan.IsBorrowed() {
-		if borrowingRefusal := tradingMode.BorrowingRefusal(); borrowingRefusal != nil {
-			return StrategyBotDomain{}, fmt.Errorf(
-				"%w: %s", ErrStrategyBotValidation, borrowingRefusal)
-		}
-	}
-
 	return StrategyBotDomain{
 		id:                     writeDto.ID,
 		ownerID:                writeDto.OwnerID,
@@ -174,7 +161,6 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		PositionPlanCapital:              positionPlanSettings.Capital,
 		PositionPlanSizingMode:           positionPlanSettings.SizingMode,
 		PositionPlanSizingValue:          positionPlanSettings.SizingValue,
-		PositionPlanLeverage:             positionPlanSettings.Leverage,
 		PositionPlanStopLossPercentage:   positionPlanSettings.StopLossPercentage,
 		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
 		RunState:                         string(vo.StrategyBotStopped),

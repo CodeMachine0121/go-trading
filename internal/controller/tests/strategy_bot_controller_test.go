@@ -518,7 +518,6 @@ const aPositionPlannedStrategyBotBody = `{
 		"capital": "50000",
 		"sizingMode": "percentage",
 		"sizingValue": "10",
-		"leverage": "3",
 		"stopLossPercentage": "3",
 		"takeProfitPercentage": "5"
 	}
@@ -533,7 +532,6 @@ func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
 			assert.Equal(t, "50000", bot.PositionPlanCapital.String())
 			assert.Equal(t, "percentage", bot.PositionPlanSizingMode)
 			assert.Equal(t, "10", bot.PositionPlanSizingValue.String())
-			assert.Equal(t, "3", bot.PositionPlanLeverage.String())
 			assert.Equal(t, "3", bot.PositionPlanStopLossPercentage.String())
 			assert.Equal(t, "5", bot.PositionPlanTakeProfitPercentage.String())
 
@@ -541,7 +539,6 @@ func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
 			storedRow.PositionPlanCapital = bot.PositionPlanCapital
 			storedRow.PositionPlanSizingMode = bot.PositionPlanSizingMode
 			storedRow.PositionPlanSizingValue = bot.PositionPlanSizingValue
-			storedRow.PositionPlanLeverage = bot.PositionPlanLeverage
 			storedRow.PositionPlanStopLossPercentage = bot.PositionPlanStopLossPercentage
 			storedRow.PositionPlanTakeProfitPercentage = bot.PositionPlanTakeProfitPercentage
 
@@ -554,7 +551,7 @@ func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
 	require.Equal(t, http.StatusCreated, response.Code)
 
 	// It leaves in the answer too: a screen offering to edit this bot has to show the
-	// five figures it is currently suggesting from.
+	// figures it is currently suggesting from.
 	answer := struct {
 		PositionPlan struct {
 			Capital            string `json:"capital"`

@@ -13,9 +13,10 @@ type TradingStrategyWriteDto struct {
 	ID      uint
 	OwnerID uint
 	Name    string
-	// TradingMode is which set of rules these are written for, exactly as declared.
-	// Reading it — blank meaning always in the market, anything unrecognised refused —
-	// is the domain's job, the same way the operators and signals are read there.
+	// TradingMode is what the caller declared about which rules these are written
+	// for, exactly as they typed it. There is one set of rules left, so nothing is
+	// chosen by it — it is carried only so that a caller asking for a different one
+	// is told, rather than quietly handed spot.
 	TradingMode string
 
 	SignalSources []TradingStrategySignalSourceWriteDto

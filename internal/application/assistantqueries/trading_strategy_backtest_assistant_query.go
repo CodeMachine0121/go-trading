@@ -47,17 +47,6 @@ type tradingStrategyBacktestAssistantArguments struct {
 	TakeProfitPercentage string `json:"takeProfitPercentage"`
 	EntryCostPercentage  string `json:"entryCostPercentage"`
 	ExitCostPercentage   string `json:"exitCostPercentage"`
-	// Leverage and MaintenanceMarginRate are how much this run borrows and how far a
-	// position may fall before the loan is called in. Both optional; nothing
-	// borrowed means no forced exit is simulated.
-	//
-	// They are here for the reason the four above are, only more so: a replay that
-	// cannot be liquidated is the one report card that is wrong in the direction
-	// that costs money. An assistant asked "what if I run this at five times" and
-	// unable to say so would answer with a page of numbers describing an account
-	// that was never wiped out.
-	Leverage              string `json:"leverage"`
-	MaintenanceMarginRate string `json:"maintenanceMarginRate"`
 }
 
 // ToRequestDto turns what the assistant declared into the shape the domain replays,
@@ -79,9 +68,6 @@ func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.Tr
 		TakeProfitPercentage: decimalOrZero(arguments.TakeProfitPercentage),
 		EntryCostPercentage:  decimalOrZero(arguments.EntryCostPercentage),
 		ExitCostPercentage:   decimalOrZero(arguments.ExitCostPercentage),
-
-		Leverage:              decimalOrZero(arguments.Leverage),
-		MaintenanceMarginRate: decimalOrZero(arguments.MaintenanceMarginRate),
 	}
 }
 
@@ -187,15 +173,11 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 	return "拿一段已經發生過的歷史，把一份交易策略從頭重演一遍，交回成績單與每一筆進出場。" +
 		"沒有彙總刻度可以給——那是這份交易策略的信號來源自己說的，而且每個來源必須一致，不一致會整次拒絕。" +
 		"交易明細只給最近 50 筆，超過時會明講；成績單裡的數字一律是全部交易算出來的。" +
-		"交易模式也沒有可以給——那是這份交易策略自己記著的：longShort 永遠在市場裡，" +
-		"賣出會把多倉平掉並在同一棒反手做空；spot 只做多，賣出就平倉把錢收回來、之後空手等下一個買點，" +
-		"空手時聽到賣出什麼都不做；leveragedLong 的倉位行為與 spot 一字不差，差別只在它借得到錢、" +
-		"開得了槓桿（合約帳戶只做多就是這一種）；shortOnly 是 leveragedLong 的鏡像，只做空——" +
-		"賣出開空倉，買入就平倉把錢收回來，空手時聽到買入什麼都不做，永遠不會有多倉。" +
-		"場所不決定模式：longShort、leveragedLong 與 shortOnly 都跑在永續合約上，差的是做哪一邊。" +
-		"使用者說他的帳戶不能放空（台股現貨、ETF、多數券商帳戶）時，" +
-		"要去改那份交易策略的交易模式（trading_strategy 的 tradingMode），不是在這裡指定——" +
-		"用錯的那一個，成績單會是照他做不到的操作算出來的。" +
+		"**這個系統的重演只做現貨**：買入時空手就開倉，已經有倉位就當作沒聽到；" +
+		"賣出就平倉把錢收回來、之後空手等下一個買點；空手時聽到賣出什麼都不做。" +
+		"沒有交易模式可以給，也沒有槓桿可以開——借錢、做空與強制平倉是合約帳戶的事，" +
+		"那是另外一件事，這裡做不到。使用者提到要放空或上槓桿時，直接說這個系統目前只重演現貨，" +
+		"不要替他改成別的設定去湊。" +
 		"成績單裡的「打架棒數」(conflictedCandleCount) 一定要看：它是買入與賣出同時成立的棒數，" +
 		"那幾棒一律不動作。兩百棒裡打架一百八十棒的交易策略，成績單會很漂亮（幾乎沒有交易），" +
 		"但那代表它根本沒有在做決定，不是它很穩。" +
@@ -206,15 +188,6 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		"使用者問「扣掉手續費還賺嗎」，或在比較兩支交易頻率差很多的策略時，一定要把費率填進去再跑一次。" +
 		"成績單的 totalTransactionCost 是這次總共付掉多少；每一筆交易的 profit 已經是扣掉成本後的淨額，" +
 		"勝率也是照淨額算的。" +
-		"槓桿（leverage）不給、給 0 或給 1 都是不借錢：不模擬強制平倉，成績單與沒有槓桿時一字不差。" +
-		"給大於 1 就會模擬：賺賠與手續費都照放大後的曝險金額算，而且價格逆著走到撐不住時那一注會被強制平倉、" +
-		"押下去的錢全沒了，後面的交易照樣繼續。撐得住多遠由槓桿決定——大約是 (100÷槓桿) 個百分點，" +
-		"5 倍約 19.5%、10 倍約 9.5%、20 倍約 4.5%；維持保證金率（maintenanceMarginRate）不給就用 0.5%。" +
-		"止損比強平近時永遠是止損先出場，所以開槓桿一定要一起給 stopLossPercentage——" +
-		"沒給止損的高槓桿回測，成績單上的 liquidationExitCount 會告訴你這個帳戶歸零過幾次。" +
-		"借不借得到錢由交易模式決定：longShort、leveragedLong 與 shortOnly 借得到，" +
-		"現貨（spot）借不到——給大於 1 會整次被拒絕。使用者是在合約帳戶上只做多的話，" +
-		"要改的是那份交易策略的交易模式（改成 leveragedLong），不是把槓桿拿掉。" +
 		"重演的是過去，不是對未來的保證；結果不留存，每次問都重算一遍。"
 }
 
@@ -231,9 +204,7 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		`"stopLossPercentage":{"type":"string","description":"止損價離進場價幾個百分點，以字串給（例如 \"2\"）。不給就不模擬止損；0 到 100"},` +
 		`"takeProfitPercentage":{"type":"string","description":"止盈價離進場價幾個百分點，以字串給。不給就不模擬止盈；0 到 100"},` +
 		`"entryCostPercentage":{"type":"string","description":"開倉付的手續費，佔押注金額的百分之幾，以字串給（台股手續費六折約 \"0.0855\"、幣安約 \"0.1\"）。不給就當交易免費；0 到 100"},` +
-		`"exitCostPercentage":{"type":"string","description":"平倉付的手續費與稅，佔成交金額的百分之幾，以字串給（台股六折含證交稅約 \"0.3855\"）。不給就跟 entryCostPercentage 一樣；0 到 100"},` +
-		`"leverage":{"type":"string","description":"開幾倍槓桿，以字串給（例如 \"5\"）。不給、0 或 1 都是不借錢、不模擬強制平倉；必須大於等於 1；現貨交易模式給大於 1 會被拒絕"},` +
-		`"maintenanceMarginRate":{"type":"string","description":"維持保證金率，佔曝險金額的百分之幾，以字串給（幣安常見 \"0.5\"）。不給就是 0.5；必須小於 100÷槓桿，否則那一注開倉當下就撐不住"}` +
+		`"exitCostPercentage":{"type":"string","description":"平倉付的手續費與稅，佔成交金額的百分之幾，以字串給（台股六折含證交稅約 \"0.3855\"）。不給就跟 entryCostPercentage 一樣；0 到 100"}` +
 		`},"required":["tradingStrategyId","symbol","startTime","endTime","initialCapital","positionSizingMode"],` +
 		`"additionalProperties":false}`
 }

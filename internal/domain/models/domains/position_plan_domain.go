@@ -9,7 +9,7 @@ import (
 )
 
 // PositionPlanDomain is what a bot suggests putting down, and where it suggests
-// getting out — plus every rule about the five figures that decide it.
+// getting out — plus every rule about the four figures that decide it.
 //
 // It exists because the four multiplications behind those numbers are the same four
 // every round, against the same unchanged settings, with only the price moving. Its
@@ -26,12 +26,11 @@ type PositionPlanDomain struct {
 	// stake, and that fact cannot disagree with itself.
 	capital    decimal.Decimal
 	sizing     PositionSizingDomain
-	leverage   LeverageMultiplierDomain
 	stopLoss   decimal.Decimal
 	takeProfit decimal.Decimal
 }
 
-// NewPositionPlanDomain reads the five settings and settles every rule about them.
+// NewPositionPlanDomain reads the four settings and settles every rule about them.
 //
 // No capital is the zero value rather than an error: not filling something in is not
 // the same as filling it in wrongly, and a bot without a position plan is one this
@@ -54,10 +53,10 @@ func NewPositionPlanDomain(
 	}
 
 	// Asked of the model a replay asks, so that the same figure typed into either
-	// comes back with the same sentence.
-	leverage, leverageError := NewLeverageMultiplierDomain(settings.Leverage)
-	if leverageError != nil {
-		return PositionPlanDomain{}, leverageError
+	// comes back with the same sentence. Nothing here can borrow, so anything above
+	// one is refused — a bot may only ever suggest what a replay could have modelled.
+	if _, spotOnlyRefusal := NewSpotOnlyReplayDomain("", settings.Leverage); spotOnlyRefusal != nil {
+		return PositionPlanDomain{}, spotOnlyRefusal
 	}
 
 	if stopLossError := validatedDistance(settings.StopLossPercentage, "停損距離"); stopLossError != nil {
@@ -72,7 +71,6 @@ func NewPositionPlanDomain(
 	return PositionPlanDomain{
 		capital:    settings.Capital,
 		sizing:     sizing,
-		leverage:   leverage,
 		stopLoss:   settings.StopLossPercentage,
 		takeProfit: settings.TakeProfitPercentage,
 	}, nil
@@ -101,21 +99,9 @@ func validatedDistance(distance decimal.Decimal, name string) error {
 	return nil
 }
 
-// IsBorrowed is whether what this plan suggests putting on is worth more than the
-// money behind it.
-//
-// It is asked of the multiplier itself, the same model a replay asks, so that a bot
-// and a replay cannot end up disagreeing about when a figure counts as a loan.
-func (positionPlanDomain PositionPlanDomain) IsBorrowed() bool {
-	return positionPlanDomain.leverage.IsBorrowed()
-}
-
 // ToSettingsDto is these settings as they are stored and handed back.
 //
-// A bot with no position plan hands back nothing at all, leverage included. The
-// multiplier answers one for a plan that borrows nothing, which is right everywhere
-// it is used as arithmetic — but written down it would put a multiplier on a bot that
-// has no stake to multiply, and hand that back on every read.
+// A bot with no position plan hands back nothing at all.
 func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSettingsDto {
 	if !positionPlanDomain.capital.IsPositive() {
 		return dto.PositionPlanSettingsDto{}
@@ -125,7 +111,6 @@ func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSet
 		Capital:              positionPlanDomain.capital,
 		SizingMode:           string(positionPlanDomain.sizing.Mode()),
 		SizingValue:          positionPlanDomain.sizing.Value(),
-		Leverage:             positionPlanDomain.leverage.Multiplier(),
 		StopLossPercentage:   positionPlanDomain.stopLoss,
 		TakeProfitPercentage: positionPlanDomain.takeProfit,
 	}
@@ -139,10 +124,9 @@ func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSet
 // message, "this round has nothing to put down" is a single fact, and four separate
 // sentences about it would grow four ways of writing the same paragraph.
 //
-// The target position is what decides both halves: whether to suggest at all, and
-// which way. It comes from the trading mode, which already knows that a spot sell
-// clears out and a long-short sell opens the other way — so this reads that answer
-// rather than restating it.
+// The target position is what decides whether to suggest anything at all. It is the
+// signal's own answer — a sell asks to be in cash, and there is nothing to suggest
+// opening about that — so this reads it rather than restating it.
 func (positionPlanDomain PositionPlanDomain) PlanFor(
 	target vo.TargetPositionVo, referencePrice decimal.Decimal, hasReference bool,
 ) (dto.PositionPlanDto, bool) {
@@ -150,16 +134,15 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		return dto.PositionPlanDto{}, false
 	}
 
-	if target != vo.TargetPositionLong && target != vo.TargetPositionShort {
+	if !target.WantsPosition() {
 		return dto.PositionPlanDto{}, false
 	}
 
-	// No costs and no borrowing, both stated rather than implied. What a bot suggests
-	// each round is advice about a trade nobody has placed, so there is no charge to
-	// have been paid — and this model applies its own leverage to the notional below,
-	// which is a suggestion about what to open rather than a loan a replay is carrying.
+	// No costs, stated rather than implied. What a bot suggests each round is advice
+	// about a trade nobody has placed, so there is no charge to have been paid — and
+	// that line is the only place the decision to leave live advice alone is visible.
 	stake, affordable := positionPlanDomain.sizing.StakeFor(
-		positionPlanDomain.capital, BacktestTransactionCostsDomain{}, BacktestLeverageDomain{})
+		positionPlanDomain.capital, BacktestTransactionCostsDomain{})
 	if !affordable {
 		// Said rather than hidden, and not an error: a fixed amount the capital
 		// cannot cover is the same ordinary situation a replay skips an opening for.
@@ -167,34 +150,28 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		return dto.PositionPlanDto{Stake: stake, Affordable: false}, true
 	}
 
-	suggestsShort := target == vo.TargetPositionShort
-	notional := stake.Mul(positionPlanDomain.leverage.Multiplier())
-
 	positionPlanDto := dto.PositionPlanDto{
 		Stake:         stake,
 		Affordable:    true,
-		Notional:      notional,
-		Leveraged:     positionPlanDomain.leverage.IsBorrowed(),
 		HasStopLoss:   positionPlanDomain.stopLoss.IsPositive(),
 		HasTakeProfit: positionPlanDomain.takeProfit.IsPositive(),
-		SuggestsShort: suggestsShort,
 	}
 
 	if positionPlanDto.HasStopLoss {
-		// A stop is the price moving against the position, so it sits below a long
-		// and above a short. Getting this backwards is the one mistake here that
-		// cannot be seen: the wrong figure is still a plausible price.
-		// A short's stop is above the price; a long's is below.
+		// A stop is the price moving against the position, and a suggested position
+		// only ever faces one way, so it sits below the price. Getting this backwards
+		// is the one mistake here that cannot be seen: the wrong figure is still a
+		// plausible price.
 		positionPlanDto.StopLossPrice = movedBy(
-			referencePrice, positionPlanDomain.stopLoss, suggestsShort)
-		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
+			referencePrice, positionPlanDomain.stopLoss, false)
+		positionPlanDto.LossAtStop = portionOf(stake, positionPlanDomain.stopLoss)
 	}
 
 	if positionPlanDto.HasTakeProfit {
 		// And the target is on the other side of the price from the stop, always.
 		positionPlanDto.TakeProfitPrice = movedBy(
-			referencePrice, positionPlanDomain.takeProfit, !suggestsShort)
-		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
+			referencePrice, positionPlanDomain.takeProfit, true)
+		positionPlanDto.GainAtTarget = portionOf(stake, positionPlanDomain.takeProfit)
 	}
 
 	return positionPlanDto, true
@@ -206,9 +183,6 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 // they lie on opposite sides: a stop is the price moving against the position, a
 // target is it moving in favour. Calling it "moved against" would be right for one
 // caller and a lie to the other.
-//
-// Both directions also flip with the position's own, so writing it once is what stops
-// a long's stop and a short's target from drifting into two different formulas.
 func movedBy(
 	price decimal.Decimal, distance decimal.Decimal, upwards bool,
 ) decimal.Decimal {

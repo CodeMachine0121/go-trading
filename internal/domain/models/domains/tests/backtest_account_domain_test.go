@@ -10,38 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tradingModeOf reads a declared trading mode, failing the test when it is one the
-// replay would have refused.
-func tradingModeOf(t *testing.T, declaredMode string) domains.TradingModeDomain {
-	t.Helper()
-
-	tradingMode, err := domains.NewTradingModeDomain(declaredMode)
-	require.NoError(t, err)
-
-	return tradingMode
-}
-
-// accountStakingEverything opens an account that puts all its cash on every bet, and
-// trades the way a replay always has: always in the market.
+// accountStakingEverything opens an account that puts all its cash on every bet.
 func accountStakingEverything(t *testing.T, initialCapital int64) *domains.BacktestAccountDomain {
-	t.Helper()
-
-	return accountStakingEverythingIn(t, initialCapital, "longShort")
-}
-
-// accountStakingEverythingIn is the same account under a named trading mode.
-func accountStakingEverythingIn(
-	t *testing.T, initialCapital int64, declaredMode string,
-) *domains.BacktestAccountDomain {
 	t.Helper()
 
 	positionSizing, err := domains.NewPositionSizingDomain("allIn", decimal.Zero)
 	require.NoError(t, err)
 
 	return domains.NewBacktestAccountDomain(
-		decimal.NewFromInt(initialCapital), tradingModeOf(t, declaredMode),
+		decimal.NewFromInt(initialCapital),
 		domains.NewBacktestPositionTermsDomain(positionSizing,
-			domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
+			domains.BacktestExitLevelsDomain{},
 			domains.BacktestTransactionCostsDomain{}))
 }
 
@@ -80,28 +59,14 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 		assert.True(t, decimal.NewFromInt(20000).Equal(account.EquityAt(decimal.NewFromInt(200))))
 	})
 
-	t.Run("a reversal closes one bet and places the other at the same price", func(t *testing.T) {
-		account := accountStakingEverything(t, 10000)
-
-		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
-
-		require.Len(t, account.ClosedTradeDtos(), 1)
-		assert.Equal(t, string(vo.PositionDirectionLong), account.ClosedTradeDtos()[0].Direction)
-		assert.True(t, decimal.NewFromInt(110).Equal(account.ClosedTradeDtos()[0].ExitPrice))
-		assert.Equal(t, 2, account.PositionOpenCount())
-		// The whole 11,000 went back out as a short at that very same 110.
-		assert.True(t, decimal.NewFromInt(11000).Equal(account.EquityAt(decimal.NewFromInt(110))))
-	})
-
 	t.Run("an opening the account cannot afford leaves it flat", func(t *testing.T) {
 		positionSizing, err := domains.NewPositionSizingDomain(
 			"fixedAmount", decimal.NewFromInt(3000))
 		require.NoError(t, err)
 		account := domains.NewBacktestAccountDomain(
-			decimal.NewFromInt(2000), tradingModeOf(t, "longShort"),
+			decimal.NewFromInt(2000),
 			domains.NewBacktestPositionTermsDomain(positionSizing,
-				domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
+				domains.BacktestExitLevelsDomain{},
 				domains.BacktestTransactionCostsDomain{}))
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
@@ -132,11 +97,12 @@ func TestBacktestAccountDomainWinRate(t *testing.T) {
 
 	t.Run("the rate counts only the round trips that made money", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
-		// Long 100 to 110 makes money; the short it reverses into goes out where it
-		// came in.
+		// Bought at 100 and sold at 110 makes money; bought back at 110 and sold at
+		// 100 gives it all back.
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
 		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(110))
+		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(100))
 
 		winRate, isApplicable := account.WinRate()
 
@@ -146,11 +112,11 @@ func TestBacktestAccountDomainWinRate(t *testing.T) {
 	})
 }
 
-// A spot account only ever goes long: a sell gets it out into cash, and there is no
-// such thing as a sell while it is already there.
+// A replay only ever goes long: a sell gets it out into cash, and there is no such
+// thing as a sell while it is already there.
 func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	t.Run("buying while flat opens a long", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 
@@ -160,7 +126,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("buying again is heard once", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(200))
@@ -172,7 +138,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("selling a long closes it back to cash", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
@@ -188,7 +154,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("what a closed spot account holds does not move with the price", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
@@ -200,7 +166,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("selling with nothing to sell does nothing at all", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
 
@@ -210,7 +176,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("selling twice closes once", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
@@ -222,7 +188,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("buying back after a sale opens a second long", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(120))
@@ -242,9 +208,9 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 			"fixedAmount", decimal.NewFromInt(3000))
 		require.NoError(t, err)
 		account := domains.NewBacktestAccountDomain(
-			decimal.NewFromInt(2000), tradingModeOf(t, "spot"),
+			decimal.NewFromInt(2000),
 			domains.NewBacktestPositionTermsDomain(positionSizing,
-				domains.BacktestExitLevelsDomain{}, domains.BacktestLeverageDomain{},
+				domains.BacktestExitLevelsDomain{},
 				domains.BacktestTransactionCostsDomain{}))
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
@@ -254,7 +220,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	})
 
 	t.Run("holding leaves an open long alone", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "spot")
+		account := accountStakingEverything(t, 10000)
 
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalHold), positionExitTime, decimal.NewFromInt(110))
@@ -263,95 +229,4 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 		assert.Equal(t, 1, account.PositionOpenCount())
 		assert.True(t, decimal.NewFromInt(11000).Equal(account.EquityAt(decimal.NewFromInt(110))))
 	})
-}
-
-// Selling while flat is where the two modes part company, and it is the one line that
-// says a spot replay can never take the short side.
-func TestBacktestAccountDomainSellingWhileFlatSplitsTheModes(t *testing.T) {
-	longShortAccount := accountStakingEverythingIn(t, 10000, "longShort")
-	spotAccount := accountStakingEverythingIn(t, 10000, "spot")
-
-	longShortAccount.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
-	spotAccount.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
-
-	assert.Equal(t, 1, longShortAccount.PositionOpenCount())
-	assert.Equal(t, 0, spotAccount.PositionOpenCount())
-}
-
-// The mirror of what spot does, asserted at the account rather than at the target:
-// the mode decides what to aim for, but whether money moved and which way the
-// position faces is something only the account can say.
-func TestBacktestAccountDomainUnderShortOnlyRules(t *testing.T) {
-	t.Run("selling while flat opens a short", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "shortOnly")
-
-		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
-
-		assert.Equal(t, 1, account.PositionOpenCount())
-		// A short gains as the price falls: 10,000 staked at 100, worth 12,000 at 80.
-		assert.True(t, decimal.NewFromInt(12000).Equal(account.EquityAt(decimal.NewFromInt(80))))
-	})
-
-	t.Run("a repeated sell is heard once", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "shortOnly")
-
-		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(80))
-
-		assert.Equal(t, 1, account.PositionOpenCount())
-		assert.Empty(t, account.ClosedTradeDtos())
-		assert.True(t, decimal.NewFromInt(12000).Equal(account.EquityAt(decimal.NewFromInt(80))))
-	})
-
-	t.Run("buying closes the short back to cash rather than opening a long", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "shortOnly")
-
-		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(80))
-
-		closedTrades := account.ClosedTradeDtos()
-		require.Len(t, closedTrades, 1)
-		assert.Equal(t, string(vo.PositionDirectionShort), closedTrades[0].Direction)
-		// Still one opening: the buy closed, it did not open the other way. Were it
-		// opening a long, the count would be two and the equity would then move with
-		// the price rather than sitting in cash.
-		assert.Equal(t, 1, account.PositionOpenCount())
-		assert.True(t, decimal.NewFromInt(12000).Equal(account.EquityAt(decimal.NewFromInt(999))))
-	})
-
-	t.Run("buying while flat does nothing at all", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "shortOnly")
-
-		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
-
-		assert.Equal(t, 0, account.PositionOpenCount())
-		assert.Empty(t, account.ClosedTradeDtos())
-		assert.True(t, decimal.NewFromInt(10000).Equal(account.EquityAt(decimal.NewFromInt(999))))
-	})
-
-	t.Run("no trade it ever books faces long", func(t *testing.T) {
-		account := accountStakingEverythingIn(t, 10000, "shortOnly")
-
-		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(vo.SignalSell), positionEntryTime, decimal.NewFromInt(100))
-		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(90))
-		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(90))
-
-		for _, closedTrade := range account.ClosedTradeDtos() {
-			assert.Equal(t, string(vo.PositionDirectionShort), closedTrade.Direction)
-		}
-	})
-}
-
-// Buying while flat is where short-only and the long-only modes part company, and it
-// is the one line that says a short-only replay can never take the long side.
-func TestBacktestAccountDomainBuyingWhileFlatSplitsTheModes(t *testing.T) {
-	longOnlyAccount := accountStakingEverythingIn(t, 10000, "spot")
-	shortOnlyAccount := accountStakingEverythingIn(t, 10000, "shortOnly")
-
-	longOnlyAccount.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
-	shortOnlyAccount.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
-
-	assert.Equal(t, 1, longOnlyAccount.PositionOpenCount())
-	assert.Equal(t, 0, shortOnlyAccount.PositionOpenCount())
 }

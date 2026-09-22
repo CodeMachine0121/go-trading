@@ -16,10 +16,6 @@ type TradingStrategyDto struct {
 	// the person who owns the bot.
 	OwnerID uint   `json:"-"`
 	Name    string `json:"name"`
-	// TradingMode is which set of rules these are written for. It leaves in every
-	// response: a screen offering to replay these rules has to show which mode that
-	// will be, and a bot's message is worded by it.
-	TradingMode   string                           `json:"tradingMode"`
 	SignalSources []TradingStrategySignalSourceDto `json:"signalSources"`
 	BuyCondition  TradingStrategyConditionDto      `json:"buyCondition"`
 	SellCondition TradingStrategyConditionDto      `json:"sellCondition"`

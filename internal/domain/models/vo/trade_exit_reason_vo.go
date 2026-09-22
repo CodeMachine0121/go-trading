@@ -18,8 +18,4 @@ const (
 	TradeExitReasonStopLoss TradeExitReasonVo = "stopLoss"
 	// TradeExitReasonTakeProfit is the price reaching the level set in its favour.
 	TradeExitReasonTakeProfit TradeExitReasonVo = "takeProfit"
-	// TradeExitReasonLiquidation is the price reaching the level at which the money
-	// behind a borrowed position has run out, and the loan is called in. It never
-	// appears in a replay that borrowed nothing.
-	TradeExitReasonLiquidation TradeExitReasonVo = "liquidation"
 )

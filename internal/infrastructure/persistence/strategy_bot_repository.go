@@ -67,7 +67,6 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 			PositionPlanCapital:              botRow.PositionPlanCapital,
 			PositionPlanSizingMode:           botRow.PositionPlanSizingMode,
 			PositionPlanSizingValue:          botRow.PositionPlanSizingValue,
-			PositionPlanLeverage:             botRow.PositionPlanLeverage,
 			PositionPlanStopLossPercentage:   botRow.PositionPlanStopLossPercentage,
 			PositionPlanTakeProfitPercentage: botRow.PositionPlanTakeProfitPercentage,
 		})

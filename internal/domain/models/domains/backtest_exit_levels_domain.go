@@ -49,57 +49,30 @@ func NewBacktestExitLevelsDomain(
 
 // PricesFrom places this position's exits around one entry price.
 //
-// A stop is the price moving against the position and a target is it moving in favour,
-// so a long's stop sits below its entry and its target above, and a short's are the
-// mirror image. Getting that backwards is the one mistake here that cannot be seen: a
-// stop on the wrong side is still a perfectly plausible price.
-//
-// **It takes the leverage because a loan being called in is a third exit on the side
-// the stop is already on, and only the nearer of two same-side exits can ever happen.**
-// Which is nearer is decided here, once, from the two distances — before either has
-// been turned into a price, so no reasoning about which way the position faces is
-// needed to compare them. The alternative, asking a candle about both and picking,
-// spreads one settled fact across every bar of the walk and grows a branch each time
-// somebody thinks of another way to be forced out.
-//
-// A tie goes to the stop. The two prices are the same, so the choice costs nothing on
-// the report card, and a caller who asked for a stop should be told the stop is what
-// took them out.
+// A stop is the price moving against the position and a target is it moving in favour.
+// A spot position is only ever long, so the stop sits below the entry and the target
+// above it — always, with nothing to decide. Getting that backwards is the one mistake
+// here that cannot be seen: a stop on the wrong side is still a perfectly plausible
+// price.
 //
 // This settles *where* the prices are. Whether a candle reached one of them is the
-// position's question — see BacktestPositionDomain.ExitOn — because that needs the
-// direction too, and the position is the only thing holding both.
+// position's question — see BacktestPositionDomain.ExitOn.
 func (backtestExitLevelsDomain BacktestExitLevelsDomain) PricesFrom(
-	direction vo.PositionDirectionVo,
 	entryPrice decimal.Decimal,
-	leverage BacktestLeverageDomain,
 ) vo.ExitPricesVo {
-	isShort := direction == vo.PositionDirectionShort
-
 	exitPricesVo := vo.ExitPricesVo{
+		HasStopLoss:   backtestExitLevelsDomain.stopLoss.IsPositive(),
 		HasTakeProfit: backtestExitLevelsDomain.takeProfit.IsPositive(),
+	}
+
+	if exitPricesVo.HasStopLoss {
+		exitPricesVo.StopLossPrice = movedBy(
+			entryPrice, backtestExitLevelsDomain.stopLoss, false)
 	}
 
 	if exitPricesVo.HasTakeProfit {
 		exitPricesVo.TakeProfitPrice = movedBy(
-			entryPrice, backtestExitLevelsDomain.takeProfit, !isShort)
-	}
-
-	adverseDistance := backtestExitLevelsDomain.stopLoss
-	adverseReason := vo.TradeExitReasonStopLoss
-	hasAdverse := adverseDistance.IsPositive()
-
-	if liquidationDistance, canBeLiquidated := leverage.AdverseDistance(); canBeLiquidated &&
-		(!hasAdverse || liquidationDistance.LessThan(adverseDistance)) {
-		adverseDistance = liquidationDistance
-		adverseReason = vo.TradeExitReasonLiquidation
-		hasAdverse = true
-	}
-
-	if hasAdverse {
-		exitPricesVo.HasAdverse = true
-		exitPricesVo.AdverseReason = adverseReason
-		exitPricesVo.AdversePrice = movedBy(entryPrice, adverseDistance, isShort)
+			entryPrice, backtestExitLevelsDomain.takeProfit, true)
 	}
 
 	return exitPricesVo

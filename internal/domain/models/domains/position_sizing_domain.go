@@ -146,22 +146,21 @@ func (positionSizingDomain PositionSizingDomain) Value() decimal.Decimal {
 // run paying nothing gets a hundred back, and no percentage may exceed that, so this
 // answers false for every replay made before there were costs to declare.
 func (positionSizingDomain PositionSizingDomain) NeverStakesUnder(
-	transactionCosts BacktestTransactionCostsDomain, leverage BacktestLeverageDomain,
+	transactionCosts BacktestTransactionCostsDomain,
 ) bool {
 	if positionSizingDomain.mode != vo.PositionSizingModePercentage {
 		return false
 	}
 
 	return positionSizingDomain.value.GreaterThan(
-		transactionCosts.MaximumStakeFrom(oneHundredPercent, leverage))
+		transactionCosts.MaximumStakeFrom(oneHundredPercent))
 }
 
 func (positionSizingDomain PositionSizingDomain) StakeFor(
 	availableCash decimal.Decimal,
 	transactionCosts BacktestTransactionCostsDomain,
-	leverage BacktestLeverageDomain,
 ) (decimal.Decimal, bool) {
-	maximumStake := transactionCosts.MaximumStakeFrom(availableCash, leverage)
+	maximumStake := transactionCosts.MaximumStakeFrom(availableCash)
 
 	if positionSizingDomain.mode == vo.PositionSizingModeFixedAmount {
 		return positionSizingDomain.value,

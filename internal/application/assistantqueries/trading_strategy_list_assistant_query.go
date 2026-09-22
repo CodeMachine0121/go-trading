@@ -44,11 +44,6 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Argu
 type tradingStrategyDigest struct {
 	ID   uint   `json:"id"`
 	Name string `json:"name"`
-	// TradingMode is which kind of account this one is written for. It is in the list
-	// rather than left to a read of each one, because "my account cannot short" is a
-	// sentence about every set of rules at once, and answering it one get at a time
-	// spends the query budget on something a list can say in a word.
-	TradingMode  string   `json:"tradingMode"`
 	SourceLabels []string `json:"sourceLabels"`
 	// AggregationIntervals is every coarseness this one's sources read, in source
 	// order. More than one distinct value means it cannot be replayed — saying so
@@ -79,7 +74,6 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Run(
 		digests = append(digests, tradingStrategyDigest{
 			ID:                   tradingStrategyDto.ID,
 			Name:                 tradingStrategyDto.Name,
-			TradingMode:          tradingStrategyDto.TradingMode,
 			SourceLabels:         sourceLabels,
 			AggregationIntervals: aggregationIntervals,
 		})

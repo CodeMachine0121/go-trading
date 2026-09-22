@@ -34,21 +34,6 @@ func replayWithExitsOf(
 ) dto.BacktestResultDto {
 	t.Helper()
 
-	return replayWithExitsTradingAs(
-		t, "longShort", stopLossPercentage, takeProfitPercentage, bars, signals...)
-}
-
-// replayWithExitsTradingAs is the same walk under a named trading mode.
-func replayWithExitsTradingAs(
-	t *testing.T,
-	declaredTradingMode string,
-	stopLossPercentage int64,
-	takeProfitPercentage int64,
-	bars []bar,
-	signals ...vo.SignalVo,
-) dto.BacktestResultDto {
-	t.Helper()
-
 	positionSizing, sizingError := domains.NewPositionSizingDomain("allIn", decimal.Zero)
 	require.NoError(t, sizingError)
 
@@ -68,9 +53,9 @@ func replayWithExitsTradingAs(
 	}
 
 	return domains.NewBacktestSimulationDomain(
-		decimal.NewFromInt(10000), tradingModeOf(t, declaredTradingMode),
+		decimal.NewFromInt(10000),
 		domains.NewBacktestPositionTermsDomain(positionSizing, exitLevels,
-			domains.BacktestLeverageDomain{}, domains.BacktestTransactionCostsDomain{}),
+			domains.BacktestTransactionCostsDomain{}),
 		inputKCandles, signalDomainsSaying(signals...)).ToDto()
 }
 
@@ -173,34 +158,10 @@ func TestBacktestSimulationCountsACandleReachingBothLevelsAsAStop(t *testing.T) 
 	assert.Equal(t, "9800", result.Summary.FinalEquity.String())
 }
 
-func TestBacktestSimulationMirrorsTheLevelsForAShort(t *testing.T) {
-	t.Run("a short's stop is the one above it", func(t *testing.T) {
-		result := replayWithExitsOf(t, 2, 0,
-			[]bar{{high: 100, low: 100, close: 100}, {high: 103, low: 99, close: 101}},
-			sellSignal, holdSignal)
-
-		require.Len(t, result.ClosedTrades, 1)
-		assert.Equal(t, "short", result.ClosedTrades[0].Direction)
-		assert.Equal(t, "102", result.ClosedTrades[0].ExitPrice.String())
-		assert.Equal(t, "-200", result.ClosedTrades[0].Profit.String())
-		assert.Equal(t, "9800", result.Summary.FinalEquity.String())
-	})
-
-	t.Run("and its target the one below", func(t *testing.T) {
-		result := replayWithExitsOf(t, 0, 5,
-			[]bar{{high: 100, low: 100, close: 100}, {high: 101, low: 94, close: 96}},
-			sellSignal, holdSignal)
-
-		require.Len(t, result.ClosedTrades, 1)
-		assert.Equal(t, "95", result.ClosedTrades[0].ExitPrice.String())
-		assert.Equal(t, "500", result.ClosedTrades[0].Profit.String())
-		assert.Equal(t, "10500", result.Summary.FinalEquity.String())
-	})
-}
-
-// Spot only ever goes long, so it only ever has the one arrangement — but it has it.
-func TestBacktestSimulationHonoursTheLevelsInSpotToo(t *testing.T) {
-	result := replayWithExitsTradingAs(t, "spot", 2, 0,
+// A replay only ever goes long, so it only ever has the one arrangement of levels —
+// the stop below the entry and the target above it.
+func TestBacktestSimulationHonoursTheLevelsOnItsOneSide(t *testing.T) {
+	result := replayWithExitsOf(t, 2, 0,
 		[]bar{{high: 100, low: 100, close: 100}, aDippingBar()},
 		buySignal, holdSignal)
 

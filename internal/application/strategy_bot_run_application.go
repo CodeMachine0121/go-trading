@@ -529,11 +529,6 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		BotName: botDto.Name,
 		Symbol:  botDto.Symbol,
 		Verdict: decision.Verdict,
-		// Carried from the rules this round was judged by, which is the round's own
-		// answer rather than a fact about the bot: three bots following one set of
-		// rules all word their messages the same way, and changing the mode changes
-		// all three at once.
-		TradingMode: tradingStrategyDto.TradingMode,
 		// Carried from the bot, not the rules: how much money there is and how much
 		// of a move its owner can sit through are facts about this machine. Three
 		// bots following one set of rules may each suggest a different size.
