@@ -53,7 +53,7 @@
 | **合約那條線**（`k_candle_contract_*`、合約 proxy／repository／job／controller、合約追蹤名單） | **Not touched** | **一行都不動。** 它是合約重演將來要站的地基，而且與這一刀完全正交——這一刀只動「重演怎麼算」，不動「行情怎麼來」 |
 | 止損／止盈、交易成本、倉位大小模式 | **Not touched**（只去掉槓桿那個參數） | 現貨一樣用得到，行為逐格不變 |
 | 已存下的**每一列** | **Not touched** | 沒有一份交易策略、沒有一台機器人被改寫，也沒有一列被刪 |
-| 兩欄沒有人讀的欄位（`trading_mode`、`position_plan_leverage`） | **Dropped** | 走 repo 既有的 `retiredColumns`：宣告式、冪等，啟動時清掉。**設計期原本判斷「留著」，實作期改判**——理由見下方 Known debt |
+| 兩欄沒有人讀的欄位（`trading_mode`、`position_plan_leverage`） | **Dropped** | 走 repo 既有的 `retiredColumns`：宣告式、冪等，由 **`cmd/migrate`** 在 `AutoMigrate` 之後清掉——**不是 server 啟動時**，這個 repo 的 server 不動 schema。**設計期原本判斷「留著」，實作期改判**——理由見下方 Known debt |
 
 ---
 
