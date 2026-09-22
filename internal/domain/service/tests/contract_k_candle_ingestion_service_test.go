@@ -725,3 +725,45 @@ func TestContractHistorySyncClosesTheRunOffWhenTheWalkBreaksDown(t *testing.T) {
 	assert.Equal(t, string(vo.KCandleHistorySyncFailed), endedRun.Status)
 	assert.Contains(t, endedRun.FailureReason, "broke down")
 }
+
+func TestContractHistorySyncAsksForTheWholeStretchTheCallerNamedOneDayAtATime(t *testing.T) {
+	// Cutting it up is what makes the length stop mattering, so what has to hold is
+	// that the pieces together span exactly what was asked for and leave no minute
+	// between them. The start comes from the lookback and nothing else — that is the
+	// whole difference from a backfill, which starts wherever the stored data left off.
+	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.registered("BTCUSDT")
+	runs := underTest.recordsEveryContractSyncRun()
+	underTest.kCandleContractRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	underTest.kCandleContractRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
+
+	askedWindows := make([]vo.KCandleFetchWindowVo, 0)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, window vo.KCandleFetchWindowVo,
+		) ([]vo.ContractMarketKCandleVo, error) {
+			askedWindows = append(askedWindows, window)
+
+			return []vo.ContractMarketKCandleVo{reportedContractCandle(ingestionAt(9, 5, 0))}, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), dto.KCandleHistorySyncDto{Symbol: "BTCUSDT", LookbackDays: 2},
+		contractHistoryCeilingDays)
+
+	require.NoError(t, startError)
+	runs.awaitEnding(t)
+	require.NotEmpty(t, askedWindows)
+	// Two days back from 2026-08-30 09:07, rounded down to a bucket edge.
+	assert.Equal(t, time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), askedWindows[0].StartTime)
+	assert.Equal(t, ingestionAt(9, 6, 0), askedWindows[len(askedWindows)-1].EndTime)
+	for index := 1; index < len(askedWindows); index++ {
+		assert.Equal(t,
+			askedWindows[index-1].EndTime.Add(time.Minute),
+			askedWindows[index].StartTime,
+			"一段接一段之間不可以漏掉任何一分鐘")
+	}
+	assert.Equal(t, "BTCUSDT", askedWindows[0].Symbol)
+}
