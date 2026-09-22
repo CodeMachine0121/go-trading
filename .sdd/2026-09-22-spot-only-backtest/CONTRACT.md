@@ -101,7 +101,7 @@ Paths are shortened: `D/` = `internal/domain/models/domains/`, `T/` = `internal/
 |------|-------------|---------|
 | ~~`dto/backtest_summary_dto.go:40`~~ | `LiquidationExitCount` 曾仍宣告在成績單上，永遠是 0 | **已移除** |
 | ~~`I/persistence/strategy_bot_repository.go:60`~~ | 改寫機器人時的欄位清單曾仍列著 `position_plan_leverage` | **已移除** |
-| `D/backtest_transaction_costs_domain.go:156` | 參數名 `tradedNotional` | 良性：它指「實際換手的金額」，語意仍正確 |
+| ~~`D/backtest_transaction_costs_domain.go:156`~~ | 參數名曾是 `tradedNotional` | **已更名** `moneyChangingHands`：語意雖仍正確，但那個詞是 grep 得到的、屬於合約的詞 |
 | `A/assistantqueries/…:178`、`I/assistant/claude_assistant_proxy.go:72` | 指示文字提到「借錢、做空與強制平倉」 | 良性：那是在**說明這個系統不做什麼**，正是 BR-2 要的 |
 
 ## Summary
@@ -110,7 +110,8 @@ Paths are shortened: `D/` = `internal/domain/models/domains/`, `T/` = `internal/
 **修正後（本檔現況）**：
 
 - Conforms: **43/45** clauses ✅ (96%)
-- Violations: 無（AC-16／BR-3 已修：欄位自成績單移除，並以「不存在」的斷言釘住）
+- Violations: 無（AC-16／BR-3 已修：欄位自成績單移除，並以「不存在」的斷言釘住；
+  第二輪另修了三項這份稽核沒看見的，見下）
 - Mis-asserted: **NFR-2** 🟠 — 見下方保留理由
 - Partial: **AC-15, AC-32, NFR-1** 🟡 — 程式碼對，無測試
 - Gaps: 無
@@ -128,13 +129,31 @@ Paths are shortened: `D/` = `internal/domain/models/domains/`, `T/` = `internal/
 
 其餘 6 項（懸空的 Postman 變數與請求、一段論據已反轉的註解、一個沒人讀的參數、`Leverage` 的文件、「四個呼叫端」的數字）一併修正。
 
+### 第二輪 code review（本檔第二次修正）
+
+第一輪修正推上去之後又跑了一輪，抓到 3 項這份稽核**沒有看見**的：
+
+| 項目 | 原判 | 實況 | 處置 |
+| :--- | :--- | :--- | :--- |
+| **建議部位的槓桿欄位** | 未列（視為「已隨行為移除」） | **🔴 violation**：它只在**送進來**那一側被拿掉，**送回去**那一側還留著，而且沒有人再填它——每一台機器人從此在回應裡答 `"0"`，畫面上就是「這台什麼都不押」。會漏掉是因為讀它的那兩個斷言是被**刪掉**而不是被反轉 | 讀取形狀移除該欄位；宣告改走只進不出的寫入形狀；在機器人的 HTTP 回應上加「這個詞不在」的斷言 |
+| **槓桿的拒絕蓋在每一輪都會重建的地方** | 未列 | 設計上的反轉：那個拒絕原本刻意**不放**在部位規劃裡（它每一輪都用已存下的設定重建一次），這一刀把它搬了進去。今天無害只因為 entity 已經不帶那一欄——一旦哪天存下的倍數回來，既有機器人會一輪一輪安靜地失去建議部位 | 搬回機器人被定案的那一處，並把原本的理由寫回註解 |
+| **維持保證金率被安靜忽略** | 未列 | 三個「合約才有的宣告」裡只擋了兩個。第三個整個被刪掉，於是送 `maintenanceMarginRate` 回 200 與一張現貨成績單——PRD 自己寫著「送來一件系統已經不做的事，要說得出來」 | 兩條重演路徑都收下並拒絕它，自己一句話；domain 與兩條 HTTP 路徑各有測試，mutation 驗過 |
+
+另外兩項關於**沉默的測試**：機器人訊息「沒有交易模式那一行、沒有槓桿那一行」在 PRD 裡是明文要求，
+而 `grep 交易模式\|名目` 在那個測試檔的命中數是 **0**——同樣是斷言被刪而不是被反轉。
+已補上一個以缺席為主、並配上正向斷言（免疫於「整段訊息都空掉」）的測試。
+退役欄位的 drop 也補上了測試：把欄位種回去、跑一次 migrate、看它消失，兩欄各一個案例，
+移除清單裡任一筆都會讓它紅。
+
 ### 刻意保留的兩項
 
 - **AC-15／AC-32（🟡 partial）**：「這一刀之前存下的交易策略／機器人照舊跑得動」。
   程式碼確實如此——那兩個欄位已不在 entity 上，而且現在會被 `retiredColumns` 冪等地 drop 掉。
-  要**測**它得先造一列帶著舊欄位的資料，而唯一的做法是手寫 SQL 或另立一個測試專用 entity，
-  兩者分別違反 `persistence.md`（禁手寫 SQL）與 `testing.md`（禁手寫假物件）。
-  **判斷：不為了補一格綠燈而破規矩。**
+  **drop 這件事本身現在有測試了**（`I/persistence/tests/schema_migrator_test.go`：種回欄位、
+  跑一次 migrate、看它消失）——那支測試用的是原生 SQL，而這是 repo 早就給 migration 測試開的例外，
+  因為它必須描述「資料庫曾經的樣子」，而 entity 依定義已經說不出那個樣子了。
+  仍然沒有測的是「一列帶著舊欄位的資料讀得動」：那需要一個測試專用 entity，違反 `testing.md`。
+  **判斷：drop 補測試，舊列讀得動這一格不為了綠燈而破規矩。**
 
 - **NFR-2（🟠 mis-asserted）**：同上，理由相同。
 
