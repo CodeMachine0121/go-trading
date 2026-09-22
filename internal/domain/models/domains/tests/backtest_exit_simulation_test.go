@@ -239,3 +239,40 @@ func TestBacktestSimulationCallsEverySignalledExitWhatItIs(t *testing.T) {
 	assert.Equal(t, 0, result.Summary.StopLossExitCount)
 	assert.Equal(t, 0, result.Summary.TakeProfitExitCount)
 }
+
+// Three ways out and no fourth. A position is never taken off because the money
+// behind it ran out — nothing here borrows, so there is nobody to call a loan in.
+//
+// Asserted over a walk that exits every way it can, rather than by reading the set of
+// spellings: what matters is that no replay ever produces a fourth one.
+func TestBacktestSimulationEndsEveryTradeOneOfThreeWays(t *testing.T) {
+	result := replayWithExitsOf(t, 2, 5,
+		[]bar{
+			{high: 100, low: 100, close: 100},
+			aDippingBar(),
+			{high: 100, low: 100, close: 100},
+			{high: 106, low: 99, close: 100},
+			{high: 100, low: 100, close: 100},
+			{high: 101, low: 99, close: 100},
+		},
+		buySignal, holdSignal, buySignal, holdSignal, buySignal, sellSignal)
+
+	require.Len(t, result.ClosedTrades, 3)
+	exitReasons := make([]string, 0, len(result.ClosedTrades))
+	for _, closedTrade := range result.ClosedTrades {
+		assert.Contains(t, []string{
+			string(vo.TradeExitReasonSignal),
+			string(vo.TradeExitReasonStopLoss),
+			string(vo.TradeExitReasonTakeProfit),
+		}, closedTrade.ExitReason)
+		exitReasons = append(exitReasons, closedTrade.ExitReason)
+	}
+
+	// All three really happened, so this is not passing on a walk that only ever
+	// exited one way.
+	assert.ElementsMatch(t, []string{
+		string(vo.TradeExitReasonStopLoss),
+		string(vo.TradeExitReasonTakeProfit),
+		string(vo.TradeExitReasonSignal),
+	}, exitReasons)
+}

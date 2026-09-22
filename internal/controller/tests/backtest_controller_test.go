@@ -353,6 +353,36 @@ func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
 		assert.Contains(t, body.Message, "沒有人借錢給你")
 	})
 
+	t.Run("the report card has no column for being liquidated", func(t *testing.T) {
+		// Asserted as an absence, because the way this could come back is by nobody
+		// asking. The assertions that read this column were removed along with the
+		// behaviour, and a removed assertion is silence rather than a failure — the
+		// column stayed on the report card through exactly that, answering zero on
+		// every replay.
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.expectTwoCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]map[string]vo.IndicatorValueVo{
+				{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalSell}},
+			}, nil)
+
+		response := fixture.post(backtestBody)
+
+		require.Equal(t, http.StatusOK, response.Code)
+
+		var body struct {
+			Summary map[string]any `json:"summary"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		assert.NotContains(t, body.Summary, "liquidationExitCount")
+		// The two that remain are still there, so this is not passing because the
+		// report card lost its exit counts altogether.
+		assert.Contains(t, body.Summary, "stopLossExitCount")
+		assert.Contains(t, body.Summary, "takeProfitExitCount")
+	})
+
 	t.Run("saying nothing answers exactly as it always has", func(t *testing.T) {
 		fixture := newBacktestRouterUnderTest(t)
 		fixture.expectTwoCandles()
