@@ -767,3 +767,34 @@ func TestContractHistorySyncAsksForTheWholeStretchTheCallerNamedOneDayAtATime(t 
 	}
 	assert.Equal(t, "BTCUSDT", askedWindows[0].Symbol)
 }
+
+func TestContractHistorySyncStoresNothingForAStretchWithNoMarkPriceAtAll(t *testing.T) {
+	// The venue's mark price history begins later than its candle history, so a long
+	// sync's oldest months answer with traded figures and no mark price at all. Every
+	// minute of them is unstorable, and the run says so through its skipped count
+	// rather than by failing — nothing went wrong, that stretch simply cannot be held.
+	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.registered("BTCUSDT")
+	runs := underTest.recordsEveryContractSyncRun()
+	underTest.kCandleContractRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(
+		[]vo.ContractMarketKCandleVo{
+			reportedContractCandleWithoutMarkPrice(ingestionAt(9, 4, 0)),
+			reportedContractCandleWithoutMarkPrice(ingestionAt(9, 5, 0)),
+		}, nil).AnyTimes()
+	// Nothing survives judgement, so every batch handed to storage is empty.
+	underTest.kCandleContractRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Len(0)).Return(0, nil).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), dto.KCandleHistorySyncDto{Symbol: "BTCUSDT", LookbackDays: 2},
+		contractHistoryCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 0, endedRun.StoredCount)
+	assert.Positive(t, endedRun.SkippedCount)
+	assert.Empty(t, endedRun.FailureReason)
+}

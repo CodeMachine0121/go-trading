@@ -3,7 +3,7 @@
 Contract: `PRD.md`
 Design map: `ARCH.md`（Traceability 42/42，本次逐條重新獨立判定）
 Implementation: `internal/`（見各列 `file:line`）
-Oracle: Acceptance Criteria — **58 clauses**（AC 42 · BR 11 · NFR 5）
+Oracle: Acceptance Criteria — **61 clauses**（AC 44 · BR 12 · NFR 5）
 
 > **審計天花板**：這是一次**靜態**符合性稽核。它拿 PRD 的預期結果分別對照「測試斷言什麼」與
 > 「程式碼產出什麼」，**不以整套測試綠燈作為判準**，也不自行撰寫或執行新的探針。
@@ -40,6 +40,8 @@ Oracle: Acceptance Criteria — **58 clauses**（AC 42 · BR 11 · NFR 5）
 | AC-13 | 加進去就立刻回補那一檔 | 登錄並標記為追蹤中；系統立刻回補那一檔；下一輪起照常抓 | `contract_trading_symbol_application.go:53` | `contract_k_candle_application_test.go:TestContractApplicationCatchesAContractUpTheMomentItIsAdded` | asserts-oracle（斷言 Save 帶 IsWatched=true，且 FetchKCandles 恰好一次） | produces-oracle | ✅ conforms |
 | AC-14 | 移除只停止追蹤,一根都不刪 | 合約不再抓；現貨照常抓；兩邊已存下的 K 線一根都沒有被刪掉 | `contract_trading_symbol_service.go:135` | `…TestContractTradingSymbolServiceStopsFollowingWithoutForgettingTheContract`（「一根都不刪」以 gomock 未宣告 Delete 保證）＋`contract_trading_symbol_repository_test.go:TestContractTradingSymbolRepositoryStoresStoppingToFollow` | asserts-oracle ⚠️ 見備註 A | produces-oracle | ✅ conforms |
 | AC-15 | 合約不認得的代號加不進去 | 加入被拒絕並說明找不到這個代號 | `contract_trading_symbol_service.go:117` | `…TestContractTradingSymbolServiceRefusesAContractTheVenueDoesNotList`（另斷言 Save 未被呼叫） | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-15a | 已經停止交易的合約加不進去 | 加入被拒絕並說明找不到這個代號；那個代號沒有被登錄 | `binance_contract_symbol_lookup_proxy.go:107`（`status == TRADING`） | `binance_contract_symbol_lookup_proxy_test.go:TestContractSymbolLookupRefusesAContractNobodyCouldFollow/已經停止交易的合約` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-15b | 有交割日的合約加不進去 | 同上 | `binance_contract_symbol_lookup_proxy.go:108`（永續種類允許清單） | `…/有交割日的季度合約`＋`…TestContractSymbolLookupRefusesAKindItDoesNotRecognise`＋`…TestContractSymbolLookupAcceptsAPerpetualOnATraditionalFinanceUnderlying` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-16 | 來源不可用時不先加了再說 | 加入被拒絕並說明稍後再試；那個代號沒有被登錄 | `contract_trading_symbol_service.go:112` | `…TestContractTradingSymbolServiceAddsNothingWhenTheVenueCannotBeReached` | asserts-oracle | produces-oracle | ✅ conforms |
 
 ### US-04 查得到合約 K 線
@@ -98,6 +100,7 @@ Oracle: Acceptance Criteria — **58 clauses**（AC 42 · BR 11 · NFR 5）
 | BR-4 | 合約與現貨互不覆蓋 | 同代號同起始時間兩邊各存一根 | `k_candle_contract.go:29` | AC-8 之測試 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-5 | 兩邊的代號宇宙不重疊也不對應 | 不做任何換算或關聯 | 無換算元件 | AC-11 之測試 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-6 | 兩份追蹤名單各自獨立 | 加入、移除、抓取彼此不影響 | `contract_trading_symbol.go:26` | AC-12 之測試 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-6a | 「在清單上」不等於「跟得了」 | 已停止交易、還沒開始、有交割日、認不得的種類，一律拒絕 | `binance_contract_symbol_lookup_proxy.go:100-112` | AC-15a／AC-15b 之測試（四種形狀全測，含允許清單外的種類） | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-7 | 永續全天候,永不推定休市 | 來源正常回覆卻沒東西只是這一次沒東西 | 未注入休市帳本 | AC-6／AC-7 之測試 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-8 | 標記價格與最新價各自成立 | 各自高低要對,兩者之間不比大小 | `k_candle_contract_domain.go:101` | AC-32＋AC-37 之測試（兩側都測） | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-9 | 合約的回補上限與回溯天數上限各自一份設定 | 合約用自己的數字,不沿用現貨那組 | `application_config.go:87`（`ContractIngestionConfig`）＋`dependencies.go` | `contract_ingestion_config_test.go:TestTheTwoVenuesAreSettledApart`（八項全設成非預設值後，斷言合約端全部生效、現貨端一項都沒被波及） | asserts-oracle | produces-oracle | ✅ conforms |
@@ -146,7 +149,7 @@ Oracle: Acceptance Criteria — **58 clauses**（AC 42 · BR 11 · NFR 5）
 
 ### 第二輪（依第一輪回饋修正後）
 
-- **Conforms: 57 / 58 clauses ✅（98.3%）**
+- **Conforms: 60 / 61 clauses ✅（98.4%）**
 - Violations: **無**
 - Mis-asserted: **無** —— `NFR-1` 已補上直接斷言切段邊界的測試
 - Partial: `NFR-4`（記憶體不隨區間長度成長）。**刻意不補**：它是逐段抓、逐段存這個結構本身的性質，
@@ -156,6 +159,27 @@ Oracle: Acceptance Criteria — **58 clauses**（AC 42 · BR 11 · NFR 5）
 - Gaps: **無**
 - Unclear: **無**
 - Orphans: 2（皆良性，非越界）
+
+### 第三輪（code review 回饋後）
+
+外部 code review 提出兩點，**兩點都以真實的幣安回應實測確認為真**，兩點都已處理：
+
+**1. 代號確認只比對名字（medium）** —— 合約目錄同時帶著 `status` 與 `contractType`，而原本的
+比對只看名字。實測 905 筆裡有 **131 筆不可交易**（130 `SETTLING`、1 `PENDING_TRADING`）與
+**4 筆季度交割合約**，全都加得進一份主題是「永續合約」的名單。跟進去的下場是：每分鐘抓一次、
+永遠存不到東西，而因為這一刀刻意決定「永不推定休市」，它看起來跟市場很安靜**完全一樣**。
+已加上兩道（可交易、是永續），並把 `TRADIFI_PERPETUAL`（黃金、白銀、個股的永續）明確納入——
+它們的交割日是 2100 年的哨兵值，是真的永續。認不得的種類一律拒絕，不預設它是永續。
+→ 新增 `AC-15a`、`AC-15b`、`BR-6a`。
+
+**2. 「這一天齊不齊」的理由寫錯了（low/medium）** —— `IKCandleContractRepository.CountInRange`
+的註解寫著「兩條來源序列要嘛都到、要嘛都不到」，**而 proxy 並不提供這個保證**。實測：
+BTCUSDT 永續的價量回得到 2019-09，標記價格要到 **2019-12-31** 才開始有——中間三個多月，
+每一分鐘都有價量、沒有標記價格，因此永遠存不進來，那幾天也就永遠湊不滿，捷徑永遠不生效。
+代價是請求數而非正確性。**不成立的那句保證已改寫**，限制寫進介面與使用現場，行為以
+`TestContractHistorySyncStoresNothingForAStretchWithNoMarkPriceAtAll` 釘住，
+實際可用歷史起點寫進 README。
+**沒有補「記住哪些分鐘填不了」的機制**——那需要一份這個系統還沒有的負向紀錄，是下一刀的事。
 
 ### 修正過程中另外發現的一件事（不在 clause 之列）
 

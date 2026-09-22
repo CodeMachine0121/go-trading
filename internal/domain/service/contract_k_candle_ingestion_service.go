@@ -206,10 +206,17 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) FailInte
 // syncSymbolHistory walks one contract's stretch a chunk at a time, asking the source
 // for a chunk and storing it before moving to the next.
 //
-// **A chunk already complete is not asked about**, and counting the stored candles is
-// enough to establish that: a stored contract candle is a complete one, so a day that
-// holds its full count holds both halves of every minute in it. The count is against
-// the round-the-clock calendar, which for a perpetual contract is every minute there is.
+// **A chunk already complete is not asked about**, counted against the round-the-clock
+// calendar — which for a perpetual contract is every minute there is.
+//
+// **A stretch the venue has no mark price for is never complete by that measure**, so
+// it is re-fetched by every sync that covers it. This is not hypothetical: a
+// contract's mark price history begins later than its candle history, so the oldest
+// months of any long sync are exactly the ones that keep being asked about. What it
+// costs is requests, not correctness — those minutes are unstorable either way, and
+// the run's skipped count says so out loud. Making the shortcut cover them means
+// remembering which minutes are unfillable, which is a record this system does not
+// keep yet.
 //
 // It looks at what is stored only to decide whether to ask, never to decide where to
 // start. Starting from what is stored is what leaves a hole in the middle unreachable,

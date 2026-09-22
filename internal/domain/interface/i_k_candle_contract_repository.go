@@ -36,9 +36,16 @@ type IKCandleContractRepository interface {
 	// CountInRange is how many contract K candles are held for this symbol across the
 	// stretch, both ends included.
 	//
-	// It is what decides whether a day of a history sync is asked for at all. Counting
-	// candles is enough to answer it because a stored contract candle is a complete
-	// one — the two source series either both arrived for a minute or neither did.
+	// It is what decides whether a day of a history sync is asked for at all: a day
+	// already holding every minute it could is never asked about again.
+	//
+	// **It counts what is stored, which is not always what the venue can give.** A
+	// minute the venue has traded figures but no mark price for is one this system
+	// will never store, so a day containing one can never reach the count a full day
+	// would — and is therefore re-fetched by every later sync over that stretch. That
+	// is the whole of the cost: nothing is lost or corrupted, the same day is simply
+	// asked about again. It is real at the far end of a contract's life, where mark
+	// price history starts later than candle history.
 	CountInRange(
 		executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
 	) (int, error)
