@@ -744,8 +744,19 @@ newman run postman/go-trading.postman_collection.json \
        -e postman/go-trading.postman_environment.json
 ```
 
-四個資料夾：健康檢查、K 線、指標計算、收尾。31 個請求、45 條斷言，
-含成功路徑與每一種被拒絕的情形（`400` / `404` / `422`）。
+十八個資料夾、312 個請求、546 條斷言，含成功路徑與每一種被拒絕的情形。
+其中**永續合約 K 線**一個資料夾就佔 24 個請求 40 條斷言，可以單獨跑：
+
+```bash
+newman run postman/go-trading.postman_collection.json \
+       -e postman/go-trading.postman_environment.json \
+       --folder "永續合約 K 線"
+```
+
+**整包跑不過是正常的，而且不是程式壞了。** 需要登入的那一大半會回
+`403 帳號尚未開通`——新建立的使用者一律待開通，而放行只在系統之外做
+（見上方「帳號開通」）。所以要整包綠，得先開通 collection 建立的那位使用者；
+合約那個資料夾不需要登入，單獨跑得過。
 
 **兩個設計上的選擇：**
 
@@ -757,6 +768,12 @@ newman run postman/go-trading.postman_collection.json \
 - **觀察清單那一組會真的打到行情來源**（加之前要先確認代號存在）。
   沒設 `TAIWAN_STOCK_API_KEY` 時，那幾個請求會回 `502` 而不是 `204`——
   那是設定沒給，不是程式壞了。
+- **合約那一組也會真的打到幣安合約場所**，而且其中一條刻意驗真實資料：
+  「回補回來的合約 K 線帶著標記價格與成交筆數」斷言標記價格四欄都是正數、
+  量不是標記那份的佔位零、成交筆數是正整數。前面那些驗的是規則，
+  這一條驗的是**真的從合約場所拿回了現貨沒有的東西**。
+- **合約的 CRUD 用 `CONTRACTTESTONLY`**，與現貨的 `TESTONLY` 分開，
+  兩邊的測試資料不會互相干擾。
 
 **新增或修改路由時，這份 collection 要同步更新。**
 
