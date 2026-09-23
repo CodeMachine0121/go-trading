@@ -13,23 +13,33 @@ import (
 // is named here rather than beside the shared indexes.
 const tradeCountIndex = 8
 
-// markPriceFigures are the four prices a mark price answer actually carries. The
-// same answer also carries volume, turnover and taker volumes, and every one of them
-// is the string "0".
+// priceLineFigures are the four prices a mark price, index price or premium index
+// answer actually carries. The same answer also carries volume, turnover and taker
+// volumes, and every one of them is the string "0".
 //
 // **Those zeros are placeholders, not readings.** A minute in which nothing traded
 // genuinely has a volume of zero, so copying them across would put candles into
 // storage that nobody could later tell apart from real ones. They are dropped here,
 // at the only place that knows they are not numbers.
-type markPriceFigures struct {
+type priceLineFigures struct {
 	open  decimal.Decimal
 	high  decimal.Decimal
 	low   decimal.Decimal
 	close decimal.Decimal
 }
 
+// toNullDecimals hands the four prices over as present figures, in the order a
+// candle lists them.
+func (figures priceLineFigures) toNullDecimals() (
+	decimal.NullDecimal, decimal.NullDecimal, decimal.NullDecimal, decimal.NullDecimal,
+) {
+	return decimal.NewNullDecimal(figures.open), decimal.NewNullDecimal(figures.high),
+		decimal.NewNullDecimal(figures.low), decimal.NewNullDecimal(figures.close)
+}
+
 // toContractMarketKCandleVo turns the traded half of a contract candle into the shape
-// the domain accepts, leaving the mark figures absent for the merge to fill in.
+// the domain accepts, leaving the mark, index and premium index figures absent
+// for the merge to fill in.
 // Nothing is judged here — the contract K candle rules are applied further in.
 // The three optional figures are read without checking whether they arrived: the
 // shared conversion above fills all of them from the same answer, so on this venue
@@ -60,20 +70,21 @@ func (kLine binanceKLine) toContractMarketKCandleVo(symbol string) (vo.ContractM
 	}, nil
 }
 
-// toMarkPriceFigures reads only the four prices out of a mark price answer.
-func (kLine binanceKLine) toMarkPriceFigures() (markPriceFigures, error) {
+// toPriceLineFigures reads only the four prices out of a mark price, index price or
+// premium index answer.
+func (kLine binanceKLine) toPriceLineFigures() (priceLineFigures, error) {
 	if len(kLine) < kLineFieldCount {
-		return markPriceFigures{}, fmt.Errorf(
-			"mark price from market source has %d fields, expected at least %d",
+		return priceLineFigures{}, fmt.Errorf(
+			"price line from market source has %d fields, expected at least %d",
 			len(kLine), kLineFieldCount)
 	}
 
 	figures, figureError := kLine.figures()
 	if figureError != nil {
-		return markPriceFigures{}, figureError
+		return priceLineFigures{}, figureError
 	}
 
-	return markPriceFigures{
+	return priceLineFigures{
 		open:  figures[openIndex],
 		high:  figures[highIndex],
 		low:   figures[lowIndex],

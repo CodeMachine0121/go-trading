@@ -185,6 +185,8 @@ func registerRoutes(
 		marketdata.NewBinanceContractMarketDataProxy(
 			applicationConfig.ContractIngestion.BaseUrl,
 			applicationConfig.ContractIngestion.MarkPriceUrl,
+			applicationConfig.ContractIngestion.IndexPriceUrl,
+			applicationConfig.ContractIngestion.PremiumIndexUrl,
 			applicationConfig.ContractIngestion.RequestTimeout,
 			venuePacers.cryptoContract,
 		),

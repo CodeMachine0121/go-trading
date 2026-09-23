@@ -38,6 +38,14 @@ func contractWriteDto() dto.KCandleContractWriteDto {
 		MarkHigh:            decimal.NewNullDecimal(decimal.RequireFromString("121")),
 		MarkLow:             decimal.NewNullDecimal(decimal.RequireFromString("91")),
 		MarkClose:           decimal.NewNullDecimal(decimal.RequireFromString("111")),
+		IndexOpen:           decimal.NewNullDecimal(decimal.RequireFromString("102")),
+		IndexHigh:           decimal.NewNullDecimal(decimal.RequireFromString("122")),
+		IndexLow:            decimal.NewNullDecimal(decimal.RequireFromString("92")),
+		IndexClose:          decimal.NewNullDecimal(decimal.RequireFromString("112")),
+		PremiumIndexOpen:    decimal.NewNullDecimal(decimal.RequireFromString("-0.0001")),
+		PremiumIndexHigh:    decimal.NewNullDecimal(decimal.RequireFromString("0.0002")),
+		PremiumIndexLow:     decimal.NewNullDecimal(decimal.RequireFromString("-0.0003")),
+		PremiumIndexClose:   decimal.NewNullDecimal(decimal.RequireFromString("0.0001")),
 	}
 }
 

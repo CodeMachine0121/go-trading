@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
-	"github.com/shopspring/decimal"
 )
 
 // contractSourceRow is one row of a source answer together with the open time already
@@ -22,46 +21,66 @@ type contractSourceRow struct {
 	kLine    binanceKLine
 }
 
+// Two names the venue uses for "which contract". Every series takes the symbol except
+// the index price, which belongs to the underlying pair rather than to one contract
+// on it. For a perpetual the two are spelled the same, so the difference is only in
+// which name the question has to use.
+const (
+	symbolParameter = "symbol"
+	pairParameter   = "pair"
+)
+
 // BinanceContractMarketDataProxy fetches perpetual contract K candles from Binance.
 //
 // Everything the rest of the system must not know about this source stops here: the
-// two addresses, the way it spells an interval, its positional wire format, the fact
+// four addresses, the way it spells an interval, its positional wire format, the fact
 // that a wide window has to be asked for in several goes — and the fact that one
-// contract candle takes two questions rather than one.
+// contract candle takes four questions rather than one.
 //
-// The two answers are aligned on open time. The traded half decides which minutes
-// exist at all, because it is the one that says whether the market was there; a mark
-// price for a minute with no trading half is a reading of nothing and is dropped.
+// The answers are aligned on open time. The traded half decides which minutes exist
+// at all, because it is the one that says whether the market was there; a mark price,
+// index price or premium index for a minute with no trading half is a reading of
+// nothing and is dropped.
 type BinanceContractMarketDataProxy struct {
-	baseUrl      string
-	markPriceUrl string
-	httpClient   *http.Client
-	pacer        RequestPacer
+	baseUrl         string
+	markPriceUrl    string
+	indexPriceUrl   string
+	premiumIndexUrl string
+	httpClient      *http.Client
+	pacer           RequestPacer
 }
 
 func NewBinanceContractMarketDataProxy(
-	baseUrl string, markPriceUrl string, requestTimeout time.Duration, pacer RequestPacer,
+	baseUrl string,
+	markPriceUrl string,
+	indexPriceUrl string,
+	premiumIndexUrl string,
+	requestTimeout time.Duration,
+	pacer RequestPacer,
 ) *BinanceContractMarketDataProxy {
 	return &BinanceContractMarketDataProxy{
-		baseUrl:      baseUrl,
-		markPriceUrl: markPriceUrl,
-		httpClient:   &http.Client{Timeout: requestTimeout},
-		pacer:        pacer,
+		baseUrl:         baseUrl,
+		markPriceUrl:    markPriceUrl,
+		indexPriceUrl:   indexPriceUrl,
+		premiumIndexUrl: premiumIndexUrl,
+		httpClient:      &http.Client{Timeout: requestTimeout},
+		pacer:           pacer,
 	}
 }
 
 // FetchKCandles returns every contract K candle the source holds inside the window,
-// oldest first, each carrying its mark price where the source had one.
+// oldest first, each carrying its mark price, index price and premium index where the
+// source had them.
 //
 // A window the source has nothing for is an empty result, not a failure — a contract
-// that did not yet exist over the stretch asked about produces exactly that. Either
-// question failing fails the whole call, because half a contract candle is not a
+// that did not yet exist over the stretch asked about produces exactly that. Any one
+// question failing fails the whole call, because part of a contract candle is not a
 // partial answer, it is a candle nobody can tell from a spot one.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCandles(
 	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.ContractMarketKCandleVo, error) {
 	tradedRows, tradedError := binanceContractMarketDataProxy.fetchRows(
-		executionContext, binanceContractMarketDataProxy.baseUrl, window)
+		executionContext, binanceContractMarketDataProxy.baseUrl, symbolParameter, window)
 	if tradedError != nil {
 		return nil, tradedError
 	}
@@ -76,41 +95,83 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	}
 
 	if len(contractKCandles) == 0 {
-		// Nothing traded over the stretch, so there is nothing a mark price could
-		// belong to. Asking anyway would spend the venue's allowance on an answer
+		// Nothing traded over the stretch, so there is nothing the other three lines
+		// could belong to. Asking anyway would spend the venue's allowance on answers
 		// with no home, and long backfills are made of stretches like this one.
 		return contractKCandles, nil
 	}
 
-	markRows, markError := binanceContractMarketDataProxy.fetchRows(
-		executionContext, binanceContractMarketDataProxy.markPriceUrl, window)
+	markPrices, markError := binanceContractMarketDataProxy.fetchPriceLine(
+		executionContext, binanceContractMarketDataProxy.markPriceUrl, symbolParameter, window)
 	if markError != nil {
 		return nil, markError
 	}
 
-	// Keyed by open time, which is the only thing the two answers have in common.
-	markPricesByOpenTime := make(map[int64]markPriceFigures, len(markRows))
-	for _, markRow := range markRows {
-		markPrice, convertError := markRow.kLine.toMarkPriceFigures()
-		if convertError != nil {
-			return nil, convertError
-		}
-		markPricesByOpenTime[markRow.openTime.UnixMilli()] = markPrice
+	indexPrices, indexError := binanceContractMarketDataProxy.fetchPriceLine(
+		executionContext, binanceContractMarketDataProxy.indexPriceUrl, pairParameter, window)
+	if indexError != nil {
+		return nil, indexError
 	}
 
+	premiumIndexes, premiumIndexError := binanceContractMarketDataProxy.fetchPriceLine(
+		executionContext, binanceContractMarketDataProxy.premiumIndexUrl, symbolParameter, window)
+	if premiumIndexError != nil {
+		return nil, premiumIndexError
+	}
+
+	// A minute a line did not cover is left with that line absent, not dropped: "a
+	// contract K candle without it is not one" is the domain's rule to apply, and the
+	// record of a skipped candle is supposed to say which line was missing.
 	for index, contractKCandle := range contractKCandles {
-		markPrice, hasMarkPrice := markPricesByOpenTime[contractKCandle.OpenTime.UnixMilli()]
-		if !hasMarkPrice {
-			continue
+		openTime := contractKCandle.OpenTime.UnixMilli()
+
+		if markPrice, hasMarkPrice := markPrices[openTime]; hasMarkPrice {
+			contractKCandles[index].MarkOpen, contractKCandles[index].MarkHigh,
+				contractKCandles[index].MarkLow, contractKCandles[index].MarkClose =
+				markPrice.toNullDecimals()
 		}
 
-		contractKCandles[index].MarkOpen = decimal.NewNullDecimal(markPrice.open)
-		contractKCandles[index].MarkHigh = decimal.NewNullDecimal(markPrice.high)
-		contractKCandles[index].MarkLow = decimal.NewNullDecimal(markPrice.low)
-		contractKCandles[index].MarkClose = decimal.NewNullDecimal(markPrice.close)
+		if indexPrice, hasIndexPrice := indexPrices[openTime]; hasIndexPrice {
+			contractKCandles[index].IndexOpen, contractKCandles[index].IndexHigh,
+				contractKCandles[index].IndexLow, contractKCandles[index].IndexClose =
+				indexPrice.toNullDecimals()
+		}
+
+		if premiumIndex, hasPremiumIndex := premiumIndexes[openTime]; hasPremiumIndex {
+			contractKCandles[index].PremiumIndexOpen, contractKCandles[index].PremiumIndexHigh,
+				contractKCandles[index].PremiumIndexLow, contractKCandles[index].PremiumIndexClose =
+				premiumIndex.toNullDecimals()
+		}
 	}
 
 	return contractKCandles, nil
+}
+
+// fetchPriceLine walks one of the three answers that carry only four meaningful prices
+// across the window and keys them by open time, which is the only thing they have in
+// common with the traded half.
+func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPriceLine(
+	executionContext context.Context,
+	address string,
+	contractParameter string,
+	window vo.KCandleFetchWindowVo,
+) (map[int64]priceLineFigures, error) {
+	rows, fetchError := binanceContractMarketDataProxy.fetchRows(
+		executionContext, address, contractParameter, window)
+	if fetchError != nil {
+		return nil, fetchError
+	}
+
+	pricesByOpenTime := make(map[int64]priceLineFigures, len(rows))
+	for _, row := range rows {
+		prices, convertError := row.kLine.toPriceLineFigures()
+		if convertError != nil {
+			return nil, convertError
+		}
+		pricesByOpenTime[row.openTime.UnixMilli()] = prices
+	}
+
+	return pricesByOpenTime, nil
 }
 
 // fetchRows walks one address across the whole window, page by page, and hands back
@@ -120,13 +181,16 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 // window wider than one page still comes back whole while a source that answers with
 // rows outside it cannot keep the asking going.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
-	executionContext context.Context, address string, window vo.KCandleFetchWindowVo,
+	executionContext context.Context,
+	address string,
+	contractParameter string,
+	window vo.KCandleFetchWindowVo,
 ) ([]contractSourceRow, error) {
 	rows := make([]contractSourceRow, 0)
 
 	for nextStartTime := window.StartTime; !nextStartTime.After(window.EndTime); {
 		page, fetchError := binanceContractMarketDataProxy.fetchPage(
-			executionContext, address, window.Symbol, nextStartTime, window.EndTime)
+			executionContext, address, contractParameter, window.Symbol, nextStartTime, window.EndTime)
 		if fetchError != nil {
 			return nil, fetchError
 		}
@@ -153,6 +217,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 	executionContext context.Context,
 	address string,
+	contractParameter string,
 	symbol string,
 	startTime time.Time,
 	endTime time.Time,
@@ -162,7 +227,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 	}
 
 	queryValues := url.Values{}
-	queryValues.Set("symbol", symbol)
+	queryValues.Set(contractParameter, symbol)
 	queryValues.Set("interval", kCandleInterval)
 	queryValues.Set("startTime", strconv.FormatInt(startTime.UnixMilli(), 10))
 	queryValues.Set("endTime", strconv.FormatInt(endTime.UnixMilli(), 10))

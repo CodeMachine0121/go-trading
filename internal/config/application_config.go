@@ -88,11 +88,13 @@ type ContractIngestionConfig struct {
 	RoundCandleCount           int
 	BackfillLookback           time.Duration
 	HistorySyncMaxLookbackDays int
-	// BaseUrl answers about the traded figures; MarkPriceUrl about the mark price.
-	// They are two addresses because the venue keeps them apart, and one contract
-	// candle is assembled from both.
-	BaseUrl      string
-	MarkPriceUrl string
+	// BaseUrl answers about the traded figures; the other three about the mark
+	// price, the index price and the premium index. They are four addresses because
+	// the venue keeps them apart, and one contract candle is assembled from all four.
+	BaseUrl         string
+	MarkPriceUrl    string
+	IndexPriceUrl   string
+	PremiumIndexUrl string
 	// SymbolCatalogUrl is where a contract is confirmed to exist before it is
 	// watched. This venue answers with its whole catalogue whatever it is asked, so
 	// the address is the same question asked a different way from the spot one.
@@ -372,6 +374,12 @@ func Load() ApplicationConfig {
 			MarkPriceUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_MARK_PRICE_URL",
 				"https://fapi.binance.com/fapi/v1/markPriceKlines"),
+			IndexPriceUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_INDEX_PRICE_URL",
+				"https://fapi.binance.com/fapi/v1/indexPriceKlines"),
+			PremiumIndexUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_PREMIUM_INDEX_URL",
+				"https://fapi.binance.com/fapi/v1/premiumIndexKlines"),
 			SymbolCatalogUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_SYMBOL_CATALOG_URL",
 				"https://fapi.binance.com/fapi/v1/exchangeInfo"),

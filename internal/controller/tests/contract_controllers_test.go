@@ -28,11 +28,13 @@ const contractLookbackCeilingDays = 3650
 var assertAnError = errors.New("storage unreachable")
 
 // validContractBody is a complete contract candle: every figure, the trade count and
-// all four mark prices.
+// all four mark prices, index prices and premium index figures.
 const validContractBody = `{"symbol":"BTCUSDT","openTime":"2026-08-29T09:00:00Z",
 "open":"100","high":"120","low":"90","close":"120",
 "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600",
-"tradeCount":7,"markOpen":"101","markHigh":"121","markLow":"91","markClose":"111"}`
+"tradeCount":7,"markOpen":"101","markHigh":"121","markLow":"91","markClose":"111",
+"indexOpen":"102","indexHigh":"122","indexLow":"92","indexClose":"112",
+"premiumIndexOpen":"-0.0001","premiumIndexHigh":"0.0002","premiumIndexLow":"-0.0003","premiumIndexClose":"0.0001"}`
 
 func contractCandleAt(openTime time.Time, closePrice string) entities.KCandleContract {
 	return entities.KCandleContract{
@@ -141,6 +143,16 @@ func TestContractCandleWriteResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), "標記價格不得留白")
 	})
 
+	t.Run("refuses a candle whose index price was left out", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		withoutIndexPrice := strings.Replace(validContractBody, `"indexOpen":"102",`, "", 1)
+
+		recorder := fixture.call(http.MethodPost, "/contract-k-candles", withoutIndexPrice)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "指數價格必填")
+	})
+
 	t.Run("refuses a candle whose trade count was left out", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		withoutTradeCount := strings.Replace(validContractBody, `"tradeCount":7,`, "", 1)
@@ -181,6 +193,9 @@ func TestContractCandleReadResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), `"markClose":"111"`)
+		// That candle was stored before the index price and premium index existed.
+		assert.Contains(t, recorder.Body.String(), `"indexClose":null`)
+		assert.Contains(t, recorder.Body.String(), `"premiumIndexClose":null`)
 	})
 
 	t.Run("refuses a time it cannot read", func(t *testing.T) {
@@ -231,6 +246,18 @@ func TestContractCandleUpdateAndDeleteResponses(t *testing.T) {
 			"/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z", validContractBody)
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
+	})
+
+	t.Run("refuses an update whose premium index was left out, without touching the candle", func(t *testing.T) {
+		// No update is expected of storage: the candle keeps the figures it had.
+		fixture := newContractRouterUnderTest(t)
+		withoutPremiumIndex := strings.Replace(validContractBody, `,"premiumIndexClose":"0.0001"`, "", 1)
+
+		recorder := fixture.call(http.MethodPut,
+			"/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z", withoutPremiumIndex)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "溢價指數必填")
 	})
 
 	t.Run("refuses a body naming another candle", func(t *testing.T) {

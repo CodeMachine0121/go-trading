@@ -11,9 +11,10 @@ import (
 // already normalized and already merged: the wire format and the fact that it took
 // two questions to assemble both stop at the proxy and never reach the domain.
 //
-// The mark figures are the only optional ones, and they are optional because they
-// are the only ones that can genuinely be missing — they come from a second answer
-// that may not cover the same minute. The rest arrive together or not at all.
+// The mark, index and premium index figures are the only optional ones, and they are
+// optional because they are the only ones that can genuinely be missing — each comes
+// from an answer of its own that may not cover the same minute. The rest arrive
+// together or not at all.
 //
 // Nothing is judged here. "A contract K candle without a mark price is not one" is a
 // rule, and rules live in the domain; this type's whole job is to make that rule
@@ -34,6 +35,14 @@ type ContractMarketKCandleVo struct {
 	MarkHigh            decimal.NullDecimal
 	MarkLow             decimal.NullDecimal
 	MarkClose           decimal.NullDecimal
+	IndexOpen           decimal.NullDecimal
+	IndexHigh           decimal.NullDecimal
+	IndexLow            decimal.NullDecimal
+	IndexClose          decimal.NullDecimal
+	PremiumIndexOpen    decimal.NullDecimal
+	PremiumIndexHigh    decimal.NullDecimal
+	PremiumIndexLow     decimal.NullDecimal
+	PremiumIndexClose   decimal.NullDecimal
 }
 
 // ToWriteDto converts this reported candle into the shape the domain validates and
@@ -57,5 +66,13 @@ func (contractMarketKCandleVo ContractMarketKCandleVo) ToWriteDto() dto.KCandleC
 		MarkHigh:            contractMarketKCandleVo.MarkHigh,
 		MarkLow:             contractMarketKCandleVo.MarkLow,
 		MarkClose:           contractMarketKCandleVo.MarkClose,
+		IndexOpen:           contractMarketKCandleVo.IndexOpen,
+		IndexHigh:           contractMarketKCandleVo.IndexHigh,
+		IndexLow:            contractMarketKCandleVo.IndexLow,
+		IndexClose:          contractMarketKCandleVo.IndexClose,
+		PremiumIndexOpen:    contractMarketKCandleVo.PremiumIndexOpen,
+		PremiumIndexHigh:    contractMarketKCandleVo.PremiumIndexHigh,
+		PremiumIndexLow:     contractMarketKCandleVo.PremiumIndexLow,
+		PremiumIndexClose:   contractMarketKCandleVo.PremiumIndexClose,
 	}
 }
