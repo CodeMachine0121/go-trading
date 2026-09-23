@@ -198,6 +198,33 @@ func registerRoutes(
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)
 
+	// Funding rate settlements and position statistics are caught up by the same
+	// service instances the rounds use, for the reason the candles are: joining the
+	// watchlist catches a contract up at once, and that must not wait for background
+	// work to be switched on.
+	contractFundingRateService := service.NewContractFundingRateService(
+		persistence.NewContractFundingRateSettlementRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractFundingRateProxy(
+			applicationConfig.ContractIngestion.FundingRateUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+		),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+	contractPositionStatisticService := service.NewContractPositionStatisticService(
+		persistence.NewContractPositionStatisticRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractPositionStatisticProxy(
+			applicationConfig.ContractIngestion.StatisticsBaseUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContractStatistics,
+		),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	kCandleContractController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(service.NewKCandleContractService(
 			contractKCandleRepository,
@@ -242,6 +269,8 @@ func registerRoutes(
 				clock.NewSystemClockProxy(),
 			),
 			contractKCandleIngestionService,
+			contractFundingRateService,
+			contractPositionStatisticService,
 		))
 
 	engine.GET("/contract-trading-symbols",
@@ -640,6 +669,10 @@ type venuePacers struct {
 	// second contract series added later joins the same budget rather than opening a
 	// second one beside it.
 	cryptoContract marketdata.RequestPacer
+	// cryptoContractStatistics is the contract venue's allowance for its position
+	// statistics, which it counts apart from the one above. It is the one exception
+	// to "one venue, one budget", and it is the venue's exception, not this system's.
+	cryptoContractStatistics marketdata.RequestPacer
 	// taiwanStock is the market data plan's allowance, which the live quotes no longer
 	// spend: they come from the exchange itself, and its pace is the poll interval
 	// rather than an allowance shared with anybody.
@@ -652,6 +685,8 @@ func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 			applicationConfig.Ingestion.MarketDataRequestsPerMinute),
 		cryptoContract: marketdata.NewRequestPacer(
 			applicationConfig.ContractIngestion.RequestsPerMinute),
+		cryptoContractStatistics: marketdata.NewRequestPacer(
+			applicationConfig.ContractIngestion.StatisticsRequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
 	}

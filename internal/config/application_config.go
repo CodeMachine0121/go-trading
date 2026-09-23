@@ -102,9 +102,17 @@ type ContractIngestionConfig struct {
 	// FundingInfoUrl lists the contracts whose funding rate settles on an interval of
 	// their own. It is part of a contract's trading specification, and the venue
 	// keeps it apart from the catalogue.
-	FundingInfoUrl    string
+	FundingInfoUrl string
+	// FundingRateUrl is where a contract's funding rate settlements are read. It
+	// spends the same allowance as the candles.
+	FundingRateUrl    string
 	RequestTimeout    time.Duration
 	RequestsPerMinute int
+	// StatisticsBaseUrl is where the three answers a position statistic is assembled
+	// from live. The venue counts these apart from everything else it serves, which
+	// is why they have an allowance of their own.
+	StatisticsBaseUrl           string
+	StatisticsRequestsPerMinute int
 }
 
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
@@ -390,6 +398,17 @@ func Load() ApplicationConfig {
 			FundingInfoUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_FUNDING_INFO_URL",
 				"https://fapi.binance.com/fapi/v1/fundingInfo"),
+			FundingRateUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_FUNDING_RATE_URL",
+				"https://fapi.binance.com/fapi/v1/fundingRate"),
+			StatisticsBaseUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_STATISTICS_BASE_URL",
+				"https://fapi.binance.com/futures/data"),
+			// The venue allows a thousand of these every five minutes; this stays a
+			// little under that, so a thirty-day catch-up and the five-minute round
+			// never meet the ceiling together.
+			StatisticsRequestsPerMinute: positiveIntWithDefault(
+				"CONTRACT_MARKET_DATA_STATISTICS_REQUESTS_PER_MINUTE", 180),
 			RequestTimeout: time.Duration(positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 			// Half the spot allowance by default, because each candle here costs two

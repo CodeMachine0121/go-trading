@@ -65,6 +65,10 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
 	lookupProxy := mocks.NewMockIContractSymbolLookupProxy(mockController)
+	settlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
+	fundingRateProxy := mocks.NewMockIContractFundingRateProxy(mockController)
+	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
+	statisticProxy := mocks.NewMockIContractPositionStatisticProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
@@ -81,7 +85,23 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	symbolController := controller.NewContractTradingSymbolController(
 		application.NewContractTradingSymbolApplication(
 			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
-			ingestionService))
+			ingestionService,
+			service.NewContractFundingRateService(
+				settlementRepository, symbolRepository, fundingRateProxy, clockProxy, queryMaxResults),
+			service.NewContractPositionStatisticService(
+				statisticRepository, symbolRepository, statisticProxy, clockProxy, queryMaxResults)))
+	// Joining the watchlist also catches funding rates and position statistics up;
+	// these tests are about the candles and the answers, so those two have nothing.
+	settlementRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
+		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
+	fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	settlementRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	statisticRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
+		Return(entities.ContractPositionStatistic{}, false, nil).AnyTimes()
+	statisticProxy.EXPECT().FetchPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
 	backfillController := controller.NewKCandleContractBackfillController(ingestionApplication)
 	historySyncController := controller.NewKCandleContractHistorySyncController(
 		ingestionApplication, contractLookbackCeilingDays)
@@ -334,7 +354,7 @@ func TestContractWatchlistResponses(t *testing.T) {
 			Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 		fixture.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
-			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
 		fixture.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 			Return([]entities.KCandleContract{}, nil)
 		fixture.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).

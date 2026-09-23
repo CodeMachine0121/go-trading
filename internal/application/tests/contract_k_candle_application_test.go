@@ -64,6 +64,10 @@ type contractApplicationsUnderTest struct {
 	syncRunRepository    *mocks.MockIKCandleContractHistorySyncRunRepository
 	marketDataProxy      *mocks.MockIContractMarketDataProxy
 	lookupProxy          *mocks.MockIContractSymbolLookupProxy
+	settlementRepository *mocks.MockIContractFundingRateSettlementRepository
+	fundingRateProxy     *mocks.MockIContractFundingRateProxy
+	statisticRepository  *mocks.MockIContractPositionStatisticRepository
+	statisticProxy       *mocks.MockIContractPositionStatisticProxy
 }
 
 func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTest {
@@ -75,6 +79,10 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
 	lookupProxy := mocks.NewMockIContractSymbolLookupProxy(mockController)
+	settlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
+	fundingRateProxy := mocks.NewMockIContractFundingRateProxy(mockController)
+	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
+	statisticProxy := mocks.NewMockIContractPositionStatisticProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(contractAt(9, 7)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
@@ -89,13 +97,21 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 			service.NewKCandleContractService(candleRepository, clockProxy, contractQueryMaxResults)),
 		symbolApplication: application.NewContractTradingSymbolApplication(
 			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
-			ingestionService),
+			ingestionService,
+			service.NewContractFundingRateService(
+				settlementRepository, symbolRepository, fundingRateProxy, clockProxy, contractQueryMaxResults),
+			service.NewContractPositionStatisticService(
+				statisticRepository, symbolRepository, statisticProxy, clockProxy, contractQueryMaxResults)),
 		ingestionApplication: application.NewKCandleContractIngestionApplication(ingestionService),
 		candleRepository:     candleRepository,
 		symbolRepository:     symbolRepository,
 		syncRunRepository:    syncRunRepository,
 		marketDataProxy:      marketDataProxy,
 		lookupProxy:          lookupProxy,
+		settlementRepository: settlementRepository,
+		fundingRateProxy:     fundingRateProxy,
+		statisticRepository:  statisticRepository,
+		statisticProxy:       statisticProxy,
 	}
 }
 
@@ -153,11 +169,24 @@ func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
 		Symbol: "BTCUSDT", IsWatched: true,
 	}).Return(nil)
 	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
-		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
 	underTest.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandleContract{}, nil)
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return([]vo.ContractMarketKCandleVo{}, nil).Times(1)
+	// Its whole funding rate history, from its first settlement.
+	underTest.settlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractFundingRateSettlement{}, false, nil)
+	underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), "BTCUSDT", time.Time{}).
+		Return([]vo.ContractFundingRateSettlementVo{}, nil).Times(1)
+	underTest.settlementRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
+	// And its last thirty days of position statistics.
+	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractPositionStatistic{}, false, nil)
+	underTest.statisticProxy.EXPECT().FetchPositionStatistics(
+		gomock.Any(), "BTCUSDT", contractAt(9, 5).Add(-30*24*time.Hour).Add(5*time.Minute), contractAt(9, 5)).
+		Return([]vo.ContractPositionStatisticVo{}, nil).Times(1)
+	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
 
 	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
 
@@ -172,7 +201,7 @@ func TestContractApplicationKeepsTheContractOnTheWatchlistWhenTheCatchUpFails(t 
 		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
-		entities.ContractTradingSymbol{}, false, nil)
+		entities.ContractTradingSymbol{}, false, nil).Times(3)
 
 	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
 

@@ -32,7 +32,7 @@ func TestContractTradingSymbolApplicationRefreshesSpecificationsThroughToStorage
 	symbolApplication := application.NewContractTradingSymbolApplication(
 		service.NewContractTradingSymbolService(
 			symbolRepository, mocks.NewMockIKCandleContractRepository(mockController), lookupProxy, clockProxy),
-		nil)
+		nil, nil, nil)
 
 	refreshedCount, refreshError := symbolApplication.RefreshTradingSpecifications(t.Context())
 
