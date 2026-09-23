@@ -158,6 +158,29 @@ func NewTradingStrategySignalSourcesDomain(
 }
 
 // Labels are what the conditions may name, in the order they were declared.
+// RequireMarketDataKind refuses a source whose strategy script eats a different kind
+// of market from the trading strategy, naming it. The two kinds' bars are not the
+// same bars, so a condition tree cannot read one source's opinion beside another's.
+func (tradingStrategySignalSourcesDomain TradingStrategySignalSourcesDomain) RequireMarketDataKind(
+	marketDataKind MarketDataKindDomain,
+) error {
+	for _, source := range tradingStrategySignalSourcesDomain.sources {
+		sourceKind, kindError := NewMarketDataKindDomain(source.DeclaredMarketDataKind)
+		if kindError != nil {
+			return fmt.Errorf("%w: %w", ErrTradingStrategyValidation, kindError)
+		}
+
+		if sourceKind.value != marketDataKind.value {
+			return fmt.Errorf(
+				"%w: 信號來源 %q 指名的那支策略腳本吃的是%s，這份交易策略吃的是%s——"+
+					"一份交易策略的每一個信號來源都要吃同一種行情",
+				ErrTradingStrategyValidation, source.Label, sourceKind.label(), marketDataKind.label())
+		}
+	}
+
+	return nil
+}
+
 func (tradingStrategySignalSourcesDomain TradingStrategySignalSourcesDomain) Labels() []string {
 	return tradingStrategySignalSourcesDomain.labels
 }

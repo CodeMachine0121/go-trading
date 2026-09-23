@@ -111,6 +111,21 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	// stronger than remembering not to.
 	writeDto.OwnerID = storedTradingStrategy.OwnerID
 
+	// The kind is kept the same way: a rewrite that says nothing about it keeps what is
+	// stored, and one that names the other kind is refused.
+	storedMarketDataKind, storedKindError := domains.NewMarketDataKindDomain(
+		storedTradingStrategy.MarketDataKind)
+	if storedKindError != nil {
+		return dto.TradingStrategyDto{}, storedKindError
+	}
+
+	retainedMarketDataKind, retainError := storedMarketDataKind.RetainingForTradingStrategy(
+		writeDto.MarketDataKind)
+	if retainError != nil {
+		return dto.TradingStrategyDto{}, retainError
+	}
+	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
+
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
 	if validationError != nil {
 		return dto.TradingStrategyDto{}, validationError

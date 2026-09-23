@@ -77,3 +77,31 @@ func (backtestExitLevelsDomain BacktestExitLevelsDomain) PricesFrom(
 
 	return exitPricesVo
 }
+
+// PricesFacing is the two exit prices for a position facing that way. A long one is
+// stopped below and taken above, exactly as PricesFrom settles it; a short one is the
+// mirror — its stop sits above the entry, because a rising price is what hurts it.
+func (backtestExitLevelsDomain BacktestExitLevelsDomain) PricesFacing(
+	direction vo.PositionDirectionVo, entryPrice decimal.Decimal,
+) vo.ExitPricesVo {
+	if direction != vo.PositionDirectionShort {
+		return backtestExitLevelsDomain.PricesFrom(entryPrice)
+	}
+
+	exitPricesVo := vo.ExitPricesVo{
+		HasStopLoss:   backtestExitLevelsDomain.stopLoss.IsPositive(),
+		HasTakeProfit: backtestExitLevelsDomain.takeProfit.IsPositive(),
+	}
+
+	if exitPricesVo.HasStopLoss {
+		exitPricesVo.StopLossPrice = entryPrice.Add(
+			portionOf(entryPrice, backtestExitLevelsDomain.stopLoss))
+	}
+
+	if exitPricesVo.HasTakeProfit {
+		exitPricesVo.TakeProfitPrice = entryPrice.Sub(
+			portionOf(entryPrice, backtestExitLevelsDomain.takeProfit))
+	}
+
+	return exitPricesVo
+}

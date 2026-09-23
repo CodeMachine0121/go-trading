@@ -18,6 +18,9 @@ type TradingStrategyWriteDto struct {
 	// chosen by it — it is carried only so that a caller asking for a different one
 	// is told, rather than quietly handed spot.
 	TradingMode string
+	// MarketDataKind is which kind of market this trading strategy's rules are
+	// written for. Blank is the K candle on creation, and the stored kind on a rewrite.
+	MarketDataKind string
 
 	SignalSources []TradingStrategySignalSourceWriteDto
 	BuyCondition  TradingStrategyConditionDto
@@ -45,4 +48,7 @@ type TradingStrategySignalSourceWriteDto struct {
 	// strategy script ever produces those — so this is the only field that decides
 	// whether a source can mean anything at all.
 	DeclaredResultType string
+	// DeclaredMarketDataKind is the kind of market the named strategy script eats, read
+	// off it by the caller so that a source eating the other kind can be refused.
+	DeclaredMarketDataKind string
 }

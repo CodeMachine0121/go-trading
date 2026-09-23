@@ -158,3 +158,20 @@ func (backtestTransactionCostsDomain BacktestTransactionCostsDomain) ExitCostFor
 	return moneyChangingHands.Mul(backtestTransactionCostsDomain.exitCostPercentage).
 		Div(oneHundredPercent).Abs()
 }
+
+// ForMarginAt is these costs as a contract opening sees them from its margin: the
+// entry charge is taken on the notional, which is the margin times the leverage, so
+// against the margin it is that many times larger.
+//
+// It exists for one question only — how much margin a pot of cash can put down once
+// the entry charge is paid out of it too — so that PositionSizingDomain answers it for
+// a contract with the very arithmetic it uses for spot. The exit charge is left alone:
+// it is always worked out on the money that actually changes hands.
+func (backtestTransactionCostsDomain BacktestTransactionCostsDomain) ForMarginAt(
+	leverage decimal.Decimal,
+) BacktestTransactionCostsDomain {
+	return BacktestTransactionCostsDomain{
+		entryCostPercentage: backtestTransactionCostsDomain.entryCostPercentage.Mul(leverage),
+		exitCostPercentage:  backtestTransactionCostsDomain.exitCostPercentage,
+	}
+}
