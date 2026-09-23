@@ -2,7 +2,6 @@ package marketdata
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -168,19 +167,9 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
 		return nil, fmt.Errorf("market source answered %d for %s", response.StatusCode, symbol)
 	}
 
-	var candlesAnswer fugleCandlesAnswer
-
-	answer := json.NewDecoder(response.Body)
-	if decodeError := answer.Decode(&candlesAnswer); decodeError != nil {
-		return nil, fmt.Errorf("read market source answer for %s: %w", symbol, decodeError)
-	}
-
-	// A decoder stops at the end of the first value and would ignore whatever came
-	// after it. Ignored, a good answer followed by junk reads as a market with
-	// nothing to report rather than as a source that cannot be read.
-	if answer.More() {
-		return nil, fmt.Errorf(
-			"read market source answer for %s: trailing content after the answer", symbol)
+	candlesAnswer, decodeError := decodeFugleCandles(response.Body, symbol)
+	if decodeError != nil {
+		return nil, decodeError
 	}
 
 	marketKCandles := make([]vo.MarketKCandleVo, 0, len(candlesAnswer.Data))

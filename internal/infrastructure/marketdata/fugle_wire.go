@@ -1,7 +1,9 @@
 package marketdata
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -50,4 +52,57 @@ func (fugleCandle fugleCandle) toMarketKCandleVo(symbol string) (vo.MarketKCandl
 		Close:    fugleCandle.Close,
 		Volume:   fugleCandle.Volume,
 	}, nil
+}
+
+// toLiveKCandleVo normalizes one candle this source is reporting during the session.
+//
+// Whether it is this candle's last word is not stated by the source and is not
+// claimed here — deciding that is the live proxy's job, and it decides it by watching
+// which minute the source calls its latest.
+//
+// Nothing is converted. This is the same shape, from the same venue, as the candles
+// the scheduled round stores: a live update and the history it lands next to are the
+// same source describing the same minute, so a figure that differed between them
+// could only be one this system invented.
+func (fugleCandle fugleCandle) toLiveKCandleVo(symbol string) (vo.LiveKCandleVo, error) {
+	openTime, parseError := time.Parse(time.RFC3339, fugleCandle.Date)
+	if parseError != nil {
+		return vo.LiveKCandleVo{}, fmt.Errorf(
+			"read open time from market source for %s: %w", symbol, parseError)
+	}
+
+	return vo.LiveKCandleVo{
+		Symbol:   symbol,
+		OpenTime: openTime.UTC(),
+		Open:     fugleCandle.Open,
+		High:     fugleCandle.High,
+		Low:      fugleCandle.Low,
+		Close:    fugleCandle.Close,
+		Volume:   fugleCandle.Volume,
+	}, nil
+}
+
+// decodeFugleCandles reads one candle answer from this venue.
+//
+// It is shared by the two proxies that ask for candles — the scheduled round and the
+// live follow — because the answer is the same answer, and a second reading of it
+// would be a second chance to disagree about what counts as unreadable.
+func decodeFugleCandles(body io.Reader, symbol string) (fugleCandlesAnswer, error) {
+	var candlesAnswer fugleCandlesAnswer
+
+	answer := json.NewDecoder(body)
+	if decodeError := answer.Decode(&candlesAnswer); decodeError != nil {
+		return fugleCandlesAnswer{}, fmt.Errorf(
+			"read market source answer for %s: %w", symbol, decodeError)
+	}
+
+	// A decoder stops at the end of the first value and would ignore whatever came
+	// after it. Ignored, a good answer followed by junk reads as a market with
+	// nothing to report rather than as a source that cannot be read.
+	if answer.More() {
+		return fugleCandlesAnswer{}, fmt.Errorf(
+			"read market source answer for %s: trailing content after the answer", symbol)
+	}
+
+	return candlesAnswer, nil
 }
