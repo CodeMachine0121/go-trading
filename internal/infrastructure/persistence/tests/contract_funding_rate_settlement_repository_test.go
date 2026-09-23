@@ -129,3 +129,20 @@ func TestContractFundingRateSettlementRepositorySaysSoWhenStorageIsUnreachable(t
 	assert.Error(t, latestError)
 	assert.Error(t, rangeError)
 }
+
+func TestContractFundingRateSettlementRepositoryStoresAHistoryLongerThanOneStatementCarries(t *testing.T) {
+	// 17000 settlements of four figures each is more values than one statement can
+	// carry — about fifteen years of an eight-hour contract, or four of an hourly one.
+	database := newTestDatabase(t)
+	settlementRepository := persistence.NewContractFundingRateSettlementRepository(database)
+	longHistory := make([]entities.ContractFundingRateSettlement, 0, 17000)
+	firstSettlement := at(0, 0).Add(-17000 * time.Hour)
+	for index := range 17000 {
+		longHistory = append(longHistory, settlementOf("BTCUSDT", firstSettlement.Add(time.Duration(index)*time.Hour), "0.0001"))
+	}
+
+	storedCount, saveError := settlementRepository.SaveAllIfAbsent(t.Context(), longHistory)
+
+	require.NoError(t, saveError)
+	assert.Equal(t, 17000, storedCount)
+}

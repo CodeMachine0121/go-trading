@@ -21,7 +21,12 @@ func NewContractPositionStatisticRepository(database *gorm.DB) *ContractPosition
 	return &ContractPositionStatisticRepository{database: database}
 }
 
-// SaveAllIfAbsent stores every statistic nothing is held for yet, in one statement,
+// saveBatchSize is how many statistics go into one statement. A thirty-day catch-up
+// is over eight thousand of them, and at ten figures each that is more than the
+// sixty-five thousand values PostgreSQL takes in a single statement.
+const positionStatisticSaveBatchSize = 1000
+
+// SaveAllIfAbsent stores every statistic nothing is held for yet, a batch at a time,
 // and says how many it stored. An empty batch never reaches the store: the driver
 // refuses a statement with no rows, and "nothing new in five minutes" is ordinary.
 func (statisticRepository *ContractPositionStatisticRepository) SaveAllIfAbsent(
@@ -36,7 +41,7 @@ func (statisticRepository *ContractPositionStatisticRepository) SaveAllIfAbsent(
 			Columns:   []clause.Column{{Name: "symbol"}, {Name: "statistic_time"}},
 			DoNothing: true,
 		}).
-		Create(&statistics)
+		CreateInBatches(&statistics, positionStatisticSaveBatchSize)
 	if result.Error != nil {
 		return 0, fmt.Errorf("save contract position statistics: %w", result.Error)
 	}

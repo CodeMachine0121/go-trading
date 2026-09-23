@@ -1,6 +1,8 @@
 package application_test
 
 import (
+	"errors"
+	"log"
 	"testing"
 	"time"
 
@@ -298,4 +300,55 @@ func TestContractIngestionApplicationStartsAndReadsAHistorySync(t *testing.T) {
 	assert.Equal(t, uint(11), startedRun.ID)
 	assert.Equal(t, string(vo.KCandleHistorySyncRunning), startedRun.Status)
 	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), readRun.Status)
+}
+
+// catchUpRecords is where the application writes down what could not be caught up.
+type catchUpRecords struct {
+	lines chan string
+}
+
+func (records catchUpRecords) Write(line []byte) (int, error) {
+	select {
+	case records.lines <- string(line):
+	default:
+	}
+
+	return len(line), nil
+}
+
+func TestContractApplicationSaysWhichSeriesCouldNotBeCaughtUpWhenAContractIsAdded(t *testing.T) {
+	// The venue refusing comes back inside a report, not as an error. Left unsaid, it
+	// would look exactly like a catch-up that found nothing.
+	records := catchUpRecords{lines: make(chan string, 64)}
+	previousOutput := log.Writer()
+	log.SetOutput(records)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+	underTest := newContractApplicationsUnderTest(t)
+	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
+	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
+	underTest.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandleContract{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.ContractMarketKCandleVo{}, nil)
+	underTest.settlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractFundingRateSettlement{}, false, nil)
+	underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("funding venue unreachable"))
+	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractPositionStatistic{}, false, nil)
+	underTest.statisticProxy.EXPECT().FetchPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("statistics venue unreachable"))
+
+	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
+
+	require.NoError(t, addError)
+	written := ""
+	for len(records.lines) > 0 {
+		written += <-records.lines
+	}
+	assert.Contains(t, written, "BTCUSDT was added but its funding rates could not be caught up: funding venue unreachable")
+	assert.Contains(t, written, "BTCUSDT was added but its position statistics could not be caught up: statistics venue unreachable")
 }

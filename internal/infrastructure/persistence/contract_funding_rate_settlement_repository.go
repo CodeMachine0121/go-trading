@@ -21,7 +21,12 @@ func NewContractFundingRateSettlementRepository(database *gorm.DB) *ContractFund
 	return &ContractFundingRateSettlementRepository{database: database}
 }
 
-// SaveAllIfAbsent stores every settlement nothing is held for yet, in one statement,
+// fundingRateSettlementSaveBatchSize is how many settlements go into one statement.
+// A contract listed years ago has thousands of them, and the count only grows, while
+// PostgreSQL takes at most sixty-five thousand values in a single statement.
+const fundingRateSettlementSaveBatchSize = 1000
+
+// SaveAllIfAbsent stores every settlement nothing is held for yet, a batch at a time,
 // and says how many it stored. An empty batch never reaches the store: the driver
 // refuses a statement with no rows, and "nothing new this hour" is an ordinary answer.
 func (settlementRepository *ContractFundingRateSettlementRepository) SaveAllIfAbsent(
@@ -36,7 +41,7 @@ func (settlementRepository *ContractFundingRateSettlementRepository) SaveAllIfAb
 			Columns:   []clause.Column{{Name: "symbol"}, {Name: "settlement_time"}},
 			DoNothing: true,
 		}).
-		Create(&settlements)
+		CreateInBatches(&settlements, fundingRateSettlementSaveBatchSize)
 	if result.Error != nil {
 		return 0, fmt.Errorf("save contract funding rate settlements: %w", result.Error)
 	}

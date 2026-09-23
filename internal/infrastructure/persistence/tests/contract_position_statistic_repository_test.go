@@ -111,3 +111,23 @@ func TestContractPositionStatisticRepositorySaysSoWhenStorageIsUnreachable(t *te
 	assert.Error(t, latestError)
 	assert.Error(t, rangeError)
 }
+
+func TestContractPositionStatisticRepositoryStoresAThirtyDayCatchUpInOneCall(t *testing.T) {
+	// Thirty days is 8640 statistics of ten figures each — more values than one
+	// statement can carry.
+	database := newTestDatabase(t)
+	statisticRepository := persistence.NewContractPositionStatisticRepository(database)
+	thirtyDays := make([]entities.ContractPositionStatistic, 0, 8640)
+	firstMoment := at(0, 0).Add(-30 * 24 * time.Hour)
+	for index := range 8640 {
+		thirtyDays = append(thirtyDays, statisticOf("BTCUSDT", firstMoment.Add(time.Duration(index)*5*time.Minute), "1"))
+	}
+
+	storedCount, saveError := statisticRepository.SaveAllIfAbsent(t.Context(), thirtyDays)
+	storedAgain, againError := statisticRepository.SaveAllIfAbsent(t.Context(), thirtyDays)
+
+	require.NoError(t, saveError)
+	assert.Equal(t, 8640, storedCount)
+	require.NoError(t, againError)
+	assert.Equal(t, 0, storedAgain)
+}

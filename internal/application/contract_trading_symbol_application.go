@@ -70,17 +70,14 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) AddToW
 			symbol, catchUpError)
 	}
 
-	if _, catchUpError := contractTradingSymbolApplication.contractFundingRateService.
-		RunRoundFor(executionContext, symbol); catchUpError != nil {
-		log.Printf("contract watchlist: %s was added but its funding rates could not be caught up: %v",
-			symbol, catchUpError)
-	}
+	fundingRateReport, fundingRateError := contractTradingSymbolApplication.contractFundingRateService.
+		RunRoundFor(executionContext, symbol)
+	contractTradingSymbolApplication.noteCatchUpFailure(symbol, "funding rates", fundingRateReport, fundingRateError)
 
-	if _, catchUpError := contractTradingSymbolApplication.contractPositionStatisticService.
-		RunRoundFor(executionContext, symbol); catchUpError != nil {
-		log.Printf("contract watchlist: %s was added but its position statistics could not be caught up: %v",
-			symbol, catchUpError)
-	}
+	positionStatisticReport, positionStatisticError := contractTradingSymbolApplication.
+		contractPositionStatisticService.RunRoundFor(executionContext, symbol)
+	contractTradingSymbolApplication.noteCatchUpFailure(
+		symbol, "position statistics", positionStatisticReport, positionStatisticError)
 
 	return nil
 }
@@ -102,4 +99,26 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) Remove
 ) error {
 	return contractTradingSymbolApplication.contractTradingSymbolService.RemoveFromWatchlist(
 		executionContext, symbol)
+}
+
+// noteCatchUpFailure writes down a series that could not be caught up when a contract
+// joined the watchlist. There are two ways it can go wrong, and both have to be said
+// out loud: the catch-up refusing outright, and the catch-up running while the venue
+// or storage would not answer — which comes back as a report, not an error, because a
+// round never fails for one contract. Left unsaid, the second looks exactly like a
+// catch-up that found nothing.
+func (contractTradingSymbolApplication *ContractTradingSymbolApplication) noteCatchUpFailure(
+	symbol string, seriesName string, symbolReport dto.ContractSeriesSymbolReportDto, catchUpError error,
+) {
+	if catchUpError != nil {
+		log.Printf("contract watchlist: %s was added but its %s could not be caught up: %v",
+			symbol, seriesName, catchUpError)
+
+		return
+	}
+
+	if symbolReport.FetchFailureReason != "" {
+		log.Printf("contract watchlist: %s was added but its %s could not be caught up: %s",
+			symbol, seriesName, symbolReport.FetchFailureReason)
+	}
 }
