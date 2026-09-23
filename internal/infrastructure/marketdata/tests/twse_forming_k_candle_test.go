@@ -173,14 +173,14 @@ func TestAMinuteVolumeIsWhatTheDayTotalGrewByWithinIt(t *testing.T) {
 	liveKCandles, _ := followTwse(t, source, "2330")
 
 	liveKCandle := nextKCandle(t, liveKCandles)
-	assert.Equal(t, "30000", liveKCandle.Volume.String())
+	assert.Equal(t, "30", liveKCandle.Volume.String())
 	assert.False(t, liveKCandle.Closed)
 }
 
-// Lots are what this venue counts in; shares are what the system speaks. A thousand
-// lots is a million shares, and getting this wrong is silent — both are believable
-// volumes.
-func TestVolumeIsCarriedInSharesRatherThanLots(t *testing.T) {
+// Volume is carried across exactly as reported. Scaling it would be this system
+// inventing a number nobody sent it, and getting that wrong is silent — a scaled
+// volume is still a believable volume.
+func TestVolumeIsCarriedAcrossExactlyAsReported(t *testing.T) {
 	source := newTwseSourceUnderTest(t,
 		[]twseQuote{quoteAt("10:00:05", "2500", "0")},
 		[]twseQuote{quoteAt("10:00:45", "2500", "1000")},
@@ -188,7 +188,7 @@ func TestVolumeIsCarriedInSharesRatherThanLots(t *testing.T) {
 
 	liveKCandles, _ := followTwse(t, source, "2330")
 
-	assert.Equal(t, "1000000", nextKCandle(t, liveKCandles).Volume.String())
+	assert.Equal(t, "1000", nextKCandle(t, liveKCandles).Volume.String())
 }
 
 // A running total that has not moved is a minute nothing traded in. There is no
@@ -205,7 +205,7 @@ func TestAMinuteNothingTradedInIsNotReported(t *testing.T) {
 	// The only candle that can arrive is the next minute's, because the first minute
 	// never grew. A finished candle for it would have come first if it existed.
 	liveKCandle := nextKCandle(t, liveKCandles)
-	assert.Equal(t, "60000", liveKCandle.Volume.String())
+	assert.Equal(t, "60", liveKCandle.Volume.String())
 	assert.False(t, liveKCandle.Closed)
 }
 
@@ -228,7 +228,7 @@ func TestAQuoteInALaterMinuteFinishesTheEarlierOneFirst(t *testing.T) {
 	assert.Equal(t,
 		time.Date(2026, 9, 22, 10, 1, 0, 0, twseTaipeiLocation).UTC(),
 		finished.OpenTime.UTC())
-	assert.Equal(t, "160000", finished.Volume.String())
+	assert.Equal(t, "160", finished.Volume.String())
 	assert.Equal(t, "2520", finished.Open.String())
 	assert.Equal(t, "2530", finished.Close.String())
 }

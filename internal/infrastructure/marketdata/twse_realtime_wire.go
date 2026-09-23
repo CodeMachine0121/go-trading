@@ -9,16 +9,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// sharesPerLot is how many shares this venue counts as one of the lots it reports
-// volume in.
-//
-// It is named rather than written where it is used because it is the single reason
-// this source's volume and the history source's volume are not the same number. A
-// bare multiplication would read as arithmetic; this reads as a unit conversion, and
-// the next person to touch it will ask what it converts between rather than what it
-// scales.
-const sharesPerLot = 1000
-
 // twseRealtimeAnswer is the shape this source answers a quote request with. It
 // answers about every symbol asked for in one body, so the entries are read by the
 // code each carries rather than by their position.
@@ -50,8 +40,11 @@ type twseRealtimeQuote struct {
 	Symbol string `json:"c"`
 	// LatestPrice is the most recent trade, or a dash before the first one of the day.
 	LatestPrice string `json:"z"`
-	// CumulativeVolume is the day's running total **in lots**, not this minute's and
-	// not in shares. Both of those differences are corrected in toLiveKCandleVo.
+	// CumulativeVolume is the day's running total, not this minute's — the one
+	// difference from the history source, and the one toLiveKCandleVo cannot correct
+	// on its own. The **unit needs no correcting**: this venue and the history source
+	// both count in lots. Measured on 2026-09-22, this field and the history source's
+	// minute volumes summed to the same 18876 for 2330, to the unit.
 	CumulativeVolume string `json:"v"`
 	// LatestTradeTime is when that trade happened, in this market's own zone. It is
 	// not the moment the source published the answer — a quote republished unchanged
@@ -74,11 +67,12 @@ type twseRealtimeQuote struct {
 // all session — and reading the dash as a number would put a candle at zero on
 // somebody's chart.
 //
-// **Volume is converted from lots to shares.** This venue counts in lots of a
-// thousand; the history source counts in shares. Left alone, the same stock's live
-// and historical volume differ by three orders of magnitude — and nothing anywhere
-// would raise an error about it, because both numbers are perfectly valid volumes.
-// Only the judgments that read volume would quietly stop meaning anything.
+// **Volume is carried across exactly as reported.** Both Taiwan sources count in the
+// same unit, so converting would be this system inventing a number nobody sent it —
+// and it would produce the very thousandfold split between a stock's history and its
+// live updates that a conversion here was once believed to prevent. Nothing would
+// raise an error either way, because both numbers are perfectly valid volumes; only
+// the judgments that read volume would quietly stop meaning anything.
 //
 // **The volume carried out is still the day's running total.** Turning that into one
 // minute's worth needs to remember where the minute started, which is a thing a
@@ -97,7 +91,7 @@ func (twseRealtimeQuote twseRealtimeQuote) toLiveKCandleVo(
 		return vo.LiveKCandleVo{}, false, nil
 	}
 
-	cumulativeLots, volumeError := decimal.NewFromString(
+	cumulativeVolume, volumeError := decimal.NewFromString(
 		strings.TrimSpace(twseRealtimeQuote.CumulativeVolume))
 	if volumeError != nil {
 		return vo.LiveKCandleVo{}, false, fmt.Errorf(
@@ -117,7 +111,7 @@ func (twseRealtimeQuote twseRealtimeQuote) toLiveKCandleVo(
 		High:     latestPrice,
 		Low:      latestPrice,
 		Close:    latestPrice,
-		Volume:   cumulativeLots.Mul(decimal.NewFromInt(sharesPerLot)),
+		Volume:   cumulativeVolume,
 	}, true, nil
 }
 

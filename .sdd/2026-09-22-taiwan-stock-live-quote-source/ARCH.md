@@ -21,9 +21,11 @@
 
 - **Guiding principle 2：單位換算只有一處，而且那一處沒有人繞得過去。**
 
-  證交所以「張」報量、富果以「股」報量，差一千倍；證交所報「當日累計」、富果報「這一根的量」。兩者都不對齊時**沒有任何東西會報錯**——只有量能相關的判斷會安靜地失準。
+  證交所報「當日累計」、富果報「這一根的量」。不對齊時**沒有任何東西會報錯**——只有量能相關的判斷會安靜地失準。
 
-  因此換算與差分都被關在**收下的那一刻**：wire 型別的 `toLiveKCandleVo()` 負責張換股（純轉換），forming candle 負責累計換每分鐘（需要記得這一分鐘的起點）。系統其餘每一處只認識「股」與「這一根的量」，不必各自記得這件事。
+  **單位則不必對齊：兩者同為「張」**（2026-09-23 實測更正，見 §8）。
+
+  因此差分被關在**收下的那一刻**：forming candle 負責把當日累計換成每分鐘（需要記得這一分鐘的起點）。系統其餘每一處只認識「這一根的量」，不必各自記得這件事。
 
 ---
 
@@ -35,7 +37,7 @@
 | `domain/models/domains/market_domain.go` | **Modify** | 多 `FollowsFixedRoster()`；`HasFollowCeiling()` 保留但**只剩天花板一個意思** |
 | `domain/models/domains/live_follow_roster_domain.go` | **Modify** | 進名單的條件改為「照名單跟的市場」；**無天花板＝不限名額**，不再等同於「沒有名額」。`HasLiveUpdates` 改問 `FollowsFixedRoster()` |
 | `domain/service/k_candle_follow_service.go` | **Modify** | 觀看者抵達時那一個分支改問 `FollowsFixedRoster()`。**其餘一字不改**——開通道、重建、中斷、重試全部原封不動 |
-| `infrastructure/marketdata/twse_realtime_wire.go` | **Add** | 證交所答覆的形狀，與 `toLiveKCandleVo()`（**張換股就在這裡**） |
+| `infrastructure/marketdata/twse_realtime_wire.go` | **Add** | 證交所答覆的形狀，與 `toLiveKCandleVo()`（價格與時間的正規化；**成交量原樣帶過，不換算**） |
 | `infrastructure/marketdata/twse_realtime_live_market_data_proxy.go` | **Add** | `TwseRealtimeLiveMarketDataProxy`，實作既有的 `ILiveMarketDataProxy` |
 | `infrastructure/marketdata/twse_forming_k_candle.go` | **Add（由 fugle 版改名而來）** | 折疊邏輯照舊，**多一件事：累計量換成這一分鐘的量** |
 | `infrastructure/marketdata/fugle_live_market_data_proxy.go` | **Delete** | 台股即時不再走富果 |
@@ -59,7 +61,7 @@
 | `vo.MarketRulesVo.FollowsFixedRoster` | VO 欄位 | 這個市場的即時跟盤是**照名單**（沒人看也跟）還是**照觀看者**（有人看才跟） | — | US-01「八檔全部都在名單上」「收盤一檔都不跟」「不在觀察清單上的仍被告知沒有即時更新」 |
 | `domains.MarketDomain.FollowsFixedRoster()` | Domain method | 回答上面那個問題，**與天花板無關** | `vo.MarketRulesVo` | 同上 |
 | `marketdata.TwseRealtimeLiveMarketDataProxy` | Proxy | 向證交所定期問一條通道上的每一檔，把答覆折成 K 線送進 channel。**藏起來的事**：兩種掛牌前綴都問、一次問不完就分批、問的節奏、收盤後不再問 | `twseRealtimeQuote`、`twseFormingKCandle`、`RequestPacer`、`MarketDomain` | US-01 全部、US-04「即時向證交所取」、US-05 全部 |
-| `marketdata.twseRealtimeQuote` | wire | 證交所答覆的形狀；`toLiveKCandleVo()` 做**張換股**與價格時間的正規化 | `vo.LiveKCandleVo` | US-02 全部 |
+| `marketdata.twseRealtimeQuote` | wire | 證交所答覆的形狀；`toLiveKCandleVo()` 做價格與時間的正規化，**成交量原樣帶過** | `vo.LiveKCandleVo` | US-02 全部 |
 | `marketdata.twseFormingKCandle` | 折疊器 | 把快照折進它該落的那一分鐘，並把**當日累計量換成這一分鐘的量**；一個快照落到更後面的分鐘即證明前一分鐘收完了 | `vo.LiveKCandleVo` | US-03 全部 |
 
 **深度檢查（deep module）**：`TwseRealtimeLiveMarketDataProxy` 對外只有 `FollowKCandles(ctx, channel)`——與被它取代的富果版**簽名完全相同**，呼叫端沒有多學任何東西。它身後藏著六件呼叫端不必知道的事（前綴、分批、節奏、換算、差分、收盤）。沒有「And/Then」式的命名，沒有要呼叫端自己排的步驟，參數沒有變長。通過。
@@ -101,7 +103,7 @@ flowchart TD
     RoutedLive -->|crypto| BinanceLive[BinanceLiveMarketDataProxy]
     RoutedLive -->|taiwanStock| TwseLive[TwseRealtimeLiveMarketDataProxy]
 
-    TwseLive --> Wire[twseRealtimeQuote<br/>張 → 股]
+    TwseLive --> Wire[twseRealtimeQuote<br/>價格與時間正規化]
     TwseLive --> Forming[twseFormingKCandle<br/>累計 → 每分鐘]
     TwseLive --> Pacer[RequestPacer]
 
@@ -128,7 +130,7 @@ flowchart TD
 - **Do not hardcode:**
   - **詢問間隔**——那是對來源的禮貌程度，不是業務規則，問得太勤會被擋（設定，預設三秒）。
   - **一次詢問涵蓋的檔數**——來源沒有公布上限，實測五十筆可行（設定）。
-  - **一張等於幾股**——寫成具名常數並在該處寫下為什麼，不要讓它變成程式裡一個裸的 `1000`。
+  - **任何成交量的比例換算**——兩個台股來源同為「張」，乘上任何數字都是憑空造數。
   - **任何一處 `if market == taiwanStock`**——市場的差異一律問 `MarketDomain`。
 
 - **Known debt / deferred:**
@@ -168,6 +170,10 @@ flowchart TD
 ---
 
 ## 8. Risks & Open Decisions
+
+**Correction (2026-09-23):**
+
+> **2026-09-23 更正。** 本切片原先寫著「富果以股報量、證交所以張報量，差一千倍」，並據此在收下證交所報價時乘一千。**那是錯的。** 盤中實測：2026-09-22，2330 的富果分 K 成交量加總與證交所當日累計同為 `18876`，一單位不差——兩者都以**張**計。那個換算因此正好製造出它想防的一千倍落差，已移除。證交所官方的**日**成交股數（22,009,927 股）是另一回事：以股計，且含盤後定價與零股，不能拿來當分 K 的單位依據。
 
 **Risks / trade-offs:**
 
