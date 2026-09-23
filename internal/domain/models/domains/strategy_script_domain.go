@@ -43,7 +43,11 @@ type StrategyScriptDomain struct {
 	description string
 	script      string
 	resultType  IndicatorResultTypeDomain
-	parameters  StrategyScriptParametersDomain
+	// marketDataKind is which kind of market the algorithm eats. On a rewrite it
+	// arrives here already reconciled with the kind the strategy script has — see
+	// MarketDataKindDomain.Retaining — so this model only has to read it.
+	marketDataKind MarketDataKindDomain
+	parameters     StrategyScriptParametersDomain
 }
 
 // NewStrategyScriptDomain validates the strategy script against every rule that applies to it.
@@ -102,6 +106,11 @@ func NewStrategyScriptDomain(writeDto dto.StrategyScriptWriteDto) (StrategyScrip
 		return StrategyScriptDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, resultTypeError)
 	}
 
+	marketDataKind, marketDataKindError := NewMarketDataKindDomain(writeDto.MarketDataKind)
+	if marketDataKindError != nil {
+		return StrategyScriptDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, marketDataKindError)
+	}
+
 	// The knobs already have a model that knows every rule about them; this one
 	// borrows it rather than restating those rules a second time.
 	parameters, parametersError := NewStrategyScriptParametersDomain(writeDto.Parameters)
@@ -110,13 +119,14 @@ func NewStrategyScriptDomain(writeDto dto.StrategyScriptWriteDto) (StrategyScrip
 	}
 
 	return StrategyScriptDomain{
-		id:          writeDto.ID,
-		ownerID:     writeDto.OwnerID,
-		name:        name,
-		description: description,
-		script:      writeDto.Script,
-		resultType:  resultType,
-		parameters:  parameters,
+		id:             writeDto.ID,
+		ownerID:        writeDto.OwnerID,
+		name:           name,
+		description:    description,
+		script:         writeDto.Script,
+		resultType:     resultType,
+		marketDataKind: marketDataKind,
+		parameters:     parameters,
 	}, nil
 }
 
@@ -132,12 +142,13 @@ func (strategyScriptDomain StrategyScriptDomain) ResultType() IndicatorResultTyp
 // saving happens, not claimed here.
 func (strategyScriptDomain StrategyScriptDomain) ToEntity() entities.StrategyScript {
 	return entities.StrategyScript{
-		ID:          strategyScriptDomain.id,
-		OwnerID:     strategyScriptDomain.ownerID,
-		Name:        strategyScriptDomain.name,
-		Description: strategyScriptDomain.description,
-		Script:      strategyScriptDomain.script,
-		ResultType:  string(strategyScriptDomain.resultType.Value()),
-		Parameters:  strategyScriptDomain.parameters.ToEntities(),
+		ID:             strategyScriptDomain.id,
+		OwnerID:        strategyScriptDomain.ownerID,
+		Name:           strategyScriptDomain.name,
+		Description:    strategyScriptDomain.description,
+		Script:         strategyScriptDomain.script,
+		ResultType:     string(strategyScriptDomain.resultType.Value()),
+		MarketDataKind: string(strategyScriptDomain.marketDataKind.Value()),
+		Parameters:     strategyScriptDomain.parameters.ToEntities(),
 	}
 }

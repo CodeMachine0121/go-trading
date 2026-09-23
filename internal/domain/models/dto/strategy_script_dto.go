@@ -17,11 +17,14 @@ type StrategyScriptDto struct {
 	Name string `json:"name"`
 	// Description is what the owner says this strategy script is for. Empty when they said
 	// nothing, never absent — a caller rendering it does not need two cases.
-	Description string    `json:"description"`
-	Script      string    `json:"script"`
-	ResultType  string    `json:"resultType"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Description string `json:"description"`
+	Script      string `json:"script"`
+	ResultType  string `json:"resultType"`
+	// MarketDataKind is which kind of market the algorithm eats: kCandle or
+	// contractKCandle. It decides which calculation may run it.
+	MarketDataKind string    `json:"marketDataKind"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 	// Published says whether this strategy script is on the marketplace.
 	//
 	// It is only ever answered for an owner reading their own, which is the only

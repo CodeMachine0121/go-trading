@@ -42,3 +42,9 @@ var ErrStrategyScriptNotPublished = errors.New("strategy script not published")
 // have to pick — a decision nobody asked it to make. Sent neither way there is
 // nothing to run.
 var ErrRunSubjectAmbiguous = errors.New("run subject ambiguous")
+
+// ErrStrategyScriptMarketDataKindMismatch marks a strategy script named for a
+// calculation that feeds the other kind of market. It is not a validation failure of
+// the request, and not a script failure either: the request is well formed and the
+// script is written right — for a different market.
+var ErrStrategyScriptMarketDataKindMismatch = errors.New("strategy script market data kind mismatch")

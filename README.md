@@ -194,6 +194,7 @@ curl localhost:8080/health
 | `POST` | `/contract-watchlist` | 開始持續追蹤一個合約標的（body 只給 `symbol`——這條路只服務一個場所）。加之前先確認這個代號**存在、還在交易、而且是永續的**（已停止交易的、還沒開始的、有交割日的一律回「找不到這個代號」），**加完立刻補齊那一檔** |
 | `DELETE` | `/contract-watchlist/{symbol}` | 停止追蹤那個合約。**只停止追蹤**，已抓回的一根都不刪，現貨那邊完全不受影響 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
+| `POST` | `/contract-indicator-calculations` | 對一個**合約**標的計算指標，body 與 `/indicator-calculations` 相同。算式收下一串 `indicator.ContractKCandle`（合約行情格）：現貨 K 線的每一項同名同義，另帶成交筆數、標記價格／指數價格／溢價指數各一組開高低收、**收盤時現行的資金費率**與**這一格內有沒有結算**、收盤前最近且夠新的**持倉統計**八項；沒有值一律為零。指名一支吃另一種行情的策略腳本回 `400` |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
 | `POST` | `/chat` | 問行情助手一句話；不指名對話即開一段新的。**回 202，不回答案**——收下問題、回覆對話識別碼與這次回答的識別碼，答案在連線之外寫完 |
 | `GET` | `/chat/conversations` | 列出每一段對話，最近有動靜的排前面 |
@@ -685,6 +686,23 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `indicator.KCandle` 有：`Symbol`、`OpenTimeUnixSeconds`、`Open`、`High`、`Low`、
 `Close`、`Volume`、`QuoteVolume`、`TakerBuyBaseVolume`、`TakerBuyQuoteVolume`。
 
+**合約算式**（`POST /contract-indicator-calculations`，策略腳本的 `marketDataKind` 為 `contractKCandle`）的形狀：
+
+```go
+func Calculate(data []indicator.ContractKCandle) map[string]float64 {
+    last := data[len(data)-1]
+    // last.Close、last.Volume……與現貨同名；last.KCandleVo 是內嵌的那一根現貨形狀
+    // last.Mark.Close、last.Index.Close、last.PremiumIndex.Close（indicator.PriceLine）
+    // last.FundingRate、last.FundingSettledInBar、last.OpenInterest……
+}
+```
+
+- **資金費率**是結算時間早於這一格收盤的最近一次結算的費率；兩次結算之間每一格都延續上一次的費率，
+  `FundingSettledInBar` 才說這一格內真的有結算（含起點、不含收盤那一刻）。一格內多次結算取最後一次。
+- **持倉統計**是收盤前最近的一筆，但必須夠新：不比五分鐘細的格子要落在格內，一分鐘的格子要落在收盤前五分鐘內；不夠新就是零。
+- **沒有值一律為零**：指數價格出現之前的舊合約 K 線、第一次結算之前、沒錄到持倉統計的時段。
+- 策略腳本的 `marketDataKind` 建立後不得更換；指名一支吃另一種行情的策略腳本做計算回 `400`。
+
 **幾條規則**
 
 - **只採用走完的刻度區間。** 還在走的那一格不會被讀進來——它裝了一半，
@@ -704,7 +722,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 只有**純運算**：四則運算、比較、迴圈，加上 `math` 與 `sort` 兩個套件。
 `os`、`net/http`、`time`、亂數一律 import 不到——這是白名單擋的，也是為了讓同一批 K 線
 跑兩次結果必定相同。想放寬只要改
-`internal/infrastructure/script/yaegi_indicator_script_proxy.go` 裡的白名單一處。
+`internal/infrastructure/script/indicator_script_runner.go` 裡的白名單一處（現貨與合約算式共用）。
 
 **回應狀態**
 

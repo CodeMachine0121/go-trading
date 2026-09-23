@@ -373,13 +373,29 @@ func registerRoutes(
 		applicationConfig.KCandleQueryMaxResults,
 	)
 
+	// The contract counterpart reads contract candles and lines funding and
+	// positioning up beside them; it keeps the same read ceiling and the same script
+	// allowance as the spot one, so the two answer the same question the same way.
+	contractIndicatorCalculationService := service.NewContractIndicatorCalculationService(
+		contractKCandleRepository,
+		persistence.NewContractFundingRateSettlementRepository(database),
+		persistence.NewContractPositionStatisticRepository(database),
+		script.NewYaegiContractIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 		strategyScriptService,
 		indicatorCalculationService,
+		contractIndicatorCalculationService,
 	)
 
-	engine.POST("/indicator-calculations", requiresSignIn, controller.NewIndicatorCalculationController(
-		indicatorCalculationApplication).CalculateIndicator)
+	indicatorCalculationController := controller.NewIndicatorCalculationController(indicatorCalculationApplication)
+	engine.POST("/indicator-calculations", requiresSignIn, indicatorCalculationController.CalculateIndicator)
+	engine.POST("/contract-indicator-calculations", requiresSignIn,
+		indicatorCalculationController.CalculateContractIndicator)
 
 	// Replaying a strategy script is its own use case rather than a mode of calculating an
 	// indicator: it asks a different question of the same script, and it stores

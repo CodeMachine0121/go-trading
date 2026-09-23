@@ -107,8 +107,9 @@ func (strategyScriptAccessDomain StrategyScriptAccessDomain) ToRunnableDto() (dt
 	}
 
 	return dto.RunnableStrategyScriptDto{
-		Script:     strategyScriptAccessDomain.strategyScript.Script,
-		ResultType: strategyScriptAccessDomain.strategyScript.ResultType,
-		Parameters: parameterWriteDtos,
+		Script:         strategyScriptAccessDomain.strategyScript.Script,
+		ResultType:     strategyScriptAccessDomain.strategyScript.ResultType,
+		MarketDataKind: strategyScriptAccessDomain.strategyScript.MarketDataKind,
+		Parameters:     parameterWriteDtos,
 	}, nil
 }

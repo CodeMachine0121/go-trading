@@ -12,6 +12,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	domains "github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -71,6 +72,22 @@ func (m *MockIContractFundingRateSettlementRepository) FindLatest(executionConte
 func (mr *MockIContractFundingRateSettlementRepositoryMockRecorder) FindLatest(executionContext, symbol any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatest", reflect.TypeOf((*MockIContractFundingRateSettlementRepository)(nil).FindLatest), executionContext, symbol)
+}
+
+// FindLatestBefore mocks base method.
+func (m *MockIContractFundingRateSettlementRepository) FindLatestBefore(executionContext context.Context, symbol string, cutoffTime time.Time) (entities.ContractFundingRateSettlement, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindLatestBefore", executionContext, symbol, cutoffTime)
+	ret0, _ := ret[0].(entities.ContractFundingRateSettlement)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// FindLatestBefore indicates an expected call of FindLatestBefore.
+func (mr *MockIContractFundingRateSettlementRepositoryMockRecorder) FindLatestBefore(executionContext, symbol, cutoffTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindLatestBefore", reflect.TypeOf((*MockIContractFundingRateSettlementRepository)(nil).FindLatestBefore), executionContext, symbol, cutoffTime)
 }
 
 // SaveAllIfAbsent mocks base method.

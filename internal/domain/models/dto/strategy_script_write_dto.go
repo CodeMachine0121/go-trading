@@ -17,6 +17,10 @@ type StrategyScriptWriteDto struct {
 	Description string
 	Script      string
 	ResultType  string
+	// MarketDataKind is the kind of market the algorithm eats, exactly as it was
+	// written. Blank on a create means the spot K candle; blank on a rewrite means
+	// the kind the strategy script already has.
+	MarketDataKind string
 	// Parameters are the algorithm's own knobs. Absent means an algorithm with no
 	// knobs, which is what every algorithm written before knobs existed is.
 	Parameters []StrategyScriptParameterWriteDto

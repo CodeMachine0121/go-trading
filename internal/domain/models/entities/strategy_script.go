@@ -33,11 +33,16 @@ type StrategyScript struct {
 	// Description is what the owner says this strategy script is for. It may be empty, and
 	// on the marketplace it is the only thing there is to judge by — the script is
 	// never handed out, so a strategy script with no description is a name and nothing else.
-	Description string    `gorm:"type:text;not null;default:''"`
-	Script      string    `gorm:"type:text;not null"`
-	ResultType  string    `gorm:"size:32;not null"`
-	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	Description string `gorm:"type:text;not null;default:''"`
+	Script      string `gorm:"type:text;not null"`
+	ResultType  string `gorm:"size:32;not null"`
+	// MarketDataKind is which kind of market the algorithm eats. It is settled when
+	// the strategy script is created and never changes, so it is not on the list of
+	// columns a rewrite may touch. The default is what every strategy script saved
+	// before there was a choice is: the spot K candle.
+	MarketDataKind string    `gorm:"size:32;not null;default:'kCandle'"`
+	CreatedAt      time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt      time.Time `gorm:"type:timestamptz;not null"`
 	// Owner is declared so that a marketplace listing can name who published each
 	// strategy script without a second copy of that fact living on the publication row.
 	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
@@ -65,11 +70,12 @@ func (strategyScript StrategyScript) TableName() string {
 // are always handed out in universal time, whatever zone they were read back in.
 func (strategyScript StrategyScript) ToDto() dto.StrategyScriptDto {
 	return dto.StrategyScriptDto{
-		ID:          strategyScript.ID,
-		Name:        strategyScript.Name,
-		Description: strategyScript.Description,
-		Script:      strategyScript.Script,
-		ResultType:  strategyScript.ResultType,
+		ID:             strategyScript.ID,
+		Name:           strategyScript.Name,
+		Description:    strategyScript.Description,
+		Script:         strategyScript.Script,
+		ResultType:     strategyScript.ResultType,
+		MarketDataKind: strategyScript.MarketDataKind,
 		// A publication read back with the strategy script is what says it is out there.
 		// Asking the marketplace separately would be one more query per strategy script,
 		// and the association is already declared right here.

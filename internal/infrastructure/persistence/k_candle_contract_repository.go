@@ -235,6 +235,29 @@ func (kCandleContractRepository *KCandleContractRepository) FindLatest(
 	return kCandleContracts, nil
 }
 
+// FindLatestBefore returns at most limit contract K candles for the symbol whose open
+// time is strictly before the cut-off, newest first — the read a contract indicator
+// calculation makes, reaching back from the start of the bucket still running.
+func (kCandleContractRepository *KCandleContractRepository) FindLatestBefore(
+	executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
+) ([]entities.KCandleContract, error) {
+	kCandleContracts := make([]entities.KCandleContract, 0, min(limit, preallocationCeiling))
+
+	result := kCandleContractRepository.database.WithContext(executionContext).
+		Clauses(clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "symbol"}, Value: symbol},
+			clause.Lt{Column: clause.Column{Name: "open_time"}, Value: cutoffTime},
+		}}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "open_time"}, Desc: true}).
+		Limit(limit).
+		Find(&kCandleContracts)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find latest contract k candles before cutoff: %w", result.Error)
+	}
+
+	return kCandleContracts, nil
+}
+
 // Delete removes the contract K candle named by trading symbol and open time,
 // reporting not found when it names no candle.
 func (kCandleContractRepository *KCandleContractRepository) Delete(

@@ -239,24 +239,10 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 		newestFirstKCandles,
 	).Buckets()
 
-	// The fewest finished buckets this calculation can say anything at all from: the
-	// look-back its hungriest knob declares, because an algorithm reaching back over
-	// twenty candles produces its first value on the twentieth. One when nothing
-	// reaches back, never zero — a calculation over no market at all has no answer,
-	// and the alternative is handing an empty batch to a script to fail inside.
-	//
-	// It reads only what the strategy script *declares*. What an algorithm actually reaches
-	// for stays the algorithm's own business to guard, which is why a script
-	// hard-coding a period it never declared comes back as a script failure rather
-	// than as a shortfall: the system does not guess how many an algorithm needs.
-	minimumCandleCount := max(1, indicatorCalculationDomain.parameters.MaximumLookbackCount())
-	if len(buckets) < minimumCandleCount {
-		return nil, CandleCoverageTooThin(len(buckets), minimumCandleCount)
+	usedCandleCount, coverageError := indicatorCalculationDomain.usableBucketCount(len(buckets))
+	if coverageError != nil {
+		return nil, coverageError
 	}
-
-	// The latest ones, which is also what keeps a bucket the read cut in half out of
-	// the answer whenever there are more than were asked for: see spareBucketCount.
-	usedCandleCount := min(indicatorCalculationDomain.candleCount, len(buckets))
 	latestBuckets := buckets[len(buckets)-usedCandleCount:]
 
 	oldestFirstKCandleVos := make([]vo.KCandleVo, 0, usedCandleCount)
@@ -265,6 +251,93 @@ func (indicatorCalculationDomain IndicatorCalculationDomain) SelectInputCandles(
 	}
 
 	return oldestFirstKCandleVos, nil
+}
+
+// SelectContractInput is SelectInputCandles for a contract script: it takes the
+// contract K candles as read — newest first, none of them from a bucket still running —
+// merges them one per finished bucket, and keeps the latest as many as were asked for
+// or as many as there are. Every rule about how many is SelectInputCandles', word for
+// word; only what a bucket is merged from differs.
+//
+// What comes back is not yet what the script sees. The bars still have to be lined up
+// with funding and positioning, which are read only once it is known which stretch the
+// bars cover — so the alignment is handed back to be completed rather than a list.
+func (indicatorCalculationDomain IndicatorCalculationDomain) SelectContractInput(
+	newestFirstKCandleContracts []entities.KCandleContract,
+) (ContractKCandleAlignmentDomain, error) {
+	buckets := NewKCandleContractSeriesDomain(
+		indicatorCalculationDomain.symbol,
+		indicatorCalculationDomain.interval,
+		newestFirstKCandleContracts,
+	).ToDto().KCandles
+
+	usedCandleCount, coverageError := indicatorCalculationDomain.usableBucketCount(len(buckets))
+	if coverageError != nil {
+		return ContractKCandleAlignmentDomain{}, coverageError
+	}
+
+	return newContractKCandleAlignmentDomain(
+		indicatorCalculationDomain.interval, buckets[len(buckets)-usedCandleCount:]), nil
+}
+
+// usableBucketCount is how many of the finished buckets on hand the script is fed,
+// or the refusal when there are too few to say anything at all.
+//
+// The floor is the fewest finished buckets this calculation can say anything at all
+// from: the look-back its hungriest knob declares, because an algorithm reaching back
+// over twenty candles produces its first value on the twentieth. One when nothing
+// reaches back, never zero — a calculation over no market at all has no answer, and
+// the alternative is handing an empty batch to a script to fail inside.
+//
+// It reads only what the strategy script *declares*. What an algorithm actually
+// reaches for stays the algorithm's own business to guard, which is why a script
+// hard-coding a period it never declared comes back as a script failure rather than
+// as a shortfall: the system does not guess how many an algorithm needs.
+//
+// Above the floor it is the latest ones, as many as were asked for — which is also
+// what keeps a bucket the read cut in half out of the answer whenever there are more
+// than were asked for: see spareBucketCount.
+func (indicatorCalculationDomain IndicatorCalculationDomain) usableBucketCount(availableBucketCount int) (int, error) {
+	minimumCandleCount := max(1, indicatorCalculationDomain.parameters.MaximumLookbackCount())
+	if availableBucketCount < minimumCandleCount {
+		return 0, CandleCoverageTooThin(availableBucketCount, minimumCandleCount)
+	}
+
+	return min(indicatorCalculationDomain.candleCount, availableBucketCount), nil
+}
+
+// ToResultDto is what one calculation answers: the values the script produced, and
+// beside them how many buckets a full answer would have taken, how many it worked
+// from, where each of those began, how coarse they were and the kind of value
+// declared. Spot and contract calculations answer in exactly this shape, so it is
+// assembled here once rather than by each.
+//
+// A signal has no indicator name, so it leaves as the result itself rather than as an
+// entry in a set keyed by name.
+func (indicatorCalculationDomain IndicatorCalculationDomain) ToResultDto(
+	openTimes []time.Time, indicatorValues map[string]vo.IndicatorValueVo,
+) dto.IndicatorCalculationResultDto {
+	resultDto := dto.IndicatorCalculationResultDto{
+		Symbol:              indicatorCalculationDomain.symbol,
+		Interval:            string(indicatorCalculationDomain.interval.Value()),
+		RequiredCandleCount: indicatorCalculationDomain.candleCount,
+		UsedCandleCount:     len(openTimes),
+		OpenTimes:           openTimes,
+		ResultType:          string(indicatorCalculationDomain.resultType.Value()),
+	}
+
+	if indicatorCalculationDomain.resultType.IsSignal() {
+		resultDto.Signal = string(NewSignalDomain(indicatorValues).Value())
+		return resultDto
+	}
+
+	indicatorValueDtos := make(map[string]dto.IndicatorValueDto, len(indicatorValues))
+	for indicatorName, indicatorValue := range indicatorValues {
+		indicatorValueDtos[indicatorName] = indicatorValue.ToDto()
+	}
+	resultDto.Values = indicatorValueDtos
+
+	return resultDto
 }
 
 // CandleCount is how many finished buckets this calculation would need to have a

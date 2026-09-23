@@ -22,6 +22,9 @@ type PublishedStrategyScriptDto struct {
 	// ResultType is what this strategy script produces. A reader needs it to know where the
 	// values can be drawn, which is the whole point of adopting one.
 	ResultType string `json:"resultType"`
+	// MarketDataKind is which kind of market it eats. A reader needs it to know which
+	// calculation can run it at all.
+	MarketDataKind string `json:"marketDataKind"`
 	// PublisherEmail is who put it here. It is read from the strategy script's owner rather
 	// than stored again on the publication.
 	PublisherEmail string    `json:"publisherEmail"`

@@ -14,6 +14,9 @@ package dto
 type RunnableStrategyScriptDto struct {
 	Script     string
 	ResultType string
+	// MarketDataKind is which kind of market the algorithm eats, so that a run can
+	// refuse it where the other kind is what would be handed over.
+	MarketDataKind string
 	// Parameters are the knobs as the strategy script declares them. What they are worth
 	// this time arrives with the run and is never written back — running somebody
 	// else's strategy script changes nothing about it.

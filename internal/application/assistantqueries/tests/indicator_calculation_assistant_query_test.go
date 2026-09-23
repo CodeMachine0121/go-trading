@@ -46,7 +46,9 @@ func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalcu
 					kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 					domains.NewMarketCatalogDomain(
 						map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-					queryMaxResults)),
+					queryMaxResults),
+				// Nothing here calculates over contract bars.
+				nil),
 		),
 		kCandleRepository:        kCandleRepository,
 		indicatorScriptProxy:     indicatorScriptProxy,

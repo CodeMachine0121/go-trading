@@ -94,6 +94,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// cannot reach the watchlist either.
 		"POST /backtests",
 		"POST /chat",
+		"POST /contract-indicator-calculations",
 		"POST /contract-k-candles",
 		"POST /contract-k-candles/backfill",
 		"POST /contract-k-candles/history",

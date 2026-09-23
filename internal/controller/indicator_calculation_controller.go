@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/controller/models"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,6 +30,30 @@ func NewIndicatorCalculationController(
 func (indicatorCalculationController *IndicatorCalculationController) CalculateIndicator(
 	ginContext *gin.Context,
 ) {
+	indicatorCalculationController.calculate(ginContext, indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator)
+}
+
+// CalculateContractIndicator handles POST /contract-indicator-calculations: the same
+// body and the same answers as the spot route, over perpetual contract bars.
+func (indicatorCalculationController *IndicatorCalculationController) CalculateContractIndicator(
+	ginContext *gin.Context,
+) {
+	indicatorCalculationController.calculate(
+		ginContext, indicatorCalculationController.indicatorCalculationApplication.CalculateContractIndicator)
+}
+
+// calculate is everything the two routes share: reading the body, settling what is
+// being run, and answering. Only which calculation runs differs, so that is the one
+// thing each route hands in.
+func (indicatorCalculationController *IndicatorCalculationController) calculate(
+	ginContext *gin.Context,
+	runCalculation func(
+		executionContext context.Context,
+		viewerID uint,
+		runSubjectDomain domains.RunSubjectDomain,
+		requestDto dto.IndicatorCalculationRequestDto,
+	) (dto.IndicatorCalculationResultDto, error),
+) {
 	var indicatorCalculationRequest models.IndicatorCalculationRequest
 
 	if bindError := ginContext.ShouldBindJSON(&indicatorCalculationRequest); bindError != nil {
@@ -45,7 +71,7 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 		return
 	}
 
-	resultDto, err := indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator(
+	resultDto, err := runCalculation(
 		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), runSubjectDomain,
 		indicatorCalculationRequest.ToRequestDto())
 	if err != nil {
@@ -72,6 +98,13 @@ func (indicatorCalculationController *IndicatorCalculationController) respondWit
 	// same 404. Telling them apart would let a caller learn which identifiers exist.
 	if errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
+	// A strategy script named for the other kind of market is the caller's choice to
+	// change, not a broken script and not this system's failure: the sentence says
+	// which kind of market the script eats.
+	if errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	// Naming the input at fault is what lets a caller put the sentence where the
