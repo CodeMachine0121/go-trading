@@ -53,6 +53,12 @@ type TradingStrategyBacktestRequest struct {
 	// what its owner's broker charges.
 	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
 	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
+	// FillTiming is close (the default: fill at the signalling bar's close) or
+	// nextOpen (fill at the next bar's open).
+	FillTiming string `json:"fillTiming"`
+	// ValidationStartTime, when given, splits the replay into an in-sample part and a
+	// validation part, each replayed on its own from the initial capital.
+	ValidationStartTime time.Time `json:"validationStartTime"`
 }
 
 // ToRequestDto turns the request into the shape the domain accepts. The signal
@@ -75,5 +81,7 @@ func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategy
 
 		EntryCostPercentage: request.EntryCostPercentage,
 		ExitCostPercentage:  request.ExitCostPercentage,
+		FillTiming:          request.FillTiming,
+		ValidationStartTime: request.ValidationStartTime,
 	}
 }

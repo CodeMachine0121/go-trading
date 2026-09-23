@@ -358,3 +358,80 @@ func TestContractBacktestEndpointsNeedASignedInCaller(t *testing.T) {
 		})
 	}
 }
+
+func TestContractBacktestEndpointCarriesFillTimingAndValidationStart(t *testing.T) {
+	fixture := newContractBacktestRouterUnderTest(t)
+	fixture.expectASpecifiedSymbolWithTwoBars()
+	fixture.contractIndicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]vo.IndicatorValueVo{
+			{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}},
+			{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+		}, nil)
+
+	response := fixture.post("/contract-backtests", fmt.Sprintf(contractBacktestBody, 9,
+		`,"fillTiming":"nextOpen","validationStartTime":"2026-08-29T01:00:00Z"`))
+
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var body struct {
+		FillTiming string `json:"fillTiming"`
+		InSample   struct {
+			UsedCandleCount int `json:"usedCandleCount"`
+		} `json:"inSample"`
+		Validation struct {
+			UsedCandleCount int `json:"usedCandleCount"`
+		} `json:"validation"`
+		Summary struct {
+			MaximumConsecutiveLossCount int      `json:"maximumConsecutiveLossCount"`
+			ProfitFactor                *float64 `json:"profitFactor"`
+		} `json:"summary"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	assert.Equal(t, "nextOpen", body.FillTiming)
+	assert.Equal(t, 1, body.InSample.UsedCandleCount)
+	assert.Equal(t, 1, body.Validation.UsedCandleCount)
+	assert.Nil(t, body.Summary.ProfitFactor)
+}
+
+func TestContractBacktestEndpointRefusesAnUnknownFillTiming(t *testing.T) {
+	fixture := newContractBacktestRouterUnderTest(t)
+	fixture.expectASpecifiedSymbolWithTwoBars()
+
+	response := fixture.post("/contract-backtests", fmt.Sprintf(contractBacktestBody, 9, `,"fillTiming":"intraday"`))
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	var body struct {
+		Field string `json:"field"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	assert.Equal(t, "fillTiming", body.Field)
+}
+
+func TestContractBacktestEndpointsAnswerARunOutAllowanceAsUnprocessable(t *testing.T) {
+	for _, path := range []string{"/contract-backtests", "/trading-strategies/11/contract-backtests"} {
+		t.Run(path, func(t *testing.T) {
+			fixture := newContractBacktestRouterUnderTest(t)
+			fixture.expectASpecifiedSymbolWithTwoBars()
+			fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractRouterStrategyID).
+				Return(entities.TradingStrategy{
+					ID: contractRouterStrategyID, OwnerID: signedInViewerID, Name: "合約",
+					MarketDataKind: "contractKCandle",
+					SignalSources: []entities.TradingStrategySignalSource{{
+						Label: "A", StrategyScriptID: contractRouterScriptID, AggregationInterval: "1h",
+					}},
+					ConditionNodes: []entities.TradingStrategyConditionNode{
+						{ID: 1, Side: "buy", SourceLabel: "A", ExpectedSignal: "buy"},
+						{ID: 2, Side: "sell", SourceLabel: "A", ExpectedSignal: "sell"},
+					},
+				}, nil).AnyTimes()
+			fixture.contractIndicatorScriptProxy.EXPECT().
+				ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, domains.BacktestTimeAllowanceSpent(90*time.Second))
+
+			response := fixture.post(path, fmt.Sprintf(contractBacktestBody, 9, ""))
+
+			assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
+			assert.Contains(t, response.Body.String(), "沒跑完")
+		})
+	}
+}

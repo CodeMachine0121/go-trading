@@ -60,6 +60,12 @@ type BacktestRequest struct {
 	// entry.
 	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
 	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
+	// FillTiming is close (the default: fill at the signalling bar's close) or
+	// nextOpen (fill at the next bar's open).
+	FillTiming string `json:"fillTiming"`
+	// ValidationStartTime, when given, splits the replay into an in-sample part and a
+	// validation part, each replayed on its own from the initial capital.
+	ValidationStartTime time.Time `json:"validationStartTime"`
 }
 
 // ToParameterWriteDtos hands on the knobs an unsaved algorithm declares.
@@ -92,6 +98,8 @@ func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 
 		EntryCostPercentage: backtestRequest.EntryCostPercentage,
 		ExitCostPercentage:  backtestRequest.ExitCostPercentage,
+		FillTiming:          backtestRequest.FillTiming,
+		ValidationStartTime: backtestRequest.ValidationStartTime,
 	}
 }
 

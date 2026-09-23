@@ -123,6 +123,11 @@ func (backtestController *BacktestController) respondWithError(ginContext *gin.C
 		})
 		return
 	}
+	// Nothing was wrong with what was asked; it could not be answered in time.
+	if errors.Is(err, domains.ErrBacktestTimeAllowanceSpent) {
+		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
+		return
+	}
 	if errors.Is(err, domains.ErrIndicatorScriptFailed) {
 		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
 		return
