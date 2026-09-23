@@ -298,6 +298,22 @@
     {
       "key": "spotStrategyScriptIdForContract",
       "value": ""
+    },
+    {
+      "key": "contractBacktestStrategyScriptId",
+      "value": ""
+    },
+    {
+      "key": "contractBacktestStartTime",
+      "value": ""
+    },
+    {
+      "key": "contractBacktestEndTime",
+      "value": ""
+    },
+    {
+      "key": "contractTradingStrategyId",
+      "value": ""
     }
   ],
   "event": [
@@ -11454,6 +11470,570 @@
                   "pm.test(\"說出這個系統只重演現貨\", function () {",
                   "    pm.expect(pm.response.text()).to.include(\"只重演現貨\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "合約回測",
+      "item": [
+        {
+          "name": "（先存）一支吃合約行情、會說買賣的策略腳本",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約回測 {{$guid}}\",\n  \"resultType\": \"signal\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.ContractKCandle) indicator.Signal {\\n\\tif len(data) < 2 {\\n\\t\\treturn indicator.Hold\\n\\t}\\n\\tif data[len(data)-1].Close > data[len(data)-2].Close {\\n\\t\\treturn indicator.Buy\\n\\t}\\n\\treturn indicator.Sell\\n}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const end = new Date(); end.setUTCMinutes(0, 0, 0);",
+                  "const start = new Date(end.getTime() - 2 * 24 * 3600 * 1000);",
+                  "pm.collectionVariables.set(\"contractBacktestStartTime\", start.toISOString());",
+                  "pm.collectionVariables.set(\"contractBacktestEndTime\", end.toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"contractBacktestStrategyScriptId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：五倍槓桿、多空反手、計入資金費率",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"leverage\": \"5\",\n  \"entryCostPercentage\": \"0.05\",\n  \"slippagePercentage\": \"0.01\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"說出交易模式與槓桿\", () => { pm.expect(result.tradingMode).to.eql(\"longShort\"); pm.expect(Number(result.leverage)).to.eql(5); });",
+                  "pm.test(\"成績單說得出強平、資金費用與維持保證金依據\", () => { pm.expect(result.summary).to.have.property(\"liquidationExitCount\"); pm.expect(result.summary).to.have.property(\"totalFundingFee\"); pm.expect([\"tiers\", \"smallestTier\"]).to.include(result.summary.maintenanceMarginBasis.kind); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：只做空",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"tradingMode\": \"shortOnly\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"每一筆都是做空\", () => pm.response.json().closedTrades.forEach(trade => pm.expect(trade.direction).to.eql(\"short\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：槓桿小於一",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"leverage\": \"0.5\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向槓桿\", () => pm.expect(pm.response.json().field).to.eql(\"leverage\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：合約沒有現貨這一種交易模式",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"tradingMode\": \"spot\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向交易模式\", () => pm.expect(pm.response.json().field).to.eql(\"tradingMode\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：維持保證金率由分級決定",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"maintenanceMarginRate\": \"0.5\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向維持保證金率\", () => pm.expect(pm.response.json().field).to.eql(\"maintenanceMarginRate\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：滑點為負",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"slippagePercentage\": \"-0.1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向滑點\", () => pm.expect(pm.response.json().field).to.eql(\"slippage\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：吃合約行情的策略腳本不能做現貨重演",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"BTCUSDT\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出它吃的是合約行情\", () => pm.expect(pm.response.json().message).to.include(\"吃的是合約行情\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拼一份合約交易策略（只做多）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約交易策略 {{$guid}}\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingMode\": \"longOnly\",\n  \"signalSources\": [{\"label\": \"A\", \"strategyScriptId\": {{contractBacktestStrategyScriptId}}, \"aggregationInterval\": \"1h\"}],\n  \"buyCondition\": {\"sourceLabel\": \"A\", \"signal\": \"buy\"},\n  \"sellCondition\": {\"sourceLabel\": \"A\", \"signal\": \"sell\"}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", () => pm.response.to.have.status(201));",
+                  "const saved = pm.response.json();",
+                  "pm.test(\"記著它吃合約行情與它的交易模式\", () => { pm.expect(saved.marketDataKind).to.eql(\"contractKCandle\"); pm.expect(saved.tradingMode).to.eql(\"longOnly\"); });",
+                  "pm.collectionVariables.set(\"contractTradingStrategyId\", saved.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：K 線交易策略混進吃合約行情的來源",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"混用 {{$guid}}\",\n  \"signalSources\": [{\"label\": \"A\", \"strategyScriptId\": {{contractBacktestStrategyScriptId}}, \"aggregationInterval\": \"1h\"}],\n  \"buyCondition\": {\"sourceLabel\": \"A\", \"signal\": \"buy\"},\n  \"sellCondition\": {\"sourceLabel\": \"A\", \"signal\": \"sell\"}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出是哪一個來源\", () => pm.expect(pm.response.json().message).to.include(\"信號來源 \\\"A\\\"\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演這一份合約交易策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"leverage\": \"3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{contractTradingStrategyId}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{contractTradingStrategyId}}",
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"照它自己的交易模式\", () => pm.expect(pm.response.json().tradingMode).to.eql(\"longOnly\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：重演合約交易策略時另外指定交易模式",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"leverage\": \"3\",\n  \"tradingMode\": \"shortOnly\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{contractTradingStrategyId}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{contractTradingStrategyId}}",
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向交易模式\", () => pm.expect(pm.response.json().field).to.eql(\"tradingMode\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：合約交易策略不能做現貨重演",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"BTCUSDT\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{contractTradingStrategyId}}/backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{contractTradingStrategyId}}",
+                "backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出它吃的是合約行情\", () => pm.expect(pm.response.json().message).to.include(\"吃的是合約行情\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：刪掉合約交易策略",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{contractTradingStrategyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{contractTradingStrategyId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刪得掉\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：刪掉合約回測的策略腳本",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts/{{contractBacktestStrategyScriptId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts",
+                "{{contractBacktestStrategyScriptId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刪得掉\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
                 ]
               }
             }
