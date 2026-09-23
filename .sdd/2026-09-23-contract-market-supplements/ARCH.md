@@ -81,7 +81,7 @@
 | `entities.ContractPositionStatistic` | Entity | 一筆持倉統計；`(symbol, statistic_time)` 唯一；十個數值皆不可為空 | — | US-06 |
 | `vo.ContractPositionStatisticVo` | VO | 三份以統計時間對齊後的一筆；多空人數比與大戶多空持倉比兩組以 `NullDecimal` 保留「缺了」 | — | US-06 #2 |
 | `domains.ContractPositionStatisticDomain` | Domain Model | 建構子守規則：三份都在、統計時間在五分鐘刻度且不在未來、持倉量與價值 ≥ 0、佔比 ∈ [0,1]、比值 ≥ 0；錯誤訊息點名缺哪一份 | — | US-06, US-07 |
-| `domains.ContractPositionStatisticWindowDomain` | Domain Model | 算一次該問的區間：起點＝上一筆＋5 分鐘，沒有上一筆或上一筆早於保留期限則＝現在−保留期限（進位到五分鐘刻度）；終點＝現在；起點晚於終點＝空 | — | US-08 #2–#5 |
+| `domains.ContractPositionStatisticWindowDomain` | Domain Model | 算一次該問的區間：起點＝上一筆＋5 分鐘**再往回一小時**（重問因缺一份而跳過、後面已存了新的那幾筆），不早於保留期限內第一格；終點＝現在（退回五分鐘刻度）；起點晚於終點＝空 | — | US-08 #2–#5 |
 | `IContractPositionStatisticProxy` | Interface | `FetchPositionStatistics(ctx, symbol, startTime, endTime)`：一次呼叫一個答案，三份的拆問與對齊是它的事 | — | US-06, US-08 |
 | `BinanceContractPositionStatisticProxy` | Proxy | 分頁打 `openInterestHist`、`globalLongShortAccountRatio`、`topLongShortPositionRatio`（`period=5m`、`limit=500`），以持倉量那份決定哪些時間點存在，另兩份以時間對齊，缺的留無值 | 新的 `RequestPacer`（統計資料的額度） | 同上 |
 | `IContractPositionStatisticRepository` / `ContractPositionStatisticRepository` | Repository | `SaveAllIfAbsent`、`FindLatest(symbol)`、`FindInRange(query, limit)` | GORM | US-06 #5, US-08, US-11 |
@@ -214,6 +214,10 @@ flowchart TD
 - 「結算間隔沒列出就是八小時」只寫在 `ContractTradingSpecificationDomain`。
 
 ### Known debt / deferred
+
+- **實作中修正的三處（契約稽核後）**：持倉統計每輪重問最近一小時（原設計只接著最後一筆，被跳過的洞補不回來）；加入名單時結算間隔清單問不到**照樣加入、先沒有規格**（原設計整個加入被拒）；兩個新 repository 的 `SaveAllIfAbsent` **分批寫入**（三十天持倉統計 8640 筆 × 10 欄超過 PostgreSQL 單一語句的參數上限，冒煙測試時發現）。
+- `ContractFundingRateService` 與 `ContractPositionStatisticService` 的 `RunRound`／`RunRoundFor`／查詢骨架相同（讀名單 → 逐標的併發 → 報告；指名一檔 → 查登錄）。只有兩份時抽共用編排屬於臆測；第三種合約資料出現時再抽。
+- 新的三個 job 共用 `job/repeating_round.go`；既有的 `ContractKCandleIngestionJob` 與現貨 job 仍各自一套（啟動那一步與每一輪不同），未一併搬移。
 
 - 三個新 job 與 `ContractKCandleIngestionJob` 形狀幾乎相同（啟動一輪、ticker、雙重 done 檢查）。本刀照既有「一 job 一檔」寫；若再多一個，值得抽一個共用的週期執行物件。
 - `KCandleQueryDomain` 被資金費率與持倉統計借用做區間驗證。名字帶 K 線，但它守的就是「交易標的＋查詢區間」這個通用概念；真的分歧時再拆。
