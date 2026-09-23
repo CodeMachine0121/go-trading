@@ -208,8 +208,12 @@ func (positionDomain ContractBacktestPositionDomain) ClosedAt(
 
 	closedTrade.ExitCost = positionDomain.transactionCosts.ExitCostFor(
 		positionDomain.quantity.Mul(exitPrice))
-	closedTrade.Profit = positionDomain.ProfitAt(exitPrice).
-		Sub(positionDomain.entryCost).Sub(closedTrade.ExitCost).Sub(positionDomain.fundingFeePaid)
+	// The profit is what the account actually got back, less what it put down. That
+	// is the price move net of both charges and the funding — until the traded price
+	// runs further than the mark price ever did, and the position hands back nothing:
+	// an isolated position still loses no more than its own margin.
+	closedTrade.Profit = positionDomain.CashReturnedFor(closedTrade).
+		Sub(positionDomain.openingMargin).Sub(positionDomain.entryCost)
 
 	return closedTrade
 }

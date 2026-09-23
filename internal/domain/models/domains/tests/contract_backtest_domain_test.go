@@ -1122,3 +1122,19 @@ func TestContractBacktestContractFollowUps(t *testing.T) {
 		assertDecimalEqual(t, "1", resultDto.Leverage)
 	})
 }
+
+func TestContractBacktestLossNeverExceedsWhatThePositionHeld(t *testing.T) {
+	requestDto := contractReplayRequest()
+	requestDto.Leverage = decimal.NewFromInt(10)
+	requestDto.TradingMode = "longOnly"
+
+	// The traded close falls to 85 while the mark never reaches the liquidation price:
+	// the signal closes a position worth less than nothing, which hands back nothing.
+	resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+		[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 85, markLow: 91, markClose: 91, signal: vo.SignalSell}})
+
+	require.Len(t, resultDto.ClosedTrades, 1)
+	assert.Equal(t, "signal", resultDto.ClosedTrades[0].ExitReason)
+	assertDecimalEqual(t, "-10000", resultDto.ClosedTrades[0].Profit)
+	assertDecimalEqual(t, "0", resultDto.Summary.FinalEquity)
+}

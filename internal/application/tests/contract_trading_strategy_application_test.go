@@ -166,3 +166,34 @@ func TestTradingStrategyApplicationRefusesARewriteOfAStoredStrategyOfAnUnreadabl
 
 	assert.Error(t, updateError)
 }
+
+func TestTradingStrategyApplicationKeepsTheTradingModeOnARewriteThatSaysNothing(t *testing.T) {
+	storedContractStrategy := storedTradingStrategy()
+	storedContractStrategy.MarketDataKind = "contractKCandle"
+	storedContractStrategy.TradingMode = "shortOnly"
+
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+		Return(storedContractStrategy, nil).Times(2)
+	underTest.expectFollowingBots()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(aContractScriptOwnedByTheCaller(9), nil)
+	underTest.expectNoMarketplaceQuestion()
+	underTest.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, tradingStrategy entities.TradingStrategy,
+		) (entities.TradingStrategy, error) {
+			assert.Equal(t, "shortOnly", tradingStrategy.TradingMode)
+
+			return tradingStrategy, nil
+		})
+
+	writeDto := aTradingStrategyWrite()
+	writeDto.ID = tradingStrategyID
+	writeDto.Name = "改個名字"
+
+	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.NoError(t, updateError)
+}

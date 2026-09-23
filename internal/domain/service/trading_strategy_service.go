@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -125,6 +126,14 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 		return dto.TradingStrategyDto{}, retainError
 	}
 	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
+
+	// A contract trading strategy's trading mode is kept the same way: a rewrite that
+	// says nothing about it — a rename, a changed condition — leaves the mode it was
+	// saved with, rather than quietly turning a short-only strategy into one that
+	// also buys.
+	if strings.TrimSpace(writeDto.TradingMode) == "" {
+		writeDto.TradingMode = storedTradingStrategy.TradingMode
+	}
 
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
 	if validationError != nil {
