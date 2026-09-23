@@ -118,8 +118,7 @@ func (fixture contractCalculationUnderTest) barsHandedToTheScript(
 	t.Helper()
 	fixture.kCandleContractRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).Return(kCandleContracts, nil)
-	fixture.contractFundingRateSettlementRepository.EXPECT().
-		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(settlements, nil)
+	fixture.holdSettlements(settlements)
 	fixture.contractPositionStatisticRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(statistics, nil)
 	handedBars := []vo.ContractKCandleVo{}
@@ -137,6 +136,34 @@ func (fixture contractCalculationUnderTest) barsHandedToTheScript(
 	require.NoError(t, err)
 
 	return handedBars
+}
+
+// holdSettlements answers both settlement reads the way storage would: the range read
+// with the settlements inside the stretch asked about, and the lead-in read with the
+// latest one strictly before the cut-off.
+func (fixture contractCalculationUnderTest) holdSettlements(settlements []entities.ContractFundingRateSettlement) {
+	fixture.contractFundingRateSettlementRepository.EXPECT().
+		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.ContractFundingRateSettlement, error) {
+			inside := []entities.ContractFundingRateSettlement{}
+			for _, settlement := range settlements {
+				if !settlement.SettlementTime.Before(query.StartTime()) && !settlement.SettlementTime.After(query.EndTime()) {
+					inside = append(inside, settlement)
+				}
+			}
+			return inside, nil
+		})
+	fixture.contractFundingRateSettlementRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, cutoffTime time.Time) (entities.ContractFundingRateSettlement, bool, error) {
+			latest, found := entities.ContractFundingRateSettlement{}, false
+			for _, settlement := range settlements {
+				if settlement.SettlementTime.Before(cutoffTime) && (!found || settlement.SettlementTime.After(latest.SettlementTime)) {
+					latest, found = settlement, true
+				}
+			}
+			return latest, found, nil
+		})
 }
 
 // barOpeningAt is the bar the script saw opening at that moment.
@@ -442,15 +469,18 @@ func TestContractCalculationReadsFundingAndPositioningOverTheStretchTheBarsCover
 		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(12, 0), gomock.Any()).
 		Return(oneCandleAtEachHour(10, 11), nil)
 	fixture.contractFundingRateSettlementRepository.EXPECT().
-		FindInRange(gomock.Any(), gomock.Any(), 11).
+		FindInRange(gomock.Any(), gomock.Any(), 3).
 		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.ContractFundingRateSettlement, error) {
-			// Eight hours before the first bar — the longest a contract goes between
-			// settlements — up to the last bar's close.
-			assert.Equal(t, onTheDay(2, 0), query.StartTime())
+			// From where the first bar opens up to where the last one closes; the rate
+			// already in force before that is asked for on its own.
+			assert.Equal(t, onTheDay(10, 0), query.StartTime())
 			assert.Equal(t, onTheDay(12, 0), query.EndTime())
 			assert.Equal(t, "BTCUSDT", query.Symbol())
 			return nil, nil
 		})
+	fixture.contractFundingRateSettlementRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(10, 0)).
+		Return(entities.ContractFundingRateSettlement{}, false, nil)
 	fixture.contractPositionStatisticRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), 26).
 		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.ContractPositionStatistic, error) {
@@ -474,8 +504,7 @@ func TestContractCalculationNeverReadsTheBucketStillRunning(t *testing.T) {
 	fixture.kCandleContractRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(9, 0), gomock.Any()).
 		Return(oneCandleAtEachHour(8, 7), nil)
-	fixture.contractFundingRateSettlementRepository.EXPECT().
-		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	fixture.holdSettlements(nil)
 	fixture.contractPositionStatisticRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 	fixture.contractIndicatorScriptProxy.EXPECT().
@@ -542,8 +571,7 @@ func TestContractCalculationAnswersInTheSpotCalculationsShape(t *testing.T) {
 		fixture.kCandleContractRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(oneCandleAtEachHour(9, 10), nil)
-		fixture.contractFundingRateSettlementRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.holdSettlements(nil)
 		fixture.contractPositionStatisticRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
@@ -569,8 +597,7 @@ func TestContractCalculationAnswersInTheSpotCalculationsShape(t *testing.T) {
 		fixture.kCandleContractRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return([]entities.KCandleContract{aStoredContractCandle(onTheDay(9, 5))}, nil)
-		fixture.contractFundingRateSettlementRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.holdSettlements(nil)
 		fixture.contractPositionStatisticRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
@@ -623,12 +650,26 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 		require.ErrorIs(t, err, storageDown)
 	})
 
-	t.Run("statistics that cannot be read", func(t *testing.T) {
+	t.Run("the settlement in force before the stretch that cannot be read", func(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
 		fixture.kCandleContractRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
 		fixture.contractFundingRateSettlementRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.contractFundingRateSettlementRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.ContractFundingRateSettlement{}, false, storageDown)
+
+		_, err := fixture.contractIndicatorCalculationService.CalculateContractIndicator(t.Context(), hourlyRequest(8, 11))
+
+		require.ErrorIs(t, err, storageDown)
+	})
+
+	t.Run("statistics that cannot be read", func(t *testing.T) {
+		fixture := newContractCalculationUnderTest(t)
+		fixture.kCandleContractRepository.EXPECT().
+			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
+		fixture.holdSettlements(nil)
 		fixture.contractPositionStatisticRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, storageDown)
 
@@ -641,8 +682,7 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 		fixture := newContractCalculationUnderTest(t)
 		fixture.kCandleContractRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(oneCandleAtEachHour(9), nil)
-		fixture.contractFundingRateSettlementRepository.EXPECT().
-			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.holdSettlements(nil)
 		fixture.contractPositionStatisticRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
@@ -653,4 +693,131 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	})
+}
+
+func TestContractCalculationCarriesTheRateInForceHoweverLongAgoItWasSettled(t *testing.T) {
+	// Fetching settlements stopped for two days: the last one stored before the
+	// window is far older than any settlement interval, and it is still the rate in
+	// force until the next one arrives.
+	twoDaysEarlier := onTheDay(8, 0).Add(-48 * time.Hour)
+
+	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+		t, hourlyRequest(10, 12), oneCandleAtEachHour(10, 11),
+		[]entities.ContractFundingRateSettlement{aSettlement(twoDaysEarlier, "0.0004")}, nil)
+
+	require.Len(t, bars, 2)
+	for _, bar := range bars {
+		assert.Equal(t, 0.0004, bar.FundingRate)
+		assert.False(t, bar.FundingSettledInBar)
+	}
+}
+
+func TestContractCalculationCarriesTheEarlierRateOnEveryBarBetweenTwoSettlements(t *testing.T) {
+	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+		t, hourlyRequest(8, 17), oneCandleAtEachHour(8, 9, 10, 11, 12, 13, 14, 15, 16),
+		[]entities.ContractFundingRateSettlement{
+			aSettlement(onTheDay(8, 0), "0.0001"), aSettlement(onTheDay(16, 0), "0.0005")}, nil)
+
+	for hour := 9; hour <= 15; hour++ {
+		bar := barOpeningAt(t, bars, onTheDay(hour, 0))
+		assert.Equal(t, 0.0001, bar.FundingRate, "the %02d:00 bar", hour)
+		assert.False(t, bar.FundingSettledInBar, "the %02d:00 bar", hour)
+	}
+}
+
+func TestContractCalculationLeavesASettlementAtTheCloseToTheNextBar(t *testing.T) {
+	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+		t, hourlyRequest(7, 9), oneCandleAtEachHour(7, 8),
+		[]entities.ContractFundingRateSettlement{
+			aSettlement(onTheDay(0, 0), "0.0001"), aSettlement(onTheDay(8, 0), "0.0002")}, nil)
+
+	sevenOClock := barOpeningAt(t, bars, onTheDay(7, 0))
+	assert.Equal(t, 0.0001, sevenOClock.FundingRate)
+	assert.False(t, sevenOClock.FundingSettledInBar)
+	eightOClock := barOpeningAt(t, bars, onTheDay(8, 0))
+	assert.Equal(t, 0.0002, eightOClock.FundingRate)
+	assert.True(t, eightOClock.FundingSettledInBar)
+}
+
+// everyStatisticFigure is a position statistic whose eight figures are all non-zero,
+// so that a bar carrying zeros can only have been handed none of them.
+func everyStatisticFigure(statisticTime time.Time) entities.ContractPositionStatistic {
+	return entities.ContractPositionStatistic{
+		Symbol: "BTCUSDT", StatisticTime: statisticTime,
+		OpenInterest: decimal.RequireFromString("5000"), OpenInterestValue: decimal.RequireFromString("450000000"),
+		AccountLongShare: decimal.RequireFromString("0.47"), AccountShortShare: decimal.RequireFromString("0.53"),
+		AccountLongShortRatio:      decimal.RequireFromString("0.89"),
+		TopTraderPositionLongShare: decimal.RequireFromString("0.6"), TopTraderPositionShortShare: decimal.RequireFromString("0.4"),
+		TopTraderPositionLongShortRatio: decimal.RequireFromString("1.5"),
+	}
+}
+
+func assertCarriesNoPositionStatistic(t *testing.T, bar vo.ContractKCandleVo) {
+	t.Helper()
+	assert.Zero(t, bar.OpenInterest)
+	assert.Zero(t, bar.OpenInterestValue)
+	assert.Zero(t, bar.AccountLongShare)
+	assert.Zero(t, bar.AccountShortShare)
+	assert.Zero(t, bar.AccountLongShortRatio)
+	assert.Zero(t, bar.TopTraderPositionLongShare)
+	assert.Zero(t, bar.TopTraderPositionShortShare)
+	assert.Zero(t, bar.TopTraderPositionLongShortRatio)
+}
+
+func TestContractCalculationCarriesAllZerosForAStatisticThatIsNotRecentEnough(t *testing.T) {
+	t.Run("a one-minute bar whose latest statistic is older than five minutes", func(t *testing.T) {
+		requestDto := dto.IndicatorCalculationRequestDto{
+			Symbol: "BTCUSDT", AggregationInterval: "1m",
+			StartTime: onTheDay(9, 5), EndTime: onTheDay(9, 6), Script: "the script",
+		}
+
+		bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+			t, requestDto, []entities.KCandleContract{aStoredContractCandle(onTheDay(9, 5))},
+			nil, []entities.ContractPositionStatistic{everyStatisticFigure(onTheDay(9, 0))})
+
+		assertCarriesNoPositionStatistic(t, barOpeningAt(t, bars, onTheDay(9, 5)))
+	})
+
+	t.Run("an hour bar whose latest statistic is from before it", func(t *testing.T) {
+		bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+			t, hourlyRequest(9, 10), oneCandleAtEachHour(9),
+			nil, []entities.ContractPositionStatistic{everyStatisticFigure(onTheDay(8, 55))})
+
+		assertCarriesNoPositionStatistic(t, barOpeningAt(t, bars, onTheDay(9, 0)))
+	})
+}
+
+func TestContractCalculationAnswersAStretchBeforeStatisticsWereRecordedWithFundingAndPricesIntact(t *testing.T) {
+	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+		t, hourlyRequest(9, 10), oneCandleAtEachHour(9),
+		[]entities.ContractFundingRateSettlement{aSettlement(onTheDay(8, 0), "0.0001")}, nil)
+
+	require.Len(t, bars, 1)
+	assertCarriesNoPositionStatistic(t, bars[0])
+	assert.Equal(t, 0.0001, bars[0].FundingRate)
+	assert.Equal(t, 100.0, bars[0].Close)
+	assert.Equal(t, 1.0, bars[0].Volume)
+}
+
+func TestContractCalculationMergesPricesAndVolumesAsUsualBesideAnOldCandle(t *testing.T) {
+	sixtyMinutes := make([]entities.KCandleContract, 0, 60)
+	for minute := range 60 {
+		sixtyMinutes = append(sixtyMinutes, aStoredContractCandle(onTheDay(9, minute)))
+	}
+	sixtyMinutes[0].Open = decimal.RequireFromString("98")
+	sixtyMinutes[59].Close = decimal.RequireFromString("103")
+	sixtyMinutes[10].IndexOpen = decimal.NullDecimal{}
+	sixtyMinutes[10].PremiumIndexClose = decimal.NullDecimal{}
+
+	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
+		t, hourlyRequest(9, 10), sixtyMinutes, nil, nil)
+
+	require.Len(t, bars, 1)
+	assert.Equal(t, 98.0, bars[0].Open)
+	assert.Equal(t, 103.0, bars[0].Close)
+	assert.Equal(t, 60.0, bars[0].Volume)
+	assert.Equal(t, 6000.0, bars[0].QuoteVolume)
+	assert.Equal(t, int64(12000), bars[0].TradeCount)
+	assert.Equal(t, vo.PriceLineVo{}, bars[0].Index)
+	assert.Equal(t, vo.PriceLineVo{}, bars[0].PremiumIndex)
 }

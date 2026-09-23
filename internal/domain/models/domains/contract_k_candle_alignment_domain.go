@@ -9,13 +9,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// longestFundingSettlementInterval is the longest a perpetual contract goes between
-// two funding settlements: one, four or eight hours, and eight when the venue does not
-// say. Reading this far back before the first bar is what guarantees the rate in
-// force at that bar's close is among what was read, whichever of the three a symbol
-// settles on — without first asking the symbol which one it is.
-const longestFundingSettlementInterval = 8 * time.Hour
-
 // ContractKCandleAlignmentDomain is the stretch of perpetual contract bars a contract
 // script is about to be fed, and every rule that decides what each bar carries.
 //
@@ -49,18 +42,26 @@ func newContractKCandleAlignmentDomain(
 	return ContractKCandleAlignmentDomain{interval: interval, buckets: buckets}
 }
 
-// SettlementQuery is the stretch of funding settlements the bars can draw on: from one
-// longest settlement interval before the first bar, so that the first bar inherits the
-// rate in force when it opened, up to where the last bar closes.
+// SettlementLeadInCutoff is the moment the first bar opens. The latest settlement
+// before it is the rate already in force when the stretch begins, and it has to be
+// asked for on its own: it may lie any distance back — a fetch that stopped for a day
+// leaves a day between two stored settlements — and no fixed reach backwards is sure
+// to catch it.
+func (alignmentDomain ContractKCandleAlignmentDomain) SettlementLeadInCutoff() time.Time {
+	return alignmentDomain.buckets[0].OpenTime.UTC()
+}
+
+// SettlementQuery is the stretch of funding settlements the bars themselves cover: from
+// where the first bar opens up to where the last one closes.
 func (alignmentDomain ContractKCandleAlignmentDomain) SettlementQuery() KCandleQueryDomain {
-	return alignmentDomain.queryReachingBack(longestFundingSettlementInterval)
+	return alignmentDomain.queryReachingBack(0)
 }
 
 // SettlementReadLimit is the most settlements that stretch can hold. No contract
 // settles more often than hourly, so one per hour, plus the one at either end, is an
 // upper bound the stored settlements cannot exceed.
 func (alignmentDomain ContractKCandleAlignmentDomain) SettlementReadLimit() int {
-	return alignmentDomain.readLimitReachingBack(longestFundingSettlementInterval, time.Hour)
+	return alignmentDomain.readLimitReachingBack(0, time.Hour)
 }
 
 // StatisticQuery is the stretch of position statistics the bars can draw on: from one
@@ -96,7 +97,9 @@ func (alignmentDomain ContractKCandleAlignmentDomain) StatisticReadLimit() int {
 //     than that means recording stopped, and a bar carrying it would be passing an old
 //     state off as the current one. Such a bar carries zeros instead.
 //
-// Settlements and statistics may arrive in any order; each is walked once.
+// The settlements handed in are those the bars cover plus, when there is one, the
+// latest before the first bar — see SettlementLeadInCutoff. Settlements and statistics
+// may arrive in any order; each is walked once.
 func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 	settlements []entities.ContractFundingRateSettlement,
 	statistics []entities.ContractPositionStatistic,

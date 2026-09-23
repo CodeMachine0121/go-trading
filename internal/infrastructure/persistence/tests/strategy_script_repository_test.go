@@ -476,3 +476,35 @@ func TestStrategyScriptRepositoryLetsAStrategyScriptDropEveryKnobItHad(t *testin
 	require.NoError(t, updateError)
 	assert.Empty(t, updatedStrategyScript.Parameters)
 }
+
+func TestStrategyScriptRepositoryReadsAScriptWrittenWithoutAKindOfMarketAsASpotOne(t *testing.T) {
+	// A row written without the kind is what every strategy script saved before there
+	// was a kind looks like: the column's default is what they read back as.
+	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
+	withoutKind := strategyScriptNamed("舊的均線")
+	withoutKind.MarketDataKind = ""
+
+	saved, saveError := strategyScriptRepository.Save(t.Context(), withoutKind)
+	require.NoError(t, saveError)
+
+	stored, findError := strategyScriptRepository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "kCandle", stored.MarketDataKind)
+}
+
+func TestStrategyScriptRepositoryNeverChangesTheKindOfMarketOnARewrite(t *testing.T) {
+	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
+	contractScript := strategyScriptNamed("費率反轉")
+	contractScript.MarketDataKind = "contractKCandle"
+	saved, saveError := strategyScriptRepository.Save(t.Context(), contractScript)
+	require.NoError(t, saveError)
+
+	rewrite := saved
+	rewrite.MarketDataKind = "kCandle"
+	_, updateError := strategyScriptRepository.Update(t.Context(), rewrite)
+	require.NoError(t, updateError)
+
+	stored, findError := strategyScriptRepository.FindOne(t.Context(), saved.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "contractKCandle", stored.MarketDataKind)
+}

@@ -51,6 +51,8 @@ func newContractIndicatorRouterUnderTest(t *testing.T) contractIndicatorRouterUn
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
 	contractFundingRateSettlementRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
+	contractFundingRateSettlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
 	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
@@ -181,4 +183,17 @@ func TestContractIndicatorRouteAnswersLikeTheSpotRouteWhenSomethingGoesWrong(t *
 
 		assert.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
 	})
+}
+
+func TestContractIndicatorRouteTurnsAwayARequestCarryingNoProofOfIdentity(t *testing.T) {
+	// Nothing is stubbed on storage or the script runner: nothing may reach either.
+	fixture := newContractIndicatorRouterUnderTest(t)
+	request := httptest.NewRequest(http.MethodPost, "/contract-indicator-calculations",
+		strings.NewReader(aContractAlgorithmBody()))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	fixture.engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 }

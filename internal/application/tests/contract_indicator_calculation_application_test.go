@@ -68,6 +68,8 @@ func newContractIndicatorUnderTest(t *testing.T) contractIndicatorUnderTest {
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
 	contractFundingRateSettlementRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
+	contractFundingRateSettlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(controller)
 	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()

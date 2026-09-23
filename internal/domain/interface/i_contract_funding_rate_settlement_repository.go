@@ -2,6 +2,7 @@ package _interface
 
 import (
 	"context"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -23,6 +24,13 @@ type IContractFundingRateSettlementRepository interface {
 	// there is one at all.
 	FindLatest(
 		executionContext context.Context, symbol string,
+	) (entities.ContractFundingRateSettlement, bool, error)
+	// FindLatestBefore is the most recent settlement held for the contract whose
+	// settlement time is STRICTLY BEFORE cutoffTime, and whether there is one at all.
+	// It is how a stretch of bars learns the rate that was already in force when its
+	// first bar opened, however long before that the settlement took place.
+	FindLatestBefore(
+		executionContext context.Context, symbol string, cutoffTime time.Time,
 	) (entities.ContractFundingRateSettlement, bool, error)
 	// FindInRange returns the settlements whose settlement time falls inside the
 	// query's range, both ends included, earliest first, at most limit of them.

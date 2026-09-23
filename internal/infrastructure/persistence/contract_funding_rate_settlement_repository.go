@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -65,6 +66,31 @@ func (settlementRepository *ContractFundingRateSettlementRepository) FindLatest(
 	if result.Error != nil {
 		return entities.ContractFundingRateSettlement{}, false,
 			fmt.Errorf("find latest contract funding rate settlement: %w", result.Error)
+	}
+
+	return latestSettlement, true, nil
+}
+
+// FindLatestBefore is the most recent settlement held for the contract whose
+// settlement time is strictly before the cut-off.
+func (settlementRepository *ContractFundingRateSettlementRepository) FindLatestBefore(
+	executionContext context.Context, symbol string, cutoffTime time.Time,
+) (entities.ContractFundingRateSettlement, bool, error) {
+	latestSettlement := entities.ContractFundingRateSettlement{}
+
+	result := settlementRepository.database.WithContext(executionContext).
+		Clauses(clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "symbol"}, Value: symbol},
+			clause.Lt{Column: clause.Column{Name: "settlement_time"}, Value: cutoffTime},
+		}}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "settlement_time"}, Desc: true}).
+		First(&latestSettlement)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return entities.ContractFundingRateSettlement{}, false, nil
+	}
+	if result.Error != nil {
+		return entities.ContractFundingRateSettlement{}, false,
+			fmt.Errorf("find latest contract funding rate settlement before cutoff: %w", result.Error)
 	}
 
 	return latestSettlement, true, nil

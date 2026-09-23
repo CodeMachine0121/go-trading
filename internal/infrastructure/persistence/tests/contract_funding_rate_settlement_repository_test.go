@@ -146,3 +146,46 @@ func TestContractFundingRateSettlementRepositoryStoresAHistoryLongerThanOneState
 	require.NoError(t, saveError)
 	assert.Equal(t, 17000, storedCount)
 }
+
+func TestContractFundingRateSettlementRepositoryFindsTheLatestBeforeACutOff(t *testing.T) {
+	database := newTestDatabase(t)
+	settlementRepository := persistence.NewContractFundingRateSettlementRepository(database)
+	_, saveError := settlementRepository.SaveAllIfAbsent(t.Context(), []entities.ContractFundingRateSettlement{
+		settlementOf("BTCUSDT", at(0, 0), "0.0001"),
+		settlementOf("BTCUSDT", at(8, 0), "0.0002"),
+		settlementOf("ETHUSDT", at(7, 0), "0.0009"),
+	})
+	require.NoError(t, saveError)
+
+	testCases := []struct {
+		name         string
+		cutoffTime   time.Time
+		expectedRate string
+		expectedFind bool
+	}{
+		{name: "the latest one strictly before the cut-off", cutoffTime: at(9, 0), expectedRate: "0.0002", expectedFind: true},
+		{name: "one stamped exactly at the cut-off is left out", cutoffTime: at(8, 0), expectedRate: "0.0001", expectedFind: true},
+		{name: "none before the cut-off is not a failure", cutoffTime: at(0, 0), expectedFind: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			latest, found, findError := settlementRepository.FindLatestBefore(t.Context(), "BTCUSDT", testCase.cutoffTime)
+
+			require.NoError(t, findError)
+			require.Equal(t, testCase.expectedFind, found)
+			if testCase.expectedFind {
+				assert.True(t, decimal.RequireFromString(testCase.expectedRate).Equal(latest.FundingRate))
+				assert.Equal(t, "BTCUSDT", latest.Symbol)
+			}
+		})
+	}
+}
+
+func TestContractFundingRateSettlementRepositoryFindLatestBeforeReportsAStorageFailure(t *testing.T) {
+	settlementRepository := persistence.NewContractFundingRateSettlementRepository(closedDatabase(t))
+
+	_, _, findError := settlementRepository.FindLatestBefore(t.Context(), "BTCUSDT", at(9, 0))
+
+	assert.Error(t, findError)
+}

@@ -53,9 +53,10 @@ func NewContractIndicatorCalculationService(
 // contract bars for the trading symbol, taking only buckets that have finished, and
 // reports one value per indicator name in the kind the request declared.
 //
-// It reads what is stored and nothing more: three reads — the contract K candles, then
-// the funding settlements and the position statistics over the stretch those candles
-// turned out to cover — however many bars there are. Nothing is fetched from the venue
+// It reads what is stored and nothing more: four reads — the contract K candles, then
+// the funding settlements over the stretch those candles turned out to cover, the one
+// settlement in force before it, and the position statistics — however many bars
+// there are. Nothing is fetched from the venue
 // to fill a gap; a stretch only partly stored is answered over what is there, exactly
 // as a spot one is.
 func (contractIndicatorCalculationService *ContractIndicatorCalculationService) CalculateContractIndicator(
@@ -91,6 +92,16 @@ func (contractIndicatorCalculationService *ContractIndicatorCalculationService) 
 		FindInRange(executionContext, alignmentDomain.SettlementQuery(), alignmentDomain.SettlementReadLimit())
 	if findSettlementsError != nil {
 		return dto.IndicatorCalculationResultDto{}, findSettlementsError
+	}
+
+	leadInSettlement, hasLeadIn, findLeadInError := contractIndicatorCalculationService.
+		contractFundingRateSettlementRepository.
+		FindLatestBefore(executionContext, calculationDomain.Symbol(), alignmentDomain.SettlementLeadInCutoff())
+	if findLeadInError != nil {
+		return dto.IndicatorCalculationResultDto{}, findLeadInError
+	}
+	if hasLeadIn {
+		settlements = append(settlements, leadInSettlement)
 	}
 
 	statistics, findStatisticsError := contractIndicatorCalculationService.contractPositionStatisticRepository.
