@@ -392,8 +392,10 @@ func registerRoutes(
 		contractIndicatorCalculationService,
 	)
 
-	engine.POST("/indicator-calculations", requiresSignIn, controller.NewIndicatorCalculationController(
-		indicatorCalculationApplication).CalculateIndicator)
+	indicatorCalculationController := controller.NewIndicatorCalculationController(indicatorCalculationApplication)
+	engine.POST("/indicator-calculations", requiresSignIn, indicatorCalculationController.CalculateIndicator)
+	engine.POST("/contract-indicator-calculations", requiresSignIn,
+		indicatorCalculationController.CalculateContractIndicator)
 
 	// Replaying a strategy script is its own use case rather than a mode of calculating an
 	// indicator: it asks a different question of the same script, and it stores

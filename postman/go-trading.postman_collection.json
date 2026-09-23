@@ -290,6 +290,14 @@
     {
       "key": "contractSettlementRangeStart",
       "value": ""
+    },
+    {
+      "key": "contractStrategyScriptId",
+      "value": ""
+    },
+    {
+      "key": "spotStrategyScriptIdForContract",
+      "value": ""
     }
   ],
   "event": [
@@ -4273,6 +4281,406 @@
                   "pm.test(\"說出用的是五分鐘\", () => pm.expect(series.interval).to.eql(\"5m\"));",
                   "pm.test(\"每一根落在五分鐘刻度上\", () => series.kCandles.forEach((candle) => pm.expect(Date.parse(candle.openTime) % (5 * 60 * 1000)).to.eql(0)));",
                   "pm.test(\"每一根帶著標記價格\", () => series.kCandles.forEach((candle) => pm.expect(Number(candle.markClose)).to.be.above(0)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "存一支吃合約行情的策略腳本",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約行情讀法 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.ContractKCandle) map[string]float64 {\\n\\tlast := data[len(data)-1]\\n\\tsettled := 0.0\\n\\tif last.FundingSettledInBar {\\n\\t\\tsettled = 1\\n\\t}\\n\\treturn map[string]float64{\\\"close\\\": last.Close, \\\"markClose\\\": last.Mark.Close, \\\"fundingRate\\\": last.FundingRate, \\\"settled\\\": settled, \\\"openInterest\\\": last.OpenInterest}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`marketDataKind` 二選一：`kCandle`（現貨 K 線，省略即此）或 `contractKCandle`（合約行情格）。建立後不得更換。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"它吃的是合約行情\", () => pm.expect(pm.response.json().marketDataKind).to.eql(\"contractKCandle\"));",
+                  "pm.collectionVariables.set(\"contractStrategyScriptId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "指名它做合約指標計算",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{contractRangeStart}}\",\n  \"endTime\": \"{{contractRangeEnd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "算式收下一串 `indicator.ContractKCandle`：現貨 K 線的每一項同名同義，另帶 `TradeCount`、`Mark`／`Index`／`PremiumIndex`（各一組開高低收）、`FundingRate`（收盤前最近一次結算的費率）、`FundingSettledInBar`（這一格內有沒有結算）與持倉統計八項。沒有值的一律為零。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"說出用的是五分鐘\", () => pm.expect(result.interval).to.eql(\"5m\"));",
+                  "pm.test(\"最新一格的收盤價與標記價格都讀得到\", () => { pm.expect(result.values.close).to.be.above(0); pm.expect(result.values.markClose).to.be.above(0); });",
+                  "pm.test(\"說出用了幾格\", () => pm.expect(result.usedCandleCount).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "自帶一段吃合約行情的算式",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractRangeStart}}\",\n  \"endTime\": \"{{contractRangeEnd}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.ContractKCandle) map[string]float64 {\\n\\tlast := data[len(data)-1]\\n\\tsettled := 0.0\\n\\tif last.FundingSettledInBar {\\n\\t\\tsettled = 1\\n\\t}\\n\\treturn map[string]float64{\\\"close\\\": last.Close, \\\"markClose\\\": last.Mark.Close, \\\"fundingRate\\\": last.FundingRate, \\\"settled\\\": settled, \\\"openInterest\\\": last.OpenInterest}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"費率與持倉量都有值可讀（沒有資料時為零）\", () => { const values = pm.response.json().values; pm.expect(values).to.have.property(\"fundingRate\"); pm.expect(values).to.have.property(\"openInterest\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "自帶的算式照現貨的寫法會被說寫錯",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"startTime\": \"{{contractRangeStart}}\",\n  \"endTime\": \"{{contractRangeEnd}}\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 { return nil }\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"說出入口應該收一串合約行情格\", () => pm.expect(pm.response.json().message).to.include(\"[]indicator.ContractKCandle\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "（先存）一支吃現貨 K 線的策略腳本",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"現貨讀法 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.KCandle) map[string]float64 { return nil }\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存得起來\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"沒說行情種類就是 K 線\", () => pm.expect(pm.response.json().marketDataKind).to.eql(\"kCandle\"));",
+                  "pm.collectionVariables.set(\"spotStrategyScriptIdForContract\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "吃現貨 K 線的策略腳本不能做合約指標計算",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{spotStrategyScriptIdForContract}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"startTime\": \"{{contractRangeStart}}\",\n  \"endTime\": \"{{contractRangeEnd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出它吃的是 K 線\", () => pm.expect(pm.response.json().message).to.include(\"這支策略腳本吃的是 K 線\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "吃合約行情的策略腳本不能做現貨指標計算",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/indicator-calculations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "indicator-calculations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractStrategyScriptId}},\n  \"symbol\": \"BTCUSDT\",\n  \"startTime\": \"{{contractRangeStart}}\",\n  \"endTime\": \"{{contractRangeEnd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出它吃的是合約行情\", () => pm.expect(pm.response.json().message).to.include(\"這支策略腳本吃的是合約行情\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "行情種類建立後不得更換",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts/{{contractStrategyScriptId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts",
+                "{{contractStrategyScriptId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約行情讀法 改成現貨 {{$guid}}\",\n  \"resultType\": \"float\",\n  \"marketDataKind\": \"kCandle\",\n  \"script\": \"package main\\nimport \\\"indicator\\\"\\nfunc Calculate(data []indicator.ContractKCandle) map[string]float64 {\\n\\tlast := data[len(data)-1]\\n\\tsettled := 0.0\\n\\tif last.FundingSettledInBar {\\n\\t\\tsettled = 1\\n\\t}\\n\\treturn map[string]float64{\\\"close\\\": last.Close, \\\"markClose\\\": last.Mark.Close, \\\"fundingRate\\\": last.FundingRate, \\\"settled\\\": settled, \\\"openInterest\\\": last.OpenInterest}\\n}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出不得更換\", () => pm.expect(pm.response.json().message).to.include(\"行情種類建立後不得更換\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：刪掉吃合約行情的那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts/{{contractStrategyScriptId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts",
+                "{{contractStrategyScriptId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刪得掉\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：刪掉吃現貨 K 線的那一支",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-scripts/{{spotStrategyScriptIdForContract}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-scripts",
+                "{{spotStrategyScriptIdForContract}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刪得掉\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
                 ]
               }
             }
