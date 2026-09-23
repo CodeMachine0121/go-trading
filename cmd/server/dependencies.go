@@ -432,6 +432,7 @@ func registerRoutes(
 	backtestController := controller.NewBacktestController(
 		application.NewBacktestApplication(strategyScriptService, backtestService, contractBacktestService))
 	engine.POST("/backtests", requiresSignIn, backtestController.RunBacktest)
+	engine.POST("/contract-backtests", requiresSignIn, backtestController.RunContractBacktest)
 
 	// Creating a user and signing in are open, and have to be: a system holding no
 	// users has nobody who could be allowed to create the first one. "Who am I" is
@@ -552,6 +553,8 @@ func registerRoutes(
 		tradingStrategyBacktestApplication)
 	engine.POST("/trading-strategies/:id/backtests", requiresSignIn,
 		tradingStrategyBacktestController.RunTradingStrategyBacktest)
+	engine.POST("/trading-strategies/:id/contract-backtests", requiresSignIn,
+		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
 
 	// The assistant is wired after the trading strategies rather than before,
 	// because it is now handed them: it assembles a set of rules out of the scripts
