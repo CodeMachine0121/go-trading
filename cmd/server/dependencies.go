@@ -373,9 +373,23 @@ func registerRoutes(
 		applicationConfig.KCandleQueryMaxResults,
 	)
 
+	// The contract counterpart reads contract candles and lines funding and
+	// positioning up beside them; it keeps the same read ceiling and the same script
+	// allowance as the spot one, so the two answer the same question the same way.
+	contractIndicatorCalculationService := service.NewContractIndicatorCalculationService(
+		contractKCandleRepository,
+		persistence.NewContractFundingRateSettlementRepository(database),
+		persistence.NewContractPositionStatisticRepository(database),
+		script.NewYaegiContractIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	indicatorCalculationApplication := application.NewIndicatorCalculationApplication(
 		strategyScriptService,
 		indicatorCalculationService,
+		contractIndicatorCalculationService,
 	)
 
 	engine.POST("/indicator-calculations", requiresSignIn, controller.NewIndicatorCalculationController(

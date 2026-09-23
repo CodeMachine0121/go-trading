@@ -86,7 +86,9 @@ func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicato
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(
 					map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				queryMaxResults)))
+				queryMaxResults),
+			// Nothing here calculates over contract bars; that route has its own tests.
+			nil))
 
 	engine := gin.New()
 	engine.POST("/indicator-calculations",
@@ -425,7 +427,9 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 						},
 					},
 				}),
-				queryMaxResults)))
+				queryMaxResults),
+			// Nothing here calculates over contract bars; that route has its own tests.
+			nil))
 
 	engine := gin.New()
 	engine.POST("/indicator-calculations",

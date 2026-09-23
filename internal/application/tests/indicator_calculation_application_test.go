@@ -69,7 +69,9 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				queryMaxResults)),
+				queryMaxResults),
+			// Nothing here calculates over contract bars; that use case has its own tests.
+			nil),
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
