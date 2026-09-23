@@ -965,3 +965,160 @@ func TestContractBacktestShortExitsAndRemainingRules(t *testing.T) {
 		})
 	}
 }
+
+func TestContractBacktestContractFollowUps(t *testing.T) {
+	t.Run("a long closed by a sell hands its money back to the account", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.TradingMode = "longOnly"
+
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 110, signal: vo.SignalSell}, {close: 120}})
+
+		// Flat after the sell: the rise to 120 no longer moves the account.
+		assertDecimalEqual(t, "11000", resultDto.Summary.FinalEquity)
+	})
+
+	t.Run("the tier's maintenance amount pushes the liquidation price away", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.Leverage = decimal.NewFromInt(10)
+		requestDto.TradingMode = "longOnly"
+		deductingTier := contractReplayTier(2, "50000", "250000", "0.02", 20)
+		deductingTier.MaintenanceAmount = decimal.NewFromInt(500)
+		tradingRules := contractReplayRules(t, contractReplaySpecification(),
+			contractReplayTier(1, "0", "50000", "0.004", 125), deductingTier)
+
+		// (100,000 − 10,000 − 500) ÷ (1,000 × 0.98) ≈ 91.33; without the amount it would be 91.84.
+		held := replayContract(t, requestDto, tradingRules,
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 95, markLow: 91.4}})
+		liquidated := replayContract(t, requestDto, tradingRules,
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 95, markLow: 91.3}})
+
+		assert.Empty(t, held.ClosedTrades)
+		require.Len(t, liquidated.ClosedTrades, 1)
+		assert.Equal(t, "liquidation", liquidated.ClosedTrades[0].ExitReason)
+	})
+
+	t.Run("a bar reaching both the stop and a nearer liquidation price liquidates", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.Leverage = decimal.NewFromInt(10)
+		requestDto.TradingMode = "longOnly"
+		requestDto.StopLossPercentage = decimal.NewFromInt(15)
+
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 90, low: 84, markLow: 84}})
+
+		require.Len(t, resultDto.ClosedTrades, 1)
+		assert.Equal(t, "liquidation", resultDto.ClosedTrades[0].ExitReason)
+	})
+
+	t.Run("the exit charge is taken on the money that changes hands", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.TradingMode = "longOnly"
+		requestDto.EntryCostPercentage = decimal.Zero
+		requestDto.ExitCostPercentage = decimal.RequireFromString("0.1")
+
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 110, signal: vo.SignalSell}})
+
+		require.Len(t, resultDto.ClosedTrades, 1)
+		// 100 units × 110 × 0.1%.
+		assertDecimalEqual(t, "11", resultDto.ClosedTrades[0].ExitCost)
+		assertDecimalEqual(t, "989", resultDto.ClosedTrades[0].Profit)
+	})
+
+	t.Run("a trade's profit is net of both charges and of its funding", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.AggregationInterval = "1h"
+		requestDto.InitialCapital = decimal.NewFromInt(20000)
+		requestDto.PositionSizingMode = "fixedAmount"
+		requestDto.PositionSizingValue = decimal.NewFromInt(10000)
+		requestDto.Leverage = decimal.NewFromInt(5)
+		requestDto.TradingMode = "longOnly"
+		requestDto.EntryCostPercentage = decimal.RequireFromString("0.05")
+
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 110, signal: vo.SignalSell}},
+			contractSettlementAt(contractReplayStart.Add(time.Hour), "0.0001", "100"))
+
+		require.Len(t, resultDto.ClosedTrades, 1)
+		closedTrade := resultDto.ClosedTrades[0]
+		assertDecimalEqual(t, "5", closedTrade.FundingFee)
+		// 5,000 on the price, less 25 in, 27.5 out and 5 of funding.
+		assertDecimalEqual(t, "4942.5", closedTrade.Profit)
+	})
+
+	slippedExits := []struct {
+		name          string
+		tradingMode   string
+		stake         int64
+		stopLoss      int64
+		bars          []contractReplayBar
+		wantExitPrice string
+	}{
+		{
+			name: "a long closed by a signal sells a little cheaper", tradingMode: "longOnly", stake: 10100,
+			bars:          []contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 110, signal: vo.SignalSell}},
+			wantExitPrice: "108.9",
+		},
+		{
+			name: "a short closed by a signal buys back a little dearer", tradingMode: "shortOnly", stake: 9900,
+			bars:          []contractReplayBar{{close: 100, signal: vo.SignalSell}, {close: 90, signal: vo.SignalBuy}},
+			wantExitPrice: "90.9",
+		},
+		{
+			// Entered at 101, stopped at 95.95, filled 1% below it.
+			name: "a stop fills on the wrong side of its price", tradingMode: "longOnly", stake: 10100, stopLoss: 5,
+			bars:          []contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 96, low: 95}},
+			wantExitPrice: "94.9905",
+		},
+	}
+
+	for _, slippedExit := range slippedExits {
+		t.Run(slippedExit.name, func(t *testing.T) {
+			requestDto := contractReplayRequest()
+			requestDto.InitialCapital = decimal.NewFromInt(20000)
+			requestDto.PositionSizingMode = "fixedAmount"
+			requestDto.PositionSizingValue = decimal.NewFromInt(slippedExit.stake)
+			requestDto.TradingMode = slippedExit.tradingMode
+			requestDto.SlippagePercentage = decimal.NewFromInt(1)
+			requestDto.StopLossPercentage = decimal.NewFromInt(slippedExit.stopLoss)
+
+			resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()), slippedExit.bars)
+
+			require.Len(t, resultDto.ClosedTrades, 1)
+			assertDecimalEqual(t, slippedExit.wantExitPrice, resultDto.ClosedTrades[0].ExitPrice)
+		})
+	}
+
+	t.Run("the bar a position opens on never reaches its exit levels", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.TradingMode = "longOnly"
+		requestDto.StopLossPercentage = decimal.NewFromInt(5)
+
+		// The opening bar's low of 90 happened before the close it was entered at.
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 100, low: 90, signal: vo.SignalBuy}, {close: 100}})
+
+		assert.Empty(t, resultDto.ClosedTrades)
+		assert.Equal(t, 1, resultDto.Summary.PositionOpenCount)
+	})
+
+	t.Run("a stretch needing more bars than one read allows is refused", func(t *testing.T) {
+		_, err := domains.NewContractBacktestDomain(contractReplayRequest(),
+			contractReplayRules(t, contractReplaySpecification()), 10, contractReplayStart.Add(30*24*time.Hour))
+
+		require.ErrorIs(t, err, domains.ErrBacktestValidation)
+		fieldName, _ := domains.BacktestFieldName(err)
+		assert.Equal(t, "timeRange", fieldName)
+	})
+
+	t.Run("an explicit zero leverage is one times, the same as leaving it blank", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.Leverage = decimal.Zero
+
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 100}})
+
+		assertDecimalEqual(t, "1", resultDto.Leverage)
+	})
+}

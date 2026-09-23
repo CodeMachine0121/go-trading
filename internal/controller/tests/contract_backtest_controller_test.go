@@ -343,3 +343,18 @@ func TestRunContractTradingStrategyBacktestEndpointAnswersWithTheReportCard(t *t
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	assert.Equal(t, "longOnly", body.TradingMode)
 }
+
+func TestContractBacktestEndpointsNeedASignedInCaller(t *testing.T) {
+	for _, path := range []string{"/contract-backtests", "/trading-strategies/11/contract-backtests"} {
+		t.Run(path, func(t *testing.T) {
+			fixture := newContractBacktestRouterUnderTest(t)
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			fixture.engine.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
+}

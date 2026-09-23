@@ -244,6 +244,9 @@ func TestRunContractTradingStrategyBacktest(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "shortOnly", resultDto.TradingMode)
+		// The coarseness is the one the sources share, and every bar is on the curve.
+		assert.Equal(t, "1h", resultDto.Interval)
+		assert.Len(t, resultDto.EquityCurve, 2)
 		require.Len(t, resultDto.ClosedTrades, 1)
 		assert.Equal(t, "short", resultDto.ClosedTrades[0].Direction)
 		// 500 units shorted at 100, bought back at 90.
