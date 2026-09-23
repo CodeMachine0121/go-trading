@@ -20,15 +20,16 @@ import (
 // and a value the script may only pick from a fixed set.
 type indicatorScriptShape struct {
 	resultType domains.IndicatorResultTypeDomain
+	// inputSliceType is what the entry point must take: a slice of whatever this kind
+	// of script is fed — K candles for a spot script, contract bars for a contract one.
+	inputSliceType reflect.Type
 }
 
 // entryPointType is the exact form the entry point must have under this kind.
 func (indicatorScriptShape indicatorScriptShape) entryPointType() reflect.Type {
-	kCandleSliceType := reflect.TypeOf([]vo.KCandleVo(nil))
-
 	if indicatorScriptShape.resultType.IsSignal() {
 		return reflect.FuncOf(
-			[]reflect.Type{kCandleSliceType},
+			[]reflect.Type{indicatorScriptShape.inputSliceType},
 			[]reflect.Type{reflect.TypeOf(vo.SignalVo(""))},
 			false)
 	}
@@ -43,7 +44,7 @@ func (indicatorScriptShape indicatorScriptShape) entryPointType() reflect.Type {
 	}
 
 	return reflect.FuncOf(
-		[]reflect.Type{kCandleSliceType},
+		[]reflect.Type{indicatorScriptShape.inputSliceType},
 		[]reflect.Type{reflect.MapOf(reflect.TypeOf(""), elementType)},
 		false)
 }
