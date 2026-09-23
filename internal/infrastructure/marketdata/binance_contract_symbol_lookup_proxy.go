@@ -297,38 +297,43 @@ func (listing binanceContractListing) isFollowable() bool {
 func (listing binanceContractListing) toContractTradingSpecificationVo(
 	fundingIntervals map[string]int,
 ) (vo.ContractTradingSpecificationVo, error) {
-	quotedFigures := map[string]string{"maintMarginPercent": listing.MaintMarginPercent, "liquidationFee": listing.LiquidationFee}
+	// Each figure lives in the filter of its own kind; a kind the listing lacks leaves
+	// its figures empty, which fails to read below rather than passing as zero.
+	quotedTickSize, quotedStepSize, quotedMinimumQuantity, quotedMinimumNotional := "", "", "", ""
 	for _, filter := range listing.Filters {
 		switch filter.FilterType {
 		case "PRICE_FILTER":
-			quotedFigures["tickSize"] = filter.TickSize
+			quotedTickSize = filter.TickSize
 		case "LOT_SIZE":
-			quotedFigures["stepSize"] = filter.StepSize
-			quotedFigures["minQty"] = filter.MinQty
+			quotedStepSize, quotedMinimumQuantity = filter.StepSize, filter.MinQty
 		case "MIN_NOTIONAL":
-			quotedFigures["notional"] = filter.Notional
+			quotedMinimumNotional = filter.Notional
 		}
 	}
 
-	figures := make(map[string]decimal.Decimal, len(quotedFigures))
-	for _, name := range []string{"tickSize", "stepSize", "minQty", "notional", "maintMarginPercent", "liquidationFee"} {
-		figure, parseError := decimal.NewFromString(quotedFigures[name])
+	specification := vo.ContractTradingSpecificationVo{Symbol: listing.Symbol}
+	maintenanceMarginPercent := decimal.Zero
+	for _, quotedFigure := range []struct {
+		name   string
+		quoted string
+		target *decimal.Decimal
+	}{
+		{"tickSize", quotedTickSize, &specification.TickSize},
+		{"stepSize", quotedStepSize, &specification.QuantityStep},
+		{"minQty", quotedMinimumQuantity, &specification.MinimumQuantity},
+		{"notional", quotedMinimumNotional, &specification.MinimumNotional},
+		{"maintMarginPercent", listing.MaintMarginPercent, &maintenanceMarginPercent},
+		{"liquidationFee", listing.LiquidationFee, &specification.LiquidationFeeRate},
+	} {
+		figure, parseError := decimal.NewFromString(quotedFigure.quoted)
 		if parseError != nil {
 			return vo.ContractTradingSpecificationVo{}, fmt.Errorf(
-				"read %s of %s from contract market source: %w", name, listing.Symbol, parseError)
+				"read %s of %s from contract market source: %w", quotedFigure.name, listing.Symbol, parseError)
 		}
-		figures[name] = figure
+		*quotedFigure.target = figure
 	}
+	specification.MaintenanceMarginRate = maintenanceMarginPercent.Div(maintenanceMarginPercentScale)
 
-	specification := vo.ContractTradingSpecificationVo{
-		Symbol:                listing.Symbol,
-		TickSize:              figures["tickSize"],
-		QuantityStep:          figures["stepSize"],
-		MinimumQuantity:       figures["minQty"],
-		MinimumNotional:       figures["notional"],
-		MaintenanceMarginRate: figures["maintMarginPercent"].Div(maintenanceMarginPercentScale),
-		LiquidationFeeRate:    figures["liquidationFee"],
-	}
 	if fundingIntervalHours, isListed := fundingIntervals[listing.Symbol]; isListed {
 		specification.FundingIntervalHours = &fundingIntervalHours
 	}
