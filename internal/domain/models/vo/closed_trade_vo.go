@@ -66,3 +66,17 @@ func (closedTradeVo ClosedTradeVo) ToDto() dto.ClosedTradeDto {
 		ExitReason: string(closedTradeVo.ExitReason),
 	}
 }
+
+// ToOutcomeVo is this round trip as the trade statistics read it: before the charges
+// for trading, it made its net profit plus both of them.
+func (closedTradeVo ClosedTradeVo) ToOutcomeVo() TradeOutcomeVo {
+	transactionCost := closedTradeVo.EntryCost.Add(closedTradeVo.ExitCost)
+
+	return TradeOutcomeVo{
+		NetProfit:       closedTradeVo.Profit,
+		GrossProfit:     closedTradeVo.Profit.Add(transactionCost),
+		TransactionCost: transactionCost,
+		EntryTime:       closedTradeVo.EntryTime,
+		ExitTime:        closedTradeVo.ExitTime,
+	}
+}

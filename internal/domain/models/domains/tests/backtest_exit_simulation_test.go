@@ -56,6 +56,7 @@ func replayWithExitsOf(
 		decimal.NewFromInt(10000),
 		domains.NewBacktestPositionTermsDomain(positionSizing, exitLevels,
 			domains.BacktestTransactionCostsDomain{}),
+		domains.BacktestFillTimingDomain{},
 		inputKCandles, signalDomainsSaying(signals...)).ToDto()
 }
 

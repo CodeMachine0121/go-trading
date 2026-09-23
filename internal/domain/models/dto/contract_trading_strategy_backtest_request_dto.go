@@ -27,8 +27,13 @@ type ContractTradingStrategyBacktestRequestDto struct {
 	TakeProfitPercentage decimal.Decimal
 	EntryCostPercentage  decimal.Decimal
 	ExitCostPercentage   decimal.Decimal
-	Leverage             decimal.Decimal
-	SlippagePercentage   decimal.Decimal
+	// FillTiming is at what price this replay fills its signals: close (blank) or
+	// nextOpen.
+	FillTiming string
+	// ValidationStartTime splits the replay for validation; zero is no split.
+	ValidationStartTime time.Time
+	Leverage            decimal.Decimal
+	SlippagePercentage  decimal.Decimal
 	// MaintenanceMarginRate is carried only to be refused: on a contract account it is
 	// the symbol's ladder that says it, and a figure typed in would otherwise be
 	// quietly ignored.
@@ -57,6 +62,8 @@ func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRe
 		TakeProfitPercentage:  requestDto.TakeProfitPercentage,
 		EntryCostPercentage:   requestDto.EntryCostPercentage,
 		ExitCostPercentage:    requestDto.ExitCostPercentage,
+		FillTiming:            requestDto.FillTiming,
+		ValidationStartTime:   requestDto.ValidationStartTime,
 		Leverage:              requestDto.Leverage,
 		TradingMode:           requestDto.TradingStrategyTradingMode,
 		SlippagePercentage:    requestDto.SlippagePercentage,

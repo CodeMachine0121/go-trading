@@ -89,10 +89,10 @@ func newContractBacktestRouterUnderTest(t *testing.T) contractBacktestRouterUnde
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	backtestService := service.NewBacktestService(
 		mocks.NewMockIKCandleRepository(mockController), mocks.NewMockIIndicatorScriptProxy(mockController),
-		clockProxy, queryMaxResults)
+		clockProxy, queryMaxResults, time.Minute)
 	contractBacktestService := service.NewContractBacktestService(
 		kCandleContractRepository, settlementRepository, statisticRepository,
-		contractTradingSymbolRepository, tierRepository, contractIndicatorScriptProxy, clockProxy, queryMaxResults)
+		contractTradingSymbolRepository, tierRepository, contractIndicatorScriptProxy, clockProxy, queryMaxResults, time.Minute)
 
 	backtestController := controller.NewBacktestController(
 		application.NewBacktestApplication(strategyScriptService, backtestService, contractBacktestService))

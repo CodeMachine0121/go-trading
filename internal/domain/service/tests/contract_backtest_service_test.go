@@ -41,6 +41,13 @@ type contractBacktestServiceFailure struct {
 func newContractBacktestServiceUnderTest(
 	t *testing.T, failure func(contractBacktestServiceMocks),
 ) *service.ContractBacktestService {
+	return newContractBacktestServiceWithin(t, time.Minute, failure)
+}
+
+// newContractBacktestServiceWithin is the same replay given that whole-run allowance.
+func newContractBacktestServiceWithin(
+	t *testing.T, replayTimeAllowance time.Duration, failure func(contractBacktestServiceMocks),
+) *service.ContractBacktestService {
 	controller := gomock.NewController(t)
 	boundaries := contractBacktestServiceMocks{
 		kCandleContractRepository:    mocks.NewMockIKCandleContractRepository(controller),
@@ -100,6 +107,7 @@ func newContractBacktestServiceUnderTest(
 		boundaries.contractIndicatorScriptProxy,
 		clockProxy,
 		1000,
+		replayTimeAllowance,
 	)
 }
 

@@ -47,3 +47,19 @@ func (contractClosedTradeVo ContractClosedTradeVo) ToDto() dto.ContractClosedTra
 		ExitReason: string(contractClosedTradeVo.ExitReason),
 	}
 }
+
+// ToOutcomeVo is this round trip as the trade statistics read it. Funding is not a
+// charge for trading — it has its own figure on the report card — so what the trade
+// made before its charges puts back the funding it paid as well as both charges.
+func (contractClosedTradeVo ContractClosedTradeVo) ToOutcomeVo() TradeOutcomeVo {
+	transactionCost := contractClosedTradeVo.EntryCost.Add(contractClosedTradeVo.ExitCost)
+
+	return TradeOutcomeVo{
+		NetProfit: contractClosedTradeVo.Profit,
+		GrossProfit: contractClosedTradeVo.Profit.Add(transactionCost).
+			Add(contractClosedTradeVo.FundingFee),
+		TransactionCost: transactionCost,
+		EntryTime:       contractClosedTradeVo.EntryTime,
+		ExitTime:        contractClosedTradeVo.ExitTime,
+	}
+}

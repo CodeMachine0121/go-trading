@@ -164,7 +164,9 @@ func (accountDomain *ContractBacktestAccountDomain) SummaryDto() dto.ContractBac
 	}
 
 	winCountByDirection := map[vo.PositionDirectionVo]int{}
+	outcomes := make([]vo.TradeOutcomeVo, 0, len(accountDomain.closedTrades))
 	for _, closedTrade := range accountDomain.closedTrades {
+		outcomes = append(outcomes, closedTrade.ToOutcomeVo())
 		summaryDto.TotalTransactionCost = summaryDto.TotalTransactionCost.
 			Add(closedTrade.EntryCost).Add(closedTrade.ExitCost)
 		summaryDto.TotalFundingFee = summaryDto.TotalFundingFee.Add(closedTrade.FundingFee)
@@ -194,6 +196,8 @@ func (accountDomain *ContractBacktestAccountDomain) SummaryDto() dto.ContractBac
 		summaryDto.TotalFundingFee = summaryDto.TotalFundingFee.
 			Add(accountDomain.openPosition.FundingFeePaid())
 	}
+
+	summaryDto.BacktestTradeStatisticsDto = NewBacktestTradeStatisticsDomain(outcomes).ToDto()
 
 	// A side that never finished a trade has no win rate, which is what keeps "no
 	// trades" from reading as "every trade lost".

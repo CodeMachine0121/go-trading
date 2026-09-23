@@ -31,6 +31,8 @@ type BacktestDomain struct {
 	parameters     StrategyScriptParametersDomain
 	initialCapital decimal.Decimal
 	positionTerms  BacktestPositionTermsDomain
+	fillTiming     BacktestFillTimingDomain
+	segments       BacktestSegmentsDomain
 	startTime      time.Time
 	// readCutoff is the moment to stop reading at, already settled: only candles from
 	// buckets that opened strictly before it are replayed.
@@ -161,12 +163,23 @@ func NewBacktestDomain(
 		return BacktestDomain{}, fmt.Errorf("%w: %w", ErrBacktestValidation, applyError)
 	}
 
+	fillTiming, fillTimingError := NewBacktestFillTimingDomain(requestDto.FillTiming)
+	if fillTimingError != nil {
+		return BacktestDomain{}, BacktestValidationFailure(BacktestFillTimingField, fillTimingError.Error())
+	}
+
 	startTime := requestDto.StartTime.UTC()
+	endTime := effectiveEndTime(requestDto.EndTime, now)
 	// The bucket the stretch ends in is the one still running as far as this replay is
 	// concerned: it is only half inside the stretch asked for, and a value computed
 	// from half a bucket changes as soon as the same question is asked a moment later.
 	// This is the same rule an indicator calculation reads by, deliberately.
-	readCutoff := interval.BucketStart(effectiveEndTime(requestDto.EndTime, now))
+	readCutoff := interval.BucketStart(endTime)
+
+	segments, segmentsError := NewBacktestSegmentsDomain(requestDto.ValidationStartTime, startTime, endTime)
+	if segmentsError != nil {
+		return BacktestDomain{}, segmentsError
+	}
 
 	// Nothing finished inside the stretch — because it ends before it starts, or
 	// because it is shorter than one bucket. Both are the same thing to whoever asked,
@@ -190,6 +203,8 @@ func NewBacktestDomain(
 		parameters:     parameters,
 		initialCapital: requestDto.InitialCapital,
 		positionTerms:  positionTerms,
+		fillTiming:     fillTiming,
+		segments:       segments,
 		startTime:      startTime,
 		readCutoff:     readCutoff,
 	}, nil
@@ -268,32 +283,91 @@ func (backtestDomain BacktestDomain) SelectInputCandles(
 		return nil, notEnoughKCandlesForBacktest(len(inputKCandleVos))
 	}
 
+	// A split replay needs a bar on either side of the validation start; refused here,
+	// before a single script is run, rather than after.
+	if _, splitError := backtestDomain.splitIndexOf(inputKCandleVos); splitError != nil {
+		return nil, splitError
+	}
+
 	return inputKCandleVos, nil
 }
 
-// ReplayOver walks the candles and hands back the whole result, conditions and all.
+// splitIndexOf is where these candles divide into the in-sample and the validation
+// part — asked once when they are selected, to refuse early, and once when they are
+// replayed. An unsplit replay divides nowhere and answers the whole length.
+func (backtestDomain BacktestDomain) splitIndexOf(inputKCandles []vo.KCandleVo) (int, error) {
+	if !backtestDomain.segments.IsSplit() {
+		return len(inputKCandles), nil
+	}
+
+	openTimes := make([]time.Time, 0, len(inputKCandles))
+	for _, inputKCandle := range inputKCandles {
+		openTimes = append(openTimes, time.Unix(inputKCandle.OpenTimeUnixSeconds, 0).UTC())
+	}
+
+	return backtestDomain.segments.SplitIndex(openTimes)
+}
+
+// ReplayOver walks the candles and hands back the whole result, conditions and all —
+// and for a split replay walks each part again on its own, from the initial capital and
+// flat. The opinions are the same ones throughout: a script standing on the first
+// validation candle has seen everything before it, exactly as it would have then.
 //
 // It is one call rather than "build a walk, run it, then say which market and which
-// coarseness it was" because those last four answers are this model's, not the walk's —
-// and a caller left to fill them in is a caller free to fill them in wrongly, or to
-// forget. The capital and the sizing mode travel the same way, so nothing pairs a set
-// of conditions with somebody else's candles.
+// coarseness it was" because those answers are this model's, not the walk's.
+//
+// conflictedFlags says, candle by candle, whether a trading strategy's two trees both
+// held; a strategy script replay has no such thing and passes nil.
 func (backtestDomain BacktestDomain) ReplayOver(
-	inputKCandles []vo.KCandleVo, signals []SignalDomain,
+	inputKCandles []vo.KCandleVo, signals []SignalDomain, conflictedFlags []bool,
 ) dto.BacktestResultDto {
-	backtestResultDto := NewBacktestSimulationDomain(
-		backtestDomain.initialCapital,
-		backtestDomain.positionTerms,
-		inputKCandles,
-		signals).ToDto()
+	if conflictedFlags == nil {
+		conflictedFlags = make([]bool, len(inputKCandles))
+	}
 
-	backtestResultDto.Symbol = backtestDomain.symbol
-	backtestResultDto.Interval = string(backtestDomain.interval.Value())
-	// Where the replay actually ran, which is not always where it was asked to: the
-	// stretch requested may reach into an interval that has not finished.
-	backtestResultDto.StartTime = backtestResultDto.EquityCurve[0].OpenTime
-	backtestResultDto.EndTime =
-		backtestResultDto.EquityCurve[len(backtestResultDto.EquityCurve)-1].OpenTime
+	replayed := func(
+		partKCandles []vo.KCandleVo, partSignals []SignalDomain, partConflictedFlags []bool,
+	) dto.BacktestResultDto {
+		backtestResultDto := NewBacktestSimulationDomain(
+			backtestDomain.initialCapital,
+			backtestDomain.positionTerms,
+			backtestDomain.fillTiming,
+			partKCandles,
+			partSignals).ToDto()
 
-	return backtestResultDto
+		backtestResultDto.Symbol = backtestDomain.symbol
+		backtestResultDto.Interval = string(backtestDomain.interval.Value())
+		backtestResultDto.StartTime = backtestResultDto.EquityCurve[0].OpenTime
+		backtestResultDto.EndTime =
+			backtestResultDto.EquityCurve[len(backtestResultDto.EquityCurve)-1].OpenTime
+		for _, isConflicted := range partConflictedFlags {
+			if isConflicted {
+				backtestResultDto.Summary.ConflictedCandleCount++
+			}
+		}
+
+		return backtestResultDto
+	}
+
+	wholeResultDto := replayed(inputKCandles, signals, conflictedFlags)
+	if !backtestDomain.segments.IsSplit() {
+		return wholeResultDto
+	}
+
+	// The candles were checked for a bar on either side when they were selected, so the
+	// split cannot fail here; should it, the whole replay still stands on its own.
+	splitIndex, splitError := backtestDomain.splitIndexOf(inputKCandles)
+	if splitError != nil {
+		return wholeResultDto
+	}
+
+	inSampleResultDto := replayed(
+		inputKCandles[:splitIndex], signals[:splitIndex], conflictedFlags[:splitIndex])
+	validationResultDto := replayed(
+		inputKCandles[splitIndex:], signals[splitIndex:], conflictedFlags[splitIndex:])
+	wholeResultDto.ValidationStartTime = backtestDomain.segments.ValidationStartTime()
+	wholeResultDto.InSample = &inSampleResultDto
+	wholeResultDto.Validation = &validationResultDto
+
+	return wholeResultDto
 }

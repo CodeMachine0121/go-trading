@@ -57,7 +57,7 @@ func newTradingStrategyBacktestUnderTest(t *testing.T) tradingStrategyBacktestUn
 			service.NewStrategyScriptService(
 				strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults), nil),
+				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil),
 		kCandleRepository:         kCandleRepository,
 		indicatorScriptProxy:      indicatorScriptProxy,
 		tradingStrategyRepository: tradingStrategyRepository,
@@ -375,7 +375,7 @@ func TestTradingStrategyBacktestRefusesWhenASourcesScriptCannotBeRead(t *testing
 		service.NewStrategyScriptService(
 			strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewBacktestService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults), nil)
+			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil)
 
 	_, err := backtestApplication.RunTradingStrategyBacktest(
 		t.Context(), backtestViewerID, replayedTradingStrategyID,

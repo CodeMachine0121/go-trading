@@ -24,6 +24,11 @@ type ContractBacktestRequestDto struct {
 	TakeProfitPercentage decimal.Decimal
 	EntryCostPercentage  decimal.Decimal
 	ExitCostPercentage   decimal.Decimal
+	// FillTiming is at what price this replay fills its signals: close (blank) or
+	// nextOpen.
+	FillTiming string
+	// ValidationStartTime splits the replay for validation; zero is no split.
+	ValidationStartTime time.Time
 	// Leverage blank or zero is one.
 	Leverage    decimal.Decimal
 	TradingMode string
@@ -54,5 +59,7 @@ func (requestDto ContractBacktestRequestDto) ToBacktestRequestDto() BacktestRequ
 		TakeProfitPercentage: requestDto.TakeProfitPercentage,
 		EntryCostPercentage:  requestDto.EntryCostPercentage,
 		ExitCostPercentage:   requestDto.ExitCostPercentage,
+		FillTiming:           requestDto.FillTiming,
+		ValidationStartTime:  requestDto.ValidationStartTime,
 	}
 }

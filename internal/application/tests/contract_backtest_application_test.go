@@ -76,7 +76,7 @@ func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
 
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
-	backtestService := service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)
+	backtestService := service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute)
 	contractBacktestService := service.NewContractBacktestService(
 		kCandleContractRepository,
 		contractFundingRateSettlementRepository,
@@ -86,6 +86,7 @@ func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 		contractIndicatorScriptProxy,
 		clockProxy,
 		queryMaxResults,
+		time.Minute,
 	)
 
 	return contractBacktestUnderTest{

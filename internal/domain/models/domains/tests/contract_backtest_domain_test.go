@@ -19,6 +19,7 @@ var contractReplayStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 // contractReplayBar is one bar of a replay as a table row: only the figures a case is
 // about are given, and every one left at zero falls back to the close — a flat bar.
 type contractReplayBar struct {
+	open      float64
 	close     float64
 	high      float64
 	low       float64
@@ -113,7 +114,7 @@ func replayContract(
 		signals = append(signals, domains.NewSignalDomainOf(signal))
 	}
 
-	return contractBacktestDomain.ReplayOver(alignment, signals, settlements)
+	return contractBacktestDomain.ReplayOver(alignment, signals, settlements, nil)
 }
 
 // contractReplayBarDuration is how far apart consecutive bars of that coarseness open.
@@ -138,6 +139,10 @@ func contractReplayCandles(aggregationInterval string, bars []contractReplayBar)
 		if low == 0 {
 			low = bar.close
 		}
+		open := bar.open
+		if open == 0 {
+			open = bar.close
+		}
 		markHigh, markLow, markClose := bar.markHigh, bar.markLow, bar.markClose
 		if markHigh == 0 {
 			markHigh = high
@@ -152,7 +157,7 @@ func contractReplayCandles(aggregationInterval string, bars []contractReplayBar)
 		kCandleContracts = append(kCandleContracts, entities.KCandleContract{
 			Symbol:    "BTCUSDT",
 			OpenTime:  contractReplayStart.Add(time.Duration(barIndex) * contractReplayBarDuration(aggregationInterval)),
-			Open:      decimal.NewFromFloat(bar.close),
+			Open:      decimal.NewFromFloat(open),
 			High:      decimal.NewFromFloat(high),
 			Low:       decimal.NewFromFloat(low),
 			Close:     decimal.NewFromFloat(bar.close),

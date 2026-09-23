@@ -14,6 +14,8 @@ func TestLoadAppliesDefaultsWhenNothingIsSet(t *testing.T) {
 	assert.Equal(t, "8080", applicationConfig.ServerPort)
 	assert.Equal(t, 1000, applicationConfig.KCandleQueryMaxResults)
 	assert.Equal(t, 40*time.Second, applicationConfig.IndicatorScriptTimeout)
+	assert.Equal(t, 50000, applicationConfig.BacktestMaxCandleCount)
+	assert.Equal(t, 90*time.Second, applicationConfig.BacktestTimeAllowance)
 	assert.Equal(t, "localhost", applicationConfig.Database.Host)
 	assert.Contains(t, applicationConfig.Database.DataSourceName(), "dbname=go_trading")
 }
@@ -256,4 +258,14 @@ func TestLoadRefusesToLetAnybodySwitchTheSignInLockOff(t *testing.T) {
 			assert.Equal(t, 7*24*time.Hour, applicationConfig.SignInLockout.LockoutDuration)
 		})
 	}
+}
+
+func TestLoadReadsTheReplaySettings(t *testing.T) {
+	t.Setenv("BACKTEST_MAX_CANDLE_COUNT", "100000")
+	t.Setenv("BACKTEST_TIME_ALLOWANCE_SECONDS", "45")
+
+	applicationConfig := config.Load()
+
+	assert.Equal(t, 100000, applicationConfig.BacktestMaxCandleCount)
+	assert.Equal(t, 45*time.Second, applicationConfig.BacktestTimeAllowance)
 }

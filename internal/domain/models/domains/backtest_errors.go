@@ -3,6 +3,7 @@ package domains
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrBacktestValidation marks a replay the caller got wrong: the stretch of market,
@@ -61,6 +62,10 @@ const (
 	// BacktestMaintenanceMarginRateField is a maintenance margin rate a contract
 	// replay was handed, which only the symbol's ladder may say.
 	BacktestMaintenanceMarginRateField = "maintenanceMarginRate"
+	// BacktestFillTimingField is at what price a replay fills its signals.
+	BacktestFillTimingField = "fillTiming"
+	// BacktestValidationStartTimeField is where a replay is split for validation.
+	BacktestValidationStartTimeField = "validationStartTime"
 )
 
 // BacktestFieldName digs out which input a refusal is about, when it is about one.
@@ -104,4 +109,15 @@ func notEnoughKCandlesForBacktest(availableKCandleCount int) error {
 	return BacktestValidationFailure(BacktestTimeRangeField, fmt.Sprintf(
 		"這段期間湊不出足夠的 K 線，目前湊得出 %d 根，至少需要 %d 根",
 		availableKCandleCount, minimumBacktestKCandleCount))
+}
+
+// ErrBacktestTimeAllowanceSpent marks a replay that did not finish within its whole-run
+// allowance. Nothing was wrong with what was asked; it simply could not be answered in
+// time, and half a replay is not handed over as though it were a shorter one.
+var ErrBacktestTimeAllowanceSpent = errors.New("backtest time allowance spent")
+
+// BacktestTimeAllowanceSpent is that refusal in words a person can act on.
+func BacktestTimeAllowanceSpent(allowance time.Duration) error {
+	return fmt.Errorf("%w: 重演在 %s 內沒跑完，已中止——請縮短期間，或改用粗一點的彙總刻度",
+		ErrBacktestTimeAllowanceSpent, allowance)
 }

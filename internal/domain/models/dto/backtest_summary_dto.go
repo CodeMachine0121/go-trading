@@ -4,6 +4,9 @@ import "github.com/shopspring/decimal"
 
 // BacktestSummaryDto is one replay's report card.
 type BacktestSummaryDto struct {
+	// BacktestTradeStatisticsDto is what the finished round trips say about a
+	// short-term strategy; its figures sit beside the others on the report card.
+	BacktestTradeStatisticsDto
 	InitialCapital decimal.Decimal `json:"initialCapital"`
 	// FinalEquity includes the position still open when the replay ended, valued at
 	// the last candle's close. Leaving it out would report the account as though the

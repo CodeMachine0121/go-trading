@@ -99,11 +99,8 @@ func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) SourceParamet
 func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) ReplayOver(
 	inputKCandles []vo.KCandleVo, signalsBySource [][]SignalDomain,
 ) dto.BacktestResultDto {
-	verdicts, conflictedCandleCount := tradingStrategyBacktestDomain.sources.Combine(
+	verdicts, conflictedFlags := tradingStrategyBacktestDomain.sources.Combine(
 		len(inputKCandles), signalsBySource)
 
-	backtestResultDto := tradingStrategyBacktestDomain.backtest.ReplayOver(inputKCandles, verdicts)
-	backtestResultDto.Summary.ConflictedCandleCount = conflictedCandleCount
-
-	return backtestResultDto
+	return tradingStrategyBacktestDomain.backtest.ReplayOver(inputKCandles, verdicts, conflictedFlags)
 }

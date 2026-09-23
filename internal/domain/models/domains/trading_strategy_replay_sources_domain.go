@@ -134,14 +134,15 @@ func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SourceParameters(
 }
 
 // Combine turns every source's opinion about each bar into that bar's one signal, and
-// counts the bars on which both trees held. Such a bar is a hold — choosing a side for
-// the strategy would be trading on an opinion it never had — and it is counted,
-// because a strategy conflicting on most bars barely trades and reads as steady.
+// says bar by bar whether both trees held. Such a bar is a hold — choosing a side for
+// the strategy would be trading on an opinion it never had — and it is said bar by bar
+// rather than only counted, so that each part of a split replay counts its own:
+// a strategy conflicting on most bars barely trades and reads as steady.
 func (replaySourcesDomain TradingStrategyReplaySourcesDomain) Combine(
 	candleCount int, signalsBySource [][]SignalDomain,
-) ([]SignalDomain, int) {
+) ([]SignalDomain, []bool) {
 	verdicts := make([]SignalDomain, 0, candleCount)
-	conflictedCandleCount := 0
+	conflictedFlags := make([]bool, 0, candleCount)
 
 	for candleIndex := range candleCount {
 		signalsByLabel := make(map[string]vo.SignalVo, len(replaySourcesDomain.sources))
@@ -154,9 +155,7 @@ func (replaySourcesDomain TradingStrategyReplaySourcesDomain) Combine(
 			replaySourcesDomain.sellCondition.Holds(signalsByLabel),
 			"")
 
-		if verdictDomain.IsConflicting() {
-			conflictedCandleCount++
-		}
+		conflictedFlags = append(conflictedFlags, verdictDomain.IsConflicting())
 
 		signal, hasSignal := verdictDomain.Signal()
 		if !hasSignal {
@@ -166,5 +165,5 @@ func (replaySourcesDomain TradingStrategyReplaySourcesDomain) Combine(
 		verdicts = append(verdicts, NewSignalDomainOf(signal))
 	}
 
-	return verdicts, conflictedCandleCount
+	return verdicts, conflictedFlags
 }

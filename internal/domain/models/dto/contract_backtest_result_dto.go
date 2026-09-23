@@ -19,4 +19,12 @@ type ContractBacktestResultDto struct {
 	Summary         ContractBacktestSummaryDto `json:"summary"`
 	ClosedTrades    []ContractClosedTradeDto   `json:"closedTrades"`
 	EquityCurve     []EquityPointDto           `json:"equityCurve"`
+	// FillTiming is at what price this replay filled its signals: close or nextOpen.
+	FillTiming string `json:"fillTiming"`
+	// ValidationStartTime is where this replay was split, or absent when it was not.
+	ValidationStartTime *time.Time `json:"validationStartTime"`
+	// InSample and Validation are the two parts of a split replay, each replayed on
+	// its own from the initial capital and flat. Both are absent when it was not split.
+	InSample   *ContractBacktestResultDto `json:"inSample,omitempty"`
+	Validation *ContractBacktestResultDto `json:"validation,omitempty"`
 }

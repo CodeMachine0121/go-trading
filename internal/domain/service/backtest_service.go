@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -21,6 +23,10 @@ type BacktestService struct {
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy
 	clockProxy           domaininterface.IClockProxy
 	maxCandleCount       int
+	// replayTimeAllowance is how long one whole replay may run its scripts for, every
+	// source together. Each script run has its own allowance besides; this one is what
+	// stops a long replay from outlasting whoever is waiting for it.
+	replayTimeAllowance time.Duration
 }
 
 func NewBacktestService(
@@ -28,12 +34,14 @@ func NewBacktestService(
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy,
 	clockProxy domaininterface.IClockProxy,
 	maxCandleCount int,
+	replayTimeAllowance time.Duration,
 ) *BacktestService {
 	return &BacktestService{
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 		clockProxy:           clockProxy,
 		maxCandleCount:       maxCandleCount,
+		replayTimeAllowance:  replayTimeAllowance,
 	}
 }
 
@@ -65,21 +73,25 @@ func (backtestService *BacktestService) RunBacktest(
 		return dto.BacktestResultDto{}, selectionError
 	}
 
+	replayContext, stopReplaying := context.WithTimeoutCause(
+		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	defer stopReplaying()
+
 	perCandleIndicatorValues, executionError := backtestService.indicatorScriptProxy.ExecuteForEachCandle(
-		executionContext,
+		replayContext,
 		requestDto.Script,
 		backtestDomain.ResultType(),
 		inputKCandles,
 		backtestDomain.Parameters())
 	if executionError != nil {
-		return dto.BacktestResultDto{}, executionError
+		return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, executionError)
 	}
 
 	// The script ran under the signal kind, so each candle's result carries one
 	// opinion. Reading them into signals here keeps the simulation working in
 	// opinions rather than in raw script output.
 	return backtestDomain.ReplayOver(
-		inputKCandles, signalsOf(perCandleIndicatorValues)), nil
+		inputKCandles, signalsOf(perCandleIndicatorValues), nil), nil
 }
 
 // RunTradingStrategyBacktest replays a whole trading strategy over the same stretch:
@@ -115,10 +127,14 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 		return dto.BacktestResultDto{}, selectionError
 	}
 
+	replayContext, stopReplaying := context.WithTimeoutCause(
+		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	defer stopReplaying()
+
 	signalsBySource := make([][]domains.SignalDomain, 0, tradingStrategyBacktestDomain.SourceCount())
 	for sourceIndex := range tradingStrategyBacktestDomain.SourceCount() {
 		perCandleIndicatorValues, executionError := backtestService.indicatorScriptProxy.ExecuteForEachCandle(
-			executionContext,
+			replayContext,
 			tradingStrategyBacktestDomain.SourceScript(sourceIndex),
 			tradingStrategyBacktestDomain.ResultType(),
 			inputKCandles,
@@ -127,13 +143,29 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 		// replay: the conditions would be answered against signals that are simply
 		// absent, and would quietly come out false.
 		if executionError != nil {
-			return dto.BacktestResultDto{}, executionError
+			return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, executionError)
 		}
 
 		signalsBySource = append(signalsBySource, signalsOf(perCandleIndicatorValues))
 	}
 
 	return tradingStrategyBacktestDomain.ReplayOver(inputKCandles, signalsBySource), nil
+}
+
+// errReplayTimeAllowanceSpent is why a replay's scripts were stopped when it was their
+// whole-run allowance that ran out, rather than whoever asked giving up. Both replay
+// services stop on it and tell the two apart by it.
+var errReplayTimeAllowanceSpent = errors.New("replay time allowance spent")
+
+// refusalFor is what a replay says when its scripts stopped: the allowance, in words
+// a person can act on, when that is what ran out; otherwise whatever stopped them.
+// Both replays ask it, so both say the same sentence.
+func (backtestService *BacktestService) refusalFor(replayContext context.Context, executionError error) error {
+	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
+		return domains.BacktestTimeAllowanceSpent(backtestService.replayTimeAllowance)
+	}
+
+	return executionError
 }
 
 // signalsOf reads a script's per-candle results as per-candle opinions, which is the

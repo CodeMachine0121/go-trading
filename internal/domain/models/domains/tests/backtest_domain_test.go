@@ -296,7 +296,7 @@ func TestBacktestDomainSimulation(t *testing.T) {
 
 		result := backtestDomain.ReplayOver(
 			[]vo.KCandleVo{replayedCandleAt(0, 100), replayedCandleAt(1, 110)},
-			signalDomainsSaying(vo.SignalBuy, vo.SignalHold))
+			signalDomainsSaying(vo.SignalBuy, vo.SignalHold), nil)
 
 		assert.True(t, decimal.NewFromInt(20000).Equal(result.Summary.InitialCapital))
 		assert.True(t, decimal.NewFromInt(22000).Equal(result.Summary.FinalEquity),
@@ -310,7 +310,7 @@ func TestBacktestDomainSimulation(t *testing.T) {
 
 		result := backtestDomain.ReplayOver(
 			[]vo.KCandleVo{replayedCandleAt(0, 100), replayedCandleAt(1, 110)},
-			signalDomainsSaying(vo.SignalHold, vo.SignalHold))
+			signalDomainsSaying(vo.SignalHold, vo.SignalHold), nil)
 
 		assert.Equal(t, "BTCUSDT", result.Symbol)
 		assert.Equal(t, "1h", result.Interval)
