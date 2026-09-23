@@ -193,7 +193,7 @@ func NewBacktestDomain(
 	if bucketCount > maxCandleCount {
 		return BacktestDomain{}, BacktestValidationFailure(
 			BacktestTimeRangeField,
-			fmt.Sprintf("這一段以這個彙總刻度要用到 %d 根，超過單次可用的最大根數（最多 %d 根）",
+			fmt.Sprintf("這一段以這個彙總刻度要用到 %d 根，超過一次重演可用的最大根數（最多 %d 根）",
 				bucketCount, maxCandleCount))
 	}
 

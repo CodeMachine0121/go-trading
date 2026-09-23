@@ -66,7 +66,7 @@ func TestSpotReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 		})
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
-		assert.Contains(t, err.Error(), "20ms")
+		assert.Contains(t, err.Error(), "0.02 秒")
 	})
 
 	t.Run("replaying a trading strategy", func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestContractReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 		_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
-		assert.Contains(t, err.Error(), "20ms")
+		assert.Contains(t, err.Error(), "0.02 秒")
 	})
 
 	t.Run("replaying a trading strategy", func(t *testing.T) {
@@ -123,4 +123,59 @@ func TestContractReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 	})
+}
+
+func TestContractReplayAllowanceCoversEverySourceTogether(t *testing.T) {
+	// Each source takes 15ms on its own — within 20ms alone, beyond it together.
+	takesFifteenMilliseconds := func(boundaries contractBacktestServiceMocks) {
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(
+				executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
+				contractKCandles []vo.ContractKCandleVo, _ domains.StrategyScriptParametersDomain,
+			) ([]map[string]vo.IndicatorValueVo, error) {
+				select {
+				case <-executionContext.Done():
+					return nil, errors.New("stopped because the request ended")
+				case <-time.After(15 * time.Millisecond):
+				}
+
+				perBar := make([]map[string]vo.IndicatorValueVo, 0, len(contractKCandles))
+				for range contractKCandles {
+					perBar = append(perBar, map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalHold}})
+				}
+
+				return perBar, nil
+			}).Times(2)
+	}
+	requestDto := contractTradingStrategyBacktestServiceRequest()
+	requestDto.SignalSources = append(requestDto.SignalSources, dto.ResolvedSignalSourceDto{
+		Label: "B", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle",
+	})
+
+	contractBacktestService := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest, takesFifteenMilliseconds)
+
+	_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto)
+
+	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
+}
+
+func TestContractSplitReplayRunsTheScriptOnceOverTheWholeHistory(t *testing.T) {
+	onceOverEveryBar := func(boundaries contractBacktestServiceMocks) {
+		boundaries.contractIndicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Len(2), gomock.Any()).
+			Return([]map[string]vo.IndicatorValueVo{
+				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
+			}, nil).Times(1)
+	}
+	requestDto := contractBacktestServiceRequest()
+	requestDto.ValidationStartTime = contractBacktestServiceStart.Add(time.Hour)
+
+	resultDto, err := newContractBacktestServiceWithin(t, time.Minute, onceOverEveryBar).
+		RunContractBacktest(context.Background(), requestDto)
+
+	require.NoError(t, err)
+	require.NotNil(t, resultDto.Validation)
+	assert.Equal(t, 1, resultDto.Validation.UsedCandleCount)
 }

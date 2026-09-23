@@ -92,7 +92,7 @@ func TestSpotReplayFillTiming(t *testing.T) {
 
 	t.Run("filling at the next open waits for the next bar", func(t *testing.T) {
 		resultDto := replaySpotBars(t, nextOpenRequest(), []shortTermBar{
-			{close: 100, signal: vo.SignalBuy}, {open: 101, close: 102, signal: vo.SignalSell}, {open: 103, close: 103}})
+			{close: 100, signal: vo.SignalBuy}, {open: 101, close: 102, signal: vo.SignalSell}, {open: 103, close: 108}})
 
 		require.Len(t, resultDto.ClosedTrades, 1)
 		assertDecimalEqual(t, "101", resultDto.ClosedTrades[0].EntryPrice)
@@ -506,4 +506,41 @@ func TestValidationSplitEdges(t *testing.T) {
 		assert.Nil(t, resultDto.Validation)
 		assert.Equal(t, 2, resultDto.UsedCandleCount)
 	})
+}
+
+func TestReplayCeilingIsTheReplaysOwn(t *testing.T) {
+	requestDto := backtestRequest()
+	requestDto.AggregationInterval = "1m"
+	requestDto.EndTime = backtestStart.Add(1999 * time.Minute)
+
+	t.Run("a replay within its own ceiling is accepted beyond a single query's", func(t *testing.T) {
+		_, err := domains.NewBacktestDomain(requestDto, 50000, backtestNow)
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("a replay beyond its ceiling is refused saying both numbers", func(t *testing.T) {
+		_, err := domains.NewBacktestDomain(requestDto, 1000, backtestNow)
+
+		require.ErrorIs(t, err, domains.ErrBacktestValidation)
+		assert.Contains(t, err.Error(), "2000 根")
+		assert.Contains(t, err.Error(), "最多 1000 根")
+	})
+}
+
+func TestContractNextOpenFillBarReachesItsOwnExitLevels(t *testing.T) {
+	requestDto := contractReplayRequest()
+	requestDto.TradingMode = "longOnly"
+	requestDto.FillTiming = "nextOpen"
+	requestDto.StopLossPercentage = decimal.NewFromInt(2)
+
+	// Filled at the second bar's open of 100; that bar's low of 97 then reaches the 98 stop,
+	// and the curve records the account at the bar's close.
+	resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+		[]contractReplayBar{{close: 99, signal: vo.SignalBuy}, {open: 100, low: 97, close: 99}})
+
+	require.Len(t, resultDto.ClosedTrades, 1)
+	assert.Equal(t, "stopLoss", resultDto.ClosedTrades[0].ExitReason)
+	assertDecimalEqual(t, "98", resultDto.ClosedTrades[0].ExitPrice)
+	assertDecimalEqual(t, "9800", resultDto.EquityCurve[1].Equity)
 }

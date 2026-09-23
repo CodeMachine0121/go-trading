@@ -3,6 +3,7 @@ package domains
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -118,6 +119,6 @@ var ErrBacktestTimeAllowanceSpent = errors.New("backtest time allowance spent")
 
 // BacktestTimeAllowanceSpent is that refusal in words a person can act on.
 func BacktestTimeAllowanceSpent(allowance time.Duration) error {
-	return fmt.Errorf("%w: 重演在 %s 內沒跑完，已中止——請縮短期間，或改用粗一點的彙總刻度",
-		ErrBacktestTimeAllowanceSpent, allowance)
+	return fmt.Errorf("%w: 重演在 %s 秒內沒跑完，已中止——請縮短期間，或改用粗一點的彙總刻度",
+		ErrBacktestTimeAllowanceSpent, strconv.FormatFloat(allowance.Seconds(), 'f', -1, 64))
 }
