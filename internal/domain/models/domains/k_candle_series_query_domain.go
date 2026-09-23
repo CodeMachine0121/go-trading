@@ -148,6 +148,15 @@ func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SeriesOf(
 		kCandleSeriesQueryDomain.rangeQuery.Symbol(), kCandleSeriesQueryDomain.interval, kCandles)
 }
 
+// ContractSeriesOf merges contract K candles read for this query into the series it
+// asks for — the same buckets SeriesOf cuts, merged the contract way.
+func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) ContractSeriesOf(
+	kCandleContracts []entities.KCandleContract,
+) KCandleContractSeriesDomain {
+	return NewKCandleContractSeriesDomain(
+		kCandleSeriesQueryDomain.rangeQuery.Symbol(), kCandleSeriesQueryDomain.interval, kCandleContracts)
+}
+
 // SourceCandleLimit is the most source candles this query's buckets can hold, plus
 // one bucket's worth of spare. It is the right limit to read with: it can never cut
 // the answer short, and it stops an over-wide read before it starts.
@@ -158,15 +167,6 @@ func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SeriesOf(
 // twice. The buckets are counted over trading time while the range's own two ends fall
 // wherever the user dragged them, so the stretch can hold a little more than the
 // buckets do; one spare bucket covers it.
-// ContractSeriesOf merges contract K candles read for this query into the series it
-// asks for — the same buckets SeriesOf cuts, merged the contract way.
-func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) ContractSeriesOf(
-	kCandleContracts []entities.KCandleContract,
-) KCandleContractSeriesDomain {
-	return NewKCandleContractSeriesDomain(
-		kCandleSeriesQueryDomain.rangeQuery.Symbol(), kCandleSeriesQueryDomain.interval, kCandleContracts)
-}
-
 func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SourceCandleLimit() int {
 	return kCandleSeriesQueryDomain.interval.SourceCandleCount(
 		kCandleSeriesQueryDomain.bucketCount + 1)

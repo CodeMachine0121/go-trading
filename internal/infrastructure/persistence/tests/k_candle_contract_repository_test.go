@@ -73,6 +73,28 @@ func TestKCandleContractRepositoryKeepsContractAndSpotCandlesApart(t *testing.T)
 	assert.Equal(t, int64(42), storedContract.TradeCount)
 }
 
+func TestKCandleContractRepositoryReadsARangeOfContractCandlesOnly(t *testing.T) {
+	database := newTestDatabase(t)
+	spotRepository := persistence.NewKCandleRepository(database)
+	contractRepository := persistence.NewKCandleContractRepository(database)
+	for _, openTime := range []time.Time{at(9, 0), at(9, 1)} {
+		_, spotError := spotRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
+		require.NoError(t, spotError)
+	}
+	_, contractError := contractRepository.Save(
+		t.Context(), contractCandleAt("BTCUSDT", at(9, 0), "101"))
+	require.NoError(t, contractError)
+	query, queryError := domains.NewKCandleQueryDomain(dto.KCandleQueryDto{
+		Symbol: "BTCUSDT", StartTime: at(9, 0), EndTime: at(9, 1)})
+	require.NoError(t, queryError)
+
+	storedCandles, readError := contractRepository.FindInRange(t.Context(), query, 1000)
+
+	require.NoError(t, readError)
+	require.Len(t, storedCandles, 1)
+	assert.True(t, decimal.RequireFromString("101").Equal(storedCandles[0].Close))
+}
+
 func TestKCandleContractRepositoryDeleteLeavesTheSpotCandleAlone(t *testing.T) {
 	database := newTestDatabase(t)
 	spotRepository := persistence.NewKCandleRepository(database)

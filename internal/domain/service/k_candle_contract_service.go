@@ -14,9 +14,9 @@ import (
 // KCandleContractService is the application layer's only entry point for perpetual
 // contract K candles. Its public use-case methods never call one another.
 //
-// It knows nothing about a market catalogue, which the spot service needs: perpetual
-// contracts never close and report every figure, so there is no venue to look up and
-// nothing that would differ if there were.
+// Perpetual contracts never close, so the one thing it takes from the market catalogue
+// is the round-the-clock calendar, and only to size a merged series by the same
+// arithmetic the spot series uses.
 type KCandleContractService struct {
 	kCandleContractRepository domaininterface.IKCandleContractRepository
 	clockProxy                domaininterface.IClockProxy

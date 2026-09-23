@@ -75,8 +75,17 @@ func newContractServiceUnderTest(t *testing.T) contractServiceUnderTest {
 	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 30)).AnyTimes()
 
 	return contractServiceUnderTest{
+		// A market that closes sits in the catalogue beside the round-the-clock one, so a
+		// contract series that consulted the wrong calendar would lose the hours it shuts.
 		service: service.NewKCandleContractService(repository, clockProxy,
-			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), contractQueryMaxResults),
+			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
+				vo.MarketCrypto: {},
+				vo.MarketTaiwanStock: {TradingSession: vo.TradingSessionVo{
+					Location:   time.FixedZone("Asia/Taipei", 8*60*60),
+					DailyStart: 9 * time.Hour, DailyEnd: 13*time.Hour + 30*time.Minute,
+					Weekdays: []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
+				}},
+			}), contractQueryMaxResults),
 		repository: repository,
 	}
 }
@@ -245,6 +254,31 @@ func TestKCandleContractServiceMergesAStretchByInterval(t *testing.T) {
 	require.Len(t, series.KCandles, 1)
 	assert.Equal(t, int64(15), series.KCandles[0].TradeCount)
 	assert.True(t, decimal.RequireFromString("111").Equal(series.KCandles[0].Close))
+}
+
+func TestKCandleContractServiceMergesAWeekendStretchBecauseContractsNeverClose(t *testing.T) {
+	underTest := newContractServiceUnderTest(t)
+	// The hours asked about are on a Sunday: a market that closes has no trading time in them.
+	require.Equal(t, time.Sunday, ingestionAt(3, 0, 0).Weekday())
+	underTest.repository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, _ domains.KCandleQueryDomain, limit int) ([]entities.KCandleContract, error) {
+			// Every minute of all three hours can be read.
+			assert.GreaterOrEqual(t, limit, 3*60)
+
+			return []entities.KCandleContract{
+				storedContractCandle(ingestionAt(3, 0, 0), "110"),
+				storedContractCandle(ingestionAt(5, 59, 0), "120"),
+			}, nil
+		})
+
+	series, seriesError := underTest.service.GetKCandleContractSeries(t.Context(), dto.KCandleSeriesQueryDto{
+		Symbol: "BTCUSDT", StartTime: ingestionAt(3, 0, 0), EndTime: ingestionAt(5, 59, 0), Interval: "1h",
+	})
+
+	require.NoError(t, seriesError)
+	require.Len(t, series.KCandles, 2)
+	assert.Equal(t, ingestionAt(3, 0, 0), series.KCandles[0].OpenTime.UTC())
+	assert.Equal(t, ingestionAt(5, 0, 0), series.KCandles[1].OpenTime.UTC())
 }
 
 func TestKCandleContractServiceRefusesASeriesItCannotAnswerInItsOwnWords(t *testing.T) {
