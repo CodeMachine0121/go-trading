@@ -132,11 +132,11 @@ func TestContractPositionStatisticWindowReachesAnHourBehindTheLastHeldStatistic(
 		{name: "接著上一次,並重問它前面那一小時", currentTime: now, latestHeld: time.Date(2026, 9, 23, 9, 5, 0, 0, time.UTC), hasLatest: true,
 			expectedStart: time.Date(2026, 9, 23, 8, 10, 0, 0, time.UTC), expectedEnd: now},
 		{name: "重問那一小時也不越過三十天", currentTime: now, latestHeld: thirtyDaysAgo.Add(15 * time.Minute), hasLatest: true,
-			expectedStart: thirtyDaysAgo.Add(5 * time.Minute), expectedEnd: now},
+			expectedStart: thirtyDaysAgo.Add(10 * time.Minute), expectedEnd: now},
 		{name: "從沒存過就從三十天內第一格開始", currentTime: now, hasLatest: false,
-			expectedStart: thirtyDaysAgo.Add(5 * time.Minute), expectedEnd: now},
+			expectedStart: thirtyDaysAgo.Add(10 * time.Minute), expectedEnd: now},
 		{name: "上一次早於三十天也一樣", currentTime: now, latestHeld: thirtyDaysAgo.Add(-10 * 24 * time.Hour), hasLatest: true,
-			expectedStart: thirtyDaysAgo.Add(5 * time.Minute), expectedEnd: now},
+			expectedStart: thirtyDaysAgo.Add(10 * time.Minute), expectedEnd: now},
 		{name: "現在不在刻度上時終點退回上一格", currentTime: now.Add(2 * time.Minute),
 			latestHeld: time.Date(2026, 9, 23, 9, 5, 0, 0, time.UTC), hasLatest: true,
 			expectedStart: time.Date(2026, 9, 23, 8, 10, 0, 0, time.UTC), expectedEnd: now},
@@ -164,6 +164,25 @@ func TestContractPositionStatisticWindowNeverReachesTheVenuesEdgeExactly(t *test
 
 	window := domains.NewContractPositionStatisticWindowDomain(now, time.Time{}, false)
 
-	assert.Equal(t, time.Date(2026, 8, 24, 10, 5, 0, 0, time.UTC), window.StartTime())
+	// Thirty days before 10:02 is 08-24 10:02; two full steps past its grid moment is
+	// 10:10 — at least five minutes inside the edge wherever the clock falls.
+	assert.Equal(t, time.Date(2026, 8, 24, 10, 10, 0, 0, time.UTC), window.StartTime())
 	assert.Equal(t, time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC), window.EndTime())
+}
+
+func TestContractPositionStatisticWindowStaysMinutesInsideTheVenuesEdgeWhereverTheClockFalls(t *testing.T) {
+	// The edge moves on while a round waits its turn and asks its first stretch, and
+	// the venue refuses a start past it. However the clock sits against the grid, the
+	// start leaves at least a full step of room.
+	for _, currentTime := range []time.Time{
+		time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 23, 10, 2, 30, 0, time.UTC),
+		time.Date(2026, 9, 23, 10, 4, 59, 0, time.UTC),
+	} {
+		window := domains.NewContractPositionStatisticWindowDomain(currentTime, time.Time{}, false)
+
+		room := window.StartTime().Sub(currentTime.Add(-30 * 24 * time.Hour))
+		assert.GreaterOrEqual(t, room, 5*time.Minute, "現在是 %s", currentTime)
+		assert.LessOrEqual(t, room, 10*time.Minute, "現在是 %s", currentTime)
+	}
 }

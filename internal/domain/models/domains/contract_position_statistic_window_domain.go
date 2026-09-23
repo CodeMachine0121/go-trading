@@ -34,11 +34,14 @@ type ContractPositionStatisticWindowDomain struct {
 func NewContractPositionStatisticWindowDomain(
 	currentTime time.Time, latestHeld time.Time, hasLatest bool,
 ) ContractPositionStatisticWindowDomain {
-	// The first grid moment strictly inside the venue's thirty days. A moment exactly
-	// thirty days old is at the edge of what the venue accepts, and by the time the
-	// question reaches it the edge has moved on.
+	// A full grid step inside the venue's thirty days, past the first one. The edge
+	// keeps moving while a round waits its turn and walks its first stretch, so a
+	// start one second inside it can be outside it by the time it is asked about —
+	// and the venue refuses that question outright. Rounding down and stepping twice
+	// leaves between five and ten minutes whatever the clock reads, which is the
+	// oldest few minutes of thirty days given up for a question that is never refused.
 	earliestAnswerable := currentTime.Add(-contractPositionStatisticRetention).
-		Truncate(ContractPositionStatisticInterval).Add(ContractPositionStatisticInterval)
+		Truncate(ContractPositionStatisticInterval).Add(2 * ContractPositionStatisticInterval)
 
 	startTime := earliestAnswerable
 	if hasLatest {

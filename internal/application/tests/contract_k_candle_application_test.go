@@ -203,7 +203,7 @@ func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
 	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
 		Return(entities.ContractPositionStatistic{}, false, nil)
 	underTest.statisticProxy.EXPECT().FetchPositionStatistics(
-		gomock.Any(), "BTCUSDT", contractAt(9, 5).Add(-30*24*time.Hour).Add(5*time.Minute), contractAt(9, 5)).
+		gomock.Any(), "BTCUSDT", contractAt(9, 5).Add(-30*24*time.Hour).Add(10*time.Minute), contractAt(9, 5)).
 		Return([]vo.ContractPositionStatisticVo{}, nil).Times(1)
 	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
 

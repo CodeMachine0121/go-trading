@@ -104,7 +104,7 @@ func TestPositionStatisticRoundStartsThirtyDaysBackForAContractNeverRecorded(t *
 	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
 		Return(entities.ContractPositionStatistic{}, false, nil)
 	underTest.statisticProxy.EXPECT().FetchPositionStatistics(
-		gomock.Any(), "BTCUSDT", time.Date(2026, 8, 24, 10, 5, 0, 0, time.UTC), statisticMoment(10, 0)).
+		gomock.Any(), "BTCUSDT", time.Date(2026, 8, 24, 10, 10, 0, 0, time.UTC), statisticMoment(10, 0)).
 		Return(nil, nil)
 	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Len(0)).Return(0, nil)
 
