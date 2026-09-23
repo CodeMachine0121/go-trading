@@ -239,3 +239,14 @@ func (backtestAccountDomain *BacktestAccountDomain) WinRate() (float64, bool) {
 
 	return float64(winCount) / float64(len(backtestAccountDomain.closedTrades)), true
 }
+
+// TradeStatisticsDto is what the finished round trips say about a short-term
+// strategy. The position still open is not among them: it has not been closed.
+func (backtestAccountDomain *BacktestAccountDomain) TradeStatisticsDto() dto.BacktestTradeStatisticsDto {
+	outcomes := make([]vo.TradeOutcomeVo, 0, len(backtestAccountDomain.closedTrades))
+	for _, closedTrade := range backtestAccountDomain.closedTrades {
+		outcomes = append(outcomes, closedTrade.ToOutcomeVo())
+	}
+
+	return NewBacktestTradeStatisticsDomain(outcomes).ToDto()
+}

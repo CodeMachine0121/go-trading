@@ -57,6 +57,7 @@ func replayOf(
 		domains.NewBacktestPositionTermsDomain(positionSizing,
 			domains.BacktestExitLevelsDomain{},
 			domains.BacktestTransactionCostsDomain{}),
+		domains.BacktestFillTimingDomain{},
 		inputKCandles, signalDomainsSaying(signals...))
 }
 

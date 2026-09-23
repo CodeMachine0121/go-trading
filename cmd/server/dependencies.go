@@ -401,9 +401,9 @@ func registerRoutes(
 	// indicator: it asks a different question of the same script, and it stores
 	// nothing — which is why it is given no repository beyond the one it reads from.
 	//
-	// It shares the read ceiling with every other read, deliberately: a replay is
-	// still one look at the market, and giving it a ceiling of its own would leave two
-	// numbers to keep in step.
+	// It has a ceiling of its own and a whole-run time allowance: a replay walks far
+	// more buckets than any one query hands back, and a long one must say it ran out
+	// of time before whoever is waiting for it gives up.
 	// Built once and shared by both kinds of replay. Two of these would be two read
 	// ceilings and two clocks, and the day they drifted apart the same stretch of
 	// market would replay differently depending on which subject was named.
@@ -411,7 +411,8 @@ func registerRoutes(
 		kCandleRepository,
 		script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
 		clock.NewSystemClockProxy(),
-		applicationConfig.KCandleQueryMaxResults,
+		applicationConfig.BacktestMaxCandleCount,
+		applicationConfig.BacktestTimeAllowance,
 	)
 
 	// The contract replay walks a contract account over contract bars: it reads what
@@ -426,7 +427,8 @@ func registerRoutes(
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		script.NewYaegiContractIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
 		clock.NewSystemClockProxy(),
-		applicationConfig.KCandleQueryMaxResults,
+		applicationConfig.BacktestMaxCandleCount,
+		applicationConfig.BacktestTimeAllowance,
 	)
 
 	backtestController := controller.NewBacktestController(

@@ -68,4 +68,9 @@ type BacktestRequestDto struct {
 	// script is worth replaying against more than one answer.
 	EntryCostPercentage decimal.Decimal
 	ExitCostPercentage  decimal.Decimal
+	// FillTiming is at what price this replay fills its signals: close (blank) or
+	// nextOpen.
+	FillTiming string
+	// ValidationStartTime splits the replay for validation; zero is no split.
+	ValidationStartTime time.Time
 }

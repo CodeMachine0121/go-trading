@@ -314,6 +314,10 @@
     {
       "key": "contractTradingStrategyId",
       "value": ""
+    },
+    {
+      "key": "contractBacktestValidationStartTime",
+      "value": ""
     }
   ],
   "event": [
@@ -11513,7 +11517,8 @@
                   "const end = new Date(); end.setUTCMinutes(0, 0, 0);",
                   "const start = new Date(end.getTime() - 2 * 24 * 3600 * 1000);",
                   "pm.collectionVariables.set(\"contractBacktestStartTime\", start.toISOString());",
-                  "pm.collectionVariables.set(\"contractBacktestEndTime\", end.toISOString());"
+                  "pm.collectionVariables.set(\"contractBacktestEndTime\", end.toISOString());",
+                  "pm.collectionVariables.set(\"contractBacktestValidationStartTime\", new Date(start.getTime() + 36 * 3600 * 1000).toISOString());"
                 ]
               }
             },
@@ -11600,6 +11605,120 @@
                 "exec": [
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"每一筆都是做空\", () => pm.response.json().closedTrades.forEach(trade => pm.expect(trade.direction).to.eql(\"short\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重演：下一格開盤成交，切出驗證段",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"fillTiming\": \"nextOpen\",\n  \"validationStartTime\": \"{{contractBacktestValidationStartTime}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"說出成交時點\", () => pm.expect(result.fillTiming).to.eql(\"nextOpen\"));",
+                  "pm.test(\"交出調參段與驗證段\", () => { pm.expect(result.inSample).to.be.an(\"object\"); pm.expect(result.validation).to.be.an(\"object\"); });",
+                  "pm.test(\"成績單有短線要看的五格\", () => [\"profitFactor\",\"expectancy\",\"averageHoldingSeconds\",\"maximumConsecutiveLossCount\",\"costToGrossProfitRatio\"].forEach(key => pm.expect(result.summary).to.have.property(key)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：認不得的成交時點",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"fillTiming\": \"intraday\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向成交時點\", () => pm.expect(pm.response.json().field).to.eql(\"fillTiming\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：驗證起點不在期間之內",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategyScriptId\": {{contractBacktestStrategyScriptId}},\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"aggregationInterval\": \"1h\",\n  \"startTime\": \"{{contractBacktestStartTime}}\",\n  \"endTime\": \"{{contractBacktestEndTime}}\",\n  \"initialCapital\": \"10000\",\n  \"validationStartTime\": \"{{contractBacktestStartTime}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/contract-backtests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-backtests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"指向驗證起點\", () => pm.expect(pm.response.json().field).to.eql(\"validationStartTime\"));"
                 ]
               }
             }

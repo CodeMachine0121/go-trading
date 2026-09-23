@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -27,6 +29,9 @@ type ContractBacktestService struct {
 	contractIndicatorScriptProxy            domaininterface.IContractIndicatorScriptProxy
 	clockProxy                              domaininterface.IClockProxy
 	maxCandleCount                          int
+	// replayTimeAllowance is how long one whole replay may take, reading and running
+	// together — the same allowance the spot replay has.
+	replayTimeAllowance time.Duration
 }
 
 func NewContractBacktestService(
@@ -38,6 +43,7 @@ func NewContractBacktestService(
 	contractIndicatorScriptProxy domaininterface.IContractIndicatorScriptProxy,
 	clockProxy domaininterface.IClockProxy,
 	maxCandleCount int,
+	replayTimeAllowance time.Duration,
 ) *ContractBacktestService {
 	return &ContractBacktestService{
 		kCandleContractRepository:               kCandleContractRepository,
@@ -48,6 +54,7 @@ func NewContractBacktestService(
 		contractIndicatorScriptProxy:            contractIndicatorScriptProxy,
 		clockProxy:                              clockProxy,
 		maxCandleCount:                          maxCandleCount,
+		replayTimeAllowance:                     replayTimeAllowance,
 	}
 }
 
@@ -57,9 +64,15 @@ func NewContractBacktestService(
 func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	executionContext context.Context, requestDto dto.ContractBacktestRequestDto,
 ) (dto.ContractBacktestResultDto, error) {
-	tradingRules, rulesError := contractBacktestService.readTradingRules(executionContext, requestDto.Symbol)
+	// The allowance covers the whole replay — reading the market as well as running
+	// the scripts — because whoever is waiting waits for all of it.
+	replayContext, stopReplaying := context.WithTimeoutCause(
+		executionContext, contractBacktestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	defer stopReplaying()
+
+	tradingRules, rulesError := contractBacktestService.readTradingRules(replayContext, requestDto.Symbol)
 	if rulesError != nil {
-		return dto.ContractBacktestResultDto{}, rulesError
+		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, rulesError)
 	}
 
 	contractBacktestDomain, validationError := domains.NewContractBacktestDomain(
@@ -69,23 +82,23 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	}
 
 	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
-		executionContext, contractBacktestDomain)
+		replayContext, contractBacktestDomain)
 	if readError != nil {
-		return dto.ContractBacktestResultDto{}, readError
+		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, readError)
 	}
 
 	perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
-		executionContext,
+		replayContext,
 		requestDto.Script,
 		contractBacktestDomain.ResultType(),
 		contractKCandles,
 		contractBacktestDomain.Parameters())
 	if executionError != nil {
-		return dto.ContractBacktestResultDto{}, executionError
+		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, executionError)
 	}
 
 	return contractBacktestDomain.ReplayOver(
-		alignment, signalsOf(perBarIndicatorValues), settlements), nil
+		alignment, signalsOf(perBarIndicatorValues), settlements, nil), nil
 }
 
 // RunContractTradingStrategyBacktest replays a whole contract trading strategy over
@@ -99,9 +112,15 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 func (contractBacktestService *ContractBacktestService) RunContractTradingStrategyBacktest(
 	executionContext context.Context, requestDto dto.ContractTradingStrategyBacktestRequestDto,
 ) (dto.ContractBacktestResultDto, error) {
-	tradingRules, rulesError := contractBacktestService.readTradingRules(executionContext, requestDto.Symbol)
+	// The allowance covers the whole replay — reading the market as well as running
+	// the scripts — because whoever is waiting waits for all of it.
+	replayContext, stopReplaying := context.WithTimeoutCause(
+		executionContext, contractBacktestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	defer stopReplaying()
+
+	tradingRules, rulesError := contractBacktestService.readTradingRules(replayContext, requestDto.Symbol)
 	if rulesError != nil {
-		return dto.ContractBacktestResultDto{}, rulesError
+		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, rulesError)
 	}
 
 	strategyBacktestDomain, validationError := domains.NewContractTradingStrategyBacktestDomain(
@@ -112,15 +131,15 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 
 	contractBacktestDomain := strategyBacktestDomain.ContractBacktest()
 	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
-		executionContext, contractBacktestDomain)
+		replayContext, contractBacktestDomain)
 	if readError != nil {
-		return dto.ContractBacktestResultDto{}, readError
+		return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, readError)
 	}
 
 	signalsBySource := make([][]domains.SignalDomain, 0, strategyBacktestDomain.SourceCount())
 	for sourceIndex := range strategyBacktestDomain.SourceCount() {
 		perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
-			executionContext,
+			replayContext,
 			strategyBacktestDomain.SourceScript(sourceIndex),
 			contractBacktestDomain.ResultType(),
 			contractKCandles,
@@ -128,13 +147,25 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 		// One source failing ends the whole replay: half a replay would answer the
 		// conditions against signals that are simply absent.
 		if executionError != nil {
-			return dto.ContractBacktestResultDto{}, executionError
+			return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, executionError)
 		}
 
 		signalsBySource = append(signalsBySource, signalsOf(perBarIndicatorValues))
 	}
 
 	return strategyBacktestDomain.ReplayOver(alignment, signalsBySource, settlements), nil
+}
+
+// refusalFor is what a replay says when it could not finish: the allowance, in words a
+// person can act on, when that is what ran out; otherwise whatever went wrong.
+func (contractBacktestService *ContractBacktestService) refusalFor(
+	replayContext context.Context, executionError error,
+) error {
+	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
+		return domains.BacktestTimeAllowanceSpent(contractBacktestService.replayTimeAllowance)
+	}
+
+	return executionError
 }
 
 // readTradingRules reads the venue's rules for the symbol a replay names: its trading

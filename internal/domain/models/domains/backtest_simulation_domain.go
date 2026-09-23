@@ -20,6 +20,7 @@ import (
 type BacktestSimulationDomain struct {
 	initialCapital decimal.Decimal
 	positionTerms  BacktestPositionTermsDomain
+	fillTiming     BacktestFillTimingDomain
 	inputKCandles  []vo.KCandleVo
 	// signals holds exactly one opinion per candle: the nth belongs to the nth
 	// candle. The script runner produces one signal per candle or fails the whole
@@ -34,12 +35,14 @@ type BacktestSimulationDomain struct {
 func NewBacktestSimulationDomain(
 	initialCapital decimal.Decimal,
 	positionTerms BacktestPositionTermsDomain,
+	fillTiming BacktestFillTimingDomain,
 	inputKCandles []vo.KCandleVo,
 	signals []SignalDomain,
 ) BacktestSimulationDomain {
 	return BacktestSimulationDomain{
 		initialCapital: initialCapital,
 		positionTerms:  positionTerms,
+		fillTiming:     fillTiming,
 		inputKCandles:  inputKCandles,
 		signals:        signals,
 	}
@@ -57,22 +60,32 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 	equityCurve := NewBacktestEquityCurveDomain(backtestSimulationDomain.initialCapital)
 
 	for candleIndex, inputKCandle := range backtestSimulationDomain.inputKCandles {
-		// Everything fills at this candle's close: the candle that spoke is the candle
-		// that traded. This is the only place a fill price is decided, so filling at
-		// the next candle's open later is one expression rather than a hunt.
-		fillPrice := decimal.NewFromFloat(inputKCandle.Close)
 		candleTime := time.Unix(inputKCandle.OpenTimeUnixSeconds, 0).UTC()
+		closePrice := decimal.NewFromFloat(inputKCandle.Close)
 
-		// The exit levels are asked first, and that ordering is a rule rather than a
-		// preference. A position is opened on the line below, so the earliest candle
-		// that can stop it out is the next one round — which is right, because the
-		// entry filled at this candle's close and its high and low had already
-		// happened by then. Written as a check instead, that rule would be a
-		// comparison of times, and a comparison of times is something a timezone or
-		// two bars opening in the same second can get wrong silently.
+		// Filling at the next open, the previous bar's opinion is carried out first, at
+		// this bar's open — and only then are the exit levels asked, because this bar's
+		// high and low happen after that fill, even for the position it just opened.
+		// The last bar's opinion has no next bar and is never filled.
+		if backtestSimulationDomain.fillTiming.FillsAtNextOpen() {
+			if candleIndex > 0 {
+				previousSignal := backtestSimulationDomain.signals[candleIndex-1]
+				account.Apply(previousSignal, candleTime, decimal.NewFromFloat(inputKCandle.Open))
+			}
+			account.ApplyExitLevels(inputKCandle, candleTime)
+			equityCurve.Record(candleTime, account.EquityAt(closePrice))
+
+			continue
+		}
+
+		// Filling at the close, the candle that spoke is the candle that traded. The
+		// exit levels are asked first, and that ordering is a rule rather than a
+		// preference: a position opened on the line below is first examined on the next
+		// candle round, which is right, because the entry filled at this candle's close
+		// and its high and low had already happened by then.
 		account.ApplyExitLevels(inputKCandle, candleTime)
-		account.Apply(backtestSimulationDomain.signals[candleIndex], candleTime, fillPrice)
-		equityCurve.Record(candleTime, account.EquityAt(fillPrice))
+		account.Apply(backtestSimulationDomain.signals[candleIndex], candleTime, closePrice)
+		equityCurve.Record(candleTime, account.EquityAt(closePrice))
 	}
 
 	backtestSummaryDto := dto.BacktestSummaryDto{
@@ -88,6 +101,8 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 		// Zero for a replay given no rates, which is every replay made before there
 		// were rates to give.
 		TotalTransactionCost: account.TotalTransactionCost(),
+		// What the finished round trips say about a short-term strategy.
+		BacktestTradeStatisticsDto: account.TradeStatisticsDto(),
 	}
 	// The win rate stays absent when nothing was ever closed, which is what keeps "no
 	// trades" from being reported as "every trade lost".
@@ -96,6 +111,7 @@ func (backtestSimulationDomain BacktestSimulationDomain) ToDto() dto.BacktestRes
 	}
 
 	return dto.BacktestResultDto{
+		FillTiming:      string(backtestSimulationDomain.fillTiming.Value()),
 		UsedCandleCount: len(backtestSimulationDomain.inputKCandles),
 		Summary:         backtestSummaryDto,
 		ClosedTrades:    account.ClosedTradeDtos(),

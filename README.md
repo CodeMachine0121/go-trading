@@ -95,8 +95,10 @@ curl localhost:8080/health
 | :--- | :--- | :--- |
 | `SERVER_PORT` | `8080` | HTTP 服務埠號 |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 允許讀取本 API 回應的前端來源，逗號分隔；清單外的來源不會拿到授權標頭 |
-| `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值 |
+| `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值（重演另有 `BACKTEST_MAX_CANDLE_COUNT`） |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
+| `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
+| `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
@@ -932,6 +934,19 @@ newman run postman/go-trading.postman_collection.json \
 合約的即時跟盤與**合約的策略機器人**還沒有。指標計算（`/contract-indicator-calculations`）、
 回測（`/contract-backtests`）與交易策略（`marketDataKind: contractKCandle`）已經吃得到合約資料；
 策略機器人目前只跑 K 線，引用一份合約交易策略會被拒絕。
+
+### 短線重演的三個選項（現貨與合約都有）
+
+四個重演入口（`/backtests`、`/trading-strategies/{id}/backtests`、`/contract-backtests`、
+`/trading-strategies/{id}/contract-backtests`）都另收：
+
+- `fillTiming`：`close`（預設，說信號的那一格收盤成交）或 `nextOpen`（下一格開盤成交；最後一格的信號不成交；
+  開倉那一格起就判出場價位；合約在那一格開盤那一刻的資金費率結算不收付給剛開的倉）。
+- `validationStartTime`：切出**調參段**與**驗證段**。回應多 `inSample` 與 `validation` 兩份同形狀的結果，
+  兩段各自從初始資金、空手重演；算式在驗證段看得到驗證起點以前的歷史。只信驗證段。
+
+成績單另有 `profitFactor`、`expectancy`、`averageHoldingSeconds`、`maximumConsecutiveLossCount`、
+`costToGrossProfitRatio`（不適用時為 `null`；只算已平倉交易；合約的資金費用不算成本）。
 
 ### 合約重演怎麼算
 

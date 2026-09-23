@@ -63,7 +63,7 @@ func newTradingStrategyBacktestRouterUnderTest(t *testing.T) tradingStrategyBack
 			service.NewStrategyScriptService(
 				strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, 1000), nil,
+				kCandleRepository, indicatorScriptProxy, clockProxy, 1000, time.Minute), nil,
 		))
 
 	engine := gin.New()

@@ -60,7 +60,7 @@ func newBacktestUnderTest(t *testing.T) backtestUnderTest {
 		backtestApplication: application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults), nil),
+				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil),
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
@@ -361,7 +361,7 @@ func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest 
 		backtestApplication: application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults), nil),
+				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil),
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}

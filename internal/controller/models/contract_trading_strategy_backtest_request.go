@@ -22,8 +22,14 @@ type ContractTradingStrategyBacktestRequest struct {
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
 	EntryCostPercentage  decimal.Decimal `json:"entryCostPercentage"`
 	ExitCostPercentage   decimal.Decimal `json:"exitCostPercentage"`
-	Leverage             decimal.Decimal `json:"leverage"`
-	SlippagePercentage   decimal.Decimal `json:"slippagePercentage"`
+	// FillTiming is close (the default: fill at the signalling bar's close) or
+	// nextOpen (fill at the next bar's open).
+	FillTiming string `json:"fillTiming"`
+	// ValidationStartTime, when given, splits the replay into an in-sample part and a
+	// validation part, each replayed on its own from the initial capital.
+	ValidationStartTime time.Time       `json:"validationStartTime"`
+	Leverage            decimal.Decimal `json:"leverage"`
+	SlippagePercentage  decimal.Decimal `json:"slippagePercentage"`
 	// TradingMode and MaintenanceMarginRate are carried only to be refused: the
 	// trading strategy says the first, the symbol's ladder the second.
 	TradingMode           string          `json:"tradingMode"`
@@ -42,6 +48,8 @@ func (request ContractTradingStrategyBacktestRequest) ToRequestDto() dto.Contrac
 		TakeProfitPercentage:  request.TakeProfitPercentage,
 		EntryCostPercentage:   request.EntryCostPercentage,
 		ExitCostPercentage:    request.ExitCostPercentage,
+		FillTiming:            request.FillTiming,
+		ValidationStartTime:   request.ValidationStartTime,
 		Leverage:              request.Leverage,
 		SlippagePercentage:    request.SlippagePercentage,
 		TradingMode:           request.TradingMode,

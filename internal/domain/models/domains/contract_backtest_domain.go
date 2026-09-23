@@ -129,29 +129,91 @@ func (contractBacktestDomain ContractBacktestDomain) SelectInput(
 		return ContractKCandleAlignmentDomain{}, notEnoughKCandlesForBacktest(len(finishedBuckets))
 	}
 
+	// A split replay needs a bar on either side of the validation start, refused before
+	// a single script is run.
+	if _, splitError := contractBacktestDomain.splitIndexOf(finishedBuckets); splitError != nil {
+		return ContractKCandleAlignmentDomain{}, splitError
+	}
+
 	return newContractKCandleAlignmentDomain(contractBacktestDomain.backtest.interval, finishedBuckets), nil
 }
 
+// splitIndexOf is where these bars divide into the in-sample and the validation part,
+// asked once when they are selected and once when they are replayed. An unsplit
+// replay divides nowhere and answers the whole length.
+func (contractBacktestDomain ContractBacktestDomain) splitIndexOf(buckets []dto.KCandleContractDto) (int, error) {
+	if !contractBacktestDomain.backtest.segments.IsSplit() {
+		return len(buckets), nil
+	}
+
+	openTimes := make([]time.Time, 0, len(buckets))
+	for _, bucket := range buckets {
+		openTimes = append(openTimes, bucket.OpenTime.UTC())
+	}
+
+	return contractBacktestDomain.backtest.segments.SplitIndex(openTimes)
+}
+
 // ReplayOver walks the account over the bars the alignment holds, one opinion per bar,
-// paying and receiving the funding settlements that fall inside them.
+// paying and receiving the funding settlements that fall inside them — and for a split
+// replay walks each part again on its own, from the initial capital and flat.
+//
+// conflictedFlags says, bar by bar, whether a trading strategy's two trees both held; a
+// strategy script replay has no such thing and passes nil.
 func (contractBacktestDomain ContractBacktestDomain) ReplayOver(
 	alignment ContractKCandleAlignmentDomain,
 	signals []SignalDomain,
 	settlements []entities.ContractFundingRateSettlement,
+	conflictedFlags []bool,
 ) dto.ContractBacktestResultDto {
-	resultDto := NewContractBacktestSimulationDomain(
-		contractBacktestDomain.backtest.initialCapital,
-		contractBacktestDomain.positionTerms,
-		contractBacktestDomain.tradingMode,
-		contractBacktestDomain.tradingRules,
-		contractBacktestDomain.backtest.interval,
-		alignment.buckets,
-		signals,
-		settlements,
-	).ToDto()
+	buckets := alignment.buckets
+	if conflictedFlags == nil {
+		conflictedFlags = make([]bool, len(buckets))
+	}
 
-	resultDto.Symbol = contractBacktestDomain.backtest.symbol
-	resultDto.Interval = string(contractBacktestDomain.backtest.interval.Value())
+	replayed := func(
+		partBuckets []dto.KCandleContractDto, partSignals []SignalDomain, partConflictedFlags []bool,
+	) dto.ContractBacktestResultDto {
+		resultDto := NewContractBacktestSimulationDomain(
+			contractBacktestDomain.backtest.initialCapital,
+			contractBacktestDomain.positionTerms,
+			contractBacktestDomain.tradingMode,
+			contractBacktestDomain.backtest.fillTiming,
+			contractBacktestDomain.tradingRules,
+			contractBacktestDomain.backtest.interval,
+			partBuckets,
+			partSignals,
+			settlements,
+		).ToDto()
 
-	return resultDto
+		resultDto.Symbol = contractBacktestDomain.backtest.symbol
+		resultDto.Interval = string(contractBacktestDomain.backtest.interval.Value())
+		for _, isConflicted := range partConflictedFlags {
+			if isConflicted {
+				resultDto.Summary.ConflictedCandleCount++
+			}
+		}
+
+		return resultDto
+	}
+
+	wholeResultDto := replayed(buckets, signals, conflictedFlags)
+	if !contractBacktestDomain.backtest.segments.IsSplit() {
+		return wholeResultDto
+	}
+
+	// The bars were checked for one on either side when they were selected, so the split
+	// cannot fail here; should it, the whole replay still stands on its own.
+	splitIndex, splitError := contractBacktestDomain.splitIndexOf(buckets)
+	if splitError != nil {
+		return wholeResultDto
+	}
+
+	inSampleResultDto := replayed(buckets[:splitIndex], signals[:splitIndex], conflictedFlags[:splitIndex])
+	validationResultDto := replayed(buckets[splitIndex:], signals[splitIndex:], conflictedFlags[splitIndex:])
+	wholeResultDto.ValidationStartTime = contractBacktestDomain.backtest.segments.ValidationStartTime()
+	wholeResultDto.InSample = &inSampleResultDto
+	wholeResultDto.Validation = &validationResultDto
+
+	return wholeResultDto
 }

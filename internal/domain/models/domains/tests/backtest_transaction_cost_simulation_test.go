@@ -51,6 +51,7 @@ func (costedReplaySpec costedReplaySpec) run(t *testing.T) dto.BacktestResultDto
 		decimal.RequireFromString(costedReplaySpec.initialCapital),
 		domains.NewBacktestPositionTermsDomain(positionSizing,
 			domains.BacktestExitLevelsDomain{}, transactionCosts),
+		domains.BacktestFillTimingDomain{},
 		inputKCandles, signalDomainsSaying(costedReplaySpec.signals...)).ToDto()
 }
 

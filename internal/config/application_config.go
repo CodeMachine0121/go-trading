@@ -339,11 +339,19 @@ type ApplicationConfig struct {
 	CorsAllowedOrigins     []string
 	KCandleQueryMaxResults int
 	IndicatorScriptTimeout time.Duration
-	BackgroundJobsEnabled  bool
-	Ingestion              IngestionConfig
-	ContractIngestion      ContractIngestionConfig
-	LiveFollow             LiveFollowConfig
-	TaiwanStock            TaiwanStockConfig
+	// BacktestMaxCandleCount is how many buckets one replay may walk. It is the
+	// replay's own, no longer the single-query ceiling: a replay is one question that
+	// reads the market once, but it walks far more than any one query hands back.
+	BacktestMaxCandleCount int
+	// BacktestTimeAllowance is how long one whole replay may take, reading included. It
+	// sits below the hundred seconds a reverse proxy commonly waits, so that a replay
+	// says it ran out of time rather than being cut off without a word.
+	BacktestTimeAllowance time.Duration
+	BackgroundJobsEnabled bool
+	Ingestion             IngestionConfig
+	ContractIngestion     ContractIngestionConfig
+	LiveFollow            LiveFollowConfig
+	TaiwanStock           TaiwanStockConfig
 	// MarketRules is how every market the system recognises behaves. Recognising one
 	// more market is one more entry here and two more sources wired to it; nothing
 	// inside the system branches on which market it is looking at.
@@ -369,6 +377,9 @@ func Load() ApplicationConfig {
 		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
+		BacktestMaxCandleCount: positiveIntWithDefault("BACKTEST_MAX_CANDLE_COUNT", 50000),
+		BacktestTimeAllowance: time.Duration(
+			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		TaiwanStock:           taiwanStockConfig,
 		MarketRules:           marketRules(taiwanStockConfig),

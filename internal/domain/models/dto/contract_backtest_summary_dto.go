@@ -7,6 +7,9 @@ import "github.com/shopspring/decimal"
 // two directions apart, the openings the venue refused, and whose maintenance margin
 // figures were used.
 type ContractBacktestSummaryDto struct {
+	// BacktestTradeStatisticsDto is what the finished round trips say about a
+	// short-term strategy, worked out exactly as for a spot replay.
+	BacktestTradeStatisticsDto
 	InitialCapital      decimal.Decimal `json:"initialCapital"`
 	FinalEquity         decimal.Decimal `json:"finalEquity"`
 	TotalReturnRate     float64         `json:"totalReturnRate"`

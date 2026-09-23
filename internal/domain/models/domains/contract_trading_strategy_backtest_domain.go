@@ -86,11 +86,8 @@ func (strategyBacktestDomain ContractTradingStrategyBacktestDomain) ReplayOver(
 	signalsBySource [][]SignalDomain,
 	settlements []entities.ContractFundingRateSettlement,
 ) dto.ContractBacktestResultDto {
-	verdicts, conflictedCandleCount := strategyBacktestDomain.sources.Combine(
+	verdicts, conflictedFlags := strategyBacktestDomain.sources.Combine(
 		len(alignment.buckets), signalsBySource)
 
-	resultDto := strategyBacktestDomain.contractBacktest.ReplayOver(alignment, verdicts, settlements)
-	resultDto.Summary.ConflictedCandleCount = conflictedCandleCount
-
-	return resultDto
+	return strategyBacktestDomain.contractBacktest.ReplayOver(alignment, verdicts, settlements, conflictedFlags)
 }

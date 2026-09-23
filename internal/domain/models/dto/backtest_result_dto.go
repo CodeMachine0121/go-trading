@@ -22,4 +22,12 @@ type BacktestResultDto struct {
 	ClosedTrades []ClosedTradeDto `json:"closedTrades"`
 	// EquityCurve holds one point per replayed candle, earliest first.
 	EquityCurve []EquityPointDto `json:"equityCurve"`
+	// FillTiming is at what price this replay filled its signals: close or nextOpen.
+	FillTiming string `json:"fillTiming"`
+	// ValidationStartTime is where this replay was split, or absent when it was not.
+	ValidationStartTime *time.Time `json:"validationStartTime"`
+	// InSample and Validation are the two parts of a split replay, each replayed on
+	// its own from the initial capital and flat. Both are absent when it was not split.
+	InSample   *BacktestResultDto `json:"inSample,omitempty"`
+	Validation *BacktestResultDto `json:"validation,omitempty"`
 }
