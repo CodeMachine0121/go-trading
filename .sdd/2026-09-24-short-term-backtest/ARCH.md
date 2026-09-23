@@ -32,7 +32,7 @@
 | `domains/trading_strategy_replay_sources_domain.go` | **Modify** | `Combine` 另外交出每一格是否打架，好讓分段各自計數 |
 | `dto/backtest_*_dto.go` · `dto/contract_backtest_*_dto.go` · `dto/trading_strategy_backtest_request_dto.go` · `dto/contract_trading_strategy_backtest_request_dto.go` | **Modify** | 請求多 `FillTiming`、`ValidationStartTime`；成績單內嵌統計；結果多 `InSample`、`Validation` |
 | `domains/backtest_errors.go` | **Modify** | 新欄位名 `fillTiming`、`validationStartTime`；新哨兵 `ErrBacktestTimeAllowanceSpent` |
-| `service/backtest_service.go` · `service/contract_backtest_service.go` | **Modify** | 建構子多收整次允許時間；跑算式的那一段包在允許時間內，超過回 `ErrBacktestTimeAllowanceSpent` |
+| `service/backtest_service.go` · `service/contract_backtest_service.go` | **Modify** | 建構子多收整次允許時間；讀行情與跑算式都包在允許時間內，超過回 `ErrBacktestTimeAllowanceSpent` |
 | `controller/*backtest*` · `controller/models/*backtest_request.go` | **Modify** | 請求多兩欄；`ErrBacktestTimeAllowanceSpent` 對映 422 |
 | `config/application_config.go` · `cmd/server/dependencies.go` | **Modify** | `BACKTEST_MAX_CANDLE_COUNT`（預設 50000）、`BACKTEST_TIME_ALLOWANCE_SECONDS`（預設 90）；四個重演服務改讀它們 |
 | 腳本執行器、單格允許時間 | **Not touched** | 算式看得到的歷史不變（改了會改掉既有算式的答案） |
@@ -125,5 +125,5 @@ flowchart TD
 ## 8. Risks & Open Decisions
 
 - 分段的起點不一定落在刻度邊界上：以格的開始時間 ≥ 驗證起點歸入驗證段。
-- 整次允許時間只包住跑算式的那一段（讀資料庫不算），與 PRD「從開始跑算式起算」一致。
+- 整次允許時間包住整次重演（讀資料庫與跑算式都算）：等待的人等的是全部。
 - 錯誤回應：允許時間用完回 422（與算式失敗同一類：請求本身沒錯，但這一次算不出來）。

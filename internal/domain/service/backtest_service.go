@@ -23,8 +23,8 @@ type BacktestService struct {
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy
 	clockProxy           domaininterface.IClockProxy
 	maxCandleCount       int
-	// replayTimeAllowance is how long one whole replay may run its scripts for, every
-	// source together. Each script run has its own allowance besides; this one is what
+	// replayTimeAllowance is how long one whole replay may take — reading the market
+	// and running every source's script together. Each script run has its own allowance besides; this one is what
 	// stops a long replay from outlasting whoever is waiting for it.
 	replayTimeAllowance time.Duration
 }
@@ -56,6 +56,12 @@ func NewBacktestService(
 func (backtestService *BacktestService) RunBacktest(
 	executionContext context.Context, requestDto dto.BacktestRequestDto,
 ) (dto.BacktestResultDto, error) {
+	// The allowance covers the whole replay — reading the market as well as running
+	// the scripts — because whoever is waiting waits for all of it.
+	replayContext, stopReplaying := context.WithTimeoutCause(
+		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	defer stopReplaying()
+
 	backtestDomain, validationError := domains.NewBacktestDomain(
 		requestDto, backtestService.maxCandleCount, backtestService.clockProxy.Now())
 	if validationError != nil {
@@ -63,19 +69,15 @@ func (backtestService *BacktestService) RunBacktest(
 	}
 
 	kCandles, findError := backtestService.kCandleRepository.FindInRange(
-		executionContext, backtestDomain.KCandleQuery(), backtestDomain.SourceCandleLimit())
+		replayContext, backtestDomain.KCandleQuery(), backtestDomain.SourceCandleLimit())
 	if findError != nil {
-		return dto.BacktestResultDto{}, findError
+		return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, findError)
 	}
 
 	inputKCandles, selectionError := backtestDomain.SelectInputCandles(kCandles)
 	if selectionError != nil {
-		return dto.BacktestResultDto{}, selectionError
+		return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, selectionError)
 	}
-
-	replayContext, stopReplaying := context.WithTimeoutCause(
-		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
-	defer stopReplaying()
 
 	perCandleIndicatorValues, executionError := backtestService.indicatorScriptProxy.ExecuteForEachCandle(
 		replayContext,
@@ -108,6 +110,12 @@ func (backtestService *BacktestService) RunBacktest(
 func (backtestService *BacktestService) RunTradingStrategyBacktest(
 	executionContext context.Context, requestDto dto.TradingStrategyBacktestRequestDto,
 ) (dto.BacktestResultDto, error) {
+	// The allowance covers the whole replay — reading the market as well as running
+	// the scripts — because whoever is waiting waits for all of it.
+	replayContext, stopReplaying := context.WithTimeoutCause(
+		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
+	defer stopReplaying()
+
 	tradingStrategyBacktestDomain, validationError := domains.NewTradingStrategyBacktestDomain(
 		requestDto, backtestService.maxCandleCount, backtestService.clockProxy.Now())
 	if validationError != nil {
@@ -115,21 +123,17 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 	}
 
 	kCandles, findError := backtestService.kCandleRepository.FindInRange(
-		executionContext,
+		replayContext,
 		tradingStrategyBacktestDomain.KCandleQuery(),
 		tradingStrategyBacktestDomain.SourceCandleLimit())
 	if findError != nil {
-		return dto.BacktestResultDto{}, findError
+		return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, findError)
 	}
 
 	inputKCandles, selectionError := tradingStrategyBacktestDomain.SelectInputCandles(kCandles)
 	if selectionError != nil {
-		return dto.BacktestResultDto{}, selectionError
+		return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, selectionError)
 	}
-
-	replayContext, stopReplaying := context.WithTimeoutCause(
-		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
-	defer stopReplaying()
 
 	signalsBySource := make([][]domains.SignalDomain, 0, tradingStrategyBacktestDomain.SourceCount())
 	for sourceIndex := range tradingStrategyBacktestDomain.SourceCount() {
@@ -157,8 +161,8 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 // services stop on it and tell the two apart by it.
 var errReplayTimeAllowanceSpent = errors.New("replay time allowance spent")
 
-// refusalFor is what a replay says when its scripts stopped: the allowance, in words
-// a person can act on, when that is what ran out; otherwise whatever stopped them.
+// refusalFor is what a replay says when it could not finish: the allowance, in words a
+// person can act on, when that is what ran out; otherwise whatever went wrong.
 // Both replays ask it, so both say the same sentence.
 func (backtestService *BacktestService) refusalFor(replayContext context.Context, executionError error) error {
 	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {

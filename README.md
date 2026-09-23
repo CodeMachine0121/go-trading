@@ -98,7 +98,7 @@ curl localhost:8080/health
 | `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值（重演另有 `BACKTEST_MAX_CANDLE_COUNT`） |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
 | `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
-| `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演跑算式的整體允許時間（所有信號來源合計）；超過即整次中止、回 `422`，不交出半張成績單 |
+| `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |

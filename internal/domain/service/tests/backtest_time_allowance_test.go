@@ -179,3 +179,42 @@ func TestContractSplitReplayRunsTheScriptOnceOverTheWholeHistory(t *testing.T) {
 	require.NotNil(t, resultDto.Validation)
 	assert.Equal(t, 1, resultDto.Validation.UsedCandleCount)
 }
+
+func TestSpotReplayAllowanceCoversReadingTheMarket(t *testing.T) {
+	controller := gomock.NewController(t)
+	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+	kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, _ domains.KCandleQueryDomain, _ int) ([]entities.KCandle, error) {
+			<-executionContext.Done()
+
+			return nil, executionContext.Err()
+		})
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(contractBacktestServiceStart.Add(24 * time.Hour)).AnyTimes()
+	backtestService := service.NewBacktestService(
+		kCandleRepository, mocks.NewMockIIndicatorScriptProxy(controller), clockProxy, 1000, replayTimeAllowanceUnderTest)
+
+	_, err := backtestService.RunBacktest(context.Background(), dto.BacktestRequestDto{
+		Symbol: "BTCUSDT", AggregationInterval: "1h",
+		StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
+		Script: "the script", InitialCapital: decimal.NewFromInt(10000),
+	})
+
+	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
+}
+
+func TestContractReplayAllowanceCoversReadingTheMarket(t *testing.T) {
+	readsSlowly := func(boundaries contractBacktestServiceMocks) {
+		boundaries.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(executionContext context.Context, _ domains.KCandleQueryDomain, _ int) ([]entities.KCandleContract, error) {
+				<-executionContext.Done()
+
+				return nil, executionContext.Err()
+			})
+	}
+
+	_, err := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest, readsSlowly).
+		RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+
+	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
+}

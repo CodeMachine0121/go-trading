@@ -343,7 +343,7 @@ type ApplicationConfig struct {
 	// replay's own, no longer the single-query ceiling: a replay is one question that
 	// reads the market once, but it walks far more than any one query hands back.
 	BacktestMaxCandleCount int
-	// BacktestTimeAllowance is how long one whole replay may run its scripts for. It
+	// BacktestTimeAllowance is how long one whole replay may take, reading included. It
 	// sits below the hundred seconds a reverse proxy commonly waits, so that a replay
 	// says it ran out of time rather than being cut off without a word.
 	BacktestTimeAllowance time.Duration
