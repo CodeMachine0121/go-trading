@@ -73,6 +73,12 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 		Delete(&entities.ContractTradingSymbol{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).
 		Delete(&entities.KCandleContractHistorySyncRun{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.ContractFundingRateSettlement{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.ContractPositionStatistic{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.ContractMaintenanceMarginTier{}).Error)
 
 	return database
 }

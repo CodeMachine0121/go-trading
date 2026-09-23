@@ -20,6 +20,16 @@ var contractFigureColumns = []string{
 	"volume", "quote_volume", "taker_buy_base_volume", "taker_buy_quote_volume",
 	"trade_count",
 	"mark_open", "mark_high", "mark_low", "mark_close",
+	"index_open", "index_high", "index_low", "index_close",
+	"premium_index_open", "premium_index_high", "premium_index_low", "premium_index_close",
+}
+
+// laterLineColumns are the two lines a contract K candle gained after candles were
+// already being stored. They are the only columns a candle already held can still be
+// missing, and so the only ones a write is ever allowed to fill in on one.
+var laterLineColumns = []string{
+	"index_open", "index_high", "index_low", "index_close",
+	"premium_index_open", "premium_index_high", "premium_index_low", "premium_index_close",
 }
 
 // KCandleContractRepository stores perpetual contract K candles in PostgreSQL.
@@ -57,6 +67,16 @@ func (kCandleContractRepository *KCandleContractRepository) Save(
 // SaveAllIfAbsent stores every contract K candle nothing is held for yet, in one
 // statement, and says how many it stored.
 //
+// **A candle held from before the index price and premium index existed counts as
+// absent for those two lines alone.** It is completed in place — the two lines are
+// written, and every figure it already had is left exactly as it was. A candle
+// already holding both lines is not touched at all. That is what lets a history sync
+// bring old stretches up to date without a rule of its own: it asks about the days
+// that are not complete, and this is where "only what is missing" is kept.
+//
+// The count includes the candles completed that way, because each is a candle that
+// was not complete before this call and is now.
+//
 // An empty batch is answered without touching the store at all, because the driver
 // refuses a statement with no rows and a stretch the contract did not yet exist over
 // legitimately produces one.
@@ -70,7 +90,13 @@ func (kCandleContractRepository *KCandleContractRepository) SaveAllIfAbsent(
 	result := kCandleContractRepository.database.WithContext(executionContext).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "symbol"}, {Name: "open_time"}},
-			DoNothing: true,
+			DoUpdates: clause.AssignmentColumns(laterLineColumns),
+			Where: clause.Where{Exprs: []clause.Expression{clause.Or(
+				clause.Eq{Column: clause.Column{
+					Table: entities.KCandleContract{}.TableName(), Name: "index_open"}, Value: nil},
+				clause.Eq{Column: clause.Column{
+					Table: entities.KCandleContract{}.TableName(), Name: "premium_index_open"}, Value: nil},
+			)}},
 		}).
 		Create(&kCandleContracts)
 	if result.Error != nil {
@@ -80,8 +106,12 @@ func (kCandleContractRepository *KCandleContractRepository) SaveAllIfAbsent(
 	return int(result.RowsAffected), nil
 }
 
-// CountInRange is how many contract K candles are held for this symbol across the
-// stretch, both ends included.
+// CountInRange is how many complete contract K candles are held for this symbol
+// across the stretch, both ends included.
+//
+// A candle stored before the index price and premium index existed is not counted.
+// This is what "is this day complete" is decided by, and a day of such candles is
+// not: it still has two lines to fill in.
 func (kCandleContractRepository *KCandleContractRepository) CountInRange(
 	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
 ) (int, error) {
@@ -92,6 +122,8 @@ func (kCandleContractRepository *KCandleContractRepository) CountInRange(
 		Where(clause.Eq{Column: "symbol", Value: symbol}).
 		Where(clause.Gte{Column: "open_time", Value: startTime.UTC()}).
 		Where(clause.Lte{Column: "open_time", Value: endTime.UTC()}).
+		Where(clause.Neq{Column: "index_open", Value: nil}).
+		Where(clause.Neq{Column: "premium_index_open", Value: nil}).
 		Count(&heldCount)
 	if result.Error != nil {
 		return 0, fmt.Errorf("count contract k candles: %w", result.Error)

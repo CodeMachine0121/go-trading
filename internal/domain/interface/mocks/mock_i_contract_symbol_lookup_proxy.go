@@ -41,11 +41,26 @@ func (m *MockIContractSymbolLookupProxy) EXPECT() *MockIContractSymbolLookupProx
 	return m.recorder
 }
 
+// FetchTradingSpecifications mocks base method.
+func (m *MockIContractSymbolLookupProxy) FetchTradingSpecifications(executionContext context.Context) ([]vo.ContractTradingSpecificationVo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FetchTradingSpecifications", executionContext)
+	ret0, _ := ret[0].([]vo.ContractTradingSpecificationVo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FetchTradingSpecifications indicates an expected call of FetchTradingSpecifications.
+func (mr *MockIContractSymbolLookupProxyMockRecorder) FetchTradingSpecifications(executionContext any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchTradingSpecifications", reflect.TypeOf((*MockIContractSymbolLookupProxy)(nil).FetchTradingSpecifications), executionContext)
+}
+
 // LookUpSymbol mocks base method.
-func (m *MockIContractSymbolLookupProxy) LookUpSymbol(executionContext context.Context, symbol string) (vo.SymbolListingVo, error) {
+func (m *MockIContractSymbolLookupProxy) LookUpSymbol(executionContext context.Context, symbol string) (vo.ContractSymbolListingVo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LookUpSymbol", executionContext, symbol)
-	ret0, _ := ret[0].(vo.SymbolListingVo)
+	ret0, _ := ret[0].(vo.ContractSymbolListingVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

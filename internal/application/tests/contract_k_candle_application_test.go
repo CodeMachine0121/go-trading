@@ -1,6 +1,8 @@
 package application_test
 
 import (
+	"errors"
+	"log"
 	"testing"
 	"time"
 
@@ -44,6 +46,14 @@ func contractCandleWriteDto() dto.KCandleContractWriteDto {
 		MarkHigh:            decimal.NewNullDecimal(decimal.RequireFromString("121")),
 		MarkLow:             decimal.NewNullDecimal(decimal.RequireFromString("91")),
 		MarkClose:           decimal.NewNullDecimal(decimal.RequireFromString("111")),
+		IndexOpen:           decimal.NewNullDecimal(decimal.RequireFromString("102")),
+		IndexHigh:           decimal.NewNullDecimal(decimal.RequireFromString("122")),
+		IndexLow:            decimal.NewNullDecimal(decimal.RequireFromString("92")),
+		IndexClose:          decimal.NewNullDecimal(decimal.RequireFromString("112")),
+		PremiumIndexOpen:    decimal.NewNullDecimal(decimal.RequireFromString("-0.0001")),
+		PremiumIndexHigh:    decimal.NewNullDecimal(decimal.RequireFromString("0.0002")),
+		PremiumIndexLow:     decimal.NewNullDecimal(decimal.RequireFromString("-0.0003")),
+		PremiumIndexClose:   decimal.NewNullDecimal(decimal.RequireFromString("0.0001")),
 	}
 }
 
@@ -56,6 +66,12 @@ type contractApplicationsUnderTest struct {
 	syncRunRepository    *mocks.MockIKCandleContractHistorySyncRunRepository
 	marketDataProxy      *mocks.MockIContractMarketDataProxy
 	lookupProxy          *mocks.MockIContractSymbolLookupProxy
+	settlementRepository *mocks.MockIContractFundingRateSettlementRepository
+	fundingRateProxy     *mocks.MockIContractFundingRateProxy
+	statisticRepository  *mocks.MockIContractPositionStatisticRepository
+	statisticProxy       *mocks.MockIContractPositionStatisticProxy
+	tierRepository       *mocks.MockIContractMaintenanceMarginTierRepository
+	tierProxy            *mocks.MockIContractMaintenanceMarginTierProxy
 }
 
 func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTest {
@@ -67,6 +83,12 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
 	lookupProxy := mocks.NewMockIContractSymbolLookupProxy(mockController)
+	settlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
+	fundingRateProxy := mocks.NewMockIContractFundingRateProxy(mockController)
+	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
+	statisticProxy := mocks.NewMockIContractPositionStatisticProxy(mockController)
+	tierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(mockController)
+	tierProxy := mocks.NewMockIContractMaintenanceMarginTierProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(contractAt(9, 7)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
@@ -78,17 +100,39 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 
 	return contractApplicationsUnderTest{
 		candleApplication: application.NewKCandleContractApplication(
-			service.NewKCandleContractService(candleRepository, clockProxy, contractQueryMaxResults)),
+			service.NewKCandleContractService(candleRepository, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), contractQueryMaxResults)),
 		symbolApplication: application.NewContractTradingSymbolApplication(
-			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy),
-			ingestionService),
+			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
+			ingestionService,
+			service.NewContractFundingRateService(
+				settlementRepository, symbolRepository, fundingRateProxy, clockProxy, contractQueryMaxResults),
+			service.NewContractPositionStatisticService(
+				statisticRepository, symbolRepository, statisticProxy, clockProxy, contractQueryMaxResults),
+			service.NewContractMaintenanceMarginTierService(
+				tierRepository, symbolRepository, tierProxy, clockProxy)),
 		ingestionApplication: application.NewKCandleContractIngestionApplication(ingestionService),
 		candleRepository:     candleRepository,
 		symbolRepository:     symbolRepository,
 		syncRunRepository:    syncRunRepository,
 		marketDataProxy:      marketDataProxy,
 		lookupProxy:          lookupProxy,
+		settlementRepository: settlementRepository,
+		fundingRateProxy:     fundingRateProxy,
+		statisticRepository:  statisticRepository,
+		statisticProxy:       statisticProxy,
+		tierRepository:       tierRepository,
+		tierProxy:            tierProxy,
 	}
+}
+
+// withoutAnAccount is the ordinary case: no account key configured, so the
+// maintenance margin ladder is never asked about.
+func (underTest contractApplicationsUnderTest) withoutAnAccount() contractApplicationsUnderTest {
+	underTest.tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
+		Return(nil, domains.ErrContractAccountCredentialsMissing).AnyTimes()
+
+	return underTest
 }
 
 func TestContractApplicationCarriesACandleThroughToStorage(t *testing.T) {
@@ -138,18 +182,31 @@ func TestContractApplicationReadsUpdatesAndDeletesOneCandle(t *testing.T) {
 func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
 	// Without this, a contract added now would hold nothing until the next start-up:
 	// the scheduled round only collects what has closed since it last ran.
-	underTest := newContractApplicationsUnderTest(t)
+	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
-		Return(vo.SymbolListingVo{IsListed: true}, nil)
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), entities.ContractTradingSymbol{
 		Symbol: "BTCUSDT", IsWatched: true,
 	}).Return(nil)
 	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
-		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
 	underTest.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandleContract{}, nil)
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return([]vo.ContractMarketKCandleVo{}, nil).Times(1)
+	// Its whole funding rate history, from its first settlement.
+	underTest.settlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractFundingRateSettlement{}, false, nil)
+	underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), "BTCUSDT", time.Time{}).
+		Return([]vo.ContractFundingRateSettlementVo{}, nil).Times(1)
+	underTest.settlementRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
+	// And its last thirty days of position statistics.
+	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractPositionStatistic{}, false, nil)
+	underTest.statisticProxy.EXPECT().FetchPositionStatistics(
+		gomock.Any(), "BTCUSDT", contractAt(9, 5).Add(-30*24*time.Hour).Add(10*time.Minute), contractAt(9, 5)).
+		Return([]vo.ContractPositionStatisticVo{}, nil).Times(1)
+	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
 
 	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
 
@@ -159,12 +216,12 @@ func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
 func TestContractApplicationKeepsTheContractOnTheWatchlistWhenTheCatchUpFails(t *testing.T) {
 	// The contract is on the watchlist, which is what was asked for and is true; the
 	// ordinary rounds will reach it anyway.
-	underTest := newContractApplicationsUnderTest(t)
+	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
-		Return(vo.SymbolListingVo{IsListed: true}, nil)
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
-		entities.ContractTradingSymbol{}, false, nil)
+		entities.ContractTradingSymbol{}, false, nil).Times(3)
 
 	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
 
@@ -172,9 +229,9 @@ func TestContractApplicationKeepsTheContractOnTheWatchlistWhenTheCatchUpFails(t 
 }
 
 func TestContractApplicationDoesNotCatchUpAContractItRefusedToAdd(t *testing.T) {
-	underTest := newContractApplicationsUnderTest(t)
+	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "NOSUCHPAIR").
-		Return(vo.SymbolListingVo{}, nil)
+		Return(vo.ContractSymbolListingVo{}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
 
@@ -261,4 +318,161 @@ func TestContractIngestionApplicationStartsAndReadsAHistorySync(t *testing.T) {
 	assert.Equal(t, uint(11), startedRun.ID)
 	assert.Equal(t, string(vo.KCandleHistorySyncRunning), startedRun.Status)
 	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), readRun.Status)
+}
+
+// catchUpRecords is where the application writes down what could not be caught up.
+type catchUpRecords struct {
+	lines chan string
+}
+
+func (records catchUpRecords) Write(line []byte) (int, error) {
+	select {
+	case records.lines <- string(line):
+	default:
+	}
+
+	return len(line), nil
+}
+
+func TestContractApplicationSaysWhichSeriesCouldNotBeCaughtUpWhenAContractIsAdded(t *testing.T) {
+	// The venue refusing comes back inside a report, not as an error. Left unsaid, it
+	// would look exactly like a catch-up that found nothing.
+	records := catchUpRecords{lines: make(chan string, 64)}
+	previousOutput := log.Writer()
+	log.SetOutput(records)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
+	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
+	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
+	underTest.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandleContract{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.ContractMarketKCandleVo{}, nil)
+	underTest.settlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractFundingRateSettlement{}, false, nil)
+	underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("funding venue unreachable"))
+	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractPositionStatistic{}, false, nil)
+	underTest.statisticProxy.EXPECT().FetchPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("statistics venue unreachable"))
+
+	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
+
+	require.NoError(t, addError)
+	written := ""
+	for len(records.lines) > 0 {
+		written += <-records.lines
+	}
+	assert.Contains(t, written, "BTCUSDT was added but its funding rates could not be caught up: funding venue unreachable")
+	assert.Contains(t, written, "BTCUSDT was added but its position statistics could not be caught up: statistics venue unreachable")
+}
+
+// addingBitcoinCatchesTheOtherSeriesUp arranges everything joining the watchlist asks
+// for apart from the maintenance margin ladder, each with nothing to bring back.
+func (underTest contractApplicationsUnderTest) addingBitcoinCatchesTheOtherSeriesUp() {
+	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
+	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
+	underTest.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).Return([]entities.KCandleContract{}, nil)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return([]vo.ContractMarketKCandleVo{}, nil)
+	underTest.settlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractFundingRateSettlement{}, false, nil)
+	underTest.fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+	underTest.settlementRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
+	underTest.statisticRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractPositionStatistic{}, false, nil)
+	underTest.statisticProxy.EXPECT().FetchPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil)
+	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil)
+}
+
+func recordedWhile(t *testing.T, act func()) string {
+	t.Helper()
+
+	records := catchUpRecords{lines: make(chan string, 64)}
+	previousOutput := log.Writer()
+	log.SetOutput(records)
+	defer log.SetOutput(previousOutput)
+
+	act()
+
+	written := ""
+	for len(records.lines) > 0 {
+		written += <-records.lines
+	}
+
+	return written
+}
+
+func TestContractApplicationFetchesTheMaintenanceMarginLadderWhenAContractIsAddedWithAnAccount(t *testing.T) {
+	underTest := newContractApplicationsUnderTest(t)
+	underTest.addingBitcoinCatchesTheOtherSeriesUp()
+	underTest.tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).Return(
+		[]vo.ContractMaintenanceMarginLadderVo{{Symbol: "BTCUSDT", Tiers: []vo.ContractMaintenanceMarginTierVo{{
+			Tier: 1, NotionalFloor: decimal.Zero, NotionalCap: decimal.RequireFromString("50000"),
+			MaintenanceMarginRate: decimal.RequireFromString("0.004"), MaximumLeverage: 125,
+		}}}}, nil)
+	underTest.symbolRepository.EXPECT().FindAll(gomock.Any()).
+		Return([]entities.ContractTradingSymbol{{Symbol: "BTCUSDT", IsWatched: true}}, nil)
+	underTest.tierRepository.EXPECT().ReplaceLadders(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, laddersBySymbol map[string][]entities.ContractMaintenanceMarginTier) error {
+			require.Len(t, laddersBySymbol["BTCUSDT"], 1)
+			assert.Equal(t, 125, laddersBySymbol["BTCUSDT"][0].MaximumLeverage)
+
+			return nil
+		})
+
+	addError := underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT")
+
+	require.NoError(t, addError)
+}
+
+func TestContractApplicationSaysNothingAboutTheLadderWhenThereIsNoAccount(t *testing.T) {
+	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
+	underTest.addingBitcoinCatchesTheOtherSeriesUp()
+
+	written := recordedWhile(t, func() {
+		require.NoError(t, underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT"))
+	})
+
+	assert.NotContains(t, written, "maintenance margin")
+}
+
+func TestContractApplicationSaysWhenTheLadderCouldNotBeFetchedOrWasKept(t *testing.T) {
+	testCases := []struct {
+		name     string
+		arrange  func(underTest contractApplicationsUnderTest)
+		recorded string
+	}{
+		{name: "金鑰被拒", arrange: func(underTest contractApplicationsUnderTest) {
+			underTest.tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
+				Return(nil, domains.ErrContractAccountCredentialsRefused)
+		}, recorded: "BTCUSDT was added but its maintenance margin ladder could not be fetched"},
+		{name: "分級說不通", arrange: func(underTest contractApplicationsUnderTest) {
+			underTest.tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
+				Return([]vo.ContractMaintenanceMarginLadderVo{{Symbol: "BTCUSDT"}}, nil)
+			underTest.symbolRepository.EXPECT().FindAll(gomock.Any()).
+				Return([]entities.ContractTradingSymbol{{Symbol: "BTCUSDT"}}, nil)
+		}, recorded: "the maintenance margin ladder of BTCUSDT was kept as it was: contract maintenance margin tier validation failed: 至少要有一級"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newContractApplicationsUnderTest(t)
+			underTest.addingBitcoinCatchesTheOtherSeriesUp()
+			testCase.arrange(underTest)
+
+			written := recordedWhile(t, func() {
+				require.NoError(t, underTest.symbolApplication.AddToWatchlist(t.Context(), "BTCUSDT"))
+			})
+
+			assert.Contains(t, written, testCase.recorded)
+		})
+	}
 }

@@ -28,11 +28,13 @@ const contractLookbackCeilingDays = 3650
 var assertAnError = errors.New("storage unreachable")
 
 // validContractBody is a complete contract candle: every figure, the trade count and
-// all four mark prices.
+// all four mark prices, index prices and premium index figures.
 const validContractBody = `{"symbol":"BTCUSDT","openTime":"2026-08-29T09:00:00Z",
 "open":"100","high":"120","low":"90","close":"120",
 "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600",
-"tradeCount":7,"markOpen":"101","markHigh":"121","markLow":"91","markClose":"111"}`
+"tradeCount":7,"markOpen":"101","markHigh":"121","markLow":"91","markClose":"111",
+"indexOpen":"102","indexHigh":"122","indexLow":"92","indexClose":"112",
+"premiumIndexOpen":"-0.0001","premiumIndexHigh":"0.0002","premiumIndexLow":"-0.0003","premiumIndexClose":"0.0001"}`
 
 func contractCandleAt(openTime time.Time, closePrice string) entities.KCandleContract {
 	return entities.KCandleContract{
@@ -63,6 +65,11 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
 	lookupProxy := mocks.NewMockIContractSymbolLookupProxy(mockController)
+	settlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
+	fundingRateProxy := mocks.NewMockIContractFundingRateProxy(mockController)
+	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
+	statisticProxy := mocks.NewMockIContractPositionStatisticProxy(mockController)
+	tierProxy := mocks.NewMockIContractMaintenanceMarginTierProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
@@ -75,11 +82,33 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 
 	candleController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(
-			service.NewKCandleContractService(candleRepository, clockProxy, queryMaxResults)))
+			service.NewKCandleContractService(candleRepository, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), queryMaxResults)))
 	symbolController := controller.NewContractTradingSymbolController(
 		application.NewContractTradingSymbolApplication(
-			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy),
-			ingestionService))
+			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
+			ingestionService,
+			service.NewContractFundingRateService(
+				settlementRepository, symbolRepository, fundingRateProxy, clockProxy, queryMaxResults),
+			service.NewContractPositionStatisticService(
+				statisticRepository, symbolRepository, statisticProxy, clockProxy, queryMaxResults),
+			service.NewContractMaintenanceMarginTierService(
+				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController), symbolRepository,
+				tierProxy, clockProxy)))
+	tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
+		Return(nil, domains.ErrContractAccountCredentialsMissing).AnyTimes()
+	// Joining the watchlist also catches funding rates and position statistics up;
+	// these tests are about the candles and the answers, so those two have nothing.
+	settlementRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
+		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
+	fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	settlementRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	statisticRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
+		Return(entities.ContractPositionStatistic{}, false, nil).AnyTimes()
+	statisticProxy.EXPECT().FetchPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
 	backfillController := controller.NewKCandleContractBackfillController(ingestionApplication)
 	historySyncController := controller.NewKCandleContractHistorySyncController(
 		ingestionApplication, contractLookbackCeilingDays)
@@ -87,6 +116,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	engine := gin.New()
 	engine.POST("/contract-k-candles", candleController.CreateKCandleContract)
 	engine.GET("/contract-k-candles", candleController.GetKCandleContractsInRange)
+	engine.GET("/contract-k-candles/series", candleController.GetKCandleContractSeries)
 	engine.POST("/contract-k-candles/backfill", backfillController.CatchUpSymbol)
 	engine.POST("/contract-k-candles/history", historySyncController.StartSymbolHistorySync)
 	engine.GET("/contract-k-candles/history/:id", historySyncController.GetSymbolHistorySync)
@@ -141,6 +171,16 @@ func TestContractCandleWriteResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), "標記價格不得留白")
 	})
 
+	t.Run("refuses a candle whose index price was left out", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		withoutIndexPrice := strings.Replace(validContractBody, `"indexOpen":"102",`, "", 1)
+
+		recorder := fixture.call(http.MethodPost, "/contract-k-candles", withoutIndexPrice)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "指數價格必填")
+	})
+
 	t.Run("refuses a candle whose trade count was left out", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		withoutTradeCount := strings.Replace(validContractBody, `"tradeCount":7,`, "", 1)
@@ -181,6 +221,36 @@ func TestContractCandleReadResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), `"markClose":"111"`)
+		// That candle was stored before the index price and premium index existed.
+		assert.Contains(t, recorder.Body.String(), `"indexClose":null`)
+		assert.Contains(t, recorder.Body.String(), `"premiumIndexClose":null`)
+	})
+
+	t.Run("hands a complete candle out with its index price and premium index", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		completeCandle := contractCandleAt(at(9, 0), "120")
+		completeCandle.IndexOpen = decimal.NewNullDecimal(decimal.RequireFromString("102"))
+		completeCandle.IndexHigh = decimal.NewNullDecimal(decimal.RequireFromString("122"))
+		completeCandle.IndexLow = decimal.NewNullDecimal(decimal.RequireFromString("92"))
+		completeCandle.IndexClose = decimal.NewNullDecimal(decimal.RequireFromString("112"))
+		completeCandle.PremiumIndexOpen = decimal.NewNullDecimal(decimal.RequireFromString("-0.0001"))
+		completeCandle.PremiumIndexHigh = decimal.NewNullDecimal(decimal.RequireFromString("0.0002"))
+		completeCandle.PremiumIndexLow = decimal.NewNullDecimal(decimal.RequireFromString("-0.0003"))
+		completeCandle.PremiumIndexClose = decimal.NewNullDecimal(decimal.RequireFromString("0.0001"))
+		fixture.candleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandleContract{completeCandle}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/contract-k-candles?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z&endTime=2026-08-29T09:05:00Z", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		for _, figure := range []string{
+			`"indexOpen":"102"`, `"indexHigh":"122"`, `"indexLow":"92"`, `"indexClose":"112"`,
+			`"premiumIndexOpen":"-0.0001"`, `"premiumIndexHigh":"0.0002"`,
+			`"premiumIndexLow":"-0.0003"`, `"premiumIndexClose":"0.0001"`,
+		} {
+			assert.Contains(t, recorder.Body.String(), figure)
+		}
 	})
 
 	t.Run("refuses a time it cannot read", func(t *testing.T) {
@@ -231,6 +301,18 @@ func TestContractCandleUpdateAndDeleteResponses(t *testing.T) {
 			"/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z", validContractBody)
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
+	})
+
+	t.Run("refuses an update whose premium index was left out, without touching the candle", func(t *testing.T) {
+		// No update is expected of storage: the candle keeps the figures it had.
+		fixture := newContractRouterUnderTest(t)
+		withoutPremiumIndex := strings.Replace(validContractBody, `,"premiumIndexClose":"0.0001"`, "", 1)
+
+		recorder := fixture.call(http.MethodPut,
+			"/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z", withoutPremiumIndex)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "溢價指數必填")
 	})
 
 	t.Run("refuses a body naming another candle", func(t *testing.T) {
@@ -304,10 +386,10 @@ func TestContractWatchlistResponses(t *testing.T) {
 	t.Run("adds a listed contract and catches it up", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		fixture.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
-			Return(vo.SymbolListingVo{IsListed: true}, nil)
+			Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 		fixture.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
-			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil).Times(3)
 		fixture.candleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 			Return([]entities.KCandleContract{}, nil)
 		fixture.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
@@ -321,9 +403,9 @@ func TestContractWatchlistResponses(t *testing.T) {
 	t.Run("tells the three ways adding can fail apart", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		fixture.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "NOSUCHPAIR").
-			Return(vo.SymbolListingVo{}, nil)
+			Return(vo.ContractSymbolListingVo{}, nil)
 		fixture.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "ETHUSDT").
-			Return(vo.SymbolListingVo{}, assertAnError)
+			Return(vo.ContractSymbolListingVo{}, assertAnError)
 
 		unlistedRecorder := fixture.call(http.MethodPost, "/contract-watchlist", `{"symbol":"NOSUCHPAIR"}`)
 		unreachableRecorder := fixture.call(http.MethodPost, "/contract-watchlist", `{"symbol":"ETHUSDT"}`)
@@ -516,6 +598,72 @@ func TestContractCandleFailureResponses(t *testing.T) {
 
 		recorder := fixture.call(http.MethodPut,
 			"/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z", validContractBody)
+
+		assert.Equal(t, http.StatusBadGateway, recorder.Code)
+	})
+}
+
+func TestContractCandleSeriesResponses(t *testing.T) {
+	const aStretch = "startTime=2026-08-29T09:00:00Z&endTime=2026-08-29T09:09:00Z"
+
+	t.Run("merges a stretch and says which interval it used", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		first, second := contractCandleAt(at(9, 0), "110"), contractCandleAt(at(9, 1), "111")
+		fixture.candleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandleContract{first, second}, nil)
+
+		recorder := fixture.call(http.MethodGet, "/contract-k-candles/series?symbol=BTCUSDT&interval=5m&"+aStretch, "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"5m"`)
+		assert.Contains(t, recorder.Body.String(), `"close":"111"`)
+		assert.Contains(t, recorder.Body.String(), `"tradeCount":14`)
+		assert.Contains(t, recorder.Body.String(), `"markClose":"111"`)
+	})
+
+	t.Run("picks an interval from how many the caller can show", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		fixture.candleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandleContract{}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/contract-k-candles/series?symbol=BTCUSDT&displayableCandleCount=100"+
+				"&startTime=2026-08-29T00:00:00Z&endTime=2026-08-29T23:59:00Z", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"interval":"15m"`)
+		assert.Contains(t, recorder.Body.String(), `"kCandles":[]`)
+	})
+
+	t.Run("refuses what it cannot read or answer", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+
+		unreadableCount := fixture.call(http.MethodGet,
+			"/contract-k-candles/series?symbol=BTCUSDT&displayableCandleCount=many&"+aStretch, "")
+		bothWays := fixture.call(http.MethodGet,
+			"/contract-k-candles/series?symbol=BTCUSDT&interval=5m&displayableCandleCount=10&"+aStretch, "")
+		noSymbol := fixture.call(http.MethodGet, "/contract-k-candles/series?"+aStretch, "")
+		unreadableStart := fixture.call(http.MethodGet,
+			"/contract-k-candles/series?symbol=BTCUSDT&startTime=x&endTime=2026-08-29T09:09:00Z", "")
+		unreadableEnd := fixture.call(http.MethodGet,
+			"/contract-k-candles/series?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z&endTime=x", "")
+
+		assert.Equal(t, http.StatusBadRequest, unreadableCount.Code)
+		assert.Contains(t, unreadableCount.Body.String(), "displayableCandleCount 必須是整數")
+		assert.Equal(t, http.StatusBadRequest, bothWays.Code)
+		assert.Contains(t, bothWays.Body.String(), "只能挑一種說法")
+		assert.Equal(t, http.StatusBadRequest, noSymbol.Code)
+		assert.Contains(t, noSymbol.Body.String(), "必須指定交易標的")
+		assert.Equal(t, http.StatusBadRequest, unreadableStart.Code)
+		assert.Equal(t, http.StatusBadRequest, unreadableEnd.Code)
+	})
+
+	t.Run("reports storage failing as a bad gateway", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		fixture.candleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, assertAnError)
+
+		recorder := fixture.call(http.MethodGet, "/contract-k-candles/series?symbol=BTCUSDT&interval=5m&"+aStretch, "")
 
 		assert.Equal(t, http.StatusBadGateway, recorder.Code)
 	})

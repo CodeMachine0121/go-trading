@@ -38,6 +38,14 @@ func reportedContractCandle(openTime time.Time) vo.ContractMarketKCandleVo {
 		MarkHigh:            decimal.NewNullDecimal(decimal.RequireFromString("121")),
 		MarkLow:             decimal.NewNullDecimal(decimal.RequireFromString("91")),
 		MarkClose:           decimal.NewNullDecimal(decimal.RequireFromString("111")),
+		IndexOpen:           decimal.NewNullDecimal(decimal.RequireFromString("102")),
+		IndexHigh:           decimal.NewNullDecimal(decimal.RequireFromString("122")),
+		IndexLow:            decimal.NewNullDecimal(decimal.RequireFromString("92")),
+		IndexClose:          decimal.NewNullDecimal(decimal.RequireFromString("112")),
+		PremiumIndexOpen:    decimal.NewNullDecimal(decimal.RequireFromString("-0.0001")),
+		PremiumIndexHigh:    decimal.NewNullDecimal(decimal.RequireFromString("0.0002")),
+		PremiumIndexLow:     decimal.NewNullDecimal(decimal.RequireFromString("-0.0003")),
+		PremiumIndexClose:   decimal.NewNullDecimal(decimal.RequireFromString("0.0001")),
 	}
 }
 
@@ -152,6 +160,29 @@ func TestContractRoundSkipsTheMinuteWhoseMarkPriceNeverArrived(t *testing.T) {
 	require.Len(t, report.SymbolReports[0].SkippedKCandles, 1)
 	assert.Equal(t, ingestionAt(9, 6, 0), report.SymbolReports[0].SkippedKCandles[0].OpenTime)
 	assert.Contains(t, report.SymbolReports[0].SkippedKCandles[0].Reason, "標記價格不得留白")
+}
+
+func TestContractRoundSkipsTheMinuteWhosePremiumIndexNeverArrived(t *testing.T) {
+	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.watching("BTCUSDT")
+	withoutPremiumIndex := reportedContractCandle(ingestionAt(9, 6, 0))
+	withoutPremiumIndex.PremiumIndexOpen = decimal.NullDecimal{}
+	withoutPremiumIndex.PremiumIndexHigh = decimal.NullDecimal{}
+	withoutPremiumIndex.PremiumIndexLow = decimal.NullDecimal{}
+	withoutPremiumIndex.PremiumIndexClose = decimal.NullDecimal{}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(
+		[]vo.ContractMarketKCandleVo{reportedContractCandle(ingestionAt(9, 5, 0)), withoutPremiumIndex}, nil)
+	underTest.kCandleContractRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		Return(entities.KCandleContract{}, nil).Times(1)
+
+	report, runError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, runError)
+	require.Len(t, report.SymbolReports, 1)
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+	require.Len(t, report.SymbolReports[0].SkippedKCandles, 1)
+	assert.Equal(t, ingestionAt(9, 6, 0), report.SymbolReports[0].SkippedKCandles[0].OpenTime)
+	assert.Contains(t, report.SymbolReports[0].SkippedKCandles[0].Reason, "溢價指數必填")
 }
 
 func TestContractRoundStoresNothingWhenTheVenueWillNotAnswer(t *testing.T) {
@@ -797,4 +828,62 @@ func TestContractHistorySyncStoresNothingForAStretchWithNoMarkPriceAtAll(t *test
 	assert.Equal(t, 0, endedRun.StoredCount)
 	assert.Positive(t, endedRun.SkippedCount)
 	assert.Empty(t, endedRun.FailureReason)
+}
+
+func TestContractHistorySyncLeavesOldCandlesAsTheyWereWhenTheVenueNoLongerHasTheirIndexPrice(t *testing.T) {
+	// The day is held only as candles stored before the index price existed, so it is
+	// not complete and is asked about again. The venue can no longer give that day's
+	// index price: nothing can complete those candles, so nothing is handed to
+	// storage that could change them, and the run says what it could not store.
+	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.registered("BTCUSDT")
+	runs := underTest.recordsEveryContractSyncRun()
+	underTest.kCandleContractRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	withoutIndexPrice := reportedContractCandle(ingestionAt(9, 4, 0))
+	withoutIndexPrice.IndexOpen = decimal.NullDecimal{}
+	withoutIndexPrice.IndexHigh = decimal.NullDecimal{}
+	withoutIndexPrice.IndexLow = decimal.NullDecimal{}
+	withoutIndexPrice.IndexClose = decimal.NullDecimal{}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.ContractMarketKCandleVo{withoutIndexPrice}, nil).AnyTimes()
+	underTest.kCandleContractRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Len(0)).Return(0, nil).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), dto.KCandleHistorySyncDto{Symbol: "BTCUSDT", LookbackDays: 1},
+		contractHistoryCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 0, endedRun.StoredCount)
+	assert.Positive(t, endedRun.SkippedCount)
+}
+
+func TestContractRoundDoesNotReachBackToAnOldCandleBeforeItsRecentMinutes(t *testing.T) {
+	// A candle stored before the index price existed, earlier than the minutes the
+	// round re-fetches, is outside every question the round asks — so nothing the
+	// round stores can be it, and it keeps having neither new line.
+	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.watching("BTCUSDT")
+	oldCandleOpenTime := ingestionAt(8, 0, 0)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.ContractMarketKCandleVo, error) {
+			assert.True(t, window.StartTime.After(oldCandleOpenTime),
+				"每分鐘那一輪只重抓最近幾分鐘，不該問到更早的舊 K 線")
+
+			return []vo.ContractMarketKCandleVo{reportedContractCandle(ingestionAt(9, 6, 0))}, nil
+		})
+	underTest.kCandleContractRepository.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, candle entities.KCandleContract) (entities.KCandleContract, error) {
+			assert.NotEqual(t, oldCandleOpenTime, candle.OpenTime)
+
+			return candle, nil
+		})
+
+	report, runError := underTest.service.RunScheduledRound(t.Context())
+
+	require.NoError(t, runError)
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
 }

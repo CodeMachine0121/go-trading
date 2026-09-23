@@ -30,17 +30,22 @@ type IKCandleContractRepository interface {
 	// says how many of them it actually stored. Finding one already there is an
 	// ordinary outcome, not a failure — it is what lets an interrupted history sync
 	// be re-run from where it stopped.
+	//
+	// A candle held from before the index price and premium index existed counts as
+	// absent for those two lines only: they are filled in, and every figure it
+	// already held is left as it was.
 	SaveAllIfAbsent(
 		executionContext context.Context, kCandleContracts []entities.KCandleContract,
 	) (int, error)
-	// CountInRange is how many contract K candles are held for this symbol across the
-	// stretch, both ends included.
+	// CountInRange is how many complete contract K candles are held for this symbol
+	// across the stretch, both ends included — a candle stored before the index price
+	// and premium index existed is not complete, and is not counted.
 	//
 	// It is what decides whether a day of a history sync is asked for at all: a day
 	// already holding every minute it could is never asked about again.
 	//
 	// **It counts what is stored, which is not always what the venue can give.** A
-	// minute the venue has traded figures but no mark price for is one this system
+	// minute the venue has traded figures but no mark, index or premium line for is one this system
 	// will never store, so a day containing one can never reach the count a full day
 	// would — and is therefore re-fetched by every later sync over that stretch. That
 	// is the whole of the cost: nothing is lost or corrupted, the same day is simply

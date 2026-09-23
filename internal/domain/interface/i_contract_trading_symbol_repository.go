@@ -23,5 +23,14 @@ type IContractTradingSymbolRepository interface {
 	FindBySymbol(
 		executionContext context.Context, symbol string,
 	) (entities.ContractTradingSymbol, bool, error)
+	// Save registers the contract, or updates whether it is watched. A contract
+	// carrying a trading specification has it written too; one carrying none leaves
+	// the specification already held as it was.
 	Save(executionContext context.Context, contractTradingSymbol entities.ContractTradingSymbol) error
+	// SaveTradingSpecifications writes the trading specification of each contract
+	// given, and nothing else about it — whether it is watched stays as it is. A
+	// contract not registered is not created by this.
+	SaveTradingSpecifications(
+		executionContext context.Context, contractTradingSymbols []entities.ContractTradingSymbol,
+	) error
 }

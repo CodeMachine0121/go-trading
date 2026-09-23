@@ -88,17 +88,48 @@ type ContractIngestionConfig struct {
 	RoundCandleCount           int
 	BackfillLookback           time.Duration
 	HistorySyncMaxLookbackDays int
-	// BaseUrl answers about the traded figures; MarkPriceUrl about the mark price.
-	// They are two addresses because the venue keeps them apart, and one contract
-	// candle is assembled from both.
-	BaseUrl      string
-	MarkPriceUrl string
+	// BaseUrl answers about the traded figures; the other three about the mark
+	// price, the index price and the premium index. They are four addresses because
+	// the venue keeps them apart, and one contract candle is assembled from all four.
+	BaseUrl         string
+	MarkPriceUrl    string
+	IndexPriceUrl   string
+	PremiumIndexUrl string
 	// SymbolCatalogUrl is where a contract is confirmed to exist before it is
 	// watched. This venue answers with its whole catalogue whatever it is asked, so
 	// the address is the same question asked a different way from the spot one.
-	SymbolCatalogUrl  string
+	SymbolCatalogUrl string
+	// FundingInfoUrl lists the contracts whose funding rate settles on an interval of
+	// their own. It is part of a contract's trading specification, and the venue
+	// keeps it apart from the catalogue.
+	FundingInfoUrl string
+	// FundingRateUrl is where a contract's funding rate settlements are read. It
+	// spends the same allowance as the candles.
+	FundingRateUrl    string
 	RequestTimeout    time.Duration
 	RequestsPerMinute int
+	// StatisticsBaseUrl is where the three answers a position statistic is assembled
+	// from live. The venue counts these apart from everything else it serves, which
+	// is why they have an allowance of their own.
+	StatisticsBaseUrl           string
+	StatisticsRequestsPerMinute int
+	// The three rounds beside the candles, each at the pace its own data changes: a
+	// funding rate settles a few times a day, a position statistic is taken every
+	// five minutes, and a trading specification barely changes at all. Zero switches
+	// that round off.
+	FundingRateIngestionInterval        time.Duration
+	PositionStatisticIngestionInterval  time.Duration
+	TradingSpecificationRefreshInterval time.Duration
+	// AccountApiKey and AccountApiSecret prove to the venue which account is asking.
+	// Only the maintenance margin ladder needs them, and only read access: nothing
+	// here trades or moves funds. They have no default and must not have one — a key
+	// everyone running this code shares is a key anyone can use. Left empty, the
+	// ladder is simply not fetched and everything else runs as before.
+	AccountApiKey    string
+	AccountApiSecret string
+	// MaintenanceMarginTierUrl is where the full ladder is asked for, as the account.
+	MaintenanceMarginTierUrl             string
+	MaintenanceMarginTierRefreshInterval time.Duration
 }
 
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
@@ -372,9 +403,42 @@ func Load() ApplicationConfig {
 			MarkPriceUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_MARK_PRICE_URL",
 				"https://fapi.binance.com/fapi/v1/markPriceKlines"),
+			IndexPriceUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_INDEX_PRICE_URL",
+				"https://fapi.binance.com/fapi/v1/indexPriceKlines"),
+			PremiumIndexUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_PREMIUM_INDEX_URL",
+				"https://fapi.binance.com/fapi/v1/premiumIndexKlines"),
 			SymbolCatalogUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_SYMBOL_CATALOG_URL",
 				"https://fapi.binance.com/fapi/v1/exchangeInfo"),
+			FundingInfoUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_FUNDING_INFO_URL",
+				"https://fapi.binance.com/fapi/v1/fundingInfo"),
+			FundingRateUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_FUNDING_RATE_URL",
+				"https://fapi.binance.com/fapi/v1/fundingRate"),
+			StatisticsBaseUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_STATISTICS_BASE_URL",
+				"https://fapi.binance.com/futures/data"),
+			// The venue allows a thousand of these every five minutes; this stays a
+			// little under that, so a thirty-day catch-up and the five-minute round
+			// never meet the ceiling together.
+			StatisticsRequestsPerMinute: positiveIntWithDefault(
+				"CONTRACT_MARKET_DATA_STATISTICS_REQUESTS_PER_MINUTE", 180),
+			FundingRateIngestionInterval: jobIntervalWithDefault(
+				"CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", 60, time.Minute),
+			PositionStatisticIngestionInterval: jobIntervalWithDefault(
+				"CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", 5, time.Minute),
+			TradingSpecificationRefreshInterval: jobIntervalWithDefault(
+				"CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", 24, time.Hour),
+			AccountApiKey:    os.Getenv("CONTRACT_ACCOUNT_API_KEY"),
+			AccountApiSecret: os.Getenv("CONTRACT_ACCOUNT_API_SECRET"),
+			MaintenanceMarginTierUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_MAINTENANCE_MARGIN_TIER_URL",
+				"https://fapi.binance.com/fapi/v1/leverageBracket"),
+			MaintenanceMarginTierRefreshInterval: jobIntervalWithDefault(
+				"CONTRACT_MAINTENANCE_MARGIN_TIER_REFRESH_INTERVAL_HOURS", 24, time.Hour),
 			RequestTimeout: time.Duration(positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 			// Half the spot allowance by default, because each candle here costs two
@@ -568,6 +632,21 @@ func positiveIntWithDefault(key string, defaultValue int) int {
 	return value
 }
 
+// jobIntervalWithDefault reads how often a background job runs, in the unit given. A
+// missing or unreadable variable falls back to the default; zero or less is a switch,
+// not a mistake — it turns that one job off.
+func jobIntervalWithDefault(key string, defaultValue int, unit time.Duration) time.Duration {
+	value, parseError := strconv.Atoi(os.Getenv(key))
+	if parseError != nil {
+		return time.Duration(defaultValue) * unit
+	}
+	if value <= 0 {
+		return 0
+	}
+
+	return time.Duration(value) * unit
+}
+
 func stringWithDefault(key string, defaultValue string) string {
 	return cmp.Or(os.Getenv(key), defaultValue)
 }
@@ -606,4 +685,10 @@ func commaSeparatedList(key string) []string {
 	}
 
 	return entries
+}
+
+// HasAccountCredentials says whether both halves of the account's key are set. The
+// maintenance margin ladder is only fetched when they are.
+func (contractIngestionConfig ContractIngestionConfig) HasAccountCredentials() bool {
+	return contractIngestionConfig.AccountApiKey != "" && contractIngestionConfig.AccountApiSecret != ""
 }

@@ -29,8 +29,8 @@ func main() {
 
 	engine := gin.Default()
 	kCandleFollowApplication, kCandleIngestionApplication, kCandleContractIngestionApplication,
-		strategyBotRunApplication, assistantConversationApplication := registerRoutes(
-		engine, database, applicationConfig)
+		strategyBotRunApplication, assistantConversationApplication,
+		contractSeries := registerRoutes(engine, database, applicationConfig)
 
 	// An answer being written lives in this process and nowhere else, so every one
 	// the last shutdown cut off is stale the moment this one starts. Left alone each
@@ -103,7 +103,8 @@ func main() {
 				kCandleFollowApplication,
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
-				strategyBotRunApplication)),
+				strategyBotRunApplication,
+				contractSeries)),
 		kCandleFollowApplication.Stop,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)

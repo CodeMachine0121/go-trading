@@ -20,6 +20,11 @@ type KCandleContractDomain struct {
 	markHigh   decimal.Decimal
 	markLow    decimal.Decimal
 	markClose  decimal.Decimal
+	// indexLine and premiumIndexLine are the two lines the venue computes beside the
+	// traded one. Each answers to its own rules and neither is compared with the
+	// traded prices or the mark ones: how far apart they sit is the market's business.
+	indexLine        contractPriceLineDomain
+	premiumIndexLine contractPriceLineDomain
 }
 
 // NewKCandleContractDomain validates the figures against every contract K candle
@@ -103,13 +108,36 @@ func NewKCandleContractDomain(
 			"%w: 標記的最高價不得低於最低價", ErrKCandleContractValidation)
 	}
 
+	indexLine, indexError := newContractPriceLineDomain(
+		"指數價格", writeDto.IndexOpen, writeDto.IndexHigh, writeDto.IndexLow, writeDto.IndexClose)
+	if indexError != nil {
+		return KCandleContractDomain{}, indexError
+	}
+	// An index is a weighted average of spot prices, and no spot price is negative.
+	if indexLine.hasNegativeFigure() {
+		return KCandleContractDomain{}, fmt.Errorf(
+			"%w: 指數價格不得為負", ErrKCandleContractValidation)
+	}
+
+	// The premium index is a proportion, not a price: a contract trading below its
+	// index has a negative one, and that is one of the two ordinary states of the
+	// market rather than a broken figure. So it answers to the high-low rule alone.
+	premiumIndexLine, premiumIndexError := newContractPriceLineDomain(
+		"溢價指數", writeDto.PremiumIndexOpen, writeDto.PremiumIndexHigh,
+		writeDto.PremiumIndexLow, writeDto.PremiumIndexClose)
+	if premiumIndexError != nil {
+		return KCandleContractDomain{}, premiumIndexError
+	}
+
 	return KCandleContractDomain{
-		kCandle:    kCandle,
-		tradeCount: *writeDto.TradeCount,
-		markOpen:   writeDto.MarkOpen.Decimal,
-		markHigh:   writeDto.MarkHigh.Decimal,
-		markLow:    writeDto.MarkLow.Decimal,
-		markClose:  writeDto.MarkClose.Decimal,
+		kCandle:          kCandle,
+		tradeCount:       *writeDto.TradeCount,
+		markOpen:         writeDto.MarkOpen.Decimal,
+		markHigh:         writeDto.MarkHigh.Decimal,
+		markLow:          writeDto.MarkLow.Decimal,
+		markClose:        writeDto.MarkClose.Decimal,
+		indexLine:        indexLine,
+		premiumIndexLine: premiumIndexLine,
 	}, nil
 }
 
@@ -134,5 +162,13 @@ func (kCandleContractDomain KCandleContractDomain) ToEntity() entities.KCandleCo
 		MarkHigh:            kCandleContractDomain.markHigh,
 		MarkLow:             kCandleContractDomain.markLow,
 		MarkClose:           kCandleContractDomain.markClose,
+		IndexOpen:           decimal.NewNullDecimal(kCandleContractDomain.indexLine.open),
+		IndexHigh:           decimal.NewNullDecimal(kCandleContractDomain.indexLine.high),
+		IndexLow:            decimal.NewNullDecimal(kCandleContractDomain.indexLine.low),
+		IndexClose:          decimal.NewNullDecimal(kCandleContractDomain.indexLine.close),
+		PremiumIndexOpen:    decimal.NewNullDecimal(kCandleContractDomain.premiumIndexLine.open),
+		PremiumIndexHigh:    decimal.NewNullDecimal(kCandleContractDomain.premiumIndexLine.high),
+		PremiumIndexLow:     decimal.NewNullDecimal(kCandleContractDomain.premiumIndexLine.low),
+		PremiumIndexClose:   decimal.NewNullDecimal(kCandleContractDomain.premiumIndexLine.close),
 	}
 }

@@ -38,6 +38,7 @@ func registerRoutes(
 	*application.KCandleContractIngestionApplication,
 	*application.StrategyBotRunApplication,
 	*application.AssistantConversationApplication,
+	contractSeriesApplications,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
@@ -185,6 +186,8 @@ func registerRoutes(
 		marketdata.NewBinanceContractMarketDataProxy(
 			applicationConfig.ContractIngestion.BaseUrl,
 			applicationConfig.ContractIngestion.MarkPriceUrl,
+			applicationConfig.ContractIngestion.IndexPriceUrl,
+			applicationConfig.ContractIngestion.PremiumIndexUrl,
 			applicationConfig.ContractIngestion.RequestTimeout,
 			venuePacers.cryptoContract,
 		),
@@ -196,15 +199,59 @@ func registerRoutes(
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)
 
+	// Funding rate settlements and position statistics are caught up by the same
+	// service instances the rounds use, for the reason the candles are: joining the
+	// watchlist catches a contract up at once, and that must not wait for background
+	// work to be switched on.
+	contractFundingRateService := service.NewContractFundingRateService(
+		persistence.NewContractFundingRateSettlementRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractFundingRateProxy(
+			applicationConfig.ContractIngestion.FundingRateUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+		),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+	// The ladder is an account's to see. Without a key the proxy asks nothing and says
+	// so, and every use case that meets that simply goes without.
+	contractMaintenanceMarginTierService := service.NewContractMaintenanceMarginTierService(
+		persistence.NewContractMaintenanceMarginTierRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractMaintenanceMarginTierProxy(
+			applicationConfig.ContractIngestion.MaintenanceMarginTierUrl,
+			applicationConfig.ContractIngestion.AccountApiKey,
+			applicationConfig.ContractIngestion.AccountApiSecret,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+			clock.NewSystemClockProxy(),
+		),
+		clock.NewSystemClockProxy(),
+	)
+	contractPositionStatisticService := service.NewContractPositionStatisticService(
+		persistence.NewContractPositionStatisticRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractPositionStatisticProxy(
+			applicationConfig.ContractIngestion.StatisticsBaseUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContractStatistics,
+		),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	kCandleContractController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(service.NewKCandleContractService(
 			contractKCandleRepository,
 			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
 		)))
 
 	engine.POST("/contract-k-candles", kCandleContractController.CreateKCandleContract)
 	engine.GET("/contract-k-candles", kCandleContractController.GetKCandleContractsInRange)
+	engine.GET("/contract-k-candles/series", kCandleContractController.GetKCandleContractSeries)
 	engine.POST("/contract-k-candles/backfill",
 		controller.NewKCandleContractBackfillController(
 			kCandleContractIngestionApplication).CatchUpSymbol)
@@ -226,19 +273,41 @@ func registerRoutes(
 	engine.DELETE("/contract-k-candles/:symbol/:openTime",
 		kCandleContractController.DeleteKCandleContract)
 
-	contractTradingSymbolController := controller.NewContractTradingSymbolController(
-		application.NewContractTradingSymbolApplication(
-			service.NewContractTradingSymbolService(
-				contractTradingSymbolRepository,
-				contractKCandleRepository,
-				marketdata.NewBinanceContractSymbolLookupProxy(
-					applicationConfig.ContractIngestion.SymbolCatalogUrl,
-					applicationConfig.ContractIngestion.RequestTimeout,
-					venuePacers.cryptoContract,
-				),
+	contractFundingRateApplication := application.NewContractFundingRateApplication(
+		contractFundingRateService)
+	contractPositionStatisticApplication := application.NewContractPositionStatisticApplication(
+		contractPositionStatisticService)
+	engine.GET("/contract-funding-rate-settlements",
+		controller.NewContractFundingRateSettlementController(
+			contractFundingRateApplication).GetSettlementsInRange)
+	contractMaintenanceMarginTierApplication := application.NewContractMaintenanceMarginTierApplication(
+		contractMaintenanceMarginTierService)
+	engine.GET("/contract-maintenance-margin-tiers",
+		controller.NewContractMaintenanceMarginTierController(
+			contractMaintenanceMarginTierApplication).GetTiers)
+	engine.GET("/contract-position-statistics",
+		controller.NewContractPositionStatisticController(
+			contractPositionStatisticApplication).GetStatisticsInRange)
+
+	contractTradingSymbolApplication := application.NewContractTradingSymbolApplication(
+		service.NewContractTradingSymbolService(
+			contractTradingSymbolRepository,
+			contractKCandleRepository,
+			marketdata.NewBinanceContractSymbolLookupProxy(
+				applicationConfig.ContractIngestion.SymbolCatalogUrl,
+				applicationConfig.ContractIngestion.FundingInfoUrl,
+				applicationConfig.ContractIngestion.RequestTimeout,
+				venuePacers.cryptoContract,
 			),
-			contractKCandleIngestionService,
-		))
+			clock.NewSystemClockProxy(),
+		),
+		contractKCandleIngestionService,
+		contractFundingRateService,
+		contractPositionStatisticService,
+		contractMaintenanceMarginTierService,
+	)
+	contractTradingSymbolController := controller.NewContractTradingSymbolController(
+		contractTradingSymbolApplication)
 
 	engine.GET("/contract-trading-symbols",
 		contractTradingSymbolController.ListContractTradingSymbols)
@@ -535,7 +604,24 @@ func registerRoutes(
 
 	return kCandleFollowApplication, kCandleIngestionApplication,
 		kCandleContractIngestionApplication, strategyBotRunApplication,
-		assistantConversationApplication
+		assistantConversationApplication,
+		contractSeriesApplications{
+			fundingRate:       contractFundingRateApplication,
+			positionStatistic: contractPositionStatisticApplication,
+			tradingSymbol:     contractTradingSymbolApplication,
+			maintenanceMargin: contractMaintenanceMarginTierApplication,
+		}
+}
+
+// contractSeriesApplications are the contract use cases that have background rounds
+// of their own beside the candles. They travel together because they are handed to
+// the jobs together, and a list of three more positional returns would be three more
+// places to put one in the wrong slot.
+type contractSeriesApplications struct {
+	fundingRate       *application.ContractFundingRateApplication
+	positionStatistic *application.ContractPositionStatisticApplication
+	tradingSymbol     *application.ContractTradingSymbolApplication
+	maintenanceMargin *application.ContractMaintenanceMarginTierApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -583,6 +669,7 @@ func backgroundJobsFor(
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
 	strategyBotRunApplication *application.StrategyBotRunApplication,
+	contractSeries contractSeriesApplications,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
 		return []domaininterface.IBackgroundJob{}
@@ -610,9 +697,36 @@ func backgroundJobsFor(
 	strategyBotScanJob := job.NewStrategyBotScanJob(
 		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
 
-	return []domaininterface.IBackgroundJob{
+	backgroundJobs := []domaininterface.IBackgroundJob{
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 	}
+
+	// Each contract series keeps its own time, so each is a job of its own rather
+	// than more work inside the candle round: a venue slow to answer about funding
+	// rates must not hold up the candles, and the other way round. Any of them can be
+	// switched off alone.
+	contractIngestion := applicationConfig.ContractIngestion
+	if contractIngestion.FundingRateIngestionInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewContractFundingRateIngestionJob(
+			contractSeries.fundingRate, contractIngestion.FundingRateIngestionInterval))
+	}
+	if contractIngestion.PositionStatisticIngestionInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewContractPositionStatisticIngestionJob(
+			contractSeries.positionStatistic, contractIngestion.PositionStatisticIngestionInterval))
+	}
+	if contractIngestion.TradingSpecificationRefreshInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewContractTradingSpecificationRefreshJob(
+			contractSeries.tradingSymbol, contractIngestion.TradingSpecificationRefreshInterval))
+	}
+
+	// Only with an account: without one there is nothing this round could ask, and a
+	// line every day saying so is noise, not information.
+	if contractIngestion.MaintenanceMarginTierRefreshInterval > 0 && contractIngestion.HasAccountCredentials() {
+		backgroundJobs = append(backgroundJobs, job.NewContractMaintenanceMarginTierRefreshJob(
+			contractSeries.maintenanceMargin, contractIngestion.MaintenanceMarginTierRefreshInterval))
+	}
+
+	return backgroundJobs
 }
 
 // marketDataProxyFor is where every market's candle source is named, and the only
@@ -636,6 +750,10 @@ type venuePacers struct {
 	// second contract series added later joins the same budget rather than opening a
 	// second one beside it.
 	cryptoContract marketdata.RequestPacer
+	// cryptoContractStatistics is the contract venue's allowance for its position
+	// statistics, which it counts apart from the one above. It is the one exception
+	// to "one venue, one budget", and it is the venue's exception, not this system's.
+	cryptoContractStatistics marketdata.RequestPacer
 	// taiwanStock is the market data plan's allowance, which the live quotes no longer
 	// spend: they come from the exchange itself, and its pace is the poll interval
 	// rather than an allowance shared with anybody.
@@ -648,6 +766,8 @@ func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 			applicationConfig.Ingestion.MarketDataRequestsPerMinute),
 		cryptoContract: marketdata.NewRequestPacer(
 			applicationConfig.ContractIngestion.RequestsPerMinute),
+		cryptoContractStatistics: marketdata.NewRequestPacer(
+			applicationConfig.ContractIngestion.StatisticsRequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
 	}

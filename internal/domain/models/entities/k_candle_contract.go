@@ -16,11 +16,18 @@ import (
 // lent: the same symbol at the same open time exists on both sides, each in its own
 // table, and neither can overwrite the other.
 //
-// Every column is NOT NULL, which KCandle's cannot be. KCandle leaves turnover and
-// taker volumes nullable to accommodate a market that does not report them; this
-// record has exactly one source and that source reports all of them, so "a stored
-// candle is a complete candle" is a guarantee of the schema rather than something
-// each reader has to remember to check.
+// Every column but eight is NOT NULL, which KCandle's cannot be. KCandle leaves
+// turnover and taker volumes nullable to accommodate a market that does not report
+// them; this record has exactly one source and that source reports all of them, so
+// "a stored candle is a complete candle" is a guarantee of the schema rather than
+// something each reader has to remember to check.
+//
+// The eight exceptions are the index price and premium index lines, and they are
+// nullable for one reason only: candles stored before either line existed. Those
+// rows are kept rather than thrown away, and "not recorded when it was stored" has
+// to be sayable without inventing a zero. Every candle written from then on carries
+// both lines — that is the domain's guarantee, not the schema's — and a history sync
+// covering an old row fills the two lines in.
 type KCandleContract struct {
 	ID       uint      `gorm:"primaryKey"`
 	Symbol   string    `gorm:"size:64;not null;uniqueIndex:idx_k_candle_contracts_symbol_open_time,priority:1"`
@@ -40,6 +47,16 @@ type KCandleContract struct {
 	MarkHigh  decimal.Decimal `gorm:"type:numeric(38,18);not null"`
 	MarkLow   decimal.Decimal `gorm:"type:numeric(38,18);not null"`
 	MarkClose decimal.Decimal `gorm:"type:numeric(38,18);not null"`
+
+	IndexOpen  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	IndexHigh  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	IndexLow   decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	IndexClose decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+
+	PremiumIndexOpen  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	PremiumIndexHigh  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	PremiumIndexLow   decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	PremiumIndexClose decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 }
 
 // TableName pins the table to KCandleContracts instead of GORM's default.
@@ -66,5 +83,13 @@ func (kCandleContract KCandleContract) ToDto() dto.KCandleContractDto {
 		MarkHigh:            kCandleContract.MarkHigh,
 		MarkLow:             kCandleContract.MarkLow,
 		MarkClose:           kCandleContract.MarkClose,
+		IndexOpen:           kCandleContract.IndexOpen,
+		IndexHigh:           kCandleContract.IndexHigh,
+		IndexLow:            kCandleContract.IndexLow,
+		IndexClose:          kCandleContract.IndexClose,
+		PremiumIndexOpen:    kCandleContract.PremiumIndexOpen,
+		PremiumIndexHigh:    kCandleContract.PremiumIndexHigh,
+		PremiumIndexLow:     kCandleContract.PremiumIndexLow,
+		PremiumIndexClose:   kCandleContract.PremiumIndexClose,
 	}
 }
