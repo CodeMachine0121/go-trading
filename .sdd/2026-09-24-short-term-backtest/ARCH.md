@@ -33,7 +33,6 @@
 | `dto/backtest_*_dto.go` · `dto/contract_backtest_*_dto.go` · `dto/trading_strategy_backtest_request_dto.go` · `dto/contract_trading_strategy_backtest_request_dto.go` | **Modify** | 請求多 `FillTiming`、`ValidationStartTime`；成績單內嵌統計；結果多 `InSample`、`Validation` |
 | `domains/backtest_errors.go` | **Modify** | 新欄位名 `fillTiming`、`validationStartTime`；新哨兵 `ErrBacktestTimeAllowanceSpent` |
 | `service/backtest_service.go` · `service/contract_backtest_service.go` | **Modify** | 建構子多收整次允許時間；跑算式的那一段包在允許時間內，超過回 `ErrBacktestTimeAllowanceSpent` |
-| `service/trading_strategy_service.go` · `application/trading_strategy_application.go` · `controller/trading_strategy_controller.go` | **Modify** | 列出交易策略可帶行情種類 |
 | `controller/*backtest*` · `controller/models/*backtest_request.go` | **Modify** | 請求多兩欄；`ErrBacktestTimeAllowanceSpent` 對映 422 |
 | `config/application_config.go` · `cmd/server/dependencies.go` | **Modify** | `BACKTEST_MAX_CANDLE_COUNT`（預設 50000）、`BACKTEST_TIME_ALLOWANCE_SECONDS`（預設 90）；四個重演服務改讀它們 |
 | 腳本執行器、單格允許時間 | **Not touched** | 算式看得到的歷史不變（改了會改掉既有算式的答案） |
@@ -82,7 +81,6 @@ NewBacktestTradeStatisticsDomain(outcomes []vo.TradeOutcomeVo).ToDto()
 | `ContractBacktestAccountDomain.SettleFundingWithin` | 不變；由逐格走分兩次呼叫（開盤那一刻的一批、其餘一批） |
 | `TradingStrategyReplaySourcesDomain.Combine` | 回 `(verdicts, conflictedFlags []bool)`；計數交由呼叫者 |
 | `BacktestService` / `ContractBacktestService` | `context.WithTimeoutCause(…, replayTimeAllowance, errReplayTimeAllowanceSpent)` 包住逐格跑算式；因它被中止即回 `ErrBacktestTimeAllowanceSpent`（說出秒數） |
-| `TradingStrategyService.ListTradingStrategies` | 多收行情種類（空字串即全部）；以 `MarketDataKindDomain` 驗證後篩選 |
 
 ---
 
@@ -121,7 +119,6 @@ flowchart TD
 | US-02 全部 | `BacktestFillTimingDomain` + 兩個 SimulationDomain |
 | US-03 全部 | `BacktestTradeStatisticsDomain` + 兩個 `ToOutcomeVo` + 兩個帳戶彙總 |
 | US-04 全部 | `BacktestSegmentsDomain` + 四個重演請求模型的 `SelectInput*`／`ReplayOver` |
-| US-05 全部 | `TradingStrategyService.ListTradingStrategies` + controller query |
 
 ---
 
