@@ -33,7 +33,8 @@
 | 組裝根、Postman | **Modify** | DI 與路由註冊；Postman 補建立合約策略腳本與合約指標計算 |
 | 回測、交易策略、策略機器人、助手 | **Not touched** | PRD Out of Scope；現貨回測仍走 `IIndicatorScriptProxy`，行為不變 |
 | 合約交易規格、維持保證金分級 | **Not touched** | 不進合約行情格 |
-| 資金費率 / 持倉統計 repository | **Not touched** | 既有 `FindInRange` 已足夠：前置段落以「最長結算間隔」與「統計間隔」往前多讀即可，不需要新的查詢 |
+| 資金費率 repository | **Modify** | 加 `FindLatestBefore(symbol, cutoff)`：第一格之前現行的那一筆結算，無論多久以前 |
+| 持倉統計 repository | **Not touched** | 既有 `FindInRange` 已足夠：往前多讀一個統計間隔即可（夠新的判準本來就不接受更舊的） |
 
 ---
 
@@ -45,7 +46,7 @@
 | `domains.MarketDataKindDomain` | Domain Model | 讀宣告（空白＝`kCandle`、大小寫寬容、非法拒絕）；`Retaining(requested)`：修改時沿用或拒絕更換；`RequireRunnableAs(expected)`：執行時不得混用 | `ErrStrategyScriptValidation`、`ErrStrategyScriptMarketDataKindMismatch` | US-01、US-06 |
 | `vo.PriceLineVo` | VO | 一組開高低收（`float64`），腳本以 `indicator.PriceLine` 看到 | — | US-02 三組價格 |
 | `vo.ContractKCandleVo` | VO | 一格合約行情：內嵌 `KCandleVo`（同名欄位）、`TradeCount`、`Mark`/`Index`/`PremiumIndex`、`FundingRate`、`FundingSettledInBar`、持倉統計八項 | `KCandleVo`、`PriceLineVo` | US-02、US-03、US-04 |
-| `domains.ContractKCandleAlignmentDomain` | Domain Model | 持有已彙總好的合約 K 線格；說出要讀的**結算區間**（第一格起點往前一個最長結算間隔 8h，到唯讀截止點）與**持倉統計區間**（第一格起點往前一個統計間隔 5m，到唯讀截止點）及各自讀取上限；`Aligning(settlements, statistics)` 產出 `[]vo.ContractKCandleVo`：現行資金費率、這一格內有結算、夠新的持倉統計、缺值給零 | `AggregationIntervalDomain`、`ContractPositionStatisticInterval`、`KCandleQueryDomain` | US-02 缺值、US-03 全部、US-04 全部 |
+| `domains.ContractKCandleAlignmentDomain` | Domain Model | 持有已彙總好的合約 K 線格；說出要讀的**結算區間**（第一格起點到最後一格收盤）與**前一筆結算的截止點**（第一格起點；那一筆另外以 `FindLatestBefore` 讀，無論多久以前）與**持倉統計區間**（第一格起點往前一個統計間隔 5m，到唯讀截止點）及各自讀取上限；`Aligning(settlements, statistics)` 產出 `[]vo.ContractKCandleVo`：現行資金費率、這一格內有結算、夠新的持倉統計、缺值給零 | `AggregationIntervalDomain`、`ContractPositionStatisticInterval`、`KCandleQueryDomain` | US-02 缺值、US-03 全部、US-04 全部 |
 | `service.ContractIndicatorCalculationService` | Domain Service | 合約指標計算的唯一入口：驗證請求（沿用 `IndicatorCalculationDomain`，市場固定全天候）→ 讀合約 K 線 → 選格 → 讀結算與持倉統計 → 對齊 → 執行 → 組回應 | `IKCandleContractRepository`、`IContractFundingRateSettlementRepository`、`IContractPositionStatisticRepository`、`IContractIndicatorScriptProxy`、`IClockProxy` | US-05 全部 |
 | `IContractIndicatorScriptProxy` | Interface | 以一串合約行情格執行算式：`Execute`、`ExecuteForEachCandle`（後者供下一刀回測，本刀就位） | — | US-05 |
 | `script.indicatorScriptRunner[T]` | Infra（泛型、未匯出） | yaegi 的全部組裝：沙箱、`indicator` 套件符號（依 T 換入口型別名與額外型別）、入口形狀檢查、逾時、參數讀取、逐格重跑 | `indicatorScriptShape`（加入口資料型別） | US-05 逾時 / 參數 / 入口寫錯 |
@@ -119,7 +120,7 @@ flowchart TD
 - **Next field on the cell:** 在 `vo.ContractKCandleVo` 加欄位、在 `Aligning` 填值；yaegi 以反射匯出型別，**runner 不用改**。前端欄位參考清單需同步。
 - **Next market-data kind:** 在 `MarketDataKindVo` 加值、寫一個新的 `indicatorScriptRunner[NewVo]` 的 proxy；`MarketDataKindDomain` 的兩條規則自動適用。
 - **Patterns applied & why:** 泛型 runner（去除 yaegi 組裝的兩份拷貝，入口型別是唯一變化軸）；兩階段 Domain Model（先說要讀什麼、再對齊）讓 service 只做 I/O 編排。
-- **Do not hardcode:** 持倉統計間隔一律引用 `ContractPositionStatisticInterval`；最長結算間隔（8h）寫成 alignment domain 的一個具名常數並附理由。
+- **Do not hardcode:** 持倉統計間隔一律引用 `ContractPositionStatisticInterval`；第一格之前現行的那一筆結算一律以「截止點之前最近一筆」另讀，不以固定的往前距離猜。
 - **Known debt / deferred:**
   - 交易策略可以掛一支合約行情種類的信號腳本而在執行時才以「入口寫錯」失敗——使用者指示本刀不處理。
   - 長觀察區間 × 粗刻度會讀大量持倉統計（1000 天約 29 萬筆），與現貨讀一分鐘 K 線的規模同級；若變慢再考慮依格取最新一筆的查詢。
@@ -136,7 +137,7 @@ flowchart TD
 | US-01 市集 / 可用策略腳本帶行情種類 | `PublishedStrategyScript.ToDto`、`StrategyScript.ToDto` |
 | US-02 價量合併 / 三組價格 / 舊資料 / 空格不產出 | `KCandleContractSeriesDomain`（既有）+ `IndicatorCalculationDomain.SelectContractInput` + `ContractKCandleAlignmentDomain`（NullDecimal → 0） |
 | US-02 現貨算式讀法照舊 | `ContractKCandleVo` 內嵌 `KCandleVo` + yaegi 欄位提升 |
-| US-03 全部 | `ContractKCandleAlignmentDomain.Aligning`（結算指標）+ 結算讀取區間往前 8h |
+| US-03 全部 | `ContractKCandleAlignmentDomain.Aligning`（結算指標）+ `IContractFundingRateSettlementRepository.FindLatestBefore`（第一格之前現行的那一筆） |
 | US-04 全部 | `ContractKCandleAlignmentDomain.Aligning`（持倉統計指標、夠新判準）+ 讀取區間往前 5m |
 | US-05 信號 / 自帶算式 / 沒指定刻度即一分鐘 | `ContractIndicatorCalculationService` + `IndicatorCalculationDomain`（全天候市場）+ `ToResultDto` |
 | US-05 湊不出最少可算根數 / 從沒存過 | `IndicatorCalculationDomain.SelectContractInput` → `CandleCoverageTooThin` |
@@ -151,6 +152,7 @@ flowchart TD
 
 - **Risks / trade-offs:**
   - yaegi 對「二進位 struct 內嵌欄位的提升存取」需實測；若不支援，退回平鋪欄位（同名），腳本端寫法不變，只是少了 `c.KCandleVo`。
-  - 結算前置段落只往前看 8 小時：若資金費率抓取曾中斷超過 8 小時，第一格的費率為 0，之後遇到下一次結算即恢復。可接受——與「持倉統計不拿過時狀態冒充現在」同一精神。
+  - 第一格之前現行的那一筆結算另讀一次（`FindLatestBefore`），所以一次合約指標計算是四次讀取；換來的是資金費率抓取中斷多久都不會讓第一格誤讀成零。
+    （一致性稽核前的設計只往前讀 8 小時，稽核指出與 PRD「最近一次」不符，已改。）
 - **Open decisions (for implementation):**
   - 混用拒絕的回應：400，`message` 說出這支策略腳本吃的是哪一種行情（實作決定不另附欄位：前端只需顯示這句話，沒有要依種類分流的動作）。
