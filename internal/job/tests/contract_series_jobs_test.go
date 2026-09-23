@@ -8,6 +8,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -302,6 +303,69 @@ func TestASeriesJobStoppedDuringALongRoundRunsNoRoundAfterIt(t *testing.T) {
 				slowJob.Stop()
 				abandon()
 			}
+		})
+	}
+}
+
+func newMarginTierRefreshJobUnderTest(t *testing.T, fetchError error, ladders []vo.ContractMaintenanceMarginLadderVo) seriesJobUnderTest {
+	t.Helper()
+
+	mockController := gomock.NewController(t)
+	rounds := make(chan string, 256)
+	tierProxy := mocks.NewMockIContractMaintenanceMarginTierProxy(mockController)
+	tierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+	tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]vo.ContractMaintenanceMarginLadderVo, error) {
+			rounds <- "round"
+
+			return ladders, fetchError
+		}).AnyTimes()
+	symbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
+	symbolRepository.EXPECT().FindAll(gomock.Any()).
+		Return([]entities.ContractTradingSymbol{{Symbol: "BTCUSDT"}}, nil).AnyTimes()
+	tierRepository.EXPECT().ReplaceLadders(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	refreshJob := job.NewContractMaintenanceMarginTierRefreshJob(
+		application.NewContractMaintenanceMarginTierApplication(service.NewContractMaintenanceMarginTierService(
+			tierRepository, symbolRepository, tierProxy, clockProxy)),
+		testInterval)
+	t.Cleanup(refreshJob.Stop)
+
+	return seriesJobUnderTest{job: refreshJob, rounds: rounds}
+}
+
+func TestTheMaintenanceMarginJobRefreshesOnStartAndEveryIntervalAndSaysWhatHappened(t *testing.T) {
+	sensibleTier := vo.ContractMaintenanceMarginTierVo{
+		Tier: 1, NotionalFloor: decimal.Zero, NotionalCap: decimal.RequireFromString("50000"),
+		MaintenanceMarginRate: decimal.RequireFromString("0.004"), MaximumLeverage: 125,
+	}
+	testCases := []struct {
+		name       string
+		fetchError error
+		ladders    []vo.ContractMaintenanceMarginLadderVo
+		recorded   string
+	}{
+		{name: "更新完成", ladders: []vo.ContractMaintenanceMarginLadderVo{
+			{Symbol: "BTCUSDT", Tiers: []vo.ContractMaintenanceMarginTierVo{sensibleTier}}},
+			recorded: "contract maintenance margin refresh updated 1 contracts"},
+		{name: "一個標的說不通", ladders: []vo.ContractMaintenanceMarginLadderVo{{Symbol: "BTCUSDT"}},
+			recorded: "contract maintenance margin refresh kept BTCUSDT as it was"},
+		{name: "金鑰被拒", fetchError: domains.ErrContractAccountCredentialsRefused,
+			recorded: "contract maintenance margin refresh did not run"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorded := captureRecords(t)
+			underTest := newMarginTierRefreshJobUnderTest(t, testCase.fetchError, testCase.ladders)
+
+			underTest.job.Start(t.Context())
+
+			recorded.waitFor(t, testCase.recorded)
+			require.Equal(t, "round", nextFrom(t, underTest.rounds))
+			require.Equal(t, "round", nextFrom(t, underTest.rounds))
 		})
 	}
 }
