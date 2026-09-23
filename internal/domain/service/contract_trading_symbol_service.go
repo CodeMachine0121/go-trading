@@ -23,17 +23,20 @@ type ContractTradingSymbolService struct {
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
 	kCandleContractRepository       domaininterface.IKCandleContractRepository
 	contractSymbolLookupProxy       domaininterface.IContractSymbolLookupProxy
+	clockProxy                      domaininterface.IClockProxy
 }
 
 func NewContractTradingSymbolService(
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
 	kCandleContractRepository domaininterface.IKCandleContractRepository,
 	contractSymbolLookupProxy domaininterface.IContractSymbolLookupProxy,
+	clockProxy domaininterface.IClockProxy,
 ) *ContractTradingSymbolService {
 	return &ContractTradingSymbolService{
 		contractTradingSymbolRepository: contractTradingSymbolRepository,
 		kCandleContractRepository:       kCandleContractRepository,
 		contractSymbolLookupProxy:       contractSymbolLookupProxy,
+		clockProxy:                      clockProxy,
 	}
 }
 
@@ -118,10 +121,77 @@ func (contractTradingSymbolService *ContractTradingSymbolService) AddToWatchlist
 			domains.ErrTradingSymbolNotInMarket, contractSymbol.Value())
 	}
 
-	return contractTradingSymbolService.contractTradingSymbolRepository.Save(
-		executionContext,
-		entities.ContractTradingSymbol{Symbol: contractSymbol.Value(), IsWatched: true},
-	)
+	watchedSymbol := entities.ContractTradingSymbol{Symbol: contractSymbol.Value(), IsWatched: true}
+
+	// The specification came in the same answer that confirmed the contract, so it is
+	// recorded now, in the same write, rather than a day later. One the venue reported
+	// in a form that cannot be a specification does not stop the contract being
+	// followed — following it is what was asked for — and the contract keeps whatever
+	// it held until the daily refresh.
+	specificationDomain, specificationError := domains.NewContractTradingSpecificationDomain(
+		listing.Specification)
+	if specificationError == nil {
+		watchedSymbol = specificationDomain.ApplyTo(watchedSymbol, contractTradingSymbolService.clockProxy.Now())
+	}
+
+	return contractTradingSymbolService.contractTradingSymbolRepository.Save(executionContext, watchedSymbol)
+}
+
+// RefreshTradingSpecifications brings the trading specification of every contract
+// the system knows up to date with what the venue says now, and says how many it
+// updated.
+//
+// **Every registered contract, not only the watched ones.** Stopping following a
+// contract does not make it one the system no longer knows, and a replay can still
+// be run over the candles held for it.
+//
+// A contract the venue no longer lists as followable keeps the specification it was
+// last confirmed with, and when. The venue failing to answer changes nothing at all.
+func (contractTradingSymbolService *ContractTradingSymbolService) RefreshTradingSpecifications(
+	executionContext context.Context,
+) (int, error) {
+	registeredSymbols, findError := contractTradingSymbolService.contractTradingSymbolRepository.
+		FindAll(executionContext)
+	if findError != nil {
+		return 0, findError
+	}
+
+	reportedSpecifications, fetchError := contractTradingSymbolService.contractSymbolLookupProxy.
+		FetchTradingSpecifications(executionContext)
+	if fetchError != nil {
+		return 0, fmt.Errorf("%w: %w", domains.ErrMarketDataSourceUnavailable, fetchError)
+	}
+
+	specificationsBySymbol := make(map[string]domains.ContractTradingSpecificationDomain, len(reportedSpecifications))
+	for _, reportedSpecification := range reportedSpecifications {
+		specificationDomain, specificationError := domains.NewContractTradingSpecificationDomain(
+			reportedSpecification)
+		if specificationError != nil {
+			continue
+		}
+		specificationsBySymbol[reportedSpecification.Symbol] = specificationDomain
+	}
+
+	confirmedAt := contractTradingSymbolService.clockProxy.Now()
+	refreshedSymbols := make([]entities.ContractTradingSymbol, 0, len(registeredSymbols))
+	for _, registeredSymbol := range registeredSymbols {
+		specificationDomain, isListed := specificationsBySymbol[registeredSymbol.Symbol]
+		if !isListed {
+			continue
+		}
+		refreshedSymbols = append(refreshedSymbols, specificationDomain.ApplyTo(registeredSymbol, confirmedAt))
+	}
+
+	if len(refreshedSymbols) == 0 {
+		return 0, nil
+	}
+
+	if saveError := contractTradingSymbolService.contractTradingSymbolRepository.SaveTradingSpecifications(
+		executionContext, refreshedSymbols); saveError != nil {
+		return 0, saveError
+	}
+
+	return len(refreshedSymbols), nil
 }
 
 // RemoveFromWatchlist stops keeping one perpetual contract's candles up to date.

@@ -63,6 +63,15 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) AddToW
 
 // RemoveFromWatchlist stops keeping one perpetual contract's candles up to date,
 // leaving every candle it already holds exactly where it is.
+// RefreshTradingSpecifications brings every known contract's trading specification up
+// to date, and says how many it updated.
+func (contractTradingSymbolApplication *ContractTradingSymbolApplication) RefreshTradingSpecifications(
+	executionContext context.Context,
+) (int, error) {
+	return contractTradingSymbolApplication.contractTradingSymbolService.
+		RefreshTradingSpecifications(executionContext)
+}
+
 func (contractTradingSymbolApplication *ContractTradingSymbolApplication) RemoveFromWatchlist(
 	executionContext context.Context, symbol string,
 ) error {

@@ -235,9 +235,11 @@ func registerRoutes(
 				contractKCandleRepository,
 				marketdata.NewBinanceContractSymbolLookupProxy(
 					applicationConfig.ContractIngestion.SymbolCatalogUrl,
+					applicationConfig.ContractIngestion.FundingInfoUrl,
 					applicationConfig.ContractIngestion.RequestTimeout,
 					venuePacers.cryptoContract,
 				),
+				clock.NewSystemClockProxy(),
 			),
 			contractKCandleIngestionService,
 		))

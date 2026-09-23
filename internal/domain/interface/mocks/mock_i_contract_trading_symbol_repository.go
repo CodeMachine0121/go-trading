@@ -100,3 +100,17 @@ func (mr *MockIContractTradingSymbolRepositoryMockRecorder) Save(executionContex
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIContractTradingSymbolRepository)(nil).Save), executionContext, contractTradingSymbol)
 }
+
+// SaveTradingSpecifications mocks base method.
+func (m *MockIContractTradingSymbolRepository) SaveTradingSpecifications(executionContext context.Context, contractTradingSymbols []entities.ContractTradingSymbol) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveTradingSpecifications", executionContext, contractTradingSymbols)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveTradingSpecifications indicates an expected call of SaveTradingSpecifications.
+func (mr *MockIContractTradingSymbolRepositoryMockRecorder) SaveTradingSpecifications(executionContext, contractTradingSymbols any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveTradingSpecifications", reflect.TypeOf((*MockIContractTradingSymbolRepository)(nil).SaveTradingSpecifications), executionContext, contractTradingSymbols)
+}

@@ -88,7 +88,7 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 		candleApplication: application.NewKCandleContractApplication(
 			service.NewKCandleContractService(candleRepository, clockProxy, contractQueryMaxResults)),
 		symbolApplication: application.NewContractTradingSymbolApplication(
-			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy),
+			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
 			ingestionService),
 		ingestionApplication: application.NewKCandleContractIngestionApplication(ingestionService),
 		candleRepository:     candleRepository,
@@ -148,7 +148,7 @@ func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
 	// the scheduled round only collects what has closed since it last ran.
 	underTest := newContractApplicationsUnderTest(t)
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
-		Return(vo.SymbolListingVo{IsListed: true}, nil)
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), entities.ContractTradingSymbol{
 		Symbol: "BTCUSDT", IsWatched: true,
 	}).Return(nil)
@@ -169,7 +169,7 @@ func TestContractApplicationKeepsTheContractOnTheWatchlistWhenTheCatchUpFails(t 
 	// ordinary rounds will reach it anyway.
 	underTest := newContractApplicationsUnderTest(t)
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
-		Return(vo.SymbolListingVo{IsListed: true}, nil)
+		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.ContractTradingSymbol{}, false, nil)
@@ -182,7 +182,7 @@ func TestContractApplicationKeepsTheContractOnTheWatchlistWhenTheCatchUpFails(t 
 func TestContractApplicationDoesNotCatchUpAContractItRefusedToAdd(t *testing.T) {
 	underTest := newContractApplicationsUnderTest(t)
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "NOSUCHPAIR").
-		Return(vo.SymbolListingVo{}, nil)
+		Return(vo.ContractSymbolListingVo{}, nil)
 	underTest.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
 

@@ -98,7 +98,11 @@ type ContractIngestionConfig struct {
 	// SymbolCatalogUrl is where a contract is confirmed to exist before it is
 	// watched. This venue answers with its whole catalogue whatever it is asked, so
 	// the address is the same question asked a different way from the spot one.
-	SymbolCatalogUrl  string
+	SymbolCatalogUrl string
+	// FundingInfoUrl lists the contracts whose funding rate settles on an interval of
+	// their own. It is part of a contract's trading specification, and the venue
+	// keeps it apart from the catalogue.
+	FundingInfoUrl    string
 	RequestTimeout    time.Duration
 	RequestsPerMinute int
 }
@@ -383,6 +387,9 @@ func Load() ApplicationConfig {
 			SymbolCatalogUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_SYMBOL_CATALOG_URL",
 				"https://fapi.binance.com/fapi/v1/exchangeInfo"),
+			FundingInfoUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_FUNDING_INFO_URL",
+				"https://fapi.binance.com/fapi/v1/fundingInfo"),
 			RequestTimeout: time.Duration(positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 			// Half the spot allowance by default, because each candle here costs two

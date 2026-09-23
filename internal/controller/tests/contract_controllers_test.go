@@ -80,7 +80,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 			service.NewKCandleContractService(candleRepository, clockProxy, queryMaxResults)))
 	symbolController := controller.NewContractTradingSymbolController(
 		application.NewContractTradingSymbolApplication(
-			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy),
+			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
 			ingestionService))
 	backfillController := controller.NewKCandleContractBackfillController(ingestionApplication)
 	historySyncController := controller.NewKCandleContractHistorySyncController(
@@ -331,7 +331,7 @@ func TestContractWatchlistResponses(t *testing.T) {
 	t.Run("adds a listed contract and catches it up", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		fixture.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
-			Return(vo.SymbolListingVo{IsListed: true}, nil)
+			Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
 		fixture.symbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
@@ -348,9 +348,9 @@ func TestContractWatchlistResponses(t *testing.T) {
 	t.Run("tells the three ways adding can fail apart", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		fixture.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "NOSUCHPAIR").
-			Return(vo.SymbolListingVo{}, nil)
+			Return(vo.ContractSymbolListingVo{}, nil)
 		fixture.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "ETHUSDT").
-			Return(vo.SymbolListingVo{}, assertAnError)
+			Return(vo.ContractSymbolListingVo{}, assertAnError)
 
 		unlistedRecorder := fixture.call(http.MethodPost, "/contract-watchlist", `{"symbol":"NOSUCHPAIR"}`)
 		unreachableRecorder := fixture.call(http.MethodPost, "/contract-watchlist", `{"symbol":"ETHUSDT"}`)

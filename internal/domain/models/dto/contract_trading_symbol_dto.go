@@ -9,4 +9,7 @@ package dto
 type ContractTradingSymbolDto struct {
 	Symbol    string `json:"symbol"`
 	IsWatched bool   `json:"isWatched"`
+	// TradingSpecification is null for a contract whose specification has not been
+	// recorded yet, and for one known only because candles are held for it.
+	TradingSpecification *ContractTradingSpecificationDto `json:"tradingSpecification"`
 }
