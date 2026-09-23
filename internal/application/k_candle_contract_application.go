@@ -28,6 +28,14 @@ func (kCandleContractApplication *KCandleContractApplication) SaveKCandleContrac
 		executionContext, writeDto)
 }
 
+// GetKCandleContractSeries reads one stretch of contract K candles merged by interval.
+func (kCandleContractApplication *KCandleContractApplication) GetKCandleContractSeries(
+	executionContext context.Context, seriesQueryDto dto.KCandleSeriesQueryDto,
+) (dto.KCandleContractSeriesDto, error) {
+	return kCandleContractApplication.kCandleContractService.GetKCandleContractSeries(
+		executionContext, seriesQueryDto)
+}
+
 func (kCandleContractApplication *KCandleContractApplication) GetKCandleContractsInRange(
 	executionContext context.Context, queryDto dto.KCandleQueryDto,
 ) ([]dto.KCandleContractDto, error) {

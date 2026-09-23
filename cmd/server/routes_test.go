@@ -62,6 +62,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /contract-k-candles",
 		"GET /contract-k-candles/:symbol/:openTime",
 		"GET /contract-k-candles/history/:id",
+		"GET /contract-k-candles/series",
 		"GET /contract-maintenance-margin-tiers",
 		"GET /contract-position-statistics",
 		"GET /contract-trading-symbols",

@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
@@ -77,6 +78,54 @@ func (kCandleContractController *KCandleContractController) GetKCandleContractsI
 	}
 
 	ginContext.JSON(http.StatusOK, contractDtos)
+}
+
+// GetKCandleContractSeries handles GET /contract-k-candles/series. It takes exactly
+// what the spot series takes, so a chart asks both the same way.
+func (kCandleContractController *KCandleContractController) GetKCandleContractSeries(
+	ginContext *gin.Context,
+) {
+	startTime, startTimeIsReadable := kCandleContractController.readTime(
+		ginContext, "startTime", ginContext.Query("startTime"))
+	if !startTimeIsReadable {
+		return
+	}
+
+	endTime, endTimeIsReadable := kCandleContractController.readTime(
+		ginContext, "endTime", ginContext.Query("endTime"))
+	if !endTimeIsReadable {
+		return
+	}
+
+	displayableCandleCount := (*int)(nil)
+	if declaredCount := ginContext.Query("displayableCandleCount"); declaredCount != "" {
+		parsedCount, parseError := strconv.Atoi(declaredCount)
+		if parseError != nil {
+			ginContext.JSON(http.StatusBadRequest, gin.H{
+				"message": "displayableCandleCount 必須是整數",
+				"field":   "displayableCandleCount",
+			})
+
+			return
+		}
+		displayableCandleCount = &parsedCount
+	}
+
+	seriesDto, findError := kCandleContractController.kCandleContractApplication.
+		GetKCandleContractSeries(ginContext.Request.Context(), dto.KCandleSeriesQueryDto{
+			Symbol:                 ginContext.Query("symbol"),
+			StartTime:              startTime,
+			EndTime:                endTime,
+			Interval:               ginContext.Query("interval"),
+			DisplayableCandleCount: displayableCandleCount,
+		})
+	if findError != nil {
+		kCandleContractController.respondWithError(ginContext, findError)
+
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, seriesDto)
 }
 
 // GetKCandleContract handles GET /contract-k-candles/:symbol/:openTime.

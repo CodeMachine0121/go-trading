@@ -8,6 +8,7 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // KCandleContractService is the application layer's only entry point for perpetual
@@ -19,19 +20,49 @@ import (
 type KCandleContractService struct {
 	kCandleContractRepository domaininterface.IKCandleContractRepository
 	clockProxy                domaininterface.IClockProxy
-	queryMaxResults           int
+	// roundTheClockMarket is the calendar perpetual contracts keep, borrowed from the
+	// catalogue so that "how many buckets does this stretch hold" is answered by the
+	// same arithmetic the spot series uses.
+	roundTheClockMarket domains.MarketDomain
+	queryMaxResults     int
 }
 
 func NewKCandleContractService(
 	kCandleContractRepository domaininterface.IKCandleContractRepository,
 	clockProxy domaininterface.IClockProxy,
+	marketCatalogDomain domains.MarketCatalogDomain,
 	queryMaxResults int,
 ) *KCandleContractService {
 	return &KCandleContractService{
 		kCandleContractRepository: kCandleContractRepository,
 		clockProxy:                clockProxy,
+		roundTheClockMarket:       marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
 		queryMaxResults:           queryMaxResults,
 	}
+}
+
+// GetKCandleContractSeries merges the contract K candles of one stretch into one
+// candle per interval bucket, earliest first, saying which interval it used. How the
+// interval is chosen and how large a stretch may be asked for are the spot series'
+// rules, word for word.
+func (kCandleContractService *KCandleContractService) GetKCandleContractSeries(
+	executionContext context.Context, seriesQueryDto dto.KCandleSeriesQueryDto,
+) (dto.KCandleContractSeriesDto, error) {
+	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
+		seriesQueryDto, kCandleContractService.roundTheClockMarket, kCandleContractService.queryMaxResults)
+	if validationError != nil {
+		// Re-badged before it leaves, for the reason the range query gives.
+		return dto.KCandleContractSeriesDto{}, fmt.Errorf(
+			"%w: %w", domains.ErrKCandleContractValidation, validationError)
+	}
+
+	kCandleContracts, findError := kCandleContractService.kCandleContractRepository.FindInRange(
+		executionContext, seriesQueryDomain.RangeQuery(), seriesQueryDomain.SourceCandleLimit())
+	if findError != nil {
+		return dto.KCandleContractSeriesDto{}, findError
+	}
+
+	return seriesQueryDomain.ContractSeriesOf(kCandleContracts).ToDto(), nil
 }
 
 // SaveKCandleContract stores one contract K candle, replacing any candle already held

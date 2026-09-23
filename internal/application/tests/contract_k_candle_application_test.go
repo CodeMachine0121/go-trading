@@ -100,7 +100,8 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 
 	return contractApplicationsUnderTest{
 		candleApplication: application.NewKCandleContractApplication(
-			service.NewKCandleContractService(candleRepository, clockProxy, contractQueryMaxResults)),
+			service.NewKCandleContractService(candleRepository, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), contractQueryMaxResults)),
 		symbolApplication: application.NewContractTradingSymbolApplication(
 			service.NewContractTradingSymbolService(symbolRepository, candleRepository, lookupProxy, clockProxy),
 			ingestionService,

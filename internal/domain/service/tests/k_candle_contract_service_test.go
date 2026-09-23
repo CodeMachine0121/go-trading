@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -73,7 +75,8 @@ func newContractServiceUnderTest(t *testing.T) contractServiceUnderTest {
 	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 30)).AnyTimes()
 
 	return contractServiceUnderTest{
-		service:    service.NewKCandleContractService(repository, clockProxy, contractQueryMaxResults),
+		service: service.NewKCandleContractService(repository, clockProxy,
+			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), contractQueryMaxResults),
 		repository: repository,
 	}
 }
@@ -217,4 +220,73 @@ func TestKCandleContractServiceRefusesAQueryItCannotRead(t *testing.T) {
 	})
 
 	assert.Error(t, queryError)
+}
+
+func TestKCandleContractServiceMergesAStretchByInterval(t *testing.T) {
+	underTest := newContractServiceUnderTest(t)
+	underTest.repository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, query domains.KCandleQueryDomain, limit int) ([]entities.KCandleContract, error) {
+			assert.Equal(t, "BTCUSDT", query.Symbol())
+			// Enough to read every minute of the stretch asked about.
+			assert.GreaterOrEqual(t, limit, 10)
+
+			first, second := storedContractCandle(ingestionAt(9, 0, 0), "110"), storedContractCandle(ingestionAt(9, 1, 0), "111")
+			first.TradeCount, second.TradeCount = 7, 8
+
+			return []entities.KCandleContract{first, second}, nil
+		})
+
+	series, seriesError := underTest.service.GetKCandleContractSeries(t.Context(), dto.KCandleSeriesQueryDto{
+		Symbol: "btcusdt", StartTime: ingestionAt(9, 0, 0), EndTime: ingestionAt(9, 9, 0), Interval: "5m",
+	})
+
+	require.NoError(t, seriesError)
+	assert.Equal(t, "5m", series.Interval)
+	require.Len(t, series.KCandles, 1)
+	assert.Equal(t, int64(15), series.KCandles[0].TradeCount)
+	assert.True(t, decimal.RequireFromString("111").Equal(series.KCandles[0].Close))
+}
+
+func TestKCandleContractServiceRefusesASeriesItCannotAnswerInItsOwnWords(t *testing.T) {
+	displayable := 10
+	oneMonth := ingestionAt(9, 0, 0).Add(30 * 24 * time.Hour)
+	testCases := []struct {
+		name            string
+		queryDto        dto.KCandleSeriesQueryDto
+		expectedMessage string
+	}{
+		{name: "兩種說法同時給", queryDto: dto.KCandleSeriesQueryDto{Symbol: "BTCUSDT", StartTime: ingestionAt(9, 0, 0),
+			EndTime: ingestionAt(9, 9, 0), Interval: "5m", DisplayableCandleCount: &displayable},
+			expectedMessage: "彙總刻度與可顯示根數只能挑一種說法"},
+		{name: "認不得的刻度", queryDto: dto.KCandleSeriesQueryDto{Symbol: "BTCUSDT", StartTime: ingestionAt(9, 0, 0),
+			EndTime: ingestionAt(9, 9, 0), Interval: "2m"}, expectedMessage: "彙總刻度只能是"},
+		{name: "區間過大", queryDto: dto.KCandleSeriesQueryDto{Symbol: "BTCUSDT", StartTime: ingestionAt(9, 0, 0),
+			EndTime: oneMonth, Interval: "1m"}, expectedMessage: "時間區間過大"},
+		{name: "沒指定合約標的", queryDto: dto.KCandleSeriesQueryDto{StartTime: ingestionAt(9, 0, 0),
+			EndTime: ingestionAt(9, 9, 0)}, expectedMessage: "必須指定交易標的"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newContractServiceUnderTest(t)
+
+			_, seriesError := underTest.service.GetKCandleContractSeries(t.Context(), testCase.queryDto)
+
+			assert.ErrorIs(t, seriesError, domains.ErrKCandleContractValidation)
+			assert.ErrorContains(t, seriesError, testCase.expectedMessage)
+		})
+	}
+}
+
+func TestKCandleContractServicePassesAStorageFailureOnWhenMergingASeries(t *testing.T) {
+	underTest := newContractServiceUnderTest(t)
+	underTest.repository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("storage unreachable"))
+
+	_, seriesError := underTest.service.GetKCandleContractSeries(t.Context(), dto.KCandleSeriesQueryDto{
+		Symbol: "BTCUSDT", StartTime: ingestionAt(9, 0, 0), EndTime: ingestionAt(9, 9, 0), Interval: "5m",
+	})
+
+	assert.ErrorContains(t, seriesError, "storage unreachable")
+	assert.NotErrorIs(t, seriesError, domains.ErrKCandleContractValidation)
 }

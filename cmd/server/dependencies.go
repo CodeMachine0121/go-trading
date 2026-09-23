@@ -245,11 +245,13 @@ func registerRoutes(
 		application.NewKCandleContractApplication(service.NewKCandleContractService(
 			contractKCandleRepository,
 			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
 		)))
 
 	engine.POST("/contract-k-candles", kCandleContractController.CreateKCandleContract)
 	engine.GET("/contract-k-candles", kCandleContractController.GetKCandleContractsInRange)
+	engine.GET("/contract-k-candles/series", kCandleContractController.GetKCandleContractSeries)
 	engine.POST("/contract-k-candles/backfill",
 		controller.NewKCandleContractBackfillController(
 			kCandleContractIngestionApplication).CatchUpSymbol)
