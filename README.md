@@ -182,6 +182,7 @@ curl localhost:8080/health
 | `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
 | `POST` | `/contract-k-candles` | 新增一根**合約** K 線；同交易標的同起始時間即覆蓋。標記價格、指數價格、溢價指數與成交筆數必填 |
 | `GET` | `/contract-k-candles?symbol=&startTime=&endTime=` | 依交易標的與時間區間查詢合約 K 線，起訖兩端都包含，依起始時間由早到晚 |
+| `GET` | `/contract-k-candles/series?symbol=&startTime=&endTime=&interval=` 或 `&displayableCandleCount=` | 依刻度彙總的合約 K 線序列，說法與 `/k-candles/series` 一字不差。三條價格線各自合併；一格裡有一根缺指數價格或溢價指數，那一格那條線就是 `null` |
 | `GET` `PUT` `DELETE` | `/contract-k-candles/{symbol}/{openTime}` | 讀取／修改／刪除單一合約 K 線。**刪掉合約那根，現貨同代號同時間那根完全不受影響** |
 | `POST` | `/contract-k-candles/backfill` | 手動補齊一個合約標的的歷史（body 給 `symbol`），補到合約自己的回補上限為止 |
 | `POST` | `/contract-k-candles/history` | 同步一段合約歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。輪次編號**自己一串**，與現貨那串互不相干 |

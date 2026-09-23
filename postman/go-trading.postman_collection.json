@@ -4228,6 +4228,57 @@
           ]
         },
         {
+          "name": "合約 K 線依刻度彙總",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/series?symbol={{contractWatchlistSymbol}}&startTime={{contractRangeStart}}&endTime={{contractRangeEnd}}&interval=5m",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{contractRangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractRangeEnd}}"
+                },
+                {
+                  "key": "interval",
+                  "value": "5m"
+                }
+              ]
+            },
+            "description": "與 /k-candles/series 同一種說法；一小時的區間以五分鐘刻度彙總大約十二根。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const series = pm.response.json();",
+                  "pm.test(\"說出用的是五分鐘\", () => pm.expect(series.interval).to.eql(\"5m\"));",
+                  "pm.test(\"每一根落在五分鐘刻度上\", () => series.kCandles.forEach((candle) => pm.expect(Date.parse(candle.openTime) % (5 * 60 * 1000)).to.eql(0)));",
+                  "pm.test(\"每一根帶著標記價格\", () => series.kCandles.forEach((candle) => pm.expect(Number(candle.markClose)).to.be.above(0)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "加入名單時補回了資金費率結算",
           "request": {
             "method": "GET",
