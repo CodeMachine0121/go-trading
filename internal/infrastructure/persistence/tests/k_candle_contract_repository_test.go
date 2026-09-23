@@ -426,3 +426,52 @@ func TestKCandleContractRepositoryReplacesAnOldCandleInsideTheRecentMinutesWithT
 	require.True(t, held.PremiumIndexClose.Valid)
 	assert.True(t, decimal.RequireFromString("0.0001").Equal(held.PremiumIndexClose.Decimal))
 }
+
+func TestKCandleContractRepositoryFindsTheLatestFewBeforeACutOff(t *testing.T) {
+	database := newTestDatabase(t)
+	contractRepository := persistence.NewKCandleContractRepository(database)
+	for _, openTime := range []time.Time{at(9, 5), at(9, 15), at(9, 0), at(9, 10)} {
+		_, saveError := contractRepository.Save(t.Context(), contractCandleAt("BTCUSDT", openTime, "100"))
+		require.NoError(t, saveError)
+	}
+	_, saveError := contractRepository.Save(t.Context(), contractCandleAt("ETHUSDT", at(9, 5), "200"))
+	require.NoError(t, saveError)
+
+	testCases := []struct {
+		name              string
+		symbol            string
+		cutoffTime        time.Time
+		limit             int
+		expectedOpenTimes []time.Time
+	}{
+		{name: "the newest few from before the cut-off, newest first", symbol: "BTCUSDT",
+			cutoffTime: at(9, 15), limit: 2, expectedOpenTimes: []time.Time{at(9, 10), at(9, 5)}},
+		{name: "a candle opening exactly at the cut-off is left out", symbol: "BTCUSDT",
+			cutoffTime: at(9, 10), limit: 10, expectedOpenTimes: []time.Time{at(9, 5), at(9, 0)}},
+		{name: "another symbol's candles are never read", symbol: "ETHUSDT",
+			cutoffTime: at(10, 0), limit: 10, expectedOpenTimes: []time.Time{at(9, 5)}},
+		{name: "nothing before the cut-off is an empty answer", symbol: "BTCUSDT",
+			cutoffTime: at(9, 0), limit: 10, expectedOpenTimes: []time.Time{}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			storedCandles, findError := contractRepository.FindLatestBefore(
+				t.Context(), testCase.symbol, testCase.cutoffTime, testCase.limit)
+
+			require.NoError(t, findError)
+			require.Len(t, storedCandles, len(testCase.expectedOpenTimes))
+			for index, expectedOpenTime := range testCase.expectedOpenTimes {
+				assert.Equal(t, expectedOpenTime.UTC(), storedCandles[index].OpenTime.UTC())
+			}
+		})
+	}
+}
+
+func TestKCandleContractRepositoryFindLatestBeforeReportsAStorageFailure(t *testing.T) {
+	contractRepository := persistence.NewKCandleContractRepository(closedDatabase(t))
+
+	_, findError := contractRepository.FindLatestBefore(t.Context(), "BTCUSDT", at(10, 0), 10)
+
+	assert.Error(t, findError)
+}

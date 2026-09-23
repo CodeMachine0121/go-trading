@@ -71,5 +71,11 @@ type IKCandleContractRepository interface {
 	FindLatest(
 		executionContext context.Context, symbol string, limit int,
 	) ([]entities.KCandleContract, error)
+	// FindLatestBefore returns at most limit contract K candles for the symbol whose
+	// open time is STRICTLY BEFORE cutoffTime, newest first. It is what an indicator
+	// calculation reads: the latest few as of a moment, not the latest few now.
+	FindLatestBefore(
+		executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
+	) ([]entities.KCandleContract, error)
 	Delete(executionContext context.Context, symbol string, openTime time.Time) error
 }

@@ -26,7 +26,7 @@
 | 合約 K 線 repository | **Modify** | 補 `FindLatestBefore`（與現貨同一語意），指標計算依賴「截至某刻往回讀 N 根」 |
 | 合約行情格（vo） | **Add** | `ContractKCandleVo`（內嵌 `KCandleVo`）、`PriceLineVo`——腳本看到的形狀 |
 | 對齊（domain） | **Add** | `ContractKCandleAlignmentDomain`：決定要讀哪一段結算與持倉統計、並把它們對進每一格 |
-| 指標計算 domain | **Modify** | `IndicatorCalculationDomain` 加 `SelectContractBuckets`（與 `SelectInputCandles` 共用最少可算根數規則）、`ToResultDto`（兩個 service 共用的回應組裝） |
+| 指標計算 domain | **Modify** | `IndicatorCalculationDomain` 加 `SelectContractInput`（與 `SelectInputCandles` 共用最少可算根數規則，回傳待對齊的 `ContractKCandleAlignmentDomain`）、`ToResultDto`（兩個 service 共用的回應組裝） |
 | 合約指標計算服務 | **Add** | `ContractIndicatorCalculationService`：編排四次讀取與一次執行 |
 | 腳本執行（infra） | **Modify / Add** | 把 yaegi 組裝抽成泛型 `indicatorScriptRunner[T]`；`YaegiIndicatorScriptProxy` 改為委派；新增 `YaegiContractIndicatorScriptProxy` 實作新介面 `IContractIndicatorScriptProxy` |
 | 指標計算 application / controller | **Modify** | 同一個 `IndicatorCalculationApplication` / `IndicatorCalculationController` 加合約用例與路由 `POST /contract-indicator-calculations`；解析指名策略腳本與錯誤對映各自共用一個 private helper |
@@ -68,7 +68,7 @@
 | `domains.StrategyScriptAccessDomain.ToRunnableDto` | 三道關卡 | 帶出 `MarketDataKind` |
 | `service.StrategyScriptService.UpdateStrategyScript` / `requireOwnership` | 修改 | `requireOwnership` 改回傳找到的 entity（刪除路徑忽略它）；更新路徑以 `MarketDataKindDomain(existing).Retaining(writeDto.MarketDataKind)` 決定最終值，再交 `NewStrategyScriptDomain` |
 | `IKCandleContractRepository` + `KCandleContractRepository` | 合約 K 線存取 | 加 `FindLatestBefore(symbol, cutoff, limit)`（開盤時間嚴格早於 cutoff，新到舊），重新產生 mock |
-| `domains.IndicatorCalculationDomain` | 指標計算規則 | 加 `SelectContractBuckets([]entities.KCandleContract) ([]dto.KCandleContractDto, error)`（以 `KCandleContractSeriesDomain` 彙總）；最少可算根數與取最新 N 格抽成被兩個 Select 共用的 private helper；加 `ToResultDto(openTimes, indicatorValues)` 讓兩個 service 共用回應組裝 |
+| `domains.IndicatorCalculationDomain` | 指標計算規則 | 加 `SelectContractInput([]entities.KCandleContract) (ContractKCandleAlignmentDomain, error)`（以 `KCandleContractSeriesDomain` 彙總，交出持有這些格的對齊 domain）；最少可算根數與取最新 N 格抽成被兩個 Select 共用的 private helper；加 `ToResultDto(openTimes, indicatorValues)` 讓兩個 service 共用回應組裝 |
 | `service.IndicatorCalculationService` | 現貨指標計算 | 回應組裝改呼叫 `ToResultDto`（純重構，行為不變） |
 | `script.YaegiIndicatorScriptProxy` / `indicatorScriptShape` | 現貨算式執行 | 改委派給 `indicatorScriptRunner[vo.KCandleVo]`；shape 多帶入口資料型別與其腳本名稱，錯誤訊息依之改寫 |
 | `application.IndicatorCalculationApplication` | 指標計算用例 | 注入 `ContractIndicatorCalculationService`；加 `CalculateContractIndicator`；private `resolveRunnable(ctx, viewer, subject, expectedKind)`：指名的那一支走三道關卡並 `RequireRunnableAs`；自帶算式不檢查（那段算式就是以此種類執行） |
@@ -134,12 +134,12 @@ flowchart TD
 | US-01 建立後不得更換 / 不提沿用 / 照抄可 | `MarketDataKindDomain.Retaining` + `UpdateStrategyScript` + 可改寫欄位白名單 |
 | US-01 不認得的行情種類 | `MarketDataKindDomain` 建構子 → `ErrStrategyScriptValidation` |
 | US-01 市集 / 可用策略腳本帶行情種類 | `PublishedStrategyScript.ToDto`、`StrategyScript.ToDto` |
-| US-02 價量合併 / 三組價格 / 舊資料 / 空格不產出 | `KCandleContractSeriesDomain`（既有）+ `IndicatorCalculationDomain.SelectContractBuckets` + `ContractKCandleAlignmentDomain`（NullDecimal → 0） |
+| US-02 價量合併 / 三組價格 / 舊資料 / 空格不產出 | `KCandleContractSeriesDomain`（既有）+ `IndicatorCalculationDomain.SelectContractInput` + `ContractKCandleAlignmentDomain`（NullDecimal → 0） |
 | US-02 現貨算式讀法照舊 | `ContractKCandleVo` 內嵌 `KCandleVo` + yaegi 欄位提升 |
 | US-03 全部 | `ContractKCandleAlignmentDomain.Aligning`（結算指標）+ 結算讀取區間往前 8h |
 | US-04 全部 | `ContractKCandleAlignmentDomain.Aligning`（持倉統計指標、夠新判準）+ 讀取區間往前 5m |
-| US-05 信號 / 自帶算式 / 由系統挑刻度 | `ContractIndicatorCalculationService` + `IndicatorCalculationDomain`（全天候市場）+ `ToResultDto` |
-| US-05 湊不出最少可算根數 / 從沒存過 | `IndicatorCalculationDomain.SelectContractBuckets` → `CandleCoverageTooThin` |
+| US-05 信號 / 自帶算式 / 沒指定刻度即一分鐘 | `ContractIndicatorCalculationService` + `IndicatorCalculationDomain`（全天候市場）+ `ToResultDto` |
+| US-05 湊不出最少可算根數 / 從沒存過 | `IndicatorCalculationDomain.SelectContractInput` → `CandleCoverageTooThin` |
 | US-05 還沒走完的一格 | `IndicatorCalculationDomain.ReadCutoff` + `FindLatestBefore` |
 | US-05 未宣告參數 / 入口寫錯 / 逾時 | `indicatorScriptRunner[vo.ContractKCandleVo]` + `indicatorScriptShape` |
 | US-06 混用拒絕（兩個方向） | `IndicatorCalculationApplication.resolveRunnable` + `MarketDataKindDomain.RequireRunnableAs` + controller 400 |

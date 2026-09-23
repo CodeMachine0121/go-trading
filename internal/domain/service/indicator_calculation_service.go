@@ -120,30 +120,8 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		openTimes = append(openTimes, time.Unix(inputKCandleVo.OpenTimeUnixSeconds, 0).UTC())
 	}
 
-	resultDto := dto.IndicatorCalculationResultDto{
-		Symbol:   calculationDomain.Symbol(),
-		Interval: string(calculationDomain.Interval().Value()),
-		// What a full answer would have taken, next to what there was to work from.
-		// Both come from the calculation itself rather than being worked out here:
-		// this layer reports the two numbers, it never counts candles of its own.
-		RequiredCandleCount: calculationDomain.CandleCount(),
-		UsedCandleCount:     len(inputKCandleVos),
-		OpenTimes:           openTimes,
-		ResultType:          string(calculationDomain.ResultType().Value()),
-	}
-
-	// A signal has no indicator name, so it leaves as the result itself rather than
-	// as an entry in a set keyed by name.
-	if calculationDomain.ResultType().IsSignal() {
-		resultDto.Signal = string(domains.NewSignalDomain(indicatorValues).Value())
-		return resultDto, nil
-	}
-
-	indicatorValueDtos := make(map[string]dto.IndicatorValueDto, len(indicatorValues))
-	for indicatorName, indicatorValue := range indicatorValues {
-		indicatorValueDtos[indicatorName] = indicatorValue.ToDto()
-	}
-	resultDto.Values = indicatorValueDtos
-
-	return resultDto, nil
+	// What a full answer would have taken, next to what there was to work from.
+	// Both come from the calculation itself rather than being worked out here: this
+	// layer reports the two numbers, it never counts candles of its own.
+	return calculationDomain.ToResultDto(openTimes, indicatorValues), nil
 }
