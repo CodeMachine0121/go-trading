@@ -86,7 +86,7 @@ func TestNewContractPositionStatisticDomainRefusesAnUnlawfulStatistic(t *testing
 		}, expectedMessage: "持倉量不得為負"},
 		{name: "持倉價值為負", breakStatistic: func(statistic *vo.ContractPositionStatisticVo) {
 			statistic.OpenInterestValue = decimal.RequireFromString("-1")
-		}, expectedMessage: "持倉量不得為負"},
+		}, expectedMessage: "持倉價值不得為負"},
 		{name: "不在五分鐘刻度", breakStatistic: func(statistic *vo.ContractPositionStatisticVo) {
 			statistic.StatisticTime = time.Date(2026, 9, 23, 9, 3, 0, 0, time.UTC)
 		}, expectedMessage: "統計時間必須落在五分鐘刻度"},

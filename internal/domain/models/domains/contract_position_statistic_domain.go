@@ -41,9 +41,13 @@ func NewContractPositionStatisticDomain(
 			"%w: 統計時間不得指向未來", ErrContractPositionStatisticValidation)
 	}
 
-	if statisticVo.OpenInterest.IsNegative() || statisticVo.OpenInterestValue.IsNegative() {
+	if statisticVo.OpenInterest.IsNegative() {
 		return ContractPositionStatisticDomain{}, fmt.Errorf(
 			"%w: 持倉量不得為負", ErrContractPositionStatisticValidation)
+	}
+	if statisticVo.OpenInterestValue.IsNegative() {
+		return ContractPositionStatisticDomain{}, fmt.Errorf(
+			"%w: 持倉價值不得為負", ErrContractPositionStatisticValidation)
 	}
 
 	// Listed in the order they are named to a caller, so that a statistic missing
