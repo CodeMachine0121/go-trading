@@ -218,6 +218,33 @@ func TestContractCandleReadResponses(t *testing.T) {
 		assert.Contains(t, recorder.Body.String(), `"premiumIndexClose":null`)
 	})
 
+	t.Run("hands a complete candle out with its index price and premium index", func(t *testing.T) {
+		fixture := newContractRouterUnderTest(t)
+		completeCandle := contractCandleAt(at(9, 0), "120")
+		completeCandle.IndexOpen = decimal.NewNullDecimal(decimal.RequireFromString("102"))
+		completeCandle.IndexHigh = decimal.NewNullDecimal(decimal.RequireFromString("122"))
+		completeCandle.IndexLow = decimal.NewNullDecimal(decimal.RequireFromString("92"))
+		completeCandle.IndexClose = decimal.NewNullDecimal(decimal.RequireFromString("112"))
+		completeCandle.PremiumIndexOpen = decimal.NewNullDecimal(decimal.RequireFromString("-0.0001"))
+		completeCandle.PremiumIndexHigh = decimal.NewNullDecimal(decimal.RequireFromString("0.0002"))
+		completeCandle.PremiumIndexLow = decimal.NewNullDecimal(decimal.RequireFromString("-0.0003"))
+		completeCandle.PremiumIndexClose = decimal.NewNullDecimal(decimal.RequireFromString("0.0001"))
+		fixture.candleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]entities.KCandleContract{completeCandle}, nil)
+
+		recorder := fixture.call(http.MethodGet,
+			"/contract-k-candles?symbol=BTCUSDT&startTime=2026-08-29T09:00:00Z&endTime=2026-08-29T09:05:00Z", "")
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		for _, figure := range []string{
+			`"indexOpen":"102"`, `"indexHigh":"122"`, `"indexLow":"92"`, `"indexClose":"112"`,
+			`"premiumIndexOpen":"-0.0001"`, `"premiumIndexHigh":"0.0002"`,
+			`"premiumIndexLow":"-0.0003"`, `"premiumIndexClose":"0.0001"`,
+		} {
+			assert.Contains(t, recorder.Body.String(), figure)
+		}
+	})
+
 	t.Run("refuses a time it cannot read", func(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 

@@ -21,6 +21,10 @@ func TestEachVenueIsPacedOnItsOwnAllowance(t *testing.T) {
 		"合約與現貨必須各有一份節奏，共用一份等於各只用到一半的額度")
 	assert.NotSame(t, pacers.crypto.Limiter(), pacers.taiwanStock.Limiter())
 	assert.NotSame(t, pacers.cryptoContract.Limiter(), pacers.taiwanStock.Limiter())
+	// The contract venue counts its position statistics apart from its candles.
+	assert.NotSame(t, pacers.cryptoContract.Limiter(), pacers.cryptoContractStatistics.Limiter(),
+		"持倉統計與合約 K 線各有一份額度")
+	assert.NotSame(t, pacers.crypto.Limiter(), pacers.cryptoContractStatistics.Limiter())
 }
 
 // TestEachVenuesPaceComesFromItsOwnSetting checks the other half: separate pacers
@@ -28,9 +32,11 @@ func TestEachVenueIsPacedOnItsOwnAllowance(t *testing.T) {
 func TestEachVenuesPaceComesFromItsOwnSetting(t *testing.T) {
 	t.Setenv("MARKET_DATA_REQUESTS_PER_MINUTE", "600")
 	t.Setenv("CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE", "111")
+	t.Setenv("CONTRACT_MARKET_DATA_STATISTICS_REQUESTS_PER_MINUTE", "77")
 
 	applicationConfig := config.Load()
 
 	require.Equal(t, 600, applicationConfig.Ingestion.MarketDataRequestsPerMinute)
 	assert.Equal(t, 111, applicationConfig.ContractIngestion.RequestsPerMinute)
+	assert.Equal(t, 77, applicationConfig.ContractIngestion.StatisticsRequestsPerMinute)
 }

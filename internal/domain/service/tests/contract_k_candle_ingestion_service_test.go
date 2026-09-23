@@ -829,3 +829,34 @@ func TestContractHistorySyncStoresNothingForAStretchWithNoMarkPriceAtAll(t *test
 	assert.Positive(t, endedRun.SkippedCount)
 	assert.Empty(t, endedRun.FailureReason)
 }
+
+func TestContractHistorySyncLeavesOldCandlesAsTheyWereWhenTheVenueNoLongerHasTheirIndexPrice(t *testing.T) {
+	// The day is held only as candles stored before the index price existed, so it is
+	// not complete and is asked about again. The venue can no longer give that day's
+	// index price: nothing can complete those candles, so nothing is handed to
+	// storage that could change them, and the run says what it could not store.
+	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.registered("BTCUSDT")
+	runs := underTest.recordsEveryContractSyncRun()
+	underTest.kCandleContractRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	withoutIndexPrice := reportedContractCandle(ingestionAt(9, 4, 0))
+	withoutIndexPrice.IndexOpen = decimal.NullDecimal{}
+	withoutIndexPrice.IndexHigh = decimal.NullDecimal{}
+	withoutIndexPrice.IndexLow = decimal.NullDecimal{}
+	withoutIndexPrice.IndexClose = decimal.NullDecimal{}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		Return([]vo.ContractMarketKCandleVo{withoutIndexPrice}, nil).AnyTimes()
+	underTest.kCandleContractRepository.EXPECT().
+		SaveAllIfAbsent(gomock.Any(), gomock.Len(0)).Return(0, nil).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), dto.KCandleHistorySyncDto{Symbol: "BTCUSDT", LookbackDays: 1},
+		contractHistoryCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 0, endedRun.StoredCount)
+	assert.Positive(t, endedRun.SkippedCount)
+}
