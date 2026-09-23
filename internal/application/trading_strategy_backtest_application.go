@@ -16,20 +16,23 @@ import (
 // and the candles and the account (the replay's). None of the three knows the others
 // exist.
 type TradingStrategyBacktestApplication struct {
-	tradingStrategyService *service.TradingStrategyService
-	strategyScriptService  *service.StrategyScriptService
-	backtestService        *service.BacktestService
+	tradingStrategyService  *service.TradingStrategyService
+	strategyScriptService   *service.StrategyScriptService
+	backtestService         *service.BacktestService
+	contractBacktestService *service.ContractBacktestService
 }
 
 func NewTradingStrategyBacktestApplication(
 	tradingStrategyService *service.TradingStrategyService,
 	strategyScriptService *service.StrategyScriptService,
 	backtestService *service.BacktestService,
+	contractBacktestService *service.ContractBacktestService,
 ) *TradingStrategyBacktestApplication {
 	return &TradingStrategyBacktestApplication{
-		tradingStrategyService: tradingStrategyService,
-		strategyScriptService:  strategyScriptService,
-		backtestService:        backtestService,
+		tradingStrategyService:  tradingStrategyService,
+		strategyScriptService:   strategyScriptService,
+		backtestService:         backtestService,
+		contractBacktestService: contractBacktestService,
 	}
 }
 
@@ -60,8 +63,41 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 	requestDto.SignalSources = resolvedSources
 	requestDto.BuyCondition = tradingStrategyDto.BuyCondition
 	requestDto.SellCondition = tradingStrategyDto.SellCondition
+	requestDto.TradingStrategyMarketDataKind = tradingStrategyDto.MarketDataKind
 
 	return tradingStrategyBacktestApplication.backtestService.RunTradingStrategyBacktest(
+		executionContext, requestDto)
+}
+
+// RunContractTradingStrategyBacktest replays the named contract trading strategy on a
+// contract account, by its own trading mode, and hands back the contract report card,
+// the finished round trips and the equity curve. Nothing is stored. The gates are the
+// spot replay's, word for word.
+func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) RunContractTradingStrategyBacktest(
+	executionContext context.Context,
+	viewerID uint,
+	tradingStrategyID uint,
+	requestDto dto.ContractTradingStrategyBacktestRequestDto,
+) (dto.ContractBacktestResultDto, error) {
+	tradingStrategyDto, findError := tradingStrategyBacktestApplication.tradingStrategyService.
+		GetTradingStrategy(executionContext, viewerID, tradingStrategyID)
+	if findError != nil {
+		return dto.ContractBacktestResultDto{}, findError
+	}
+
+	resolvedSources, resolveError := tradingStrategyBacktestApplication.resolveSignalSources(
+		executionContext, viewerID, tradingStrategyDto)
+	if resolveError != nil {
+		return dto.ContractBacktestResultDto{}, resolveError
+	}
+
+	requestDto.SignalSources = resolvedSources
+	requestDto.BuyCondition = tradingStrategyDto.BuyCondition
+	requestDto.SellCondition = tradingStrategyDto.SellCondition
+	requestDto.TradingStrategyMarketDataKind = tradingStrategyDto.MarketDataKind
+	requestDto.TradingStrategyTradingMode = tradingStrategyDto.TradingMode
+
+	return tradingStrategyBacktestApplication.contractBacktestService.RunContractTradingStrategyBacktest(
 		executionContext, requestDto)
 }
 
@@ -88,6 +124,7 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) re
 			Label:               signalSource.Label,
 			AggregationInterval: signalSource.AggregationInterval,
 			Script:              runnableStrategyScript.Script,
+			MarketDataKind:      runnableStrategyScript.MarketDataKind,
 			Parameters:          runnableStrategyScript.Parameters,
 			ParameterValues:     signalSource.ParameterValues,
 		})

@@ -58,6 +58,36 @@ func (controller *TradingStrategyBacktestController) RunTradingStrategyBacktest(
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
+// RunContractTradingStrategyBacktest replays one of this person's contract trading
+// strategies on a contract account, by its own trading mode.
+func (controller *TradingStrategyBacktestController) RunContractTradingStrategyBacktest(
+	ginContext *gin.Context,
+) {
+	tradingStrategyID, idIsReadable := controller.readID(ginContext)
+	if !idIsReadable {
+		return
+	}
+
+	var request models.ContractTradingStrategyBacktestRequest
+
+	if bindError := ginContext.ShouldBindJSON(&request); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+		return
+	}
+
+	resultDto, err := controller.tradingStrategyBacktestApplication.RunContractTradingStrategyBacktest(
+		ginContext.Request.Context(),
+		middlewares.CurrentUserID(ginContext),
+		tradingStrategyID,
+		request.ToRequestDto())
+	if err != nil {
+		controller.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, resultDto)
+}
+
 func (controller *TradingStrategyBacktestController) readID(ginContext *gin.Context) (uint, bool) {
 	id, parseError := strconv.ParseUint(ginContext.Param("id"), 10, strconv.IntSize)
 	if parseError != nil || id == 0 || id > math.MaxInt64 {

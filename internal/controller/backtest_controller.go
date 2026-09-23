@@ -47,6 +47,36 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
+// RunContractBacktest replays a contract strategy script on a contract account and
+// answers with the contract report card, the finished round trips and the equity
+// curve. Nothing is stored.
+func (backtestController *BacktestController) RunContractBacktest(ginContext *gin.Context) {
+	var contractBacktestRequest models.ContractBacktestRequest
+
+	if bindError := ginContext.ShouldBindJSON(&contractBacktestRequest); bindError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": bindError.Error()})
+		return
+	}
+
+	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
+		contractBacktestRequest.StrategyScriptID, contractBacktestRequest.Script, "",
+		contractBacktestRequest.ToParameterWriteDtos())
+	if subjectError != nil {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": subjectError.Error()})
+		return
+	}
+
+	resultDto, err := backtestController.backtestApplication.RunContractBacktest(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), runSubjectDomain,
+		contractBacktestRequest.ToRequestDto())
+	if err != nil {
+		backtestController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, resultDto)
+}
+
 // respondWithError separates what went wrong by what the caller has to go and change:
 // the conditions of the replay, a knob's name, the script, or this system.
 //
@@ -73,6 +103,12 @@ func (backtestController *BacktestController) respondWithError(ginContext *gin.C
 		return
 	}
 	if errors.Is(err, domains.ErrBacktestValidation) {
+		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	// A strategy script eating the other kind of market is the caller's choice of
+	// script, not a script written wrong.
+	if errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}

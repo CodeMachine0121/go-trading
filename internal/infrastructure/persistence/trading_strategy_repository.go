@@ -56,12 +56,14 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 			} else {
 				// Naming the column makes an empty value mean empty rather than
 				// "unchanged", which is how GORM reads a struct otherwise — and it
-				// is what keeps a rewrite away from the owner and the created time.
+				// is what keeps a rewrite away from the owner, the created time and
+				// the market data kind, none of which a rewrite may change.
 				updates := transaction.Model(&entities.TradingStrategy{}).
 					Where(clause.Eq{Column: "id", Value: tradingStrategyRow.ID}).
-					Select("name").
+					Select("name", "trading_mode").
 					Updates(entities.TradingStrategy{
-						Name: tradingStrategyRow.Name,
+						Name:        tradingStrategyRow.Name,
+						TradingMode: tradingStrategyRow.TradingMode,
 					})
 				if updates.Error != nil {
 					return updates.Error

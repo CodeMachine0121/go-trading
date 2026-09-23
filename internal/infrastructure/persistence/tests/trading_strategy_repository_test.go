@@ -152,6 +152,31 @@ func TestTradingStrategyRepositorySaveLeavesTheOwnerAndCreationAlone(t *testing.
 	assert.Equal(t, saved.CreatedAt.UTC(), rewrittenRow.CreatedAt.UTC())
 }
 
+// A rewrite may change the trading mode but never the kind: the kind is what every
+// source was checked against, and it is settled when the rules are first saved.
+func TestTradingStrategyRepositorySaveRewritesTheTradingModeButNeverTheKind(t *testing.T) {
+	database := newTradingStrategyTestDatabase(t)
+	repository := persistence.NewTradingStrategyRepository(database)
+
+	contractRules := aTradingStrategyRow("合約黃金交叉")
+	contractRules.MarketDataKind = string(vo.MarketDataKindContractKCandle)
+	contractRules.TradingMode = string(vo.ContractTradingModeLongShort)
+	saved, saveError := repository.Save(t.Context(), contractRules)
+	require.NoError(t, saveError)
+	assert.Equal(t, "contractKCandle", saved.MarketDataKind)
+
+	rewritten := aTradingStrategyRow("合約黃金交叉")
+	rewritten.ID = saved.ID
+	rewritten.MarketDataKind = string(vo.MarketDataKindKCandle)
+	rewritten.TradingMode = string(vo.ContractTradingModeShortOnly)
+
+	rewrittenRow, rewriteError := repository.Save(t.Context(), rewritten)
+	require.NoError(t, rewriteError)
+
+	assert.Equal(t, "contractKCandle", rewrittenRow.MarketDataKind)
+	assert.Equal(t, "shortOnly", rewrittenRow.TradingMode)
+}
+
 func TestTradingStrategyRepositorySaveRefusesANameThisPersonAlreadyUses(t *testing.T) {
 	database := newTradingStrategyTestDatabase(t)
 	repository := persistence.NewTradingStrategyRepository(database)

@@ -168,6 +168,7 @@ func (tradingStrategyApplication *TradingStrategyApplication) withResolvedStrate
 		// read it.
 		signalSource.DeclaredParameters = runnableStrategyScript.Parameters
 		signalSource.DeclaredResultType = runnableStrategyScript.ResultType
+		signalSource.DeclaredMarketDataKind = runnableStrategyScript.MarketDataKind
 		resolvedSources = append(resolvedSources, signalSource)
 	}
 

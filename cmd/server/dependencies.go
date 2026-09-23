@@ -414,8 +414,24 @@ func registerRoutes(
 		applicationConfig.KCandleQueryMaxResults,
 	)
 
-	engine.POST("/backtests", requiresSignIn, controller.NewBacktestController(
-		application.NewBacktestApplication(strategyScriptService, backtestService)).RunBacktest)
+	// The contract replay walks a contract account over contract bars: it reads what
+	// the contract indicator calculation reads, plus the venue's trading rules for the
+	// symbol, and keeps the same read ceiling and script allowance so a contract bar
+	// is the same bar either way.
+	contractBacktestService := service.NewContractBacktestService(
+		contractKCandleRepository,
+		persistence.NewContractFundingRateSettlementRepository(database),
+		persistence.NewContractPositionStatisticRepository(database),
+		contractTradingSymbolRepository,
+		persistence.NewContractMaintenanceMarginTierRepository(database),
+		script.NewYaegiContractIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
+	backtestController := controller.NewBacktestController(
+		application.NewBacktestApplication(strategyScriptService, backtestService, contractBacktestService))
+	engine.POST("/backtests", requiresSignIn, backtestController.RunBacktest)
 
 	// Creating a user and signing in are open, and have to be: a system holding no
 	// users has nobody who could be allowed to create the first one. "Who am I" is
@@ -528,12 +544,14 @@ func registerRoutes(
 		tradingStrategyService,
 		strategyScriptService,
 		backtestService,
+		contractBacktestService,
 	)
 
 	// 重演是對某一份交易策略做的事，所以掛在它底下——與機器人的輪次同一個形狀。
+	tradingStrategyBacktestController := controller.NewTradingStrategyBacktestController(
+		tradingStrategyBacktestApplication)
 	engine.POST("/trading-strategies/:id/backtests", requiresSignIn,
-		controller.NewTradingStrategyBacktestController(
-			tradingStrategyBacktestApplication).RunTradingStrategyBacktest)
+		tradingStrategyBacktestController.RunTradingStrategyBacktest)
 
 	// The assistant is wired after the trading strategies rather than before,
 	// because it is now handed them: it assembles a set of rules out of the scripts

@@ -64,7 +64,7 @@ func newTradingStrategyBacktestAssistantQueryUnderTest(
 		service.NewTradingStrategyService(tradingStrategyRepository),
 		service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewBacktestService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults))
+			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults), nil)
 
 	return tradingStrategyBacktestAssistantQueryUnderTest{
 		backtestAssistantQuery: assistantqueries.NewTradingStrategyBacktestAssistantQuery(
