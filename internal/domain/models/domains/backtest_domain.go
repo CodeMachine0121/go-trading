@@ -176,17 +176,19 @@ func NewBacktestDomain(
 	// This is the same rule an indicator calculation reads by, deliberately.
 	readCutoff := interval.BucketStart(endTime)
 
-	segments, segmentsError := NewBacktestSegmentsDomain(requestDto.ValidationStartTime, startTime, endTime)
-	if segmentsError != nil {
-		return BacktestDomain{}, segmentsError
-	}
-
 	// Nothing finished inside the stretch — because it ends before it starts, or
 	// because it is shorter than one bucket. Both are the same thing to whoever asked,
 	// so both get the sentence about not having enough candles rather than one of them
 	// getting a rule of its own.
 	if !readCutoff.After(startTime) {
 		return BacktestDomain{}, notEnoughKCandlesForBacktest(0)
+	}
+
+	// The validation start is judged against a stretch already known to hold
+	// something: an empty stretch is refused for being empty, not for where it splits.
+	segments, segmentsError := NewBacktestSegmentsDomain(requestDto.ValidationStartTime, startTime, endTime)
+	if segmentsError != nil {
+		return BacktestDomain{}, segmentsError
 	}
 
 	bucketCount := interval.BucketCount(startTime, readCutoff)

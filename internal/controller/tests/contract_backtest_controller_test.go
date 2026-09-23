@@ -432,6 +432,7 @@ func TestContractBacktestEndpointsAnswerARunOutAllowanceAsUnprocessable(t *testi
 
 			assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
 			assert.Contains(t, response.Body.String(), "90 秒內沒跑完")
+			assert.Contains(t, response.Body.String(), `"timeAllowanceSpent":true`)
 		})
 	}
 }
