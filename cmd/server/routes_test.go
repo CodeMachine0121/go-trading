@@ -94,6 +94,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// cannot reach the watchlist either.
 		"POST /backtests",
 		"POST /chat",
+		"POST /contract-backtests",
 		"POST /contract-indicator-calculations",
 		"POST /contract-k-candles",
 		"POST /contract-k-candles/backfill",
@@ -115,6 +116,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /trading-strategies",
 		// 重演掛在那一份底下，因為那是對它做的事。
 		"POST /trading-strategies/:id/backtests",
+		"POST /trading-strategies/:id/contract-backtests",
 		"POST /users",
 		// Replacing one's own password. It names nobody but the person asking —
 		// who that is comes from the proof on the request — so it cannot reach a

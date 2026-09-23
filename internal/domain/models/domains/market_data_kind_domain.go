@@ -101,6 +101,56 @@ func (marketDataKindDomain MarketDataKindDomain) RequireRunnableAs(expected vo.M
 		ErrStrategyScriptMarketDataKindMismatch, marketDataKindDomain.label())
 }
 
+// RequireReplayableAs refuses to replay this strategy script where the other kind of
+// market is what the replay walks over — the same refusal RequireRunnableAs gives a
+// calculation, in the words of a replay.
+func (marketDataKindDomain MarketDataKindDomain) RequireReplayableAs(expected vo.MarketDataKindVo) error {
+	if marketDataKindDomain.value == expected {
+		return nil
+	}
+
+	return fmt.Errorf("%w: 這支策略腳本吃的是%s，不能拿來做這一種重演",
+		ErrStrategyScriptMarketDataKindMismatch, marketDataKindDomain.label())
+}
+
+// RetainingForTradingStrategy is Retaining for a trading strategy: a rewrite that says
+// nothing about the kind keeps it, one that restates it changes nothing, and one that
+// names the other kind is refused — for the reason a strategy script's kind never
+// changes: every one of its signal sources eats the kind it was written for.
+func (marketDataKindDomain MarketDataKindDomain) RetainingForTradingStrategy(
+	requested string,
+) (MarketDataKindDomain, error) {
+	if strings.TrimSpace(requested) == "" {
+		return marketDataKindDomain, nil
+	}
+
+	requestedKind, declarationError := NewMarketDataKindDomain(requested)
+	if declarationError != nil {
+		return MarketDataKindDomain{}, fmt.Errorf("%w: %w", ErrTradingStrategyValidation, declarationError)
+	}
+
+	if requestedKind.value != marketDataKindDomain.value {
+		return MarketDataKindDomain{}, fmt.Errorf(
+			"%w: 行情種類建立後不得更換——這份交易策略吃的是%s；要吃%s請另建一份",
+			ErrTradingStrategyValidation, marketDataKindDomain.label(), requestedKind.label())
+	}
+
+	return marketDataKindDomain, nil
+}
+
+// RequireFollowableByStrategyBot refuses a trading strategy of this kind to a bot. A
+// bot reads spot K candles every round; handed a contract trading strategy it would
+// feed contract scripts the wrong shape of market, round after round, where nobody is
+// reading.
+func (marketDataKindDomain MarketDataKindDomain) RequireFollowableByStrategyBot() error {
+	if marketDataKindDomain.value == vo.MarketDataKindKCandle {
+		return nil
+	}
+
+	return fmt.Errorf("%w: 策略機器人目前只跑 K 線，不能引用一份吃%s的交易策略",
+		ErrStrategyBotValidation, marketDataKindDomain.label())
+}
+
 // label is how the kind reads in a sentence meant for a person. Both refusals above
 // name the kind, and they must name it the same way.
 func (marketDataKindDomain MarketDataKindDomain) label() string {

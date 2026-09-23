@@ -29,12 +29,16 @@ const tradingStrategyNameMaxLength = 128
 // anything is running are questions about a machine following these rules, not about
 // the rules — which is the whole reason the two are separate things.
 type TradingStrategyDomain struct {
-	id            uint
-	ownerID       uint
-	name          string
-	signalSources TradingStrategySignalSourcesDomain
-	buyCondition  TradingStrategyConditionDomain
-	sellCondition TradingStrategyConditionDomain
+	id      uint
+	ownerID uint
+	name    string
+	// marketDataKind is which kind of market every one of its sources eats; a contract
+	// one also carries the trading mode its buys and sells are read by.
+	marketDataKind MarketDataKindDomain
+	tradingMode    ContractTradingModeDomain
+	signalSources  TradingStrategySignalSourcesDomain
+	buyCondition   TradingStrategyConditionDomain
+	sellCondition  TradingStrategyConditionDomain
 }
 
 // NewTradingStrategyDomain validates it against every rule that applies. The rules
@@ -69,15 +73,37 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 	// A set of rules is written for the one kind of account this system replays, so
 	// there is nothing here to choose. Declaring anything is refused in the same words
 	// a replay refuses it, because there is only one model that owns that sentence.
-	if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
-		writeDto.TradingMode, decimal.Zero, decimal.Zero); spotOnlyRefusal != nil {
-		return TradingStrategyDomain{}, fmt.Errorf(
-			"%w: %s", ErrTradingStrategyValidation, spotOnlyRefusal)
+	marketDataKind, kindError := NewMarketDataKindDomain(writeDto.MarketDataKind)
+	if kindError != nil {
+		return TradingStrategyDomain{}, fmt.Errorf("%w: %w", ErrTradingStrategyValidation, kindError)
+	}
+
+	// A K candle trading strategy is spot rules, and spot has no trading mode to name —
+	// the refusal is the spot replay's own, word for word. A contract one reads its
+	// trading mode, blank being long and short.
+	tradingMode := ContractTradingModeDomain{}
+	if marketDataKind.Value() == vo.MarketDataKindKCandle {
+		if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
+			writeDto.TradingMode, decimal.Zero, decimal.Zero); spotOnlyRefusal != nil {
+			return TradingStrategyDomain{}, fmt.Errorf(
+				"%w: %s", ErrTradingStrategyValidation, spotOnlyRefusal)
+		}
+	} else {
+		contractTradingMode, tradingModeError := NewContractTradingModeDomain(writeDto.TradingMode)
+		if tradingModeError != nil {
+			return TradingStrategyDomain{}, fmt.Errorf(
+				"%w: %w", ErrTradingStrategyValidation, tradingModeError)
+		}
+		tradingMode = contractTradingMode
 	}
 
 	signalSources, sourcesError := NewTradingStrategySignalSourcesDomain(writeDto.SignalSources)
 	if sourcesError != nil {
 		return TradingStrategyDomain{}, sourcesError
+	}
+
+	if kindMismatch := signalSources.RequireMarketDataKind(marketDataKind); kindMismatch != nil {
+		return TradingStrategyDomain{}, kindMismatch
 	}
 
 	// Both conditions are required. A set of rules missing one only ever says a
@@ -95,22 +121,26 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 	}
 
 	return TradingStrategyDomain{
-		id:            writeDto.ID,
-		ownerID:       writeDto.OwnerID,
-		name:          name,
-		signalSources: signalSources,
-		buyCondition:  buyCondition,
-		sellCondition: sellCondition,
+		id:             writeDto.ID,
+		ownerID:        writeDto.OwnerID,
+		name:           name,
+		marketDataKind: marketDataKind,
+		tradingMode:    tradingMode,
+		signalSources:  signalSources,
+		buyCondition:   buyCondition,
+		sellCondition:  sellCondition,
 	}, nil
 }
 
 // ToEntity is this trading strategy as the rows it is stored as.
 func (tradingStrategyDomain TradingStrategyDomain) ToEntity() entities.TradingStrategy {
 	return entities.TradingStrategy{
-		ID:            tradingStrategyDomain.id,
-		OwnerID:       tradingStrategyDomain.ownerID,
-		Name:          tradingStrategyDomain.name,
-		SignalSources: tradingStrategyDomain.signalSources.ToEntities(),
+		ID:             tradingStrategyDomain.id,
+		OwnerID:        tradingStrategyDomain.ownerID,
+		Name:           tradingStrategyDomain.name,
+		MarketDataKind: string(tradingStrategyDomain.marketDataKind.Value()),
+		TradingMode:    string(tradingStrategyDomain.tradingMode.Value()),
+		SignalSources:  tradingStrategyDomain.signalSources.ToEntities(),
 		ConditionNodes: []entities.TradingStrategyConditionNode{
 			tradingStrategyDomain.buyCondition.ToEntity(vo.TradingStrategyConditionSideBuy, 0),
 			tradingStrategyDomain.sellCondition.ToEntity(vo.TradingStrategyConditionSideSell, 0),

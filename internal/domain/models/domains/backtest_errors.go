@@ -55,6 +55,12 @@ const (
 	// replays through — what to go and change when they disagree about coarseness,
 	// or when there are none at all.
 	BacktestSignalSourcesField = "signalSources"
+	// BacktestSlippageField is how far every fill of a contract replay lands on the
+	// wrong side of its price.
+	BacktestSlippageField = "slippage"
+	// BacktestMaintenanceMarginRateField is a maintenance margin rate a contract
+	// replay was handed, which only the symbol's ladder may say.
+	BacktestMaintenanceMarginRateField = "maintenanceMarginRate"
 )
 
 // BacktestFieldName digs out which input a refusal is about, when it is about one.

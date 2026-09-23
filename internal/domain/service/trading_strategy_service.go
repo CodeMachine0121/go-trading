@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -110,6 +111,29 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	// strategy cannot change hands, and the write path not being able to say so is
 	// stronger than remembering not to.
 	writeDto.OwnerID = storedTradingStrategy.OwnerID
+
+	// The kind is kept the same way: a rewrite that says nothing about it keeps what is
+	// stored, and one that names the other kind is refused.
+	storedMarketDataKind, storedKindError := domains.NewMarketDataKindDomain(
+		storedTradingStrategy.MarketDataKind)
+	if storedKindError != nil {
+		return dto.TradingStrategyDto{}, storedKindError
+	}
+
+	retainedMarketDataKind, retainError := storedMarketDataKind.RetainingForTradingStrategy(
+		writeDto.MarketDataKind)
+	if retainError != nil {
+		return dto.TradingStrategyDto{}, retainError
+	}
+	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
+
+	// A contract trading strategy's trading mode is kept the same way: a rewrite that
+	// says nothing about it — a rename, a changed condition — leaves the mode it was
+	// saved with, rather than quietly turning a short-only strategy into one that
+	// also buys.
+	if strings.TrimSpace(writeDto.TradingMode) == "" {
+		writeDto.TradingMode = storedTradingStrategy.TradingMode
+	}
 
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
 	if validationError != nil {

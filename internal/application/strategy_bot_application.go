@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -37,7 +38,7 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 ) (dto.StrategyBotDto, error) {
 	writeDto.OwnerID = viewerID
 
-	if gateError := strategyBotApplication.refuseUnownedTradingStrategy(
+	if gateError := strategyBotApplication.refuseUnfollowableTradingStrategy(
 		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
 		return dto.StrategyBotDto{}, gateError
 	}
@@ -49,7 +50,7 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
-	if gateError := strategyBotApplication.refuseUnownedTradingStrategy(
+	if gateError := strategyBotApplication.refuseUnfollowableTradingStrategy(
 		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
 		return dto.StrategyBotDto{}, gateError
 	}
@@ -148,25 +149,36 @@ func (strategyBotApplication *StrategyBotApplication) announce(
 		executionContext, viewerID, message)
 }
 
-// refuseUnownedTradingStrategy refuses a bot that names a set of rules this person
+// refuseUnfollowableTradingStrategy refuses a bot that names a set of rules this person
 // cannot see.
 //
 // Naming somebody else's fails here with the same sentence as naming one that does
 // not exist, which is what stops the field becoming a way to probe for other
-// people's trading strategies. Nothing else about the rules is checked — they were
-// checked once, where they live.
+// people's trading strategies. The only other thing asked of the rules is whether a
+// bot can follow them at all: a bot reads spot K candles, so a contract trading
+// strategy is refused. Everything else was checked once, where the rules live.
 //
 // Naming nothing passes, and is not refused here — that a bot must name exactly one
 // set of rules is a rule about bots, answered where bots are validated.
-func (strategyBotApplication *StrategyBotApplication) refuseUnownedTradingStrategy(
+func (strategyBotApplication *StrategyBotApplication) refuseUnfollowableTradingStrategy(
 	executionContext context.Context, viewerID uint, tradingStrategyID uint,
 ) error {
 	if tradingStrategyID == 0 {
 		return nil
 	}
 
-	_, findError := strategyBotApplication.tradingStrategyService.GetTradingStrategy(
+	tradingStrategyDto, findError := strategyBotApplication.tradingStrategyService.GetTradingStrategy(
 		executionContext, viewerID, tradingStrategyID)
+	if findError != nil {
+		return findError
+	}
 
-	return findError
+	// A bot reads spot K candles every round, so a set of rules written for contracts
+	// is refused here, where the person saving the bot reads the sentence.
+	marketDataKind, kindError := domains.NewMarketDataKindDomain(tradingStrategyDto.MarketDataKind)
+	if kindError != nil {
+		return kindError
+	}
+
+	return marketDataKind.RequireFollowableByStrategyBot()
 }

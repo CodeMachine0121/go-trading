@@ -14,8 +14,13 @@ type TradingStrategyDto struct {
 	// theirs. It is here because a round has no signed-in caller to ask: the clock
 	// started it, and resolving this trading strategy's scripts has to be done as
 	// the person who owns the bot.
-	OwnerID       uint                             `json:"-"`
-	Name          string                           `json:"name"`
+	OwnerID uint   `json:"-"`
+	Name    string `json:"name"`
+	// MarketDataKind is which kind of market its sources eat: kCandle or contractKCandle.
+	MarketDataKind string `json:"marketDataKind"`
+	// TradingMode is the contract trading mode of a contract trading strategy. A K
+	// candle one has none, and answers without the field at all — spot has no mode.
+	TradingMode   string                           `json:"tradingMode,omitempty"`
 	SignalSources []TradingStrategySignalSourceDto `json:"signalSources"`
 	BuyCondition  TradingStrategyConditionDto      `json:"buyCondition"`
 	SellCondition TradingStrategyConditionDto      `json:"sellCondition"`

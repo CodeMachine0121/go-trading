@@ -69,7 +69,7 @@ func newBacktestRouterUnderTest(t *testing.T) backtestRouterUnderTest {
 		application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewBacktestService(
-				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults)))
+				kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults), nil))
 
 	engine := gin.New()
 	engine.POST("/backtests", doorOpenFor(t, signedInViewerID), backtestController.RunBacktest)

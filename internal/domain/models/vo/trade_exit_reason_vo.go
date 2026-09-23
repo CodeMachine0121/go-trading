@@ -18,4 +18,9 @@ const (
 	TradeExitReasonStopLoss TradeExitReasonVo = "stopLoss"
 	// TradeExitReasonTakeProfit is the price reaching the level set in its favour.
 	TradeExitReasonTakeProfit TradeExitReasonVo = "takeProfit"
+	// TradeExitReasonLiquidation is the mark price reaching the level at which a
+	// contract position's margin no longer covers its maintenance margin. Only a
+	// contract replay produces it; a spot replay borrows nothing and has no one to
+	// close it.
+	TradeExitReasonLiquidation TradeExitReasonVo = "liquidation"
 )

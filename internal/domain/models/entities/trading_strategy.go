@@ -30,10 +30,21 @@ type TradingStrategy struct {
 	// list of columns a rewrite may touch, so "a trading strategy cannot change
 	// hands" is something the write path cannot express rather than something it
 	// remembers not to do.
-	OwnerID   uint      `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
-	Name      string    `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
-	CreatedAt time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt time.Time `gorm:"type:timestamptz;not null"`
+	OwnerID uint   `gorm:"not null;index:idx_trading_strategies_owner;uniqueIndex:idx_trading_strategies_owner_name"`
+	Name    string `gorm:"size:128;not null;uniqueIndex:idx_trading_strategies_owner_name"`
+	// MarketDataKind is which kind of market its sources eat. Rows stored before there
+	// was a choice read as the K candle, which is what they are.
+	MarketDataKind string `gorm:"size:32;not null;default:kCandle"`
+	// TradingMode is the contract trading mode a contract trading strategy's buys and
+	// sells are read by. A K candle one has none.
+	//
+	// It lives in a column of its own rather than the retired trading_mode one: a
+	// database that has not yet dropped that column still holds the spot-era modes in
+	// it, and reading them back would hand a contract trading strategy a mode nobody
+	// chose for it.
+	TradingMode string    `gorm:"column:contract_trading_mode;size:32;not null;default:''"`
+	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
 
 	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	// SignalSources and ConditionNodes belong to this trading strategy and to
@@ -55,15 +66,23 @@ func (tradingStrategy TradingStrategy) TableName() string {
 // push that job onto every reader — including the screen somebody builds conditions
 // on — and two reassemblers eventually disagree about the same stored rows.
 func (tradingStrategy TradingStrategy) ToDto() dto.TradingStrategyDto {
+	// A blank kind is a row stored before there was a choice, which is a K candle one.
+	marketDataKind := tradingStrategy.MarketDataKind
+	if marketDataKind == "" {
+		marketDataKind = string(vo.MarketDataKindKCandle)
+	}
+
 	return dto.TradingStrategyDto{
-		ID:            tradingStrategy.ID,
-		OwnerID:       tradingStrategy.OwnerID,
-		Name:          tradingStrategy.Name,
-		SignalSources: tradingStrategy.signalSourceDtos(),
-		BuyCondition:  tradingStrategy.conditionDto(vo.TradingStrategyConditionSideBuy),
-		SellCondition: tradingStrategy.conditionDto(vo.TradingStrategyConditionSideSell),
-		CreatedAt:     tradingStrategy.CreatedAt.UTC(),
-		UpdatedAt:     tradingStrategy.UpdatedAt.UTC(),
+		ID:             tradingStrategy.ID,
+		OwnerID:        tradingStrategy.OwnerID,
+		Name:           tradingStrategy.Name,
+		MarketDataKind: marketDataKind,
+		TradingMode:    tradingStrategy.TradingMode,
+		SignalSources:  tradingStrategy.signalSourceDtos(),
+		BuyCondition:   tradingStrategy.conditionDto(vo.TradingStrategyConditionSideBuy),
+		SellCondition:  tradingStrategy.conditionDto(vo.TradingStrategyConditionSideSell),
+		CreatedAt:      tradingStrategy.CreatedAt.UTC(),
+		UpdatedAt:      tradingStrategy.UpdatedAt.UTC(),
 	}
 }
 

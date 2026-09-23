@@ -22,8 +22,11 @@ type TradingStrategyBacktestRequestDto struct {
 	// SignalSources arrive already resolved: the application has walked each named
 	// strategy script through its gates and brought back the script itself.
 	SignalSources []ResolvedSignalSourceDto
-	BuyCondition  TradingStrategyConditionDto
-	SellCondition TradingStrategyConditionDto
+	// TradingStrategyMarketDataKind is the kind of market the trading strategy being
+	// replayed is written for, so that one written for contracts is refused here.
+	TradingStrategyMarketDataKind string
+	BuyCondition                  TradingStrategyConditionDto
+	SellCondition                 TradingStrategyConditionDto
 	// InitialCapital is what the account starts with. It must be above zero: with no
 	// capital there is nothing to stake.
 	InitialCapital decimal.Decimal
@@ -62,6 +65,8 @@ type ResolvedSignalSourceDto struct {
 	Label               string
 	AggregationInterval string
 	Script              string
+	// MarketDataKind is the kind of market the named strategy script eats.
+	MarketDataKind string
 	// Parameters are the script's knobs as it declares them, and ParameterValues what
 	// this source sets them to.
 	Parameters      []StrategyScriptParameterWriteDto

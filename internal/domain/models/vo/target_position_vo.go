@@ -12,6 +12,9 @@ type TargetPositionVo string
 const (
 	// TargetPositionLong asks to be holding a position.
 	TargetPositionLong TargetPositionVo = "long"
+	// TargetPositionShort asks to be holding a short position. Only a contract trading
+	// mode ever asks for it (see ContractTradingModeDomain.TargetFor).
+	TargetPositionShort TargetPositionVo = "short"
 	// TargetPositionFlat asks to be holding nothing: close whatever is open and stay
 	// in cash.
 	//
@@ -25,9 +28,8 @@ const (
 
 // WantsPosition is whether this target asks the account to be holding something.
 //
-// Which way is not asked alongside it any more, because there is only one way a spot
-// position can face. A replay of contracts brings that question back, and brings its
-// own model to answer it.
+// It answers for the spot account, where the only position is a long one. The contract
+// account asks which way a target faces instead (see ContractBacktestAccountDomain.Apply).
 func (targetPositionVo TargetPositionVo) WantsPosition() bool {
 	return targetPositionVo == TargetPositionLong
 }

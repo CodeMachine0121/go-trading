@@ -15,9 +15,13 @@ import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 // true of the shape rather than of the code reading it.
 type TradingStrategyRequest struct {
 	Name string `json:"name"`
-	// TradingMode is which set of rules these are written for: whether a sell means
-	// get out into cash or face the other way. Leaving it out means always in the
-	// market, which is how every set of rules saved before this field existed reads.
+	// MarketDataKind is which kind of market these rules are written for: kCandle
+	// (the default, and every trading strategy saved before there was a choice) or
+	// contractKCandle. It is settled on creation and never changes.
+	MarketDataKind string `json:"marketDataKind"`
+	// TradingMode is the contract trading mode — longShort, longOnly or shortOnly —
+	// a contract trading strategy reads its buys and sells by; blank is longShort. A
+	// K candle trading strategy has none, and naming one is refused.
 	TradingMode   string                               `json:"tradingMode"`
 	SignalSources []TradingStrategySignalSourceRequest `json:"signalSources"`
 	BuyCondition  TradingStrategyConditionRequest      `json:"buyCondition"`
@@ -61,12 +65,13 @@ type TradingStrategyConditionRequest struct {
 // is signed in, and on a rewrite from what is already stored.
 func (tradingStrategyRequest TradingStrategyRequest) ToWriteDto(id uint) dto.TradingStrategyWriteDto {
 	return dto.TradingStrategyWriteDto{
-		ID:            id,
-		Name:          tradingStrategyRequest.Name,
-		TradingMode:   tradingStrategyRequest.TradingMode,
-		SignalSources: tradingStrategyRequest.signalSourceWriteDtos(),
-		BuyCondition:  tradingStrategyRequest.BuyCondition.ToDto(),
-		SellCondition: tradingStrategyRequest.SellCondition.ToDto(),
+		ID:             id,
+		Name:           tradingStrategyRequest.Name,
+		TradingMode:    tradingStrategyRequest.TradingMode,
+		MarketDataKind: tradingStrategyRequest.MarketDataKind,
+		SignalSources:  tradingStrategyRequest.signalSourceWriteDtos(),
+		BuyCondition:   tradingStrategyRequest.BuyCondition.ToDto(),
+		SellCondition:  tradingStrategyRequest.SellCondition.ToDto(),
 	}
 }
 

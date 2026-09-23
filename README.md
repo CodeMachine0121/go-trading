@@ -195,6 +195,8 @@ curl localhost:8080/health
 | `DELETE` | `/contract-watchlist/{symbol}` | 停止追蹤那個合約。**只停止追蹤**，已抓回的一根都不刪，現貨那邊完全不受影響 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `POST` | `/contract-indicator-calculations` | 對一個**合約**標的計算指標，body 與 `/indicator-calculations` 相同。算式收下一串 `indicator.ContractKCandle`（合約行情格）：現貨 K 線的每一項同名同義，另帶成交筆數、標記價格／指數價格／溢價指數各一組開高低收、**收盤時現行的資金費率**與**這一格內有沒有結算**、收盤前最近且夠新的**持倉統計**八項；沒有值一律為零。指名一支吃另一種行情的策略腳本回 `400` |
+| `POST` | `/contract-backtests` | 在**逐倉合約帳戶**上重演一支**合約**策略腳本（指名或自帶算式）。body 與 `/backtests` 相同，另收 `leverage`（留白即一倍）、`tradingMode`（`longShort`／`longOnly`／`shortOnly`，留白即多空反手）、`slippagePercentage`（留白即不計）。強平看**標記價格**、維持保證金查**分級**（沒有分級退回交易規格最小那一級）、**資金費率一律計入**、數量照交易規格取整。送 `maintenanceMarginRate` 或指名一支 K 線種類的策略腳本回 `400` |
+| `POST` | `/trading-strategies/{id}/contract-backtests` | 在合約帳戶上重演一份**合約交易策略**；交易模式由那份交易策略自己說，重演時送 `tradingMode` 回 `400` |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
 | `POST` | `/chat` | 問行情助手一句話；不指名對話即開一段新的。**回 202，不回答案**——收下問題、回覆對話識別碼與這次回答的識別碼，答案在連線之外寫完 |
 | `GET` | `/chat/conversations` | 列出每一段對話，最近有動靜的排前面 |
@@ -927,9 +929,17 @@ newman run postman/go-trading.postman_collection.json \
 
 ### 什麼還沒做
 
-即時跟盤、把合約 K 線合併成更粗的刻度，以及讓
-指標計算與回測吃得到這些合約資料——都還沒有。下游（回測、指標、交易策略、機器人）目前
-完全不知道這些資料存在。
+合約的即時跟盤與**合約的策略機器人**還沒有。指標計算（`/contract-indicator-calculations`）、
+回測（`/contract-backtests`）與交易策略（`marketDataKind: contractKCandle`）已經吃得到合約資料；
+策略機器人目前只跑 K 線，引用一份合約交易策略會被拒絕。
+
+### 合約重演怎麼算
+
+- **逐倉**：每一注有自己的一筆保證金，最多賠光它；名目 ＝ 保證金 × 槓桿。
+- **一格裡的順序**：先收付這一格的資金費率結算（改動保證金與強平價）→ 止損與強平誰離進場價近誰先 →
+  止盈 → 這一格的信號（收盤成交，套滑點）。
+- **強平價**：多倉 `(qE − M − c) / (q(1 − r))`、空倉 `(qE + M + c) / (q(1 + r))`，M 含收付過的資金費用。
+- **分級沒有歷史**：重演過去用的是今天那一組，成績單的 `maintenanceMarginBasis` 會說出來。
 
 ### 收盤不是故障
 
