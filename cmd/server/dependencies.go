@@ -278,6 +278,11 @@ func registerRoutes(
 	engine.GET("/contract-funding-rate-settlements",
 		controller.NewContractFundingRateSettlementController(
 			contractFundingRateApplication).GetSettlementsInRange)
+	contractMaintenanceMarginTierApplication := application.NewContractMaintenanceMarginTierApplication(
+		contractMaintenanceMarginTierService)
+	engine.GET("/contract-maintenance-margin-tiers",
+		controller.NewContractMaintenanceMarginTierController(
+			contractMaintenanceMarginTierApplication).GetTiers)
 	engine.GET("/contract-position-statistics",
 		controller.NewContractPositionStatisticController(
 			contractPositionStatisticApplication).GetStatisticsInRange)
@@ -602,6 +607,7 @@ func registerRoutes(
 			fundingRate:       contractFundingRateApplication,
 			positionStatistic: contractPositionStatisticApplication,
 			tradingSymbol:     contractTradingSymbolApplication,
+			maintenanceMargin: contractMaintenanceMarginTierApplication,
 		}
 }
 
@@ -613,6 +619,7 @@ type contractSeriesApplications struct {
 	fundingRate       *application.ContractFundingRateApplication
 	positionStatistic *application.ContractPositionStatisticApplication
 	tradingSymbol     *application.ContractTradingSymbolApplication
+	maintenanceMargin *application.ContractMaintenanceMarginTierApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -708,6 +715,13 @@ func backgroundJobsFor(
 	if contractIngestion.TradingSpecificationRefreshInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractTradingSpecificationRefreshJob(
 			contractSeries.tradingSymbol, contractIngestion.TradingSpecificationRefreshInterval))
+	}
+
+	// Only with an account: without one there is nothing this round could ask, and a
+	// line every day saying so is noise, not information.
+	if contractIngestion.MaintenanceMarginTierRefreshInterval > 0 && contractIngestion.HasAccountCredentials() {
+		backgroundJobs = append(backgroundJobs, job.NewContractMaintenanceMarginTierRefreshJob(
+			contractSeries.maintenanceMargin, contractIngestion.MaintenanceMarginTierRefreshInterval))
 	}
 
 	return backgroundJobs

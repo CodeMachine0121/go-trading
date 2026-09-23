@@ -120,3 +120,45 @@ func TestAContractSupplementRoundIsSwitchedOffByZeroOrLess(t *testing.T) {
 		})
 	}
 }
+
+func TestTheContractAccountHasNoKeyUnlessOneIsGiven(t *testing.T) {
+	t.Setenv("CONTRACT_ACCOUNT_API_KEY", "")
+	t.Setenv("CONTRACT_ACCOUNT_API_SECRET", "")
+
+	contractIngestion := config.Load().ContractIngestion
+
+	assert.Empty(t, contractIngestion.AccountApiKey)
+	assert.Empty(t, contractIngestion.AccountApiSecret)
+	assert.False(t, contractIngestion.HasAccountCredentials())
+	assert.Equal(t, "https://fapi.binance.com/fapi/v1/leverageBracket", contractIngestion.MaintenanceMarginTierUrl)
+	assert.Equal(t, 24*time.Hour, contractIngestion.MaintenanceMarginTierRefreshInterval)
+}
+
+func TestTheContractAccountNeedsBothHalvesOfItsKey(t *testing.T) {
+	testCases := []struct {
+		name     string
+		key      string
+		secret   string
+		expected bool
+	}{
+		{name: "兩半都有", key: "key", secret: "secret", expected: true},
+		{name: "只有金鑰", key: "key", expected: false},
+		{name: "只有密鑰", secret: "secret", expected: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("CONTRACT_ACCOUNT_API_KEY", testCase.key)
+			t.Setenv("CONTRACT_ACCOUNT_API_SECRET", testCase.secret)
+			t.Setenv("CONTRACT_MARKET_DATA_MAINTENANCE_MARGIN_TIER_URL", "https://example.test/brackets")
+			t.Setenv("CONTRACT_MAINTENANCE_MARGIN_TIER_REFRESH_INTERVAL_HOURS", "12")
+
+			contractIngestion := config.Load().ContractIngestion
+
+			assert.Equal(t, testCase.expected, contractIngestion.HasAccountCredentials())
+			assert.Equal(t, testCase.key, contractIngestion.AccountApiKey)
+			assert.Equal(t, "https://example.test/brackets", contractIngestion.MaintenanceMarginTierUrl)
+			assert.Equal(t, 12*time.Hour, contractIngestion.MaintenanceMarginTierRefreshInterval)
+		})
+	}
+}

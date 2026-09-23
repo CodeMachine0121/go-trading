@@ -4406,6 +4406,79 @@
           ]
         },
         {
+          "name": "合約標的的完整維持保證金分級",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-maintenance-margin-tiers?symbol={{contractWatchlistSymbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-maintenance-margin-tiers"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                }
+              ]
+            },
+            "description": "要伺服器設定了 CONTRACT_ACCOUNT_API_KEY / CONTRACT_ACCOUNT_API_SECRET 才會有資料；沒設定時回空的陣列，這也是正常的。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const tiers = pm.response.json();",
+                  "pm.test(\"回的是一份清單\", () => pm.expect(tiers).to.be.an(\"array\"));",
+                  "if (tiers.length > 0) {",
+                  "    pm.test(\"由第一級開始、一級一級往上\", () => tiers.forEach((tier, index) => pm.expect(tier.tier).to.eql(index + 1)));",
+                  "    pm.test(\"級與級之間不重疊\", () => {",
+                  "        for (let index = 1; index < tiers.length; index++) {",
+                  "            pm.expect(Number(tiers[index].notionalFloor)).to.be.at.least(Number(tiers[index - 1].notionalCap));",
+                  "        }",
+                  "    });",
+                  "    pm.test(\"維持保證金率介於零與一之間\", () => tiers.forEach((tier) => pm.expect(Number(tier.maintenanceMarginRate)).to.be.within(0, 1)));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查維持保證金分級時沒指定合約標的會被拒絕",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-maintenance-margin-tiers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-maintenance-margin-tiers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出缺了什麼\", () => pm.expect(pm.response.text()).to.include(\"必須指定交易標的\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "補齊一個沒登錄過的合約",
           "request": {
             "method": "POST",

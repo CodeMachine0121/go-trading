@@ -116,6 +116,10 @@ curl localhost:8080/health
 | `CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES` | `60` | 資金費率那一輪的間隔；`0` 或負值停用 |
 | `CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES` | `5` | 持倉統計那一輪的間隔；`0` 或負值停用。**停用多久就少多久**——來源只留三十天 |
 | `CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS` | `24` | 交易規格刷新的間隔；`0` 或負值停用 |
+| `CONTRACT_ACCOUNT_API_KEY` | （無） | 幣安帳戶金鑰。**只勾讀取權限**。只有完整的維持保證金分級需要它；沒設定時不抓分級、不報錯，其餘照常。**不進版本控制** |
+| `CONTRACT_ACCOUNT_API_SECRET` | （無） | 上面那把金鑰的密鑰，只用來簽名，不會出現在任何紀錄或回應 |
+| `CONTRACT_MARKET_DATA_MAINTENANCE_MARGIN_TIER_URL` | 幣安分級網址 | 完整維持保證金分級的位址（要帳戶簽名） |
+| `CONTRACT_MAINTENANCE_MARGIN_TIER_REFRESH_INTERVAL_HOURS` | `24` | 分級刷新的間隔；`0` 或負值停用。**沒有金鑰時這一輪根本不跑** |
 | `CONTRACT_MARKET_DATA_SYMBOL_CATALOG_URL` | 幣安合約交易對清單網址 | 合約確認「這個代號存不存在」的位址。**這個場所不接受只問一個代號**，帶了不存在的代號一樣整份回來，所以確認是在整份目錄裡逐一比對 |
 | `CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向合約來源請求的逾時 |
 | `CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE` | `300` | 每分鐘最多向合約場所打幾次。**與現貨那份各自計算**，因為兩個場所各記各的額度；共用一份等於各只用到一半。這裡每一根要問四次 |
@@ -185,6 +189,7 @@ curl localhost:8080/health
 | `GET` | `/contract-trading-symbols` | 列出系統認得的每一個**合約**標的：已登錄的加上實際有合約 K 線的，去重、依名稱排序。每一個帶著它的**交易規格**（還沒記下時為 `null`） |
 | `GET` | `/contract-funding-rate-settlements?symbol=&startTime=&endTime=` | 一個合約標的在一段時間內的**資金費率結算**，依結算時間由早到晚 |
 | `GET` | `/contract-position-statistics?symbol=&startTime=&endTime=` | 一個合約標的在一段時間內的**持倉統計**（五分鐘一筆），依統計時間由早到晚 |
+| `GET` | `/contract-maintenance-margin-tiers?symbol=` | 一個合約標的的**整組維持保證金分級**，由第一級到最後一級。要設定帳戶金鑰才會有資料，沒有就是空的 |
 | `POST` | `/contract-watchlist` | 開始持續追蹤一個合約標的（body 只給 `symbol`——這條路只服務一個場所）。加之前先確認這個代號**存在、還在交易、而且是永續的**（已停止交易的、還沒開始的、有交割日的一律回「找不到這個代號」），**加完立刻補齊那一檔** |
 | `DELETE` | `/contract-watchlist/{symbol}` | 停止追蹤那個合約。**只停止追蹤**，已抓回的一根都不刪，現貨那邊完全不受影響 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
@@ -890,9 +895,20 @@ newman run postman/go-trading.postman_collection.json \
 **持倉統計要持續錄。** 來源只回答最近三十天，今天不錄的就永遠沒有了。那一輪停用或系統停機多久，
 中間就缺多久——這是來源的限制，不算失敗。
 
+### 完整的維持保證金分級要帳戶金鑰
+
+交易規格裡的維持保證金率只是**最小那一級**，公開資料就有。部位越大比例越高，而完整的每一級
+（名目範圍、維持保證金率、速算額、最高槓桿）**來源只肯告訴帳戶本人**——所以要設定
+`CONTRACT_ACCOUNT_API_KEY` 與 `CONTRACT_ACCOUNT_API_SECRET`，而且**只需要讀取權限**。
+
+- 有金鑰：啟動時抓一次、之後每天刷新、加入追蹤名單時也抓一次；一次問回所有合約，只存已登錄的。
+- 沒有金鑰：不抓、不報錯、那一輪不跑，其餘一切照常。
+- 每個標的**整組替換**；某個標的的分級說不通（重疊、亂序、數字不合理）時**只有它**保留原本的。
+- 一筆部位的維持保證金＝名目 × 那一級的維持保證金率 − 那一級的速算額。
+
 ### 什麼還沒做
 
-即時跟盤、把合約 K 線合併成更粗的刻度、維持保證金的完整分級（來源要帳戶身分），以及讓
+即時跟盤、把合約 K 線合併成更粗的刻度，以及讓
 指標計算與回測吃得到這些合約資料——都還沒有。下游（回測、指標、交易策略、機器人）目前
 完全不知道這些資料存在。
 
