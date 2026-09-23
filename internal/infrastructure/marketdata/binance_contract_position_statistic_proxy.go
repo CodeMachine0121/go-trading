@@ -92,95 +92,97 @@ func (positionStatisticProxy *BinanceContractPositionStatisticProxy) FetchPositi
 ) ([]vo.ContractPositionStatisticVo, error) {
 	statistics := make([]vo.ContractPositionStatisticVo, 0)
 
+	// One page-sized stretch at a time, three questions each, aligned on the moment.
 	for chunkStart := startTime.UTC(); !chunkStart.After(endTime); {
 		chunkEnd := chunkStart.Add((positionStatisticPageLimit - 1) * positionStatisticStep)
 		if chunkEnd.After(endTime) {
 			chunkEnd = endTime.UTC()
 		}
+		nextChunkStart := chunkEnd.Add(positionStatisticStep)
 
-		chunkStatistics, chunkError := positionStatisticProxy.fetchChunk(
-			executionContext, symbol, chunkStart, chunkEnd)
-		if chunkError != nil {
-			return nil, chunkError
+		openInterestAnswer, askError := positionStatisticProxy.ask(
+			executionContext, openInterestPath, symbol, chunkStart, chunkEnd)
+		if askError != nil {
+			return nil, askError
 		}
-		statistics = append(statistics, chunkStatistics...)
 
-		chunkStart = chunkEnd.Add(positionStatisticStep)
+		var openInterests []binanceOpenInterest
+		if decodeError := json.Unmarshal(openInterestAnswer, &openInterests); decodeError != nil {
+			return nil, fmt.Errorf("read contract position statistic answer for %s: %w", symbol, decodeError)
+		}
+
+		if len(openInterests) == 0 {
+			// Nothing was open to split. Asking anyway would spend the allowance on two
+			// answers with no home.
+			chunkStart = nextChunkStart
+			continue
+		}
+
+		accountSplits, accountError := positionStatisticProxy.askForSplits(
+			executionContext, accountLongShortPath, symbol, chunkStart, chunkEnd)
+		if accountError != nil {
+			return nil, accountError
+		}
+
+		topTraderSplits, topTraderError := positionStatisticProxy.askForSplits(
+			executionContext, topTraderPositionRatioPath, symbol, chunkStart, chunkEnd)
+		if topTraderError != nil {
+			return nil, topTraderError
+		}
+
+		for _, openInterest := range openInterests {
+			statisticTime := time.UnixMilli(openInterest.Timestamp).UTC()
+			if statisticTime.Before(chunkStart) || statisticTime.After(chunkEnd) {
+				continue
+			}
+
+			statistic, convertError := openInterest.toContractPositionStatisticVo(
+				symbol, accountSplits, topTraderSplits)
+			if convertError != nil {
+				return nil, convertError
+			}
+			statistics = append(statistics, statistic)
+		}
+
+		chunkStart = nextChunkStart
 	}
 
 	return statistics, nil
 }
 
-// fetchChunk asks the three questions about one page-sized stretch and aligns the
-// answers.
-func (positionStatisticProxy *BinanceContractPositionStatisticProxy) fetchChunk(
-	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
-) ([]vo.ContractPositionStatisticVo, error) {
-	openInterestAnswer, askError := positionStatisticProxy.ask(
-		executionContext, openInterestPath, symbol, startTime, endTime)
-	if askError != nil {
-		return nil, askError
+// toContractPositionStatisticVo turns one open interest reading into a statistic,
+// joined with whichever of the two splits describe the same moment. A split that does
+// not is left absent for the domain to judge.
+func (openInterest binanceOpenInterest) toContractPositionStatisticVo(
+	symbol string, accountSplits map[int64]longShortSplitFigures, topTraderSplits map[int64]longShortSplitFigures,
+) (vo.ContractPositionStatisticVo, error) {
+	openInterestAmount, amountError := decimal.NewFromString(openInterest.SumOpenInterest)
+	if amountError != nil {
+		return vo.ContractPositionStatisticVo{}, fmt.Errorf("read open interest for %s: %w", symbol, amountError)
+	}
+	openInterestValue, valueError := decimal.NewFromString(openInterest.SumOpenInterestValue)
+	if valueError != nil {
+		return vo.ContractPositionStatisticVo{}, fmt.Errorf("read open interest value for %s: %w", symbol, valueError)
 	}
 
-	var openInterests []binanceOpenInterest
-	if decodeError := json.Unmarshal(openInterestAnswer, &openInterests); decodeError != nil {
-		return nil, fmt.Errorf("read contract position statistic answer for %s: %w", symbol, decodeError)
+	statistic := vo.ContractPositionStatisticVo{
+		Symbol:            symbol,
+		StatisticTime:     time.UnixMilli(openInterest.Timestamp).UTC(),
+		OpenInterest:      openInterestAmount,
+		OpenInterestValue: openInterestValue,
+	}
+	if accountSplit, hasAccountSplit := accountSplits[openInterest.Timestamp]; hasAccountSplit {
+		statistic.AccountLongShare = decimal.NewNullDecimal(accountSplit.longShare)
+		statistic.AccountShortShare = decimal.NewNullDecimal(accountSplit.shortShare)
+		statistic.AccountLongShortRatio = decimal.NewNullDecimal(accountSplit.longShortRatio)
+	}
+	if topTraderSplit, hasTopTraderSplit := topTraderSplits[openInterest.Timestamp]; hasTopTraderSplit {
+		statistic.TopTraderPositionLongShare = decimal.NewNullDecimal(topTraderSplit.longShare)
+		statistic.TopTraderPositionShortShare = decimal.NewNullDecimal(topTraderSplit.shortShare)
+		statistic.TopTraderPositionLongShortRatio = decimal.NewNullDecimal(topTraderSplit.longShortRatio)
 	}
 
-	if len(openInterests) == 0 {
-		// Nothing was open to split. Asking anyway would spend the allowance on two
-		// answers with no home.
-		return []vo.ContractPositionStatisticVo{}, nil
-	}
-
-	accountSplits, accountError := positionStatisticProxy.askForSplits(
-		executionContext, accountLongShortPath, symbol, startTime, endTime)
-	if accountError != nil {
-		return nil, accountError
-	}
-
-	topTraderSplits, topTraderError := positionStatisticProxy.askForSplits(
-		executionContext, topTraderPositionRatioPath, symbol, startTime, endTime)
-	if topTraderError != nil {
-		return nil, topTraderError
-	}
-
-	statistics := make([]vo.ContractPositionStatisticVo, 0, len(openInterests))
-	for _, openInterest := range openInterests {
-		statisticTime := time.UnixMilli(openInterest.Timestamp).UTC()
-		if statisticTime.Before(startTime) || statisticTime.After(endTime) {
-			continue
-		}
-
-		openInterestAmount, amountError := decimal.NewFromString(openInterest.SumOpenInterest)
-		if amountError != nil {
-			return nil, fmt.Errorf("read open interest for %s: %w", symbol, amountError)
-		}
-		openInterestValue, valueError := decimal.NewFromString(openInterest.SumOpenInterestValue)
-		if valueError != nil {
-			return nil, fmt.Errorf("read open interest value for %s: %w", symbol, valueError)
-		}
-
-		statistic := vo.ContractPositionStatisticVo{
-			Symbol:            symbol,
-			StatisticTime:     statisticTime,
-			OpenInterest:      openInterestAmount,
-			OpenInterestValue: openInterestValue,
-		}
-		if accountSplit, hasAccountSplit := accountSplits[openInterest.Timestamp]; hasAccountSplit {
-			statistic.AccountLongShare = decimal.NewNullDecimal(accountSplit.longShare)
-			statistic.AccountShortShare = decimal.NewNullDecimal(accountSplit.shortShare)
-			statistic.AccountLongShortRatio = decimal.NewNullDecimal(accountSplit.longShortRatio)
-		}
-		if topTraderSplit, hasTopTraderSplit := topTraderSplits[openInterest.Timestamp]; hasTopTraderSplit {
-			statistic.TopTraderPositionLongShare = decimal.NewNullDecimal(topTraderSplit.longShare)
-			statistic.TopTraderPositionShortShare = decimal.NewNullDecimal(topTraderSplit.shortShare)
-			statistic.TopTraderPositionLongShortRatio = decimal.NewNullDecimal(topTraderSplit.longShortRatio)
-		}
-		statistics = append(statistics, statistic)
-	}
-
-	return statistics, nil
+	return statistic, nil
 }
 
 // askForSplits asks one of the two split questions and keys the answers by the

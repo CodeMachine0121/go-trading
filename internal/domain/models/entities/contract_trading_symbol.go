@@ -52,28 +52,24 @@ func (contractTradingSymbol ContractTradingSymbol) TableName() string {
 
 // ToDto is the shape this contract leaves the domain in.
 func (contractTradingSymbol ContractTradingSymbol) ToDto() dto.ContractTradingSymbolDto {
-	return dto.ContractTradingSymbolDto{
-		Symbol:               contractTradingSymbol.Symbol,
-		IsWatched:            contractTradingSymbol.IsWatched,
-		TradingSpecification: contractTradingSymbol.toTradingSpecificationDto(),
-	}
-}
-
-// toTradingSpecificationDto hands the specification outwards, or nothing when it has
-// not been recorded yet.
-func (contractTradingSymbol ContractTradingSymbol) toTradingSpecificationDto() *dto.ContractTradingSpecificationDto {
-	if contractTradingSymbol.SpecificationUpdatedAt == nil || contractTradingSymbol.FundingIntervalHours == nil {
-		return nil
+	contractTradingSymbolDto := dto.ContractTradingSymbolDto{
+		Symbol:    contractTradingSymbol.Symbol,
+		IsWatched: contractTradingSymbol.IsWatched,
 	}
 
-	return &dto.ContractTradingSpecificationDto{
-		TickSize:               contractTradingSymbol.TickSize.Decimal,
-		QuantityStep:           contractTradingSymbol.QuantityStep.Decimal,
-		MinimumQuantity:        contractTradingSymbol.MinimumQuantity.Decimal,
-		MinimumNotional:        contractTradingSymbol.MinimumNotional.Decimal,
-		MaintenanceMarginRate:  contractTradingSymbol.MaintenanceMarginRate.Decimal,
-		LiquidationFeeRate:     contractTradingSymbol.LiquidationFeeRate.Decimal,
-		FundingIntervalHours:   *contractTradingSymbol.FundingIntervalHours,
-		SpecificationUpdatedAt: contractTradingSymbol.SpecificationUpdatedAt.UTC(),
+	// The specification is handed out only once it has been recorded.
+	if contractTradingSymbol.SpecificationUpdatedAt != nil && contractTradingSymbol.FundingIntervalHours != nil {
+		contractTradingSymbolDto.TradingSpecification = &dto.ContractTradingSpecificationDto{
+			TickSize:               contractTradingSymbol.TickSize.Decimal,
+			QuantityStep:           contractTradingSymbol.QuantityStep.Decimal,
+			MinimumQuantity:        contractTradingSymbol.MinimumQuantity.Decimal,
+			MinimumNotional:        contractTradingSymbol.MinimumNotional.Decimal,
+			MaintenanceMarginRate:  contractTradingSymbol.MaintenanceMarginRate.Decimal,
+			LiquidationFeeRate:     contractTradingSymbol.LiquidationFeeRate.Decimal,
+			FundingIntervalHours:   *contractTradingSymbol.FundingIntervalHours,
+			SpecificationUpdatedAt: contractTradingSymbol.SpecificationUpdatedAt.UTC(),
+		}
 	}
+
+	return contractTradingSymbolDto
 }

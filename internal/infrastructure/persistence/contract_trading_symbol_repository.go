@@ -88,10 +88,17 @@ func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindBySy
 func (contractTradingSymbolRepository *ContractTradingSymbolRepository) Save(
 	executionContext context.Context, contractTradingSymbol entities.ContractTradingSymbol,
 ) error {
+	// A contract carrying no specification leaves the one held alone: saving "now
+	// watched" or "no longer watched" is not saying the specification went away.
+	writtenColumns := []string{"is_watched"}
+	if contractTradingSymbol.SpecificationUpdatedAt != nil {
+		writtenColumns = append(writtenColumns, tradingSpecificationColumns...)
+	}
+
 	result := contractTradingSymbolRepository.database.WithContext(executionContext).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "symbol"}},
-			DoUpdates: clause.AssignmentColumns(contractTradingSymbolRepository.columnsWrittenBy(contractTradingSymbol)),
+			DoUpdates: clause.AssignmentColumns(writtenColumns),
 		}).
 		Create(&contractTradingSymbol)
 	if result.Error != nil {
@@ -133,17 +140,4 @@ func (contractTradingSymbolRepository *ContractTradingSymbolRepository) SaveTrad
 	}
 
 	return nil
-}
-
-// columnsWrittenBy is which columns saving this contract over one already held
-// overwrites. A contract carrying no specification leaves the one held alone: saving
-// "now watched" or "no longer watched" is not saying the specification went away.
-func (contractTradingSymbolRepository *ContractTradingSymbolRepository) columnsWrittenBy(
-	contractTradingSymbol entities.ContractTradingSymbol,
-) []string {
-	if contractTradingSymbol.SpecificationUpdatedAt == nil {
-		return []string{"is_watched"}
-	}
-
-	return append([]string{"is_watched"}, tradingSpecificationColumns...)
 }
