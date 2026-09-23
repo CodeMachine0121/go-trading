@@ -15,73 +15,85 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The two Taiwan sources are read side by side here on purpose.
+// The two paths a Taiwan candle can reach the system by are read side by side here,
+// from one answer, on purpose.
 //
-// They count in the same unit — measured, not assumed: on 2026-09-22 the history
-// source's minute volumes for 2330 summed to 18876 and the exchange's running total
-// closed at the same 18876, to the unit. Neither converts, so the same trading
-// reported by both must arrive as the same number.
+// This feature has now been wrong twice about how the live figures relate to the
+// stored ones — once about the unit, once about which field carried a price — and
+// both times every test stayed green, because every test asked one path in isolation
+// about data I had written myself. A live update only means anything next to the
+// history it lands beside, so that relationship is what this pins.
 //
-// Each source alone cannot show this. Both would still look right on their own with
-// a conversion quietly applied to one of them, and the only visible symptom would be
-// a thousandfold step in a chart exactly where the stored history ends and the live
-// updates begin — with every judgment that reads volume meaningless from there on,
-// and nothing raising an error about it.
-//
-// So the figure below is deliberately the *same* on both sides of the test. Scale
-// either source and this fails.
-func TestBothTaiwanSourcesReportTheSameMinuteInTheSameUnit(t *testing.T) {
-	const tradedVolume = 8450
+// Both paths now ask the same venue for the same shape, so a difference between them
+// could only be something this system did on the way in. There is deliberately no
+// arithmetic anywhere in the expected values below: the answer states 344, and both
+// paths must say 344.
+func TestTheLiveFollowAndTheStoredHistoryReportAMinuteIdentically(t *testing.T) {
+	const reportedVolume = "344"
+	const reportedClose = "112.95"
 
-	assert.Equal(t,
-		fetchHistoryVolume(t, tradedVolume),
-		followLiveVolume(t, tradedVolume),
-		"the same trading must carry the same number whichever source reported it")
-}
-
-// fetchHistoryVolume asks the history source for one minute carrying the given
-// volume, and reports what the system made of it.
-func fetchHistoryVolume(t *testing.T, tradedVolume int) string {
-	t.Helper()
+	answer := fmt.Sprintf(
+		`{"symbol":"0050","data":[{"date":"2026-09-23T09:30:00.000+08:00",`+
+			`"open":112.75,"high":113,"low":112.5,"close":%s,"volume":%s,"average":112.9}]}`,
+		reportedClose, reportedVolume)
 
 	server := httptest.NewServer(http.HandlerFunc(func(
 		writer http.ResponseWriter, _ *http.Request,
 	) {
-		_, _ = writer.Write([]byte(fmt.Sprintf(
-			`{"symbol":"2330","data":[{"date":"2026-09-22T10:00:00.000+08:00",`+
-				`"open":2500,"high":2500,"low":2500,"close":2500,"volume":%d}]}`,
-			tradedVolume)))
+		_, _ = writer.Write([]byte(answer))
 	}))
 	t.Cleanup(server.Close)
 
+	historyKCandle := fetchStoredMinute(t, server.URL)
+	liveKCandle := followLiveMinute(t, server.URL)
+
+	assert.Equal(t, historyKCandle.Volume.String(), liveKCandle.Volume.String(),
+		"the same minute must carry the same volume whichever path reported it")
+	assert.Equal(t, historyKCandle.Close.String(), liveKCandle.Close.String(),
+		"the same minute must carry the same close whichever path reported it")
+	assert.True(t, historyKCandle.OpenTime.Equal(liveKCandle.OpenTime),
+		"the same minute must be filed under the same moment either way")
+
+	// Said against the answer rather than against each other, so that both paths
+	// agreeing on something invented would still fail.
+	assert.Equal(t, reportedVolume, liveKCandle.Volume.String())
+	assert.Equal(t, reportedClose, liveKCandle.Close.String())
+}
+
+// fetchStoredMinute takes the path the scheduled round takes.
+func fetchStoredMinute(t *testing.T, sourceUrl string) vo.MarketKCandleVo {
+	t.Helper()
+
 	clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
-	clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-22T10:07:00+08:00")).AnyTimes()
+	clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-23T09:35:00+08:00")).AnyTimes()
 
 	marketKCandles, fetchError := marketdata.NewFugleMarketDataProxy(
-		server.URL+"/intraday", server.URL+"/historical", "a-key", taipeiMarket(),
+		sourceUrl+"/intraday", sourceUrl+"/historical", "a-key", taipeiMarket(),
 		clockProxy, 2*time.Second, marketdata.NewRequestPacer(0),
 	).FetchKCandles(t.Context(), vo.NewKCandleFetchWindowVo(
-		"2330", vo.MarketTaiwanStock,
-		taipeiAt(t, "2026-09-22T10:00:00+08:00"),
-		taipeiAt(t, "2026-09-22T10:01:00+08:00")))
+		"0050", vo.MarketTaiwanStock,
+		taipeiAt(t, "2026-09-23T09:30:00+08:00"),
+		taipeiAt(t, "2026-09-23T09:31:00+08:00")))
 
 	require.NoError(t, fetchError)
 	require.Len(t, marketKCandles, 1)
 
-	return marketKCandles[0].Volume.String()
+	return marketKCandles[0]
 }
 
-// followLiveVolume follows the live source through one minute carrying the given
-// volume, and reports what the system made of it.
-func followLiveVolume(t *testing.T, tradedVolume int) string {
+// followLiveMinute takes the path a viewer's chart takes.
+func followLiveMinute(t *testing.T, sourceUrl string) vo.LiveKCandleVo {
 	t.Helper()
 
-	source := newTwseSourceUnderTest(t,
-		[]twseQuote{quoteAt("10:00:05", "2500", "0")},
-		[]twseQuote{quoteAt("10:00:45", "2500", fmt.Sprint(tradedVolume))},
-	)
+	executionContext, stopFollowing := contextWithCancel(t)
 
-	liveKCandles, _ := followTwse(t, source, "2330")
+	liveKCandles, followError := marketdata.NewFugleIntradayLiveMarketDataProxy(
+		sourceUrl, "a-key", time.Millisecond, 0, time.Hour,
+		2*time.Second, marketdata.NewRequestPacer(0),
+	).FollowKCandles(executionContext,
+		vo.NewLiveFollowChannelVo(vo.MarketTaiwanStock, []string{"0050"}))
+	require.NoError(t, followError)
+	defer stopFollowing()
 
-	return nextKCandle(t, liveKCandles).Volume.String()
+	return nextKCandle(t, liveKCandles)
 }

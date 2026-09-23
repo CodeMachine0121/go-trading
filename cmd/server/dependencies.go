@@ -687,12 +687,17 @@ func liveMarketDataProxyFor(
 		map[vo.MarketVo]domaininterface.ILiveMarketDataProxy{
 			vo.MarketCrypto: marketdata.NewBinanceLiveMarketDataProxy(
 				applicationConfig.LiveFollow.MarketDataStreamUrl),
-			vo.MarketTaiwanStock: marketdata.NewTwseRealtimeLiveMarketDataProxy(
-				applicationConfig.TaiwanStock.RealtimeQuoteUrl,
-				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
-					MarketOf(string(vo.MarketTaiwanStock)),
-				applicationConfig.TaiwanStock.RealtimeQuoteInterval,
-				applicationConfig.TaiwanStock.RequestTimeout),
+			// Live comes from the same venue as the stored history, so a live update
+			// and the candle it lands beside cannot disagree about a figure. It also
+			// shares that venue's one allowance, which is why it takes the same pacer.
+			vo.MarketTaiwanStock: marketdata.NewFugleIntradayLiveMarketDataProxy(
+				applicationConfig.TaiwanStock.IntradayCandlesUrl,
+				applicationConfig.TaiwanStock.ApiKey,
+				applicationConfig.TaiwanStock.LiveCandleInterval,
+				applicationConfig.TaiwanStock.RequestsPerMinute,
+				applicationConfig.LiveFollow.QuietTimeout,
+				applicationConfig.TaiwanStock.RequestTimeout,
+				venuePacers.taiwanStock),
 		})
 }
 

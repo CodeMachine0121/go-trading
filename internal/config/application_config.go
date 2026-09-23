@@ -125,19 +125,14 @@ type TaiwanStockConfig struct {
 	HistoricalCandlesUrl string
 	// TickerUrl is where a code is confirmed to exist before it is watched.
 	TickerUrl string
-	// RealtimeQuoteUrl is where the exchange is asked what the watched stocks are
-	// doing right now. It is a different venue from the three above — history comes
-	// from the market data plan, live comes from the exchange itself — which is why
-	// it has its own pace below rather than sharing theirs.
-	RealtimeQuoteUrl string
-	// RealtimeQuoteInterval is how often that question is asked, and the whole of the
-	// pace kept at the exchange — there is deliberately no separate allowance beside
-	// it, because an allowance and an interval are two numbers that can disagree.
+	// LiveCandleInterval is how often a live follow asks this venue for today's
+	// candles. Live and history come from the same place, so there is no second
+	// address and no second allowance — the two share RequestsPerMinute below.
 	//
-	// The exchange refreshes roughly every five seconds, so asking faster buys nothing
-	// and risks being turned away; asking much slower shows up directly as a staler
-	// chart. What it costs is one request per live channel per interval.
-	RealtimeQuoteInterval time.Duration
+	// One request buys one symbol, so what a follow actually manages is this or the
+	// allowance, whichever is slower; the proxy works that out rather than letting the
+	// two quietly disagree.
+	LiveCandleInterval time.Duration
 	// TimeZone is the zone this market states its hours in. "Nine o'clock" is a fact
 	// about Taipei, and the moment it names universally is not the same one all year
 	// in markets that shift with daylight saving.
@@ -519,10 +514,8 @@ func loadTaiwanStockConfig() TaiwanStockConfig {
 			"https://api.fugle.tw/marketdata/v1.0/stock/historical/candles"),
 		TickerUrl: stringWithDefault("TAIWAN_STOCK_TICKER_URL",
 			"https://api.fugle.tw/marketdata/v1.0/stock/intraday/ticker"),
-		RealtimeQuoteUrl: stringWithDefault("TAIWAN_STOCK_REALTIME_QUOTE_URL",
-			"https://mis.twse.com.tw/stock/api/getStockInfo.jsp"),
-		RealtimeQuoteInterval: time.Duration(positiveIntWithDefault(
-			"TAIWAN_STOCK_REALTIME_QUOTE_INTERVAL_SECONDS", 3)) * time.Second,
+		LiveCandleInterval: time.Duration(positiveIntWithDefault(
+			"TAIWAN_STOCK_LIVE_CANDLE_INTERVAL_SECONDS", 5)) * time.Second,
 		TimeZone:     timeZoneWithDefault("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipei"),
 		SessionStart: timeOfDayWithDefault("TAIWAN_STOCK_SESSION_START", 9*time.Hour),
 		SessionEnd:   timeOfDayWithDefault("TAIWAN_STOCK_SESSION_END", 13*time.Hour+30*time.Minute),
