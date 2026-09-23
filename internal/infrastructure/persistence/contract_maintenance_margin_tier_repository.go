@@ -36,7 +36,17 @@ func (tierRepository *ContractMaintenanceMarginTierRepository) ReplaceLadders(
 				if len(tiers) == 0 {
 					continue
 				}
-				if createError := transaction.Create(&tiers).Error; createError != nil {
+				// Two refreshes can meet — a contract joining the watchlist while the
+				// daily one runs. The later one's removal cannot see tiers the earlier
+				// one wrote and has not committed, so it writes over them instead of
+				// failing on them. Both carry the venue's same answer.
+				if createError := transaction.Clauses(clause.OnConflict{
+					Columns: []clause.Column{{Name: "symbol"}, {Name: "tier"}},
+					DoUpdates: clause.AssignmentColumns([]string{
+						"notional_floor", "notional_cap", "maintenance_margin_rate",
+						"maintenance_amount", "maximum_leverage", "confirmed_at",
+					}),
+				}).Create(&tiers).Error; createError != nil {
 					return createError
 				}
 			}

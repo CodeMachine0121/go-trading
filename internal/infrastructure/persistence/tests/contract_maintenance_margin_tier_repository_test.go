@@ -1,6 +1,7 @@
 package persistence_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -125,4 +126,35 @@ func TestContractMaintenanceMarginTierRepositoryReplacesNothingWhenAnOldLadderCa
 	})
 
 	assert.ErrorContains(t, replaceError, "replace contract maintenance margin ladders")
+}
+
+func TestContractMaintenanceMarginTierRepositoryLetsTwoRefreshesMeet(t *testing.T) {
+	// A contract joining the watchlist while the daily refresh runs: both replace the
+	// same ladder at once, and neither may fail for it.
+	database := newTestDatabase(t)
+	tierRepository := persistence.NewContractMaintenanceMarginTierRepository(database)
+	ladder := func(confirmedAt time.Time) map[string][]entities.ContractMaintenanceMarginTier {
+		return map[string][]entities.ContractMaintenanceMarginTier{"BTCUSDT": {
+			storedTier("BTCUSDT", 1, "0", "50000", confirmedAt),
+			storedTier("BTCUSDT", 2, "50000", "250000", confirmedAt),
+		}}
+	}
+	require.NoError(t, tierRepository.ReplaceLadders(t.Context(), ladder(at(7, 0))))
+
+	replaceErrors := make(chan error, 16)
+	var waitGroup sync.WaitGroup
+	for attempt := range 16 {
+		waitGroup.Go(func() {
+			replaceErrors <- tierRepository.ReplaceLadders(t.Context(), ladder(at(8, attempt)))
+		})
+	}
+	waitGroup.Wait()
+	close(replaceErrors)
+
+	for replaceError := range replaceErrors {
+		assert.NoError(t, replaceError)
+	}
+	bitcoin, findError := tierRepository.FindBySymbol(t.Context(), "BTCUSDT")
+	require.NoError(t, findError)
+	assert.Len(t, bitcoin, 2)
 }
