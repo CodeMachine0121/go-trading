@@ -17,28 +17,31 @@ import (
 
 // The two Taiwan sources are read side by side here on purpose.
 //
-// Each one alone is already pinned: history carries volume across exactly as reported,
-// live multiplies lots into shares. Both can be right on their own and still disagree
-// with each other, because the venues count in different units — and nothing would
-// ever raise an error about it. The same stock's chart would simply show a thousandfold
-// step wherever the history ends and the live updates begin, and every judgment that
-// reads volume would stop meaning anything without saying so.
+// They count in the same unit — measured, not assumed: on 2026-09-22 the history
+// source's minute volumes for 2330 summed to 18876 and the exchange's running total
+// closed at the same 18876, to the unit. Neither converts, so the same trading
+// reported by both must arrive as the same number.
 //
-// This is the only test that compares them, which is why it is worth its own file.
+// Each source alone cannot show this. Both would still look right on their own with
+// a conversion quietly applied to one of them, and the only visible symptom would be
+// a thousandfold step in a chart exactly where the stored history ends and the live
+// updates begin — with every judgment that reads volume meaningless from there on,
+// and nothing raising an error about it.
+//
+// So the figure below is deliberately the *same* on both sides of the test. Scale
+// either source and this fails.
 func TestBothTaiwanSourcesReportTheSameMinuteInTheSameUnit(t *testing.T) {
-	const tradedLots = 8450
-	const tradedShares = tradedLots * 1000
+	const tradedVolume = 8450
 
-	historyVolume := fetchHistoryVolume(t, tradedShares)
-	liveVolume := followLiveVolume(t, tradedLots)
-
-	assert.Equal(t, historyVolume, liveVolume,
-		"the same minute must carry the same number of shares whichever source reported it")
+	assert.Equal(t,
+		fetchHistoryVolume(t, tradedVolume),
+		followLiveVolume(t, tradedVolume),
+		"the same trading must carry the same number whichever source reported it")
 }
 
-// fetchHistoryVolume asks the history source for one minute in which the given number
-// of shares changed hands, and reports what the system made of it.
-func fetchHistoryVolume(t *testing.T, tradedShares int) string {
+// fetchHistoryVolume asks the history source for one minute carrying the given
+// volume, and reports what the system made of it.
+func fetchHistoryVolume(t *testing.T, tradedVolume int) string {
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(
@@ -47,7 +50,7 @@ func fetchHistoryVolume(t *testing.T, tradedShares int) string {
 		_, _ = writer.Write([]byte(fmt.Sprintf(
 			`{"symbol":"2330","data":[{"date":"2026-09-22T10:00:00.000+08:00",`+
 				`"open":2500,"high":2500,"low":2500,"close":2500,"volume":%d}]}`,
-			tradedShares)))
+			tradedVolume)))
 	}))
 	t.Cleanup(server.Close)
 
@@ -68,14 +71,14 @@ func fetchHistoryVolume(t *testing.T, tradedShares int) string {
 	return marketKCandles[0].Volume.String()
 }
 
-// followLiveVolume follows the live source through one minute in which the given
-// number of lots changed hands, and reports what the system made of it.
-func followLiveVolume(t *testing.T, tradedLots int) string {
+// followLiveVolume follows the live source through one minute carrying the given
+// volume, and reports what the system made of it.
+func followLiveVolume(t *testing.T, tradedVolume int) string {
 	t.Helper()
 
 	source := newTwseSourceUnderTest(t,
 		[]twseQuote{quoteAt("10:00:05", "2500", "0")},
-		[]twseQuote{quoteAt("10:00:45", "2500", fmt.Sprint(tradedLots))},
+		[]twseQuote{quoteAt("10:00:45", "2500", fmt.Sprint(tradedVolume))},
 	)
 
 	liveKCandles, _ := followTwse(t, source, "2330")

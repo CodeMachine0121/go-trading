@@ -62,7 +62,7 @@ func TestAnEntryFromTheWrongBoardIsIgnoredRatherThanTreatedAsAFailure(t *testing
 
 	liveKCandles, _ := followTwse(t, source, "2330")
 
-	assert.Equal(t, "30000", nextKCandle(t, liveKCandles).Volume.String())
+	assert.Equal(t, "30", nextKCandle(t, liveKCandles).Volume.String())
 }
 
 // A stock that has not traded today answers with a dash rather than a zero. Reading
@@ -85,7 +85,7 @@ func TestAStockThatHasNotTradedYetIsPassedOverQuietly(t *testing.T) {
 
 	liveKCandle := nextKCandle(t, liveKCandles)
 	assert.Equal(t, "2330", liveKCandle.Symbol)
-	assert.Equal(t, "30000", liveKCandle.Volume.String())
+	assert.Equal(t, "30", liveKCandle.Volume.String())
 }
 
 // A quote for something this channel never asked for belongs to nobody here.
@@ -223,7 +223,7 @@ func TestSymbolsOnOneChannelAreFoldedIndependently(t *testing.T) {
 		volumeBySymbol[liveKCandle.Symbol] = liveKCandle.Volume.String()
 	}
 
-	assert.Equal(t, map[string]string{"2330": "30000", "2454": "15000"}, volumeBySymbol)
+	assert.Equal(t, map[string]string{"2330": "30", "2454": "15"}, volumeBySymbol)
 }
 
 // A stock that has not traded yet answers with a dash and a zero, timed at midnight.
@@ -255,7 +255,7 @@ func TestAnUntradedQuoteDoesNotBecomeTheBaselineForTheFirstRealTrade(t *testing.
 	liveKCandles, _ := followTwse(t, source, "2454")
 
 	// Fifteen lots traded inside that minute, not the five hundred the day had.
-	assert.Equal(t, "15000", nextKCandle(t, liveKCandles).Volume.String())
+	assert.Equal(t, "15", nextKCandle(t, liveKCandles).Volume.String())
 }
 
 // A source that cannot be read is not a market with nothing to report. Both would
