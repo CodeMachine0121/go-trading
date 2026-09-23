@@ -117,7 +117,7 @@ func TestNewContractPositionStatisticDomainRefusesAnUnlawfulStatistic(t *testing
 	}
 }
 
-func TestContractPositionStatisticWindowStartsJustAfterTheLastHeldStatistic(t *testing.T) {
+func TestContractPositionStatisticWindowReachesAnHourBehindTheLastHeldStatistic(t *testing.T) {
 	now := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
 	thirtyDaysAgo := now.Add(-30 * 24 * time.Hour)
 	testCases := []struct {
@@ -129,17 +129,21 @@ func TestContractPositionStatisticWindowStartsJustAfterTheLastHeldStatistic(t *t
 		expectedEnd   time.Time
 		expectedEmpty bool
 	}{
-		{name: "接著上一次", currentTime: now, latestHeld: time.Date(2026, 9, 23, 9, 5, 0, 0, time.UTC), hasLatest: true,
-			expectedStart: time.Date(2026, 9, 23, 9, 10, 0, 0, time.UTC), expectedEnd: now},
+		{name: "接著上一次,並重問它前面那一小時", currentTime: now, latestHeld: time.Date(2026, 9, 23, 9, 5, 0, 0, time.UTC), hasLatest: true,
+			expectedStart: time.Date(2026, 9, 23, 8, 10, 0, 0, time.UTC), expectedEnd: now},
+		{name: "重問那一小時也不越過三十天", currentTime: now, latestHeld: thirtyDaysAgo.Add(15 * time.Minute), hasLatest: true,
+			expectedStart: thirtyDaysAgo.Add(5 * time.Minute), expectedEnd: now},
 		{name: "從沒存過就從三十天內第一格開始", currentTime: now, hasLatest: false,
 			expectedStart: thirtyDaysAgo.Add(5 * time.Minute), expectedEnd: now},
 		{name: "上一次早於三十天也一樣", currentTime: now, latestHeld: thirtyDaysAgo.Add(-10 * 24 * time.Hour), hasLatest: true,
 			expectedStart: thirtyDaysAgo.Add(5 * time.Minute), expectedEnd: now},
 		{name: "現在不在刻度上時終點退回上一格", currentTime: now.Add(2 * time.Minute),
 			latestHeld: time.Date(2026, 9, 23, 9, 5, 0, 0, time.UTC), hasLatest: true,
-			expectedStart: time.Date(2026, 9, 23, 9, 10, 0, 0, time.UTC), expectedEnd: now},
-		{name: "已經存到最新那一格", currentTime: now.Add(2 * time.Minute), latestHeld: now, hasLatest: true,
-			expectedStart: now.Add(5 * time.Minute), expectedEnd: now, expectedEmpty: true},
+			expectedStart: time.Date(2026, 9, 23, 8, 10, 0, 0, time.UTC), expectedEnd: now},
+		{name: "已經存到最新那一格仍重問最近一小時", currentTime: now.Add(2 * time.Minute), latestHeld: now, hasLatest: true,
+			expectedStart: now.Add(-55 * time.Minute), expectedEnd: now},
+		{name: "還沒有任何一格能問", currentTime: now, latestHeld: now.Add(2 * time.Hour), hasLatest: true,
+			expectedStart: now.Add(65 * time.Minute), expectedEnd: now, expectedEmpty: true},
 	}
 
 	for _, testCase := range testCases {

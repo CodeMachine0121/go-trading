@@ -20,8 +20,8 @@ import (
 // **Recording is the whole point.** The venue keeps only the last thirty days, so a
 // stretch this system did not record while it could is a stretch nobody will ever
 // have. Every trigger — starting up, a contract joining the watchlist, the round every
-// five minutes — asks the same thing: everything after the last statistic held, and
-// no further back than the venue can still answer for.
+// five minutes — asks the same thing: everything since an hour before the last
+// statistic held, and no further back than the venue can still answer for.
 type ContractPositionStatisticService struct {
 	statisticRepository             domaininterface.IContractPositionStatisticRepository
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
@@ -133,8 +133,9 @@ func (contractPositionStatisticService *ContractPositionStatisticService) FindSt
 
 // recordSymbol carries one contract from its last held statistic to now. The venue or
 // storage failing ends this contract's turn; one statistic breaking a rule — one of
-// its splits missing among them — only ends itself, and since the next round asks
-// from the last statistic held, a gap left that way is asked about again.
+// its splits missing among them — only ends itself, and since every round asks again
+// over the last hour behind the latest one held, a gap left that way is asked about
+// again.
 func (contractPositionStatisticService *ContractPositionStatisticService) recordSymbol(
 	executionContext context.Context,
 	contractSymbol entities.ContractTradingSymbol,

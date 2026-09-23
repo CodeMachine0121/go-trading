@@ -7,9 +7,17 @@ import "time"
 // rather than answering with nothing.
 const contractPositionStatisticRetention = 30 * 24 * time.Hour
 
+// contractPositionStatisticRecheckSpan is how far behind the last statistic held
+// every round asks again. A moment skipped because one of its three answers had not
+// arrived yet sits behind statistics that were stored after it, so asking only from
+// the last one held would never reach it again. An hour of re-asking still fits in a
+// single page, so it costs no extra question — and what is already held is left as
+// it was when it comes back.
+const contractPositionStatisticRecheckSpan = time.Hour
+
 // ContractPositionStatisticWindowDomain is the stretch one round asks the venue about
-// for one contract: from just after the last statistic held to the latest one that
-// can exist.
+// for one contract: from an hour before the last statistic held to the latest one
+// that can exist.
 //
 // **The start never reaches past what the venue keeps.** A contract with nothing held,
 // or one whose last statistic is older than thirty days, starts at the first moment
@@ -34,7 +42,8 @@ func NewContractPositionStatisticWindowDomain(
 
 	startTime := earliestAnswerable
 	if hasLatest {
-		startTime = latestHeld.UTC().Add(ContractPositionStatisticInterval)
+		startTime = latestHeld.UTC().Add(ContractPositionStatisticInterval).
+			Add(-contractPositionStatisticRecheckSpan)
 		if startTime.Before(earliestAnswerable) {
 			startTime = earliestAnswerable
 		}

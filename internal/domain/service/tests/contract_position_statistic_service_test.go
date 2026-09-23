@@ -81,12 +81,12 @@ func (underTest positionStatisticServiceUnderTest) latestHeld(symbol string, sta
 		entities.ContractPositionStatistic{Symbol: symbol, StatisticTime: statisticTime}, true, nil)
 }
 
-func TestPositionStatisticRoundAsksFromJustAfterTheLastHeldStatisticToNow(t *testing.T) {
+func TestPositionStatisticRoundAsksFromAnHourBehindTheLastHeldStatisticToNow(t *testing.T) {
 	underTest := newPositionStatisticServiceUnderTest(t)
 	underTest.watching("BTCUSDT")
 	underTest.latestHeld("BTCUSDT", statisticMoment(9, 5))
 	underTest.statisticProxy.EXPECT().FetchPositionStatistics(
-		gomock.Any(), "BTCUSDT", statisticMoment(9, 10), statisticMoment(10, 0)).
+		gomock.Any(), "BTCUSDT", statisticMoment(8, 10), statisticMoment(10, 0)).
 		Return([]vo.ContractPositionStatisticVo{venueStatistic("BTCUSDT", statisticMoment(9, 10))}, nil)
 	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Len(1)).Return(1, nil)
 
@@ -115,10 +115,11 @@ func TestPositionStatisticRoundStartsThirtyDaysBackForAContractNeverRecorded(t *
 	assert.Empty(t, report.SymbolReports[0].FetchFailureReason)
 }
 
-func TestPositionStatisticRoundAsksNothingWhenAlreadyUpToDate(t *testing.T) {
+func TestPositionStatisticRoundAsksNothingWhenNothingCanBeAskedAboutYet(t *testing.T) {
+	// Only a latest statistic later than now — a clock set back — leaves no stretch.
 	underTest := newPositionStatisticServiceUnderTest(t)
 	underTest.watching("BTCUSDT")
-	underTest.latestHeld("BTCUSDT", statisticMoment(10, 0))
+	underTest.latestHeld("BTCUSDT", statisticMoment(12, 0))
 
 	report, roundError := underTest.service.RunRound(t.Context())
 
@@ -315,4 +316,31 @@ func TestPositionStatisticsReadBack(t *testing.T) {
 			assert.Equal(t, statisticMoment(9, 5), statistics[1].StatisticTime)
 		})
 	}
+}
+
+func TestPositionStatisticRoundAsksAgainAboutAMomentSkippedBehindOnesThatWereStored(t *testing.T) {
+	// Last round, 09:05 was missing a split and was skipped while 09:10 was stored.
+	// This round, 09:05 has all three answers: it has to be asked about and stored.
+	underTest := newPositionStatisticServiceUnderTest(t)
+	underTest.watching("BTCUSDT")
+	underTest.latestHeld("BTCUSDT", statisticMoment(9, 10))
+	underTest.statisticProxy.EXPECT().FetchPositionStatistics(
+		gomock.Any(), "BTCUSDT", statisticMoment(8, 15), statisticMoment(10, 0)).
+		Return([]vo.ContractPositionStatisticVo{
+			venueStatistic("BTCUSDT", statisticMoment(9, 5)),
+			venueStatistic("BTCUSDT", statisticMoment(9, 10)),
+		}, nil)
+	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, statistics []entities.ContractPositionStatistic) (int, error) {
+			require.Len(t, statistics, 2)
+			assert.Equal(t, statisticMoment(9, 5), statistics[0].StatisticTime)
+
+			// 09:10 is already held and left as it was; 09:05 is the one stored.
+			return 1, nil
+		})
+
+	report, roundError := underTest.service.RunRound(t.Context())
+
+	require.NoError(t, roundError)
+	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
 }
