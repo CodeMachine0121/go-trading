@@ -32,7 +32,7 @@ func minuteOfContract(minute int, level int64) entities.KCandleContract {
 		Volume: decimal.NewFromInt(2), QuoteVolume: decimal.NewFromInt(200),
 		TakerBuyBaseVolume: decimal.NewFromInt(1), TakerBuyQuoteVolume: decimal.NewFromInt(100),
 		TradeCount: 7,
-		MarkOpen: price, MarkHigh: price.Add(decimal.NewFromInt(2)), MarkLow: price.Sub(decimal.NewFromInt(2)), MarkClose: price,
+		MarkOpen:   price, MarkHigh: price.Add(decimal.NewFromInt(2)), MarkLow: price.Sub(decimal.NewFromInt(2)), MarkClose: price,
 		IndexOpen: decimal.NewNullDecimal(price), IndexHigh: decimal.NewNullDecimal(price.Add(decimal.NewFromInt(3))),
 		IndexLow: decimal.NewNullDecimal(price.Sub(decimal.NewFromInt(3))), IndexClose: decimal.NewNullDecimal(price),
 		PremiumIndexOpen: present("-0.0001"), PremiumIndexHigh: present("0.0002"),
