@@ -115,6 +115,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.KCandleContract{},
 		&entities.ContractTradingSymbol{},
 		&entities.KCandleContractHistorySyncRun{},
+		&entities.ContractFundingRateSettlement{},
 	}
 
 	// Renaming has to happen before the schema is synced, not after. These three
