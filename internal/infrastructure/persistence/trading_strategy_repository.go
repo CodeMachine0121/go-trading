@@ -60,7 +60,7 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 				// the market data kind, none of which a rewrite may change.
 				updates := transaction.Model(&entities.TradingStrategy{}).
 					Where(clause.Eq{Column: "id", Value: tradingStrategyRow.ID}).
-					Select("name", "trading_mode").
+					Select("name", "contract_trading_mode").
 					Updates(entities.TradingStrategy{
 						Name:        tradingStrategyRow.Name,
 						TradingMode: tradingStrategyRow.TradingMode,

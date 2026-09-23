@@ -37,7 +37,12 @@ type TradingStrategy struct {
 	MarketDataKind string `gorm:"size:32;not null;default:kCandle"`
 	// TradingMode is the contract trading mode a contract trading strategy's buys and
 	// sells are read by. A K candle one has none.
-	TradingMode string    `gorm:"size:32;not null;default:''"`
+	//
+	// It lives in a column of its own rather than the retired trading_mode one: a
+	// database that has not yet dropped that column still holds the spot-era modes in
+	// it, and reading them back would hand a contract trading strategy a mode nobody
+	// chose for it.
+	TradingMode string    `gorm:"column:contract_trading_mode;size:32;not null;default:''"`
 	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
 	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
 
