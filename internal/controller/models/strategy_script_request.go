@@ -19,6 +19,10 @@ type StrategyScriptRequest struct {
 	Description string `json:"description"`
 	Script      string `json:"script"`
 	ResultType  string `json:"resultType"`
+	// MarketDataKind is which kind of market the algorithm eats: kCandle (the spot K
+	// candle, and what leaving it out means on a create) or contractKCandle. On a
+	// rewrite, leaving it out keeps the kind the strategy script already has.
+	MarketDataKind string `json:"marketDataKind"`
 	// Parameters are the algorithm's own knobs. Leaving them out declares an
 	// algorithm with no knobs, which is what every algorithm was before knobs.
 	Parameters []StrategyScriptParameterRequest `json:"parameters"`
@@ -34,13 +38,14 @@ type StrategyScriptRequest struct {
 // itself.
 func (strategyScriptRequest StrategyScriptRequest) ToWriteDto(id uint, ownerID uint) dto.StrategyScriptWriteDto {
 	return dto.StrategyScriptWriteDto{
-		ID:          id,
-		OwnerID:     ownerID,
-		Name:        strategyScriptRequest.Name,
-		Description: strategyScriptRequest.Description,
-		Script:      strategyScriptRequest.Script,
-		ResultType:  strategyScriptRequest.ResultType,
-		Parameters:  strategyScriptRequest.parameterWriteDtos(),
+		ID:             id,
+		OwnerID:        ownerID,
+		Name:           strategyScriptRequest.Name,
+		Description:    strategyScriptRequest.Description,
+		Script:         strategyScriptRequest.Script,
+		ResultType:     strategyScriptRequest.ResultType,
+		MarketDataKind: strategyScriptRequest.MarketDataKind,
+		Parameters:     strategyScriptRequest.parameterWriteDtos(),
 	}
 }
 

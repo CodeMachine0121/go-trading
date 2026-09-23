@@ -491,3 +491,29 @@ func TestStrategyScriptRouterRefusesTextThatCannotBeStored(t *testing.T) {
 		})
 	}
 }
+
+func TestStrategyScriptRouterCarriesTheKindOfMarketTheScriptEats(t *testing.T) {
+	fixture := newStrategyScriptRouterUnderTest(t)
+	fixture.strategyScriptRepository.EXPECT().
+		Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, strategyScript entities.StrategyScript) (entities.StrategyScript, error) {
+			assert.Equal(t, "contractKCandle", strategyScript.MarketDataKind)
+
+			stored := aStoredStrategyScriptRow(7, strategyScript.Name)
+			stored.MarketDataKind = strategyScript.MarketDataKind
+
+			return stored, nil
+		})
+
+	recorder := fixture.send(http.MethodPost, "/strategy-scripts", `{
+		"name": "費率反轉",
+		"script": "func Calculate(data []indicator.ContractKCandle) map[string]float64 { return nil }",
+		"resultType": "float",
+		"marketDataKind": "contractKCandle"
+	}`)
+
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	responseBody := map[string]any{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &responseBody))
+	assert.Equal(t, "contractKCandle", responseBody["marketDataKind"])
+}

@@ -7,6 +7,7 @@ import (
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
 // StrategyScriptService is the application layer's only entry point for saved strategy scripts.
@@ -132,10 +133,26 @@ func (strategyScriptService *StrategyScriptService) UpdateStrategyScript(
 	// else's strategy script with content that is also wrong answers "a strategy script must carry
 	// a name" — which tells a stranger their target exists and what is wrong with
 	// what they sent.
-	if ownershipError := strategyScriptService.requireOwnership(
-		executionContext, writeDto.OwnerID, writeDto.ID); ownershipError != nil {
+	existingStrategyScript, ownershipError := strategyScriptService.requireOwnership(
+		executionContext, writeDto.OwnerID, writeDto.ID)
+	if ownershipError != nil {
 		return dto.StrategyScriptDto{}, ownershipError
 	}
+
+	// The kind of market the algorithm eats is the one thing a rewrite is judged
+	// against what is already there rather than on its own: leaving it out keeps it,
+	// and naming the other one is refused. The rest of the rules are the create's.
+	existingMarketDataKind, existingKindError := domains.NewMarketDataKindDomain(
+		existingStrategyScript.MarketDataKind)
+	if existingKindError != nil {
+		return dto.StrategyScriptDto{}, existingKindError
+	}
+
+	marketDataKind, retainingError := existingMarketDataKind.Retaining(writeDto.MarketDataKind)
+	if retainingError != nil {
+		return dto.StrategyScriptDto{}, retainingError
+	}
+	writeDto.MarketDataKind = string(marketDataKind.Value())
 
 	strategyScriptDomain, validationError := domains.NewStrategyScriptDomain(writeDto)
 	if validationError != nil {
@@ -156,7 +173,7 @@ func (strategyScriptService *StrategyScriptService) UpdateStrategyScript(
 func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
-	if ownershipError := strategyScriptService.requireOwnership(
+	if _, ownershipError := strategyScriptService.requireOwnership(
 		executionContext, viewerID, id); ownershipError != nil {
 		return ownershipError
 	}
@@ -211,15 +228,18 @@ func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScrip
 // It stops at the second gate on purpose. Publishing hands out the use of an
 // algorithm, never the right to alter it, so whether the strategy script is on the
 // marketplace cannot change this answer — and not asking saves a read.
+//
+// It hands back the strategy script it found, because a rewrite has to know the kind
+// of market it already eats; deleting has no use for it and ignores it.
 func (strategyScriptService *StrategyScriptService) requireOwnership(
 	executionContext context.Context, viewerID uint, id uint,
-) error {
+) (entities.StrategyScript, error) {
 	strategyScript, findError := strategyScriptService.strategyScriptRepository.FindOne(executionContext, id)
 	if findError != nil {
-		return findError
+		return entities.StrategyScript{}, findError
 	}
 
-	return domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false).RequireOwnership()
+	return strategyScript, domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false).RequireOwnership()
 }
 
 // isPublished answers the third gate. "There is no publication" is not a failure to
