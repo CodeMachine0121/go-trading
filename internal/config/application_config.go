@@ -120,6 +120,16 @@ type ContractIngestionConfig struct {
 	FundingRateIngestionInterval        time.Duration
 	PositionStatisticIngestionInterval  time.Duration
 	TradingSpecificationRefreshInterval time.Duration
+	// AccountApiKey and AccountApiSecret prove to the venue which account is asking.
+	// Only the maintenance margin ladder needs them, and only read access: nothing
+	// here trades or moves funds. They have no default and must not have one — a key
+	// everyone running this code shares is a key anyone can use. Left empty, the
+	// ladder is simply not fetched and everything else runs as before.
+	AccountApiKey    string
+	AccountApiSecret string
+	// MaintenanceMarginTierUrl is where the full ladder is asked for, as the account.
+	MaintenanceMarginTierUrl             string
+	MaintenanceMarginTierRefreshInterval time.Duration
 }
 
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
@@ -422,6 +432,13 @@ func Load() ApplicationConfig {
 				"CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", 5, time.Minute),
 			TradingSpecificationRefreshInterval: jobIntervalWithDefault(
 				"CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", 24, time.Hour),
+			AccountApiKey:    os.Getenv("CONTRACT_ACCOUNT_API_KEY"),
+			AccountApiSecret: os.Getenv("CONTRACT_ACCOUNT_API_SECRET"),
+			MaintenanceMarginTierUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_MAINTENANCE_MARGIN_TIER_URL",
+				"https://fapi.binance.com/fapi/v1/leverageBracket"),
+			MaintenanceMarginTierRefreshInterval: jobIntervalWithDefault(
+				"CONTRACT_MAINTENANCE_MARGIN_TIER_REFRESH_INTERVAL_HOURS", 24, time.Hour),
 			RequestTimeout: time.Duration(positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 			// Half the spot allowance by default, because each candle here costs two
@@ -668,4 +685,10 @@ func commaSeparatedList(key string) []string {
 	}
 
 	return entries
+}
+
+// HasAccountCredentials says whether both halves of the account's key are set. The
+// maintenance margin ladder is only fetched when they are.
+func (contractIngestionConfig ContractIngestionConfig) HasAccountCredentials() bool {
+	return contractIngestionConfig.AccountApiKey != "" && contractIngestionConfig.AccountApiSecret != ""
 }

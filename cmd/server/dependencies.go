@@ -214,6 +214,21 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 		applicationConfig.KCandleQueryMaxResults,
 	)
+	// The ladder is an account's to see. Without a key the proxy asks nothing and says
+	// so, and every use case that meets that simply goes without.
+	contractMaintenanceMarginTierService := service.NewContractMaintenanceMarginTierService(
+		persistence.NewContractMaintenanceMarginTierRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractMaintenanceMarginTierProxy(
+			applicationConfig.ContractIngestion.MaintenanceMarginTierUrl,
+			applicationConfig.ContractIngestion.AccountApiKey,
+			applicationConfig.ContractIngestion.AccountApiSecret,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContract,
+			clock.NewSystemClockProxy(),
+		),
+		clock.NewSystemClockProxy(),
+	)
 	contractPositionStatisticService := service.NewContractPositionStatisticService(
 		persistence.NewContractPositionStatisticRepository(database),
 		contractTradingSymbolRepository,
@@ -282,6 +297,7 @@ func registerRoutes(
 		contractKCandleIngestionService,
 		contractFundingRateService,
 		contractPositionStatisticService,
+		contractMaintenanceMarginTierService,
 	)
 	contractTradingSymbolController := controller.NewContractTradingSymbolController(
 		contractTradingSymbolApplication)

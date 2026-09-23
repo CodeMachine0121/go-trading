@@ -130,7 +130,7 @@ func newSpecificationRefreshJobUnderTest(t *testing.T, catalogueError error) ser
 			service.NewContractTradingSymbolService(
 				watchlistSignalling(mockController, rounds, nil),
 				mocks.NewMockIKCandleContractRepository(mockController), lookupProxy, clockProxy),
-			nil, nil, nil),
+			nil, nil, nil, nil),
 		testInterval)
 	t.Cleanup(refreshJob.Stop)
 

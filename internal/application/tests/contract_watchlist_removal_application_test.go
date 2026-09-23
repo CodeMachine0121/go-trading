@@ -34,7 +34,7 @@ func TestRemovingAContractOnlyStopsFollowingIt(t *testing.T) {
 		service.NewContractTradingSymbolService(symbolRepository,
 			mocks.NewMockIKCandleContractRepository(mockController),
 			mocks.NewMockIContractSymbolLookupProxy(mockController), clockProxy),
-		nil, fundingRateService, positionStatisticService)
+		nil, fundingRateService, positionStatisticService, nil)
 	symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
 		Return(entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
 	symbolRepository.EXPECT().Save(gomock.Any(), entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: false}).

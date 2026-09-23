@@ -69,6 +69,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	fundingRateProxy := mocks.NewMockIContractFundingRateProxy(mockController)
 	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
 	statisticProxy := mocks.NewMockIContractPositionStatisticProxy(mockController)
+	tierProxy := mocks.NewMockIContractMaintenanceMarginTierProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
@@ -89,7 +90,12 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 			service.NewContractFundingRateService(
 				settlementRepository, symbolRepository, fundingRateProxy, clockProxy, queryMaxResults),
 			service.NewContractPositionStatisticService(
-				statisticRepository, symbolRepository, statisticProxy, clockProxy, queryMaxResults)))
+				statisticRepository, symbolRepository, statisticProxy, clockProxy, queryMaxResults),
+			service.NewContractMaintenanceMarginTierService(
+				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController), symbolRepository,
+				tierProxy, clockProxy)))
+	tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
+		Return(nil, domains.ErrContractAccountCredentialsMissing).AnyTimes()
 	// Joining the watchlist also catches funding rates and position statistics up;
 	// these tests are about the candles and the answers, so those two have nothing.
 	settlementRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
