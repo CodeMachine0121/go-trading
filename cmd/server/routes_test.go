@@ -58,9 +58,11 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		// three do not widen what a caller can reach either.
 		"GET /chat/conversations",
 		"GET /chat/conversations/:id",
+		"GET /contract-funding-rate-settlements",
 		"GET /contract-k-candles",
 		"GET /contract-k-candles/:symbol/:openTime",
 		"GET /contract-k-candles/history/:id",
+		"GET /contract-position-statistics",
 		"GET /contract-trading-symbols",
 		"GET /health",
 		"GET /k-candles",

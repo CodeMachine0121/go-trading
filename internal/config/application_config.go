@@ -113,6 +113,13 @@ type ContractIngestionConfig struct {
 	// is why they have an allowance of their own.
 	StatisticsBaseUrl           string
 	StatisticsRequestsPerMinute int
+	// The three rounds beside the candles, each at the pace its own data changes: a
+	// funding rate settles a few times a day, a position statistic is taken every
+	// five minutes, and a trading specification barely changes at all. Zero switches
+	// that round off.
+	FundingRateIngestionInterval        time.Duration
+	PositionStatisticIngestionInterval  time.Duration
+	TradingSpecificationRefreshInterval time.Duration
 }
 
 // LiveFollowConfig holds the three rules a live follow behaves by. All three carry
@@ -409,6 +416,12 @@ func Load() ApplicationConfig {
 			// never meet the ceiling together.
 			StatisticsRequestsPerMinute: positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_STATISTICS_REQUESTS_PER_MINUTE", 180),
+			FundingRateIngestionInterval: jobIntervalWithDefault(
+				"CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", 60, time.Minute),
+			PositionStatisticIngestionInterval: jobIntervalWithDefault(
+				"CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", 5, time.Minute),
+			TradingSpecificationRefreshInterval: jobIntervalWithDefault(
+				"CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", 24, time.Hour),
 			RequestTimeout: time.Duration(positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 			// Half the spot allowance by default, because each candle here costs two
@@ -600,6 +613,21 @@ func positiveIntWithDefault(key string, defaultValue int) int {
 	}
 
 	return value
+}
+
+// jobIntervalWithDefault reads how often a background job runs, in the unit given. A
+// missing or unreadable variable falls back to the default; zero or less is a switch,
+// not a mistake — it turns that one job off.
+func jobIntervalWithDefault(key string, defaultValue int, unit time.Duration) time.Duration {
+	value, parseError := strconv.Atoi(os.Getenv(key))
+	if parseError != nil {
+		return time.Duration(defaultValue) * unit
+	}
+	if value <= 0 {
+		return 0
+	}
+
+	return time.Duration(value) * unit
 }
 
 func stringWithDefault(key string, defaultValue string) string {

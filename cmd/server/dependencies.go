@@ -38,6 +38,7 @@ func registerRoutes(
 	*application.KCandleContractIngestionApplication,
 	*application.StrategyBotRunApplication,
 	*application.AssistantConversationApplication,
+	contractSeriesApplications,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 
@@ -255,23 +256,35 @@ func registerRoutes(
 	engine.DELETE("/contract-k-candles/:symbol/:openTime",
 		kCandleContractController.DeleteKCandleContract)
 
-	contractTradingSymbolController := controller.NewContractTradingSymbolController(
-		application.NewContractTradingSymbolApplication(
-			service.NewContractTradingSymbolService(
-				contractTradingSymbolRepository,
-				contractKCandleRepository,
-				marketdata.NewBinanceContractSymbolLookupProxy(
-					applicationConfig.ContractIngestion.SymbolCatalogUrl,
-					applicationConfig.ContractIngestion.FundingInfoUrl,
-					applicationConfig.ContractIngestion.RequestTimeout,
-					venuePacers.cryptoContract,
-				),
-				clock.NewSystemClockProxy(),
+	contractFundingRateApplication := application.NewContractFundingRateApplication(
+		contractFundingRateService)
+	contractPositionStatisticApplication := application.NewContractPositionStatisticApplication(
+		contractPositionStatisticService)
+	engine.GET("/contract-funding-rate-settlements",
+		controller.NewContractFundingRateSettlementController(
+			contractFundingRateApplication).GetSettlementsInRange)
+	engine.GET("/contract-position-statistics",
+		controller.NewContractPositionStatisticController(
+			contractPositionStatisticApplication).GetStatisticsInRange)
+
+	contractTradingSymbolApplication := application.NewContractTradingSymbolApplication(
+		service.NewContractTradingSymbolService(
+			contractTradingSymbolRepository,
+			contractKCandleRepository,
+			marketdata.NewBinanceContractSymbolLookupProxy(
+				applicationConfig.ContractIngestion.SymbolCatalogUrl,
+				applicationConfig.ContractIngestion.FundingInfoUrl,
+				applicationConfig.ContractIngestion.RequestTimeout,
+				venuePacers.cryptoContract,
 			),
-			contractKCandleIngestionService,
-			contractFundingRateService,
-			contractPositionStatisticService,
-		))
+			clock.NewSystemClockProxy(),
+		),
+		contractKCandleIngestionService,
+		contractFundingRateService,
+		contractPositionStatisticService,
+	)
+	contractTradingSymbolController := controller.NewContractTradingSymbolController(
+		contractTradingSymbolApplication)
 
 	engine.GET("/contract-trading-symbols",
 		contractTradingSymbolController.ListContractTradingSymbols)
@@ -568,7 +581,22 @@ func registerRoutes(
 
 	return kCandleFollowApplication, kCandleIngestionApplication,
 		kCandleContractIngestionApplication, strategyBotRunApplication,
-		assistantConversationApplication
+		assistantConversationApplication,
+		contractSeriesApplications{
+			fundingRate:       contractFundingRateApplication,
+			positionStatistic: contractPositionStatisticApplication,
+			tradingSymbol:     contractTradingSymbolApplication,
+		}
+}
+
+// contractSeriesApplications are the contract use cases that have background rounds
+// of their own beside the candles. They travel together because they are handed to
+// the jobs together, and a list of three more positional returns would be three more
+// places to put one in the wrong slot.
+type contractSeriesApplications struct {
+	fundingRate       *application.ContractFundingRateApplication
+	positionStatistic *application.ContractPositionStatisticApplication
+	tradingSymbol     *application.ContractTradingSymbolApplication
 }
 
 // assistantQueriesFor is everything the assistant is allowed to do.
@@ -616,6 +644,7 @@ func backgroundJobsFor(
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
 	strategyBotRunApplication *application.StrategyBotRunApplication,
+	contractSeries contractSeriesApplications,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
 		return []domaininterface.IBackgroundJob{}
@@ -643,9 +672,29 @@ func backgroundJobsFor(
 	strategyBotScanJob := job.NewStrategyBotScanJob(
 		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
 
-	return []domaininterface.IBackgroundJob{
+	backgroundJobs := []domaininterface.IBackgroundJob{
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 	}
+
+	// Each contract series keeps its own time, so each is a job of its own rather
+	// than more work inside the candle round: a venue slow to answer about funding
+	// rates must not hold up the candles, and the other way round. Any of them can be
+	// switched off alone.
+	contractIngestion := applicationConfig.ContractIngestion
+	if contractIngestion.FundingRateIngestionInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewContractFundingRateIngestionJob(
+			contractSeries.fundingRate, contractIngestion.FundingRateIngestionInterval))
+	}
+	if contractIngestion.PositionStatisticIngestionInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewContractPositionStatisticIngestionJob(
+			contractSeries.positionStatistic, contractIngestion.PositionStatisticIngestionInterval))
+	}
+	if contractIngestion.TradingSpecificationRefreshInterval > 0 {
+		backgroundJobs = append(backgroundJobs, job.NewContractTradingSpecificationRefreshJob(
+			contractSeries.tradingSymbol, contractIngestion.TradingSpecificationRefreshInterval))
+	}
+
+	return backgroundJobs
 }
 
 // marketDataProxyFor is where every market's candle source is named, and the only

@@ -286,6 +286,10 @@
     {
       "key": "datedContractSymbol",
       "value": "BTCUSDT_260925"
+    },
+    {
+      "key": "contractSettlementRangeStart",
+      "value": ""
     }
   ],
   "event": [
@@ -375,7 +379,10 @@
           "    Math.floor((Date.now() - minutesAgo * 60 * 1000) / 60000) * 60000)",
           "    .toISOString().replace(/\\.\\d{3}Z$/, 'Z');",
           "pm.collectionVariables.set('contractRangeStart', contractMinuteMark(60));",
-          "pm.collectionVariables.set('contractRangeEnd', contractMinuteMark(2));"
+          "pm.collectionVariables.set('contractRangeEnd', contractMinuteMark(2));",
+          "",
+          "// 資金費率一天只結算幾次，一小時的區間裡常常一筆都沒有，所以另給一段兩天的。",
+          "pm.collectionVariables.set('contractSettlementRangeStart', contractMinuteMark(2 * 24 * 60));"
         ]
       }
     }
@@ -3577,7 +3584,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"tradeCount\": 7,\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\"\n}"
+              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"tradeCount\": 7,\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\",\n  \"indexOpen\": \"102\", \"indexHigh\": \"122\", \"indexLow\": \"92\", \"indexClose\": \"112\",\n  \"premiumIndexOpen\": \"-0.0001\", \"premiumIndexHigh\": \"0.0002\", \"premiumIndexLow\": \"-0.0003\", \"premiumIndexClose\": \"0.0001\"\n}"
             }
           },
           "event": [
@@ -3588,7 +3595,9 @@
                 "exec": [
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"帶回標記價格\", () => pm.expect(pm.response.json().markClose).to.eql(\"111\"));",
-                  "pm.test(\"帶回成交筆數\", () => pm.expect(pm.response.json().tradeCount).to.eql(7));"
+                  "pm.test(\"帶回成交筆數\", () => pm.expect(pm.response.json().tradeCount).to.eql(7));",
+                  "pm.test(\"帶回指數價格\", () => pm.expect(pm.response.json().indexClose).to.eql(\"112\"));",
+                  "pm.test(\"帶回溢價指數,負的也照收\", () => pm.expect(pm.response.json().premiumIndexOpen).to.eql(\"-0.0001\"));"
                 ]
               }
             }
@@ -3653,7 +3662,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\"\n}"
+              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\",\n  \"indexOpen\": \"102\", \"indexHigh\": \"122\", \"indexLow\": \"92\", \"indexClose\": \"112\",\n  \"premiumIndexOpen\": \"-0.0001\", \"premiumIndexHigh\": \"0.0002\", \"premiumIndexLow\": \"-0.0003\", \"premiumIndexClose\": \"0.0001\"\n}"
             },
             "description": "零是一個合法的筆數，所以留白不能被讀成零。"
           },
@@ -3665,6 +3674,44 @@
                 "exec": [
                   "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
                   "pm.test(\"說出是哪一條\", () => pm.expect(pm.response.text()).to.include(\"成交筆數\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增時漏掉溢價指數會被拒絕",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"CONTRACTTESTONLY\",\n  \"openTime\": \"{{contractOpenTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\",\n  \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\",\n  \"tradeCount\": 7,\n  \"markOpen\": \"101\", \"markHigh\": \"121\", \"markLow\": \"91\", \"markClose\": \"111\",\n  \"indexOpen\": \"102\", \"indexHigh\": \"122\", \"indexLow\": \"92\", \"indexClose\": \"112\",\n  \"premiumIndexOpen\": \"-0.0001\", \"premiumIndexHigh\": \"0.0002\", \"premiumIndexLow\": \"-0.0003\"\n}"
+            },
+            "description": "從這一刀起，一根合約 K 線由四份資料合成：價量、標記價格、指數價格、溢價指數。少一份就不是完整的一根。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出是哪一條\", () => pm.expect(pm.response.text()).to.include(\"溢價指數必填\"));"
                 ]
               }
             }
@@ -4160,6 +4207,198 @@
                   "pm.test(\"成交筆數是正整數\", () => {",
                   "    pm.expect(candle.tradeCount).to.be.a(\"number\");",
                   "    pm.expect(candle.tradeCount).to.be.above(0);",
+                  "});",
+                  "",
+                  "// 指數價格與溢價指數和標記價格一樣是另外問的兩份,必須真的在。",
+                  "pm.test(\"指數價格四個都在而且是正數\", () => {",
+                  "    [\"indexOpen\", \"indexHigh\", \"indexLow\", \"indexClose\"].forEach((figure) => {",
+                  "        pm.expect(candle[figure], figure).to.be.a(\"string\");",
+                  "        pm.expect(Number(candle[figure]), figure).to.be.above(0);",
+                  "    });",
+                  "});",
+                  "pm.test(\"溢價指數四個都在(可以是負的)\", () => {",
+                  "    [\"premiumIndexOpen\", \"premiumIndexHigh\", \"premiumIndexLow\", \"premiumIndexClose\"].forEach((figure) => {",
+                  "        pm.expect(candle[figure], figure).to.be.a(\"string\");",
+                  "    });",
+                  "    pm.expect(Number(candle.premiumIndexHigh)).to.be.at.least(Number(candle.premiumIndexLow));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加入名單時補回了資金費率結算",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-funding-rate-settlements?symbol={{contractWatchlistSymbol}}&startTime={{contractSettlementRangeStart}}&endTime={{contractRangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-funding-rate-settlements"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{contractSettlementRangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractRangeEnd}}"
+                }
+              ]
+            },
+            "description": "加入合約追蹤名單時會一併補齊那一檔的完整資金費率歷史。兩天內至少結算過幾次（多數合約每八小時一次）。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const settlements = pm.response.json();",
+                  "pm.test(\"兩天內至少有一次結算\", () => pm.expect(settlements.length).to.be.above(0));",
+                  "pm.test(\"依結算時間由早到晚\", () => {",
+                  "    for (let index = 1; index < settlements.length; index++) {",
+                  "        pm.expect(Date.parse(settlements[index].settlementTime)).to.be.above(Date.parse(settlements[index - 1].settlementTime));",
+                  "    }",
+                  "});",
+                  "pm.test(\"費率是數字(正負零都合法)\", () => pm.expect(Number.isNaN(Number(settlements[0].fundingRate))).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查資金費率結算時沒指定合約標的會被拒絕",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-funding-rate-settlements?startTime={{contractSettlementRangeStart}}&endTime={{contractRangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-funding-rate-settlements"
+              ],
+              "query": [
+                {
+                  "key": "startTime",
+                  "value": "{{contractSettlementRangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractRangeEnd}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"說出缺了什麼\", () => pm.expect(pm.response.text()).to.include(\"必須指定交易標的\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加入名單時補回了持倉統計",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-position-statistics?symbol={{contractWatchlistSymbol}}&startTime={{contractRangeStart}}&endTime={{contractRangeEnd}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-position-statistics"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                },
+                {
+                  "key": "startTime",
+                  "value": "{{contractRangeStart}}"
+                },
+                {
+                  "key": "endTime",
+                  "value": "{{contractRangeEnd}}"
+                }
+              ]
+            },
+            "description": "持倉統計來源只留最近三十天，所以加入名單的當下就補最近三十天，之後每五分鐘錄一筆。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const statistics = pm.response.json();",
+                  "pm.test(\"一小時內至少有一筆\", () => pm.expect(statistics.length).to.be.above(0));",
+                  "const statistic = statistics[statistics.length - 1];",
+                  "pm.test(\"統計時間落在五分鐘刻度\", () => pm.expect(Date.parse(statistic.statisticTime) % (5 * 60 * 1000)).to.eql(0));",
+                  "pm.test(\"多空佔比介於零與一之間\", () => {",
+                  "    [\"accountLongShare\", \"accountShortShare\", \"topTraderPositionLongShare\", \"topTraderPositionShortShare\"].forEach((share) => {",
+                  "        pm.expect(Number(statistic[share]), share).to.be.within(0, 1);",
+                  "    });",
+                  "});",
+                  "pm.test(\"持倉量是正數\", () => pm.expect(Number(statistic.openInterest)).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "合約標的帶著交易規格",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trading-symbols",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trading-symbols"
+              ]
+            },
+            "description": "加入名單時一併記下交易規格，之後每天刷新。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "const watched = pm.response.json().find((contract) => contract.symbol === pm.collectionVariables.get('contractWatchlistSymbol'));",
+                  "pm.test(\"剛加入的那一檔在清單上\", () => pm.expect(watched).to.not.equal(undefined));",
+                  "pm.test(\"它帶著交易規格\", () => {",
+                  "    const specification = watched.tradingSpecification;",
+                  "    pm.expect(specification).to.not.equal(null);",
+                  "    pm.expect(Number(specification.tickSize)).to.be.above(0);",
+                  "    pm.expect(Number(specification.quantityStep)).to.be.above(0);",
+                  "    pm.expect(Number(specification.maintenanceMarginRate)).to.be.within(0, 1);",
+                  "    pm.expect([1, 4, 8]).to.include(specification.fundingIntervalHours);",
                   "});"
                 ]
               }
