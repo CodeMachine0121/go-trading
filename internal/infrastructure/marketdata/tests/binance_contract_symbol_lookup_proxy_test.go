@@ -255,16 +255,34 @@ func TestContractSymbolLookupStillFollowsAContractWhoseSpecificationCannotBeRead
 	assert.True(t, listing.Specification.TickSize.IsZero())
 }
 
-func TestContractSymbolLookupSaysSoWhenTheFundingIntervalsCannotBeRead(t *testing.T) {
+func TestContractSymbolLookupStillFollowsAContractWhenTheFundingIntervalsCannotBeRead(t *testing.T) {
+	// The catalogue already said the contract can be followed. Without the interval
+	// list its specification cannot be complete, so none is handed on — rather than a
+	// guessed eight hours — and the add goes ahead.
 	for _, fundingIntervalsUrl := range []string{servedBy(t, "not json"), "http://127.0.0.1:1"} {
 		lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
 			servedBy(t, catalogueWithSpecifications), fundingIntervalsUrl, requestTimeout, unpaced())
 
-		_, lookupError := lookupProxy.LookUpSymbol(t.Context(), "BTCUSDT")
-		_, fetchError := lookupProxy.FetchTradingSpecifications(t.Context())
+		listing, lookupError := lookupProxy.LookUpSymbol(t.Context(), "BTCUSDT")
 
-		assert.Error(t, lookupError)
+		require.NoError(t, lookupError)
+		assert.True(t, listing.IsListed)
+		assert.True(t, listing.Specification.TickSize.IsZero())
+		assert.Nil(t, listing.Specification.FundingIntervalHours)
+	}
+}
+
+func TestContractSymbolLookupRefreshesNothingWhenTheFundingIntervalsCannotBeRead(t *testing.T) {
+	// A refresh that cannot finish changes nothing: every contract keeps what it was
+	// last confirmed with.
+	for _, fundingIntervalsUrl := range []string{servedBy(t, "not json"), "http://127.0.0.1:1"} {
+		lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
+			servedBy(t, catalogueWithSpecifications), fundingIntervalsUrl, requestTimeout, unpaced())
+
+		specifications, fetchError := lookupProxy.FetchTradingSpecifications(t.Context())
+
 		assert.Error(t, fetchError)
+		assert.Nil(t, specifications)
 	}
 }
 

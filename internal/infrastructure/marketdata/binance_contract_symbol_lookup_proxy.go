@@ -147,10 +147,15 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) LookUp
 			return vo.ContractSymbolListingVo{}, nil
 		}
 
+		// The funding interval list not answering does not make the contract
+		// unfollowable either — the catalogue already said it is. Without the list the
+		// interval cannot be known, and guessing eight hours for a contract that settles
+		// every four would be wrong for a day, so no specification is handed on at all
+		// and the daily refresh records it.
 		fundingIntervals, intervalError := binanceContractSymbolLookupProxy.fetchFundingIntervals(
 			executionContext, symbol)
 		if intervalError != nil {
-			return vo.ContractSymbolListingVo{}, intervalError
+			return vo.ContractSymbolListingVo{IsListed: true}, nil
 		}
 
 		// A specification spelled in a way this cannot read does not make the contract
