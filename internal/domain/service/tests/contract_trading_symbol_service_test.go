@@ -58,6 +58,9 @@ func TestContractTradingSymbolServiceListsRegisteredAndHeldTogetherOnce(t *testi
 	require.Len(t, contractSymbols, 3)
 	assert.Equal(t, "1000PEPEUSDT", contractSymbols[0].Symbol)
 	assert.False(t, contractSymbols[0].IsWatched)
+	// Known only because candles are held for it: never registered, so never given
+	// a trading specification.
+	assert.Nil(t, contractSymbols[0].TradingSpecification)
 	assert.Equal(t, "BTCUSDT", contractSymbols[1].Symbol)
 	assert.True(t, contractSymbols[1].IsWatched)
 	assert.Equal(t, "ETHUSDT", contractSymbols[2].Symbol)

@@ -383,3 +383,24 @@ func TestKCandleContractRepositoryHandsAnOldCandleOutWithoutTheLaterLines(t *tes
 	assert.Contains(t, string(serialized), `"indexClose":null`)
 	assert.Contains(t, string(serialized), `"premiumIndexClose":null`)
 }
+
+func TestKCandleContractRepositoryReplacesAnOldCandleInsideTheRecentMinutesWithTheCompleteOne(t *testing.T) {
+	// The every-minute round re-fetches its recent minutes and replaces what it
+	// finds; an old candle among them becomes the complete one it was fetched as.
+	database := newTestDatabase(t)
+	contractRepository := persistence.NewKCandleContractRepository(database)
+	_, heldError := contractRepository.Save(
+		t.Context(), candleStoredBeforeTheLaterLines("BTCUSDT", at(9, 0), "100"))
+	require.NoError(t, heldError)
+
+	_, saveError := contractRepository.Save(t.Context(), contractCandleAt("BTCUSDT", at(9, 0), "105"))
+
+	require.NoError(t, saveError)
+	held, readError := contractRepository.FindOne(t.Context(), "BTCUSDT", at(9, 0))
+	require.NoError(t, readError)
+	assert.True(t, decimal.RequireFromString("105").Equal(held.Close))
+	require.True(t, held.IndexClose.Valid)
+	assert.True(t, decimal.RequireFromString("112").Equal(held.IndexClose.Decimal))
+	require.True(t, held.PremiumIndexClose.Valid)
+	assert.True(t, decimal.RequireFromString("0.0001").Equal(held.PremiumIndexClose.Decimal))
+}
