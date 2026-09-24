@@ -52,7 +52,7 @@ resultType 給 signal 時進入點**換一個形狀**——不是 map，是單�
 KCandle 可用欄位（全是 float64，除了 OpenTimeUnixSeconds 是 int64）：
   Open、High、Low、Close、Volume、QuoteVolume、TakerBuyBaseVolume、TakerBuyQuoteVolume、OpenTimeUnixSeconds
 
-只能 import "math" 和 "sort"。不可存取 I/O、網路、時鐘、隨機數。
+只能 import "math" 和 "sort"。不可存取 I/O、網路、時鐘、隨機數，也不可使用 goroutine（go 敘述）或 channel。
 
 取參數（名稱必須與策略腳本宣告完全相符，拼錯會讓算式當場失敗）：
   indicator.LookbackCount("名稱") → int    // 回看根數

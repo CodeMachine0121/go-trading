@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"time"
 
@@ -77,7 +80,13 @@ func (runner indicatorScriptRunner[Input]) execute(
 		return nil, prepareError
 	}
 
-	return preparedScript.runOver(executionContext, input)
+	// A copy of exactly the input's length, for the same two reasons the replay makes
+	// one: nothing the script writes reaches the caller, and nothing past the input is
+	// within its reach.
+	isolatedInput := make([]Input, len(input))
+	copy(isolatedInput, input)
+
+	return preparedScript.runOver(executionContext, isolatedInput)
 }
 
 // executeForEachElement runs the same script once per element: the nth run sees the
@@ -105,9 +114,18 @@ func (runner indicatorScriptRunner[Input]) executeForEachElement(
 		return nil, prepareError
 	}
 
+	// The replay works on a copy of its own, so a script that writes into what it is
+	// shown can never reach back into the caller's market. Each run is then cut to a
+	// capacity equal to its length: a slice carries the array behind it, and without
+	// that cut a script could re-slice up to cap(data) and read — or rewrite — the
+	// candles it has not reached yet, which would make every replay a lie.
+	isolatedInput := make([]Input, len(input))
+	copy(isolatedInput, input)
+
 	perElementIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(input))
 	for elementCount := 1; elementCount <= len(input); elementCount++ {
-		indicatorValues, executionError := preparedScript.runOver(executionContext, input[:elementCount])
+		indicatorValues, executionError := preparedScript.runOver(
+			executionContext, isolatedInput[:elementCount:elementCount])
 		if executionError != nil {
 			return nil, executionError
 		}
@@ -175,6 +193,43 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	// fail; were it ever malformed, the script would simply fail to read on the next
 	// line and be reported the same way as any other unreadable script.
 	_ = preparedScript.interpreter.Use(scriptSymbols)
+
+	// Goroutines and channels are refused before the script is evaluated. A goroutine
+	// is the one thing a script can start that outlives the run: the allowance cannot
+	// stop it, and a panic on it is beyond what the interpreter can catch, so it takes
+	// the whole server down instead of failing the script. A channel is only good for
+	// talking to a goroutine; without one, all it can do is block a run forever, and a
+	// run blocked on a receive stays parked after its allowance is spent. Nothing an
+	// indicator computes needs either.
+	//
+	// The check fails closed. The interpreter is more forgiving than a Go file: it
+	// accepts a script with no package clause, and it runs statements written outside
+	// any function. The first is read again as package main, so such scripts keep
+	// working and are checked all the same; anything that still is not a Go file
+	// cannot be checked, and a script that cannot be checked is not run.
+	parsedScript, parseError := parser.ParseFile(token.NewFileSet(), "", script, 0)
+	if parseError != nil {
+		parsedAsMain, parseAsMainError := parser.ParseFile(
+			token.NewFileSet(), "", "package main\n"+script, 0)
+		if parseAsMainError != nil {
+			return nil, fmt.Errorf(
+				"%w: 算式無法解讀：%v", domains.ErrIndicatorScriptFailed, parseError)
+		}
+		parsedScript = parsedAsMain
+	}
+
+	reachesForConcurrency := false
+	ast.Inspect(parsedScript, func(node ast.Node) bool {
+		switch node.(type) {
+		case *ast.GoStmt, *ast.ChanType:
+			reachesForConcurrency = true
+		}
+		return !reachesForConcurrency
+	})
+	if reachesForConcurrency {
+		return nil, fmt.Errorf(
+			"%w: 算式不得使用 goroutine（go 敘述）或 channel", domains.ErrIndicatorScriptFailed)
+	}
 
 	if _, evalError := preparedScript.interpreter.Eval(script); evalError != nil {
 		return nil, fmt.Errorf(
