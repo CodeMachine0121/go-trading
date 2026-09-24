@@ -10,12 +10,20 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/CodeMachine0121/go-trading/internal/job"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Started as a script compartment, this binary serves that one request and ends.
+	// It is decided before anything else happens: a compartment reads no settings,
+	// opens no database and knows nothing of the service that started it.
+	if len(os.Args) > 1 && os.Args[1] == script.IndicatorScriptWorkerCommand {
+		os.Exit(script.NewIndicatorScriptWorker().Serve(os.Stdin, os.Stdout))
+	}
+
 	if loadError := godotenv.Load(); loadError != nil {
 		log.Println("no .env file loaded, falling back to process environment")
 	}

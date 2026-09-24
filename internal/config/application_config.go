@@ -344,6 +344,11 @@ type ApplicationConfig struct {
 	CorsAllowedOrigins     []string
 	KCandleQueryMaxResults int
 	IndicatorScriptTimeout time.Duration
+	// IndicatorScriptMemoryLimitBytes is the most memory one script compartment may
+	// take. It has to sit well below the memory the service itself is given: several
+	// compartments can be running at once, and the point of the cap is that none of
+	// them can take the service down.
+	IndicatorScriptMemoryLimitBytes int64
 	// BacktestMaxCandleCount is how many buckets one replay may walk. It is the
 	// replay's own, no longer the single-query ceiling: a replay is one question that
 	// reads the market once, but it walks far more than any one query hands back.
@@ -382,6 +387,8 @@ func Load() ApplicationConfig {
 		KCandleQueryMaxResults: positiveIntWithDefault("KCANDLE_QUERY_MAX_RESULTS", 1000),
 		IndicatorScriptTimeout: time.Duration(
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
+		IndicatorScriptMemoryLimitBytes: int64(
+			positiveIntWithDefault("INDICATOR_SCRIPT_MEMORY_LIMIT_MEGABYTES", 512)) << 20,
 		BacktestMaxCandleCount: positiveIntWithDefault("BACKTEST_MAX_CANDLE_COUNT", 50000),
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,

@@ -273,3 +273,26 @@ func TestLoadReadsTheReplaySettings(t *testing.T) {
 	assert.Equal(t, 100000, applicationConfig.BacktestMaxCandleCount)
 	assert.Equal(t, 45*time.Second, applicationConfig.BacktestTimeAllowance)
 }
+
+func TestLoadReadsTheIndicatorScriptMemoryLimit(t *testing.T) {
+	testCases := []struct {
+		name          string
+		limitValue    string
+		expectedBytes int64
+	}{
+		{name: "a usable limit is taken as given, in megabytes", limitValue: "256", expectedBytes: 256 << 20},
+		{name: "an unreadable limit falls back", limitValue: "plenty", expectedBytes: 512 << 20},
+		{name: "zero falls back rather than lifting the cap", limitValue: "0", expectedBytes: 512 << 20},
+		{name: "a negative limit falls back", limitValue: "-1", expectedBytes: 512 << 20},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("INDICATOR_SCRIPT_MEMORY_LIMIT_MEGABYTES", testCase.limitValue)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expectedBytes, applicationConfig.IndicatorScriptMemoryLimitBytes)
+		})
+	}
+}
