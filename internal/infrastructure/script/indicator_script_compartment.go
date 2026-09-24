@@ -103,6 +103,11 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 	command.Env = append([]string{}, isolation.WorkerEnvironment...)
 	var deathNotice bytes.Buffer
 	command.Stderr = &deathNotice
+	// Once the child has been told to end, the service waits this long and no longer
+	// for its output to close. Anything the child left behind still holding those
+	// streams would otherwise keep the wait — and whoever is waiting on this run —
+	// hanging for as long as it lived.
+	command.WaitDelay = time.Second
 
 	requestPipe, requestPipeError := command.StdinPipe()
 	answerPipe, answerPipeError := command.StdoutPipe()
