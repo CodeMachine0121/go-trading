@@ -114,10 +114,12 @@ func (kCandleContractFollowService *KCandleContractFollowService) WatchKCandleCo
 
 	follow, isFollowing := kCandleContractFollowService.follows[contractSymbol.Value()]
 	if !isFollowing {
+		// The throttle starts with nothing ever sent, so the first forming candle of a
+		// new follow goes straight out: the first viewer is promised the shape now, and
+		// a quiet contract would otherwise leave them an empty stream for a whole ceiling.
 		follow = newKCandleFollowSymbol(contractSymbol.Value(), vo.MarketCrypto, false,
 			domains.NewViewerUpdateThrottleDomain(
-				kCandleContractFollowService.updateIntervalCeiling,
-				kCandleContractFollowService.clockProxy.Now()))
+				kCandleContractFollowService.updateIntervalCeiling, time.Time{}))
 		kCandleContractFollowService.follows[contractSymbol.Value()] = follow
 
 		// The line outlives the viewer who asked for it, so it must not inherit their

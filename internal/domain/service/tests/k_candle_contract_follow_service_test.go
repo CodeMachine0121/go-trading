@@ -236,26 +236,6 @@ func TestWatchingAContractFailsWhenItsEntryCannotBeRead(t *testing.T) {
 	assert.EqualError(t, watchError, "the database went away")
 }
 
-// A forming candle is passed on at most once per ceiling; a closed one always is.
-func TestAContractCandleFormingIsHeldBackButItsCloseAlwaysArrives(t *testing.T) {
-	feed := newLiveFeed()
-	testBed := newContractFollowTestBed(t, time.Hour, func(int) (<-chan vo.LiveKCandleVo, error) {
-		return feed.kCandles, nil
-	})
-	viewer, viewerLeaves := context.WithCancel(context.Background())
-	defer viewerLeaves()
-	updates, _ := testBed.service.WatchKCandleContracts(viewer, "BTCUSDT")
-
-	feed.report(liveKCandleAt(followOpenTime, "64000", false))
-	feed.report(liveKCandleAt(followOpenTime, "64001", false))
-	feed.report(liveKCandleAt(followOpenTime, "64002", true))
-
-	update := firstUpdateFrom(t, updates)
-	assert.Equal(t, dto.KCandleFollowStatusClosed, update.Status, "走完的那一根不受上限影響、一定送到")
-	assert.Equal(t, "64002", update.KCandle.Close.String())
-	assert.Empty(t, updates, "十秒內進行中的那幾次都該被擋下")
-}
-
 // What arrives is the last-price candle and nothing else.
 func TestAContractUpdateCarriesTheLastPriceCandle(t *testing.T) {
 	testBed, feed := oneContractFeed(t)
@@ -441,4 +421,28 @@ func TestAContractTakenOffTheWatchlistMidWatchKeepsItsViewer(t *testing.T) {
 	feed.report(liveKCandleAt(followOpenTime, "64000.5", false))
 	assert.Equal(t, "64000.5", firstUpdateFrom(t, updates).KCandle.Close.String(),
 		"已經在看的人照常收到，直到他離開")
+}
+
+// With a real ceiling, the first forming candle of a new follow reaches its first viewer
+// at once, and the next one inside the ceiling is held back.
+func TestTheFirstFormingContractCandleArrivesAtOnceAndTheNextIsThrottled(t *testing.T) {
+	feed := newLiveFeed()
+	testBed := newContractFollowTestBed(t, 10*time.Second, func(int) (<-chan vo.LiveKCandleVo, error) {
+		return feed.kCandles, nil
+	})
+	viewer, viewerLeaves := context.WithCancel(context.Background())
+	defer viewerLeaves()
+	updates, _ := testBed.service.WatchKCandleContracts(viewer, "BTCUSDT")
+
+	feed.report(liveKCandleAt(followOpenTime, "64000", false))
+	first := firstUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusForming, first.Status)
+	assert.Equal(t, "64000", first.KCandle.Close.String(), "第一個觀看者要立刻收到進行中的那一根")
+
+	feed.report(liveKCandleAt(followOpenTime, "64001", false))
+	feed.report(liveKCandleAt(followOpenTime, "64002", true))
+	closed := firstUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusClosed, closed.Status, "上限內的下一根進行中被擋下，走完的照送")
+	assert.Equal(t, "64002", closed.KCandle.Close.String())
+	assert.Empty(t, updates)
 }

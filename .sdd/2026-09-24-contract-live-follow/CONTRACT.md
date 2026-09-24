@@ -65,4 +65,6 @@ Paths: `S` = `internal/domain/service/k_candle_contract_follow_service.go`,
 | AC-17 | Left partial by design: independence is structural (separate service, route and source); no test can meaningfully probe "every other feature" from this slice. |
 | Orphans | Blank-code refusal added to PRD edge cases; dropped foreign candle recorded as inherited behaviour. |
 
+| AC-01 (code review) | A new follow's throttle was seeded with the current time, so the first forming candle of a quiet contract was held back for a whole ceiling (hidden by a 1 ns test ceiling). The contract follow now starts its throttle with nothing sent; pinned with a real 10 s ceiling, which also replaces the earlier throttle test (ST:238) that had encoded the held-back first candle; AC-09/AC-10 now trace to the new test. → conforms |
+
 After follow-up: 29 / 30 conform; AC-17 partial (structural).
