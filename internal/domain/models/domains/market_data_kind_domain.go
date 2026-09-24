@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 // declarableMarketDataKinds is the entire set a strategy script may declare, in the
@@ -138,21 +139,92 @@ func (marketDataKindDomain MarketDataKindDomain) RetainingForTradingStrategy(
 	return marketDataKindDomain, nil
 }
 
-// RequireFollowableByStrategyBot refuses a trading strategy of this kind to a bot. A
-// bot reads spot K candles every round; handed a contract trading strategy it would
-// feed contract scripts the wrong shape of market, round after round, where nobody is
-// reading.
-func (marketDataKindDomain MarketDataKindDomain) RequireFollowableByStrategyBot() error {
-	if marketDataKindDomain.value == vo.MarketDataKindKCandle {
+// RetainingForStrategyBot is Retaining for a strategy bot: a rewrite that says nothing
+// about the kind keeps it, one that restates it changes nothing, and one that names the
+// other kind is refused — a bot reads one kind of market every round, and a bot that
+// switched would be following rules written for the other kind.
+func (marketDataKindDomain MarketDataKindDomain) RetainingForStrategyBot(
+	requested string,
+) (MarketDataKindDomain, error) {
+	if strings.TrimSpace(requested) == "" {
+		return marketDataKindDomain, nil
+	}
+
+	requestedKind, declarationError := NewMarketDataKindDomain(requested)
+	if declarationError != nil {
+		return MarketDataKindDomain{}, fmt.Errorf("%w: %w", ErrStrategyBotValidation, declarationError)
+	}
+
+	if requestedKind.value != marketDataKindDomain.value {
+		return MarketDataKindDomain{}, fmt.Errorf(
+			"%w: 行情種類建立後不得更換——這台機器人吃的是%s；要吃%s請另建一台",
+			ErrStrategyBotValidation, marketDataKindDomain.label(), requestedKind.label())
+	}
+
+	return marketDataKindDomain, nil
+}
+
+// RequireFollowableByStrategyBotOf refuses a trading strategy of this kind to a bot of
+// the other kind. A bot reads its own kind of market every round; handed rules written
+// for the other kind it would feed their scripts the wrong shape of market, round after
+// round, where nobody is reading.
+func (marketDataKindDomain MarketDataKindDomain) RequireFollowableByStrategyBotOf(
+	botMarketDataKind MarketDataKindDomain,
+) error {
+	if marketDataKindDomain.value == botMarketDataKind.value {
 		return nil
 	}
 
-	return fmt.Errorf("%w: 策略機器人目前只跑 K 線，不能引用一份吃%s的交易策略",
-		ErrStrategyBotValidation, marketDataKindDomain.label())
+	return fmt.Errorf("%w: 這台機器人吃的是%s，那份交易策略吃的是%s——機器人只能引用行情種類相同的交易策略",
+		ErrStrategyBotValidation, botMarketDataKind.label(), marketDataKindDomain.label())
 }
 
-// label is how the kind reads in a sentence meant for a person. Both refusals above
-// name the kind, and they must name it the same way.
+// LeverageForStrategyBot is the leverage a bot of this kind stores for what its caller
+// declared.
+//
+// A spot bot lends nothing, so it may only ever suggest what a spot replay could have
+// modelled; the sentence comes from the model a replay asks, so the same figure typed
+// into either comes back with the same words. A contract bot borrows by the rules a
+// contract replay reads a leverage by: nothing at all is one times, and under one is
+// refused. Whether the symbol allows that much is answered where the symbol's ladder
+// is read — see ContractStrategyBotMarketDomain.
+//
+// Asked here rather than inside the position plan because the plan is also built
+// every round, from settings already stored. Refusing there would stop bots that were
+// saved before this rule existed — and it would stop them silently, one round at a
+// time, where nobody is reading.
+func (marketDataKindDomain MarketDataKindDomain) LeverageForStrategyBot(
+	declaredLeverage decimal.Decimal,
+) (decimal.Decimal, error) {
+	if !marketDataKindDomain.IsContract() {
+		if _, borrowingRefusal := NewSpotOnlyReplayDomain(
+			"", declaredLeverage, decimal.Zero); borrowingRefusal != nil {
+			return decimal.Zero, fmt.Errorf("%w: %s", ErrStrategyBotValidation, borrowingRefusal)
+		}
+
+		return decimal.Zero, nil
+	}
+
+	if declaredLeverage.IsZero() {
+		return oneWhole, nil
+	}
+
+	if declaredLeverage.LessThan(oneWhole) {
+		return decimal.Zero, fmt.Errorf(
+			"%w: %s", ErrStrategyBotValidation, ErrLeverageMultiplierBelowOne)
+	}
+
+	return declaredLeverage, nil
+}
+
+// IsContract is whether this is the perpetual contract bar rather than the spot K
+// candle.
+func (marketDataKindDomain MarketDataKindDomain) IsContract() bool {
+	return marketDataKindDomain.value == vo.MarketDataKindContractKCandle
+}
+
+// label is how the kind reads in a sentence meant for a person. Every refusal above
+// names the kind, and they must all name it the same way.
 func (marketDataKindDomain MarketDataKindDomain) label() string {
 	if marketDataKindDomain.value == vo.MarketDataKindContractKCandle {
 		return "合約行情"

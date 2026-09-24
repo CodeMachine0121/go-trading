@@ -324,3 +324,51 @@ func TestKCandleContractServicePassesAStorageFailureOnWhenMergingASeries(t *test
 	assert.ErrorContains(t, seriesError, "storage unreachable")
 	assert.NotErrorIs(t, seriesError, domains.ErrKCandleContractValidation)
 }
+
+func TestKCandleContractServiceReadsAContractsNewestCandle(t *testing.T) {
+	testCases := []struct {
+		name          string
+		storedCandles []entities.KCandleContract
+		expectedFound bool
+		expectedClose string
+	}{
+		{name: "the newest one there is",
+			storedCandles: []entities.KCandleContract{storedContractCandle(ingestionAt(9, 6, 0), "64000.5")},
+			expectedFound: true, expectedClose: "64000.5"},
+		{name: "nothing stored is an answer, not a failure", expectedFound: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newContractServiceUnderTest(t)
+			underTest.repository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+				Return(testCase.storedCandles, nil)
+
+			latestCandle, found, readError := underTest.service.GetLatestKCandleContract(t.Context(), "BTCUSDT")
+
+			require.NoError(t, readError)
+			assert.Equal(t, testCase.expectedFound, found)
+			if testCase.expectedFound {
+				assert.Equal(t, testCase.expectedClose, latestCandle.Close.String())
+			}
+		})
+	}
+}
+
+func TestKCandleContractServiceRefusesTheNewestCandleOfNoSymbol(t *testing.T) {
+	underTest := newContractServiceUnderTest(t)
+
+	_, _, readError := underTest.service.GetLatestKCandleContract(t.Context(), "")
+
+	assert.ErrorIs(t, readError, domains.ErrKCandleContractValidation)
+}
+
+func TestKCandleContractServiceReportsANewestCandleItCouldNotRead(t *testing.T) {
+	underTest := newContractServiceUnderTest(t)
+	underTest.repository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return(nil, errors.New("the database went away"))
+
+	_, _, readError := underTest.service.GetLatestKCandleContract(t.Context(), "BTCUSDT")
+
+	assert.EqualError(t, readError, "the database went away")
+}

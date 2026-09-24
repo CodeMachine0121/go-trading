@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
@@ -19,34 +21,50 @@ import (
 // its owner can be spoken to is the delivery setting's; and joining those to this is
 // the application layer's job. A dependency that is not here cannot be reached for
 // by accident later.
+//
+// The two contract readers are the exception, and a narrow one: which contract a
+// contract bot may watch, and how much leverage it may carry there, are rules about
+// bots — read once, when a bot is saved, and never during a round.
 type StrategyBotService struct {
-	strategyBotRepository          domaininterface.IStrategyBotRepository
-	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository
-	clockProxy                     domaininterface.IClockProxy
+	strategyBotRepository                   domaininterface.IStrategyBotRepository
+	strategyBotRunRecordRepository          domaininterface.IStrategyBotRunRecordRepository
+	contractTradingSymbolRepository         domaininterface.IContractTradingSymbolRepository
+	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
+	clockProxy                              domaininterface.IClockProxy
 }
 
 func NewStrategyBotService(
 	strategyBotRepository domaininterface.IStrategyBotRepository,
 	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository,
+	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
+	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *StrategyBotService {
 	return &StrategyBotService{
-		strategyBotRepository:          strategyBotRepository,
-		strategyBotRunRecordRepository: strategyBotRunRecordRepository,
-		clockProxy:                     clockProxy,
+		strategyBotRepository:                   strategyBotRepository,
+		strategyBotRunRecordRepository:          strategyBotRunRecordRepository,
+		contractTradingSymbolRepository:         contractTradingSymbolRepository,
+		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
+		clockProxy:                              clockProxy,
 	}
 }
 
 // CreateStrategyBot saves a new bot for its owner, stopped, and hands it back as
 // stored. A bot that breaks a rule is refused before anything is written.
+//
+// The trading strategy it follows arrives already read, as the caller could see it:
+// whether it is theirs to follow was answered there, and what is asked of it here is
+// only whether it eats the same kind of market as the bot.
 func (strategyBotService *StrategyBotService) CreateStrategyBot(
 	executionContext context.Context, writeDto dto.StrategyBotWriteDto,
+	followedTradingStrategy dto.TradingStrategyDto,
 ) (dto.StrategyBotDto, error) {
 	// An identifier arriving on a create would rewrite whichever bot it named,
 	// including somebody else's. Clearing it makes creating unable to mean that.
 	writeDto.ID = 0
 
-	strategyBotDomain, validationError := domains.NewStrategyBotDomain(writeDto)
+	strategyBotDomain, validationError := strategyBotService.settle(
+		executionContext, writeDto, followedTradingStrategy)
 	if validationError != nil {
 		return dto.StrategyBotDto{}, validationError
 	}
@@ -60,13 +78,22 @@ func (strategyBotService *StrategyBotService) CreateStrategyBot(
 	return savedBot.ToDto(), nil
 }
 
-// ListStrategyBots returns this person's bots, by name.
+// ListStrategyBots returns this person's bots, by name — all of them, or only those of
+// one kind of market when one is named.
 //
 // Having none is an empty list rather than a refusal: it is the ordinary state of
-// somebody who has not built one yet.
+// somebody who has not built one yet. Naming a kind nobody recognises is refused,
+// rather than answered with nothing: an empty list would read as "you have none".
 func (strategyBotService *StrategyBotService) ListStrategyBots(
-	executionContext context.Context, ownerID uint,
+	executionContext context.Context, ownerID uint, marketDataKind string,
 ) ([]dto.StrategyBotDto, error) {
+	narrowsToKind := strings.TrimSpace(marketDataKind) != ""
+
+	wantedKind, kindError := domains.NewMarketDataKindDomain(marketDataKind)
+	if kindError != nil {
+		return nil, fmt.Errorf("%w: %w", domains.ErrStrategyBotValidation, kindError)
+	}
+
 	bots, findError := strategyBotService.strategyBotRepository.FindAllByOwner(
 		executionContext, ownerID)
 	if findError != nil {
@@ -75,6 +102,10 @@ func (strategyBotService *StrategyBotService) ListStrategyBots(
 
 	botDtos := make([]dto.StrategyBotDto, 0, len(bots))
 	for _, bot := range bots {
+		if narrowsToKind && bot.MarketDataKindOrDefault() != string(wantedKind.Value()) {
+			continue
+		}
+
 		botDtos = append(botDtos, bot.ToDto())
 	}
 
@@ -96,9 +127,11 @@ func (strategyBotService *StrategyBotService) GetStrategyBot(
 // UpdateStrategyBot rewrites the viewer's own bot, and refuses while it is running.
 //
 // Every rule that applied to creating it applies here word for word, because both
-// arrive as the same shape and are checked by the same model.
+// arrive as the same shape and are checked by the same model — plus one of its own:
+// the kind of market it eats is the one it was created with.
 func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
+	followedTradingStrategy dto.TradingStrategyDto,
 ) (dto.StrategyBotDto, error) {
 	storedBot, findError := strategyBotService.findOwnedBot(
 		executionContext, viewerID, writeDto.ID)
@@ -115,7 +148,21 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	// remembering not to.
 	writeDto.OwnerID = storedBot.OwnerID
 
-	strategyBotDomain, validationError := domains.NewStrategyBotDomain(writeDto)
+	// The stored kind is read the way every reader reads it, so a bot stored before
+	// there was a choice keeps the K candle it has always eaten.
+	storedKind, storedKindError := domains.NewMarketDataKindDomain(storedBot.MarketDataKindOrDefault())
+	if storedKindError != nil {
+		return dto.StrategyBotDto{}, fmt.Errorf("%w: %w", domains.ErrStrategyBotValidation, storedKindError)
+	}
+
+	retainedKind, retainError := storedKind.RetainingForStrategyBot(writeDto.MarketDataKind)
+	if retainError != nil {
+		return dto.StrategyBotDto{}, retainError
+	}
+	writeDto.MarketDataKind = string(retainedKind.Value())
+
+	strategyBotDomain, validationError := strategyBotService.settle(
+		executionContext, writeDto, followedTradingStrategy)
 	if validationError != nil {
 		return dto.StrategyBotDto{}, validationError
 	}
@@ -345,8 +392,10 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	}
 
 	// What this round's conclusion asks the account to hold is the whole of what a
-	// plan needs: whether there is anything to suggest opening at all.
-	target := domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)).TargetPosition()
+	// plan needs: whether there is anything to suggest opening at all, and which way.
+	// Which account that is — and on a contract one, which trading mode — decides it.
+	target := domains.NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode).
+		TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
 
 	round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(
 		target, round.ReferencePrice, round.HasReference)
@@ -433,14 +482,17 @@ func (strategyBotService *StrategyBotService) WriteStartedMessage(
 	botDto dto.StrategyBotDto,
 ) string {
 	return domains.NewStrategyBotLifecycleMessageDomain(
-		botDto.Name, botDto.Symbol, vo.StrategyBotHaltNone).StartedText()
+		botDto.Name,
+		domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").SymbolLabel(botDto.Symbol),
+		vo.StrategyBotHaltNone).StartedText()
 }
 
 func (strategyBotService *StrategyBotService) WriteStoppedMessage(
 	botDto dto.StrategyBotDto,
 ) string {
 	return domains.NewStrategyBotLifecycleMessageDomain(
-		botDto.Name, botDto.Symbol,
+		botDto.Name,
+		domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").SymbolLabel(botDto.Symbol),
 		vo.StrategyBotHaltReasonVo(botDto.HaltReason)).StoppedText()
 }
 
@@ -468,6 +520,52 @@ func (strategyBotService *StrategyBotService) ListRunRecords(
 	}
 
 	return runRecordDtos, nil
+}
+
+// settle is every rule a bot being saved has to pass, creating or rewriting: its own,
+// following rules of the same kind of market, and — for a contract bot — watching a
+// contract the system follows, with no more leverage than that contract allows.
+//
+// Both public writers need all of it in this order, and a rule answered in one and
+// forgotten in the other is a bot that can be rewritten into something it could never
+// have been created as.
+func (strategyBotService *StrategyBotService) settle(
+	executionContext context.Context, writeDto dto.StrategyBotWriteDto,
+	followedTradingStrategy dto.TradingStrategyDto,
+) (domains.StrategyBotDomain, error) {
+	strategyBotDomain, validationError := domains.NewStrategyBotDomain(writeDto)
+	if validationError != nil {
+		return domains.StrategyBotDomain{}, validationError
+	}
+
+	if followError := strategyBotDomain.RequireFollowing(
+		followedTradingStrategy.MarketDataKind); followError != nil {
+		return domains.StrategyBotDomain{}, followError
+	}
+
+	if !strategyBotDomain.WatchesContracts() {
+		return strategyBotDomain, nil
+	}
+
+	contractTradingSymbol, isRegistered, findSymbolError := strategyBotService.
+		contractTradingSymbolRepository.FindBySymbol(executionContext, strategyBotDomain.Symbol())
+	if findSymbolError != nil {
+		return domains.StrategyBotDomain{}, findSymbolError
+	}
+
+	maintenanceMarginTiers, findTiersError := strategyBotService.
+		contractMaintenanceMarginTierRepository.FindBySymbol(executionContext, strategyBotDomain.Symbol())
+	if findTiersError != nil {
+		return domains.StrategyBotDomain{}, findTiersError
+	}
+
+	if admitError := domains.NewContractStrategyBotMarketDomain(
+		strategyBotDomain.Symbol(), contractTradingSymbol, isRegistered, maintenanceMarginTiers,
+	).Admit(strategyBotDomain.Leverage()); admitError != nil {
+		return domains.StrategyBotDomain{}, admitError
+	}
+
+	return strategyBotDomain, nil
 }
 
 // findOwnedBot is the two steps in front of everything a person does to a bot: find

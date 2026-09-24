@@ -46,7 +46,10 @@ func newTradingStrategyApplicationUnderTest(t *testing.T) tradingStrategyApplica
 			service.NewStrategyScriptService(
 				strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewStrategyBotService(
-				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+				strategyBotRepository, strategyBotRunRecordRepository,
+				mocks.NewMockIContractTradingSymbolRepository(controller),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
+				clockProxy),
 		),
 		tradingStrategyRepository:         tradingStrategyRepository,
 		strategyBotRepository:             strategyBotRepository,

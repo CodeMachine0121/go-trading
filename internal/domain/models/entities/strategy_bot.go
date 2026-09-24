@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -35,6 +36,11 @@ type StrategyBot struct {
 	OwnerID uint   `gorm:"not null;index:idx_strategy_bots_owner;uniqueIndex:idx_strategy_bots_owner_name"`
 	Name    string `gorm:"size:128;not null;uniqueIndex:idx_strategy_bots_owner_name"`
 	Symbol  string `gorm:"size:64;not null"`
+	// MarketDataKind is which kind of market this bot eats: the spot K candle or the
+	// perpetual contract bar. It is settled when the bot is created and never changes —
+	// the rewrite path does not name this column. Rows stored before there was a choice
+	// read as the K candle, which is what they are.
+	MarketDataKind string `gorm:"size:32;not null;default:kCandle"`
 	// TradingStrategyID is the rules this bot follows. It defaults to zero so that
 	// the column can be added to a table that already has rows in it; zero is the
 	// mark the one-time move reads and clears, and no bot carries it afterwards.
@@ -69,6 +75,10 @@ type StrategyBot struct {
 	// from the reference price each exit sits. Either may be left out on its own.
 	PositionPlanStopLossPercentage   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
 	PositionPlanTakeProfitPercentage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	// PositionPlanLeverage is how many times the margin a contract bot's suggested
+	// position carries. A spot bot always stores zero: nobody lends on spot, and zero is
+	// what every bot stored before contract bots existed already holds.
+	PositionPlanLeverage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
 	// RunState is indexed together with NextRunAt because the scan asks exactly one
 	// question of this table — which bots are running and due — and that pair is it.
 	RunState string `gorm:"size:16;not null;index:idx_strategy_bots_run_state_next_run_at,priority:1"`
@@ -106,7 +116,7 @@ type StrategyBot struct {
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
-// PositionPlanSettingsDto is this bot's four position plan settings, in the shape the
+// PositionPlanSettingsDto is this bot's position plan settings, in the shape the
 // domain hands outwards. It is on the row because every field it reads is the row's
 // own.
 //
@@ -121,7 +131,18 @@ func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSetting
 		SizingValue:          strategyBot.PositionPlanSizingValue,
 		StopLossPercentage:   strategyBot.PositionPlanStopLossPercentage,
 		TakeProfitPercentage: strategyBot.PositionPlanTakeProfitPercentage,
+		Leverage:             strategyBot.PositionPlanLeverage,
 	}
+}
+
+// MarketDataKindOrDefault is the kind this bot eats, with a blank read as the K candle
+// — the kind of every bot stored before there was a choice.
+func (strategyBot StrategyBot) MarketDataKindOrDefault() string {
+	if strategyBot.MarketDataKind == "" {
+		return string(vo.MarketDataKindKCandle)
+	}
+
+	return strategyBot.MarketDataKind
 }
 
 // TableName pins the table to StrategyBots instead of GORM's default.
@@ -141,6 +162,7 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		OwnerID:                strategyBot.OwnerID,
 		Name:                   strategyBot.Name,
 		Symbol:                 strategyBot.Symbol,
+		MarketDataKind:         strategyBot.MarketDataKindOrDefault(),
 		TriggerIntervalMinutes: strategyBot.TriggerIntervalMinutes,
 		PositionPlan:           strategyBot.PositionPlanSettingsDto(),
 		NextRunAt:              strategyBot.NextRunAt.UTC(),

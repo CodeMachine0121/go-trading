@@ -65,7 +65,10 @@ func newStrategyBotScanJobUnderTest(
 	return job.NewStrategyBotScanJob(
 		application.NewStrategyBotRunApplication(
 			service.NewStrategyBotService(
-				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+				strategyBotRepository, strategyBotRunRecordRepository,
+				mocks.NewMockIContractTradingSymbolRepository(mockController),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
+				clockProxy),
 			service.NewTradingStrategyService(
 				mocks.NewMockITradingStrategyRepository(mockController)),
 			service.NewStrategyScriptService(
@@ -75,12 +78,23 @@ func newStrategyBotScanJobUnderTest(
 				mocks.NewMockIIndicatorScriptProxy(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
+			service.NewContractIndicatorCalculationService(
+				mocks.NewMockIKCandleContractRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
+				mocks.NewMockIContractPositionStatisticRepository(mockController),
+				mocks.NewMockIContractIndicatorScriptProxy(mockController), clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				1000),
 			service.NewTelegramDeliveryService(
 				mocks.NewMockITelegramDeliveryRepository(mockController),
 				mocks.NewMockISecretSealProxy(mockController),
 				mocks.NewMockIMessageDeliveryProxy(mockController)),
 			service.NewKCandleService(
 				kCandleRepository, tradingSymbolRepository, clockProxy,
+				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+				1000),
+			service.NewKCandleContractService(
+				mocks.NewMockIKCandleContractRepository(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
 			clockProxy,

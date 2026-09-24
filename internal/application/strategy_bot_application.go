@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -38,32 +37,37 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 ) (dto.StrategyBotDto, error) {
 	writeDto.OwnerID = viewerID
 
-	if gateError := strategyBotApplication.refuseUnfollowableTradingStrategy(
-		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
-		return dto.StrategyBotDto{}, gateError
+	followedTradingStrategy, readError := strategyBotApplication.readFollowedTradingStrategy(
+		executionContext, viewerID, writeDto.TradingStrategyID)
+	if readError != nil {
+		return dto.StrategyBotDto{}, readError
 	}
 
-	return strategyBotApplication.strategyBotService.CreateStrategyBot(executionContext, writeDto)
+	return strategyBotApplication.strategyBotService.CreateStrategyBot(
+		executionContext, writeDto, followedTradingStrategy)
 }
 
 // UpdateStrategyBot rewrites one of this person's bots.
 func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
-	if gateError := strategyBotApplication.refuseUnfollowableTradingStrategy(
-		executionContext, viewerID, writeDto.TradingStrategyID); gateError != nil {
-		return dto.StrategyBotDto{}, gateError
+	followedTradingStrategy, readError := strategyBotApplication.readFollowedTradingStrategy(
+		executionContext, viewerID, writeDto.TradingStrategyID)
+	if readError != nil {
+		return dto.StrategyBotDto{}, readError
 	}
 
 	return strategyBotApplication.strategyBotService.UpdateStrategyBot(
-		executionContext, viewerID, writeDto)
+		executionContext, viewerID, writeDto, followedTradingStrategy)
 }
 
-// ListStrategyBots returns this person's bots.
+// ListStrategyBots returns this person's bots — all of them, or only those of one kind
+// of market when one is named.
 func (strategyBotApplication *StrategyBotApplication) ListStrategyBots(
-	executionContext context.Context, viewerID uint,
+	executionContext context.Context, viewerID uint, marketDataKind string,
 ) ([]dto.StrategyBotDto, error) {
-	return strategyBotApplication.strategyBotService.ListStrategyBots(executionContext, viewerID)
+	return strategyBotApplication.strategyBotService.ListStrategyBots(
+		executionContext, viewerID, marketDataKind)
 }
 
 // GetStrategyBot returns one of this person's bots.
@@ -149,36 +153,24 @@ func (strategyBotApplication *StrategyBotApplication) announce(
 		executionContext, viewerID, message)
 }
 
-// refuseUnfollowableTradingStrategy refuses a bot that names a set of rules this person
-// cannot see.
+// readFollowedTradingStrategy reads the set of rules a bot names, as this person can see
+// it.
 //
 // Naming somebody else's fails here with the same sentence as naming one that does
 // not exist, which is what stops the field becoming a way to probe for other
-// people's trading strategies. The only other thing asked of the rules is whether a
-// bot can follow them at all: a bot reads spot K candles, so a contract trading
-// strategy is refused. Everything else was checked once, where the rules live.
+// people's trading strategies. What is asked of the rules after that — whether they
+// eat the kind of market the bot eats — is a rule about bots, answered where bots are
+// validated.
 //
-// Naming nothing passes, and is not refused here — that a bot must name exactly one
-// set of rules is a rule about bots, answered where bots are validated.
-func (strategyBotApplication *StrategyBotApplication) refuseUnfollowableTradingStrategy(
+// Naming nothing passes with nothing read, and is not refused here — that a bot must
+// name exactly one set of rules is a rule about bots too.
+func (strategyBotApplication *StrategyBotApplication) readFollowedTradingStrategy(
 	executionContext context.Context, viewerID uint, tradingStrategyID uint,
-) error {
+) (dto.TradingStrategyDto, error) {
 	if tradingStrategyID == 0 {
-		return nil
+		return dto.TradingStrategyDto{}, nil
 	}
 
-	tradingStrategyDto, findError := strategyBotApplication.tradingStrategyService.GetTradingStrategy(
+	return strategyBotApplication.tradingStrategyService.GetTradingStrategy(
 		executionContext, viewerID, tradingStrategyID)
-	if findError != nil {
-		return findError
-	}
-
-	// A bot reads spot K candles every round, so a set of rules written for contracts
-	// is refused here, where the person saving the bot reads the sentence.
-	marketDataKind, kindError := domains.NewMarketDataKindDomain(tradingStrategyDto.MarketDataKind)
-	if kindError != nil {
-		return kindError
-	}
-
-	return marketDataKind.RequireFollowableByStrategyBot()
 }

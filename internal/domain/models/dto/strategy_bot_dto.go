@@ -20,6 +20,9 @@ type StrategyBotDto struct {
 	OwnerID uint   `json:"-"`
 	Name    string `json:"name"`
 	Symbol  string `json:"symbol"`
+	// MarketDataKind is which kind of market this bot eats — kCandle for a spot bot,
+	// contractKCandle for a contract bot. It never changes after the bot is created.
+	MarketDataKind string `json:"marketDataKind"`
 	// TriggerIntervalMinutes is how often a running bot wakes up.
 	TriggerIntervalMinutes int `json:"triggerIntervalMinutes"`
 	// PositionPlan is what this bot suggests putting down each round. A capital of

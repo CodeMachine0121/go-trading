@@ -37,6 +37,11 @@ type strategyBotApplicationUnderTest struct {
 	tradingStrategyRepository      *mocks.MockITradingStrategyRepository
 	telegramDeliveryRepository     *mocks.MockITelegramDeliveryRepository
 	clockProxy                     *mocks.MockIClockProxy
+	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository are
+	// what a contract bot being saved is checked against: is the contract followed,
+	// and how much leverage may it carry.
+	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
+	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 }
 
 // newStrategyBotApplicationUnderTest wires the real domain services and the real
@@ -72,10 +77,14 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 			return vo.DeliveryFailureNone, nil
 		}).AnyTimes()
 
+	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
+	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
+
 	return strategyBotApplicationUnderTest{
 		strategyBotApplication: application.NewStrategyBotApplication(
 			service.NewStrategyBotService(
-				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+				strategyBotRepository, strategyBotRunRecordRepository,
+				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
@@ -87,6 +96,9 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 		tradingStrategyRepository:      tradingStrategyRepository,
 		telegramDeliveryRepository:     telegramDeliveryRepository,
 		clockProxy:                     clockProxy,
+
+		contractTradingSymbolRepository:         contractTradingSymbolRepository,
+		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 	}
 }
 
@@ -194,7 +206,7 @@ func TestStrategyBotApplicationListHandsBackAnEmptyListRatherThanARefusal(t *tes
 		Return([]entities.StrategyBot{}, nil)
 
 	botDtos, listError := underTest.strategyBotApplication.ListStrategyBots(
-		context.Background(), strategyBotOwnerID)
+		context.Background(), strategyBotOwnerID, "")
 
 	require.NoError(t, listError)
 	assert.Empty(t, botDtos)
@@ -367,7 +379,7 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			},
 			act: func(underTest strategyBotApplicationUnderTest) error {
 				_, listError := underTest.strategyBotApplication.ListStrategyBots(
-					context.Background(), strategyBotOwnerID)
+					context.Background(), strategyBotOwnerID, "")
 
 				return listError
 			},

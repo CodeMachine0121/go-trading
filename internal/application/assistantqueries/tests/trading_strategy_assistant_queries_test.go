@@ -63,7 +63,10 @@ func newTradingStrategyAssistantQueriesUnderTest(t *testing.T) tradingStrategyAs
 		service.NewTradingStrategyService(tradingStrategyRepository),
 		service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewStrategyBotService(
-			strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+			strategyBotRepository, strategyBotRunRecordRepository,
+			mocks.NewMockIContractTradingSymbolRepository(controller),
+			mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
+			clockProxy),
 	)
 
 	return tradingStrategyAssistantQueriesUnderTest{
@@ -347,6 +350,8 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesA
 			service.NewStrategyBotService(
 				mocks.NewMockIStrategyBotRepository(controller),
 				mocks.NewMockIStrategyBotRunRecordRepository(controller),
+				mocks.NewMockIContractTradingSymbolRepository(controller),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
 				mocks.NewMockIClockProxy(controller)),
 		))
 

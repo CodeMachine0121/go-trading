@@ -29,6 +29,10 @@ type strategyBotRouterUnderTest struct {
 	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
 	tradingStrategyRepository  *mocks.MockITradingStrategyRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
+	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository are
+	// what a contract bot being saved is checked against.
+	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
+	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 }
 
 func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
@@ -67,8 +71,11 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 
 	// 兩邊共用同一組 service：一台機器人只有一份狀態，兩份會讓這幾個測試
 	// 在「按了按鈕之後那台變成什麼樣」上對不起來。
+	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
+	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(mockController)
 	strategyBotService := service.NewStrategyBotService(
-		strategyBotRepository, strategyBotRunRecordRepository, clockProxy)
+		strategyBotRepository, strategyBotRunRecordRepository,
+		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)
@@ -89,9 +96,17 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 				kCandleRepository, tradingSymbolRepository,
 				mocks.NewMockIIndicatorScriptProxy(mockController),
 				clockProxy, marketCatalog, 1000),
+			service.NewContractIndicatorCalculationService(
+				mocks.NewMockIKCandleContractRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
+				mocks.NewMockIContractPositionStatisticRepository(mockController),
+				mocks.NewMockIContractIndicatorScriptProxy(mockController),
+				clockProxy, marketCatalog, 1000),
 			telegramDeliveryService,
 			service.NewKCandleService(
 				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, 1000),
+			service.NewKCandleContractService(
+				mocks.NewMockIKCandleContractRepository(mockController), clockProxy, marketCatalog, 1000),
 			clockProxy,
 			application.NewStrategyBotRoundGuard(),
 			4,
@@ -115,6 +130,9 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 		strategyScriptRepository:   strategyScriptRepository,
 		tradingStrategyRepository:  tradingStrategyRepository,
 		telegramDeliveryRepository: telegramDeliveryRepository,
+
+		contractTradingSymbolRepository:         contractTradingSymbolRepository,
+		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 	}
 }
 

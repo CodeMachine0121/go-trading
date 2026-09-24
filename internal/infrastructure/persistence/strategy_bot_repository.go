@@ -48,7 +48,8 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 	}
 
 	// The columns are named so that a rewrite cannot reach the ones a bot's life
-	// owns — a run state, a next round, a last sent signal. Naming them also makes
+	// owns — a run state, a next round, a last sent signal — nor the kind of market
+	// it eats, which is settled once when it is created. Naming them also makes
 	// an empty value mean empty rather than "unchanged", which is how GORM reads a
 	// struct otherwise.
 	updates := strategyBotRepository.database.WithContext(executionContext).
@@ -58,7 +59,8 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 			"name", "symbol", "trading_strategy_id", "trigger_interval_minutes",
 			"position_plan_capital", "position_plan_sizing_mode",
 			"position_plan_sizing_value",
-			"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage").
+			"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage",
+			"position_plan_leverage").
 		Updates(entities.StrategyBot{
 			Name:                             botRow.Name,
 			Symbol:                           botRow.Symbol,
@@ -69,6 +71,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 			PositionPlanSizingValue:          botRow.PositionPlanSizingValue,
 			PositionPlanStopLossPercentage:   botRow.PositionPlanStopLossPercentage,
 			PositionPlanTakeProfitPercentage: botRow.PositionPlanTakeProfitPercentage,
+			PositionPlanLeverage:             botRow.PositionPlanLeverage,
 		})
 	if updates.Error != nil {
 		return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(updates.Error, bot.Name)

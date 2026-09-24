@@ -159,15 +159,23 @@ func TestMarketDataKindForTradingStrategiesAndBots(t *testing.T) {
 		assert.Contains(t, retainError.Error(), "行情種類建立後不得更換")
 	})
 
-	t.Run("a bot may follow a K candle trading strategy", func(t *testing.T) {
-		assert.NoError(t, kCandleKind.RequireFollowableByStrategyBot())
+	t.Run("a bot may follow a trading strategy of its own kind", func(t *testing.T) {
+		assert.NoError(t, kCandleKind.RequireFollowableByStrategyBotOf(kCandleKind))
+		assert.NoError(t, contractKind.RequireFollowableByStrategyBotOf(contractKind))
 	})
 
-	t.Run("a bot may not follow a contract trading strategy", func(t *testing.T) {
-		followError := contractKind.RequireFollowableByStrategyBot()
+	t.Run("a spot bot may not follow a contract trading strategy", func(t *testing.T) {
+		followError := contractKind.RequireFollowableByStrategyBotOf(kCandleKind)
 
 		require.ErrorIs(t, followError, domains.ErrStrategyBotValidation)
-		assert.Contains(t, followError.Error(), "策略機器人目前只跑 K 線")
+		assert.Contains(t, followError.Error(), "這台機器人吃的是 K 線，那份交易策略吃的是合約行情")
+	})
+
+	t.Run("a contract bot may not follow a K candle trading strategy", func(t *testing.T) {
+		followError := kCandleKind.RequireFollowableByStrategyBotOf(contractKind)
+
+		require.ErrorIs(t, followError, domains.ErrStrategyBotValidation)
+		assert.Contains(t, followError.Error(), "這台機器人吃的是合約行情，那份交易策略吃的是 K 線")
 	})
 
 	t.Run("a script is replayable only over the kind it eats", func(t *testing.T) {

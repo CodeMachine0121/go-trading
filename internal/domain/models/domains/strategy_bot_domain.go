@@ -44,9 +44,13 @@ type StrategyBotDomain struct {
 	ownerID                uint
 	name                   string
 	symbol                 string
+	marketDataKind         MarketDataKindDomain
 	tradingStrategyID      uint
 	triggerIntervalMinutes int
 	positionPlan           PositionPlanDomain
+	// leverage is how many times its margin a contract bot's suggestion carries — one
+	// or more. A spot bot's is zero: it never borrows, and zero is what is stored.
+	leverage decimal.Decimal
 }
 
 // NewStrategyBotDomain validates the bot against every rule that applies to it. The
@@ -89,6 +93,13 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 必須指定這台機器人要盯哪一個交易標的", ErrStrategyBotValidation)
 	}
 
+	// Which market it eats is settled before anything that depends on it: whether it
+	// may borrow, and later which trading strategies it may follow.
+	marketDataKind, kindError := NewMarketDataKindDomain(writeDto.MarketDataKind)
+	if kindError != nil {
+		return StrategyBotDomain{}, fmt.Errorf("%w: %w", ErrStrategyBotValidation, kindError)
+	}
+
 	if writeDto.TriggerIntervalMinutes < strategyBotTriggerIntervalMinimumMinutes {
 		return StrategyBotDomain{}, fmt.Errorf(
 			"%w: 觸發間隔必須大於零，最短 %d 分鐘",
@@ -121,18 +132,9 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 必須指名這台機器人要用哪一份交易策略", ErrStrategyBotValidation)
 	}
 
-	// Nothing here lends, so a bot may only ever suggest what a replay could have
-	// modelled. The sentence comes from the model a replay asks, so that the same
-	// figure typed into either comes back with the same words.
-	//
-	// Asked here rather than inside the position plan because the plan is also built
-	// every round, from settings already stored. Refusing there would stop bots that
-	// were saved before this rule existed — and it would stop them silently, one
-	// round at a time, where nobody is reading.
-	if _, borrowingRefusal := NewSpotOnlyReplayDomain(
-		"", writeDto.DeclaredLeverage, decimal.Zero); borrowingRefusal != nil {
-		return StrategyBotDomain{}, fmt.Errorf(
-			"%w: %s", ErrStrategyBotValidation, borrowingRefusal)
+	leverage, leverageError := marketDataKind.LeverageForStrategyBot(writeDto.DeclaredLeverage)
+	if leverageError != nil {
+		return StrategyBotDomain{}, leverageError
 	}
 
 	return StrategyBotDomain{
@@ -140,10 +142,38 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 		ownerID:                writeDto.OwnerID,
 		name:                   name,
 		symbol:                 tradingSymbol.Value(),
+		marketDataKind:         marketDataKind,
 		tradingStrategyID:      writeDto.TradingStrategyID,
 		triggerIntervalMinutes: writeDto.TriggerIntervalMinutes,
 		positionPlan:           positionPlan,
+		leverage:               leverage,
 	}, nil
+}
+
+// RequireFollowing refuses rules written for the other kind of market than this bot
+// eats. The rules are named by their kind alone: whether they are this person's to
+// follow was answered where they were read.
+func (strategyBotDomain StrategyBotDomain) RequireFollowing(tradingStrategyMarketDataKind string) error {
+	tradingStrategyKind, kindError := NewMarketDataKindDomain(tradingStrategyMarketDataKind)
+	if kindError != nil {
+		return fmt.Errorf("%w: %w", ErrStrategyBotValidation, kindError)
+	}
+
+	return tradingStrategyKind.RequireFollowableByStrategyBotOf(strategyBotDomain.marketDataKind)
+}
+
+// WatchesContracts is whether this bot eats perpetual contract bars, and so has to
+// watch a contract the system is following.
+func (strategyBotDomain StrategyBotDomain) WatchesContracts() bool {
+	return strategyBotDomain.marketDataKind.IsContract()
+}
+
+func (strategyBotDomain StrategyBotDomain) Symbol() string {
+	return strategyBotDomain.symbol
+}
+
+func (strategyBotDomain StrategyBotDomain) Leverage() decimal.Decimal {
+	return strategyBotDomain.leverage
 }
 
 // ToEntity is this bot as the rows it is stored as, run state and all left at the
@@ -160,6 +190,7 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		OwnerID:                          strategyBotDomain.ownerID,
 		Name:                             strategyBotDomain.name,
 		Symbol:                           strategyBotDomain.symbol,
+		MarketDataKind:                   string(strategyBotDomain.marketDataKind.Value()),
 		TradingStrategyID:                strategyBotDomain.tradingStrategyID,
 		TriggerIntervalMinutes:           strategyBotDomain.triggerIntervalMinutes,
 		PositionPlanCapital:              positionPlanSettings.Capital,
@@ -167,6 +198,7 @@ func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 		PositionPlanSizingValue:          positionPlanSettings.SizingValue,
 		PositionPlanStopLossPercentage:   positionPlanSettings.StopLossPercentage,
 		PositionPlanTakeProfitPercentage: positionPlanSettings.TakeProfitPercentage,
+		PositionPlanLeverage:             strategyBotDomain.leverage,
 		RunState:                         string(vo.StrategyBotStopped),
 	}
 }

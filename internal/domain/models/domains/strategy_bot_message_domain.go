@@ -35,11 +35,17 @@ const strategyBotMessageTimeLayout = "2006-01-02 15:04 UTC"
 // in 買入／賣出／持有, which is how a reader works back from the conclusion.
 type StrategyBotMessageDomain struct {
 	round dto.StrategyBotRoundDto
+	// market is which kind of account the round's bot speaks about, read once from
+	// the round because every part of the message asks it.
+	market StrategyBotMarketDomain
 }
 
 // NewStrategyBotMessageDomain takes a round to be written out.
 func NewStrategyBotMessageDomain(round dto.StrategyBotRoundDto) StrategyBotMessageDomain {
-	return StrategyBotMessageDomain{round: round}
+	return StrategyBotMessageDomain{
+		round:  round,
+		market: NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode),
+	}
 }
 
 // Text is the message.
@@ -49,39 +55,40 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// at each of them is the same conversion written twice.
 	verdict := NewSignalDomainOf(vo.SignalVo(strategyBotMessageDomain.round.Verdict))
 
-	// A coloured mark so the direction survives being skimmed. It opens the line
-	// rather than replacing any of the words: a reader who cannot see colour, or
-	// whose device draws these differently, still has 【買入】 written out — the mark
-	// is faster to read, never the only thing that says it. Anything the system did
-	// not recognise gets the neutral one, because a guess here is a guess about which
-	// way somebody should trade.
-	headlineMark := "⚪"
+	// Which kind of account this bot speaks about decides the words: a conclusion is
+	// read as an instruction, and what a sell asks somebody to go and do on a spot
+	// account, a long-only contract account and a long-and-short one are three
+	// different acts.
+	market := strategyBotMessageDomain.market
 
-	switch verdict.Value() {
-	case vo.SignalBuy:
-		headlineMark = "🟢"
-	case vo.SignalSell:
-		headlineMark = "🔴"
-	}
-
-	// The verb beside the mark: a conclusion is read as an instruction, and the
-	// signal's own word is not always one this reader can carry out. Asked of the
-	// conclusion rather than worked out here — what an opinion asks somebody to go and
-	// do is part of what that opinion means.
-	headlineVerb := verdict.HeadlineVerb()
-
+	// A coloured mark opens the line so the direction survives being skimmed. It
+	// opens the line rather than replacing any of the words: a reader who cannot see
+	// colour, or whose device draws these differently, still has the act written out
+	// — the mark is faster to read, never the only thing that says it.
 	lines := []string{
 		fmt.Sprintf("%s【%s】%s · %s",
-			headlineMark,
-			headlineVerb,
+			market.HeadlineMark(verdict),
+			market.HeadlineVerb(verdict),
 			strategyBotMessageDomain.round.BotName,
-			strategyBotMessageDomain.round.Symbol),
+			market.SymbolLabel(strategyBotMessageDomain.round.Symbol)),
 		"",
+	}
+
+	// A contract bot says which rules its acts were read by, because the same sell is
+	// a reversal under one mode and a close under another, and the reader has to be
+	// able to check which one this was.
+	if tradingModeInWords := market.TradingModeInWords(); tradingModeInWords != "" {
+		lines = append(lines, fmt.Sprintf("⚙️ 交易模式 %s", tradingModeInWords))
 	}
 
 	// A round with no price to quote still says so. Silence in this slot would read
 	// as a price of nothing, and the missing line is itself worth knowing: it means
 	// the candles this bot judged by are older than the newest one stored.
+	candleWords := " K 線"
+	if market.IsContract() {
+		candleWords = "合約 K 線"
+	}
+
 	if strategyBotMessageDomain.round.HasReference {
 		lines = append(lines,
 			fmt.Sprintf("💰 參考價 %s", strategyBotMessageDomain.round.ReferencePrice.String()),
@@ -89,10 +96,11 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 			// make a line long enough to wrap on a phone, and a wrapped line breaks
 			// wherever the screen happens to end — which is never where the meaning
 			// does.
-			fmt.Sprintf("　　%s 那一根一分鐘 K 線的收盤價",
-				strategyBotMessageDomain.round.ReferenceTime.UTC().Format(strategyBotMessageTimeLayout)))
+			fmt.Sprintf("　　%s 那一根一分鐘%s的收盤價",
+				strategyBotMessageDomain.round.ReferenceTime.UTC().Format(strategyBotMessageTimeLayout),
+				candleWords))
 	} else {
-		lines = append(lines, "💰 參考價 目前讀不到這個交易標的的最新 K 線")
+		lines = append(lines, fmt.Sprintf("💰 參考價 目前讀不到這個交易標的的最新%s", candleWords))
 	}
 
 	// What to put down, before the working. Somebody skimming this on a phone is
@@ -145,21 +153,42 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 			"　・部位資金不足，押不下 %s", positionPlan.Stake.String()))
 	}
 
-	lines = append(lines, fmt.Sprintf("　・開倉金額 %s", positionPlan.Stake.String()))
+	// On a contract account what is put down is margin, and what moves with the price
+	// is that times the leverage. Both are written, because a reader placing the order
+	// types the one and is exposed to the other.
+	if strategyBotMessageDomain.market.IsContract() {
+		lines = append(lines, fmt.Sprintf("　・保證金 %s（%s 倍槓桿，名目 %s）",
+			positionPlan.Stake.String(), positionPlan.Leverage.String(), positionPlan.Notional.String()))
+	} else {
+		lines = append(lines, fmt.Sprintf("　・開倉金額 %s", positionPlan.Stake.String()))
+	}
 
 	// Which way each exit lies is written out in words. 66105.915 reads like a
 	// perfectly ordinary price whichever side it was meant for, so the side is never
-	// left for the reader to work out.
+	// left for the reader to work out — and on a short position both sides swap.
+	stopSide, targetSide := "往下", "往上"
+	if positionPlan.Direction == string(vo.PositionDirectionShort) {
+		stopSide, targetSide = "往上", "往下"
+	}
+
 	if positionPlan.HasStopLoss {
-		lines = append(lines, fmt.Sprintf("　・止損 %s（往下，虧 %s）",
-			positionPlan.StopLossPrice.String(),
+		lines = append(lines, fmt.Sprintf("　・止損 %s（%s，虧 %s）",
+			positionPlan.StopLossPrice.String(), stopSide,
 			positionPlan.LossAtStop.String()))
 	}
 
 	if positionPlan.HasTakeProfit {
-		lines = append(lines, fmt.Sprintf("　・止盈 %s（往上，賺 %s）",
-			positionPlan.TakeProfitPrice.String(),
+		lines = append(lines, fmt.Sprintf("　・止盈 %s（%s，賺 %s）",
+			positionPlan.TakeProfitPrice.String(), targetSide,
 			positionPlan.GainAtTarget.String()))
+	}
+
+	// A stop the margin cannot carry is not a stop: the position would be closed out
+	// on the way there. Said plainly, and said to be rough, because the maintenance
+	// margin that brings the close-out nearer still is not counted here.
+	if positionPlan.LiquidatesBeforeStop {
+		lines = append(lines,
+			"　⚠️ 止損距離乘上槓桿已達 100%：還沒到止損就會先被強制平倉（未計維持保證金）")
 	}
 
 	// A replay can now be asked to honour exits like these, but only when it is

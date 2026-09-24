@@ -241,13 +241,17 @@ func registerRoutes(
 		applicationConfig.KCandleQueryMaxResults,
 	)
 
+	// Shared with the contract bots below, which quote a contract's newest candle as
+	// the reference price of every round they send.
+	kCandleContractService := service.NewKCandleContractService(
+		contractKCandleRepository,
+		clock.NewSystemClockProxy(),
+		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+		applicationConfig.KCandleQueryMaxResults,
+	)
+
 	kCandleContractController := controller.NewKCandleContractController(
-		application.NewKCandleContractApplication(service.NewKCandleContractService(
-			contractKCandleRepository,
-			clock.NewSystemClockProxy(),
-			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
-			applicationConfig.KCandleQueryMaxResults,
-		)))
+		application.NewKCandleContractApplication(kCandleContractService))
 
 	engine.POST("/contract-k-candles", kCandleContractController.CreateKCandleContract)
 	engine.GET("/contract-k-candles", kCandleContractController.GetKCandleContractsInRange)
@@ -521,6 +525,8 @@ func registerRoutes(
 	strategyBotService := service.NewStrategyBotService(
 		persistence.NewStrategyBotRepository(database),
 		persistence.NewStrategyBotRunRecordRepository(database),
+		contractTradingSymbolRepository,
+		persistence.NewContractMaintenanceMarginTierRepository(database),
 		clock.NewSystemClockProxy(),
 	)
 
@@ -604,8 +610,10 @@ func registerRoutes(
 		tradingStrategyService,
 		strategyScriptService,
 		indicatorCalculationService,
+		contractIndicatorCalculationService,
 		telegramDeliveryService,
 		kCandleService,
+		kCandleContractService,
 		clock.NewSystemClockProxy(),
 		application.NewStrategyBotRoundGuard(),
 		applicationConfig.StrategyBot.MaxConcurrentRounds,

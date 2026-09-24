@@ -55,10 +55,12 @@ func (strategyBotController *StrategyBotController) CreateStrategyBot(ginContext
 	ginContext.JSON(http.StatusCreated, strategyBotDto)
 }
 
-// ListStrategyBots handles GET /strategy-bots.
+// ListStrategyBots handles GET /strategy-bots, narrowed to one kind of market by an
+// optional marketDataKind query.
 func (strategyBotController *StrategyBotController) ListStrategyBots(ginContext *gin.Context) {
 	strategyBotDtos, err := strategyBotController.strategyBotApplication.ListStrategyBots(
-		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext))
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext),
+		ginContext.Query("marketDataKind"))
 	if err != nil {
 		strategyBotController.respondWithError(ginContext, err)
 		return
