@@ -256,6 +256,15 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 		leverage, BacktestSlippageDomain{}, tradingRules,
 	).OpenFor(direction, referenceTime, referencePrice, positionPlanDomain.capital)
 
+	// A price the venue cannot open at — nothing to divide a quantity by — leaves the
+	// suggestion as it reads without the venue, rather than working a liquidation out of
+	// a position that was never opened.
+	if outcome == vo.ContractOpeningUnaffordable {
+		plainPlan.ForContract = true
+
+		return venue.WithFundingEstimate(plainPlan), true
+	}
+
 	if outcome == vo.ContractOpeningBlockedByTradingRules {
 		refusal, _ := tradingRules.RefusalFor(
 			tradingRules.QuantityFor(plainPlan.Stake.Mul(leverage), referencePrice), referencePrice, leverage)
@@ -274,8 +283,12 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 
 	notional := position.Quantity().Mul(position.EntryPrice())
 	exitPrices := position.ExitPrices()
+	// Where the replay would close this out, and that price on the venue's ticks. Whether
+	// it can be closed out at all is judged on the rounded figure, so a price the venue
+	// cannot quote above zero is never printed as a liquidation price of nothing.
 	liquidationPrice := position.LiquidationPrice()
-	cannotBeLiquidated := !liquidationPrice.IsPositive()
+	roundedLiquidationPrice := tradingRules.RoundedToTick(liquidationPrice)
+	cannotBeLiquidated := !liquidationPrice.IsPositive() || !roundedLiquidationPrice.IsPositive()
 
 	positionPlanDto := dto.PositionPlanDto{
 		Stake:                       position.OpeningMargin(),
@@ -296,19 +309,20 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 	}
 
 	if !cannotBeLiquidated {
-		positionPlanDto.LiquidationPrice = tradingRules.RoundedToTick(liquidationPrice)
+		positionPlanDto.LiquidationPrice = roundedLiquidationPrice
 	}
 
 	if positionPlanDto.HasStopLoss {
 		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
-		// The stop is judged against the estimate itself rather than a rule of thumb:
-		// a long's stop at or below where it would be closed out is never reached, and
-		// the mirror image for a short.
+		// The stop is judged against the estimate by the replay's own rule: against the
+		// unrounded price, and a stop exactly at it fires first. A long's stop below where
+		// it would be closed out is never reached, and the mirror image for a short — so a
+		// bot never warns of a close-out the replay of the same figures would stop out of.
 		positionPlanDto.LiquidatesBeforeStop = !cannotBeLiquidated &&
 			((direction == vo.PositionDirectionLong &&
-				positionPlanDto.StopLossPrice.LessThanOrEqual(positionPlanDto.LiquidationPrice)) ||
+				positionPlanDto.StopLossPrice.LessThan(liquidationPrice)) ||
 				(direction == vo.PositionDirectionShort &&
-					positionPlanDto.StopLossPrice.GreaterThanOrEqual(positionPlanDto.LiquidationPrice)))
+					positionPlanDto.StopLossPrice.GreaterThan(liquidationPrice)))
 	}
 
 	if positionPlanDto.HasTakeProfit {
