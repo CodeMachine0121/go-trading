@@ -27,12 +27,18 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `
 
 // requireMemoryCap skips a case that depends on the operating system enforcing the
-// memory cap. That is only promised on Linux, which is what the service runs on and
-// what the pipeline runs these tests on.
+// memory cap faithfully. That is only promised on Linux, which is what the service runs
+// on. It is also skipped under the race detector: the detector keeps shadow memory that
+// counts against the cap several times over, so neither what fits nor how running out
+// is reported would be what the shipped binary sees. The pipeline proves these cases in
+// a run of its own without the detector.
 func requireMemoryCap(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS != "linux" {
 		t.Skip("the compartment memory cap is only promised on Linux")
+	}
+	if raceDetectorOn {
+		t.Skip("the race detector's shadow memory counts against the compartment memory cap")
 	}
 }
 
@@ -96,6 +102,8 @@ func TestCompartmentStopsAScriptThatEatsPastTheMemoryCap(t *testing.T) {
 }
 
 func TestCompartmentLetsAScriptUseMemoryWithinTheCap(t *testing.T) {
+	requireMemoryCap(t)
+
 	// Fifty megabytes, every page of it actually written, so the memory is really
 	// held rather than merely promised.
 	const usesFiftyMegabytesScript = `

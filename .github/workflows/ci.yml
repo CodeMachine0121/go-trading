@@ -87,6 +87,21 @@ jobs:
       - name: go test
         run: go test ./... -count=1 -race
 
+      # The script compartment's memory cap is enforced by Linux and measured without
+      # the race detector: the detector's shadow memory counts against the cap and
+      # would make every figure a lie, so those cases skip under -race. This run is
+      # the one that proves the cap on the binary the service actually ships, and a
+      # skip here means nothing proved it.
+      - name: the script memory cap was proved rather than skipped
+        run: |
+          set -o pipefail
+          go test ./internal/infrastructure/script/tests/ -count=1 -v | tee script.log
+          if grep -q '^    --- SKIP\|^--- SKIP' script.log; then
+            echo "::error::script memory-cap tests skipped — the cap went unproved"
+            grep -B1 -A2 'SKIP' script.log
+            exit 1
+          fi
+
       # The point of the whole file. A skip here means the database never reached
       # the tests, and every storage guarantee went unchecked while the run stayed
       # green.
