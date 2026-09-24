@@ -80,6 +80,8 @@ func TestStrategyBotRunRecordRepositoryRemembersNothingTheVenueWouldHaveRefused(
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
 	refused := aContractSuggestion()
+	refused.TakeProfitPrice = decimal.NewFromInt(96)
+	refused.HasTakeProfit = true
 	refused.HasVenueRefusal = true
 	refused.VenueRefusal = dto.ContractOrderRefusalDto{Reason: "belowMinimumNotional"}
 	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
@@ -94,6 +96,7 @@ func TestStrategyBotRunRecordRepositoryRemembersNothingTheVenueWouldHaveRefused(
 	runRecordDto := runRecords[0].ToDto()
 	assert.Nil(t, runRecordDto.SuggestedStake)
 	assert.Nil(t, runRecordDto.SuggestedStopLossPrice)
+	assert.Nil(t, runRecordDto.SuggestedTakeProfitPrice)
 	assert.Empty(t, runRecordDto.SuggestedDirection)
 	assert.Nil(t, runRecordDto.SuggestedLeverage)
 	assert.Nil(t, runRecordDto.SuggestedNotional)

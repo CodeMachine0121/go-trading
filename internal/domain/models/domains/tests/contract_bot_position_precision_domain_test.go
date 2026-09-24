@@ -145,6 +145,11 @@ func TestPositionPlanDomainSaysWhyTheVenueWouldRefuseASuggestion(t *testing.T) {
 					MaintenanceMarginRate: decimal.RequireFromString("0.01"), MaximumLeverage: 10},
 			}, ""),
 			expectedReason: "aboveTierLeverage", expectedWords: "交易所不收這一筆：名目 20000 那一級最高只能開 10 倍"},
+		// Both minimums broken at once: the quantity is the rule named, because it is
+		// the one checked first.
+		{name: "too few units and too little notional", settings: fixedThree,
+			venue: aVenue(largeMinimum, nil, ""), expectedReason: "belowMinimumQuantity",
+			expectedWords: "交易所不收這一筆：數量 0.03 低於最小下單量 100"},
 	}
 
 	for _, testCase := range testCases {
@@ -154,11 +159,13 @@ func TestPositionPlanDomainSaysWhyTheVenueWouldRefuseASuggestion(t *testing.T) {
 			require.True(t, positionPlanDto.HasVenueRefusal)
 			assert.Equal(t, testCase.expectedReason, positionPlanDto.VenueRefusal.Reason)
 			assert.False(t, positionPlanDto.HasStopLoss)
+			assert.False(t, positionPlanDto.HasTakeProfit)
 			assert.False(t, positionPlanDto.HasLiquidationPrice)
 
 			message := domains.NewStrategyBotMessageDomain(aPrecisionRound(positionPlanDto)).Text()
 			assert.Contains(t, message, testCase.expectedWords)
 			assert.NotContains(t, message, "止損")
+			assert.NotContains(t, message, "止盈")
 			assert.NotContains(t, message, "預估強平價")
 		})
 	}
@@ -281,6 +288,10 @@ func TestPositionPlanDomainEstimatesWhatFundingCosts(t *testing.T) {
 
 			message := domains.NewStrategyBotMessageDomain(aPrecisionRound(positionPlanDto)).Text()
 			assert.Contains(t, message, testCase.expectedWords)
+			if testCase.fundingRate == "" {
+				assert.NotContains(t, message, "約付")
+				assert.NotContains(t, message, "約收")
+			}
 		})
 	}
 }
@@ -300,12 +311,15 @@ func TestPositionPlanDomainSuggestsOnAContractWithNoSpecificationYet(t *testing.
 		assert.Equal(t, "1000", positionPlanDto.Stake.String())
 		assert.Equal(t, "5000", positionPlanDto.Notional.String())
 		assert.True(t, positionPlanDto.HasStopLoss)
+		assert.True(t, positionPlanDto.HasTakeProfit)
 		assert.False(t, positionPlanDto.HasQuantity)
 		assert.False(t, positionPlanDto.HasLiquidationPrice)
 
 		message := domains.NewStrategyBotMessageDomain(aPrecisionRound(positionPlanDto)).Text()
 		assert.Contains(t, message, "這個合約標的還沒有交易規格：數字未照交易所規則取整，也估不出強平價")
 		assert.Contains(t, message, "每次結算約付 0.5（估算）")
+		assert.Contains(t, message, "止損 98（往下")
+		assert.Contains(t, message, "止盈 104（往上")
 		assert.NotContains(t, message, "數量")
 	})
 
@@ -326,15 +340,19 @@ func TestPositionPlanDomainOnAContractVenueSuggestsNothingPlanForWouldNot(t *tes
 	_, suggests := positionPlan.PlanOnContractVenue(
 		vo.TargetPositionFlat, decimal.NewFromInt(100), precisionReferenceTime, venue)
 	assert.False(t, suggests)
-	assert.False(t, positionPlan.Suggests(vo.TargetPositionFlat, true))
-	assert.False(t, positionPlan.Suggests(vo.TargetPositionLong, false))
-	assert.True(t, positionPlan.Suggests(vo.TargetPositionShort, true))
+	assert.False(t, positionPlan.NeedsVenue(vo.TargetPositionFlat, true))
+	assert.False(t, positionPlan.NeedsVenue(vo.TargetPositionLong, false))
+	assert.True(t, positionPlan.NeedsVenue(vo.TargetPositionShort, true))
 
 	fixedTwoThousand := aPrecisionPlan(5, "2", "4")
 	fixedTwoThousand.SizingMode = string(vo.PositionSizingModeFixedAmount)
 	fixedTwoThousand.SizingValue = decimal.NewFromInt(2000)
 	unaffordable := planOnVenue(t, fixedTwoThousand, vo.TargetPositionLong, "100", venue)
 	assert.False(t, unaffordable.Affordable)
+	// A stake the capital cannot cover has nothing to place, so nothing about the venue
+	// needs reading for it.
+	unaffordablePlan, _ := domains.NewPositionPlanDomain(fixedTwoThousand)
+	assert.False(t, unaffordablePlan.NeedsVenue(vo.TargetPositionLong, true))
 }
 
 // aPrecisionRound is a contract bot's round that concluded buy under long and short with

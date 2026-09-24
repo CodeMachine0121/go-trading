@@ -202,12 +202,21 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	return positionPlanDto, true
 }
 
-// Suggests is whether this plan has anything to suggest for that target at all: money
-// to stake, a price to measure from, and a target that holds a position. Asked before
-// anything about the venue is read, so a round with nothing to suggest reads nothing.
-func (positionPlanDomain PositionPlanDomain) Suggests(target vo.TargetPositionVo, hasReference bool) bool {
-	return positionPlanDomain.capital.IsPositive() && hasReference &&
-		(target == vo.TargetPositionLong || target == vo.TargetPositionShort)
+// NeedsVenue is whether a suggestion for that target has to be worked out by the venue's
+// rules at all: money to stake that can actually be put down, a price to measure from,
+// and a target that holds a position. Asked before anything about the venue is read, so
+// a round with nothing to place — including a stake the capital cannot cover — reads
+// nothing.
+func (positionPlanDomain PositionPlanDomain) NeedsVenue(target vo.TargetPositionVo, hasReference bool) bool {
+	if !positionPlanDomain.capital.IsPositive() || !hasReference ||
+		(target != vo.TargetPositionLong && target != vo.TargetPositionShort) {
+		return false
+	}
+
+	_, affordable := positionPlanDomain.sizing.StakeFor(
+		positionPlanDomain.capital, BacktestTransactionCostsDomain{})
+
+	return affordable
 }
 
 // PlanOnContractVenue is PlanFor on a contract account, by the venue's own rules.

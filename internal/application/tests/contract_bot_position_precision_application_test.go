@@ -13,6 +13,71 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// The history remembers the stop as the message sent it: on the venue's tick, not the
+// raw distance.
+func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectDeliverySetting()
+	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
+	underTest.expectTheContractsLatestCandle("100")
+	coarseTicks := aContractSpecification()
+	coarseTicks.TickSize = decimal.NewNullDecimal(decimal.RequireFromString("0.1"))
+	underTest.expectTheVenue(coarseTicks, nil, "")
+
+	dueBot := aDueContractBot("")
+	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
+	dueBot.PositionPlanStopLossPercentage = decimal.RequireFromString("2.03")
+	dueBot.PositionPlanLeverage = decimal.NewFromInt(5)
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{dueBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(dueBot, nil).AnyTimes()
+	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(vo.DeliveryFailureNone, nil)
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	recorded := (*underTest.appendedRunRecords)[0].PositionPlan
+	assert.True(t, recorded.StopLossPrice.Equal(decimal.NewFromInt(98)), "止損價 %s", recorded.StopLossPrice)
+}
+
+// A stake the capital cannot cover has nothing to place, so the round reads nothing about
+// the venue: the three venue readers carry no expectations, and reaching any fails this.
+func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectDeliverySetting()
+	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
+	underTest.expectTheContractsLatestCandle("100")
+
+	dueBot := aDueContractBot("")
+	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
+	dueBot.PositionPlanSizingMode = string(vo.PositionSizingModeFixedAmount)
+	dueBot.PositionPlanSizingValue = decimal.NewFromInt(2000)
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{dueBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(dueBot, nil).AnyTimes()
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.Contains(t, message, "部位資金不足，押不下 2000")
+
+			return vo.DeliveryFailureNone, nil
+		})
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+}
+
 // When the venue cannot be read, the round still suggests — as a contract with no
 // specification and no funding record — rather than going without a suggestion.
 func TestStrategyBotRunApplicationStillSuggestsWhenTheVenueCannotBeRead(t *testing.T) {

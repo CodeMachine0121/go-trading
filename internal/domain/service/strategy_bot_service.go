@@ -419,7 +419,7 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	market := domains.NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode)
 	target := market.TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
 
-	if !market.IsContract() || !positionPlan.Suggests(target, round.HasReference) {
+	if !market.IsContract() || !positionPlan.NeedsVenue(target, round.HasReference) {
 		round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(
 			target, round.ReferencePrice, round.HasReference)
 
