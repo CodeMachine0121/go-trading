@@ -124,7 +124,7 @@ func newFollowRouterUnderTest(t *testing.T, followError error) followRouterUnder
 
 	engine := gin.New()
 	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
-		application.NewKCandleFollowApplication(kCandleFollowService)).WatchKCandles)
+		application.NewKCandleFollowApplication(kCandleFollowService), nil).WatchKCandles)
 
 	return followRouterUnderTest{
 		engine:       engine,
@@ -268,7 +268,7 @@ func TestWatchingASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
 
 	engine := gin.New()
 	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
-		application.NewKCandleFollowApplication(kCandleFollowService)).WatchKCandles)
+		application.NewKCandleFollowApplication(kCandleFollowService), nil).WatchKCandles)
 
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/k-candles/live?symbol=2454", nil))

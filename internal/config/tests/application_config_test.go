@@ -82,6 +82,8 @@ func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *
 		assert.Equal(t, 30*time.Second, applicationConfig.LiveFollow.MaximumRetryDelay)
 		assert.Equal(t, "wss://stream.binance.com:9443/ws",
 			applicationConfig.LiveFollow.MarketDataStreamUrl)
+		assert.Equal(t, "wss://fstream.binance.com/ws",
+			applicationConfig.LiveFollow.ContractMarketDataStreamUrl)
 	})
 
 	t.Run("設定了就照設定的來", func(t *testing.T) {
@@ -89,6 +91,7 @@ func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *
 		t.Setenv("LIVE_FEED_QUIET_TIMEOUT_SECONDS", "45")
 		t.Setenv("LIVE_FEED_MAX_RETRY_DELAY_SECONDS", "60")
 		t.Setenv("MARKET_DATA_STREAM_URL", "ws://localhost:9000/ws")
+		t.Setenv("CONTRACT_MARKET_DATA_STREAM_URL", "ws://localhost:9001/ws")
 
 		applicationConfig := config.Load()
 
@@ -96,6 +99,7 @@ func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *
 		assert.Equal(t, 45*time.Second, applicationConfig.LiveFollow.QuietTimeout)
 		assert.Equal(t, 60*time.Second, applicationConfig.LiveFollow.MaximumRetryDelay)
 		assert.Equal(t, "ws://localhost:9000/ws", applicationConfig.LiveFollow.MarketDataStreamUrl)
+		assert.Equal(t, "ws://localhost:9001/ws", applicationConfig.LiveFollow.ContractMarketDataStreamUrl)
 	})
 
 	t.Run("設成不成立的值就回到規則所寫的值", func(t *testing.T) {

@@ -28,7 +28,7 @@ func main() {
 	}
 
 	engine := gin.Default()
-	kCandleFollowApplication, kCandleIngestionApplication, kCandleContractIngestionApplication,
+	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication,
 		strategyBotRunApplication, assistantConversationApplication,
 		contractSeries := registerRoutes(engine, database, applicationConfig)
 
@@ -100,12 +100,12 @@ func main() {
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
 				applicationConfig,
-				kCandleFollowApplication,
+				liveFollows.spot,
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
 				strategyBotRunApplication,
 				contractSeries)),
-		kCandleFollowApplication.Stop,
+		liveFollows.Stop,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)
 	}
