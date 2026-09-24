@@ -13033,7 +13033,7 @@
                 "runs"
               ]
             },
-            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。"
+            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。\n\n合約機器人那一輪有建議部位時，每一筆另帶 suggestedDirection（long／short）、suggestedLeverage、suggestedNotional；現貨機器人與交易所不收的那一輪不帶。"
           },
           "event": [
             {
