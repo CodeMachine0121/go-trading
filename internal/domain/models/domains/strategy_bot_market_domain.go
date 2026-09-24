@@ -1,6 +1,9 @@
 package domains
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
@@ -123,6 +126,37 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolLabel(symbol string
 	}
 
 	return symbol + strategyBotContractSymbolSuffix
+}
+
+// RequireCurrentBars refuses a round whose source judged by bars that have stopped
+// arriving. The bars are those the source's script saw, oldest first, at the source's
+// own coarseness.
+//
+// Only a contract account asks it. A contract trades round the clock, so the newest bar
+// should always be the bucket that just finished; one bucket behind is allowed, because
+// ingestion writes a candle a little after the minute it covers. Anything further back
+// is bars no longer coming in — typically a contract taken off the watchlist — and a
+// conclusion read from them would be about the past, sent as though it were now.
+//
+// A spot account is not asked: spot markets close, and a newest bar from before the
+// weekend is exactly what an honest reading of a closed market looks like.
+func (strategyBotMarketDomain StrategyBotMarketDomain) RequireCurrentBars(
+	interval AggregationIntervalDomain, barOpenTimes []time.Time, now time.Time,
+) error {
+	if !strategyBotMarketDomain.isContract || len(barOpenTimes) == 0 {
+		return nil
+	}
+
+	latestFinishedBucket := interval.BucketStart(interval.BucketStart(now).Add(-time.Nanosecond))
+	oldestAcceptableBucket := interval.BucketStart(latestFinishedBucket.Add(-time.Nanosecond))
+	newestBar := barOpenTimes[len(barOpenTimes)-1]
+
+	if newestBar.Before(oldestAcceptableBucket) {
+		return fmt.Errorf("%w: 最新一格合約行情停在 %s，行情沒有再進來——這個合約標的可能已不在合約追蹤名單上",
+			ErrStrategyBotMarketDataStale, newestBar.UTC().Format(time.RFC3339))
+	}
+
+	return nil
 }
 
 // ReferenceCandleWords is what the candle a reference price is read from is called: a

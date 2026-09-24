@@ -327,3 +327,83 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 	require.Len(t, *underTest.appendedRunRecords, 1)
 	assert.False(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
 }
+
+// A contract taken off the watchlist leaves its old bars behind. A round that finds
+// only those is skipped — it says nothing, keeps what it last sent, and keeps running —
+// rather than concluding about the past as though it were now.
+func TestStrategyBotRunApplicationSkipsAContractRoundJudgedByBarsNoLongerArriving(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectDeliverySetting()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
+				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id), ResultType: "signal",
+				MarketDataKind: string(vo.MarketDataKindContractKCandle),
+			}, nil
+		}).AnyTimes()
+	// Three hours before the round, and nothing since.
+	underTest.kCandleContractRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
+		Return(storedContractCandlesAt(at(6, 0)), nil).AnyTimes()
+	underTest.contractIndicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).AnyTimes()
+	underTest.expectNoRoundMessage()
+
+	dueBot := aDueContractBot(string(vo.SignalSell))
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{dueBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(dueBot, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+			assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
+			assert.Empty(t, bot.HaltReason)
+			assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
+
+			return nil
+		})
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	assert.Equal(t, string(vo.StrategyBotRoundResultHold), (*underTest.appendedRunRecords)[0].Result)
+}
+
+// A contract round reads no more than a contract calculation does: the bars once per
+// source, and the newest candle once for the reference price.
+func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
+	underTest.expectDeliverySetting()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
+			return entities.StrategyScript{
+				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id), ResultType: "signal",
+				MarketDataKind: string(vo.MarketDataKindContractKCandle),
+			}, nil
+		}).Times(2)
+	underTest.kCandleContractRepository.EXPECT().
+		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
+		Return(storedContractCandlesAt(at(9, 10)), nil).Times(2)
+	underTest.contractIndicatorScriptProxy.EXPECT().
+		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).Times(2)
+	underTest.expectTheContractsLatestCandle("100")
+	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(vo.DeliveryFailureNone, nil)
+
+	dueBot := aDueContractBot("")
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{dueBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(dueBot, nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+}

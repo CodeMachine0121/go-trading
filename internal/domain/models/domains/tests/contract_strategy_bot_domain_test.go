@@ -461,3 +461,77 @@ func TestStrategyBotMessageNamesTheSideAContractCloseIsAbout(t *testing.T) {
 	assert.Contains(t, message, "⚙️ 交易模式 只做多")
 	assert.NotContains(t, message, "建議部位")
 }
+
+func TestStrategyBotMarketDomainRefusesAContractRoundJudgedByBarsNoLongerArriving(t *testing.T) {
+	oneMinute, _ := domains.NewAggregationIntervalDomain("1m")
+	oneHour, _ := domains.NewAggregationIntervalDomain("1h")
+	minuteNow := time.Date(2026, 9, 24, 10, 0, 30, 0, time.UTC)
+	hourNow := time.Date(2026, 9, 24, 10, 15, 0, 0, time.UTC)
+
+	testCases := []struct {
+		name         string
+		interval     domains.AggregationIntervalDomain
+		now          time.Time
+		newestBar    time.Time
+		expectsStale bool
+	}{
+		{name: "the minute that just finished", interval: oneMinute, now: minuteNow,
+			newestBar: time.Date(2026, 9, 24, 9, 59, 0, 0, time.UTC)},
+		{name: "one minute behind, still arriving", interval: oneMinute, now: minuteNow,
+			newestBar: time.Date(2026, 9, 24, 9, 58, 0, 0, time.UTC)},
+		{name: "two minutes behind, no longer arriving", interval: oneMinute, now: minuteNow,
+			newestBar: time.Date(2026, 9, 24, 9, 57, 0, 0, time.UTC), expectsStale: true},
+		{name: "one hour behind at hourly bars", interval: oneHour, now: hourNow,
+			newestBar: time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC)},
+		{name: "two hours behind at hourly bars", interval: oneHour, now: hourNow,
+			newestBar: time.Date(2026, 9, 24, 7, 0, 0, 0, time.UTC), expectsStale: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			market := domains.NewStrategyBotMarketDomain("contractKCandle", "longShort")
+			bars := []time.Time{testCase.newestBar.Add(-time.Hour * 24), testCase.newestBar}
+
+			staleError := market.RequireCurrentBars(testCase.interval, bars, testCase.now)
+
+			if testCase.expectsStale {
+				assert.ErrorIs(t, staleError, domains.ErrStrategyBotMarketDataStale)
+
+				return
+			}
+
+			assert.NoError(t, staleError)
+		})
+	}
+}
+
+// Spot markets close, so an old newest bar is an honest reading there and is not refused.
+func TestStrategyBotMarketDomainDoesNotAskASpotRoundHowOldItsBarsAre(t *testing.T) {
+	oneMinute, _ := domains.NewAggregationIntervalDomain("1m")
+	now := time.Date(2026, 9, 24, 10, 0, 30, 0, time.UTC)
+
+	assert.NoError(t, domains.NewStrategyBotMarketDomain("kCandle", "").RequireCurrentBars(
+		oneMinute, []time.Time{now.Add(-72 * time.Hour)}, now))
+	assert.NoError(t, domains.NewStrategyBotMarketDomain("contractKCandle", "").RequireCurrentBars(
+		oneMinute, nil, now))
+}
+
+// A contract bot saved with its leverage left blank suggests a one-times position.
+func TestStrategyBotMessageSuggestsOneTimesForAContractBotSavedWithoutLeverage(t *testing.T) {
+	writeDto := aContractBotWrite()
+	writeDto.PositionPlan = dto.PositionPlanSettingsDto{Capital: decimal.NewFromInt(1000)}
+	bot, buildError := domains.NewStrategyBotDomain(writeDto)
+	require.NoError(t, buildError)
+
+	storedPlan := bot.ToEntity().PositionPlanSettingsDto()
+	positionPlan, planError := domains.NewPositionPlanDomain(storedPlan)
+	require.NoError(t, planError)
+
+	round := aContractRound()
+	round.Verdict = string(vo.SignalBuy)
+	round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(vo.TargetPositionLong, round.ReferencePrice, true)
+
+	message := domains.NewStrategyBotMessageDomain(round).Text()
+
+	assert.Contains(t, message, "　・保證金 1000（1 倍槓桿，名目 1000）")
+}

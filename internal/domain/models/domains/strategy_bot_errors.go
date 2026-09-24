@@ -57,3 +57,12 @@ func StrategyBotAlreadyRunningARound() error {
 	return fmt.Errorf(
 		"%w: 這台機器人正在跑一輪，等它跑完再試一次", ErrStrategyBotAlreadyRunningARound)
 }
+
+// ErrStrategyBotMarketDataStale is a contract round whose newest bar is older than the
+// market it is meant to be reading. A contract trades round the clock, so a newest bar
+// that far back means bars have stopped arriving — the contract left the watchlist, or
+// its ingestion is behind — and a conclusion drawn from it would be about the past.
+//
+// It is not among the halt reasons: bars start arriving again the moment the contract
+// is followed again, so the round is skipped and the bot waits.
+var ErrStrategyBotMarketDataStale = errors.New("strategy bot market data stale")

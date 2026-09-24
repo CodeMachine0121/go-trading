@@ -351,6 +351,22 @@ func (strategyBotService *StrategyBotService) DecideRound(
 	}, nil
 }
 
+// RequireCurrentSourceReading refuses what one source said this round when the bars it
+// said it from have stopped arriving — which only a contract bot is asked, see
+// StrategyBotMarketDomain.RequireCurrentBars. The refusal is one the failure model
+// reads as a skipped round.
+func (strategyBotService *StrategyBotService) RequireCurrentSourceReading(
+	botDto dto.StrategyBotDto, resultDto dto.IndicatorCalculationResultDto,
+) error {
+	interval, intervalError := domains.NewAggregationIntervalDomain(resultDto.Interval)
+	if intervalError != nil {
+		return intervalError
+	}
+
+	return domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").RequireCurrentBars(
+		interval, resultDto.OpenTimes, strategyBotService.clockProxy.Now())
+}
+
 // ReadRoundFailure says what a failure that happened during a round means: stop this
 // bot and say why, or wait for the next one.
 //

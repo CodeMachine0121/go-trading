@@ -371,3 +371,63 @@ func TestStrategyBotApplicationRefusesToRewriteABotOfAnUnreadableKind(t *testing
 
 	assert.ErrorIs(t, updateError, domains.ErrStrategyBotValidation)
 }
+
+// Every rule a contract bot is created under holds again when it is rewritten — the
+// rules may have changed since, and a rewrite cannot make it something it could never
+// have been created as.
+func TestStrategyBotApplicationChecksARewrittenContractBotLikeANewOne(t *testing.T) {
+	testCases := []struct {
+		name            string
+		arrange         func(underTest strategyBotApplicationUnderTest)
+		leverage        int64
+		expectedRefusal string
+	}{
+		{
+			name: "now following a K candle trading strategy",
+			arrange: func(underTest strategyBotApplicationUnderTest) {
+				underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindKCandle)
+			},
+			expectedRefusal: "這台機器人吃的是合約行情，那份交易策略吃的是 K 線",
+		},
+		{
+			name: "its contract since taken off the watchlist",
+			arrange: func(underTest strategyBotApplicationUnderTest) {
+				underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindContractKCandle)
+				underTest.expectTheContract(false, aLadderAllowing(125))
+			},
+			leverage:        5,
+			expectedRefusal: "BTCUSDT 不在合約追蹤名單上",
+		},
+		{
+			name: "a ladder that has since tightened below its leverage",
+			arrange: func(underTest strategyBotApplicationUnderTest) {
+				underTest.expectTheNamedTradingStrategyIsOfKind(vo.MarketDataKindContractKCandle)
+				underTest.expectTheContract(true, aLadderAllowing(20))
+			},
+			leverage:        50,
+			expectedRefusal: "這個合約標的最高只能開 20 倍槓桿",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newStrategyBotApplicationUnderTest(t)
+			testCase.arrange(underTest)
+			stored := storedContractBot(vo.StrategyBotStopped)
+			stored.PositionPlanLeverage = decimal.NewFromInt(50)
+			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(stored, nil)
+			underTest.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+
+			writeDto := aContractBotWrite()
+			writeDto.ID = strategyBotID
+			writeDto.MarketDataKind = ""
+			writeDto.DeclaredLeverage = decimal.NewFromInt(testCase.leverage)
+
+			_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(
+				context.Background(), strategyBotOwnerID, writeDto)
+
+			require.ErrorIs(t, updateError, domains.ErrStrategyBotValidation)
+			assert.ErrorContains(t, updateError, testCase.expectedRefusal)
+		})
+	}
+}

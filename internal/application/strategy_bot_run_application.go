@@ -510,6 +510,15 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 				return
 			}
 
+			// A contract source that judged by bars no longer arriving has nothing to
+			// say about now, and a round built on it is skipped rather than sent.
+			if staleError := strategyBotRunApplication.strategyBotService.RequireCurrentSourceReading(
+				botDto, result); staleError != nil {
+				sourceErrors[resultIndex] = staleError
+
+				return
+			}
+
 			sourceSignals[resultIndex] = dto.StrategyBotSourceSignalDto{
 				Label:               signalSource.Label,
 				AggregationInterval: signalSource.AggregationInterval,
