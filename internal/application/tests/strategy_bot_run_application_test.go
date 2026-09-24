@@ -36,7 +36,13 @@ type strategyBotRunUnderTest struct {
 	// market a contract bot reads its signals and its reference price from.
 	kCandleContractRepository    *mocks.MockIKCandleContractRepository
 	contractIndicatorScriptProxy *mocks.MockIContractIndicatorScriptProxy
-	roundGuard                   *application.StrategyBotRoundGuard
+	// contractTradingSymbolRepository, contractMaintenanceMarginTierRepository and
+	// contractFundingRateSettlementRepository are the venue a contract suggestion is
+	// worked out by.
+	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
+	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
+	contractFundingRateSettlementRepository *mocks.MockIContractFundingRateSettlementRepository
+	roundGuard                              *application.StrategyBotRoundGuard
 	// tradingStrategy is the rules every round in this file reads, held by pointer
 	// so that a test can change them and have the next round see the change — which
 	// is exactly what a round does against a set of rules somebody has edited.
@@ -118,15 +124,17 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
+	// 合約機器人要建議部位時才讀：交易規格、分級與最近一次資金費率結算。
+	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
+	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 
 	return strategyBotRunUnderTest{
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository,
-				mocks.NewMockIContractTradingSymbolRepository(controller),
-				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
-				clockProxy),
+				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
+				contractFundingRateSettlementRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
@@ -155,11 +163,15 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		telegramDeliveryRepository:   telegramDeliveryRepository,
 		kCandleContractRepository:    kCandleContractRepository,
 		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
-		roundGuard:                   roundGuard,
-		tradingStrategy:              &tradingStrategy,
-		tradingStrategyFailure:       &tradingStrategyFailure,
-		appendedRunRecords:           &appendedRunRecords,
-		t:                            t,
+
+		contractTradingSymbolRepository:         contractTradingSymbolRepository,
+		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
+		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
+		roundGuard:                              roundGuard,
+		tradingStrategy:                         &tradingStrategy,
+		tradingStrategyFailure:                  &tradingStrategyFailure,
+		appendedRunRecords:                      &appendedRunRecords,
+		t:                                       t,
 	}
 }
 

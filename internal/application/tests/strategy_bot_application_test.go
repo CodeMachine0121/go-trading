@@ -79,12 +79,14 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
+	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
 
 	return strategyBotApplicationUnderTest{
 		strategyBotApplication: application.NewStrategyBotApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository,
-				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository, clockProxy),
+				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
+				contractFundingRateSettlementRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),

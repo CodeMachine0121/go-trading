@@ -160,6 +160,30 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 		lines = append(lines, fmt.Sprintf("　・開倉金額 %s", positionPlan.Stake.String()))
 	}
 
+	// An order the venue would refuse is named as refused, with the rule it breaks, and
+	// nothing else is printed: exits and a liquidation price for an order that cannot be
+	// placed are figures somebody would try to place.
+	if positionPlan.HasVenueRefusal {
+		refusal := positionPlan.VenueRefusal
+
+		switch vo.ContractOrderRefusalReasonVo(refusal.Reason) {
+		case vo.ContractOrderRefusalBelowMinimumQuantity:
+			return append(lines, fmt.Sprintf("　・交易所不收這一筆：數量 %s 低於最小下單量 %s",
+				refusal.Quantity.String(), refusal.MinimumQuantity.String()))
+		case vo.ContractOrderRefusalBelowMinimumNotional:
+			return append(lines, fmt.Sprintf("　・交易所不收這一筆：名目 %s 低於最小名目 %s",
+				refusal.Notional.String(), refusal.MinimumNotional.String()))
+		}
+
+		// The one rule left: more leverage than the notional's tier allows.
+		return append(lines, fmt.Sprintf("　・交易所不收這一筆：名目 %s 那一級最高只能開 %d 倍",
+			refusal.Notional.String(), refusal.TierMaximumLeverage))
+	}
+
+	if positionPlan.HasQuantity {
+		lines = append(lines, fmt.Sprintf("　・數量 %s", positionPlan.Quantity.String()))
+	}
+
 	// Which way each exit lies is written out in words. 66105.915 reads like a
 	// perfectly ordinary price whichever side it was meant for, so the side is never
 	// left for the reader to work out — and on a short position both sides swap.
@@ -180,10 +204,52 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) positionPlanLines() []s
 			positionPlan.GainAtTarget.String()))
 	}
 
+	// Where the position would be closed out lies on the side its stop does, and says
+	// which figures it was estimated from when the full ladder was not known.
+	if positionPlan.HasLiquidationPrice {
+		basis := ""
+		if positionPlan.LiquidationFromSmallestTier {
+			basis = "，用最小那一級估算"
+		}
+
+		lines = append(lines, fmt.Sprintf("　・預估強平價 %s（%s%s）",
+			positionPlan.LiquidationPrice.String(), stopSide, basis))
+	} else if positionPlan.CannotBeLiquidated {
+		lines = append(lines, "　・這個槓桿下不會被強制平倉")
+	}
+
+	// What holding it costs between settlements, estimated from the rate last settled —
+	// said to be an estimate, because the next rate is the venue's to set.
+	if positionPlan.ForContract && !positionPlan.HasFundingRate {
+		lines = append(lines, "　・資金費率：還沒有資金費率紀錄")
+	} else if positionPlan.ForContract {
+		every := "每次結算"
+		if positionPlan.FundingIntervalHours > 0 {
+			every = fmt.Sprintf("每 %d 小時", positionPlan.FundingIntervalHours)
+		}
+
+		settlement := "不付也不收"
+		if positionPlan.FundingPayment.IsPositive() {
+			settlement = fmt.Sprintf("約付 %s", positionPlan.FundingPayment.String())
+		} else if positionPlan.FundingPayment.IsNegative() {
+			settlement = fmt.Sprintf("約收 %s", positionPlan.FundingPayment.Neg().String())
+		}
+
+		lines = append(lines, fmt.Sprintf("　・資金費率 %s%%（最近一次結算）：%s%s（估算）",
+			positionPlan.FundingRate.Mul(oneHundredPercent).String(), every, settlement))
+	}
+
+	if positionPlan.LacksTradingSpecification {
+		lines = append(lines, "　⚠️ 這個合約標的還沒有交易規格：數字未照交易所規則取整，也估不出強平價")
+	}
+
 	// A stop the margin cannot carry is not a stop: the position would be closed out
-	// on the way there. Said plainly, and said to be rough, because the maintenance
-	// margin that brings the close-out nearer still is not counted here.
-	if positionPlan.LiquidatesBeforeStop {
+	// on the way there. Against the estimated liquidation price when there is one; when
+	// there is not, by the rough rule, said to be rough because the maintenance margin
+	// that brings the close-out nearer still is not counted in it.
+	if positionPlan.LiquidatesBeforeStop && positionPlan.HasLiquidationPrice {
+		lines = append(lines, "　⚠️ 止損比預估強平價還遠：還沒到止損就會先被強制平倉")
+	} else if positionPlan.LiquidatesBeforeStop {
 		lines = append(lines,
 			"　⚠️ 止損距離乘上槓桿已達 100%：還沒到止損就會先被強制平倉（未計維持保證金）")
 	}

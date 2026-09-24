@@ -68,6 +68,7 @@ func newStrategyBotScanJobUnderTest(
 				strategyBotRepository, strategyBotRunRecordRepository,
 				mocks.NewMockIContractTradingSymbolRepository(mockController),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
 				clockProxy),
 			service.NewTradingStrategyService(
 				mocks.NewMockITradingStrategyRepository(mockController)),

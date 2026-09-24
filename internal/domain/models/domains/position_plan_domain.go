@@ -2,6 +2,7 @@ package domains
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -199,6 +200,141 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	}
 
 	return positionPlanDto, true
+}
+
+// Suggests is whether this plan has anything to suggest for that target at all: money
+// to stake, a price to measure from, and a target that holds a position. Asked before
+// anything about the venue is read, so a round with nothing to suggest reads nothing.
+func (positionPlanDomain PositionPlanDomain) Suggests(target vo.TargetPositionVo, hasReference bool) bool {
+	return positionPlanDomain.capital.IsPositive() && hasReference &&
+		(target == vo.TargetPositionLong || target == vo.TargetPositionShort)
+}
+
+// PlanOnContractVenue is PlanFor on a contract account, by the venue's own rules.
+//
+// It opens the suggestion the way a contract replay opens a position — the replay's
+// own opening model, at the reference price, with no costs and no slippage — so the
+// quantity is stepped down, the margin is what that quantity needs, the exits sit on the
+// venue's ticks, and an order the venue would refuse is refused here too, saying why.
+// What a replay would then liquidate the position at is the liquidation estimate.
+//
+// A contract whose rules are not known yet is suggested as PlanFor suggests it, and the
+// suggestion says so. The funding estimate needs no rules and is given either way.
+func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
+	target vo.TargetPositionVo,
+	referencePrice decimal.Decimal,
+	referenceTime time.Time,
+	venue ContractStrategyBotVenueDomain,
+) (dto.PositionPlanDto, bool) {
+	plainPlan, suggests := positionPlanDomain.PlanFor(target, referencePrice, true)
+	if !suggests || !plainPlan.Affordable {
+		return plainPlan, suggests
+	}
+
+	tradingRules, hasTradingRules := venue.TradingRules()
+	if !hasTradingRules {
+		plainPlan.ForContract = true
+		plainPlan.LacksTradingSpecification = true
+
+		return positionPlanDomain.withFundingEstimate(plainPlan, venue), true
+	}
+
+	leverage := decimal.Max(positionPlanDomain.leverage, oneWhole)
+	direction := vo.PositionDirectionVo(plainPlan.Direction)
+	position, outcome := NewContractPositionTermsDomain(
+		NewBacktestPositionTermsDomain(
+			positionPlanDomain.sizing, positionPlanDomain.exitLevels, BacktestTransactionCostsDomain{}),
+		leverage, BacktestSlippageDomain{}, tradingRules,
+	).OpenFor(direction, referenceTime, referencePrice, positionPlanDomain.capital)
+
+	if outcome == vo.ContractOpeningBlockedByTradingRules {
+		refusal, _ := tradingRules.RefusalFor(
+			tradingRules.QuantityFor(plainPlan.Stake.Mul(leverage), referencePrice), referencePrice, leverage)
+
+		return dto.PositionPlanDto{
+			Stake:           plainPlan.Stake,
+			Affordable:      true,
+			Direction:       plainPlan.Direction,
+			Leverage:        leverage,
+			Notional:        plainPlan.Notional,
+			ForContract:     true,
+			VenueRefusal:    refusal.ToDto(),
+			HasVenueRefusal: true,
+		}, true
+	}
+
+	notional := position.Quantity().Mul(position.EntryPrice())
+	exitPrices := position.ExitPrices()
+	liquidationPrice := position.LiquidationPrice()
+	cannotBeLiquidated := !liquidationPrice.IsPositive()
+
+	positionPlanDto := dto.PositionPlanDto{
+		Stake:                       position.OpeningMargin(),
+		Affordable:                  true,
+		StopLossPrice:               exitPrices.StopLossPrice,
+		HasStopLoss:                 exitPrices.HasStopLoss,
+		TakeProfitPrice:             exitPrices.TakeProfitPrice,
+		HasTakeProfit:               exitPrices.HasTakeProfit,
+		Direction:                   plainPlan.Direction,
+		Leverage:                    leverage,
+		Notional:                    notional,
+		ForContract:                 true,
+		Quantity:                    position.Quantity(),
+		HasQuantity:                 true,
+		CannotBeLiquidated:          cannotBeLiquidated,
+		HasLiquidationPrice:         !cannotBeLiquidated,
+		LiquidationFromSmallestTier: !tradingRules.HasLadder(),
+	}
+
+	if !cannotBeLiquidated {
+		positionPlanDto.LiquidationPrice = tradingRules.RoundedToTick(liquidationPrice)
+	}
+
+	if positionPlanDto.HasStopLoss {
+		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
+		// The stop is judged against the estimate itself rather than a rule of thumb:
+		// a long's stop at or below where it would be closed out is never reached, and
+		// the mirror image for a short.
+		positionPlanDto.LiquidatesBeforeStop = !cannotBeLiquidated &&
+			((direction == vo.PositionDirectionLong &&
+				positionPlanDto.StopLossPrice.LessThanOrEqual(positionPlanDto.LiquidationPrice)) ||
+				(direction == vo.PositionDirectionShort &&
+					positionPlanDto.StopLossPrice.GreaterThanOrEqual(positionPlanDto.LiquidationPrice)))
+	}
+
+	if positionPlanDto.HasTakeProfit {
+		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
+	}
+
+	return positionPlanDomain.withFundingEstimate(positionPlanDto, venue), true
+}
+
+// withFundingEstimate is this suggestion with what one funding settlement at the latest
+// rate would come to on its notional: a positive rate is paid by a long and received by
+// a short, and a negative one the other way round.
+//
+// Both ways of suggesting on a contract end with it, which is why it is here rather
+// than written out twice.
+func (positionPlanDomain PositionPlanDomain) withFundingEstimate(
+	positionPlanDto dto.PositionPlanDto, venue ContractStrategyBotVenueDomain,
+) dto.PositionPlanDto {
+	positionPlanDto.FundingIntervalHours = venue.FundingIntervalHours()
+
+	fundingRate, hasFundingRate := venue.FundingRate()
+	if !hasFundingRate {
+		return positionPlanDto
+	}
+
+	fundingPayment := positionPlanDto.Notional.Mul(fundingRate)
+	if positionPlanDto.Direction == string(vo.PositionDirectionShort) {
+		fundingPayment = fundingPayment.Neg()
+	}
+
+	positionPlanDto.FundingRate = fundingRate
+	positionPlanDto.HasFundingRate = true
+	positionPlanDto.FundingPayment = fundingPayment
+
+	return positionPlanDto
 }
 
 // portionOf is that percentage of an amount.

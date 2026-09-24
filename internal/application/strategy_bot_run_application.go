@@ -607,7 +607,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	// Worked out once, here, because the same figures reach the message below and the
 	// history afterwards. Twice would be two answers, and they would part company the
 	// moment somebody edited a setting between the two reads.
-	round = strategyBotRunApplication.strategyBotService.PlanRoundPosition(round)
+	round = strategyBotRunApplication.strategyBotService.PlanRoundPosition(executionContext, round)
 
 	deliveryFailure, deliverError := strategyBotRunApplication.telegramDeliveryService.SendMessage(
 		executionContext,

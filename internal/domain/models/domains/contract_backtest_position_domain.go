@@ -42,6 +42,22 @@ func (positionDomain ContractBacktestPositionDomain) Direction() vo.PositionDire
 	return positionDomain.direction
 }
 
+// Quantity is how many units this position holds.
+func (positionDomain ContractBacktestPositionDomain) Quantity() decimal.Decimal {
+	return positionDomain.quantity
+}
+
+// EntryPrice is what this position was entered at.
+func (positionDomain ContractBacktestPositionDomain) EntryPrice() decimal.Decimal {
+	return positionDomain.entryPrice
+}
+
+// ExitPrices is where this position's stop and target sit, already on the venue's
+// ticks.
+func (positionDomain ContractBacktestPositionDomain) ExitPrices() vo.ExitPricesVo {
+	return positionDomain.exitPrices
+}
+
 // OpeningMargin is what was taken out of the account to open this.
 func (positionDomain ContractBacktestPositionDomain) OpeningMargin() decimal.Decimal {
 	return positionDomain.openingMargin
