@@ -39,9 +39,10 @@ var retiredColumns = []retiredColumn{
 	{entity: &entities.StrategyScript{}, name: "aggregation_interval"},
 	{entity: &entities.StrategyScript{}, name: "candle_count"},
 	// Which kind of account a set of rules was written for, and how much a bot
-	// suggested borrowing. The replay only does spot now, so nothing reads either —
-	// and a column still holding 'longShort' beside rules that are replayed as spot
-	// is a row that contradicts the system out loud.
+	// suggested borrowing, from the spot-only era. Nothing reads either — a contract
+	// trading strategy's mode and a contract bot's leverage each live in a column of
+	// their own — and a column still holding 'longShort' beside rules that are
+	// replayed as spot is a row that contradicts the system out loud.
 	{entity: &entities.TradingStrategy{}, name: "trading_mode"},
 	{entity: &entities.StrategyBot{}, name: "position_plan_leverage"},
 }

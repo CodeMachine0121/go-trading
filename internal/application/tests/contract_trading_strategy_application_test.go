@@ -116,7 +116,9 @@ func TestTradingStrategyApplicationKeepsTheKindOnARewrite(t *testing.T) {
 	})
 }
 
-func TestStrategyBotApplicationRefusesAContractTradingStrategy(t *testing.T) {
+// A spot bot — which is what a bot that says nothing about its kind is — may not follow
+// rules written for contracts.
+func TestStrategyBotApplicationRefusesASpotBotFollowingAContractTradingStrategy(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 	underTest.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), botsTradingStrategyID).
@@ -130,7 +132,7 @@ func TestStrategyBotApplicationRefusesAContractTradingStrategy(t *testing.T) {
 		context.Background(), strategyBotOwnerID, aBotWrite())
 
 	require.ErrorIs(t, createError, domains.ErrStrategyBotValidation)
-	assert.ErrorContains(t, createError, "策略機器人目前只跑 K 線")
+	assert.ErrorContains(t, createError, "這台機器人吃的是 K 線，那份交易策略吃的是合約行情")
 }
 
 func TestStrategyBotApplicationRefusesATradingStrategyOfAnUnreadableKind(t *testing.T) {

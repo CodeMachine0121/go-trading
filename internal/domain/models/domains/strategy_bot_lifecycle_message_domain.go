@@ -24,8 +24,9 @@ type StrategyBotLifecycleMessageDomain struct {
 	haltReason vo.StrategyBotHaltReasonVo
 }
 
-// NewStrategyBotLifecycleMessageDomain takes the bot the message is about, and why
-// it stopped if the system stopped it.
+// NewStrategyBotLifecycleMessageDomain takes the bot the message is about — its symbol
+// as its owner reads it, so a contract bot's already says it is a perpetual contract —
+// and why it stopped if the system stopped it.
 func NewStrategyBotLifecycleMessageDomain(
 	botName string, symbol string, haltReason vo.StrategyBotHaltReasonVo,
 ) StrategyBotLifecycleMessageDomain {

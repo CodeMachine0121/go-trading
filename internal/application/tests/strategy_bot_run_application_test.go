@@ -32,7 +32,11 @@ type strategyBotRunUnderTest struct {
 	messageDeliveryProxy       *mocks.MockIMessageDeliveryProxy
 	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
-	roundGuard                 *application.StrategyBotRoundGuard
+	// kCandleContractRepository and contractIndicatorScriptProxy are the contract
+	// market a contract bot reads its signals and its reference price from.
+	kCandleContractRepository    *mocks.MockIKCandleContractRepository
+	contractIndicatorScriptProxy *mocks.MockIContractIndicatorScriptProxy
+	roundGuard                   *application.StrategyBotRoundGuard
 	// tradingStrategy is the rules every round in this file reads, held by pointer
 	// so that a test can change them and have the next round see the change — which
 	// is exactly what a round does against a set of rules somebody has edited.
@@ -103,38 +107,59 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
 	secretSealProxy.EXPECT().Unseal("sealed").Return("the-token", nil).AnyTimes()
 
+	// 合約那一條線：只有合約機器人會讀到。資金費率與持倉統計不是這幾個測試在問的事。
+	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(controller)
+	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
+	contractFundingRateSettlementRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	contractFundingRateSettlementRepository.EXPECT().FindLatestBefore(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
+	contractPositionStatisticRepository := mocks.NewMockIContractPositionStatisticRepository(controller)
+	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).AnyTimes()
+	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
+	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
+
 	return strategyBotRunUnderTest{
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
 			service.NewStrategyBotService(
-				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+				strategyBotRepository, strategyBotRunRecordRepository,
+				mocks.NewMockIContractTradingSymbolRepository(controller),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
+				clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
 				kCandleRepository, tradingSymbolRepository, indicatorScriptProxy, clockProxy,
-				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				queryMaxResults),
+				marketCatalog, queryMaxResults),
+			service.NewContractIndicatorCalculationService(
+				kCandleContractRepository, contractFundingRateSettlementRepository,
+				contractPositionStatisticRepository, contractIndicatorScriptProxy, clockProxy,
+				marketCatalog, queryMaxResults),
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
 			service.NewKCandleService(
-				kCandleRepository, tradingSymbolRepository, clockProxy,
-				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				queryMaxResults),
+				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
+			service.NewKCandleContractService(
+				kCandleContractRepository, clockProxy, marketCatalog, queryMaxResults),
 			clockProxy,
 			roundGuard,
 			4,
 			time.Minute,
 		),
-		strategyBotRepository:      strategyBotRepository,
-		kCandleRepository:          kCandleRepository,
-		indicatorScriptProxy:       indicatorScriptProxy,
-		messageDeliveryProxy:       messageDeliveryProxy,
-		strategyScriptRepository:   strategyScriptRepository,
-		telegramDeliveryRepository: telegramDeliveryRepository,
-		roundGuard:                 roundGuard,
-		tradingStrategy:            &tradingStrategy,
-		tradingStrategyFailure:     &tradingStrategyFailure,
-		appendedRunRecords:         &appendedRunRecords,
-		t:                          t,
+		strategyBotRepository:        strategyBotRepository,
+		kCandleRepository:            kCandleRepository,
+		indicatorScriptProxy:         indicatorScriptProxy,
+		messageDeliveryProxy:         messageDeliveryProxy,
+		strategyScriptRepository:     strategyScriptRepository,
+		telegramDeliveryRepository:   telegramDeliveryRepository,
+		kCandleContractRepository:    kCandleContractRepository,
+		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
+		roundGuard:                   roundGuard,
+		tradingStrategy:              &tradingStrategy,
+		tradingStrategyFailure:       &tradingStrategyFailure,
+		appendedRunRecords:           &appendedRunRecords,
+		t:                            t,
 	}
 }
 

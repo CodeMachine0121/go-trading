@@ -15,6 +15,9 @@ type StrategyBotWriteDto struct {
 	OwnerID uint
 	Name    string
 	Symbol  string
+	// MarketDataKind is which kind of market the bot is to eat, exactly as declared.
+	// Blank on a create is the K candle; blank on a rewrite keeps whatever it has.
+	MarketDataKind string
 	// TradingStrategyID is the rules this bot is to follow. Exactly one, and it
 	// has to be the caller's own — the rules are not given here, only named.
 	TradingStrategyID      uint
@@ -23,8 +26,9 @@ type StrategyBotWriteDto struct {
 	// declared. Whether it was filled in at all is read from the capital: leaving the
 	// whole group empty is an ordinary thing to do, and such a bot suggests nothing.
 	PositionPlan PositionPlanSettingsDto
-	// DeclaredLeverage is what the caller said about borrowing, carried only so that
-	// somebody still asking for it is told this system does not do it.
+	// DeclaredLeverage is what the caller said about borrowing. On a contract bot it is
+	// the leverage its suggested position carries. On a spot bot it is carried only so
+	// that somebody still asking for it is told spot does not borrow.
 	//
 	// It rides here rather than with the position plan because the two are answered at
 	// different moments: the plan is rebuilt from stored settings every round, and a

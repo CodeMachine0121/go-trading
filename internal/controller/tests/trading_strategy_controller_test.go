@@ -52,7 +52,10 @@ func newTradingStrategyRouterUnderTest(t *testing.T) tradingStrategyRouterUnderT
 			service.NewStrategyScriptService(
 				strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewStrategyBotService(
-				strategyBotRepository, strategyBotRunRecordRepository, clockProxy),
+				strategyBotRepository, strategyBotRunRecordRepository,
+				mocks.NewMockIContractTradingSymbolRepository(mockController),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
+				clockProxy),
 		))
 
 	engine := gin.New()

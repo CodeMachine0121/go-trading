@@ -15,6 +15,11 @@ import (
 type StrategyBotRoundDto struct {
 	BotName string
 	Symbol  string
+	// MarketDataKind is which kind of market the bot eats, and ContractTradingMode the
+	// trading mode of the contract trading strategy it follows — blank on a spot bot.
+	// Together they decide what the round's conclusion asks its reader to go and do.
+	MarketDataKind      string
+	ContractTradingMode string
 	// Verdict is this round's conclusion: buy or sell. A round with nothing to say
 	// never reaches a message.
 	Verdict string

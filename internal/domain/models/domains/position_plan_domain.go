@@ -28,6 +28,15 @@ type PositionPlanDomain struct {
 	sizing     PositionSizingDomain
 	stopLoss   decimal.Decimal
 	takeProfit decimal.Decimal
+	// exitLevels places the two exits around a price for whichever way a position
+	// faces — the very model a replay places its exits with, so a bot's suggestion and
+	// a replay of the same distances can never put a stop in two different places.
+	exitLevels BacktestExitLevelsDomain
+	// leverage is how many times its margin a contract suggestion carries. Zero is a
+	// spot plan: nothing is borrowed, and the notional is the stake itself. Whether a
+	// figure is allowed was settled where the bot was saved, not here — see
+	// NewPositionPlanDomain.
+	leverage decimal.Decimal
 }
 
 // NewPositionPlanDomain reads the four settings and settles every rule about them.
@@ -57,13 +66,10 @@ func NewPositionPlanDomain(
 		return PositionPlanDomain{}, sizingError
 	}
 
-	if stopLossError := validatedDistance(settings.StopLossPercentage, "停損距離"); stopLossError != nil {
-		return PositionPlanDomain{}, stopLossError
-	}
-
-	if takeProfitError := validatedDistance(
-		settings.TakeProfitPercentage, "停利距離"); takeProfitError != nil {
-		return PositionPlanDomain{}, takeProfitError
+	exitLevels, exitLevelsError := NewBacktestExitLevelsDomain(
+		settings.StopLossPercentage, settings.TakeProfitPercentage)
+	if exitLevelsError != nil {
+		return PositionPlanDomain{}, exitLevelsError
 	}
 
 	return PositionPlanDomain{
@@ -71,6 +77,8 @@ func NewPositionPlanDomain(
 		sizing:     sizing,
 		stopLoss:   settings.StopLossPercentage,
 		takeProfit: settings.TakeProfitPercentage,
+		exitLevels: exitLevels,
+		leverage:   settings.Leverage,
 	}, nil
 }
 
@@ -111,6 +119,7 @@ func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSet
 		SizingValue:          positionPlanDomain.sizing.Value(),
 		StopLossPercentage:   positionPlanDomain.stopLoss,
 		TakeProfitPercentage: positionPlanDomain.takeProfit,
+		Leverage:             positionPlanDomain.leverage,
 	}
 }
 
@@ -122,9 +131,10 @@ func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSet
 // message, "this round has nothing to put down" is a single fact, and four separate
 // sentences about it would grow four ways of writing the same paragraph.
 //
-// The target position is what decides whether to suggest anything at all. It is the
-// signal's own answer — a sell asks to be in cash, and there is nothing to suggest
-// opening about that — so this reads it rather than restating it.
+// The target position is what decides whether to suggest anything at all, and which
+// way. A spot target only ever faces long; a contract target may face short too, and
+// then both exits swap sides. Closing either side is being asked to hold nothing, and
+// there is nothing to suggest opening about that.
 func (positionPlanDomain PositionPlanDomain) PlanFor(
 	target vo.TargetPositionVo, referencePrice decimal.Decimal, hasReference bool,
 ) (dto.PositionPlanDto, bool) {
@@ -132,7 +142,7 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		return dto.PositionPlanDto{}, false
 	}
 
-	if !target.WantsPosition() {
+	if target != vo.TargetPositionLong && target != vo.TargetPositionShort {
 		return dto.PositionPlanDto{}, false
 	}
 
@@ -148,28 +158,44 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		return dto.PositionPlanDto{Stake: stake, Affordable: false}, true
 	}
 
+	// A spot plan borrows nothing, which is the same as carrying it once.
+	leverage := decimal.Max(positionPlanDomain.leverage, oneWhole)
+	notional := stake.Mul(leverage)
+	direction := vo.PositionDirectionLong
+	if target == vo.TargetPositionShort {
+		direction = vo.PositionDirectionShort
+	}
+
+	// Which side each exit lies on is the direction's, placed by the model a replay
+	// uses: a stop is the price moving against the position — below a long one, above
+	// a short one — and the target is always on the other side.
+	exitPrices := positionPlanDomain.exitLevels.PricesFacing(direction, referencePrice)
+
 	positionPlanDto := dto.PositionPlanDto{
-		Stake:         stake,
-		Affordable:    true,
-		HasStopLoss:   positionPlanDomain.stopLoss.IsPositive(),
-		HasTakeProfit: positionPlanDomain.takeProfit.IsPositive(),
+		Stake:           stake,
+		Affordable:      true,
+		StopLossPrice:   exitPrices.StopLossPrice,
+		HasStopLoss:     exitPrices.HasStopLoss,
+		TakeProfitPrice: exitPrices.TakeProfitPrice,
+		HasTakeProfit:   exitPrices.HasTakeProfit,
+		Direction:       string(direction),
+		Leverage:        leverage,
+		Notional:        notional,
 	}
 
 	if positionPlanDto.HasStopLoss {
-		// A stop is the price moving against the position, and a suggested position
-		// only ever faces one way, so it is subtracted. Getting this backwards is the
-		// one mistake here that cannot be seen: the wrong figure is still a plausible
-		// price — which is why the side is in the arithmetic rather than in a flag.
-		positionPlanDto.StopLossPrice = referencePrice.Sub(
-			portionOf(referencePrice, positionPlanDomain.stopLoss))
-		positionPlanDto.LossAtStop = portionOf(stake, positionPlanDomain.stopLoss)
+		// What moves with the price is the notional, not the margin: at five times, a
+		// two percent move costs ten percent of what was put down.
+		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
+		// Only a borrowed position can be closed out before its stop. The check is the
+		// plain one — the move that eats the whole margin — and leaves the maintenance
+		// margin out, which the message says out loud.
+		positionPlanDto.LiquidatesBeforeStop = positionPlanDomain.leverage.IsPositive() &&
+			positionPlanDomain.stopLoss.Mul(leverage).GreaterThanOrEqual(oneHundredPercent)
 	}
 
 	if positionPlanDto.HasTakeProfit {
-		// And the target is on the other side of the price from the stop, always.
-		positionPlanDto.TakeProfitPrice = referencePrice.Add(
-			portionOf(referencePrice, positionPlanDomain.takeProfit))
-		positionPlanDto.GainAtTarget = portionOf(stake, positionPlanDomain.takeProfit)
+		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
 	}
 
 	return positionPlanDto, true
@@ -179,9 +205,7 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 //
 // It is the one piece of arithmetic every exit shares — how far from a price a
 // distance actually is — and which side that lands on is left to whoever is placing
-// it. A version that took the side as well would be a flag whose every caller passes
-// a constant, since a position only ever faces one way; written out, each site says
-// which side it means in the one place a reader will look.
+// it, because that depends on which way the position faces.
 func portionOf(amount decimal.Decimal, percentage decimal.Decimal) decimal.Decimal {
 	return amount.Mul(percentage).Div(oneHundredPercent)
 }

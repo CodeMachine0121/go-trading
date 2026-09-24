@@ -19,8 +19,13 @@ import (
 // last sent and why it halted are things that happen to a bot, not things a caller
 // sets.
 type StrategyBotRequest struct {
-	Name                   string `json:"name"`
-	Symbol                 string `json:"symbol"`
+	Name   string `json:"name"`
+	Symbol string `json:"symbol"`
+	// MarketDataKind is which kind of market the bot eats: kCandle (a spot bot, and
+	// what leaving it out means on a create) or contractKCandle (a contract bot). A
+	// rewrite that leaves it out keeps the kind the bot has; one naming the other kind
+	// is refused.
+	MarketDataKind         string `json:"marketDataKind"`
 	TradingStrategyID      uint   `json:"tradingStrategyId"`
 	TriggerIntervalMinutes int    `json:"triggerIntervalMinutes"`
 	// PositionPlan is what this bot is to suggest putting down each round. The whole
@@ -29,8 +34,8 @@ type StrategyBotRequest struct {
 	PositionPlan PositionPlanRequest `json:"positionPlan"`
 }
 
-// PositionPlanRequest is the four figures behind a suggested position, plus the one
-// this system no longer does anything with.
+// PositionPlanRequest is the four figures behind a suggested position, plus the
+// leverage a contract bot's suggestion carries.
 //
 // The money arrives as an exact decimal rather than a JSON number, for the reason it
 // does everywhere else here: the two distances multiply into a price somebody places
@@ -39,9 +44,9 @@ type PositionPlanRequest struct {
 	Capital     decimal.Decimal `json:"capital"`
 	SizingMode  string          `json:"sizingMode"`
 	SizingValue decimal.Decimal `json:"sizingValue"`
-	// Leverage is read only so that a caller still asking to borrow is told this
-	// system does not, rather than being quietly saved a bot that means something
-	// else. It goes no further than the refusal — see StrategyBotWriteDto.
+	// Leverage is the contract bot's leverage. On a spot bot it is read only so that a
+	// caller still asking to borrow is told spot does not, rather than being quietly
+	// saved a bot that means something else — see StrategyBotWriteDto.
 	Leverage             decimal.Decimal `json:"leverage"`
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
@@ -52,7 +57,7 @@ type PositionPlanRequest struct {
 // every other declared spelling here.
 //
 // What was declared about borrowing is not among them: it is carried separately,
-// because it is refused rather than stored.
+// because whether it is stored or refused depends on the kind of bot.
 func (positionPlanRequest PositionPlanRequest) ToSettingsDto() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              positionPlanRequest.Capital,
@@ -73,11 +78,12 @@ func (strategyBotRequest StrategyBotRequest) ToWriteDto(id uint) dto.StrategyBot
 		ID:                     id,
 		Name:                   strategyBotRequest.Name,
 		Symbol:                 strategyBotRequest.Symbol,
+		MarketDataKind:         strategyBotRequest.MarketDataKind,
 		TradingStrategyID:      strategyBotRequest.TradingStrategyID,
 		TriggerIntervalMinutes: strategyBotRequest.TriggerIntervalMinutes,
 		PositionPlan:           strategyBotRequest.PositionPlan.ToSettingsDto(),
-		// Taken separately from the rest of the plan, because it is the one figure
-		// there that is answered rather than stored.
+		// Taken separately from the rest of the plan, because whether it is stored
+		// or refused is answered by the kind of bot, not by the plan.
 		DeclaredLeverage: strategyBotRequest.PositionPlan.Leverage,
 	}
 }

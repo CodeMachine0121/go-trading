@@ -146,6 +146,34 @@ func (kCandleContractService *KCandleContractService) GetKCandleContract(
 	return contractCandle.ToDto(), nil
 }
 
+// GetLatestKCandleContract returns the newest contract K candle stored for this
+// symbol, and whether there was one at all — the contract twin of the spot question.
+//
+// Nothing stored is an answer rather than a failure: a contract nobody has ingested
+// yet is an ordinary state, and a caller told it was a failure would have to work out
+// which failures are really nothing.
+func (kCandleContractService *KCandleContractService) GetLatestKCandleContract(
+	executionContext context.Context, symbol string,
+) (dto.KCandleContractDto, bool, error) {
+	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
+	if symbolError != nil {
+		return dto.KCandleContractDto{}, false, fmt.Errorf(
+			"%w: %w", domains.ErrKCandleContractValidation, symbolError)
+	}
+
+	contractCandles, findError := kCandleContractService.kCandleContractRepository.FindLatest(
+		executionContext, tradingSymbol.Value(), 1)
+	if findError != nil {
+		return dto.KCandleContractDto{}, false, findError
+	}
+
+	if len(contractCandles) == 0 {
+		return dto.KCandleContractDto{}, false, nil
+	}
+
+	return contractCandles[0].ToDto(), true, nil
+}
+
 // UpdateKCandleContract replaces the figures of an existing contract K candle. The
 // candle it acts on is the one named by the trading symbol and open time carried in
 // the input.
