@@ -97,7 +97,7 @@ func (kCandleContractFollowService *KCandleContractFollowService) WatchKCandleCo
 	}
 
 	if !isRegistered {
-		return nil, fmt.Errorf("%w: %s", domains.ErrTradingSymbolNotRegistered, contractSymbol.Value())
+		return nil, fmt.Errorf("%w: 找不到這個合約標的 %s", domains.ErrTradingSymbolNotRegistered, contractSymbol.Value())
 	}
 
 	if !contractTradingSymbol.IsWatched {

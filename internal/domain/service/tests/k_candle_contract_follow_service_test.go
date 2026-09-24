@@ -103,9 +103,11 @@ func TestAContractIsFollowedOnceHoweverManyWatchIt(t *testing.T) {
 	require.NoError(t, secondError)
 	assert.Equal(t, 1, testBed.service.FollowedSymbolCount(), "第二個觀看者不該讓系統跟第二份")
 
-	// One line for the contract, carrying exactly it.
+	// One line for the contract, carrying exactly it — and no second one for the
+	// second viewer.
 	channel := <-testBed.feedsRequested
 	assert.Equal(t, []string{"BTCUSDT"}, channel.Symbols)
+	assert.Empty(t, testBed.feedsRequested, "第二個觀看者不該讓系統多開一條連線")
 
 	feed.report(liveKCandleAt(followOpenTime, "64000.5", false))
 
@@ -190,7 +192,7 @@ func TestOnlyAContractOnTheContractWatchlistIsFollowed(t *testing.T) {
 	}{
 		{name: "a followed contract", symbol: "ETHUSDT"},
 		{name: "a contract the system has never heard of", symbol: "NOPEUSDT",
-			expectedError: domains.ErrTradingSymbolNotRegistered, expectedWording: "NOPEUSDT"},
+			expectedError: domains.ErrTradingSymbolNotRegistered, expectedWording: "找不到這個合約標的 NOPEUSDT"},
 		{name: "a known contract that is not followed", symbol: "DOGEUSDT",
 			expectedError:   domains.ErrContractTradingSymbolNotWatched,
 			expectedWording: "DOGEUSDT 不在合約追蹤名單上——請先把它加進合約追蹤名單"},
@@ -395,4 +397,48 @@ func TestACandleNamingAnotherContractIsDropped(t *testing.T) {
 	update := firstUpdateFrom(t, updates)
 	assert.Equal(t, "BTCUSDT", update.Symbol)
 	assert.Equal(t, "64000.5", update.KCandle.Close.String(), "別的合約的那一根不該畫到這張圖上")
+}
+
+// Whether a contract is followed is asked when a viewer arrives and not again: one taken
+// off the contract watchlist while somebody is looking keeps their picture until they
+// leave, while a newcomer is refused.
+func TestAContractTakenOffTheWatchlistMidWatchKeepsItsViewer(t *testing.T) {
+	mockController := gomock.NewController(t)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	var readings atomic.Int64
+	clockProxy.EXPECT().Now().DoAndReturn(func() time.Time {
+		return followStartedAt.Add(time.Duration(readings.Add(1)) * time.Second)
+	}).AnyTimes()
+
+	feed := newLiveFeed()
+	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).
+		Return(feed.kCandles, nil).AnyTimes()
+
+	var isWatched atomic.Bool
+	isWatched.Store(true)
+	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
+	contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").DoAndReturn(
+		func(context.Context, string) (entities.ContractTradingSymbol, bool, error) {
+			return entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: isWatched.Load()}, true, nil
+		}).AnyTimes()
+
+	followService := service.NewKCandleContractFollowService(
+		liveMarketDataProxy, contractTradingSymbolRepository, clockProxy,
+		time.Nanosecond, time.Hour, 10*time.Millisecond)
+	t.Cleanup(followService.Stop)
+
+	viewer, viewerLeaves := context.WithCancel(context.Background())
+	defer viewerLeaves()
+	updates, watchError := followService.WatchKCandleContracts(viewer, "BTCUSDT")
+	require.NoError(t, watchError)
+
+	isWatched.Store(false)
+
+	_, newcomerError := followService.WatchKCandleContracts(context.Background(), "BTCUSDT")
+	assert.ErrorIs(t, newcomerError, domains.ErrContractTradingSymbolNotWatched, "新來的觀看者照規則被拒絕")
+
+	feed.report(liveKCandleAt(followOpenTime, "64000.5", false))
+	assert.Equal(t, "64000.5", firstUpdateFrom(t, updates).KCandle.Close.String(),
+		"已經在看的人照常收到，直到他離開")
 }

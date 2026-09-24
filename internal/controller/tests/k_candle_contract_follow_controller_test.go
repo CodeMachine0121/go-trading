@@ -104,7 +104,7 @@ func TestWatchingAContractIsRefusedWithTheStatusItsReasonCallsFor(t *testing.T) 
 		{name: "no contract named", target: "/contract-k-candles/live",
 			expectedCode: http.StatusBadRequest, expectedFragment: "請指定合約標的"},
 		{name: "a contract the system has never heard of", target: "/contract-k-candles/live?symbol=NOPEUSDT",
-			expectedCode: http.StatusNotFound, expectedFragment: "NOPEUSDT"},
+			expectedCode: http.StatusNotFound, expectedFragment: "找不到這個合約標的 NOPEUSDT"},
 		{name: "a known contract that is not followed", target: "/contract-k-candles/live?symbol=DOGEUSDT",
 			expectedCode: http.StatusConflict, expectedFragment: "請先把它加進合約追蹤名單"},
 		{name: "a contract code that cannot be one", target: "/contract-k-candles/live?symbol=%20",
@@ -167,4 +167,8 @@ func TestAContractUpdateIsWrittenAsOneEvent(t *testing.T) {
 	assert.Contains(t, body, `"symbol":"BTCUSDT"`)
 	assert.Contains(t, body, `"close":"64000.5"`)
 	assert.True(t, strings.HasSuffix(body, "\n\n"), "每一則更新自成一個事件")
+	// The last price and nothing else: no mark, index or premium figures travel live.
+	for _, absent := range []string{"mark", "index", "premium"} {
+		assert.NotContains(t, strings.ToLower(body), absent)
+	}
 }
