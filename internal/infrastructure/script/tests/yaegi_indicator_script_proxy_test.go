@@ -406,6 +406,33 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `,
 		},
 		{
+			// The interpreter accepts a script with no package clause, so leaving it
+			// out must not be a way around the refusal.
+			name:           "starts a goroutine without a package clause",
+			expectedReason: "goroutine",
+			script: `
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	go func() { panic("boom") }()
+	return map[string]float64{}
+}
+`,
+		},
+		{
+			// The interpreter also runs statements written straight at the top, which
+			// no Go file can hold; what cannot be checked must not be run.
+			name:           "starts a goroutine as a statement outside any function",
+			expectedReason: "算式無法解讀",
+			script: `
+go func() { panic("boom") }()
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	return map[string]float64{}
+}
+`,
+		},
+		{
 			// With no goroutine to talk to, a receive can only wait forever, and a run
 			// parked on one stays parked after its allowance is spent.
 			name:           "waits on a channel nobody will send to",

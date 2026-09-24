@@ -200,21 +200,35 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	// the whole server down instead of failing the script. A channel is only good for
 	// talking to a goroutine; without one, all it can do is block a run forever, and a
 	// run blocked on a receive stays parked after its allowance is spent. Nothing an
-	// indicator computes needs either. Source that does not parse is left to the
-	// interpreter, which reports it the same way as any other unreadable script.
-	if parsedScript, parseError := parser.ParseFile(token.NewFileSet(), "", script, 0); parseError == nil {
-		reachesForConcurrency := false
-		ast.Inspect(parsedScript, func(node ast.Node) bool {
-			switch node.(type) {
-			case *ast.GoStmt, *ast.ChanType:
-				reachesForConcurrency = true
-			}
-			return !reachesForConcurrency
-		})
-		if reachesForConcurrency {
+	// indicator computes needs either.
+	//
+	// The check fails closed. The interpreter is more forgiving than a Go file: it
+	// accepts a script with no package clause, and it runs statements written outside
+	// any function. The first is read again as package main, so such scripts keep
+	// working and are checked all the same; anything that still is not a Go file
+	// cannot be checked, and a script that cannot be checked is not run.
+	parsedScript, parseError := parser.ParseFile(token.NewFileSet(), "", script, 0)
+	if parseError != nil {
+		parsedAsMain, parseAsMainError := parser.ParseFile(
+			token.NewFileSet(), "", "package main\n"+script, 0)
+		if parseAsMainError != nil {
 			return nil, fmt.Errorf(
-				"%w: 算式不得使用 goroutine（go 敘述）或 channel", domains.ErrIndicatorScriptFailed)
+				"%w: 算式無法解讀：%v", domains.ErrIndicatorScriptFailed, parseError)
 		}
+		parsedScript = parsedAsMain
+	}
+
+	reachesForConcurrency := false
+	ast.Inspect(parsedScript, func(node ast.Node) bool {
+		switch node.(type) {
+		case *ast.GoStmt, *ast.ChanType:
+			reachesForConcurrency = true
+		}
+		return !reachesForConcurrency
+	})
+	if reachesForConcurrency {
+		return nil, fmt.Errorf(
+			"%w: 算式不得使用 goroutine（go 敘述）或 channel", domains.ErrIndicatorScriptFailed)
 	}
 
 	if _, evalError := preparedScript.interpreter.Eval(script); evalError != nil {
