@@ -2,6 +2,7 @@ package service
 
 import (
 	"sync"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -142,6 +143,32 @@ func (followSymbol *kCandleFollowSymbol) publish(update dto.KCandleFollowUpdateD
 		default:
 		}
 	}
+}
+
+// pass hands one reported candle to everyone watching if this symbol's throttle admits
+// it now, and reports whether it did. A closed candle is always admitted — it is that
+// candle's last word — and goes out marked as closed; a forming one goes out at most
+// once per ceiling.
+//
+// What else a reported candle amounts to — stored, or only shown — is the owner's
+// question, asked only of a candle that was passed on.
+func (followSymbol *kCandleFollowSymbol) pass(liveKCandle vo.LiveKCandleVo, now time.Time) bool {
+	if !followSymbol.throttle.Admit(liveKCandle, now) {
+		return false
+	}
+
+	status := dto.KCandleFollowStatusForming
+	if liveKCandle.Closed {
+		status = dto.KCandleFollowStatusClosed
+	}
+
+	followSymbol.publish(dto.KCandleFollowUpdateDto{
+		Symbol:  liveKCandle.Symbol,
+		Status:  status,
+		KCandle: liveKCandle.ToDto(),
+	})
+
+	return true
 }
 
 // publishStalled tells every viewer that live updating has stopped. Whether the

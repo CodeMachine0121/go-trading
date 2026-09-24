@@ -465,22 +465,7 @@ func (kCandleFollowService *KCandleFollowService) report(
 	liveKCandle vo.LiveKCandleVo,
 ) {
 	now := kCandleFollowService.clockProxy.Now()
-	if !follow.throttle.Admit(liveKCandle, now) {
-		return
-	}
-
-	status := dto.KCandleFollowStatusForming
-	if liveKCandle.Closed {
-		status = dto.KCandleFollowStatusClosed
-	}
-
-	follow.publish(dto.KCandleFollowUpdateDto{
-		Symbol:  liveKCandle.Symbol,
-		Status:  status,
-		KCandle: liveKCandle.ToDto(),
-	})
-
-	if !liveKCandle.Closed {
+	if !follow.pass(liveKCandle, now) || !liveKCandle.Closed {
 		return
 	}
 
