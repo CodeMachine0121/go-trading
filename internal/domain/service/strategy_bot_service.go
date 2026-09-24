@@ -22,14 +22,16 @@ import (
 // the application layer's job. A dependency that is not here cannot be reached for
 // by accident later.
 //
-// The two contract readers are the exception, and a narrow one: which contract a
-// contract bot may watch, and how much leverage it may carry there, are rules about
-// bots — read once, when a bot is saved, and never during a round.
+// The three contract readers are the exception, and a narrow one: which contract a
+// contract bot may watch and how much leverage it may carry there, read when a bot is
+// saved; and the venue's rules and latest funding a contract suggestion is worked out
+// by, read only in a round that has a suggestion to make.
 type StrategyBotService struct {
 	strategyBotRepository                   domaininterface.IStrategyBotRepository
 	strategyBotRunRecordRepository          domaininterface.IStrategyBotRunRecordRepository
 	contractTradingSymbolRepository         domaininterface.IContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
+	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
 	clockProxy                              domaininterface.IClockProxy
 }
 
@@ -38,6 +40,7 @@ func NewStrategyBotService(
 	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository,
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
+	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *StrategyBotService {
 	return &StrategyBotService{
@@ -45,6 +48,7 @@ func NewStrategyBotService(
 		strategyBotRunRecordRepository:          strategyBotRunRecordRepository,
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
+		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		clockProxy:                              clockProxy,
 	}
 }
@@ -395,8 +399,14 @@ func (strategyBotService *StrategyBotService) ReadDeliveryFailure(
 // through the save gate, which refuses such settings before they are ever stored, and
 // it is written down because the alternative to a rule is an accident: a bot whose
 // figures cannot be read says nothing about them rather than saying something wrong.
+//
+// A contract bot's suggestion is worked out by the venue's rules, so for one — and only
+// when there is something to suggest — the contract's trading rules and latest funding
+// settlement are read first. A read that fails is taken as that half not being known:
+// the suggestion then says what it could not account for, rather than the round going
+// without one.
 func (strategyBotService *StrategyBotService) PlanRoundPosition(
-	round dto.StrategyBotRoundDto,
+	executionContext context.Context, round dto.StrategyBotRoundDto,
 ) dto.StrategyBotRoundDto {
 	positionPlan, positionPlanError := domains.NewPositionPlanDomain(round.PositionPlanSettings)
 	if positionPlanError != nil {
@@ -406,11 +416,32 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	// What this round's conclusion asks the account to hold is the whole of what a
 	// plan needs: whether there is anything to suggest opening at all, and which way.
 	// Which account that is — and on a contract one, which trading mode — decides it.
-	target := domains.NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode).
-		TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
+	market := domains.NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode)
+	target := market.TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
 
-	round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(
-		target, round.ReferencePrice, round.HasReference)
+	if !market.IsContract() || !positionPlan.NeedsVenue(target, round.HasReference) {
+		round.PositionPlan, round.HasPositionPlan = positionPlan.PlanFor(
+			target, round.ReferencePrice, round.HasReference)
+
+		return round
+	}
+
+	contractTradingSymbol, isRegistered, findSymbolError := strategyBotService.
+		contractTradingSymbolRepository.FindBySymbol(executionContext, round.Symbol)
+	maintenanceMarginTiers, findTiersError := strategyBotService.
+		contractMaintenanceMarginTierRepository.FindBySymbol(executionContext, round.Symbol)
+	if findTiersError != nil {
+		maintenanceMarginTiers = nil
+	}
+	latestSettlement, hasSettlement, findSettlementError := strategyBotService.
+		contractFundingRateSettlementRepository.FindLatest(executionContext, round.Symbol)
+
+	round.PositionPlan, round.HasPositionPlan = positionPlan.PlanOnContractVenue(
+		target, round.ReferencePrice, round.ReferenceTime,
+		domains.NewContractStrategyBotVenueDomain(
+			contractTradingSymbol, isRegistered && findSymbolError == nil,
+			maintenanceMarginTiers,
+			latestSettlement, hasSettlement && findSettlementError == nil))
 
 	return round
 }

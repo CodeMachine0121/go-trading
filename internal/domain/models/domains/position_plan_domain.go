@@ -2,6 +2,7 @@ package domains
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -199,6 +200,136 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	}
 
 	return positionPlanDto, true
+}
+
+// NeedsVenue is whether a suggestion for that target has to be worked out by the venue's
+// rules at all: money to stake that can actually be put down, a price to measure from,
+// and a target that holds a position. Asked before anything about the venue is read, so
+// a round with nothing to place — including a stake the capital cannot cover — reads
+// nothing.
+func (positionPlanDomain PositionPlanDomain) NeedsVenue(target vo.TargetPositionVo, hasReference bool) bool {
+	if !positionPlanDomain.capital.IsPositive() || !hasReference ||
+		(target != vo.TargetPositionLong && target != vo.TargetPositionShort) {
+		return false
+	}
+
+	_, affordable := positionPlanDomain.sizing.StakeFor(
+		positionPlanDomain.capital, BacktestTransactionCostsDomain{})
+
+	return affordable
+}
+
+// PlanOnContractVenue is PlanFor on a contract account, by the venue's own rules.
+//
+// It opens the suggestion the way a contract replay opens a position — the replay's
+// own opening model, at the reference price, with no costs and no slippage — so the
+// quantity is stepped down, the margin is what that quantity needs, the exits sit on the
+// venue's ticks, and an order the venue would refuse is refused here too, saying why.
+// What a replay would then liquidate the position at is the liquidation estimate.
+//
+// A contract whose rules are not known yet is suggested as PlanFor suggests it, and the
+// suggestion says so. The funding estimate needs no rules and is given either way.
+func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
+	target vo.TargetPositionVo,
+	referencePrice decimal.Decimal,
+	referenceTime time.Time,
+	venue ContractStrategyBotVenueDomain,
+) (dto.PositionPlanDto, bool) {
+	plainPlan, suggests := positionPlanDomain.PlanFor(target, referencePrice, true)
+	if !suggests || !plainPlan.Affordable {
+		return plainPlan, suggests
+	}
+
+	tradingRules, hasTradingRules := venue.TradingRules()
+	if !hasTradingRules {
+		plainPlan.ForContract = true
+		plainPlan.LacksTradingSpecification = true
+
+		return venue.WithFundingEstimate(plainPlan), true
+	}
+
+	leverage := decimal.Max(positionPlanDomain.leverage, oneWhole)
+	direction := vo.PositionDirectionVo(plainPlan.Direction)
+	position, outcome := NewContractPositionTermsDomain(
+		NewBacktestPositionTermsDomain(
+			positionPlanDomain.sizing, positionPlanDomain.exitLevels, BacktestTransactionCostsDomain{}),
+		leverage, BacktestSlippageDomain{}, tradingRules,
+	).OpenFor(direction, referenceTime, referencePrice, positionPlanDomain.capital)
+
+	// A price the venue cannot open at — nothing to divide a quantity by — leaves the
+	// suggestion as it reads without the venue, rather than working a liquidation out of
+	// a position that was never opened.
+	if outcome == vo.ContractOpeningUnaffordable {
+		plainPlan.ForContract = true
+
+		return venue.WithFundingEstimate(plainPlan), true
+	}
+
+	if outcome == vo.ContractOpeningBlockedByTradingRules {
+		refusal, _ := tradingRules.RefusalFor(
+			tradingRules.QuantityFor(plainPlan.Stake.Mul(leverage), referencePrice), referencePrice, leverage)
+
+		return dto.PositionPlanDto{
+			Stake:           plainPlan.Stake,
+			Affordable:      true,
+			Direction:       plainPlan.Direction,
+			Leverage:        leverage,
+			Notional:        plainPlan.Notional,
+			ForContract:     true,
+			VenueRefusal:    refusal.ToDto(),
+			HasVenueRefusal: true,
+		}, true
+	}
+
+	notional := position.Quantity().Mul(position.EntryPrice())
+	exitPrices := position.ExitPrices()
+	// Where the replay would close this out, and that price on the venue's ticks. Whether
+	// it can be closed out at all is judged on the rounded figure, so a price the venue
+	// cannot quote above zero is never printed as a liquidation price of nothing.
+	liquidationPrice := position.LiquidationPrice()
+	roundedLiquidationPrice := tradingRules.RoundedToTick(liquidationPrice)
+	cannotBeLiquidated := !liquidationPrice.IsPositive() || !roundedLiquidationPrice.IsPositive()
+
+	positionPlanDto := dto.PositionPlanDto{
+		Stake:                       position.OpeningMargin(),
+		Affordable:                  true,
+		StopLossPrice:               exitPrices.StopLossPrice,
+		HasStopLoss:                 exitPrices.HasStopLoss,
+		TakeProfitPrice:             exitPrices.TakeProfitPrice,
+		HasTakeProfit:               exitPrices.HasTakeProfit,
+		Direction:                   plainPlan.Direction,
+		Leverage:                    leverage,
+		Notional:                    notional,
+		ForContract:                 true,
+		Quantity:                    position.Quantity(),
+		HasQuantity:                 true,
+		CannotBeLiquidated:          cannotBeLiquidated,
+		HasLiquidationPrice:         !cannotBeLiquidated,
+		LiquidationFromSmallestTier: !tradingRules.HasLadder(),
+	}
+
+	if !cannotBeLiquidated {
+		positionPlanDto.LiquidationPrice = roundedLiquidationPrice
+	}
+
+	if positionPlanDto.HasStopLoss {
+		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
+		// The stop is judged against the estimate by the replay's own rule: against the
+		// unrounded price, and a stop exactly at it fires first. A long's stop below where
+		// it would be closed out is never reached, and the mirror image for a short — so a
+		// bot never warns of a close-out the replay of the same figures would stop out of.
+		positionPlanDto.LiquidatesBeforeStop = !cannotBeLiquidated &&
+			((direction == vo.PositionDirectionLong &&
+				positionPlanDto.StopLossPrice.LessThan(liquidationPrice)) ||
+				(direction == vo.PositionDirectionShort &&
+					positionPlanDto.StopLossPrice.GreaterThan(liquidationPrice)))
+	}
+
+	if positionPlanDto.HasTakeProfit {
+		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
+	}
+
+	return venue.WithFundingEstimate(positionPlanDto), true
 }
 
 // portionOf is that percentage of an amount.

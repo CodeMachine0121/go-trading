@@ -29,4 +29,11 @@ type StrategyBotRunRecordDto struct {
 	SuggestedStake           *decimal.Decimal `json:"suggestedStake,omitempty"`
 	SuggestedStopLossPrice   *decimal.Decimal `json:"suggestedStopLossPrice,omitempty"`
 	SuggestedTakeProfitPrice *decimal.Decimal `json:"suggestedTakeProfitPrice,omitempty"`
+	// SuggestedDirection (long or short), SuggestedLeverage and SuggestedNotional are a
+	// contract round's suggestion: which way, how many times its margin, and what that
+	// came to. A spot round never carries them, and neither does a contract round that
+	// suggested nothing — they are left off the wire rather than sent empty.
+	SuggestedDirection string           `json:"suggestedDirection,omitempty"`
+	SuggestedLeverage  *decimal.Decimal `json:"suggestedLeverage,omitempty"`
+	SuggestedNotional  *decimal.Decimal `json:"suggestedNotional,omitempty"`
 }

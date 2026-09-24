@@ -66,6 +66,7 @@ func newTradingStrategyAssistantQueriesUnderTest(t *testing.T) tradingStrategyAs
 			strategyBotRepository, strategyBotRunRecordRepository,
 			mocks.NewMockIContractTradingSymbolRepository(controller),
 			mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
+			mocks.NewMockIContractFundingRateSettlementRepository(controller),
 			clockProxy),
 	)
 
@@ -352,6 +353,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesA
 				mocks.NewMockIStrategyBotRunRecordRepository(controller),
 				mocks.NewMockIContractTradingSymbolRepository(controller),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
+				mocks.NewMockIContractFundingRateSettlementRepository(controller),
 				mocks.NewMockIClockProxy(controller)),
 		))
 
