@@ -244,6 +244,7 @@ func TestStrategyBotMarketDomainLeavesASpotAccountAsItWas(t *testing.T) {
 	assert.Equal(t, "買入", market.HeadlineVerb(domains.NewSignalDomainOf(vo.SignalBuy)))
 	assert.Equal(t, vo.TargetPositionFlat, market.TargetFor(domains.NewSignalDomainOf(vo.SignalSell)))
 	assert.Equal(t, "BTCUSDT", market.SymbolLabel("BTCUSDT"))
+	assert.Equal(t, " K 線", market.ReferenceCandleWords())
 	assert.Empty(t, market.TradingModeInWords())
 }
 
@@ -263,6 +264,7 @@ func TestStrategyBotMarketDomainLabelsAContract(t *testing.T) {
 			market := domains.NewStrategyBotMarketDomain("contractKCandle", testCase.tradingMode)
 
 			assert.Equal(t, "BTCUSDT 永續合約", market.SymbolLabel("BTCUSDT"))
+			assert.Equal(t, "合約 K 線", market.ReferenceCandleWords())
 			assert.Equal(t, testCase.expectedWords, market.TradingModeInWords())
 		})
 	}

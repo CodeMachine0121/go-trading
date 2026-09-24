@@ -125,6 +125,17 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolLabel(symbol string
 	return symbol + strategyBotContractSymbolSuffix
 }
 
+// ReferenceCandleWords is what the candle a reference price is read from is called: a
+// spot bot quotes a K candle, a contract bot a contract K candle. The leading blank is
+// the spacing the sentence needs before a Latin letter.
+func (strategyBotMarketDomain StrategyBotMarketDomain) ReferenceCandleWords() string {
+	if !strategyBotMarketDomain.isContract {
+		return " K 線"
+	}
+
+	return "合約 K 線"
+}
+
 // TradingModeInWords is the contract trading mode as a person reads it. A spot bot, or
 // a mode that could not be read, has nothing to say here.
 func (strategyBotMarketDomain StrategyBotMarketDomain) TradingModeInWords() string {

@@ -11,7 +11,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
-	"github.com/shopspring/decimal"
 )
 
 // strategyBotObservationWindowLength is how much of the clock one round asks about.
@@ -40,9 +39,9 @@ const strategyBotRecordTimeout = 15 * time.Second
 //
 // A spot bot and a contract bot run down the same path. The only two steps that differ
 // are reading the market — which calculation a source is asked through, and which
-// candle the reference price comes from — and each is one method below that asks the
-// bot's kind. Everything else, from the conditions to the failure rules, is the same
-// for both.
+// candle the reference price comes from — and each asks the bot's kind in exactly one
+// place. Everything else, from the conditions to the failure rules, is the same for
+// both.
 type StrategyBotRunApplication struct {
 	strategyBotService                  *service.StrategyBotService
 	tradingStrategyService              *service.TradingStrategyService
@@ -457,6 +456,15 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 	waitGroup := sync.WaitGroup{}
 	signalsMutex := sync.Mutex{}
 
+	// Which calculation every source is asked through, settled once for the round. A
+	// contract bot's sources are contract strategy scripts — the save gate made sure
+	// of that — so they are fed the contract bars a contract indicator calculation
+	// feeds them, exactly as when that calculation is asked directly.
+	calculateSignal := strategyBotRunApplication.indicatorCalculationService.CalculateIndicator
+	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
+		calculateSignal = strategyBotRunApplication.contractIndicatorCalculationService.CalculateContractIndicator
+	}
+
 	for index := range tradingStrategyDto.SignalSources {
 		signalSource := tradingStrategyDto.SignalSources[index]
 		resultIndex := index
@@ -474,8 +482,8 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 				return
 			}
 
-			result, calculateError := strategyBotRunApplication.calculateSourceSignal(
-				executionContext, botDto, dto.IndicatorCalculationRequestDto{
+			result, calculateError := calculateSignal(
+				executionContext, dto.IndicatorCalculationRequestDto{
 					Symbol:              botDto.Symbol,
 					StartTime:           startTime,
 					EndTime:             endTime,
@@ -525,50 +533,6 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 	return signalsByLabel, sourceSignals, nil
 }
 
-// calculateSourceSignal asks one source what it says, through the calculation of the
-// kind of market this bot eats. A contract bot's sources are contract strategy scripts
-// — the save gate made sure of that — so they are fed the contract bars a contract
-// indicator calculation feeds them, exactly as when that calculation is asked directly.
-func (strategyBotRunApplication *StrategyBotRunApplication) calculateSourceSignal(
-	executionContext context.Context, botDto dto.StrategyBotDto,
-	requestDto dto.IndicatorCalculationRequestDto,
-) (dto.IndicatorCalculationResultDto, error) {
-	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
-		return strategyBotRunApplication.contractIndicatorCalculationService.CalculateContractIndicator(
-			executionContext, requestDto)
-	}
-
-	return strategyBotRunApplication.indicatorCalculationService.CalculateIndicator(
-		executionContext, requestDto)
-}
-
-// readReferenceCandle is the newest one-minute candle of the market this bot eats: its
-// close and when it opened, and whether there was one at all. A contract bot quotes the
-// contract's last price, not its mark price — the price somebody placing the order sees.
-//
-// A failure to read it is not a failure of the round, and is answered as nothing read.
-func (strategyBotRunApplication *StrategyBotRunApplication) readReferenceCandle(
-	executionContext context.Context, botDto dto.StrategyBotDto,
-) (decimal.Decimal, time.Time, bool) {
-	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
-		latestContractCandle, hasLatestContractCandle, contractCandleError := strategyBotRunApplication.
-			kCandleContractService.GetLatestKCandleContract(executionContext, botDto.Symbol)
-		if contractCandleError != nil || !hasLatestContractCandle {
-			return decimal.Zero, time.Time{}, false
-		}
-
-		return latestContractCandle.Close, latestContractCandle.OpenTime, true
-	}
-
-	latestCandle, hasLatestCandle, candleError := strategyBotRunApplication.kCandleService.GetLatestKCandle(
-		executionContext, botDto.Symbol)
-	if candleError != nil || !hasLatestCandle {
-		return decimal.Zero, time.Time{}, false
-	}
-
-	return latestCandle.Close, latestCandle.OpenTime, true
-}
-
 // sendRoundMessage writes this round out and sends it, and says how that went.
 //
 // The reference price is read here and a failure to read it is not a failure of the
@@ -582,9 +546,6 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	tradingStrategyDto dto.TradingStrategyDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
 ) (dto.PositionPlanDto, bool, vo.DeliveryFailureReasonVo, error) {
-	referencePrice, referenceTime, hasReference := strategyBotRunApplication.readReferenceCandle(
-		executionContext, botDto)
-
 	round := dto.StrategyBotRoundDto{
 		BotName:        botDto.Name,
 		Symbol:         botDto.Symbol,
@@ -594,14 +555,32 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		// part of those rules.
 		ContractTradingMode: tradingStrategyDto.TradingMode,
 		Verdict:             decision.Verdict,
-		ReferencePrice:      referencePrice,
-		ReferenceTime:       referenceTime,
-		HasReference:        hasReference,
 		// Carried from the bot, not the rules: how much money there is and how much
 		// of a move its owner can sit through are facts about this machine. Three
 		// bots following one set of rules may each suggest a different size.
 		PositionPlanSettings: botDto.PositionPlan,
 		SourceSignals:        sourceSignals,
+	}
+
+	// The newest one-minute candle of the market this bot eats. A contract bot quotes
+	// the contract's last price, not its mark price — the price somebody placing the
+	// order sees.
+	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
+		latestContractCandle, hasLatestContractCandle, contractCandleError := strategyBotRunApplication.
+			kCandleContractService.GetLatestKCandleContract(executionContext, botDto.Symbol)
+		if contractCandleError == nil && hasLatestContractCandle {
+			round.ReferencePrice = latestContractCandle.Close
+			round.ReferenceTime = latestContractCandle.OpenTime
+			round.HasReference = true
+		}
+	} else {
+		latestCandle, hasLatestCandle, candleError := strategyBotRunApplication.kCandleService.GetLatestKCandle(
+			executionContext, botDto.Symbol)
+		if candleError == nil && hasLatestCandle {
+			round.ReferencePrice = latestCandle.Close
+			round.ReferenceTime = latestCandle.OpenTime
+			round.HasReference = true
+		}
 	}
 
 	// Worked out once, here, because the same figures reach the message below and the

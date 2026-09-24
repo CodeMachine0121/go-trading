@@ -84,10 +84,7 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 	// A round with no price to quote still says so. Silence in this slot would read
 	// as a price of nothing, and the missing line is itself worth knowing: it means
 	// the candles this bot judged by are older than the newest one stored.
-	candleWords := " K 線"
-	if market.IsContract() {
-		candleWords = "合約 K 線"
-	}
+	candleWords := market.ReferenceCandleWords()
 
 	if strategyBotMessageDomain.round.HasReference {
 		lines = append(lines,
