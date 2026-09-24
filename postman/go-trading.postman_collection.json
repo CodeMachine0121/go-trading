@@ -318,6 +318,10 @@
     {
       "key": "contractBacktestValidationStartTime",
       "value": ""
+    },
+    {
+      "key": "contractStrategyBotId",
+      "value": ""
     }
   ],
   "event": [
@@ -12097,6 +12101,268 @@
                 "exec": [
                   "pm.test(\"回 400\", () => pm.response.to.have.status(400));",
                   "pm.test(\"說出它吃的是合約行情\", () => pm.expect(pm.response.json().message).to.include(\"吃的是合約行情\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "組起一台合約機器人",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "行情種類合約行情的機器人引用一份合約交易策略、盯一個在合約追蹤名單上的合約標的，並帶自己的槓桿倍數。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"它是一台合約機器人，槓桿三倍\", function () {",
+                  "    const saved = pm.response.json();",
+                  "    pm.expect(saved.marketDataKind).to.eql(\"contractKCandle\");",
+                  "    pm.expect(saved.positionPlan.leverage).to.eql(\"3\");",
+                  "});",
+                  "pm.collectionVariables.set(\"contractStrategyBotId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "只列合約機器人",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots?marketDataKind=contractKCandle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ],
+              "query": [
+                {
+                  "key": "marketDataKind",
+                  "value": "contractKCandle"
+                }
+              ]
+            },
+            "description": "只列出其中一種機器人；不給即全部列出。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"每一台都是合約機器人\", function () {",
+                  "    const bots = pm.response.json();",
+                  "    pm.expect(bots.length).to.be.above(0);",
+                  "    bots.forEach(function (bot) { pm.expect(bot.marketDataKind).to.eql(\"contractKCandle\"); });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：現貨機器人引用合約交易策略",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "沒說行情種類即現貨機器人，而現貨機器人只能引用 K 線交易策略。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說出兩邊各吃哪一種\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"那份交易策略吃的是合約行情\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：合約機器人盯不在合約追蹤名單上的標的",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots"
+              ]
+            },
+            "description": "沒有合約行情進來的標的，機器人每一輪都只會說持有。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"NOTFOLLOWEDUSDT\",\n  \"marketDataKind\": \"contractKCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說要先加進合約追蹤名單\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"合約追蹤名單\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：機器人的行情種類建立後不得更換",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{contractStrategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{contractStrategyBotId}}"
+              ]
+            },
+            "description": "要吃另一種行情請另建一台。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"合約突破 {{$timestamp}}\",\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"marketDataKind\": \"kCandle\",\n  \"tradingStrategyId\": {{contractTradingStrategyId}},\n  \"triggerIntervalMinutes\": 5,\n  \"positionPlan\": {\n    \"capital\": \"1000\",\n    \"stopLossPercentage\": \"2\",\n    \"takeProfitPercentage\": \"4\",\n    \"leverage\": \"3\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說行情種類建立後不得更換\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"行情種類建立後不得更換\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "收尾：刪掉合約機器人",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{contractStrategyBotId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{contractStrategyBotId}}"
+              ]
+            },
+            "description": "刪掉之後那份合約交易策略才刪得掉。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
                 ]
               }
             }
