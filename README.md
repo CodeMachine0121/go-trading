@@ -129,6 +129,7 @@ curl localhost:8080/health
 | `CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 合約啟動回補最多往回幾小時 |
 | `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /contract-k-candles/history` 一次最多往回抓幾天。自己一份，因為永續合約的歷史比現貨短得多 |
 | `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
+| `CONTRACT_MARKET_DATA_STREAM_URL` | `wss://fstream.binance.com/ws` | 合約即時跟盤的行情來源位址 |
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
 | `LIVE_FEED_QUIET_TIMEOUT_SECONDS` | `30` | 多久沒收到任何東西就當成跟不動。寧可誤判：白重連一次的代價，遠低於讓人盯著停格的圖 |
 | `LIVE_FEED_MAX_RETRY_DELAY_SECONDS` | `30` | 重連間隔逐次加倍的上限；系統不放棄重試 |
@@ -200,6 +201,7 @@ curl localhost:8080/health
 | `POST` | `/contract-backtests` | 在**逐倉合約帳戶**上重演一支**合約**策略腳本（指名或自帶算式）。body 與 `/backtests` 相同，另收 `leverage`（留白即一倍）、`tradingMode`（`longShort`／`longOnly`／`shortOnly`，留白即多空反手）、`slippagePercentage`（留白即不計）。強平看**標記價格**、維持保證金查**分級**（沒有分級退回交易規格最小那一級）、**資金費率一律計入**、數量照交易規格取整。送 `maintenanceMarginRate` 或指名一支 K 線種類的策略腳本回 `400` |
 | `POST` | `/trading-strategies/{id}/contract-backtests` | 在合約帳戶上重演一份**合約交易策略**；交易模式由那份交易策略自己說，重演時送 `tradingMode` 回 `400` |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |
+| `GET` | `/contract-k-candles/live?symbol=` | 持續送出**合約**標的的即時更新，形狀與上一條相同；只跟**合約追蹤名單上**的（不認得 `404`、不在名單上 `409`），**走完的那一根不由跟盤存入** |
 | `POST` | `/chat` | 問行情助手一句話；不指名對話即開一段新的。**回 202，不回答案**——收下問題、回覆對話識別碼與這次回答的識別碼，答案在連線之外寫完 |
 | `GET` | `/chat/conversations` | 列出每一段對話，最近有動靜的排前面 |
 | `GET` | `/chat/conversations/{id}` | 讀一段對話的每一則訊息，依時間由早到晚 |
@@ -948,7 +950,7 @@ newman run postman/go-trading.postman_collection.json \
 
 ### 什麼還沒做
 
-合約的即時跟盤還沒有；合約機器人的建議部位不含強平價、資金費率成本與交易規格取整。
+合約機器人的建議部位不含強平價、資金費率成本與交易規格取整。
 
 ### 短線重演的三個選項（現貨與合約都有）
 
@@ -1120,6 +1122,29 @@ data: {"symbol":"BTCUSDT","status":"stalled","kCandle":{...}}
   並吸收行情來源事後對已收完 K 線的修正——兩件跟盤做不到的事。
 - **即時完全不能用時，其他功能一律照常**：查詢、新增、修改、刪除、指標計算與自動抓取
   都不受影響，畫面退回原本的樣子（新資料一分鐘內出現）。
+
+### 合約的即時跟盤
+
+合約有自己一條即時跟盤，與現貨**完全分開**——自己的路、自己的來源連線、自己的觀看者名單；
+同一個代號在現貨與合約兩邊各跟各的：
+
+```
+curl -N 'localhost:8080/contract-k-candles/live?symbol=BTCUSDT'
+
+data: {"symbol":"BTCUSDT","status":"forming","kCandle":{...}}
+data: {"symbol":"BTCUSDT","status":"closed","kCandle":{...}}
+data: {"symbol":"BTCUSDT","status":"stalled","kCandle":{...}}
+```
+
+- **更新的形狀與現貨相同**：`kCandle` 是**最新價**那一份（開高低收、成交量、成交額、主動買入量），
+  **不含標記價格、指數價格、溢價指數**——來源沒有這三份的即時一分鐘格，它們隨每分鐘那一輪存入的完整合約 K 線出現。
+- **只跟合約追蹤名單上的**：系統不認得回 `404`；認得但不在名單上回 `409`，要先把它加進合約追蹤名單。
+  只在開始看的當下檢查，看到一半被移出名單的照常看到離開為止。
+- **`closed` 不代表已經存入**：一根合約 K 線由四份資料合成、缺一不存，即時只有價量那一份，
+  所以走完的那一根**只給看**，由每分鐘那一輪以四份齊全存入（一分鐘內）。
+- 合約永不休市、沒有名額，所以只會出現 `forming`、`closed`、`stalled` 三種。
+- 節流（十秒）、靜默逾時、最長重試間隔與現貨共用 `LIVE_*` 三個設定；
+  來源連線位址是合約自己的 `CONTRACT_MARKET_DATA_STREAM_URL`（預設 `wss://fstream.binance.com/ws`）。
 
 ## 策略腳本自己的旋鈕
 
