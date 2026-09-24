@@ -462,40 +462,35 @@ func TestStrategyBotMessageNamesTheSideAContractCloseIsAbout(t *testing.T) {
 	assert.NotContains(t, message, "建議部位")
 }
 
-func TestStrategyBotMarketDomainRefusesAContractRoundJudgedByBarsNoLongerArriving(t *testing.T) {
-	oneMinute, _ := domains.NewAggregationIntervalDomain("1m")
-	oneHour, _ := domains.NewAggregationIntervalDomain("1h")
-	minuteNow := time.Date(2026, 9, 24, 10, 0, 30, 0, time.UTC)
-	hourNow := time.Date(2026, 9, 24, 10, 15, 0, 0, time.UTC)
+func TestStrategyBotMarketDomainRefusesAContractRoundWhoseCandlesStoppedArriving(t *testing.T) {
+	now := time.Date(2026, 9, 24, 10, 0, 30, 0, time.UTC)
 
 	testCases := []struct {
-		name         string
-		interval     domains.AggregationIntervalDomain
-		now          time.Time
-		newestBar    time.Time
-		expectsStale bool
+		name          string
+		newestCandle  time.Time
+		hasCandle     bool
+		expectsStale  bool
+		expectedWords string
 	}{
-		{name: "the minute that just finished", interval: oneMinute, now: minuteNow,
-			newestBar: time.Date(2026, 9, 24, 9, 59, 0, 0, time.UTC)},
-		{name: "one minute behind, still arriving", interval: oneMinute, now: minuteNow,
-			newestBar: time.Date(2026, 9, 24, 9, 58, 0, 0, time.UTC)},
-		{name: "two minutes behind, no longer arriving", interval: oneMinute, now: minuteNow,
-			newestBar: time.Date(2026, 9, 24, 9, 57, 0, 0, time.UTC), expectsStale: true},
-		{name: "one hour behind at hourly bars", interval: oneHour, now: hourNow,
-			newestBar: time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC)},
-		{name: "two hours behind at hourly bars", interval: oneHour, now: hourNow,
-			newestBar: time.Date(2026, 9, 24, 7, 0, 0, 0, time.UTC), expectsStale: true},
+		{name: "the minute that just finished", newestCandle: now.Add(-90 * time.Second), hasCandle: true},
+		{name: "a late write a few minutes behind", newestCandle: now.Add(-5 * time.Minute), hasCandle: true},
+		{name: "more than five minutes behind", newestCandle: now.Add(-5*time.Minute - time.Second),
+			hasCandle: true, expectsStale: true},
+		{name: "a day behind", newestCandle: now.Add(-30 * time.Hour), hasCandle: true, expectsStale: true,
+			expectedWords: "最新一根合約 K 線停在"},
+		{name: "no candle at all", hasCandle: false, expectsStale: true,
+			expectedWords: "這個合約標的還沒有任何一分鐘合約 K 線"},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			market := domains.NewStrategyBotMarketDomain("contractKCandle", "longShort")
-			bars := []time.Time{testCase.newestBar.Add(-time.Hour * 24), testCase.newestBar}
 
-			staleError := market.RequireCurrentBars(testCase.interval, bars, testCase.now)
+			staleError := market.RequireCurrentMarket(testCase.newestCandle, testCase.hasCandle, now)
 
 			if testCase.expectsStale {
 				assert.ErrorIs(t, staleError, domains.ErrStrategyBotMarketDataStale)
+				assert.ErrorContains(t, staleError, testCase.expectedWords)
 
 				return
 			}
@@ -505,15 +500,13 @@ func TestStrategyBotMarketDomainRefusesAContractRoundJudgedByBarsNoLongerArrivin
 	}
 }
 
-// Spot markets close, so an old newest bar is an honest reading there and is not refused.
-func TestStrategyBotMarketDomainDoesNotAskASpotRoundHowOldItsBarsAre(t *testing.T) {
-	oneMinute, _ := domains.NewAggregationIntervalDomain("1m")
+// Spot markets close, so an old newest candle is an honest reading there and is not refused.
+func TestStrategyBotMarketDomainDoesNotAskASpotRoundHowOldItsCandlesAre(t *testing.T) {
 	now := time.Date(2026, 9, 24, 10, 0, 30, 0, time.UTC)
+	spot := domains.NewStrategyBotMarketDomain("kCandle", "")
 
-	assert.NoError(t, domains.NewStrategyBotMarketDomain("kCandle", "").RequireCurrentBars(
-		oneMinute, []time.Time{now.Add(-72 * time.Hour)}, now))
-	assert.NoError(t, domains.NewStrategyBotMarketDomain("contractKCandle", "").RequireCurrentBars(
-		oneMinute, nil, now))
+	assert.NoError(t, spot.RequireCurrentMarket(now.Add(-72*time.Hour), true, now))
+	assert.NoError(t, spot.RequireCurrentMarket(time.Time{}, false, now))
 }
 
 // A contract bot saved with its leverage left blank suggests a one-times position.

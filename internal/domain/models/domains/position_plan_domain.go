@@ -28,6 +28,10 @@ type PositionPlanDomain struct {
 	sizing     PositionSizingDomain
 	stopLoss   decimal.Decimal
 	takeProfit decimal.Decimal
+	// exitLevels places the two exits around a price for whichever way a position
+	// faces — the very model a replay places its exits with, so a bot's suggestion and
+	// a replay of the same distances can never put a stop in two different places.
+	exitLevels BacktestExitLevelsDomain
 	// leverage is how many times its margin a contract suggestion carries. Zero is a
 	// spot plan: nothing is borrowed, and the notional is the stake itself. Whether a
 	// figure is allowed was settled where the bot was saved, not here — see
@@ -62,13 +66,10 @@ func NewPositionPlanDomain(
 		return PositionPlanDomain{}, sizingError
 	}
 
-	if stopLossError := validatedDistance(settings.StopLossPercentage, "停損距離"); stopLossError != nil {
-		return PositionPlanDomain{}, stopLossError
-	}
-
-	if takeProfitError := validatedDistance(
-		settings.TakeProfitPercentage, "停利距離"); takeProfitError != nil {
-		return PositionPlanDomain{}, takeProfitError
+	exitLevels, exitLevelsError := NewBacktestExitLevelsDomain(
+		settings.StopLossPercentage, settings.TakeProfitPercentage)
+	if exitLevelsError != nil {
+		return PositionPlanDomain{}, exitLevelsError
 	}
 
 	return PositionPlanDomain{
@@ -76,6 +77,7 @@ func NewPositionPlanDomain(
 		sizing:     sizing,
 		stopLoss:   settings.StopLossPercentage,
 		takeProfit: settings.TakeProfitPercentage,
+		exitLevels: exitLevels,
 		leverage:   settings.Leverage,
 	}, nil
 }
@@ -159,33 +161,29 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	// A spot plan borrows nothing, which is the same as carrying it once.
 	leverage := decimal.Max(positionPlanDomain.leverage, oneWhole)
 	notional := stake.Mul(leverage)
-	facesShort := target == vo.TargetPositionShort
-
-	positionPlanDto := dto.PositionPlanDto{
-		Stake:         stake,
-		Affordable:    true,
-		HasStopLoss:   positionPlanDomain.stopLoss.IsPositive(),
-		HasTakeProfit: positionPlanDomain.takeProfit.IsPositive(),
-		Direction:     string(vo.PositionDirectionLong),
-		Leverage:      leverage,
-		Notional:      notional,
+	direction := vo.PositionDirectionLong
+	if target == vo.TargetPositionShort {
+		direction = vo.PositionDirectionShort
 	}
 
-	if facesShort {
-		positionPlanDto.Direction = string(vo.PositionDirectionShort)
+	// Which side each exit lies on is the direction's, placed by the model a replay
+	// uses: a stop is the price moving against the position — below a long one, above
+	// a short one — and the target is always on the other side.
+	exitPrices := positionPlanDomain.exitLevels.PricesFacing(direction, referencePrice)
+
+	positionPlanDto := dto.PositionPlanDto{
+		Stake:           stake,
+		Affordable:      true,
+		StopLossPrice:   exitPrices.StopLossPrice,
+		HasStopLoss:     exitPrices.HasStopLoss,
+		TakeProfitPrice: exitPrices.TakeProfitPrice,
+		HasTakeProfit:   exitPrices.HasTakeProfit,
+		Direction:       string(direction),
+		Leverage:        leverage,
+		Notional:        notional,
 	}
 
 	if positionPlanDto.HasStopLoss {
-		// A stop is the price moving against the position: below it for a long one,
-		// above it for a short one. Getting this backwards is the one mistake here
-		// that cannot be seen — the wrong figure is still a plausible price — which is
-		// why the side is decided by the direction rather than left to the reader.
-		stopDistance := portionOf(referencePrice, positionPlanDomain.stopLoss)
-		positionPlanDto.StopLossPrice = referencePrice.Sub(stopDistance)
-		if facesShort {
-			positionPlanDto.StopLossPrice = referencePrice.Add(stopDistance)
-		}
-
 		// What moves with the price is the notional, not the margin: at five times, a
 		// two percent move costs ten percent of what was put down.
 		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
@@ -197,13 +195,6 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	}
 
 	if positionPlanDto.HasTakeProfit {
-		// And the target is on the other side of the price from the stop, always.
-		targetDistance := portionOf(referencePrice, positionPlanDomain.takeProfit)
-		positionPlanDto.TakeProfitPrice = referencePrice.Add(targetDistance)
-		if facesShort {
-			positionPlanDto.TakeProfitPrice = referencePrice.Sub(targetDistance)
-		}
-
 		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
 	}
 

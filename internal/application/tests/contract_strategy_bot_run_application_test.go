@@ -123,6 +123,7 @@ func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T)
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
 	underTest.expectDeliverySetting()
+	underTest.expectTheContractsLatestCandle("100")
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 
 	dueBot := aDueContractBot(string(vo.SignalBuy))
@@ -138,48 +139,12 @@ func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T)
 	require.NoError(t, runError)
 }
 
-// A contract taken off the watchlist stops sending bars. That comes right on its own
-// if it is put back, so the round is skipped and the bot keeps running.
-func TestStrategyBotRunApplicationKeepsAContractBotRunningWhenItsBarsStopArriving(t *testing.T) {
-	underTest := newStrategyBotRunUnderTest(t)
-	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
-	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
-			return entities.StrategyScript{
-				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id), ResultType: "signal",
-				MarketDataKind: string(vo.MarketDataKindContractKCandle),
-			}, nil
-		}).AnyTimes()
-	underTest.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return(nil, nil).AnyTimes()
-	underTest.expectNoRoundMessage()
-
-	dueBot := aDueContractBot("")
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
-		Return([]entities.StrategyBot{dueBot}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(dueBot, nil).AnyTimes()
-	underTest.strategyBotRepository.EXPECT().
-		UpdateRunState(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-			assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
-			assert.Empty(t, bot.HaltReason)
-
-			return nil
-		})
-
-	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
-
-	require.NoError(t, runError)
-}
-
 // A contract bot halts for the same reasons a spot bot does, in the same words.
 func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
 	underTest.expectDeliverySetting()
+	underTest.expectTheContractsLatestCandle("100")
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9)).AnyTimes()
 
@@ -249,8 +214,9 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 	assert.Equal(t, "98", recorded.PositionPlan.StopLossPrice.String())
 }
 
-// A contract whose newest candle cannot be read still gets its message, saying so.
-func TestStrategyBotRunApplicationStillSendsAContractRoundWithNoPriceToQuote(t *testing.T) {
+// A contract whose newest candle cannot be read gives no proof its market is still
+// arriving, so the round is skipped and the bot keeps running — the next round asks again.
+func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testing.T) {
 	testCases := []struct {
 		name          string
 		storedCandles []entities.KCandleContract
@@ -265,26 +231,23 @@ func TestStrategyBotRunApplicationStillSendsAContractRoundWithNoPriceToQuote(t *
 			underTest := newStrategyBotRunUnderTest(t)
 			underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
 			underTest.expectDeliverySetting()
-			underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 			underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 				Return(testCase.storedCandles, testCase.readError)
+			underTest.expectNoRoundMessage()
 
-			dueBot := aDueContractBot("")
+			dueBot := aDueContractBot(string(vo.SignalSell))
 			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 				Return([]entities.StrategyBot{dueBot}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 				Return(dueBot, nil).AnyTimes()
-			underTest.messageDeliveryProxy.EXPECT().
-				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(
-					_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-				) (vo.DeliveryFailureReasonVo, error) {
-					assert.Contains(t, message, "【做多】")
-					assert.Contains(t, message, "目前讀不到這個交易標的的最新合約 K 線")
+			underTest.strategyBotRepository.EXPECT().
+				UpdateRunState(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+					assert.Equal(t, string(vo.StrategyBotRunning), bot.RunState)
+					assert.Equal(t, string(vo.SignalSell), bot.LastSentSignal)
 
-					return vo.DeliveryFailureNone, nil
+					return nil
 				})
-			underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 			_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
@@ -328,27 +291,17 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 	assert.False(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
 }
 
-// A contract taken off the watchlist leaves its old bars behind. A round that finds
-// only those is skipped — it says nothing, keeps what it last sent, and keeps running —
-// rather than concluding about the past as though it were now.
-func TestStrategyBotRunApplicationSkipsAContractRoundJudgedByBarsNoLongerArriving(t *testing.T) {
+// A contract taken off the watchlist leaves its old candles behind. A round that finds
+// the newest one hours old is skipped — it says nothing, keeps what it last sent, and
+// keeps running — rather than concluding about the past as though it were now. No
+// source is even asked.
+func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
 	underTest.expectDeliverySetting()
-	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
-			return entities.StrategyScript{
-				ID: id, OwnerID: strategyBotOwnerID, Script: scriptOfStrategyScript(id), ResultType: "signal",
-				MarketDataKind: string(vo.MarketDataKindContractKCandle),
-			}, nil
-		}).AnyTimes()
 	// Three hours before the round, and nothing since.
-	underTest.kCandleContractRepository.EXPECT().
-		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
-		Return(storedContractCandlesAt(at(6, 0)), nil).AnyTimes()
-	underTest.contractIndicatorScriptProxy.EXPECT().
-		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).AnyTimes()
+	underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return(storedContractCandlesAt(at(6, 0)), nil)
 	underTest.expectNoRoundMessage()
 
 	dueBot := aDueContractBot(string(vo.SignalSell))

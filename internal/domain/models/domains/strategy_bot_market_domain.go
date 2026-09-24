@@ -12,6 +12,12 @@ import (
 // never be read as one about the spot market of the same name.
 const strategyBotContractSymbolSuffix = " 永續合約"
 
+// contractMarketStalenessAllowance is how old a contract's newest one-minute candle may
+// be before its candles count as no longer arriving. Candles are taken in every minute
+// and written a little after the minute they cover, so a few minutes of slack separates
+// an ordinary late write from a contract nobody is following any more.
+const contractMarketStalenessAllowance = 5 * time.Minute
+
 // StrategyBotMarketDomain is which kind of account a bot speaks about, and everything
 // that follows from it: what a conclusion asks that account to be holding, which word
 // the headline uses for it, which colour marks it, and how the symbol is labelled.
@@ -128,32 +134,34 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolLabel(symbol string
 	return symbol + strategyBotContractSymbolSuffix
 }
 
-// RequireCurrentBars refuses a round whose source judged by bars that have stopped
-// arriving. The bars are those the source's script saw, oldest first, at the source's
-// own coarseness.
+// RequireCurrentMarket refuses a round when the market it would be reading has stopped
+// arriving, judged by the newest one-minute candle stored for it and whether there was
+// one at all.
 //
-// Only a contract account asks it. A contract trades round the clock, so the newest bar
-// should always be the bucket that just finished; one bucket behind is allowed, because
-// ingestion writes a candle a little after the minute it covers. Anything further back
-// is bars no longer coming in — typically a contract taken off the watchlist — and a
-// conclusion read from them would be about the past, sent as though it were now.
+// Only a contract account asks it. A contract trades round the clock and its candles
+// are taken in every minute, so a newest candle more than a few minutes old means they
+// are no longer coming in — typically a contract taken off the watchlist — and every
+// source would be judging by bars from the past, however coarse its own buckets are.
+// Asked of the one-minute candle rather than of each source's bars, because a day-wide
+// source's newest bar is a day old by design and says nothing about whether candles
+// still arrive.
 //
-// A spot account is not asked: spot markets close, and a newest bar from before the
+// A spot account is not asked: spot markets close, and a newest candle from before the
 // weekend is exactly what an honest reading of a closed market looks like.
-func (strategyBotMarketDomain StrategyBotMarketDomain) RequireCurrentBars(
-	interval AggregationIntervalDomain, barOpenTimes []time.Time, now time.Time,
+func (strategyBotMarketDomain StrategyBotMarketDomain) RequireCurrentMarket(
+	newestCandleOpenTime time.Time, hasNewestCandle bool, now time.Time,
 ) error {
-	if !strategyBotMarketDomain.isContract || len(barOpenTimes) == 0 {
+	if !strategyBotMarketDomain.isContract {
 		return nil
 	}
 
-	latestFinishedBucket := interval.BucketStart(interval.BucketStart(now).Add(-time.Nanosecond))
-	oldestAcceptableBucket := interval.BucketStart(latestFinishedBucket.Add(-time.Nanosecond))
-	newestBar := barOpenTimes[len(barOpenTimes)-1]
+	if !hasNewestCandle {
+		return fmt.Errorf("%w: 這個合約標的還沒有任何一分鐘合約 K 線", ErrStrategyBotMarketDataStale)
+	}
 
-	if newestBar.Before(oldestAcceptableBucket) {
-		return fmt.Errorf("%w: 最新一格合約行情停在 %s，行情沒有再進來——這個合約標的可能已不在合約追蹤名單上",
-			ErrStrategyBotMarketDataStale, newestBar.UTC().Format(time.RFC3339))
+	if newestCandleOpenTime.Before(now.Add(-contractMarketStalenessAllowance)) {
+		return fmt.Errorf("%w: 最新一根合約 K 線停在 %s，行情沒有再進來——這個合約標的可能已不在合約追蹤名單上",
+			ErrStrategyBotMarketDataStale, newestCandleOpenTime.UTC().Format(time.RFC3339))
 	}
 
 	return nil

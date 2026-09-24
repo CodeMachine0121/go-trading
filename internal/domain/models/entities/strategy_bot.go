@@ -140,16 +140,6 @@ func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSetting
 	}
 }
 
-// MarketDataKindOrDefault is the kind this bot eats, with a blank read as the K candle
-// — the kind of every bot stored before there was a choice.
-func (strategyBot StrategyBot) MarketDataKindOrDefault() string {
-	if strategyBot.MarketDataKind == "" {
-		return string(vo.MarketDataKindKCandle)
-	}
-
-	return strategyBot.MarketDataKind
-}
-
 // TableName pins the table to StrategyBots instead of GORM's default.
 func (strategyBot StrategyBot) TableName() string {
 	return "StrategyBots"
@@ -162,12 +152,18 @@ func (strategyBot StrategyBot) TableName() string {
 // nothing. The name is read through the association every time rather than copied
 // onto the bot, so renaming a trading strategy cannot leave a bot saying the old one.
 func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
+	// A blank kind is a row stored before there was a choice, which is a K candle one.
+	marketDataKind := strategyBot.MarketDataKind
+	if marketDataKind == "" {
+		marketDataKind = string(vo.MarketDataKindKCandle)
+	}
+
 	return dto.StrategyBotDto{
 		ID:                     strategyBot.ID,
 		OwnerID:                strategyBot.OwnerID,
 		Name:                   strategyBot.Name,
 		Symbol:                 strategyBot.Symbol,
-		MarketDataKind:         strategyBot.MarketDataKindOrDefault(),
+		MarketDataKind:         marketDataKind,
 		TriggerIntervalMinutes: strategyBot.TriggerIntervalMinutes,
 		PositionPlan:           strategyBot.PositionPlanSettingsDto(),
 		NextRunAt:              strategyBot.NextRunAt.UTC(),

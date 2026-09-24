@@ -70,22 +70,7 @@ func (marketDataKindDomain MarketDataKindDomain) Value() vo.MarketDataKindVo {
 // anything either. One that names the other kind is refused: see the type's comment
 // for why a script never changes the market it eats.
 func (marketDataKindDomain MarketDataKindDomain) Retaining(requested string) (MarketDataKindDomain, error) {
-	if strings.TrimSpace(requested) == "" {
-		return marketDataKindDomain, nil
-	}
-
-	requestedKind, declarationError := NewMarketDataKindDomain(requested)
-	if declarationError != nil {
-		return MarketDataKindDomain{}, fmt.Errorf("%w: %w", ErrStrategyScriptValidation, declarationError)
-	}
-
-	if requestedKind.value != marketDataKindDomain.value {
-		return MarketDataKindDomain{}, fmt.Errorf(
-			"%w: 行情種類建立後不得更換——這支策略腳本吃的是%s；要吃%s請另建一支",
-			ErrStrategyScriptValidation, marketDataKindDomain.label(), requestedKind.label())
-	}
-
-	return marketDataKindDomain, nil
+	return marketDataKindDomain.retaining(requested, ErrStrategyScriptValidation, "這支策略腳本", "一支")
 }
 
 // RequireRunnableAs refuses to run this strategy script where the other kind of market
@@ -121,22 +106,7 @@ func (marketDataKindDomain MarketDataKindDomain) RequireReplayableAs(expected vo
 func (marketDataKindDomain MarketDataKindDomain) RetainingForTradingStrategy(
 	requested string,
 ) (MarketDataKindDomain, error) {
-	if strings.TrimSpace(requested) == "" {
-		return marketDataKindDomain, nil
-	}
-
-	requestedKind, declarationError := NewMarketDataKindDomain(requested)
-	if declarationError != nil {
-		return MarketDataKindDomain{}, fmt.Errorf("%w: %w", ErrTradingStrategyValidation, declarationError)
-	}
-
-	if requestedKind.value != marketDataKindDomain.value {
-		return MarketDataKindDomain{}, fmt.Errorf(
-			"%w: 行情種類建立後不得更換——這份交易策略吃的是%s；要吃%s請另建一份",
-			ErrTradingStrategyValidation, marketDataKindDomain.label(), requestedKind.label())
-	}
-
-	return marketDataKindDomain, nil
+	return marketDataKindDomain.retaining(requested, ErrTradingStrategyValidation, "這份交易策略", "一份")
 }
 
 // RetainingForStrategyBot is Retaining for a strategy bot: a rewrite that says nothing
@@ -146,19 +116,29 @@ func (marketDataKindDomain MarketDataKindDomain) RetainingForTradingStrategy(
 func (marketDataKindDomain MarketDataKindDomain) RetainingForStrategyBot(
 	requested string,
 ) (MarketDataKindDomain, error) {
+	return marketDataKindDomain.retaining(requested, ErrStrategyBotValidation, "這台機器人", "一台")
+}
+
+// retaining is the one rule the three Retaining methods share, in the words of whoever
+// is asking: saying nothing keeps the kind, restating it changes nothing, and naming the
+// other kind is refused. What differs between them is only the sentinel the refusal
+// counts as and the thing it names — one strategy script, one trading strategy, one bot.
+func (marketDataKindDomain MarketDataKindDomain) retaining(
+	requested string, validationSentinel error, subject string, anotherOne string,
+) (MarketDataKindDomain, error) {
 	if strings.TrimSpace(requested) == "" {
 		return marketDataKindDomain, nil
 	}
 
 	requestedKind, declarationError := NewMarketDataKindDomain(requested)
 	if declarationError != nil {
-		return MarketDataKindDomain{}, fmt.Errorf("%w: %w", ErrStrategyBotValidation, declarationError)
+		return MarketDataKindDomain{}, fmt.Errorf("%w: %w", validationSentinel, declarationError)
 	}
 
 	if requestedKind.value != marketDataKindDomain.value {
 		return MarketDataKindDomain{}, fmt.Errorf(
-			"%w: 行情種類建立後不得更換——這台機器人吃的是%s；要吃%s請另建一台",
-			ErrStrategyBotValidation, marketDataKindDomain.label(), requestedKind.label())
+			"%w: 行情種類建立後不得更換——%s吃的是%s；要吃%s請另建%s",
+			validationSentinel, subject, marketDataKindDomain.label(), requestedKind.label(), anotherOne)
 	}
 
 	return marketDataKindDomain, nil

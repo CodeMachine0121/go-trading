@@ -102,11 +102,12 @@ func (strategyBotService *StrategyBotService) ListStrategyBots(
 
 	botDtos := make([]dto.StrategyBotDto, 0, len(bots))
 	for _, bot := range bots {
-		if narrowsToKind && bot.MarketDataKindOrDefault() != string(wantedKind.Value()) {
+		botDto := bot.ToDto()
+		if narrowsToKind && botDto.MarketDataKind != string(wantedKind.Value()) {
 			continue
 		}
 
-		botDtos = append(botDtos, bot.ToDto())
+		botDtos = append(botDtos, botDto)
 	}
 
 	return botDtos, nil
@@ -150,7 +151,7 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 
 	// The stored kind is read the way every reader reads it, so a bot stored before
 	// there was a choice keeps the K candle it has always eaten.
-	storedKind, storedKindError := domains.NewMarketDataKindDomain(storedBot.MarketDataKindOrDefault())
+	storedKind, storedKindError := domains.NewMarketDataKindDomain(storedBot.MarketDataKind)
 	if storedKindError != nil {
 		return dto.StrategyBotDto{}, fmt.Errorf("%w: %w", domains.ErrStrategyBotValidation, storedKindError)
 	}
@@ -351,20 +352,15 @@ func (strategyBotService *StrategyBotService) DecideRound(
 	}, nil
 }
 
-// RequireCurrentSourceReading refuses what one source said this round when the bars it
-// said it from have stopped arriving — which only a contract bot is asked, see
-// StrategyBotMarketDomain.RequireCurrentBars. The refusal is one the failure model
-// reads as a skipped round.
-func (strategyBotService *StrategyBotService) RequireCurrentSourceReading(
-	botDto dto.StrategyBotDto, resultDto dto.IndicatorCalculationResultDto,
+// RequireCurrentMarket refuses a round whose market has stopped arriving, judged by the
+// newest one-minute candle the round read for its reference price — which only a
+// contract bot is asked, see StrategyBotMarketDomain.RequireCurrentMarket. The refusal
+// is one the failure model reads as a skipped round.
+func (strategyBotService *StrategyBotService) RequireCurrentMarket(
+	botDto dto.StrategyBotDto, newestCandleOpenTime time.Time, hasNewestCandle bool,
 ) error {
-	interval, intervalError := domains.NewAggregationIntervalDomain(resultDto.Interval)
-	if intervalError != nil {
-		return intervalError
-	}
-
-	return domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").RequireCurrentBars(
-		interval, resultDto.OpenTimes, strategyBotService.clockProxy.Now())
+	return domains.NewStrategyBotMarketDomain(botDto.MarketDataKind, "").RequireCurrentMarket(
+		newestCandleOpenTime, hasNewestCandle, strategyBotService.clockProxy.Now())
 }
 
 // ReadRoundFailure says what a failure that happened during a round means: stop this

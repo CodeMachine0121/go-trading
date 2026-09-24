@@ -301,6 +301,35 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(tradingStrategyError)
 	}
 
+	// A contract bot reads its contract's newest one-minute candle before anything
+	// else, because it answers two things at once: whether the market is still
+	// arriving at all — a contract trades round the clock, so a stale newest candle
+	// means nobody is taking it in any more — and the reference price its message
+	// quotes (the last price, not the mark price: the price somebody placing the
+	// order sees). A failure to read it is answered as nothing read.
+	//
+	// A spot bot reads its reference only when it has something to say, as it always
+	// has: spot markets close, so how old its newest candle is proves nothing.
+	reference := dto.StrategyBotRoundDto{}
+	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
+		latestContractCandle, hasLatestContractCandle, contractCandleError := strategyBotRunApplication.
+			kCandleContractService.GetLatestKCandleContract(executionContext, botDto.Symbol)
+		if contractCandleError == nil && hasLatestContractCandle {
+			reference.ReferencePrice = latestContractCandle.Close
+			reference.ReferenceTime = latestContractCandle.OpenTime
+			reference.HasReference = true
+		}
+
+		if staleError := strategyBotRunApplication.strategyBotService.RequireCurrentMarket(
+			botDto, reference.ReferenceTime, reference.HasReference); staleError != nil {
+			// Said out loud for the reason every skipped round is: its history reads
+			// "hold", exactly like a round that ran fine and concluded nothing.
+			log.Printf("strategy bot %d: round skipped: %v", botDto.ID, staleError)
+
+			return strategyBotRunApplication.strategyBotService.ReadRoundFailure(staleError)
+		}
+	}
+
 	signalsByLabel, sourceSignals, roundError := strategyBotRunApplication.readSignals(
 		executionContext, botDto, tradingStrategyDto)
 	if roundError != nil {
@@ -351,7 +380,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	}
 
 	positionPlan, hasPositionPlan, deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
-		executionContext, botDto, tradingStrategyDto, decision, sourceSignals)
+		executionContext, botDto, tradingStrategyDto, reference, decision, sourceSignals)
 	if deliverError != nil {
 		// Not Telegram refusing — this side failing to ask at all. Most of those
 		// are worth waiting out, but one is not: the owner having removed their
@@ -510,15 +539,6 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 				return
 			}
 
-			// A contract source that judged by bars no longer arriving has nothing to
-			// say about now, and a round built on it is skipped rather than sent.
-			if staleError := strategyBotRunApplication.strategyBotService.RequireCurrentSourceReading(
-				botDto, result); staleError != nil {
-				sourceErrors[resultIndex] = staleError
-
-				return
-			}
-
 			sourceSignals[resultIndex] = dto.StrategyBotSourceSignalDto{
 				Label:               signalSource.Label,
 				AggregationInterval: signalSource.AggregationInterval,
@@ -544,15 +564,15 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 
 // sendRoundMessage writes this round out and sends it, and says how that went.
 //
-// The reference price is read here and a failure to read it is not a failure of the
-// round. A message that says the price could not be read is worth more than no
+// A contract bot's reference price arrives already read; a spot bot's is read here. A
+// failure to read it is not a failure of the round. A message that says the price could not be read is worth more than no
 // message: the conclusion is the part somebody acts on, and the price is context.
 // It also hands back what this round suggested putting down, because the history has
 // to remember the figures *this* round used — its owner may well have edited the
 // settings by the time anybody reads it back.
 func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	executionContext context.Context, botDto dto.StrategyBotDto,
-	tradingStrategyDto dto.TradingStrategyDto,
+	tradingStrategyDto dto.TradingStrategyDto, reference dto.StrategyBotRoundDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
 ) (dto.PositionPlanDto, bool, vo.DeliveryFailureReasonVo, error) {
 	round := dto.StrategyBotRoundDto{
@@ -564,6 +584,9 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		// part of those rules.
 		ContractTradingMode: tradingStrategyDto.TradingMode,
 		Verdict:             decision.Verdict,
+		ReferencePrice:      reference.ReferencePrice,
+		ReferenceTime:       reference.ReferenceTime,
+		HasReference:        reference.HasReference,
 		// Carried from the bot, not the rules: how much money there is and how much
 		// of a move its owner can sit through are facts about this machine. Three
 		// bots following one set of rules may each suggest a different size.
@@ -571,18 +594,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 		SourceSignals:        sourceSignals,
 	}
 
-	// The newest one-minute candle of the market this bot eats. A contract bot quotes
-	// the contract's last price, not its mark price — the price somebody placing the
-	// order sees.
-	if botDto.MarketDataKind == string(vo.MarketDataKindContractKCandle) {
-		latestContractCandle, hasLatestContractCandle, contractCandleError := strategyBotRunApplication.
-			kCandleContractService.GetLatestKCandleContract(executionContext, botDto.Symbol)
-		if contractCandleError == nil && hasLatestContractCandle {
-			round.ReferencePrice = latestContractCandle.Close
-			round.ReferenceTime = latestContractCandle.OpenTime
-			round.HasReference = true
-		}
-	} else {
+	if botDto.MarketDataKind != string(vo.MarketDataKindContractKCandle) {
 		latestCandle, hasLatestCandle, candleError := strategyBotRunApplication.kCandleService.GetLatestKCandle(
 			executionContext, botDto.Symbol)
 		if candleError == nil && hasLatestCandle {

@@ -141,4 +141,6 @@ None of the orphans below implements a PRD Out-of-Scope item: there is no liquid
 | NFR-01 | Read counts not pinned | `TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource` pins bars read once per source and the newest candle once. → conforms |
 | O-1 … O-4 | Undocumented behaviour | Added to PRD §4 Edge Cases and §6 Compatibility. → reconciled |
 
+| AC-12 (code review) | The per-source check missed day-wide sources (their newest bar is a day old by design) and was tighter than ingestion lag at one-minute sources | Replaced by one check per contract round on the newest one-minute contract candle: older than 5 minutes, absent, or unreadable skips the round before any source is asked (`StrategyBotMarketDomain.RequireCurrentMarket`). That candle is the reference price too, so it is read once. Spot rounds are unchanged. → conforms |
+
 After follow-up: 55 of 55 clauses conform; 0 orphans.
