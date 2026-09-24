@@ -78,7 +78,12 @@ type StrategyBot struct {
 	// PositionPlanLeverage is how many times the margin a contract bot's suggested
 	// position carries. A spot bot always stores zero: nobody lends on spot, and zero is
 	// what every bot stored before contract bots existed already holds.
-	PositionPlanLeverage decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	//
+	// It lives in a column of its own rather than the retired position_plan_leverage
+	// one: a database that has not yet dropped that column still holds the spot-era
+	// multipliers in it, and reading them back would hand a spot bot a leverage nobody
+	// chose for it.
+	PositionPlanLeverage decimal.Decimal `gorm:"column:position_plan_contract_leverage;type:numeric(38,18);not null;default:0"`
 	// RunState is indexed together with NextRunAt because the scan asks exactly one
 	// question of this table — which bots are running and due — and that pair is it.
 	RunState string `gorm:"size:16;not null;index:idx_strategy_bots_run_state_next_run_at,priority:1"`

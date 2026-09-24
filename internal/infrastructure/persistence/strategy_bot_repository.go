@@ -60,7 +60,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 			"position_plan_capital", "position_plan_sizing_mode",
 			"position_plan_sizing_value",
 			"position_plan_stop_loss_percentage", "position_plan_take_profit_percentage",
-			"position_plan_leverage").
+			"position_plan_contract_leverage").
 		Updates(entities.StrategyBot{
 			Name:                             botRow.Name,
 			Symbol:                           botRow.Symbol,

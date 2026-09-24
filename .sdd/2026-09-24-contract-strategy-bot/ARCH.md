@@ -23,7 +23,7 @@
 
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
-| `entities.StrategyBot` | **Modify** | 新增 `MarketDataKind`（`default:kCandle`，既有列自動是 K 線）與 `PositionPlanLeverage`（`default:0`，現貨恆為 0）；`ToDto` 帶出兩者 |
+| `entities.StrategyBot` | **Modify** | 新增 `MarketDataKind`（`default:kCandle`，既有列自動是 K 線）與 `PositionPlanLeverage`（`default:0`，現貨恆為 0；存在新欄位 `position_plan_contract_leverage`，因為舊的 `position_plan_leverage` 已列為退役欄位、每次遷移都會刪掉，且未遷移的資料庫裡還留著現貨時代的倍數——比照 `contract_trading_mode` 的做法）；`ToDto` 帶出兩者 |
 | `dto.StrategyBotWriteDto` / `StrategyBotDto` / `PositionPlanSettingsDto` / `PositionPlanDto` / `StrategyBotRoundDto` | **Modify** | 帶行情種類、槓桿、名目、方向、強平警告、合約交易模式；`PositionPlanSettingsDto` 補上 camelCase `json` 標籤（見 §8，順手修掉回應大小寫與前端不一致） |
 | `controller/models.StrategyBotRequest` | **Modify** | 收 `marketDataKind`；`positionPlan.leverage` 從「只拿來拒絕」變成「合約機器人的槓桿」 |
 | `StrategyBotDomain` | **Modify** | 讀行情種類；現貨沿用 `SpotOnlyReplayDomain` 拒絕槓桿，合約讀槓桿（零即一、小於一拒絕）；`RequireFollowing(tradingStrategyKind)` 判同種 |
