@@ -6,7 +6,6 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
-	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +45,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 `
 
 func TestContractExecuteReadsTheSpotFiguresUnderTheirSpotNames(t *testing.T) {
-	indicatorValues, err := script.NewYaegiContractIndicatorScriptProxy(2*time.Second).
+	indicatorValues, err := contractIndicatorScriptProxy(2*time.Second).
 		Execute(t.Context(), averageCloseOfContractBarsScript, resultTypeOf(t, "float"),
 			contractBarsWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
 
@@ -90,7 +89,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 }
 `
 
-	indicatorValues, err := script.NewYaegiContractIndicatorScriptProxy(2*time.Second).
+	indicatorValues, err := contractIndicatorScriptProxy(2*time.Second).
 		Execute(t.Context(), readEverythingScript, resultTypeOf(t, "float"), contractBars, noStrategyScriptParameters(t))
 
 	require.NoError(t, err)
@@ -105,7 +104,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 }
 
 func TestContractExecuteSaysAnEntryPointWrittenForSpotCandlesIsWrittenWrong(t *testing.T) {
-	indicatorValues, err := script.NewYaegiContractIndicatorScriptProxy(2*time.Second).
+	indicatorValues, err := contractIndicatorScriptProxy(2*time.Second).
 		Execute(t.Context(), averageCloseScript, resultTypeOf(t, "float"),
 			contractBarsWithClosePrices(100), noStrategyScriptParameters(t))
 
@@ -125,7 +124,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 }
 `
 
-	_, err := script.NewYaegiContractIndicatorScriptProxy(2*time.Second).
+	_, err := contractIndicatorScriptProxy(2*time.Second).
 		Execute(t.Context(), undeclaredKnobScript, resultTypeOf(t, "float"),
 			contractBarsWithClosePrices(100), noStrategyScriptParameters(t))
 
@@ -146,7 +145,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 }
 `
 
-	_, err := script.NewYaegiContractIndicatorScriptProxy(300*time.Millisecond).
+	_, err := contractIndicatorScriptProxy(300*time.Millisecond).
 		Execute(t.Context(), neverEndingContractScript, resultTypeOf(t, "float"),
 			contractBarsWithClosePrices(100), noStrategyScriptParameters(t))
 
@@ -155,7 +154,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 }
 
 func TestContractExecuteForEachCandleRunsOnceOverEveryGrowingStretch(t *testing.T) {
-	perBarValues, err := script.NewYaegiContractIndicatorScriptProxy(2*time.Second).
+	perBarValues, err := contractIndicatorScriptProxy(2*time.Second).
 		ExecuteForEachCandle(t.Context(), averageCloseOfContractBarsScript, resultTypeOf(t, "float"),
 			contractBarsWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
 
@@ -167,7 +166,7 @@ func TestContractExecuteForEachCandleRunsOnceOverEveryGrowingStretch(t *testing.
 }
 
 func TestContractExecuteForEachCandleReportsABrokenScriptBeforeAnyBar(t *testing.T) {
-	perBarValues, err := script.NewYaegiContractIndicatorScriptProxy(2*time.Second).
+	perBarValues, err := contractIndicatorScriptProxy(2*time.Second).
 		ExecuteForEachCandle(t.Context(), "this is not go", resultTypeOf(t, "float"),
 			contractBarsWithClosePrices(100), noStrategyScriptParameters(t))
 

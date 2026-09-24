@@ -2,15 +2,18 @@ package script
 
 import (
 	"context"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"reflect"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -53,15 +56,13 @@ var allowedPackages = interp.Exports{
 // argument and the types a script can name, running the two is the same work — work
 // that must not drift apart, since a fix to the allowance or to how a failure is
 // reported belongs to both.
+//
+// It runs inside a compartment, never in the service itself: see
+// indicatorScriptCompartment for the side that starts one and indicatorScriptWorker
+// for the side that hands the request to this runner.
 type indicatorScriptRunner[Input any] struct {
 	executionTimeout time.Duration
-	// inputTypeName is how a script names the element it is fed, as in
-	// func Calculate(data []indicator.<inputTypeName>). It is only ever read to tell
-	// the author what their entry point should look like.
-	inputTypeName string
-	// inputTypes are the types this kind of input lets a script name, keyed by the
-	// name it names them by.
-	inputTypes map[string]reflect.Value
+	input            indicatorScriptInput
 }
 
 // execute runs the script over the input once. Anything that goes wrong — the script
@@ -153,7 +154,10 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	// not depend on how the interpreter happens to word a panic — that is somebody
 	// else's implementation detail and it changes between versions.
 	preparedScript := &preparedScript[Input]{
-		interpreter: interp.New(interp.Options{}),
+		// Whatever a script prints is thrown away. The compartment it runs in speaks
+		// to the service over its standard output, and a stray line there would turn
+		// a sound answer into one that cannot be read.
+		interpreter: interp.New(interp.Options{Stdout: io.Discard, Stderr: io.Discard}),
 		shape: indicatorScriptShape{
 			resultType:     resultType,
 			inputSliceType: reflect.TypeOf([]Input(nil)),
@@ -180,7 +184,7 @@ func (runner indicatorScriptRunner[Input]) prepare(
 		"Sell":   reflect.ValueOf(vo.SignalSell),
 		"Hold":   reflect.ValueOf(vo.SignalHold),
 	}
-	for typeName, typeSymbol := range runner.inputTypes {
+	for typeName, typeSymbol := range runner.input.types {
 		dataSymbols[typeName] = typeSymbol
 	}
 
@@ -245,7 +249,7 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	if entryPoint.Type() != preparedScript.shape.entryPointType() {
 		return nil, fmt.Errorf(
 			"%w: 宣告的指標值種類是 %s，Calculate 的形式必須是 func Calculate(data []indicator.%s) %s",
-			domains.ErrIndicatorScriptFailed, resultType.Value(), runner.inputTypeName,
+			domains.ErrIndicatorScriptFailed, resultType.Value(), runner.input.typeName,
 			resultType.ScriptResultShape())
 	}
 
@@ -307,4 +311,65 @@ func (preparedScript *preparedScript[Input]) runOver(
 	}
 
 	return preparedScript.shape.readValues(calculated)
+}
+
+// answer reads the one request a compartment was started for and runs it, inside the
+// compartment. Every way it can go — values, a replay's values, an undeclared knob, a
+// failed script — comes back as a response rather than an error, because the response
+// is the only thing that can cross back to the service.
+func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicatorScriptResponse {
+	var request indicatorScriptRequest[Input]
+	if decodeError := decoder.Decode(&request); decodeError != nil {
+		return newFailedIndicatorScriptResponse(fmt.Errorf(
+			"%w: 算式執行失敗：算式隔間讀不到要算的內容：%v", domains.ErrIndicatorScriptFailed, decodeError))
+	}
+
+	resultType, resultTypeError := domains.NewIndicatorResultTypeDomain(request.ResultType)
+	if resultTypeError != nil {
+		return newFailedIndicatorScriptResponse(resultTypeError)
+	}
+
+	parameterWrites := make([]dto.StrategyScriptParameterWriteDto, 0, len(request.Parameters))
+	for _, parameter := range request.Parameters {
+		parameterWrites = append(parameterWrites, parameter.ToWriteDto())
+	}
+	parameters, parametersError := domains.NewStrategyScriptParametersDomain(parameterWrites)
+	if parametersError != nil {
+		return newFailedIndicatorScriptResponse(parametersError)
+	}
+
+	// Nobody inside the compartment can go away: the caller lives in the service, and
+	// when it leaves, the service ends the whole compartment rather than asking it to
+	// stop.
+	if request.ForEachElement {
+		perElementIndicatorValues, replayError := runner.executeForEachElement(
+			context.Background(), request.Script, resultType, request.Input, parameters)
+		if replayError != nil {
+			return newFailedIndicatorScriptResponse(replayError)
+		}
+
+		perElementValues := make([]map[string]indicatorValueWire, 0, len(perElementIndicatorValues))
+		for _, indicatorValues := range perElementIndicatorValues {
+			elementValues := make(map[string]indicatorValueWire, len(indicatorValues))
+			for indicatorName, indicatorValue := range indicatorValues {
+				elementValues[indicatorName] = newIndicatorValueWire(indicatorValue)
+			}
+			perElementValues = append(perElementValues, elementValues)
+		}
+
+		return indicatorScriptResponse{PerElementValues: perElementValues}
+	}
+
+	indicatorValues, executionError := runner.execute(
+		context.Background(), request.Script, resultType, request.Input, parameters)
+	if executionError != nil {
+		return newFailedIndicatorScriptResponse(executionError)
+	}
+
+	values := make(map[string]indicatorValueWire, len(indicatorValues))
+	for indicatorName, indicatorValue := range indicatorValues {
+		values[indicatorName] = newIndicatorValueWire(indicatorValue)
+	}
+
+	return indicatorScriptResponse{Values: values}
 }

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
@@ -364,6 +366,19 @@ func registerRoutes(
 	engine.POST("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AdoptStrategyScript)
 	engine.DELETE("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AbandonStrategyScript)
 
+	// Every script runs in a compartment of its own: this same binary started again
+	// as a worker, with its memory capped before it reads a line of the script. A
+	// script that eats past the cap takes down its compartment, never this process.
+	serverExecutable, executableError := os.Executable()
+	if executableError != nil {
+		log.Fatalf("failed to locate the server binary for script compartments: %v", executableError)
+	}
+	indicatorScriptIsolation := script.IndicatorScriptIsolation{
+		WorkerCommand:    []string{serverExecutable, script.IndicatorScriptWorkerCommand},
+		ExecutionTimeout: applicationConfig.IndicatorScriptTimeout,
+		MemoryLimitBytes: applicationConfig.IndicatorScriptMemoryLimitBytes,
+	}
+
 	// Built once and shared, because a strategy bot asks exactly the same question
 	// of it as somebody sitting at the screen does. Two instances would be two
 	// script runners with two timeouts, and the one a bot used would be the one
@@ -371,7 +386,7 @@ func registerRoutes(
 	indicatorCalculationService := service.NewIndicatorCalculationService(
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
-		script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		script.NewYaegiIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.KCandleQueryMaxResults,
@@ -384,7 +399,7 @@ func registerRoutes(
 		contractKCandleRepository,
 		persistence.NewContractFundingRateSettlementRepository(database),
 		persistence.NewContractPositionStatisticRepository(database),
-		script.NewYaegiContractIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		script.NewYaegiContractIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.KCandleQueryMaxResults,
@@ -413,7 +428,7 @@ func registerRoutes(
 	// market would replay differently depending on which subject was named.
 	backtestService := service.NewBacktestService(
 		kCandleRepository,
-		script.NewYaegiIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		script.NewYaegiIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
 		applicationConfig.BacktestMaxCandleCount,
 		applicationConfig.BacktestTimeAllowance,
@@ -429,7 +444,7 @@ func registerRoutes(
 		persistence.NewContractPositionStatisticRepository(database),
 		contractTradingSymbolRepository,
 		persistence.NewContractMaintenanceMarginTierRepository(database),
-		script.NewYaegiContractIndicatorScriptProxy(applicationConfig.IndicatorScriptTimeout),
+		script.NewYaegiContractIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
 		applicationConfig.BacktestMaxCandleCount,
 		applicationConfig.BacktestTimeAllowance,

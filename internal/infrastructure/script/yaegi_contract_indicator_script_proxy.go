@@ -2,34 +2,23 @@ package script
 
 import (
 	"context"
-	"reflect"
-	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // YaegiContractIndicatorScriptProxy runs contract indicator scripts — scripts fed
-// perpetual contract bars — with the same embedded interpreter, sandbox and allowance
-// spot scripts run under.
-//
-// A contract script may name three types: the bar it is fed, the price line the bar
-// carries three of, and the spot K candle the bar embeds, so that a helper written for
-// indicator.KCandle can be handed the embedded candle as it is.
+// perpetual contract bars — with the same embedded interpreter, sandbox, allowance and
+// compartment spot scripts run under.
 type YaegiContractIndicatorScriptProxy struct {
-	runner indicatorScriptRunner[vo.ContractKCandleVo]
+	compartment indicatorScriptCompartment[vo.ContractKCandleVo]
 }
 
-func NewYaegiContractIndicatorScriptProxy(executionTimeout time.Duration) *YaegiContractIndicatorScriptProxy {
+func NewYaegiContractIndicatorScriptProxy(isolation IndicatorScriptIsolation) *YaegiContractIndicatorScriptProxy {
 	return &YaegiContractIndicatorScriptProxy{
-		runner: indicatorScriptRunner[vo.ContractKCandleVo]{
-			executionTimeout: executionTimeout,
-			inputTypeName:    "ContractKCandle",
-			inputTypes: map[string]reflect.Value{
-				"ContractKCandle": reflect.ValueOf((*vo.ContractKCandleVo)(nil)),
-				"PriceLine":       reflect.ValueOf((*vo.PriceLineVo)(nil)),
-				"KCandle":         reflect.ValueOf((*vo.KCandleVo)(nil)),
-			},
+		compartment: indicatorScriptCompartment[vo.ContractKCandleVo]{
+			isolation: isolation,
+			input:     contractIndicatorScriptInput,
 		},
 	}
 }
@@ -43,7 +32,7 @@ func (yaegiContractIndicatorScriptProxy *YaegiContractIndicatorScriptProxy) Exec
 	contractKCandles []vo.ContractKCandleVo,
 	parameters domains.StrategyScriptParametersDomain,
 ) (map[string]vo.IndicatorValueVo, error) {
-	return yaegiContractIndicatorScriptProxy.runner.execute(
+	return yaegiContractIndicatorScriptProxy.compartment.execute(
 		executionContext, script, resultType, contractKCandles, parameters)
 }
 
@@ -56,6 +45,6 @@ func (yaegiContractIndicatorScriptProxy *YaegiContractIndicatorScriptProxy) Exec
 	contractKCandles []vo.ContractKCandleVo,
 	parameters domains.StrategyScriptParametersDomain,
 ) ([]map[string]vo.IndicatorValueVo, error) {
-	return yaegiContractIndicatorScriptProxy.runner.executeForEachElement(
+	return yaegiContractIndicatorScriptProxy.compartment.executeForEachElement(
 		executionContext, script, resultType, contractKCandles, parameters)
 }

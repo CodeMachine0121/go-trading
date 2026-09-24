@@ -2,29 +2,24 @@ package script
 
 import (
 	"context"
-	"reflect"
-	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // YaegiIndicatorScriptProxy runs spot indicator scripts — scripts fed K candles —
-// with an embedded Go interpreter, giving up on any script that outlives its
-// allowance. How a script is run is the runner's; this proxy only says what a spot
-// script is fed and what it may name.
+// with an embedded Go interpreter, each run in a compartment of its own. How a script
+// is run is the runner's and where it runs is the compartment's; this proxy only says
+// that a spot script is fed K candles.
 type YaegiIndicatorScriptProxy struct {
-	runner indicatorScriptRunner[vo.KCandleVo]
+	compartment indicatorScriptCompartment[vo.KCandleVo]
 }
 
-func NewYaegiIndicatorScriptProxy(executionTimeout time.Duration) *YaegiIndicatorScriptProxy {
+func NewYaegiIndicatorScriptProxy(isolation IndicatorScriptIsolation) *YaegiIndicatorScriptProxy {
 	return &YaegiIndicatorScriptProxy{
-		runner: indicatorScriptRunner[vo.KCandleVo]{
-			executionTimeout: executionTimeout,
-			inputTypeName:    "KCandle",
-			inputTypes: map[string]reflect.Value{
-				"KCandle": reflect.ValueOf((*vo.KCandleVo)(nil)),
-			},
+		compartment: indicatorScriptCompartment[vo.KCandleVo]{
+			isolation: isolation,
+			input:     spotIndicatorScriptInput,
 		},
 	}
 }
@@ -38,7 +33,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	kCandles []vo.KCandleVo,
 	parameters domains.StrategyScriptParametersDomain,
 ) (map[string]vo.IndicatorValueVo, error) {
-	return yaegiIndicatorScriptProxy.runner.execute(executionContext, script, resultType, kCandles, parameters)
+	return yaegiIndicatorScriptProxy.compartment.execute(executionContext, script, resultType, kCandles, parameters)
 }
 
 // ExecuteForEachCandle runs the same script once per K candle: the nth run sees the
@@ -51,6 +46,6 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) ExecuteForEachCandle
 	kCandles []vo.KCandleVo,
 	parameters domains.StrategyScriptParametersDomain,
 ) ([]map[string]vo.IndicatorValueVo, error) {
-	return yaegiIndicatorScriptProxy.runner.executeForEachElement(
+	return yaegiIndicatorScriptProxy.compartment.executeForEachElement(
 		executionContext, script, resultType, kCandles, parameters)
 }

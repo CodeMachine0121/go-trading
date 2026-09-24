@@ -7,7 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
-	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +36,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 
 func TestExecuteForEachCandle(t *testing.T) {
 	t.Run("runs once per candle, in order", func(t *testing.T) {
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
@@ -47,7 +46,7 @@ func TestExecuteForEachCandle(t *testing.T) {
 	})
 
 	t.Run("each run sees everything up to the candle it stands on", func(t *testing.T) {
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
@@ -59,7 +58,7 @@ func TestExecuteForEachCandle(t *testing.T) {
 	})
 
 	t.Run("the candle a run stands on is that run's last one", func(t *testing.T) {
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), lastClosePriceScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
@@ -86,7 +85,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), reachesForTheFutureScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
@@ -114,7 +113,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `
 		kCandles := candlesWithClosePrices(100, 110, 120)
 
-		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), overwritesItsCandlesScript, resultTypeOf(t, "float"),
 				kCandles, noStrategyScriptParameters(t))
@@ -124,7 +123,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	})
 
 	t.Run("no candles at all produces no results and no failure", func(t *testing.T) {
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), candleCountScript, resultTypeOf(t, "float"),
 				nil, noStrategyScriptParameters(t))
@@ -150,7 +149,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), countsItsOwnRunsScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
@@ -163,7 +162,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	})
 
 	t.Run("a script that cannot be read fails before any candle is looked at", func(t *testing.T) {
-		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), "this is not go", resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
@@ -172,7 +171,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	})
 
 	t.Run("a script with no entry point fails", func(t *testing.T) {
-		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), "package main\n\nfunc NotCalculate() {}\n",
 				resultTypeOf(t, "float"),
@@ -197,7 +196,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), failsOnFirstCandleScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
@@ -217,7 +216,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		_, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), readsAnUndeclaredKnobScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
@@ -245,7 +244,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 			})
 		require.NoError(t, buildError)
 
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), readsAKnobScript, resultTypeOf(t, "float"),
 				candlesWithClosePrices(100, 110, 120), parameters)
@@ -274,7 +273,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 `
 
 	t.Run("hands back one signal per candle, in order", func(t *testing.T) {
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), signalPerCandleScript, resultTypeOf(t, "signal"),
 				candlesWithClosePrices(100, 90, 120), noStrategyScriptParameters(t))
@@ -297,7 +296,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), numberScript, resultTypeOf(t, "signal"),
 				candlesWithClosePrices(100, 110), noStrategyScriptParameters(t))
@@ -322,7 +321,7 @@ func Calculate(data []indicator.KCandle) indicator.Signal {
 }
 `
 
-		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		perCandleIndicatorValues, err := spotIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(
 				t.Context(), unsetsOnceScript, resultTypeOf(t, "signal"),
 				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
