@@ -88,6 +88,8 @@ flowchart TD
 - **Patterns applied & why:** 子命令自我執行（self re-exec），不需要第二個 binary 或部署。header 與 body 分兩段送，讓子行程先知道要解哪一種泛型輸入。
 - **Do not hardcode:** 記憶體上限（走設定）、子行程命令（由組裝根注入，測試才能用測試執行檔扮演 worker）。
 - **Known debt / deferred:**
+  - race detector 的影子記憶體會計入 `RLIMIT_DATA`；記憶體上限測試在 `-race` 下跳過，由 CI 另一個不開 race 的步驟在 Linux 上實證（有跳過即判失敗）。
+  - 子行程被結束後以 `WaitDelay`（1 秒）收尾，殘留孫行程握著輸出管線也不會讓等待卡住（CI 上實際踩過）。
   - macOS 上 `RLIMIT_DATA` 不一定生效，記憶體相關測試只在 Linux 執行（CI 是 Linux）。
   - 每次執行多了一次開行程的成本（約 10ms）。如果將來機器人數量大到這筆成本明顯，再考慮常駐的 worker 池。
 
