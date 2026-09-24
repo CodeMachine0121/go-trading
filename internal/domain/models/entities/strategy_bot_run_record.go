@@ -49,6 +49,14 @@ type StrategyBotRunRecord struct {
 	SuggestedStake           decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	SuggestedStopLossPrice   decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	SuggestedTakeProfitPrice decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	// SuggestedDirection, SuggestedLeverage and SuggestedNotional are which way a
+	// contract round's suggestion faced, how many times its margin it carried, and what
+	// that came to. Only a contract round with a suggestion fills them in: a spot one
+	// only ever faces long at one times, and saying so on every row is noise that reads
+	// like information.
+	SuggestedDirection string              `gorm:"size:8;not null;default:''"`
+	SuggestedLeverage  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	SuggestedNotional  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	// Result is buy, sell, hold or conflict — see StrategyBotRoundResultVo.
 	//
 	// Conflicted has a word of its own because it is the one quiet round that asks
@@ -73,6 +81,9 @@ func (strategyBotRunRecord StrategyBotRunRecord) ToDto() dto.StrategyBotRunRecor
 		SuggestedStake:           figureOrNothing(strategyBotRunRecord.SuggestedStake),
 		SuggestedStopLossPrice:   figureOrNothing(strategyBotRunRecord.SuggestedStopLossPrice),
 		SuggestedTakeProfitPrice: figureOrNothing(strategyBotRunRecord.SuggestedTakeProfitPrice),
+		SuggestedDirection:       strategyBotRunRecord.SuggestedDirection,
+		SuggestedLeverage:        figureOrNothing(strategyBotRunRecord.SuggestedLeverage),
+		SuggestedNotional:        figureOrNothing(strategyBotRunRecord.SuggestedNotional),
 	}
 }
 

@@ -72,8 +72,20 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 			// suggested nothing leaves all three empty, which is a different thing
 			// from suggesting zero — and a stop price of zero is a figure somebody
 			// really can ask for.
-			if writeDto.HasPositionPlan && writeDto.PositionPlan.Affordable {
+			//
+			// An order the venue would have refused is not a suggestion either: the
+			// message said so, and there is nothing to place.
+			if writeDto.HasPositionPlan && writeDto.PositionPlan.Affordable &&
+				!writeDto.PositionPlan.HasVenueRefusal {
 				runRecord.SuggestedStake = storedFigure(writeDto.PositionPlan.Stake)
+
+				// A contract round also remembers which way and how far it leaned, so
+				// the row reads back the way its message did.
+				if writeDto.PositionPlan.ForContract {
+					runRecord.SuggestedDirection = writeDto.PositionPlan.Direction
+					runRecord.SuggestedLeverage = storedFigure(writeDto.PositionPlan.Leverage)
+					runRecord.SuggestedNotional = storedFigure(writeDto.PositionPlan.Notional)
+				}
 
 				if writeDto.PositionPlan.HasStopLoss {
 					runRecord.SuggestedStopLossPrice = storedFigure(
