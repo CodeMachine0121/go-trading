@@ -73,9 +73,11 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	// 在「按了按鈕之後那台變成什麼樣」上對不起來。
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(mockController)
+	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository,
-		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository, clockProxy)
+		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
+		contractFundingRateSettlementRepository, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)

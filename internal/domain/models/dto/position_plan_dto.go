@@ -67,8 +67,39 @@ type PositionPlanDto struct {
 	// the notional, which is what actually moves with the price.
 	Leverage decimal.Decimal
 	Notional decimal.Decimal
-	// LiquidatesBeforeStop warns that the stop sits further away than the margin can
-	// carry: its distance times the leverage reaches a hundred percent, so the position
-	// would be closed out before the price ever got there.
+	// LiquidatesBeforeStop warns that the stop sits beyond where the position would be
+	// closed out: past the estimated liquidation price when there is one, or — when
+	// there is not — a distance that times the leverage reaches a hundred percent.
 	LiquidatesBeforeStop bool
+
+	// ForContract says this suggestion is for a contract account. Everything below is
+	// only ever filled in on one; a spot suggestion leaves it all at its zero value.
+	ForContract bool
+	// Quantity is how many units the suggestion opens, stepped down to the venue's
+	// quantity step; HasQuantity is false when the venue's rules are not known yet.
+	Quantity    decimal.Decimal
+	HasQuantity bool
+	// LiquidationPrice is where the suggested position would be closed out, estimated
+	// from the reference price and on the venue's ticks. CannotBeLiquidated is a long
+	// whose estimate is not above zero, and LiquidationFromSmallestTier says the
+	// estimate used the specification's smallest tier for want of a full ladder.
+	LiquidationPrice            decimal.Decimal
+	HasLiquidationPrice         bool
+	CannotBeLiquidated          bool
+	LiquidationFromSmallestTier bool
+	// VenueRefusal is why the venue would not take this suggestion, and when
+	// HasVenueRefusal is set the suggestion carries nothing to place — no exits, no
+	// quantity, no liquidation price.
+	VenueRefusal    ContractOrderRefusalDto
+	HasVenueRefusal bool
+	// LacksTradingSpecification says the contract's specification is not recorded yet,
+	// so the figures are not rounded to the venue and no liquidation price is given.
+	LacksTradingSpecification bool
+	// FundingRate is the rate most recently settled; FundingPayment what one settlement
+	// at that rate comes to on this notional — positive is paid, negative is received.
+	// FundingIntervalHours is how often it settles, zero when unknown.
+	FundingRate          decimal.Decimal
+	HasFundingRate       bool
+	FundingPayment       decimal.Decimal
+	FundingIntervalHours int
 }

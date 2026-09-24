@@ -193,13 +193,17 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
+	underTest.expectTheVenue(aContractSpecification(), nil, "0.0001")
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
 		) (vo.DeliveryFailureReasonVo, error) {
 			assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
+			assert.Contains(t, message, "　・數量 50")
 			assert.Contains(t, message, "止損 98（往下，虧 100）")
+			assert.Contains(t, message, "　・預估強平價 80.4（往下，用最小那一級估算）")
+			assert.Contains(t, message, "　・資金費率 0.01%（最近一次結算）：每 8 小時約付 0.5（估算）")
 
 			return vo.DeliveryFailureNone, nil
 		})
@@ -212,6 +216,55 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 	require.True(t, recorded.HasPositionPlan)
 	assert.Equal(t, "1000", recorded.PositionPlan.Stake.String())
 	assert.Equal(t, "98", recorded.PositionPlan.StopLossPrice.String())
+	assert.True(t, recorded.PositionPlan.ForContract)
+	assert.Equal(t, "long", recorded.PositionPlan.Direction)
+	assert.Equal(t, "5", recorded.PositionPlan.Leverage.String())
+	assert.Equal(t, "5000", recorded.PositionPlan.Notional.String())
+}
+
+// aContractSpecification is BTCUSDT's trading specification: prices step by 0.01,
+// quantities by 0.001, the smallest order is 0.001 units and 5 of notional, the
+// smallest tier keeps 0.5% and funding settles every eight hours.
+func aContractSpecification() entities.ContractTradingSymbol {
+	specifiedAt := at(0, 0)
+	fundingIntervalHours := 8
+
+	return entities.ContractTradingSymbol{
+		Symbol: "BTCUSDT", IsWatched: true,
+		TickSize:               decimal.NewNullDecimal(decimal.RequireFromString("0.01")),
+		QuantityStep:           decimal.NewNullDecimal(decimal.RequireFromString("0.001")),
+		MinimumQuantity:        decimal.NewNullDecimal(decimal.RequireFromString("0.001")),
+		MinimumNotional:        decimal.NewNullDecimal(decimal.NewFromInt(5)),
+		MaintenanceMarginRate:  decimal.NewNullDecimal(decimal.RequireFromString("0.005")),
+		LiquidationFeeRate:     decimal.NewNullDecimal(decimal.RequireFromString("0.005")),
+		FundingIntervalHours:   &fundingIntervalHours,
+		SpecificationUpdatedAt: &specifiedAt,
+	}
+}
+
+// expectTheVenue is what the contract's venue looks like when a suggestion is worked
+// out: its entry, its ladder, and the rate last settled — none at all when blank.
+func (underTest strategyBotRunUnderTest) expectTheVenue(
+	specification entities.ContractTradingSymbol,
+	tiers []entities.ContractMaintenanceMarginTier,
+	latestFundingRate string,
+) {
+	underTest.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
+		Return(specification, specification.Symbol != "", nil)
+	underTest.contractMaintenanceMarginTierRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
+		Return(tiers, nil)
+
+	if latestFundingRate == "" {
+		underTest.contractFundingRateSettlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+			Return(entities.ContractFundingRateSettlement{}, false, nil)
+
+		return
+	}
+
+	underTest.contractFundingRateSettlementRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT").
+		Return(entities.ContractFundingRateSettlement{
+			Symbol: "BTCUSDT", FundingRate: decimal.RequireFromString(latestFundingRate),
+		}, true, nil)
 }
 
 // A contract whose newest candle cannot be read gives no proof its market is still

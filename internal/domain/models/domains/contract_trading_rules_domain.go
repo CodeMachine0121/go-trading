@@ -129,26 +129,62 @@ func (tradingRulesDomain ContractTradingRulesDomain) QuantityFor(
 }
 
 // Admits says whether the venue would take an order of that many units at that price
-// carrying that much leverage: at least the minimum quantity, at least the minimum
-// notional, and no more leverage than the tier its notional falls in allows.
+// carrying that much leverage — see RefusalFor for the rules and their order.
 func (tradingRulesDomain ContractTradingRulesDomain) Admits(
 	quantity decimal.Decimal, price decimal.Decimal, leverage decimal.Decimal,
 ) bool {
-	if !quantity.IsPositive() || quantity.LessThan(tradingRulesDomain.minimumQuantity) {
-		return false
+	_, isRefused := tradingRulesDomain.RefusalFor(quantity, price, leverage)
+
+	return !isRefused
+}
+
+// RefusalFor is why the venue would not take an order of that many units at that price
+// carrying that much leverage, and whether it would refuse it at all: at least the
+// minimum quantity, then at least the minimum notional, then no more leverage than the
+// tier its notional falls in allows. The first rule broken is the one named, with the
+// figures a person needs to see why.
+func (tradingRulesDomain ContractTradingRulesDomain) RefusalFor(
+	quantity decimal.Decimal, price decimal.Decimal, leverage decimal.Decimal,
+) (vo.ContractOrderRefusalVo, bool) {
+	notional := quantity.Mul(price)
+	refusal := vo.ContractOrderRefusalVo{
+		Quantity:        quantity,
+		MinimumQuantity: tradingRulesDomain.minimumQuantity,
+		Notional:        notional,
+		MinimumNotional: tradingRulesDomain.minimumNotional,
 	}
 
-	notional := quantity.Mul(price)
+	if !quantity.IsPositive() || quantity.LessThan(tradingRulesDomain.minimumQuantity) {
+		refusal.Reason = vo.ContractOrderRefusalBelowMinimumQuantity
+
+		return refusal, true
+	}
+
 	if notional.LessThan(tradingRulesDomain.minimumNotional) {
-		return false
+		refusal.Reason = vo.ContractOrderRefusalBelowMinimumNotional
+
+		return refusal, true
 	}
 
 	if !tradingRulesDomain.hasLadder {
-		return true
+		return vo.ContractOrderRefusalVo{}, false
 	}
 
-	return leverage.LessThanOrEqual(decimal.NewFromInt(int64(
-		tradingRulesDomain.TierFor(notional).MaximumLeverage)))
+	tierMaximumLeverage := tradingRulesDomain.TierFor(notional).MaximumLeverage
+	if leverage.GreaterThan(decimal.NewFromInt(int64(tierMaximumLeverage))) {
+		refusal.Reason = vo.ContractOrderRefusalAboveTierLeverage
+		refusal.TierMaximumLeverage = tierMaximumLeverage
+
+		return refusal, true
+	}
+
+	return vo.ContractOrderRefusalVo{}, false
+}
+
+// HasLadder is whether these rules hold the contract's full maintenance margin ladder,
+// rather than the specification's smallest tier standing in for every size.
+func (tradingRulesDomain ContractTradingRulesDomain) HasLadder() bool {
+	return tradingRulesDomain.hasLadder
 }
 
 // TierFor is the tier a position of that notional falls in: the first whose cap it

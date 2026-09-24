@@ -543,6 +543,7 @@ func registerRoutes(
 		persistence.NewStrategyBotRunRecordRepository(database),
 		contractTradingSymbolRepository,
 		persistence.NewContractMaintenanceMarginTierRepository(database),
+		persistence.NewContractFundingRateSettlementRepository(database),
 		clock.NewSystemClockProxy(),
 	)
 
