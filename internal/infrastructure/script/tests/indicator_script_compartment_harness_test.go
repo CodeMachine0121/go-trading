@@ -27,12 +27,22 @@ func TestMain(m *testing.M) {
 
 // isolationWith is the compartment every test runs its scripts in: this very test
 // binary, capped exactly as the service is.
+//
+// Under the race detector the compartment is left uncapped. The detector's shadow
+// memory counts against the cap several times over, so an ordinary replay can run
+// into it and go down for a reason the shipped binary never meets. The cap itself is
+// proved in the pipeline's race-free run, where it is the real one.
 func isolationWith(executionTimeout time.Duration) script.IndicatorScriptIsolation {
+	memoryLimitBytes := int64(testMemoryLimitBytes)
+	if raceDetectorOn {
+		memoryLimitBytes = 0
+	}
+
 	return script.IndicatorScriptIsolation{
 		WorkerCommand:     []string{os.Args[0]},
 		WorkerEnvironment: []string{workerRoleVariable + "=1"},
 		ExecutionTimeout:  executionTimeout,
-		MemoryLimitBytes:  testMemoryLimitBytes,
+		MemoryLimitBytes:  memoryLimitBytes,
 	}
 }
 

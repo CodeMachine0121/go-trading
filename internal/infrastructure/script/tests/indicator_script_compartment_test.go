@@ -249,6 +249,9 @@ func TestCompartmentReportsAnyCompartmentThatGoesDownAsTheScriptFailing(t *testi
 		t.Run(testCase.name, func(t *testing.T) {
 			isolation := isolationWith(2 * time.Second)
 			isolation.WorkerCommand = testCase.workerCommand
+			// Named outright, since the cap is left off under the race detector and
+			// the report is expected to state it.
+			isolation.MemoryLimitBytes = testMemoryLimitBytes
 
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(isolation).Execute(
 				t.Context(), lastClosePriceScript, resultTypeOf(t, "float"),
