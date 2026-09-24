@@ -13,8 +13,8 @@ import (
 // run, the values of every run in a replay, or why it failed. Exactly one of those is
 // filled in.
 type indicatorScriptResponse struct {
-	Values           map[string]indicatorValueWire
-	PerElementValues []map[string]indicatorValueWire
+	Values           indicatorValuesWire
+	PerElementValues []indicatorValuesWire
 	// FailureMessage is the failure exactly as the compartment worded it, so that the
 	// author reads the same sentence whichever side of the boundary it was written on.
 	FailureMessage string
@@ -45,23 +45,14 @@ func (response indicatorScriptResponse) failure() error {
 
 // values reads back the values of a single run.
 func (response indicatorScriptResponse) values() map[string]vo.IndicatorValueVo {
-	indicatorValues := make(map[string]vo.IndicatorValueVo, len(response.Values))
-	for indicatorName, indicatorValue := range response.Values {
-		indicatorValues[indicatorName] = indicatorValue.toIndicatorValue()
-	}
-
-	return indicatorValues
+	return response.Values.toIndicatorValues()
 }
 
 // perElementValues reads back the values of every run in a replay, in order.
 func (response indicatorScriptResponse) perElementValues() []map[string]vo.IndicatorValueVo {
 	perElementIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(response.PerElementValues))
 	for _, elementValues := range response.PerElementValues {
-		indicatorValues := make(map[string]vo.IndicatorValueVo, len(elementValues))
-		for indicatorName, indicatorValue := range elementValues {
-			indicatorValues[indicatorName] = indicatorValue.toIndicatorValue()
-		}
-		perElementIndicatorValues = append(perElementIndicatorValues, indicatorValues)
+		perElementIndicatorValues = append(perElementIndicatorValues, elementValues.toIndicatorValues())
 	}
 
 	return perElementIndicatorValues

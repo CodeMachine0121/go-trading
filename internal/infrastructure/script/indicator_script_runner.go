@@ -348,13 +348,9 @@ func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicato
 			return newFailedIndicatorScriptResponse(replayError)
 		}
 
-		perElementValues := make([]map[string]indicatorValueWire, 0, len(perElementIndicatorValues))
+		perElementValues := make([]indicatorValuesWire, 0, len(perElementIndicatorValues))
 		for _, indicatorValues := range perElementIndicatorValues {
-			elementValues := make(map[string]indicatorValueWire, len(indicatorValues))
-			for indicatorName, indicatorValue := range indicatorValues {
-				elementValues[indicatorName] = newIndicatorValueWire(indicatorValue)
-			}
-			perElementValues = append(perElementValues, elementValues)
+			perElementValues = append(perElementValues, newIndicatorValuesWire(indicatorValues))
 		}
 
 		return indicatorScriptResponse{PerElementValues: perElementValues}
@@ -366,10 +362,5 @@ func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicato
 		return newFailedIndicatorScriptResponse(executionError)
 	}
 
-	values := make(map[string]indicatorValueWire, len(indicatorValues))
-	for indicatorName, indicatorValue := range indicatorValues {
-		values[indicatorName] = newIndicatorValueWire(indicatorValue)
-	}
-
-	return indicatorScriptResponse{Values: values}
+	return indicatorScriptResponse{Values: newIndicatorValuesWire(indicatorValues)}
 }
