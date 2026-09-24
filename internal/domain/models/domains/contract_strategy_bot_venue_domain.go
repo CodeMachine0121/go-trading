@@ -1,7 +1,9 @@
 package domains
 
 import (
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -63,12 +65,30 @@ func (venueDomain ContractStrategyBotVenueDomain) TradingRules() (ContractTradin
 	return venueDomain.tradingRules, venueDomain.hasTradingRules
 }
 
-// FundingRate is the rate most recently settled, and whether there has been one.
-func (venueDomain ContractStrategyBotVenueDomain) FundingRate() (decimal.Decimal, bool) {
-	return venueDomain.fundingRate, venueDomain.hasFundingRate
-}
+// WithFundingEstimate is this suggestion with what one funding settlement at the rate
+// last settled here would come to on its notional: a positive rate is paid by a long and
+// received by a short, and a negative one the other way round. With no settlement yet it
+// only says how often funding settles.
+//
+// It is the venue's to say, because every figure it reads but the notional and the
+// direction is the venue's own.
+func (venueDomain ContractStrategyBotVenueDomain) WithFundingEstimate(
+	positionPlanDto dto.PositionPlanDto,
+) dto.PositionPlanDto {
+	positionPlanDto.FundingIntervalHours = venueDomain.fundingIntervalHours
 
-// FundingIntervalHours is how often funding settles on this contract, zero when unknown.
-func (venueDomain ContractStrategyBotVenueDomain) FundingIntervalHours() int {
-	return venueDomain.fundingIntervalHours
+	if !venueDomain.hasFundingRate {
+		return positionPlanDto
+	}
+
+	fundingPayment := positionPlanDto.Notional.Mul(venueDomain.fundingRate)
+	if positionPlanDto.Direction == string(vo.PositionDirectionShort) {
+		fundingPayment = fundingPayment.Neg()
+	}
+
+	positionPlanDto.FundingRate = venueDomain.fundingRate
+	positionPlanDto.HasFundingRate = true
+	positionPlanDto.FundingPayment = fundingPayment
+
+	return positionPlanDto
 }

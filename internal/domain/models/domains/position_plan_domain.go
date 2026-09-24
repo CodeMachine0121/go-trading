@@ -245,7 +245,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 		plainPlan.ForContract = true
 		plainPlan.LacksTradingSpecification = true
 
-		return positionPlanDomain.withFundingEstimate(plainPlan, venue), true
+		return venue.WithFundingEstimate(plainPlan), true
 	}
 
 	leverage := decimal.Max(positionPlanDomain.leverage, oneWhole)
@@ -315,35 +315,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 		positionPlanDto.GainAtTarget = portionOf(notional, positionPlanDomain.takeProfit)
 	}
 
-	return positionPlanDomain.withFundingEstimate(positionPlanDto, venue), true
-}
-
-// withFundingEstimate is this suggestion with what one funding settlement at the latest
-// rate would come to on its notional: a positive rate is paid by a long and received by
-// a short, and a negative one the other way round.
-//
-// Both ways of suggesting on a contract end with it, which is why it is here rather
-// than written out twice.
-func (positionPlanDomain PositionPlanDomain) withFundingEstimate(
-	positionPlanDto dto.PositionPlanDto, venue ContractStrategyBotVenueDomain,
-) dto.PositionPlanDto {
-	positionPlanDto.FundingIntervalHours = venue.FundingIntervalHours()
-
-	fundingRate, hasFundingRate := venue.FundingRate()
-	if !hasFundingRate {
-		return positionPlanDto
-	}
-
-	fundingPayment := positionPlanDto.Notional.Mul(fundingRate)
-	if positionPlanDto.Direction == string(vo.PositionDirectionShort) {
-		fundingPayment = fundingPayment.Neg()
-	}
-
-	positionPlanDto.FundingRate = fundingRate
-	positionPlanDto.HasFundingRate = true
-	positionPlanDto.FundingPayment = fundingPayment
-
-	return positionPlanDto
+	return venue.WithFundingEstimate(positionPlanDto), true
 }
 
 // portionOf is that percentage of an amount.
