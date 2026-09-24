@@ -14477,6 +14477,111 @@
               }
             }
           ]
+        },
+        {
+          "name": "合約：拒絕：沒指定合約標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "live"
+              ]
+            },
+            "description": "合約的即時跟盤與現貨的分開，自己一條路；沒有合約標的就沒有市場可跟。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說明缺了什麼\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"合約標的\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "合約：拒絕：系統不認得的合約標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/live?symbol=NOTACONTRACTUSDT",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "live"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NOTACONTRACTUSDT"
+                }
+              ]
+            },
+            "description": "系統從沒聽過的合約標的說找不到，與「系統正在關機」分開說。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "合約：拒絕：不在合約追蹤名單上的合約標的",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/live?symbol={{contractWatchlistSymbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "live"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "{{contractWatchlistSymbol}}"
+                }
+              ]
+            },
+            "description": "這一檔在「永續合約 K 線」那一段已經移出合約追蹤名單：系統認得它，但不跟。走完的合約 K 線只由每分鐘那一輪存入，而那一輪只跟名單上的——所以要先加回名單。加回名單之後，同一條路就會像現貨的即時跟盤一樣持續送事件（最新價的一分鐘 K 線，不含標記價格），而且走完的那一根不由跟盤存入。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });",
+                  "pm.test(\"說要先加進合約追蹤名單\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"合約追蹤名單\");",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

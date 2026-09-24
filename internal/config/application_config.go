@@ -140,6 +140,11 @@ type LiveFollowConfig struct {
 	QuietTimeout          time.Duration
 	MaximumRetryDelay     time.Duration
 	MarketDataStreamUrl   string
+	// ContractMarketDataStreamUrl is where the perpetual contract venue's live candles
+	// are followed. It is the one live setting the contract line has of its own: the
+	// three timing rules describe a person watching a chart and a line staying up,
+	// neither of which depends on which market it is.
+	ContractMarketDataStreamUrl string
 }
 
 // TaiwanStockConfig holds what reaching the Taiwan stock market runs on.
@@ -467,6 +472,8 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("LIVE_FEED_MAX_RETRY_DELAY_SECONDS", 30)) * time.Second,
 			MarketDataStreamUrl: stringWithDefault(
 				"MARKET_DATA_STREAM_URL", "wss://stream.binance.com:9443/ws"),
+			ContractMarketDataStreamUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_STREAM_URL", "wss://fstream.binance.com/ws"),
 		},
 		Assistant: AssistantConfig{
 			ApiKey: stringWithDefault("ANTHROPIC_API_KEY", ""),

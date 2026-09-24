@@ -214,3 +214,32 @@ func TestASourceThatCannotBeReachedIsReportedImmediately(t *testing.T) {
 		})
 	}
 }
+
+// The perpetual contract venue's live candle arrives in the same message this source
+// already reads, which is why the contract live follow reads it with this proxy from a
+// different address rather than with a copy of it. Pinned against the contract venue's
+// own spelling, trade count and all, so a difference between the two would show here.
+func TestAContractVenueLiveCandleIsReadTheSameWay(t *testing.T) {
+	server := oneMessageFeed(t, `{"e":"kline","E":1788404760000,"s":"BTCUSDT","k":{`+
+		`"t":1788404700000,"T":1788404759999,"s":"BTCUSDT","i":"1m","f":100,"L":200,`+
+		`"o":"64000.1","c":"64000.5","h":"64010","l":"63990","v":"12.5","n":101,"x":false,`+
+		`"q":"800006.25","V":"7.25","Q":"464000.9","B":"0"}}`)
+
+	liveKCandles, followError := marketdata.NewBinanceLiveMarketDataProxy(streamUrlOf(server)).
+		FollowKCandles(t.Context(), vo.NewLiveFollowChannelVo(vo.MarketCrypto, []string{"BTCUSDT"}))
+	require.NoError(t, followError)
+
+	liveKCandle := <-liveKCandles
+
+	assert.Equal(t, "BTCUSDT", liveKCandle.Symbol)
+	assert.Equal(t, time.UnixMilli(1788404700000).UTC(), liveKCandle.OpenTime)
+	assert.Equal(t, "64000.1", liveKCandle.Open.String())
+	assert.Equal(t, "64010", liveKCandle.High.String())
+	assert.Equal(t, "63990", liveKCandle.Low.String())
+	assert.Equal(t, "64000.5", liveKCandle.Close.String())
+	assert.Equal(t, "12.5", liveKCandle.Volume.String())
+	assert.Equal(t, "800006.25", liveKCandle.QuoteVolume.Decimal.String())
+	assert.Equal(t, "7.25", liveKCandle.TakerBuyBaseVolume.Decimal.String())
+	assert.Equal(t, "464000.9", liveKCandle.TakerBuyQuoteVolume.Decimal.String())
+	assert.False(t, liveKCandle.Closed)
+}

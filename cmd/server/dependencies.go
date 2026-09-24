@@ -33,7 +33,7 @@ import (
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
 ) (
-	*application.KCandleFollowApplication,
+	liveFollowApplications,
 	*application.KCandleIngestionApplication,
 	*application.KCandleContractIngestionApplication,
 	*application.StrategyBotRunApplication,
@@ -510,8 +510,24 @@ func registerRoutes(
 
 	kCandleFollowApplication := application.NewKCandleFollowApplication(kCandleFollowService)
 
-	engine.GET("/k-candles/live", controller.NewKCandleFollowController(
-		kCandleFollowApplication).WatchKCandles)
+	// The contract line follows live on its own: its own venue stream, its own viewers,
+	// its own route. The stream speaks the same candle messages as the spot one, so the
+	// same proxy reads it from a different address. Nothing it follows is stored — a
+	// contract candle is four readings, and the round that reads all four stores it.
+	kCandleContractFollowApplication := application.NewKCandleContractFollowApplication(
+		service.NewKCandleContractFollowService(
+			marketdata.NewBinanceLiveMarketDataProxy(applicationConfig.LiveFollow.ContractMarketDataStreamUrl),
+			contractTradingSymbolRepository,
+			clock.NewSystemClockProxy(),
+			applicationConfig.LiveFollow.UpdateIntervalCeiling,
+			applicationConfig.LiveFollow.QuietTimeout,
+			applicationConfig.LiveFollow.MaximumRetryDelay,
+		))
+
+	kCandleFollowController := controller.NewKCandleFollowController(
+		kCandleFollowApplication, kCandleContractFollowApplication)
+	engine.GET("/k-candles/live", kCandleFollowController.WatchKCandles)
+	engine.GET("/contract-k-candles/live", kCandleFollowController.WatchKCandleContracts)
 
 	// Standing bots: the first thing here that both decides something and says it
 	// without anybody asking. They are wired last because they lean on almost
@@ -650,7 +666,8 @@ func registerRoutes(
 	// 與「它自己跑出來的」就是兩件事，而那正是這顆按鈕要用來排除的東西。
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 
-	return kCandleFollowApplication, kCandleIngestionApplication,
+	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
+		kCandleIngestionApplication,
 		kCandleContractIngestionApplication, strategyBotRunApplication,
 		assistantConversationApplication,
 		contractSeriesApplications{
@@ -659,6 +676,20 @@ func registerRoutes(
 			tradingSymbol:     contractTradingSymbolApplication,
 			maintenanceMargin: contractMaintenanceMarginTierApplication,
 		}
+}
+
+// liveFollowApplications are the two live follows — spot and contract — which the
+// entry point has to stop together on the way down, and the spot one's roster job
+// needs besides.
+type liveFollowApplications struct {
+	spot     *application.KCandleFollowApplication
+	contract *application.KCandleContractFollowApplication
+}
+
+// Stop ends every live follow on both lines.
+func (liveFollowApplications liveFollowApplications) Stop() {
+	liveFollowApplications.spot.Stop()
+	liveFollowApplications.contract.Stop()
 }
 
 // contractSeriesApplications are the contract use cases that have background rounds

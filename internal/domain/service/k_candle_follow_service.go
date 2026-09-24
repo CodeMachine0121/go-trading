@@ -31,17 +31,20 @@ var ErrKCandleFollowStopped = errors.New("k candle follow stopped")
 // request. It is here rather than a layer out because what it holds is a rule, not
 // a mechanism. Everything that is a mechanism is delegated: the rules that carry a
 // number go to LiveChannelHealthDomain and ViewerUpdateThrottleDomain, the line to
-// kCandleFollowChannel, and the viewers of one market to kCandleFollowSymbol —
-// leaving this file with the registry and the round trip to the source.
+// kCandleFollowChannel, the keeping of a line against the source to kCandleFollowFeed,
+// and the viewers of one market to kCandleFollowSymbol — leaving this file with the
+// registry and what one candle arriving amounts to.
 type KCandleFollowService struct {
-	liveMarketDataProxy     _interface.ILiveMarketDataProxy
 	kCandleRepository       _interface.IKCandleRepository
 	tradingSymbolRepository _interface.ITradingSymbolRepository
 	clockProxy              _interface.IClockProxy
 	marketCatalogDomain     domains.MarketCatalogDomain
 	updateIntervalCeiling   time.Duration
-	quietTimeout            time.Duration
-	maximumRetryDelay       time.Duration
+	// feed keeps each open line followed against this market's live source; how
+	// a line is kept is the same for every market, so it lives beside this service
+	// rather than in it. What a candle arriving on it amounts to is still decided
+	// here, in report.
+	feed *kCandleFollowFeed
 
 	mutex sync.Mutex
 	// follows is every symbol with a viewer registry, whether or not anybody is
@@ -66,18 +69,19 @@ func NewKCandleFollowService(
 	quietTimeout time.Duration,
 	maximumRetryDelay time.Duration,
 ) *KCandleFollowService {
-	return &KCandleFollowService{
-		liveMarketDataProxy:     liveMarketDataProxy,
+	kCandleFollowService := &KCandleFollowService{
 		kCandleRepository:       kCandleRepository,
 		tradingSymbolRepository: tradingSymbolRepository,
 		clockProxy:              clockProxy,
 		marketCatalogDomain:     marketCatalogDomain,
 		updateIntervalCeiling:   updateIntervalCeiling,
-		quietTimeout:            quietTimeout,
-		maximumRetryDelay:       maximumRetryDelay,
 		follows:                 make(map[string]*kCandleFollowSymbol),
 		channels:                make(map[string]*kCandleFollowChannel),
 	}
+	kCandleFollowService.feed = newKCandleFollowFeed(
+		liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.report)
+
+	return kCandleFollowService
 }
 
 // WatchKCandles joins this viewer to the follow of one trading symbol, starting that
@@ -338,7 +342,7 @@ func (kCandleFollowService *KCandleFollowService) openChannel(
 	openChannel := newKCandleFollowChannel(channel, follows, cancel)
 	kCandleFollowService.channels[channel.Key] = openChannel
 
-	go kCandleFollowService.run(channelContext, openChannel)
+	go kCandleFollowService.feed.keep(channelContext, openChannel)
 }
 
 // noLivePlaceUpdates is what a viewer of a market with no place for their symbol
@@ -453,120 +457,6 @@ func (kCandleFollowService *KCandleFollowService) leave(
 	}
 }
 
-// run keeps one market followed for as long as anyone is watching it. Every time the
-// feed ends — refused, dropped, or gone silent — the viewers are told, the wait
-// grows, and it tries again. It never gives up; only the last viewer leaving ends it.
-func (kCandleFollowService *KCandleFollowService) run(
-	executionContext context.Context, openChannel *kCandleFollowChannel,
-) {
-	defer close(openChannel.finished)
-
-	healthDomain := domains.NewLiveChannelHealthDomain(
-		kCandleFollowService.quietTimeout,
-		kCandleFollowService.maximumRetryDelay,
-		kCandleFollowService.clockProxy.Now(),
-	)
-
-	for {
-		// Each attempt gets a context of its own so that abandoning it really closes
-		// the line behind it. A feed that fell silent is still open — its reader is
-		// sitting on a socket nobody is listening to any more — and dialling the next
-		// attempt without letting go of it would leave two lines where the plan
-		// allows one, which is the very thing being followed a channel at a time was
-		// meant to prevent.
-		attemptContext, abandonAttempt := context.WithCancel(executionContext)
-
-		liveKCandles, followError := kCandleFollowService.liveMarketDataProxy.
-			FollowKCandles(attemptContext, openChannel.channel)
-		if followError == nil {
-			healthDomain.MarkConnected(kCandleFollowService.clockProxy.Now())
-			kCandleFollowService.consume(attemptContext, openChannel, healthDomain, liveKCandles)
-		} else {
-			log.Printf("live k candle follow: %s could not be followed: %v",
-				openChannel.channel.Key, followError)
-		}
-
-		abandonAttempt()
-
-		// A channel whose context is already done was ended on purpose — the system is
-		// shutting down, or these symbols lost their places. Saying "stalled" then
-		// would leave a viewer waiting for a recovery nobody intends, and would
-		// overwrite the reason they were just given.
-		if executionContext.Err() != nil {
-			return
-		}
-
-		// One line went down, so every symbol on it hears the same news — nobody is
-		// being retired here, the line is simply being tried again.
-		openChannel.publishStalled(nil)
-
-		// Said out loud because the gap is the only evidence the growing back-off is
-		// working: a source that keeps accepting connections and dropping them is
-		// otherwise indistinguishable, in the log, from one being retried every second.
-		retryDelay := healthDomain.NextRetryDelay()
-		log.Printf("live k candle follow: %s is not delivering; trying again in %s",
-			openChannel.channel.Key, retryDelay)
-
-		if !waitOrDone(executionContext, retryDelay) {
-			return
-		}
-	}
-}
-
-// consume decides when this follow has something to do: a candle arrived, the feed
-// ended, or it has been silent long enough to count as dead.
-//
-// A connection that looks open but has stopped delivering is how this kind of feed
-// usually fails, and a viewer must not be left watching a frozen picture that claims
-// to be live.
-func (kCandleFollowService *KCandleFollowService) consume(
-	executionContext context.Context,
-	openChannel *kCandleFollowChannel,
-	healthDomain *domains.LiveChannelHealthDomain,
-	liveKCandles <-chan vo.LiveKCandleVo,
-) {
-	quietCheck := time.NewTicker(healthDomain.QuietCheckInterval())
-	defer quietCheck.Stop()
-
-	for {
-		select {
-		case <-executionContext.Done():
-			return
-
-		case liveKCandle, isDelivering := <-liveKCandles:
-			if !isDelivering {
-				return
-			}
-
-			// Anything arriving proves the line is alive, whichever symbol it was
-			// about — the silence and the retry gap belong to the line, not to a
-			// symbol that happened to trade.
-			healthDomain.MarkReceived(kCandleFollowService.clockProxy.Now())
-
-			// The candle names the symbol it belongs to, and that is the only thing
-			// that decides whose it is. Two symbols sharing a line are two pictures.
-			follow, isCarried := openChannel.followOf(liveKCandle.Symbol)
-			if !isCarried {
-				// Said out loud because from every other angle this looks healthy:
-				// the line is alive, candles are arriving, and not one of them ever
-				// reaches a viewer. Silence here would make a name that does not
-				// match — a case difference, a suffix — indistinguishable from a
-				// market that simply has nothing to report.
-				log.Printf("live k candle follow: %s carries no %s, dropping its candle",
-					openChannel.channel.Key, liveKCandle.Symbol)
-
-				continue
-			}
-			kCandleFollowService.report(executionContext, follow, liveKCandle)
-
-		case <-quietCheck.C:
-			if healthDomain.HasGoneQuiet(kCandleFollowService.clockProxy.Now()) {
-				return
-			}
-		}
-	}
-}
-
 // report decides what one reported candle amounts to: whether it is worth passing
 // on, and whether it is that candle's last word and therefore worth storing.
 func (kCandleFollowService *KCandleFollowService) report(
@@ -575,22 +465,7 @@ func (kCandleFollowService *KCandleFollowService) report(
 	liveKCandle vo.LiveKCandleVo,
 ) {
 	now := kCandleFollowService.clockProxy.Now()
-	if !follow.throttle.Admit(liveKCandle, now) {
-		return
-	}
-
-	status := dto.KCandleFollowStatusForming
-	if liveKCandle.Closed {
-		status = dto.KCandleFollowStatusClosed
-	}
-
-	follow.publish(dto.KCandleFollowUpdateDto{
-		Symbol:  liveKCandle.Symbol,
-		Status:  status,
-		KCandle: liveKCandle.ToDto(),
-	})
-
-	if !liveKCandle.Closed {
+	if !follow.pass(liveKCandle, now) || !liveKCandle.Closed {
 		return
 	}
 
@@ -618,19 +493,5 @@ func (kCandleFollowService *KCandleFollowService) store(
 		Save(executionContext, kCandleDomain.ToEntity()); saveError != nil {
 		log.Printf("live k candle follow: %s at %s not stored: %v",
 			liveKCandle.Symbol, liveKCandle.OpenTime.UTC(), saveError)
-	}
-}
-
-// waitOrDone waits out the retry gap, reporting false if the follow ended first so
-// that a follow nobody is watching stops immediately rather than after the wait.
-func waitOrDone(executionContext context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-executionContext.Done():
-		return false
-	case <-timer.C:
-		return true
 	}
 }
