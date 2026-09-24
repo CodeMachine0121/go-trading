@@ -71,6 +71,58 @@ func TestExecuteForEachCandle(t *testing.T) {
 		assert.Equal(t, 120.0, numberOf(perCandleIndicatorValues[2], "close"))
 	})
 
+	t.Run("a run cannot reach past the candle it stands on", func(t *testing.T) {
+		// A slice still carries the array behind it, so re-slicing up to its
+		// capacity is how a script would peek at candles that have not happened yet.
+		// Whatever it reaches for, the furthest candle it can see must be its own.
+		const reachesForTheFutureScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	everything := data[:cap(data)]
+	return map[string]float64{"furthest": everything[len(everything)-1].Close}
+}
+`
+
+		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), reachesForTheFutureScript, resultTypeOf(t, "float"),
+				candlesWithClosePrices(100, 110, 120, 130), noStrategyScriptParameters(t))
+
+		require.NoError(t, err)
+		require.Len(t, perCandleIndicatorValues, 4)
+		assert.Equal(t, 100.0, numberOf(perCandleIndicatorValues[0], "furthest"))
+		assert.Equal(t, 110.0, numberOf(perCandleIndicatorValues[1], "furthest"))
+		assert.Equal(t, 120.0, numberOf(perCandleIndicatorValues[2], "furthest"))
+		assert.Equal(t, 130.0, numberOf(perCandleIndicatorValues[3], "furthest"))
+	})
+
+	t.Run("a script writing into its candles leaves the caller's candles as they were", func(t *testing.T) {
+		const overwritesItsCandlesScript = `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	for candleIndex := range data {
+		data[candleIndex].Close = 999
+	}
+	return map[string]float64{}
+}
+`
+		kCandles := candlesWithClosePrices(100, 110, 120)
+
+		_, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+			ExecuteForEachCandle(
+				t.Context(), overwritesItsCandlesScript, resultTypeOf(t, "float"),
+				kCandles, noStrategyScriptParameters(t))
+
+		require.NoError(t, err)
+		assert.Equal(t, candlesWithClosePrices(100, 110, 120), kCandles)
+	})
+
 	t.Run("no candles at all produces no results and no failure", func(t *testing.T) {
 		perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
 			ExecuteForEachCandle(

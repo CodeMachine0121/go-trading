@@ -366,6 +366,61 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `,
 		},
+		{
+			// A panic on a goroutine of its own is beyond what the interpreter can
+			// catch: were this script allowed to run, it would take the whole server
+			// down with it rather than fail on its own.
+			name:           "starts a goroutine that panics",
+			expectedReason: "goroutine",
+			script: `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	go func() { panic("boom") }()
+	return map[string]float64{}
+}
+`,
+		},
+		{
+			name:           "starts a goroutine from a helper it defines",
+			expectedReason: "goroutine",
+			script: `
+package main
+
+import "indicator"
+
+func spin() {
+	for {
+	}
+}
+
+func startSpinning() {
+	go spin()
+}
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	return map[string]float64{}
+}
+`,
+		},
+		{
+			// With no goroutine to talk to, a receive can only wait forever, and a run
+			// parked on one stays parked after its allowance is spent.
+			name:           "waits on a channel nobody will send to",
+			expectedReason: "channel",
+			script: `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	waiting := make(chan float64)
+	return map[string]float64{"never": <-waiting}
+}
+`,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -406,6 +461,27 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	assert.Nil(t, indicatorValues)
 	assert.GreaterOrEqual(t, elapsed, allowance)
 	assert.Less(t, elapsed, 20*allowance)
+}
+
+func TestExecuteLeavesTheCallersCandlesAsTheyWere(t *testing.T) {
+	overwritesItsCandlesScript := `
+package main
+
+import "indicator"
+
+func Calculate(data []indicator.KCandle) map[string]float64 {
+	data[0].Close = 999
+	return map[string]float64{"close": data[0].Close}
+}
+`
+	kCandles := candlesWithClosePrices(100, 110)
+
+	indicatorValues, err := script.NewYaegiIndicatorScriptProxy(2*time.Second).
+		Execute(t.Context(), overwritesItsCandlesScript, resultTypeOf(t, "float"), kCandles, noStrategyScriptParameters(t))
+
+	require.NoError(t, err)
+	assert.Equal(t, 999.0, numberOf(indicatorValues, "close"))
+	assert.Equal(t, candlesWithClosePrices(100, 110), kCandles)
 }
 
 func TestExecuteStaysUsableAfterGivingUp(t *testing.T) {
