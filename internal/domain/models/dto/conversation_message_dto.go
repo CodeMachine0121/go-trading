@@ -15,4 +15,6 @@ type ConversationMessageDto struct {
 	QueryCount          int  `json:"queryCount,omitempty"`
 	StoppedAtQueryLimit bool `json:"stoppedAtQueryLimit,omitempty"`
 	Usage               int  `json:"usage,omitempty"`
+	// PendingRevisions are the rewrites proposed during this exchange, on its last message only.
+	PendingRevisions []AssistantPendingRevisionDto `json:"pendingRevisions,omitempty"`
 }

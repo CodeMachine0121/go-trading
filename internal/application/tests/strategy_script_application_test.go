@@ -28,6 +28,8 @@ type strategyScriptApplicationUnderTest struct {
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
 	// botsUsingScript is what every bot lookup answers; empty unless a test says otherwise.
 	botsUsingScript *[]entities.StrategyBot
+	// botLookupError is what every bot lookup fails with; none unless a test says otherwise.
+	botLookupError *error
 }
 
 // newStrategyScriptApplicationUnderTest wires the real domain service and model, mocking only
@@ -38,9 +40,10 @@ func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicati
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
 	botsUsingScript := &[]entities.StrategyBot{}
+	botLookupError := new(error)
 	strategyBotRepository.EXPECT().FindAllByStrategyScript(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(context.Context, uint) ([]entities.StrategyBot, error) {
-			return *botsUsingScript, nil
+			return *botsUsingScript, *botLookupError
 		}).AnyTimes()
 
 	return strategyScriptApplicationUnderTest{
@@ -56,6 +59,7 @@ func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicati
 		strategyScriptRepository:          strategyScriptRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
 		botsUsingScript:                   botsUsingScript,
+		botLookupError:                    botLookupError,
 	}
 }
 

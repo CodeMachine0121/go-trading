@@ -500,6 +500,19 @@ func registerRoutes(
 	engine.POST("/trading-strategies/:id/contract-backtests", requiresSignIn,
 		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
 
+	// Rewrites of what a person already has wait for their confirmation; each applier carries out one kind.
+	assistantRevisionApplication := application.NewAssistantRevisionApplication(
+		service.NewAssistantRevisionService(
+			persistence.NewAssistantPendingRevisionRepository(database),
+			persistence.NewAssistantCreatedSubjectRepository(database),
+			clock.NewSystemClockProxy(),
+		),
+		[]domaininterface.IAssistantRevisionApplier{
+			assistantqueries.NewStrategyScriptRevisionApplier(strategyScriptApplication),
+			assistantqueries.NewTradingStrategyRevisionApplier(tradingStrategyApplication),
+		},
+	)
+
 	assistantConversationApplication := application.NewAssistantConversationApplication(
 		service.NewAssistantConversationService(
 			persistence.NewConversationRepository(database),
@@ -517,6 +530,7 @@ func registerRoutes(
 				strategyScriptApplication,
 				tradingStrategyApplication,
 				tradingStrategyBacktestApplication,
+				assistantRevisionApplication,
 				applicationConfig.Assistant.CandleLimit,
 			),
 			clock.NewSystemClockProxy(),
@@ -625,6 +639,7 @@ func assistantQueriesFor(
 	strategyScriptApplication *application.StrategyScriptApplication,
 	tradingStrategyApplication *application.TradingStrategyApplication,
 	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication,
+	assistantRevisionApplication *application.AssistantRevisionApplication,
 	candleLimit int,
 ) []domaininterface.IAssistantQuery {
 	return []domaininterface.IAssistantQuery{
@@ -634,12 +649,12 @@ func assistantQueriesFor(
 		assistantqueries.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication),
 		assistantqueries.NewStrategyScriptListAssistantQuery(strategyScriptApplication),
 		assistantqueries.NewStrategyScriptGetAssistantQuery(strategyScriptApplication),
-		assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication),
-		assistantqueries.NewStrategyScriptUpdateAssistantQuery(strategyScriptApplication),
+		assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication, assistantRevisionApplication),
+		assistantqueries.NewStrategyScriptUpdateAssistantQuery(assistantRevisionApplication),
 		assistantqueries.NewTradingStrategyListAssistantQuery(tradingStrategyApplication),
 		assistantqueries.NewTradingStrategyGetAssistantQuery(tradingStrategyApplication),
-		assistantqueries.NewTradingStrategyCreateAssistantQuery(tradingStrategyApplication),
-		assistantqueries.NewTradingStrategyUpdateAssistantQuery(tradingStrategyApplication),
+		assistantqueries.NewTradingStrategyCreateAssistantQuery(tradingStrategyApplication, assistantRevisionApplication),
+		assistantqueries.NewTradingStrategyUpdateAssistantQuery(assistantRevisionApplication),
 		assistantqueries.NewTradingStrategyBacktestAssistantQuery(tradingStrategyBacktestApplication),
 	}
 }

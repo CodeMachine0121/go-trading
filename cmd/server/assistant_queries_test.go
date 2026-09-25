@@ -12,7 +12,7 @@ import (
 // TestTheAssistantIsOfferedNothingItMustNotDo pins the assistant's capabilities: deleting scripts or
 // strategies and touching bots are deliberately absent rather than guarded, since a lost algorithm is unrecoverable.
 func TestTheAssistantIsOfferedNothingItMustNotDo(t *testing.T) {
-	assistantQueries := assistantQueriesFor(nil, nil, nil, nil, nil, nil, 200)
+	assistantQueries := assistantQueriesFor(nil, nil, nil, nil, nil, nil, nil, 200)
 
 	offeredNames := make([]string, 0, len(assistantQueries))
 	for _, assistantQuery := range assistantQueries {
@@ -38,7 +38,7 @@ func TestTheAssistantIsOfferedNothingItMustNotDo(t *testing.T) {
 }
 
 func TestEveryOfferedCapabilityIsUsable(t *testing.T) {
-	assistantQueries := assistantQueriesFor(nil, nil, nil, nil, nil, nil, 200)
+	assistantQueries := assistantQueriesFor(nil, nil, nil, nil, nil, nil, nil, 200)
 
 	for _, assistantQuery := range assistantQueries {
 		t.Run(assistantQuery.Name(), func(t *testing.T) {

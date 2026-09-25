@@ -1,0 +1,69 @@
+package assistantqueries
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+)
+
+// TradingStrategyRevisionApplier reads a rewrite in the shape update_trading_strategy takes and carries it out
+// through the same rewrite a person makes, running-bot refusal included.
+type TradingStrategyRevisionApplier struct {
+	tradingStrategyApplication *application.TradingStrategyApplication
+}
+
+func NewTradingStrategyRevisionApplier(
+	tradingStrategyApplication *application.TradingStrategyApplication,
+) *TradingStrategyRevisionApplier {
+	return &TradingStrategyRevisionApplier{tradingStrategyApplication: tradingStrategyApplication}
+}
+
+func (tradingStrategyRevisionApplier *TradingStrategyRevisionApplier) SubjectKind() vo.AssistantRevisionSubjectKindVo {
+	return vo.AssistantRevisionSubjectTradingStrategy
+}
+
+func (tradingStrategyRevisionApplier *TradingStrategyRevisionApplier) Inspect(
+	executionContext context.Context, viewerID uint, content string,
+) (dto.RewriteTargetDto, error) {
+	writeDto, readError := tradingStrategyRevisionApplier.writeDtoOf(content)
+	if readError != nil {
+		return dto.RewriteTargetDto{}, readError
+	}
+
+	return tradingStrategyRevisionApplier.tradingStrategyApplication.InspectTradingStrategyRewrite(
+		executionContext, viewerID, writeDto)
+}
+
+func (tradingStrategyRevisionApplier *TradingStrategyRevisionApplier) Apply(
+	executionContext context.Context, viewerID uint, content string,
+) (string, error) {
+	writeDto, readError := tradingStrategyRevisionApplier.writeDtoOf(content)
+	if readError != nil {
+		return "", readError
+	}
+
+	tradingStrategyDto, updateError := tradingStrategyRevisionApplier.tradingStrategyApplication.
+		UpdateTradingStrategy(executionContext, viewerID, writeDto)
+	if updateError != nil {
+		return "", updateError
+	}
+
+	return renderedTradingStrategy(tradingStrategyDto)
+}
+
+func (tradingStrategyRevisionApplier *TradingStrategyRevisionApplier) writeDtoOf(
+	content string,
+) (dto.TradingStrategyWriteDto, error) {
+	writeArguments := tradingStrategyWriteAssistantArguments{}
+	if unmarshalError := json.Unmarshal([]byte(content), &writeArguments); unmarshalError != nil {
+		return dto.TradingStrategyWriteDto{}, fmt.Errorf(
+			"%w: 參數不是合法的 JSON: %s", domains.ErrAssistantQueryArgument, unmarshalError)
+	}
+
+	return writeArguments.ToWriteDto(writeArguments.TradingStrategyID), nil
+}

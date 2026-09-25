@@ -90,6 +90,43 @@ func (tradingStrategyApplication *TradingStrategyApplication) UpdateTradingStrat
 		executionContext, viewerID, resolvedWriteDto)
 }
 
+// InspectTradingStrategyRewrite applies the rewrite's rules without writing and says how many bots follow the
+// strategy; running bots are not refused here, since the owner can stop them before the rewrite is carried out.
+func (tradingStrategyApplication *TradingStrategyApplication) InspectTradingStrategyRewrite(
+	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
+) (dto.RewriteTargetDto, error) {
+	// Checked first so a stranger's strategy is refused with the usual not-found sentence.
+	if _, findError := tradingStrategyApplication.tradingStrategyService.GetTradingStrategy(
+		executionContext, viewerID, writeDto.ID); findError != nil {
+		return dto.RewriteTargetDto{}, findError
+	}
+
+	resolvedWriteDto, resolveError := tradingStrategyApplication.withResolvedStrategyScripts(
+		executionContext, viewerID, writeDto)
+	if resolveError != nil {
+		return dto.RewriteTargetDto{}, resolveError
+	}
+
+	tradingStrategyDto, inspectError := tradingStrategyApplication.tradingStrategyService.
+		InspectTradingStrategyRewrite(executionContext, viewerID, resolvedWriteDto)
+	if inspectError != nil {
+		return dto.RewriteTargetDto{}, inspectError
+	}
+
+	references, referencesError := tradingStrategyApplication.strategyBotService.ReadReferencesTo(
+		executionContext, writeDto.ID)
+	if referencesError != nil {
+		return dto.RewriteTargetDto{}, referencesError
+	}
+
+	return dto.RewriteTargetDto{
+		ID:                tradingStrategyDto.ID,
+		Name:              tradingStrategyDto.Name,
+		UpdatedAt:         tradingStrategyDto.UpdatedAt,
+		BotReferenceCount: references.TotalCount,
+	}, nil
+}
+
 // DeleteTradingStrategy refuses while any bot, running or not, still follows the strategy, since it
 // would be left pointing at nothing.
 func (tradingStrategyApplication *TradingStrategyApplication) DeleteTradingStrategy(

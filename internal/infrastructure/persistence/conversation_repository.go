@@ -16,8 +16,9 @@ import (
 
 // The association names are shared so every read preloads exchanges and their queries the same way.
 const (
-	conversationTurnsAssociation       = "Turns"
-	conversationTurnQueriesAssociation = "Turns.Queries"
+	conversationTurnsAssociation         = "Turns"
+	conversationTurnQueriesAssociation   = "Turns.Queries"
+	conversationTurnRevisionsAssociation = "Turns.PendingRevisions"
 )
 
 type ConversationRepository struct {
@@ -177,7 +178,7 @@ func (conversationRepository *ConversationRepository) FindAllOwnedBy(
 
 	result := conversationRepository.database.WithContext(executionContext).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
-		Preload(conversationTurnsAssociation, orderedTurns).
+		Preload(conversationTurnsAssociation, orderedByIdentifier).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "last_active_at"}, Desc: true}).
 		Find(&conversations)
 	if result.Error != nil {
@@ -215,8 +216,9 @@ func readConversation(database *gorm.DB, id uint) (entities.Conversation, error)
 	conversation := entities.Conversation{}
 
 	result := database.
-		Preload(conversationTurnsAssociation, orderedTurns).
+		Preload(conversationTurnsAssociation, orderedByIdentifier).
 		Preload(conversationTurnQueriesAssociation, orderedQueryRecords).
+		Preload(conversationTurnRevisionsAssociation, orderedByIdentifier).
 		First(&conversation, id)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return entities.Conversation{}, domains.ConversationNotFound(id)
@@ -228,7 +230,7 @@ func readConversation(database *gorm.DB, id uint) (entities.Conversation, error)
 	return conversation, nil
 }
 
-func orderedTurns(database *gorm.DB) *gorm.DB {
+func orderedByIdentifier(database *gorm.DB) *gorm.DB {
 	return database.Order(clause.OrderByColumn{Column: clause.Column{Name: "id"}})
 }
 

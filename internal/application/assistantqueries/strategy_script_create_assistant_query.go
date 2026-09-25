@@ -13,11 +13,18 @@ import (
 // StrategyScriptCreateAssistantQuery lets the assistant save a new algorithm; deleting is
 // deliberately not offered, since a mistaken delete loses work that cannot be recovered.
 type StrategyScriptCreateAssistantQuery struct {
-	strategyScriptApplication *application.StrategyScriptApplication
+	strategyScriptApplication    *application.StrategyScriptApplication
+	assistantRevisionApplication *application.AssistantRevisionApplication
 }
 
-func NewStrategyScriptCreateAssistantQuery(strategyScriptApplication *application.StrategyScriptApplication) *StrategyScriptCreateAssistantQuery {
-	return &StrategyScriptCreateAssistantQuery{strategyScriptApplication: strategyScriptApplication}
+func NewStrategyScriptCreateAssistantQuery(
+	strategyScriptApplication *application.StrategyScriptApplication,
+	assistantRevisionApplication *application.AssistantRevisionApplication,
+) *StrategyScriptCreateAssistantQuery {
+	return &StrategyScriptCreateAssistantQuery{
+		strategyScriptApplication:    strategyScriptApplication,
+		assistantRevisionApplication: assistantRevisionApplication,
+	}
 }
 
 func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Name() string {
@@ -47,6 +54,9 @@ func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Ru
 	if createError != nil {
 		return "", createError
 	}
+
+	strategyScriptCreateAssistantQuery.assistantRevisionApplication.RecordCreation(
+		executionContext, origin, vo.AssistantRevisionSubjectStrategyScript, strategyScriptDto.ID)
 
 	return renderedStrategyScript(strategyScriptDto)
 }

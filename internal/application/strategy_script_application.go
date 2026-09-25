@@ -71,6 +71,31 @@ func (strategyScriptApplication *StrategyScriptApplication) UpdateStrategyScript
 	return strategyScriptApplication.strategyScriptService.UpdateStrategyScript(executionContext, writeDto)
 }
 
+// InspectStrategyScriptRewrite applies the rewrite's rules without writing and says how many bots use the script;
+// running bots are not refused here, since the owner can stop them before the rewrite is carried out.
+func (strategyScriptApplication *StrategyScriptApplication) InspectStrategyScriptRewrite(
+	executionContext context.Context, writeDto dto.StrategyScriptWriteDto,
+) (dto.RewriteTargetDto, error) {
+	strategyScriptDto, inspectError := strategyScriptApplication.strategyScriptService.InspectStrategyScriptRewrite(
+		executionContext, writeDto)
+	if inspectError != nil {
+		return dto.RewriteTargetDto{}, inspectError
+	}
+
+	references, referencesError := strategyScriptApplication.strategyBotService.ReadReferencesToStrategyScript(
+		executionContext, writeDto.OwnerID, writeDto.ID)
+	if referencesError != nil {
+		return dto.RewriteTargetDto{}, referencesError
+	}
+
+	return dto.RewriteTargetDto{
+		ID:                strategyScriptDto.ID,
+		Name:              strategyScriptDto.Name,
+		UpdatedAt:         strategyScriptDto.UpdatedAt,
+		BotReferenceCount: references.TotalCount,
+	}, nil
+}
+
 func (strategyScriptApplication *StrategyScriptApplication) DeleteStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {

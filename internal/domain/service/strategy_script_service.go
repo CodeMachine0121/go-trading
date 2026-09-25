@@ -87,34 +87,9 @@ func (strategyScriptService *StrategyScriptService) ListAvailableStrategyScripts
 func (strategyScriptService *StrategyScriptService) UpdateStrategyScript(
 	executionContext context.Context, writeDto dto.StrategyScriptWriteDto,
 ) (dto.StrategyScriptDto, error) {
-	// Refuse an ID-less rewrite here instead of relying on what the ORM does with a write that names no row.
-	if writeDto.ID == 0 {
-		return dto.StrategyScriptDto{}, domains.StrategyScriptNotFound(writeDto.ID)
-	}
-
-	// Ownership is checked before content so a stranger learns nothing about the target from validation errors.
-	existingStrategyScript, ownershipError := strategyScriptService.requireOwnership(
-		executionContext, writeDto.OwnerID, writeDto.ID)
-	if ownershipError != nil {
-		return dto.StrategyScriptDto{}, ownershipError
-	}
-
-	// The market data kind is judged against the stored one: omitting it keeps it, changing it is refused.
-	existingMarketDataKind, existingKindError := domains.NewMarketDataKindDomain(
-		existingStrategyScript.MarketDataKind)
-	if existingKindError != nil {
-		return dto.StrategyScriptDto{}, existingKindError
-	}
-
-	marketDataKind, retainingError := existingMarketDataKind.Retaining(writeDto.MarketDataKind)
-	if retainingError != nil {
-		return dto.StrategyScriptDto{}, retainingError
-	}
-	writeDto.MarketDataKind = string(marketDataKind.Value())
-
-	strategyScriptDomain, validationError := domains.NewStrategyScriptDomain(writeDto)
-	if validationError != nil {
-		return dto.StrategyScriptDto{}, validationError
+	_, strategyScriptDomain, rewriteError := strategyScriptService.preparedRewrite(executionContext, writeDto)
+	if rewriteError != nil {
+		return dto.StrategyScriptDto{}, rewriteError
 	}
 
 	updatedStrategyScript, updateError := strategyScriptService.strategyScriptRepository.Update(
@@ -124,6 +99,54 @@ func (strategyScriptService *StrategyScriptService) UpdateStrategyScript(
 	}
 
 	return updatedStrategyScript.ToDto(), nil
+}
+
+// InspectStrategyScriptRewrite applies every rule a rewrite would, writes nothing, and returns the script as it stands.
+func (strategyScriptService *StrategyScriptService) InspectStrategyScriptRewrite(
+	executionContext context.Context, writeDto dto.StrategyScriptWriteDto,
+) (dto.StrategyScriptDto, error) {
+	existingStrategyScript, _, rewriteError := strategyScriptService.preparedRewrite(executionContext, writeDto)
+	if rewriteError != nil {
+		return dto.StrategyScriptDto{}, rewriteError
+	}
+
+	return existingStrategyScript.ToDto(), nil
+}
+
+// preparedRewrite checks a rewrite in the order that reveals nothing to a stranger: identifier, ownership, then content.
+func (strategyScriptService *StrategyScriptService) preparedRewrite(
+	executionContext context.Context, writeDto dto.StrategyScriptWriteDto,
+) (entities.StrategyScript, domains.StrategyScriptDomain, error) {
+	// Refuse an ID-less rewrite here instead of relying on what the ORM does with a write that names no row.
+	if writeDto.ID == 0 {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, domains.StrategyScriptNotFound(writeDto.ID)
+	}
+
+	existingStrategyScript, ownershipError := strategyScriptService.requireOwnership(
+		executionContext, writeDto.OwnerID, writeDto.ID)
+	if ownershipError != nil {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, ownershipError
+	}
+
+	// The market data kind is judged against the stored one: omitting it keeps it, changing it is refused.
+	existingMarketDataKind, existingKindError := domains.NewMarketDataKindDomain(
+		existingStrategyScript.MarketDataKind)
+	if existingKindError != nil {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, existingKindError
+	}
+
+	marketDataKind, retainingError := existingMarketDataKind.Retaining(writeDto.MarketDataKind)
+	if retainingError != nil {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, retainingError
+	}
+	writeDto.MarketDataKind = string(marketDataKind.Value())
+
+	strategyScriptDomain, validationError := domains.NewStrategyScriptDomain(writeDto)
+	if validationError != nil {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, validationError
+	}
+
+	return existingStrategyScript, strategyScriptDomain, nil
 }
 
 // DeleteStrategyScript removes the viewer's script along with its marketplace listing and every adoption.

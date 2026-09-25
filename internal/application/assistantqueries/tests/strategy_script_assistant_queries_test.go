@@ -1,6 +1,7 @@
 package assistantqueries_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -23,6 +24,9 @@ type strategyScriptAssistantQueriesUnderTest struct {
 	createAssistantQuery     *assistantqueries.StrategyScriptCreateAssistantQuery
 	updateAssistantQuery     *assistantqueries.StrategyScriptUpdateAssistantQuery
 	strategyScriptRepository *mocks.MockIStrategyScriptRepository
+	// botsUsingScript is what every bot lookup answers; empty unless a test says otherwise.
+	botsUsingScript *[]entities.StrategyBot
+	revision        assistantRevisionUnderTest
 }
 
 // newStrategyScriptAssistantQueriesUnderTest mocks only storage, so the assistant is bound by every rule a person is.
@@ -33,8 +37,11 @@ func newStrategyScriptAssistantQueriesUnderTest(t *testing.T) strategyScriptAssi
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
+	botsUsingScript := &[]entities.StrategyBot{}
 	strategyBotRepository.EXPECT().FindAllByStrategyScript(gomock.Any(), gomock.Any()).
-		Return([]entities.StrategyBot{}, nil).AnyTimes()
+		DoAndReturn(func(context.Context, uint) ([]entities.StrategyBot, error) {
+			return *botsUsingScript, nil
+		}).AnyTimes()
 	strategyScriptApplication := application.NewStrategyScriptApplication(
 		service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewStrategyBotService(
@@ -45,12 +52,17 @@ func newStrategyScriptAssistantQueriesUnderTest(t *testing.T) strategyScriptAssi
 			mocks.NewMockIContractFundingRateSettlementRepository(controller),
 			mocks.NewMockIClockProxy(controller)))
 
+	revision := newAssistantRevisionUnderTest(controller, strategyScriptApplication, nil)
+
 	return strategyScriptAssistantQueriesUnderTest{
-		listAssistantQuery:       assistantqueries.NewStrategyScriptListAssistantQuery(strategyScriptApplication),
-		getAssistantQuery:        assistantqueries.NewStrategyScriptGetAssistantQuery(strategyScriptApplication),
-		createAssistantQuery:     assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication),
-		updateAssistantQuery:     assistantqueries.NewStrategyScriptUpdateAssistantQuery(strategyScriptApplication),
+		listAssistantQuery: assistantqueries.NewStrategyScriptListAssistantQuery(strategyScriptApplication),
+		getAssistantQuery:  assistantqueries.NewStrategyScriptGetAssistantQuery(strategyScriptApplication),
+		createAssistantQuery: assistantqueries.NewStrategyScriptCreateAssistantQuery(
+			strategyScriptApplication, revision.application),
+		updateAssistantQuery:     assistantqueries.NewStrategyScriptUpdateAssistantQuery(revision.application),
 		strategyScriptRepository: strategyScriptRepository,
+		botsUsingScript:          botsUsingScript,
+		revision:                 revision,
 	}
 }
 
@@ -209,7 +221,9 @@ func TestStrategyScriptCreateAssistantQueryIsBoundByEveryRuleAPersonsSaveIsBound
 }
 
 func TestStrategyScriptUpdateAssistantQueryRewritesTheStrategyScriptItNames(t *testing.T) {
+	// Created by the assistant in this conversation and used by no bot, so the rewrite needs no confirmation.
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
+	*fixture.revision.createdInConversation = true
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
 		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil).AnyTimes()
 
@@ -272,8 +286,9 @@ func TestStrategyScriptAssistantQueriesRefuseArgumentsTheyCannotRead(t *testing.
 func TestStrategyScriptAssistantQueriesRenderStrategyScriptsTheSameWayEveryTime(t *testing.T) {
 	// Read, save and rewrite return the same shape.
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
+	*fixture.revision.createdInConversation = true
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
-		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil).Times(3)
+		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil).AnyTimes()
 	fixture.strategyScriptRepository.EXPECT().Update(gomock.Any(), gomock.Any()).
 		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil)
 

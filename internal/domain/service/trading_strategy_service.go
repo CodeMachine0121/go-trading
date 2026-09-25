@@ -77,10 +77,42 @@ func (tradingStrategyService *TradingStrategyService) GetTradingStrategy(
 func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
 ) (dto.TradingStrategyDto, error) {
+	_, tradingStrategyDomain, rewriteError := tradingStrategyService.preparedRewrite(
+		executionContext, viewerID, writeDto)
+	if rewriteError != nil {
+		return dto.TradingStrategyDto{}, rewriteError
+	}
+
+	savedTradingStrategy, saveError := tradingStrategyService.tradingStrategyRepository.Save(
+		executionContext, tradingStrategyDomain.ToEntity())
+	if saveError != nil {
+		return dto.TradingStrategyDto{}, saveError
+	}
+
+	return savedTradingStrategy.ToDto(), nil
+}
+
+// InspectTradingStrategyRewrite applies every rule a rewrite would, writes nothing, and returns the strategy as it stands.
+func (tradingStrategyService *TradingStrategyService) InspectTradingStrategyRewrite(
+	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
+) (dto.TradingStrategyDto, error) {
+	storedTradingStrategy, _, rewriteError := tradingStrategyService.preparedRewrite(
+		executionContext, viewerID, writeDto)
+	if rewriteError != nil {
+		return dto.TradingStrategyDto{}, rewriteError
+	}
+
+	return storedTradingStrategy.ToDto(), nil
+}
+
+// preparedRewrite checks ownership before content, so a stranger's strategy reads as missing.
+func (tradingStrategyService *TradingStrategyService) preparedRewrite(
+	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
+) (entities.TradingStrategy, domains.TradingStrategyDomain, error) {
 	storedTradingStrategy, findError := tradingStrategyService.findOwnedTradingStrategy(
 		executionContext, viewerID, writeDto.ID)
 	if findError != nil {
-		return dto.TradingStrategyDto{}, findError
+		return entities.TradingStrategy{}, domains.TradingStrategyDomain{}, findError
 	}
 
 	// The owner always comes from storage, so a strategy cannot change hands.
@@ -90,13 +122,13 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	storedMarketDataKind, storedKindError := domains.NewMarketDataKindDomain(
 		storedTradingStrategy.MarketDataKind)
 	if storedKindError != nil {
-		return dto.TradingStrategyDto{}, storedKindError
+		return entities.TradingStrategy{}, domains.TradingStrategyDomain{}, storedKindError
 	}
 
 	retainedMarketDataKind, retainError := storedMarketDataKind.RetainingForTradingStrategy(
 		writeDto.MarketDataKind)
 	if retainError != nil {
-		return dto.TradingStrategyDto{}, retainError
+		return entities.TradingStrategy{}, domains.TradingStrategyDomain{}, retainError
 	}
 	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
 
@@ -107,16 +139,10 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
 	if validationError != nil {
-		return dto.TradingStrategyDto{}, validationError
+		return entities.TradingStrategy{}, domains.TradingStrategyDomain{}, validationError
 	}
 
-	savedTradingStrategy, saveError := tradingStrategyService.tradingStrategyRepository.Save(
-		executionContext, tradingStrategyDomain.ToEntity())
-	if saveError != nil {
-		return dto.TradingStrategyDto{}, saveError
-	}
-
-	return savedTradingStrategy.ToDto(), nil
+	return storedTradingStrategy, tradingStrategyDomain, nil
 }
 
 // DeleteTradingStrategy removes the viewer's strategy; the caller checks whether anything still follows it.

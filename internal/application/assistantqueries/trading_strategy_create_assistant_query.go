@@ -13,13 +13,18 @@ import (
 // TradingStrategyCreateAssistantQuery lets the assistant assemble scripts and buy/sell trees into
 // a saved trading strategy; deleting is not offered, and domain refusals go back for it to fix.
 type TradingStrategyCreateAssistantQuery struct {
-	tradingStrategyApplication *application.TradingStrategyApplication
+	tradingStrategyApplication   *application.TradingStrategyApplication
+	assistantRevisionApplication *application.AssistantRevisionApplication
 }
 
 func NewTradingStrategyCreateAssistantQuery(
 	tradingStrategyApplication *application.TradingStrategyApplication,
+	assistantRevisionApplication *application.AssistantRevisionApplication,
 ) *TradingStrategyCreateAssistantQuery {
-	return &TradingStrategyCreateAssistantQuery{tradingStrategyApplication: tradingStrategyApplication}
+	return &TradingStrategyCreateAssistantQuery{
+		tradingStrategyApplication:   tradingStrategyApplication,
+		assistantRevisionApplication: assistantRevisionApplication,
+	}
 }
 
 func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) Name() string {
@@ -51,6 +56,9 @@ func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) 
 	if createError != nil {
 		return "", createError
 	}
+
+	tradingStrategyCreateAssistantQuery.assistantRevisionApplication.RecordCreation(
+		executionContext, origin, vo.AssistantRevisionSubjectTradingStrategy, tradingStrategyDto.ID)
 
 	return renderedTradingStrategy(tradingStrategyDto)
 }

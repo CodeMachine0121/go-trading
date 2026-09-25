@@ -79,6 +79,7 @@ func (conversationDomain ConversationDomain) ToDto() dto.ConversationDto {
 			QueryCount:          message.QueryCount,
 			StoppedAtQueryLimit: message.StoppedAtQueryLimit,
 			Usage:               message.Usage,
+			PendingRevisions:    message.PendingRevisions,
 		})
 	}
 
@@ -109,6 +110,8 @@ type conversationMessage struct {
 	QueryCount          int
 	StoppedAtQueryLimit bool
 	Usage               int
+	// PendingRevisions ride on the last message of their exchange: the answer, or the question while there is none.
+	PendingRevisions []dto.AssistantPendingRevisionDto
 }
 
 // messages unfolds exchanges earliest first; an unanswered exchange yields only its question, carrying the status instead of a blank reply.
@@ -116,28 +119,41 @@ func (conversationDomain ConversationDomain) messages() []conversationMessage {
 	messages := make([]conversationMessage, 0, len(conversationDomain.conversation.Turns)*2)
 	for _, turn := range conversationDomain.conversation.Turns {
 		status := vo.NewAssistantTurnStatusVo(turn.Status)
-
-		messages = append(messages, conversationMessage{
-			Role:          vo.AssistantMessageRoleAsk,
-			Content:       turn.Ask,
-			CreatedAt:     turn.CreatedAt,
-			Status:        status,
-			FailureReason: turn.FailureReason,
-		})
+		pendingRevisions := make([]dto.AssistantPendingRevisionDto, 0, len(turn.PendingRevisions))
+		for _, pendingRevision := range turn.PendingRevisions {
+			pendingRevisions = append(pendingRevisions, pendingRevision.ToDto())
+		}
 
 		if status != vo.AssistantTurnAnswered {
+			messages = append(messages, conversationMessage{
+				Role:             vo.AssistantMessageRoleAsk,
+				Content:          turn.Ask,
+				CreatedAt:        turn.CreatedAt,
+				Status:           status,
+				FailureReason:    turn.FailureReason,
+				PendingRevisions: pendingRevisions,
+			})
+
 			continue
 		}
 
-		messages = append(messages, conversationMessage{
-			Role:                vo.AssistantMessageRoleAnswer,
-			Content:             turn.Answer,
-			CreatedAt:           turn.CreatedAt,
-			Status:              status,
-			QueryCount:          turn.QueryCount,
-			StoppedAtQueryLimit: turn.StoppedAtQueryLimit,
-			Usage:               turn.Usage,
-		})
+		messages = append(messages,
+			conversationMessage{
+				Role:      vo.AssistantMessageRoleAsk,
+				Content:   turn.Ask,
+				CreatedAt: turn.CreatedAt,
+				Status:    status,
+			},
+			conversationMessage{
+				Role:                vo.AssistantMessageRoleAnswer,
+				Content:             turn.Answer,
+				CreatedAt:           turn.CreatedAt,
+				Status:              status,
+				QueryCount:          turn.QueryCount,
+				StoppedAtQueryLimit: turn.StoppedAtQueryLimit,
+				Usage:               turn.Usage,
+				PendingRevisions:    pendingRevisions,
+			})
 	}
 
 	return messages

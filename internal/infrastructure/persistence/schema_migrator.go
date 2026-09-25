@@ -70,6 +70,8 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.Conversation{},
 		&entities.AssistantTurn{},
 		&entities.AssistantQueryRecord{},
+		&entities.AssistantPendingRevision{},
+		&entities.AssistantCreatedSubject{},
 		&entities.User{},
 		&entities.Session{},
 		&entities.PublishedStrategyScript{},
