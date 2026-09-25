@@ -15,9 +15,10 @@ import (
 
 var contractReplayStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// contractReplayBar figures left at zero fall back to the close, giving a flat bar.
+// contractReplayBar figures left at zero fall back to the close, giving a flat bar; the mark open falls back to the open.
 type contractReplayBar struct {
 	open      float64
+	markOpen  float64
 	close     float64
 	high      float64
 	low       float64
@@ -135,7 +136,10 @@ func contractReplayCandles(aggregationInterval string, bars []contractReplayBar)
 		if open == 0 {
 			open = bar.close
 		}
-		markHigh, markLow, markClose := bar.markHigh, bar.markLow, bar.markClose
+		markOpen, markHigh, markLow, markClose := bar.markOpen, bar.markHigh, bar.markLow, bar.markClose
+		if markOpen == 0 {
+			markOpen = open
+		}
 		if markHigh == 0 {
 			markHigh = high
 		}
@@ -153,7 +157,7 @@ func contractReplayCandles(aggregationInterval string, bars []contractReplayBar)
 			High:      decimal.NewFromFloat(high),
 			Low:       decimal.NewFromFloat(low),
 			Close:     decimal.NewFromFloat(bar.close),
-			MarkOpen:  decimal.NewFromFloat(bar.close),
+			MarkOpen:  decimal.NewFromFloat(markOpen),
 			MarkHigh:  decimal.NewFromFloat(markHigh),
 			MarkLow:   decimal.NewFromFloat(markLow),
 			MarkClose: decimal.NewFromFloat(markClose),
@@ -1126,7 +1130,7 @@ func TestContractBacktestLossNeverExceedsWhatThePositionHeld(t *testing.T) {
 
 	// The traded close falls to 85 without the mark reaching liquidation, so the signal closes a position worth less than nothing and returns zero.
 	resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
-		[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 85, markLow: 91, markClose: 91, signal: vo.SignalSell}})
+		[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 85, markOpen: 91, markLow: 91, markClose: 91, signal: vo.SignalSell}})
 
 	require.Len(t, resultDto.ClosedTrades, 1)
 	assert.Equal(t, "signal", resultDto.ClosedTrades[0].ExitReason)

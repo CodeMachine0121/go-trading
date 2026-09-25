@@ -476,8 +476,8 @@ func TestTradingStrategyBacktestAssistantQuerySimulatesTheExitDistancesItWasGive
 		require.Len(t, report.ClosedTrades, 1)
 		assert.Equal(t, string(vo.TradeExitReasonStopLoss), report.ClosedTrades[0].ExitReason)
 		assert.Equal(t, 1, report.Summary.StopLossExitCount)
-		// 101 units bought at 100, taken off at 98.
-		assert.Equal(t, "9898", report.Summary.FinalEquity)
+		// 101 units bought at 100; the flat bar at 90 gaps through the 98 stop, so they come off at 90.
+		assert.Equal(t, "9090", report.Summary.FinalEquity)
 	})
 
 	t.Run("naming none rides the fall all the way down", func(t *testing.T) {

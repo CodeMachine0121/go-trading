@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// bar carries a real high and low because exit levels are judged against them.
+// bar carries a real high and low because exit levels are judged against them; an open left at zero falls back to the close.
 type bar struct {
+	open  float64
 	high  float64
 	low   float64
 	close float64
@@ -38,9 +39,14 @@ func replayWithExitsOf(
 
 	inputKCandles := make([]vo.KCandleVo, 0, len(bars))
 	for candleIndex, candleBar := range bars {
+		open := candleBar.open
+		if open == 0 {
+			open = candleBar.close
+		}
 		inputKCandles = append(inputKCandles, vo.KCandleVo{
 			Symbol:              "BTCUSDT",
 			OpenTimeUnixSeconds: replayStart.Add(time.Duration(candleIndex) * time.Hour).Unix(),
+			Open:                open,
 			High:                candleBar.high,
 			Low:                 candleBar.low,
 			Close:               candleBar.close,
