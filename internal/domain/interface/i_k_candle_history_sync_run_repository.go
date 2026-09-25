@@ -17,6 +17,8 @@ type IKCandleHistorySyncRunRepository interface {
 	FindOne(
 		executionContext context.Context, id uint,
 	) (entities.KCandleHistorySyncRun, bool, error)
+	// CountRunning is the source of truth for the concurrency limit, since runs live only as rows.
+	CountRunning(executionContext context.Context) (int, error)
 	// FailAllRunning marks every running run failed, since the process that was fetching no longer exists.
 	FailAllRunning(
 		executionContext context.Context, reason string, finishedAt time.Time,

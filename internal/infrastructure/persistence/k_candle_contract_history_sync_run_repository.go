@@ -72,6 +72,21 @@ func (kCandleContractHistorySyncRunRepository *KCandleContractHistorySyncRunRepo
 	return syncRun, true, nil
 }
 
+func (kCandleContractHistorySyncRunRepository *KCandleContractHistorySyncRunRepository) CountRunning(
+	executionContext context.Context,
+) (int, error) {
+	runningCount := int64(0)
+	counted := kCandleContractHistorySyncRunRepository.database.WithContext(executionContext).
+		Model(&entities.KCandleContractHistorySyncRun{}).
+		Where(clause.Eq{Column: "status", Value: string(vo.KCandleHistorySyncRunning)}).
+		Count(&runningCount)
+	if counted.Error != nil {
+		return 0, fmt.Errorf("count running contract k candle history sync runs: %w", counted.Error)
+	}
+
+	return int(runningCount), nil
+}
+
 // FailAllRunning fails every running run in one statement, since all are stale after a restart.
 func (kCandleContractHistorySyncRunRepository *KCandleContractHistorySyncRunRepository) FailAllRunning(
 	executionContext context.Context, reason string, finishedAt time.Time,

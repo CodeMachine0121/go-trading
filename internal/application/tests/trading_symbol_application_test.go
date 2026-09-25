@@ -46,7 +46,7 @@ func newTradingSymbolApplicationUnderTest(t *testing.T) tradingSymbolApplication
 				tradingSymbolMarketCatalog()), service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(controller), tradingSymbolRepository,
 				marketDataProxy, tradingSymbolClockProxy(controller),
-				tradingSymbolMarketCatalog(), 5, time.Hour)),
+				tradingSymbolMarketCatalog(), 5, time.Hour, 2)),
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
 		symbolLookupProxy:       symbolLookupProxy,

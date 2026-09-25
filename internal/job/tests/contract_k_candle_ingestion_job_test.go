@@ -76,7 +76,7 @@ func newContractJobUnderTest(t *testing.T, symbols []string) contractJobUnderTes
 				mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController),
 				symbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, nil)),
+				roundCandleCount, lookback, nil, 2)),
 		testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
@@ -174,7 +174,7 @@ func TestTheContractJobWritesDownWhatWentWrongWithoutStopping(t *testing.T) {
 				mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController),
 				symbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, nil)),
+				roundCandleCount, lookback, nil, 2)),
 		testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
@@ -226,7 +226,7 @@ func contractJobReaching(
 				mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController),
 				symbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, nil)),
+				roundCandleCount, lookback, nil, 2)),
 		testInterval)
 	t.Cleanup(ingestionJob.Stop)
 

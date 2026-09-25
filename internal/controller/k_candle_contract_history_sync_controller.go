@@ -44,7 +44,7 @@ func (kCandleContractHistorySyncController *KCandleContractHistorySyncController
 			ginContext.Request.Context(),
 			historySyncRequest.ToSyncDto(),
 			kCandleContractHistorySyncController.lookbackCeilingDays)
-	// Each case calls for a different caller action: shorten, register or retype, wait for the running sync, or retry later.
+	// Each case calls for a different caller action: shorten, register or retype, wait for the running sync, wait for a free place, or retry later.
 	switch {
 	case errors.Is(syncError, domains.ErrKCandleHistoryLookback),
 		errors.Is(syncError, domains.ErrTradingSymbolNamed):
@@ -53,6 +53,10 @@ func (kCandleContractHistorySyncController *KCandleContractHistorySyncController
 		return
 	case errors.Is(syncError, domains.ErrTradingSymbolNotRegistered):
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": syncError.Error()})
+
+		return
+	case errors.Is(syncError, domains.ErrKCandleHistorySyncCapacityReached):
+		ginContext.JSON(http.StatusTooManyRequests, gin.H{"message": syncError.Error()})
 
 		return
 	case errors.Is(syncError, domains.ErrKCandleHistorySyncInProgress):

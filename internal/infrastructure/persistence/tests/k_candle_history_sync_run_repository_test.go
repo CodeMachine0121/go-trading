@@ -170,4 +170,34 @@ func TestAHistorySyncRepositorySaysSoWhenStorageIsGone(t *testing.T) {
 	_, sweepError := repository.FailAllRunning(
 		t.Context(), "interrupted by restart", time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC))
 	require.Error(t, sweepError)
+
+	_, countError := repository.CountRunning(t.Context())
+	require.Error(t, countError)
+}
+
+func TestCountingRunningHistorySyncsLeavesTheEndedOnesOut(t *testing.T) {
+	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
+	nothingCount, nothingError := repository.CountRunning(t.Context())
+	require.NoError(t, nothingError)
+	assert.Zero(t, nothingCount)
+
+	_, firstError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
+	require.NoError(t, firstError)
+	_, secondError := repository.Save(t.Context(), startedRun("ETHUSDT", 30))
+	require.NoError(t, secondError)
+	finishedAt := time.Date(2026, 9, 7, 2, 0, 0, 0, time.UTC)
+	for _, endedStatus := range []vo.KCandleHistorySyncRunStatusVo{
+		vo.KCandleHistorySyncSucceeded, vo.KCandleHistorySyncFailed,
+	} {
+		endedRun := startedRun("SOLUSDT", 30)
+		endedRun.Status = string(endedStatus)
+		endedRun.FinishedAt = &finishedAt
+		_, endedError := repository.Save(t.Context(), endedRun)
+		require.NoError(t, endedError)
+	}
+
+	runningCount, countError := repository.CountRunning(t.Context())
+
+	require.NoError(t, countError)
+	assert.Equal(t, 2, runningCount)
 }
