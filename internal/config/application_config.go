@@ -194,6 +194,27 @@ type StrategyBotConfig struct {
 	RoundTimeout        time.Duration
 }
 
+// RequestLimitConfig bounds what one client can ask of the service; defaults sit far above what the front end
+// and the MCP plugin need.
+type RequestLimitConfig struct {
+	// TrustedProxyCidrs empty means no forwarding header is believed.
+	TrustedProxyCidrs []string
+	// ClientIpHeaders are read, in order, only when the direct peer is a trusted proxy.
+	ClientIpHeaders []string
+	BodyLimitBytes  int64
+	ReadTimeout     time.Duration
+	IdleTimeout     time.Duration
+	// RequestsPerMinute and RequestBurst apply per requester: the signed-in user, otherwise the address.
+	RequestsPerMinute int
+	RequestBurst      int
+	// CredentialRequestsPerMinute and CredentialRequestBurst apply per address to register, sign-in, renewal and
+	// password change, each of which costs a deliberately slow hash.
+	CredentialRequestsPerMinute int
+	CredentialRequestBurst      int
+	LiveStreamsPerClient        int
+	LiveStreamsTotal            int
+}
+
 type ApplicationConfig struct {
 	ServerPort             string
 	CorsAllowedOrigins     []string
@@ -223,6 +244,7 @@ type ApplicationConfig struct {
 	Secrets           SecretsConfig
 	Telegram          TelegramConfig
 	StrategyBot       StrategyBotConfig
+	RequestLimit      RequestLimitConfig
 	Database          DatabaseConfig
 }
 
@@ -387,6 +409,24 @@ func Load() ApplicationConfig {
 			MaxConcurrentRounds: positiveIntWithDefault("STRATEGY_BOT_MAX_CONCURRENT_ROUNDS", 4),
 			RoundTimeout: time.Duration(
 				positiveIntWithDefault("STRATEGY_BOT_ROUND_TIMEOUT_SECONDS", 120)) * time.Second,
+		},
+		RequestLimit: RequestLimitConfig{
+			TrustedProxyCidrs: commaSeparatedList("TRUSTED_PROXY_CIDRS"),
+			ClientIpHeaders: commaSeparatedListWithDefault(
+				"CLIENT_IP_HEADERS", []string{"X-Forwarded-For", "X-Real-IP"}),
+			BodyLimitBytes: int64(positiveIntWithDefault("REQUEST_BODY_LIMIT_KILOBYTES", 1024)) << 10,
+			ReadTimeout: time.Duration(
+				positiveIntWithDefault("SERVER_READ_TIMEOUT_SECONDS", 30)) * time.Second,
+			// Above the reverse proxy's 90-second idle timeout, so the proxy never reuses a connection we just closed.
+			IdleTimeout: time.Duration(
+				positiveIntWithDefault("SERVER_IDLE_TIMEOUT_SECONDS", 120)) * time.Second,
+			RequestsPerMinute: positiveIntWithDefault("RATE_LIMIT_REQUESTS_PER_MINUTE", 600),
+			RequestBurst:      positiveIntWithDefault("RATE_LIMIT_BURST", 120),
+			CredentialRequestsPerMinute: positiveIntWithDefault(
+				"RATE_LIMIT_CREDENTIAL_REQUESTS_PER_MINUTE", 10),
+			CredentialRequestBurst: positiveIntWithDefault("RATE_LIMIT_CREDENTIAL_BURST", 10),
+			LiveStreamsPerClient:   positiveIntWithDefault("LIVE_STREAM_CONNECTIONS_PER_CLIENT", 20),
+			LiveStreamsTotal:       positiveIntWithDefault("LIVE_STREAM_CONNECTIONS_TOTAL", 1000),
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),
