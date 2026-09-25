@@ -27,6 +27,8 @@ func (corsMiddleware *CorsMiddleware) Handle(ginContext *gin.Context) {
 		ginContext.Header("Access-Control-Allow-Methods", strings.Join(allowedCorsMethods, ", "))
 		ginContext.Header("Access-Control-Allow-Headers", strings.Join(allowedCorsHeaders, ", "))
 		ginContext.Header("Access-Control-Max-Age", corsPreflightMaxAgeSeconds)
+		// Without this, browser scripts cannot read how long a throttled request should wait.
+		ginContext.Header("Access-Control-Expose-Headers", "Retry-After")
 	}
 
 	if ginContext.Request.Method == http.MethodOptions {
