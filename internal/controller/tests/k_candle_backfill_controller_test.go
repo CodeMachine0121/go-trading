@@ -46,7 +46,7 @@ func newBackfillRouterUnderTest(t *testing.T) backfillRouterUnderTest {
 				}), 5, time.Hour, 2)))
 
 	engine := gin.New()
-	engine.POST("/k-candles/backfill", backfillController.CatchUpSymbol)
+	engine.POST("/k-candles/backfill", doorOpenFor(t, signedInViewerID), backfillController.CatchUpSymbol)
 
 	return backfillRouterUnderTest{
 		engine:                  engine,
@@ -61,6 +61,7 @@ func (underTest backfillRouterUnderTest) post(body string) *httptest.ResponseRec
 	request := httptest.NewRequest(
 		http.MethodPost, "/k-candles/backfill", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	underTest.engine.ServeHTTP(recorder, request)
 
 	return recorder
@@ -130,4 +131,12 @@ func TestCatchingUpIsAnsweredAsThisSystemsFaultWhenStorageWillNotAnswer(t *testi
 	response := underTest.post(`{"symbol":"BTCUSDT"}`)
 
 	assert.Equal(t, http.StatusBadGateway, response.Code)
+}
+
+func TestCatchingUpRefusesAVisitorWithoutAskingTheSource(t *testing.T) {
+	underTest := newBackfillRouterUnderTest(t)
+
+	response := requestWithoutProof(underTest.engine, http.MethodPost, "/k-candles/backfill", `{"symbol":"BTCUSDT"}`)
+
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
 }

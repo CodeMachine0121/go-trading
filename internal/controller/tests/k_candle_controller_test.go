@@ -62,13 +62,14 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 		service.NewKCandleService(
 			kCandleRepository, tradingSymbolRepository, clockProxy, cryptoOnlyCatalog(), queryMaxResults)))
 
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
-	engine.POST("/k-candles", kCandleController.CreateKCandle)
+	engine.POST("/k-candles", requiresSignIn, kCandleController.CreateKCandle)
 	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
 	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
-	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
-	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
+	engine.PUT("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.UpdateKCandle)
+	engine.DELETE("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.DeleteKCandle)
 
 	return routerUnderTest{engine: engine, kCandleRepository: kCandleRepository}
 }
@@ -76,6 +77,7 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 func (fixture routerUnderTest) call(method string, target string, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 	return recorder
@@ -578,4 +580,29 @@ func TestGetKCandleSeriesLetsTheMarketChooseHowLongOneCandleCovers(t *testing.T)
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), `"interval":"1m"`)
 	})
+}
+
+func TestChangingAKCandleRefusesAVisitor(t *testing.T) {
+	testCases := []struct {
+		name   string
+		method string
+		target string
+		body   string
+	}{
+		{name: "create", method: http.MethodPost, target: "/k-candles", body: validBody},
+		{name: "update", method: http.MethodPut, target: "/k-candles/BTCUSDT/2026-08-29T09:00:00Z", body: validBody},
+		{name: "delete", method: http.MethodDelete, target: "/k-candles/BTCUSDT/2026-08-29T09:00:00Z"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// No storage expectation is set, so any write that slipped through fails the test.
+			fixture := newRouterUnderTest(t)
+
+			recorder := requestWithoutProof(fixture.engine, testCase.method, testCase.target, testCase.body)
+
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), domains.ErrAuthenticationRequired.Error())
+		})
+	}
 }

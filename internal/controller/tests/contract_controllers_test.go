@@ -116,19 +116,20 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	historySyncController := controller.NewKCandleContractHistorySyncController(
 		ingestionApplication, contractLookbackCeilingDays)
 
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
-	engine.POST("/contract-k-candles", candleController.CreateKCandleContract)
+	engine.POST("/contract-k-candles", requiresSignIn, candleController.CreateKCandleContract)
 	engine.GET("/contract-k-candles", candleController.GetKCandleContractsInRange)
 	engine.GET("/contract-k-candles/series", candleController.GetKCandleContractSeries)
-	engine.POST("/contract-k-candles/backfill", backfillController.CatchUpSymbol)
-	engine.POST("/contract-k-candles/history", historySyncController.StartSymbolHistorySync)
-	engine.GET("/contract-k-candles/history/:id", historySyncController.GetSymbolHistorySync)
+	engine.POST("/contract-k-candles/backfill", requiresSignIn, backfillController.CatchUpSymbol)
+	engine.POST("/contract-k-candles/history", requiresSignIn, historySyncController.StartSymbolHistorySync)
+	engine.GET("/contract-k-candles/history/:id", requiresSignIn, historySyncController.GetSymbolHistorySync)
 	engine.GET("/contract-k-candles/:symbol/:openTime", candleController.GetKCandleContract)
-	engine.PUT("/contract-k-candles/:symbol/:openTime", candleController.UpdateKCandleContract)
-	engine.DELETE("/contract-k-candles/:symbol/:openTime", candleController.DeleteKCandleContract)
+	engine.PUT("/contract-k-candles/:symbol/:openTime", requiresSignIn, candleController.UpdateKCandleContract)
+	engine.DELETE("/contract-k-candles/:symbol/:openTime", requiresSignIn, candleController.DeleteKCandleContract)
 	engine.GET("/contract-trading-symbols", symbolController.ListContractTradingSymbols)
-	engine.POST("/contract-watchlist", symbolController.AddToWatchlist)
-	engine.DELETE("/contract-watchlist/:symbol", symbolController.RemoveFromWatchlist)
+	engine.POST("/contract-watchlist", requiresSignIn, symbolController.AddToWatchlist)
+	engine.DELETE("/contract-watchlist/:symbol", requiresSignIn, symbolController.RemoveFromWatchlist)
 
 	return contractRouterUnderTest{
 		engine:            engine,
@@ -145,6 +146,7 @@ func (fixture contractRouterUnderTest) call(
 ) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 
@@ -680,4 +682,31 @@ func TestContractCandleSeriesResponses(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadGateway, recorder.Code)
 	})
+}
+
+func TestChangingContractMarketDataRefusesAVisitor(t *testing.T) {
+	testCases := []struct {
+		method string
+		target string
+		body   string
+	}{
+		{method: http.MethodPost, target: "/contract-k-candles", body: validContractBody},
+		{method: http.MethodPut, target: "/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z", body: validContractBody},
+		{method: http.MethodDelete, target: "/contract-k-candles/BTCUSDT/2026-08-29T09:00:00Z"},
+		{method: http.MethodPost, target: "/contract-k-candles/backfill", body: `{"symbol":"BTCUSDT"}`},
+		{method: http.MethodPost, target: "/contract-k-candles/history", body: `{"symbol":"BTCUSDT","lookbackDays":30}`},
+		{method: http.MethodGet, target: "/contract-k-candles/history/1"},
+		{method: http.MethodPost, target: "/contract-watchlist", body: `{"symbol":"BTCUSDT"}`},
+		{method: http.MethodDelete, target: "/contract-watchlist/BTCUSDT"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.method+" "+testCase.target, func(t *testing.T) {
+			fixture := newContractRouterUnderTest(t)
+
+			recorder := requestWithoutProof(fixture.engine, testCase.method, testCase.target, testCase.body)
+
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
 }

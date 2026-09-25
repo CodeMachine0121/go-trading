@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "go-trading",
-    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -2536,6 +2536,47 @@
           ]
         },
         {
+          "name": "拒絕：沒登入改不了 K 線",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"openTime\": \"{{openTime}}\",\n  \"open\": \"100\", \"high\": \"120\", \"low\": \"90\", \"close\": \"110\",\n  \"volume\": \"11\", \"quoteVolume\": \"1200\", \"takerBuyBaseVolume\": \"5\", \"takerBuyQuoteVolume\": \"600\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "重送同一根會覆蓋，不會多一根",
           "request": {
             "method": "POST",
@@ -2610,6 +2651,40 @@
                   "});",
                   "pm.test(\"拿到的是剛剛覆蓋後的值\", function () {",
                   "    pm.expect(pm.response.json().close).to.eql(\"130\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "沒登入照常讀得到那一根",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/{{symbol}}/{{openTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "{{symbol}}",
+                "{{openTime}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
                   "});"
                 ]
               }
@@ -3860,6 +3935,74 @@
                 "exec": [
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"標記價格在\", () => pm.expect(pm.response.json()).to.have.property(\"markClose\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "沒登入照常讀得到合約 K 線",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/CONTRACTTESTONLY/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "CONTRACTTESTONLY",
+                "{{contractOpenTime}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒登入刪不了合約 K 線",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/CONTRACTTESTONLY/{{contractOpenTime}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "CONTRACTTESTONLY",
+                "{{contractOpenTime}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
                 ]
               }
             }
@@ -5118,6 +5261,40 @@
           ]
         },
         {
+          "name": "拒絕：沒登入看不到合約同步走到哪",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/history/{{contractHistorySyncRunId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "history",
+                "{{contractHistorySyncRunId}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "回溯天數說不通會被拒絕並說出上限",
           "request": {
             "method": "POST",
@@ -5249,6 +5426,47 @@
                 "exec": [
                   "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"已經抓回來的還在\", () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒登入改不了合約追蹤名單",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-watchlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-watchlist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"BTCUSDT\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
                 ]
               }
             }
@@ -13711,6 +13929,39 @@
       "description": "系統要持續追蹤哪些交易標的。改完最多等一輪（一分鐘）就生效，不必重開系統。\n\n加進來之前系統會先向該市場確認這個代號存在：打錯字當場被擋下，而不是換來一條每輪安靜失敗的線。「拿掉」只停止追蹤——已經抓回來的 K 線一根都不會少。",
       "item": [
         {
+          "name": "拒絕：沒登入改不了觀察清單",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/watchlist/2330",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "watchlist",
+                "2330"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "把一檔台股加進觀察清單",
           "request": {
             "method": "POST",
@@ -14173,6 +14424,48 @@
           ]
         },
         {
+          "name": "拒絕：沒登入不能手動補齊",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/backfill",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "backfill"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"2330\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "同步一段歷史（回 202 與一筆輪次，抓取在背景跑）",
           "request": {
             "method": "POST",
@@ -14240,6 +14533,40 @@
             "description": "status 是 running / succeeded / failed；completedChunks / totalChunks 是走到第幾段。\n\n來源不答話時 status 仍是 succeeded，原因寫在 fetchFailureReason——那是這一趟查到的事。failureReason 那一格才是這個系統自己壞掉時寫的。\n\n服務重啟會把還掛在 running 的輪次掃成 failed，寫上 interrupted by restart。"
           },
           "response": []
+        },
+        {
+          "name": "拒絕：沒登入看不到同步走到哪",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history/{{historySyncRunId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history",
+                "{{historySyncRunId}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "找不到：查一個沒人開過的輪次",
@@ -14452,6 +14779,48 @@
                 "exec": [
                   "pm.test(\"回應 400\", function () {",
                   "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒登入不能同步歷史",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"2330\",\n  \"lookbackDays\": 1\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
                   "});"
                 ]
               }
