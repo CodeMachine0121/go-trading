@@ -138,7 +138,7 @@ flowchart TD
 ## 8. Risks & Open Decisions
 
 - **Risks / trade-offs:**
-  - 歷史資料庫格式由幣安決定。依表頭取欄位能擋住欄位重排；欄位改名時會讀成缺值、整天跳過——這會在跳過數上看得出來，而不是悄悄存錯。
+  - 歷史資料庫格式由幣安決定。依表頭取欄位能擋住欄位重排；**欄位改名或少了欄位時整份檔案讀不懂**，照來源不答話處理——持倉統計的來源原因寫著少了哪一欄、剩下的日子不再問，而不是悄悄存錯或逐筆跳過。一個數字或時間讀不懂也一樣。
   - 換算出的佔比有 16 位小數，即時來源只有 4 位；兩者並存時 `SaveAllIfAbsent` 保留先到的那一筆。
   - `ContractKCandleIngestionService` 依賴一個具體的 `*ContractPositionStatisticService`：兩者同屬 domain service、同 package，runner 本來就活在 service 旁邊；經 application 編排做不到，因為這段工作必須活得比請求久（既有 runner 存在的理由）。
 - **Open decisions (for implementation):**
