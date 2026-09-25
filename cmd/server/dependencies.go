@@ -549,6 +549,13 @@ func registerRoutes(
 	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
 	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
 
+	assistantPendingRevisionController := controller.NewAssistantPendingRevisionController(
+		assistantRevisionApplication)
+	engine.POST("/chat/pending-revisions/:id/confirm", requiresSignIn,
+		assistantPendingRevisionController.ConfirmPendingRevision)
+	engine.POST("/chat/pending-revisions/:id/reject", requiresSignIn,
+		assistantPendingRevisionController.RejectPendingRevision)
+
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,
 		tradingStrategyService,

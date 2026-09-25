@@ -68,6 +68,9 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /users/me/telegram-delivery",
 		"POST /backtests",
 		"POST /chat",
+		// Confirming carries out the assistant's proposed rewrite; there is no route that proposes one.
+		"POST /chat/pending-revisions/:id/confirm",
+		"POST /chat/pending-revisions/:id/reject",
 		"POST /contract-backtests",
 		"POST /contract-indicator-calculations",
 		"POST /contract-k-candles",
