@@ -7,16 +7,24 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // StrategyScriptCreateAssistantQuery lets the assistant save a new algorithm; deleting is
 // deliberately not offered, since a mistaken delete loses work that cannot be recovered.
 type StrategyScriptCreateAssistantQuery struct {
-	strategyScriptApplication *application.StrategyScriptApplication
+	strategyScriptApplication    *application.StrategyScriptApplication
+	assistantRevisionApplication *application.AssistantRevisionApplication
 }
 
-func NewStrategyScriptCreateAssistantQuery(strategyScriptApplication *application.StrategyScriptApplication) *StrategyScriptCreateAssistantQuery {
-	return &StrategyScriptCreateAssistantQuery{strategyScriptApplication: strategyScriptApplication}
+func NewStrategyScriptCreateAssistantQuery(
+	strategyScriptApplication *application.StrategyScriptApplication,
+	assistantRevisionApplication *application.AssistantRevisionApplication,
+) *StrategyScriptCreateAssistantQuery {
+	return &StrategyScriptCreateAssistantQuery{
+		strategyScriptApplication:    strategyScriptApplication,
+		assistantRevisionApplication: assistantRevisionApplication,
+	}
 }
 
 func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Name() string {
@@ -34,7 +42,7 @@ func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Ar
 }
 
 func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	writeArguments := strategyScriptWriteAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
@@ -42,10 +50,13 @@ func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Ru
 	}
 
 	strategyScriptDto, createError := strategyScriptCreateAssistantQuery.strategyScriptApplication.CreateStrategyScript(
-		executionContext, writeArguments.ToWriteDto(0, viewerID))
+		executionContext, writeArguments.ToWriteDto(0, origin.ViewerID))
 	if createError != nil {
 		return "", createError
 	}
+
+	strategyScriptCreateAssistantQuery.assistantRevisionApplication.RecordCreation(
+		executionContext, origin, vo.AssistantRevisionSubjectStrategyScript, strategyScriptDto.ID)
 
 	return renderedStrategyScript(strategyScriptDto)
 }

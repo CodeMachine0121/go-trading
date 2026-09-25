@@ -9750,6 +9750,105 @@
               }
             }
           ]
+        },
+        {
+          "name": "拒絕：待確認修改識別碼不是正整數",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chat/pending-revisions/abc/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chat",
+                "pending-revisions",
+                "abc",
+                "confirm"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：確認一筆不存在的待確認修改",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chat/pending-revisions/999999/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chat",
+                "pending-revisions",
+                "999999",
+                "confirm"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"別人的與不存在的是同一句話\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"找不到識別碼為 999999 的待確認修改\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "找不到：拒絕一筆不存在的待確認修改",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chat/pending-revisions/999999/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "chat",
+                "pending-revisions",
+                "999999",
+                "reject"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

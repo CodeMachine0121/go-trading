@@ -25,6 +25,11 @@ type IStrategyBotRepository interface {
 		executionContext context.Context, tradingStrategyID uint,
 	) ([]entities.StrategyBot, error)
 
+	// FindAllByStrategyScript returns every bot whose trading strategy has a signal source naming the script, regardless of owner or state, so a rewrite sees running and idle references at the same moment.
+	FindAllByStrategyScript(
+		executionContext context.Context, strategyScriptID uint,
+	) ([]entities.StrategyBot, error)
+
 	// Delete removes sources and trees by cascade.
 	Delete(executionContext context.Context, id uint) error
 

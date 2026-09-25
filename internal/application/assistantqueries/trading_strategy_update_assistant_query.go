@@ -2,23 +2,21 @@ package assistantqueries
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// TradingStrategyUpdateAssistantQuery lets the assistant rewrite a trading strategy, which
-// replaces every field (so it must read first) and is refused while bots run it, which it relays.
+// TradingStrategyUpdateAssistantQuery lets the assistant rewrite a trading strategy, which replaces every field
+// (so it must read first); a strategy the person already had is only proposed, for the person to confirm.
 type TradingStrategyUpdateAssistantQuery struct {
-	tradingStrategyApplication *application.TradingStrategyApplication
+	assistantRevisionApplication *application.AssistantRevisionApplication
 }
 
 func NewTradingStrategyUpdateAssistantQuery(
-	tradingStrategyApplication *application.TradingStrategyApplication,
+	assistantRevisionApplication *application.AssistantRevisionApplication,
 ) *TradingStrategyUpdateAssistantQuery {
-	return &TradingStrategyUpdateAssistantQuery{tradingStrategyApplication: tradingStrategyApplication}
+	return &TradingStrategyUpdateAssistantQuery{assistantRevisionApplication: assistantRevisionApplication}
 }
 
 func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) Name() string {
@@ -28,8 +26,11 @@ func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) 
 func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) Description() string {
 	return "改寫一份既有的交易策略：名稱、信號來源、買入與賣出條件全部整包覆蓋。" +
 		"改之前一定要先用 get_trading_strategy 讀它，只送要改的那一部分會把其餘的洗掉。" +
-		"只要有任何一台機器人正在跑這份交易策略就會被拒絕，並告訴你是哪幾台——" +
-		"這時候要把這件事轉達給使用者請他先停，不要想辦法繞過。"
+		"**這段對話裡你自己剛建立、而且沒有任何機器人用到的**交易策略會直接改好；" +
+		"其餘的（使用者本來就有的、別段對話建立的、有機器人在用的）只會變成一筆「等使用者確認的修改」，" +
+		"在使用者按下確認之前一個字都不會變——回傳會明講 pending，這時候要告訴使用者請他確認，" +
+		"不要說已經改好，也不要拿它還沒改的版本去重演並當成改過的結果。" +
+		"確認時如果有機器人正在跑這份交易策略，確認會被擋下，使用者得先停掉它們。"
 }
 
 func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) ArgumentSchema() string {
@@ -41,19 +42,8 @@ func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) 
 }
 
 func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
-	writeArguments := tradingStrategyWriteAssistantArguments{}
-	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
-		return "", fmt.Errorf("%w: 參數不是合法的 JSON: %s", domains.ErrAssistantQueryArgument, unmarshalError)
-	}
-
-	tradingStrategyDto, updateError := tradingStrategyUpdateAssistantQuery.tradingStrategyApplication.
-		UpdateTradingStrategy(
-			executionContext, viewerID, writeArguments.ToWriteDto(writeArguments.TradingStrategyID))
-	if updateError != nil {
-		return "", updateError
-	}
-
-	return renderedTradingStrategy(tradingStrategyDto)
+	return tradingStrategyUpdateAssistantQuery.assistantRevisionApplication.Revise(
+		executionContext, origin, vo.AssistantRevisionSubjectTradingStrategy, arguments)
 }

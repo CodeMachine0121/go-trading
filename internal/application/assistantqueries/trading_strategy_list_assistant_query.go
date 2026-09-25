@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // TradingStrategyListAssistantQuery lets the assistant find the person's existing trading
@@ -47,10 +48,10 @@ type tradingStrategyDigest struct {
 
 // Run lists every trading strategy the asker owns; holding none is an answer, not a refusal.
 func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, _ string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, _ string,
 ) (string, error) {
 	tradingStrategyDtos, listError := tradingStrategyListAssistantQuery.tradingStrategyApplication.
-		ListTradingStrategies(executionContext, viewerID)
+		ListTradingStrategies(executionContext, origin.ViewerID)
 	if listError != nil {
 		return "", listError
 	}

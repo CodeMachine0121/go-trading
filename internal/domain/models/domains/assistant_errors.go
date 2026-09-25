@@ -23,6 +23,19 @@ var ErrAssistantAnswerInProgress = errors.New("assistant answer in progress")
 // ErrAssistantQueryArgument is returned to the assistant as a refusal reason, not to the caller as a failure.
 var ErrAssistantQueryArgument = errors.New("assistant query argument rejected")
 
+// foreignStrategyScriptFailedSentence is the only thing the assistant learns when someone else's script fails.
+const foreignStrategyScriptFailedSentence = "這支策略腳本不是你的，它執行失敗，不提供細節"
+
+// AssistantReadableReason is the single exit through which every refusal reaches the assistant, so wording
+// someone else controls is replaced here once rather than in each capability.
+func AssistantReadableReason(refusal error) string {
+	if errors.Is(refusal, ErrForeignStrategyScriptFailed) {
+		return foreignStrategyScriptFailedSentence
+	}
+
+	return refusal.Error()
+}
+
 // ConversationNotFound is shared by the store and the service so both give the same message.
 func ConversationNotFound(id uint) error {
 	return fmt.Errorf("%w: 找不到識別碼為 %d 的對話", ErrConversationNotFound, id)

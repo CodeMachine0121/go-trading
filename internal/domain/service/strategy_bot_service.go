@@ -185,6 +185,29 @@ func (strategyBotService *StrategyBotService) ReadReferencesTo(
 	}, nil
 }
 
+// ReadReferencesToStrategyScript names only the owner's running bots, because someone else's bot on a published script is not the owner's to stop.
+func (strategyBotService *StrategyBotService) ReadReferencesToStrategyScript(
+	executionContext context.Context, ownerID uint, strategyScriptID uint,
+) (dto.StrategyScriptReferencesDto, error) {
+	bots, findError := strategyBotService.strategyBotRepository.FindAllByStrategyScript(
+		executionContext, strategyScriptID)
+	if findError != nil {
+		return dto.StrategyScriptReferencesDto{}, findError
+	}
+
+	runningBotNames := make([]string, 0, len(bots))
+	for _, bot := range bots {
+		if bot.OwnerID == ownerID && vo.StrategyBotRunStateVo(bot.RunState) == vo.StrategyBotRunning {
+			runningBotNames = append(runningBotNames, bot.Name)
+		}
+	}
+
+	return dto.StrategyScriptReferencesDto{
+		TotalCount:      len(bots),
+		RunningBotNames: runningBotNames,
+	}, nil
+}
+
 // StartStrategyBot starts the bot, due immediately, and reports whether this call changed its state so a repeated press does not announce twice.
 // The caller answers whether a delivery setting exists; starting a running bot is a no-op that keeps its sent-signal memory.
 func (strategyBotService *StrategyBotService) StartStrategyBot(

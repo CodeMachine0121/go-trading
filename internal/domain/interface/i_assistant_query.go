@@ -1,6 +1,10 @@
 package _interface
 
-import "context"
+import (
+	"context"
+
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+)
 
 //go:generate go tool mockgen -source=i_assistant_query.go -destination=mocks/mock_i_assistant_query.go -package=mocks
 
@@ -12,6 +16,6 @@ type IAssistantQuery interface {
 	// ArgumentSchema is schema text handed to the assistant untouched, so the domain keeps it as an opaque string.
 	ArgumentSchema() string
 	// Run returns what the assistant should read; an error is a refusal reason the assistant may act on, not the end of the answer.
-	// The viewer is an explicit parameter so forgetting it is a compile error; market-only capabilities ignore it.
-	Run(executionContext context.Context, viewerID uint, arguments string) (string, error)
+	// The origin is an explicit parameter so forgetting the asker is a compile error; market-only capabilities ignore it.
+	Run(executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string) (string, error)
 }

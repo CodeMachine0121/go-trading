@@ -24,6 +24,8 @@ type AssistantTurn struct {
 	// CreatedAt is indexed because the daily allowance sums usage over a time range.
 	CreatedAt time.Time              `gorm:"type:timestamptz;not null;index:idx_assistant_turns_created_at"`
 	Queries   []AssistantQueryRecord `gorm:"foreignKey:AssistantTurnID;constraint:OnDelete:CASCADE"`
+	// PendingRevisions are written as they are proposed and only ever read with the conversation.
+	PendingRevisions []AssistantPendingRevision `gorm:"foreignKey:AssistantTurnID;constraint:OnDelete:CASCADE"`
 }
 
 func (assistantTurn AssistantTurn) TableName() string {

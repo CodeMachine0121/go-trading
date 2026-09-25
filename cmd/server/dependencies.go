@@ -290,7 +290,18 @@ func registerRoutes(
 	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
 
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
-	strategyScriptApplication := application.NewStrategyScriptApplication(strategyScriptService)
+	// One service, two applications: managing bots is permission-checked per person, while runs are
+	// driven by the scheduler with no person to ask.
+	strategyBotService := service.NewStrategyBotService(
+		persistence.NewStrategyBotRepository(database),
+		persistence.NewStrategyBotRunRecordRepository(database),
+		contractTradingSymbolRepository,
+		persistence.NewContractMaintenanceMarginTierRepository(database),
+		persistence.NewContractFundingRateSettlementRepository(database),
+		clock.NewSystemClockProxy(),
+	)
+
+	strategyScriptApplication := application.NewStrategyScriptApplication(strategyScriptService, strategyBotService)
 
 	strategyScriptController := controller.NewStrategyScriptController(strategyScriptApplication)
 
@@ -458,17 +469,6 @@ func registerRoutes(
 	engine.GET("/contract-k-candles/live", requestGuards.liveStream,
 		kCandleFollowController.WatchKCandleContracts)
 
-	// One service, two applications: managing bots is permission-checked per person, while runs are
-	// driven by the scheduler with no person to ask.
-	strategyBotService := service.NewStrategyBotService(
-		persistence.NewStrategyBotRepository(database),
-		persistence.NewStrategyBotRunRecordRepository(database),
-		contractTradingSymbolRepository,
-		persistence.NewContractMaintenanceMarginTierRepository(database),
-		persistence.NewContractFundingRateSettlementRepository(database),
-		clock.NewSystemClockProxy(),
-	)
-
 	tradingStrategyService := service.NewTradingStrategyService(
 		persistence.NewTradingStrategyRepository(database),
 	)
@@ -500,6 +500,19 @@ func registerRoutes(
 	engine.POST("/trading-strategies/:id/contract-backtests", requiresSignIn,
 		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
 
+	// Rewrites of what a person already has wait for their confirmation; each applier carries out one kind.
+	assistantRevisionApplication := application.NewAssistantRevisionApplication(
+		service.NewAssistantRevisionService(
+			persistence.NewAssistantPendingRevisionRepository(database),
+			persistence.NewAssistantCreatedSubjectRepository(database),
+			[]domaininterface.IAssistantRevisionApplier{
+				assistantqueries.NewStrategyScriptRevisionApplier(strategyScriptApplication),
+				assistantqueries.NewTradingStrategyRevisionApplier(tradingStrategyApplication),
+			},
+			clock.NewSystemClockProxy(),
+		),
+	)
+
 	assistantConversationApplication := application.NewAssistantConversationApplication(
 		service.NewAssistantConversationService(
 			persistence.NewConversationRepository(database),
@@ -517,6 +530,7 @@ func registerRoutes(
 				strategyScriptApplication,
 				tradingStrategyApplication,
 				tradingStrategyBacktestApplication,
+				assistantRevisionApplication,
 				applicationConfig.Assistant.CandleLimit,
 			),
 			clock.NewSystemClockProxy(),
@@ -534,6 +548,13 @@ func registerRoutes(
 	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
 	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
 	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
+
+	assistantPendingRevisionController := controller.NewAssistantPendingRevisionController(
+		assistantRevisionApplication)
+	engine.POST("/chat/pending-revisions/:id/confirm", requiresSignIn,
+		assistantPendingRevisionController.ConfirmPendingRevision)
+	engine.POST("/chat/pending-revisions/:id/reject", requiresSignIn,
+		assistantPendingRevisionController.RejectPendingRevision)
 
 	strategyBotRunApplication := application.NewStrategyBotRunApplication(
 		strategyBotService,
@@ -625,6 +646,7 @@ func assistantQueriesFor(
 	strategyScriptApplication *application.StrategyScriptApplication,
 	tradingStrategyApplication *application.TradingStrategyApplication,
 	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication,
+	assistantRevisionApplication *application.AssistantRevisionApplication,
 	candleLimit int,
 ) []domaininterface.IAssistantQuery {
 	return []domaininterface.IAssistantQuery{
@@ -634,12 +656,12 @@ func assistantQueriesFor(
 		assistantqueries.NewIndicatorCalculationAssistantQuery(indicatorCalculationApplication),
 		assistantqueries.NewStrategyScriptListAssistantQuery(strategyScriptApplication),
 		assistantqueries.NewStrategyScriptGetAssistantQuery(strategyScriptApplication),
-		assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication),
-		assistantqueries.NewStrategyScriptUpdateAssistantQuery(strategyScriptApplication),
+		assistantqueries.NewStrategyScriptCreateAssistantQuery(strategyScriptApplication, assistantRevisionApplication),
+		assistantqueries.NewStrategyScriptUpdateAssistantQuery(assistantRevisionApplication),
 		assistantqueries.NewTradingStrategyListAssistantQuery(tradingStrategyApplication),
 		assistantqueries.NewTradingStrategyGetAssistantQuery(tradingStrategyApplication),
-		assistantqueries.NewTradingStrategyCreateAssistantQuery(tradingStrategyApplication),
-		assistantqueries.NewTradingStrategyUpdateAssistantQuery(tradingStrategyApplication),
+		assistantqueries.NewTradingStrategyCreateAssistantQuery(tradingStrategyApplication, assistantRevisionApplication),
+		assistantqueries.NewTradingStrategyUpdateAssistantQuery(assistantRevisionApplication),
 		assistantqueries.NewTradingStrategyBacktestAssistantQuery(tradingStrategyBacktestApplication),
 	}
 }

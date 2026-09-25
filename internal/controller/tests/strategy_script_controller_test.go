@@ -16,6 +16,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,8 @@ import (
 type strategyScriptRouterUnderTest struct {
 	engine                   *gin.Engine
 	strategyScriptRepository *mocks.MockIStrategyScriptRepository
+	// botsUsingScript is what every bot lookup answers; empty unless a test says otherwise.
+	botsUsingScript *[]entities.StrategyBot
 }
 
 func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTest {
@@ -36,9 +39,17 @@ func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTes
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
 
+	botsUsingScript := &[]entities.StrategyBot{}
 	strategyScriptController := controller.NewStrategyScriptController(
 		application.NewStrategyScriptApplication(
-			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)))
+			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
+			service.NewStrategyBotService(
+				botsAnswering(mockController, botsUsingScript),
+				mocks.NewMockIStrategyBotRunRecordRepository(mockController),
+				mocks.NewMockIContractTradingSymbolRepository(mockController),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
+				mocks.NewMockIClockProxy(mockController))))
 
 	engine := gin.New()
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
@@ -48,7 +59,9 @@ func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTes
 	engine.PUT("/strategy-scripts/:id", requiresSignIn, strategyScriptController.UpdateStrategyScript)
 	engine.DELETE("/strategy-scripts/:id", requiresSignIn, strategyScriptController.DeleteStrategyScript)
 
-	return strategyScriptRouterUnderTest{engine: engine, strategyScriptRepository: strategyScriptRepository}
+	return strategyScriptRouterUnderTest{
+		engine: engine, strategyScriptRepository: strategyScriptRepository, botsUsingScript: botsUsingScript,
+	}
 }
 
 func (fixture strategyScriptRouterUnderTest) send(
@@ -338,7 +351,7 @@ func TestStrategyScriptRouterUpdateStrategyScript(t *testing.T) {
 	t.Run("answers with the strategy script as it now stands", func(t *testing.T) {
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil).AnyTimes()
 		fixture.strategyScriptRepository.EXPECT().
 			Update(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, strategyScript entities.StrategyScript) (entities.StrategyScript, error) {
@@ -376,7 +389,7 @@ func TestStrategyScriptRouterUpdateStrategyScript(t *testing.T) {
 	t.Run("answers bad request when the content breaks a rule", func(t *testing.T) {
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil).AnyTimes()
 
 		response := fixture.send(http.MethodPut, "/strategy-scripts/7",
 			`{"name": "", "script": "x", "resultType": "float"}`)
@@ -397,7 +410,7 @@ func TestStrategyScriptRouterUpdateStrategyScript(t *testing.T) {
 	t.Run("answers conflict when the new name is already held", func(t *testing.T) {
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil).AnyTimes()
 		fixture.strategyScriptRepository.EXPECT().
 			Update(gomock.Any(), gomock.Any()).Return(entities.StrategyScript{}, domains.ErrStrategyScriptNameConflict)
 
@@ -405,6 +418,21 @@ func TestStrategyScriptRouterUpdateStrategyScript(t *testing.T) {
 
 		assert.Equal(t, http.StatusConflict, response.Code)
 	})
+}
+
+func TestStrategyScriptRouterRefusesARewriteWhileTheOwnersRunningBotUsesIt(t *testing.T) {
+	// Update is unstubbed, so any write fails the test.
+	fixture := newStrategyScriptRouterUnderTest(t)
+	fixture.strategyScriptRepository.EXPECT().
+		FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScriptRow(7, "二十根均線"), nil).AnyTimes()
+	*fixture.botsUsingScript = []entities.StrategyBot{
+		{OwnerID: signedInViewerID, Name: "早盤突破", RunState: string(vo.StrategyBotRunning)},
+	}
+
+	response := fixture.send(http.MethodPut, "/strategy-scripts/7", aStrategyScriptBody)
+
+	assert.Equal(t, http.StatusConflict, response.Code)
+	assert.Contains(t, response.Body.String(), "這幾台機器人正在用它跑：早盤突破，請先停止它們")
 }
 
 func TestStrategyScriptRouterDeleteStrategyScript(t *testing.T) {
@@ -496,4 +524,17 @@ func TestStrategyScriptRouterCarriesTheKindOfMarketTheScriptEats(t *testing.T) {
 	responseBody := map[string]any{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &responseBody))
 	assert.Equal(t, "contractKCandle", responseBody["marketDataKind"])
+}
+
+// botsAnswering answers every bot lookup with whatever botsUsingScript holds at the time of the call.
+func botsAnswering(
+	mockController *gomock.Controller, botsUsingScript *[]entities.StrategyBot,
+) *mocks.MockIStrategyBotRepository {
+	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
+	strategyBotRepository.EXPECT().FindAllByStrategyScript(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, uint) ([]entities.StrategyBot, error) {
+			return *botsUsingScript, nil
+		}).AnyTimes()
+
+	return strategyBotRepository
 }

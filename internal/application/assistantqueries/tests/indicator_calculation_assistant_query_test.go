@@ -74,7 +74,7 @@ func TestIndicatorCalculationAssistantQueryRunsAnAlgorithmTheAssistantBrought(t 
 		Execute(gomock.Any(), "func Calculate() {}", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","script":"func Calculate() {}"}`)
 
 	require.NoError(t, runError)
@@ -92,7 +92,7 @@ func TestIndicatorCalculationAssistantQueryRunsTheStrategyScriptItNames(t *testi
 		Execute(gomock.Any(), aStoredStrategyScriptWithKnobs(1, "二十根均線").Script, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	outcome, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":1,`+
 			`"parameterValues":[{"name":"lookback","value":30}]}`)
 
@@ -106,7 +106,7 @@ func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyScriptAndSendin
 	// Sending both a named script and an algorithm is refused rather than silently picking one; the refusal lands before anything is read.
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":1,"script":"func Other() {}"}`)
 
 	require.ErrorIs(t, runError, domains.ErrRunSubjectAmbiguous)
@@ -115,7 +115,7 @@ func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyScriptAndSendin
 func TestIndicatorCalculationAssistantQueryRefusesNeitherAStrategyScriptNorAnAlgorithm(t *testing.T) {
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z"}`)
 
 	require.ErrorIs(t, runError, domains.ErrRunSubjectAmbiguous)
@@ -132,7 +132,7 @@ func TestIndicatorCalculationAssistantQueryReadsUpToTheMomentItWasGiven(t *testi
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{"ma": {Numbers: []float64{110}}}, nil)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T08:58:00Z","script":"func Calculate() {}",`+
 			`"endTime":"2026-08-29T09:00:00Z"}`)
 
@@ -144,7 +144,7 @@ func TestIndicatorCalculationAssistantQueryReportsAStrategyScriptThatIsNotThere(
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(99)).
 		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(99))
 
-	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":99}`)
 
 	require.ErrorIs(t, runError, domains.ErrStrategyScriptNotFound)
@@ -153,7 +153,7 @@ func TestIndicatorCalculationAssistantQueryReportsAStrategyScriptThatIsNotThere(
 func TestIndicatorCalculationAssistantQueryIsBoundByTheRulesTheCalculationAlreadyHas(t *testing.T) {
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
-	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,
+	_, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin,
 		`{"symbol":"BTCUSDT","startTime":"2026-08-29T09:15:00Z","script":"func Calculate() {}"}`)
 
 	require.ErrorIs(t, runError, domains.ErrIndicatorCalculationValidation)
@@ -178,7 +178,7 @@ func TestIndicatorCalculationAssistantQueryRefusesArgumentsItCannotRead(t *testi
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
-			_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID, testCase.arguments)
+			_, runError := fixture.assistantQuery.Run(t.Context(), assistantOrigin, testCase.arguments)
 
 			require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 			assert.Contains(t, runError.Error(), testCase.expectedMessage)

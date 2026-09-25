@@ -11,6 +11,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,10 @@ type strategyScriptApplicationUnderTest struct {
 	strategyScriptApplication         *application.StrategyScriptApplication
 	strategyScriptRepository          *mocks.MockIStrategyScriptRepository
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
+	// botsUsingScript is what every bot lookup answers; empty unless a test says otherwise.
+	botsUsingScript *[]entities.StrategyBot
+	// botLookupError is what every bot lookup fails with; none unless a test says otherwise.
+	botLookupError *error
 }
 
 // newStrategyScriptApplicationUnderTest wires the real domain service and model, mocking only
@@ -33,13 +38,39 @@ func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicati
 	controller := gomock.NewController(t)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
+	botsUsingScript := &[]entities.StrategyBot{}
+	botLookupError := new(error)
+	strategyBotRepository.EXPECT().FindAllByStrategyScript(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, uint) ([]entities.StrategyBot, error) {
+			return *botsUsingScript, *botLookupError
+		}).AnyTimes()
 
 	return strategyScriptApplicationUnderTest{
 		strategyScriptApplication: application.NewStrategyScriptApplication(
-			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)),
+			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
+			service.NewStrategyBotService(
+				strategyBotRepository,
+				mocks.NewMockIStrategyBotRunRecordRepository(controller),
+				mocks.NewMockIContractTradingSymbolRepository(controller),
+				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
+				mocks.NewMockIContractFundingRateSettlementRepository(controller),
+				mocks.NewMockIClockProxy(controller))),
 		strategyScriptRepository:          strategyScriptRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
+		botsUsingScript:                   botsUsingScript,
+		botLookupError:                    botLookupError,
 	}
+}
+
+// expectStoredForRewrite stubs the two reads a rewrite makes of the script (the ownership check and
+// the rewrite itself) and the bots using it.
+func (fixture strategyScriptApplicationUnderTest) expectStoredForRewrite(
+	strategyScript entities.StrategyScript, botsUsingIt []entities.StrategyBot,
+) {
+	fixture.strategyScriptRepository.EXPECT().
+		FindOne(gomock.Any(), strategyScript.ID).Return(strategyScript, nil).AnyTimes()
+	*fixture.botsUsingScript = botsUsingIt
 }
 
 func aStrategyScriptWrite() dto.StrategyScriptWriteDto {
@@ -234,8 +265,7 @@ func TestStrategyScriptApplicationRefusesContentBeforeAnythingIsWritten(t *testi
 			// The script exists but its new content is invalid; Update is unstubbed, so any write
 			// fails the test.
 			fixture := newStrategyScriptApplicationUnderTest(t)
-			fixture.strategyScriptRepository.EXPECT().
-				FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+			fixture.expectStoredForRewrite(aStoredStrategyScript(7, "二十根均線"), nil)
 			writeDto := aStrategyScriptWrite()
 			writeDto.ID = 7
 			testCase.breakIt(&writeDto)
@@ -359,8 +389,7 @@ func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
 func TestStrategyScriptApplicationUpdateStrategyScript(t *testing.T) {
 	t.Run("rewrites the strategy script the write names", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
-		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+		fixture.expectStoredForRewrite(aStoredStrategyScript(7, "二十根均線"), nil)
 		fixture.strategyScriptRepository.EXPECT().
 			Update(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, strategyScript entities.StrategyScript) (entities.StrategyScript, error) {
@@ -415,8 +444,7 @@ func TestStrategyScriptApplicationUpdateStrategyScript(t *testing.T) {
 
 	t.Run("reports a name another strategy script already holds", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
-		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+		fixture.expectStoredForRewrite(aStoredStrategyScript(7, "二十根均線"), nil)
 		fixture.strategyScriptRepository.EXPECT().
 			Update(gomock.Any(), gomock.Any()).Return(entities.StrategyScript{}, domains.ErrStrategyScriptNameConflict)
 
@@ -474,4 +502,102 @@ func TestStrategyScriptApplicationUpdateWithNoIdentifierSpeaksTheLanguageEveryOt
 	require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
 	assert.Equal(t, "strategy script not found: 找不到識別碼為 0 的策略腳本", err.Error())
 	assert.NotEqual(t, domains.ErrStrategyScriptNotFound.Error(), err.Error())
+}
+
+func aBotUsingTheScript(ownerID uint, name string, runState vo.StrategyBotRunStateVo) entities.StrategyBot {
+	return entities.StrategyBot{OwnerID: ownerID, Name: name, RunState: string(runState)}
+}
+
+func TestStrategyScriptApplicationUpdateStrategyScriptWhileBotsUseIt(t *testing.T) {
+	testCases := []struct {
+		name               string
+		botsUsingIt        []entities.StrategyBot
+		expectedRefusal    string
+		unexpectedBotNames []string
+	}{
+		{
+			name:            "a running bot of the owner refuses the rewrite and is named",
+			botsUsingIt:     []entities.StrategyBot{aBotUsingTheScript(strategyScriptOwnerID, "早盤突破", vo.StrategyBotRunning)},
+			expectedRefusal: "這幾台機器人正在用它跑：早盤突破，請先停止它們",
+		},
+		{
+			name: "one running bot is enough, and only the running one is named",
+			botsUsingIt: []entities.StrategyBot{
+				aBotUsingTheScript(strategyScriptOwnerID, "早盤突破", vo.StrategyBotRunning),
+				aBotUsingTheScript(strategyScriptOwnerID, "尾盤回補", vo.StrategyBotStopped),
+			},
+			expectedRefusal:    "這幾台機器人正在用它跑：早盤突破，請先停止它們",
+			unexpectedBotNames: []string{"尾盤回補"},
+		},
+		{
+			name:        "a stopped bot does not stand in the way",
+			botsUsingIt: []entities.StrategyBot{aBotUsingTheScript(strategyScriptOwnerID, "尾盤回補", vo.StrategyBotStopped)},
+		},
+		{
+			name:        "someone else's running bot on a published script does not stand in the way",
+			botsUsingIt: []entities.StrategyBot{aBotUsingTheScript(strategyScriptOwnerID+1, "別人的機器人", vo.StrategyBotRunning)},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newStrategyScriptApplicationUnderTest(t)
+			fixture.expectStoredForRewrite(aStoredStrategyScript(7, "二十根均線"), testCase.botsUsingIt)
+			if testCase.expectedRefusal == "" {
+				fixture.strategyScriptRepository.EXPECT().Update(gomock.Any(), gomock.Any()).
+					Return(aStoredStrategyScript(7, "六十根均線"), nil)
+			}
+
+			writeDto := aStrategyScriptWrite()
+			writeDto.ID = 7
+			writeDto.Name = "六十根均線"
+
+			strategyScriptDto, err := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+			if testCase.expectedRefusal == "" {
+				require.NoError(t, err)
+				assert.Equal(t, "六十根均線", strategyScriptDto.Name)
+				return
+			}
+
+			require.ErrorIs(t, err, domains.ErrStrategyScriptBotRunning)
+			assert.Contains(t, err.Error(), testCase.expectedRefusal)
+			for _, unexpectedBotName := range testCase.unexpectedBotNames {
+				assert.NotContains(t, err.Error(), unexpectedBotName)
+			}
+		})
+	}
+}
+
+func TestStrategyScriptApplicationUpdateChecksOwnershipThenRunningBotsThenContent(t *testing.T) {
+	t.Run("a running bot is reported before bad content", func(t *testing.T) {
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		fixture.expectStoredForRewrite(aStoredStrategyScript(7, "二十根均線"), []entities.StrategyBot{
+			aBotUsingTheScript(strategyScriptOwnerID, "早盤突破", vo.StrategyBotRunning),
+		})
+		writeDto := aStrategyScriptWrite()
+		writeDto.ID = 7
+		writeDto.Name = ""
+
+		_, err := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptBotRunning)
+		assert.NotErrorIs(t, err, domains.ErrStrategyScriptValidation)
+	})
+
+	t.Run("someone else's script reads as missing even while the caller's bot runs on it", func(t *testing.T) {
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		someoneElses := aStoredStrategyScript(7, "二十根均線")
+		someoneElses.OwnerID = strategyScriptOwnerID + 1
+		fixture.expectStoredForRewrite(someoneElses, []entities.StrategyBot{
+			aBotUsingTheScript(strategyScriptOwnerID, "早盤突破", vo.StrategyBotRunning),
+		})
+		writeDto := aStrategyScriptWrite()
+		writeDto.ID = 7
+
+		_, err := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
+		assert.Contains(t, err.Error(), "找不到識別碼為 7 的策略腳本")
+	})
 }

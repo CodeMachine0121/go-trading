@@ -155,7 +155,7 @@ func (fixture tradingStrategyBacktestAssistantQueryUnderTest) replay(
 	t.Helper()
 
 	outcome, runError := fixture.backtestAssistantQuery.Run(
-		t.Context(), assistantViewerID, arguments)
+		t.Context(), assistantOrigin, arguments)
 	require.NoError(t, runError)
 
 	report := replayReport{}
@@ -236,7 +236,7 @@ func TestTradingStrategyBacktestAssistantQueryHandsBackTheCoarsenessRefusal(t *t
 		Return(aReplayableTradingStrategy("1h", "5m"), nil)
 
 	_, runError := fixture.backtestAssistantQuery.Run(
-		t.Context(), assistantViewerID, aReplayArgument)
+		t.Context(), assistantOrigin, aReplayArgument)
 
 	require.Error(t, runError)
 	assert.Contains(t, runError.Error(), "1h")
@@ -252,7 +252,7 @@ func TestTradingStrategyBacktestAssistantQueryAnswersSomebodyElsesAsNotFound(t *
 		Return(strangersTradingStrategy, nil)
 
 	_, runError := fixture.backtestAssistantQuery.Run(
-		t.Context(), assistantViewerID, aReplayArgument)
+		t.Context(), assistantOrigin, aReplayArgument)
 
 	require.ErrorIs(t, runError, domains.ErrTradingStrategyNotFound)
 }
@@ -260,7 +260,7 @@ func TestTradingStrategyBacktestAssistantQueryAnswersSomebodyElsesAsNotFound(t *
 func TestTradingStrategyBacktestAssistantQueryRefusesArgumentsThatAreNotJson(t *testing.T) {
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 
-	_, runError := fixture.backtestAssistantQuery.Run(t.Context(), assistantViewerID, "not json")
+	_, runError := fixture.backtestAssistantQuery.Run(t.Context(), assistantOrigin, "not json")
 
 	require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 }
@@ -424,7 +424,7 @@ func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts
 			Return(aReplayableTradingStrategy("1h"), nil)
 
 		outcome, runError := fixture.backtestAssistantQuery.Run(
-			t.Context(), assistantViewerID, `{
+			t.Context(), assistantOrigin, `{
   "tradingStrategyId": 11,
   "symbol": "BTCUSDT",
   "startTime": "2026-09-10T00:00:00Z",
