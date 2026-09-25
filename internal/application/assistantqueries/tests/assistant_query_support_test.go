@@ -93,11 +93,13 @@ func newAssistantRevisionUnderTest(
 
 	return assistantRevisionUnderTest{
 		application: application.NewAssistantRevisionApplication(
-			service.NewAssistantRevisionService(pendingRevisionRepository, createdSubjectRepository, clockProxy),
-			[]domaininterface.IAssistantRevisionApplier{
-				assistantqueries.NewStrategyScriptRevisionApplier(strategyScriptApplication),
-				assistantqueries.NewTradingStrategyRevisionApplier(tradingStrategyApplication),
-			}),
+			service.NewAssistantRevisionService(
+				pendingRevisionRepository, createdSubjectRepository,
+				[]domaininterface.IAssistantRevisionApplier{
+					assistantqueries.NewStrategyScriptRevisionApplier(strategyScriptApplication),
+					assistantqueries.NewTradingStrategyRevisionApplier(tradingStrategyApplication),
+				},
+				clockProxy)),
 		pendingRevisionRepository: pendingRevisionRepository,
 		createdSubjectRepository:  createdSubjectRepository,
 		createdInConversation:     createdInConversation,

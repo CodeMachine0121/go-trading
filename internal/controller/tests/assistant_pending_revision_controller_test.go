@@ -41,8 +41,8 @@ func newPendingRevisionRouterUnderTest(t *testing.T) pendingRevisionRouterUnderT
 			service.NewAssistantRevisionService(
 				pendingRevisionRepository,
 				mocks.NewMockIAssistantCreatedSubjectRepository(mockController),
-				mocks.NewMockIClockProxy(mockController)),
-			[]domaininterface.IAssistantRevisionApplier{applier}))
+				[]domaininterface.IAssistantRevisionApplier{applier},
+				mocks.NewMockIClockProxy(mockController))))
 
 	engine := gin.New()
 	requiresSignIn := doorOpenFor(t, signedInViewerID)

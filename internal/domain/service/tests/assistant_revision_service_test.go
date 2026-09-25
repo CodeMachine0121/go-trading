@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -17,56 +19,73 @@ import (
 
 var errRevisionStorageUnreachable = errors.New("storage unreachable")
 
+var revisedSubjectChangedAt = time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
+
 type assistantRevisionServiceUnderTest struct {
 	assistantRevisionService  *service.AssistantRevisionService
 	pendingRevisionRepository *mocks.MockIAssistantPendingRevisionRepository
 	createdSubjectRepository  *mocks.MockIAssistantCreatedSubjectRepository
+	applier                   *mocks.MockIAssistantRevisionApplier
 }
 
 func newAssistantRevisionServiceUnderTest(t *testing.T) assistantRevisionServiceUnderTest {
 	controller := gomock.NewController(t)
 	pendingRevisionRepository := mocks.NewMockIAssistantPendingRevisionRepository(controller)
 	createdSubjectRepository := mocks.NewMockIAssistantCreatedSubjectRepository(controller)
+	applier := mocks.NewMockIAssistantRevisionApplier(controller)
+	applier.EXPECT().SubjectKind().Return(vo.AssistantRevisionSubjectStrategyScript).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC)).AnyTimes()
 
 	return assistantRevisionServiceUnderTest{
 		assistantRevisionService: service.NewAssistantRevisionService(
-			pendingRevisionRepository, createdSubjectRepository, clockProxy),
+			pendingRevisionRepository, createdSubjectRepository,
+			[]domaininterface.IAssistantRevisionApplier{applier}, clockProxy),
 		pendingRevisionRepository: pendingRevisionRepository,
 		createdSubjectRepository:  createdSubjectRepository,
+		applier:                   applier,
 	}
 }
 
 func aPendingRevisionOwnedBy(ownerID uint) entities.AssistantPendingRevision {
 	return entities.AssistantPendingRevision{
 		ID: 70, OwnerID: ownerID, Content: `{}`,
-		SubjectUpdatedAt: time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC),
+		SubjectKind:      string(vo.AssistantRevisionSubjectStrategyScript),
+		SubjectUpdatedAt: revisedSubjectChangedAt,
 		Status:           string(vo.AssistantPendingRevisionPending),
 	}
 }
 
-func TestAssistantRevisionServiceProposeReportsStorageFailures(t *testing.T) {
+func (fixture assistantRevisionServiceUnderTest) expectAnUnchangedSubject() {
+	fixture.applier.EXPECT().Inspect(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(dto.RewriteTargetDto{ID: 1, UpdatedAt: revisedSubjectChangedAt}, nil)
+}
+
+func TestAssistantRevisionServiceReviseReportsStorageFailures(t *testing.T) {
 	t.Run("asking whether the assistant created it here", func(t *testing.T) {
 		fixture := newAssistantRevisionServiceUnderTest(t)
+		fixture.expectAnUnchangedSubject()
 		fixture.createdSubjectRepository.EXPECT().Exists(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(false, errRevisionStorageUnreachable)
 
-		_, proposeError := fixture.assistantRevisionService.Propose(t.Context(), dto.AssistantRevisionProposalDto{})
+		_, reviseError := fixture.assistantRevisionService.Revise(
+			t.Context(), vo.AssistantQueryOriginVo{ViewerID: 1}, vo.AssistantRevisionSubjectStrategyScript, `{}`)
 
-		require.ErrorIs(t, proposeError, errRevisionStorageUnreachable)
+		require.ErrorIs(t, reviseError, errRevisionStorageUnreachable)
 	})
 
 	t.Run("storing the proposal", func(t *testing.T) {
 		fixture := newAssistantRevisionServiceUnderTest(t)
+		fixture.expectAnUnchangedSubject()
 		fixture.createdSubjectRepository.EXPECT().Exists(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(false, nil)
 		fixture.pendingRevisionRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 			Return(entities.AssistantPendingRevision{}, errRevisionStorageUnreachable)
 
-		_, proposeError := fixture.assistantRevisionService.Propose(t.Context(), dto.AssistantRevisionProposalDto{})
+		_, reviseError := fixture.assistantRevisionService.Revise(
+			t.Context(), vo.AssistantQueryOriginVo{ViewerID: 1}, vo.AssistantRevisionSubjectStrategyScript, `{}`)
 
-		require.ErrorIs(t, proposeError, errRevisionStorageUnreachable)
+		require.ErrorIs(t, reviseError, errRevisionStorageUnreachable)
 	})
 }
 
@@ -76,13 +95,13 @@ func TestAssistantRevisionServiceReportsStorageFailuresWhileActingOnAProposal(t 
 		act  func(fixture assistantRevisionServiceUnderTest) error
 	}{
 		{
-			name: "finding it",
+			name: "finding it to confirm",
 			act: func(fixture assistantRevisionServiceUnderTest) error {
 				fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).
 					Return(entities.AssistantPendingRevision{}, errRevisionStorageUnreachable)
-				_, findError := fixture.assistantRevisionService.FindPendingRevision(t.Context(), 1, 70)
+				_, confirmError := fixture.assistantRevisionService.ConfirmPendingRevision(t.Context(), 1, 70)
 
-				return findError
+				return confirmError
 			},
 		},
 		{
@@ -90,16 +109,16 @@ func TestAssistantRevisionServiceReportsStorageFailuresWhileActingOnAProposal(t 
 			act: func(fixture assistantRevisionServiceUnderTest) error {
 				fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).
 					Return(aPendingRevisionOwnedBy(1), nil)
+				fixture.expectAnUnchangedSubject()
 				fixture.pendingRevisionRepository.EXPECT().TransitionStatus(gomock.Any(), uint(70), "pending", "confirmed").
 					Return(false, errRevisionStorageUnreachable)
-				_, claimError := fixture.assistantRevisionService.ClaimConfirmation(
-					t.Context(), 1, 70, time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC))
+				_, confirmError := fixture.assistantRevisionService.ConfirmPendingRevision(t.Context(), 1, 70)
 
-				return claimError
+				return confirmError
 			},
 		},
 		{
-			name: "rejecting it",
+			name: "finding it to reject",
 			act: func(fixture assistantRevisionServiceUnderTest) error {
 				fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).
 					Return(entities.AssistantPendingRevision{}, errRevisionStorageUnreachable)
@@ -130,12 +149,22 @@ func TestAssistantRevisionServiceReportsStorageFailuresWhileActingOnAProposal(t 
 	}
 }
 
-func TestAssistantRevisionServiceReopensAClaimedProposal(t *testing.T) {
+func TestAssistantRevisionServiceConfirmReportsARefusedRewriteEvenWhenItCannotBeReopened(t *testing.T) {
+	// Both reasons reach the owner, so a proposal stuck as confirmed is not a silent failure.
 	fixture := newAssistantRevisionServiceUnderTest(t)
-	fixture.pendingRevisionRepository.EXPECT().TransitionStatus(gomock.Any(), uint(70), "confirmed", "pending").
+	fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).Return(aPendingRevisionOwnedBy(1), nil)
+	fixture.expectAnUnchangedSubject()
+	fixture.pendingRevisionRepository.EXPECT().TransitionStatus(gomock.Any(), uint(70), "pending", "confirmed").
 		Return(true, nil)
+	fixture.applier.EXPECT().Apply(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return("", domains.ErrStrategyScriptNameConflict)
+	fixture.pendingRevisionRepository.EXPECT().TransitionStatus(gomock.Any(), uint(70), "confirmed", "pending").
+		Return(false, errRevisionStorageUnreachable)
 
-	assert.NoError(t, fixture.assistantRevisionService.ReopenPendingRevision(t.Context(), 70))
+	_, confirmError := fixture.assistantRevisionService.ConfirmPendingRevision(t.Context(), 1, 70)
+
+	require.ErrorIs(t, confirmError, domains.ErrStrategyScriptNameConflict)
+	require.ErrorIs(t, confirmError, errRevisionStorageUnreachable)
 }
 
 func TestAssistantRevisionServiceRefusesAProposalForAnAnonymousViewer(t *testing.T) {
@@ -143,18 +172,7 @@ func TestAssistantRevisionServiceRefusesAProposalForAnAnonymousViewer(t *testing
 	fixture := newAssistantRevisionServiceUnderTest(t)
 	fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).Return(aPendingRevisionOwnedBy(0), nil)
 
-	_, findError := fixture.assistantRevisionService.FindPendingRevision(t.Context(), 0, 70)
+	_, confirmError := fixture.assistantRevisionService.ConfirmPendingRevision(t.Context(), 0, 70)
 
-	assert.Error(t, findError)
-}
-
-func TestAssistantRevisionServiceClaimRefusesSomeoneElsesProposal(t *testing.T) {
-	// No status move is stubbed: nothing may be claimed.
-	fixture := newAssistantRevisionServiceUnderTest(t)
-	fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).Return(aPendingRevisionOwnedBy(2), nil)
-
-	_, claimError := fixture.assistantRevisionService.ClaimConfirmation(
-		t.Context(), 1, 70, time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC))
-
-	assert.Error(t, claimError)
+	require.ErrorIs(t, confirmError, domains.ErrAssistantPendingRevisionNotFound)
 }

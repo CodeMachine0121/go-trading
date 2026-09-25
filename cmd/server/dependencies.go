@@ -505,12 +505,12 @@ func registerRoutes(
 		service.NewAssistantRevisionService(
 			persistence.NewAssistantPendingRevisionRepository(database),
 			persistence.NewAssistantCreatedSubjectRepository(database),
+			[]domaininterface.IAssistantRevisionApplier{
+				assistantqueries.NewStrategyScriptRevisionApplier(strategyScriptApplication),
+				assistantqueries.NewTradingStrategyRevisionApplier(tradingStrategyApplication),
+			},
 			clock.NewSystemClockProxy(),
 		),
-		[]domaininterface.IAssistantRevisionApplier{
-			assistantqueries.NewStrategyScriptRevisionApplier(strategyScriptApplication),
-			assistantqueries.NewTradingStrategyRevisionApplier(tradingStrategyApplication),
-		},
 	)
 
 	assistantConversationApplication := application.NewAssistantConversationApplication(

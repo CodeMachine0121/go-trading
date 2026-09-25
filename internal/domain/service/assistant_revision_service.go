@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
-	"time"
+	"encoding/json"
+	"errors"
+	"fmt"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -11,49 +13,88 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// AssistantRevisionService keeps the assistant's proposed rewrites and what it created in each conversation; it never
-// writes the rewrites themselves, which the application layer hands to the owning use case.
+// AssistantRevisionService turns the assistant's rewrites of what a person already has into proposals the person
+// confirms, and carries a confirmed one out through the applier of its kind; each kind's rewrite rules stay with it.
 type AssistantRevisionService struct {
 	pendingRevisionRepository domaininterface.IAssistantPendingRevisionRepository
 	createdSubjectRepository  domaininterface.IAssistantCreatedSubjectRepository
+	appliers                  []domaininterface.IAssistantRevisionApplier
 	clockProxy                domaininterface.IClockProxy
 }
 
 func NewAssistantRevisionService(
 	pendingRevisionRepository domaininterface.IAssistantPendingRevisionRepository,
 	createdSubjectRepository domaininterface.IAssistantCreatedSubjectRepository,
+	appliers []domaininterface.IAssistantRevisionApplier,
 	clockProxy domaininterface.IClockProxy,
 ) *AssistantRevisionService {
 	return &AssistantRevisionService{
 		pendingRevisionRepository: pendingRevisionRepository,
 		createdSubjectRepository:  createdSubjectRepository,
+		appliers:                  appliers,
 		clockProxy:                clockProxy,
 	}
 }
 
-// Propose leaves the rewrite for the owner unless it may be written now, in which case nothing is stored.
-func (assistantRevisionService *AssistantRevisionService) Propose(
-	executionContext context.Context, proposal dto.AssistantRevisionProposalDto,
-) (dto.AssistantRevisionProposalOutcomeDto, error) {
-	createdInConversation, existsError := assistantRevisionService.createdSubjectRepository.Exists(
-		executionContext, proposal.ConversationID, proposal.SubjectKind, proposal.Target.ID)
-	if existsError != nil {
-		return dto.AssistantRevisionProposalOutcomeDto{}, existsError
+// pendingRevisionReport is what the assistant reads when its rewrite waits for the owner.
+type pendingRevisionReport struct {
+	PendingRevisionID uint   `json:"pendingRevisionId"`
+	Status            string `json:"status"`
+	Notice            string `json:"notice"`
+}
+
+// Revise checks the rewrite first, so one that could never be carried out is refused to the assistant rather than
+// left for the owner; it then writes it now or leaves it pending, and returns what the assistant should read.
+func (assistantRevisionService *AssistantRevisionService) Revise(
+	executionContext context.Context,
+	origin vo.AssistantQueryOriginVo,
+	subjectKind vo.AssistantRevisionSubjectKindVo,
+	content string,
+) (string, error) {
+	applier, applierError := assistantRevisionService.applierFor(string(subjectKind))
+	if applierError != nil {
+		return "", applierError
 	}
 
-	proposalDomain := domains.NewAssistantRevisionProposalDomain(
-		proposal, createdInConversation, assistantRevisionService.clockProxy.Now())
+	target, inspectError := applier.Inspect(executionContext, origin.ViewerID, content)
+	if inspectError != nil {
+		return "", inspectError
+	}
+
+	createdInConversation, existsError := assistantRevisionService.createdSubjectRepository.Exists(
+		executionContext, origin.ConversationID, string(subjectKind), target.ID)
+	if existsError != nil {
+		return "", existsError
+	}
+
+	proposalDomain := domains.NewAssistantRevisionProposalDomain(dto.AssistantRevisionProposalDto{
+		ViewerID:       origin.ViewerID,
+		ConversationID: origin.ConversationID,
+		TurnID:         origin.TurnID,
+		SubjectKind:    string(subjectKind),
+		Target:         target,
+		Content:        content,
+	}, createdInConversation, assistantRevisionService.clockProxy.Now())
 	if proposalDomain.AppliesDirectly() {
-		return dto.AssistantRevisionProposalOutcomeDto{AppliesDirectly: true}, nil
+		return applier.Apply(executionContext, origin.ViewerID, content)
 	}
 
 	savedRevision, saveError := assistantRevisionService.pendingRevisionRepository.Save(
 		executionContext, proposalDomain.ToEntity())
 	if saveError != nil {
-		return dto.AssistantRevisionProposalOutcomeDto{}, saveError
+		return "", saveError
 	}
 
-	return dto.AssistantRevisionProposalOutcomeDto{PendingRevision: savedRevision.ToDto()}, nil
+	payload, marshalError := json.Marshal(pendingRevisionReport{
+		PendingRevisionID: savedRevision.ID,
+		Status:            savedRevision.Status,
+		Notice:            domains.AssistantRevisionProposedNotice,
+	})
+	if marshalError != nil {
+		return "", fmt.Errorf("render pending revision: %w", marshalError)
+	}
+
+	return string(payload), nil
 }
 
 func (assistantRevisionService *AssistantRevisionService) RecordCreatedSubject(
@@ -70,8 +111,9 @@ func (assistantRevisionService *AssistantRevisionService) RecordCreatedSubject(
 	})
 }
 
-// FindPendingRevision returns a proposal its owner may still act on.
-func (assistantRevisionService *AssistantRevisionService) FindPendingRevision(
+// ConfirmPendingRevision claims the proposal before writing, so it is written at most once, and hands it back to
+// pending when the ordinary rewrite refuses it, so the owner can deal with the reason and confirm again.
+func (assistantRevisionService *AssistantRevisionService) ConfirmPendingRevision(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.AssistantPendingRevisionDto, error) {
 	revisionDomain, findError := assistantRevisionService.findActionable(executionContext, viewerID, id)
@@ -79,36 +121,38 @@ func (assistantRevisionService *AssistantRevisionService) FindPendingRevision(
 		return dto.AssistantPendingRevisionDto{}, findError
 	}
 
-	return revisionDomain.ToDto(), nil
-}
+	pendingRevision := revisionDomain.ToDto()
+	content := string(pendingRevision.Content)
 
-// ClaimConfirmation marks the proposal confirmed before it is written, so a second press cannot write it again;
-// the caller reopens it if the write is then refused.
-func (assistantRevisionService *AssistantRevisionService) ClaimConfirmation(
-	executionContext context.Context, viewerID uint, id uint, subjectUpdatedAt time.Time,
-) (dto.AssistantPendingRevisionDto, error) {
-	revisionDomain, findError := assistantRevisionService.findActionable(executionContext, viewerID, id)
-	if findError != nil {
-		return dto.AssistantPendingRevisionDto{}, findError
+	applier, applierError := assistantRevisionService.applierFor(pendingRevision.SubjectKind)
+	if applierError != nil {
+		return dto.AssistantPendingRevisionDto{}, applierError
 	}
 
-	if staleError := revisionDomain.RequireUnchangedSince(subjectUpdatedAt); staleError != nil {
+	target, inspectError := applier.Inspect(executionContext, viewerID, content)
+	if inspectError != nil {
+		return dto.AssistantPendingRevisionDto{}, inspectError
+	}
+
+	if staleError := revisionDomain.RequireUnchangedSince(target.UpdatedAt); staleError != nil {
 		return dto.AssistantPendingRevisionDto{}, staleError
 	}
 
-	return assistantRevisionService.transition(
-		executionContext, revisionDomain, vo.AssistantPendingRevisionConfirmed)
-}
+	confirmedRevision, claimError := assistantRevisionService.transition(
+		executionContext, pendingRevision, vo.AssistantPendingRevisionPending, vo.AssistantPendingRevisionConfirmed)
+	if claimError != nil {
+		return dto.AssistantPendingRevisionDto{}, claimError
+	}
 
-// ReopenPendingRevision undoes a claim whose write was refused, so the owner can deal with the reason and press again.
-func (assistantRevisionService *AssistantRevisionService) ReopenPendingRevision(
-	executionContext context.Context, id uint,
-) error {
-	_, transitionError := assistantRevisionService.pendingRevisionRepository.TransitionStatus(
-		executionContext, id,
-		string(vo.AssistantPendingRevisionConfirmed), string(vo.AssistantPendingRevisionPending))
+	if _, applyError := applier.Apply(executionContext, viewerID, content); applyError != nil {
+		_, reopenError := assistantRevisionService.transition(
+			executionContext, confirmedRevision,
+			vo.AssistantPendingRevisionConfirmed, vo.AssistantPendingRevisionPending)
 
-	return transitionError
+		return dto.AssistantPendingRevisionDto{}, errors.Join(applyError, reopenError)
+	}
+
+	return confirmedRevision, nil
 }
 
 func (assistantRevisionService *AssistantRevisionService) RejectPendingRevision(
@@ -120,7 +164,20 @@ func (assistantRevisionService *AssistantRevisionService) RejectPendingRevision(
 	}
 
 	return assistantRevisionService.transition(
-		executionContext, revisionDomain, vo.AssistantPendingRevisionRejected)
+		executionContext, revisionDomain.ToDto(),
+		vo.AssistantPendingRevisionPending, vo.AssistantPendingRevisionRejected)
+}
+
+func (assistantRevisionService *AssistantRevisionService) applierFor(
+	subjectKind string,
+) (domaininterface.IAssistantRevisionApplier, error) {
+	for _, applier := range assistantRevisionService.appliers {
+		if string(applier.SubjectKind()) == subjectKind {
+			return applier, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no assistant revision applier for %q", subjectKind)
 }
 
 func (assistantRevisionService *AssistantRevisionService) findActionable(
@@ -140,13 +197,12 @@ func (assistantRevisionService *AssistantRevisionService) findActionable(
 // transition loses a race to a simultaneous press as "already handled", the same answer the press would get a moment later.
 func (assistantRevisionService *AssistantRevisionService) transition(
 	executionContext context.Context,
-	revisionDomain domains.AssistantPendingRevisionDomain,
+	revision dto.AssistantPendingRevisionDto,
+	from vo.AssistantPendingRevisionStatusVo,
 	to vo.AssistantPendingRevisionStatusVo,
 ) (dto.AssistantPendingRevisionDto, error) {
-	revisionDto := revisionDomain.ToDto()
-
 	transitioned, transitionError := assistantRevisionService.pendingRevisionRepository.TransitionStatus(
-		executionContext, revisionDto.ID, string(vo.AssistantPendingRevisionPending), string(to))
+		executionContext, revision.ID, string(from), string(to))
 	if transitionError != nil {
 		return dto.AssistantPendingRevisionDto{}, transitionError
 	}
@@ -154,7 +210,7 @@ func (assistantRevisionService *AssistantRevisionService) transition(
 		return dto.AssistantPendingRevisionDto{}, domains.AssistantPendingRevisionResolved()
 	}
 
-	revisionDto.Status = string(to)
+	revision.Status = string(to)
 
-	return revisionDto, nil
+	return revision, nil
 }
