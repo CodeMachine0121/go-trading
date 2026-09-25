@@ -118,7 +118,7 @@ flowchart TD
 
 - **Most likely next requirement:** 讓助手也能改機器人設定，或把「建立」也放進確認。
 - **Where it lands:** `IAssistantRevisionApplier`——新增一種 applier 並加進 `dependencies.go` 的 applier 清單；
-  建立要確認時，新增一個 `Propose` 的變體（目標識別碼為零），`AssistantPendingRevisionDomain` 已把內容當不透明文字。
+  建立要確認時，新增一個 `Revise` 的變體（目標識別碼為零），`AssistantPendingRevisionDomain` 已把內容當不透明文字。
 - **How to add it:** 實作 `SubjectKind/Inspect/Apply`，在 `AssistantRevisionSubjectKindVo` 補一個值，不動 service 與 application 的流程。
 - **Patterns applied & why:** Strategy（applier）隔開「每種東西怎麼改」與「待確認修改的生命週期」；條件式狀態轉換（樂觀鎖）保證一筆只生效一次；
   單一拒絕原因出口（`AssistantReadableReason`）讓之後任何新的「不可信文字」過濾都只加在一處。
