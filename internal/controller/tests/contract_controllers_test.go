@@ -82,7 +82,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	ingestionService := service.NewContractKCandleIngestionService(
 		candleRepository, syncRunRepository, symbolRepository, marketDataProxy, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		5, 24*time.Hour, positionStatisticService)
+		5, 24*time.Hour, positionStatisticService, 2)
 	ingestionApplication := application.NewKCandleContractIngestionApplication(ingestionService)
 
 	candleController := controller.NewKCandleContractController(
@@ -491,6 +491,7 @@ func TestContractHistorySyncResponses(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+		fixture.syncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(0, nil).AnyTimes()
 		fixture.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
 				_ any, syncRun entities.KCandleContractHistorySyncRun,
@@ -516,6 +517,10 @@ func TestContractHistorySyncResponses(t *testing.T) {
 			entities.ContractTradingSymbol{}, false, nil)
 		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "SOLUSDT").Return(
 			entities.ContractTradingSymbol{Symbol: "SOLUSDT", IsWatched: true}, true, nil)
+		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "XRPUSDT").Return(
+			entities.ContractTradingSymbol{Symbol: "XRPUSDT", IsWatched: true}, true, nil)
+		fixture.syncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(1, nil).Times(1)
+		fixture.syncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(2, nil).Times(1)
 		fixture.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(
 			entities.KCandleContractHistorySyncRun{},
 			domains.KCandleHistorySyncInProgress("SOLUSDT"))
@@ -528,12 +533,16 @@ func TestContractHistorySyncResponses(t *testing.T) {
 			"/contract-k-candles/history", `{"symbol":"ETHUSDT","lookbackDays":1}`)
 		inProgressRecorder := fixture.call(http.MethodPost,
 			"/contract-k-candles/history", `{"symbol":"SOLUSDT","lookbackDays":1}`)
+		everyPlaceTakenRecorder := fixture.call(http.MethodPost,
+			"/contract-k-candles/history", `{"symbol":"XRPUSDT","lookbackDays":1}`)
 		unreadableRecorder := fixture.call(http.MethodPost, "/contract-k-candles/history", "not json")
 
 		assert.Equal(t, http.StatusBadRequest, lookbackRecorder.Code)
 		assert.Equal(t, http.StatusBadRequest, blankRecorder.Code)
 		assert.Equal(t, http.StatusNotFound, unregisteredRecorder.Code)
 		assert.Equal(t, http.StatusConflict, inProgressRecorder.Code)
+		assert.Equal(t, http.StatusTooManyRequests, everyPlaceTakenRecorder.Code)
+		assert.Contains(t, everyPlaceTakenRecorder.Body.String(), "同時最多 2 趟")
 		assert.Equal(t, http.StatusBadRequest, unreadableRecorder.Code)
 	})
 
@@ -541,6 +550,7 @@ func TestContractHistorySyncResponses(t *testing.T) {
 		fixture := newContractRouterUnderTest(t)
 		fixture.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 			entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+		fixture.syncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(0, nil)
 		fixture.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(
 			entities.KCandleContractHistorySyncRun{}, assertAnError)
 

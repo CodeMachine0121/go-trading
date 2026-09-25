@@ -68,7 +68,7 @@ func (backtestPositionDomain BacktestPositionDomain) ValueAt(
 }
 
 // ExitOn checks the candle's low and high (not its close) against the exit prices, testing the stop first so bars touching both never flatter the strategy.
-// The entry candle is never checked because the walk applies exits before the candle's signal.
+// A stop gapped through at the open fills at the open; a gapped take profit still fills at its own price, which can only understate it.
 func (backtestPositionDomain BacktestPositionDomain) ExitOn(
 	kCandle vo.KCandleVo, exitTime time.Time,
 ) (vo.ClosedTradeVo, bool) {
@@ -78,7 +78,8 @@ func (backtestPositionDomain BacktestPositionDomain) ExitOn(
 	if backtestPositionDomain.exitPrices.HasStopLoss &&
 		candleLow.LessThanOrEqual(backtestPositionDomain.exitPrices.StopLossPrice) {
 		return backtestPositionDomain.ClosedAt(
-			exitTime, backtestPositionDomain.exitPrices.StopLossPrice,
+			exitTime, decimal.Min(decimal.NewFromFloat(kCandle.Open),
+				backtestPositionDomain.exitPrices.StopLossPrice),
 			vo.TradeExitReasonStopLoss), true
 	}
 

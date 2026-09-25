@@ -97,12 +97,14 @@ curl localhost:8080/health
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 允許讀取本 API 回應的前端來源，逗號分隔；清單外的來源不會拿到授權標頭 |
 | `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值（重演另有 `BACKTEST_MAX_CANDLE_COUNT`） |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
+| `INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS` | `6` | 整個服務同時最多幾個算式隔間在跑；滿了就排隊（機器人輪次排在最前），在呼叫端時限內等不到空位回 `503`。乘上算式記憶體上限必須留得下服務本身的記憶體 |
 | `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
 | `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
 | `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /k-candles/history` 一次最多往回抓幾天。打錯字的防線，不是成本上限 |
+| `KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS` | `2` | 同時最多幾趟現貨歷史同步在跑（加密貨幣現貨與台股共用這一份）。**這才是成本上限**：每一趟都跟例行抓取吃同一份來源額度。滿了新的一趟回 `429`、不留輪次 |
 | `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 加密貨幣的行情來源位址 |
 | `MARKET_DATA_SYMBOL_CATALOG_URL` | Binance 公開交易對清單網址 | 加密貨幣確認「這個代號存不存在」的位址 |
 | `MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向行情來源請求的逾時 |
@@ -130,6 +132,7 @@ curl localhost:8080/health
 | `CONTRACT_KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 合約每輪針對單一標的取回幾根已收完的 K 線 |
 | `CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 合約啟動回補最多往回幾小時 |
 | `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /contract-k-candles/history` 一次最多往回抓幾天。自己一份，因為永續合約的歷史比現貨短得多 |
+| `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS` | `2` | 同時最多幾趟合約歷史同步在跑。與現貨**各算各的**：兩邊打的是不同場所、吃不同額度 |
 | `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
 | `CONTRACT_MARKET_DATA_STREAM_URL` | `wss://fstream.binance.com/ws` | 合約即時跟盤的行情來源位址 |
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
@@ -151,6 +154,17 @@ curl localhost:8080/health
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
 | `AUTH_SIGN_IN_FAILURE_THRESHOLD` | `3` | 連續幾次密碼錯誤就把帳號鎖起來。**到達的那一次本身就被拒絕**，沒有「先放你進去再鎖」；設 `0` 或負值會退回預設值，關不掉這道鎖 |
 | `AUTH_SIGN_IN_LOCKOUT_DAYS` | `7` | 帳號被鎖起來一次要鎖多久（天）。鎖住期間**連正確的密碼也進不來**，而且再試不會把解除時刻往後延。**沒有自助解鎖**——時間到了自己開，等不了就直接改那一列的 `locked_until`（或改密碼，那也會解鎖） |
+| `TRUSTED_PROXY_CIDRS` | 空 | 信得過的轉手所在網段，逗號分隔。**空的就是一層都不信**：請求自稱從哪裡來一律不採信，來源以直接連進來的那一方為準。格式寫錯服務拒絕啟動 |
+| `CLIENT_IP_HEADERS` | `X-Forwarded-For,X-Real-IP` | 直接連進來的那一方落在上面那段時，依序讀哪些標頭找原始來源。正式環境前面是 Cloudflare 通道 + Traefik，設 `CF-Connecting-IP,X-Forwarded-For` |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `600` | 每位請求者每分鐘補回幾份請求額度。帶著有效登入憑證算在那位使用者頭上，否則算在來源位置頭上 |
+| `RATE_LIMIT_BURST` | `120` | 請求額度最多累積幾份；用完回 `429` 與 `Retry-After` |
+| `RATE_LIMIT_CREDENTIAL_REQUESTS_PER_MINUTE` | `10` | 建立使用者、登入、續用、改密碼另一份額度，**一律認來源位置**（每次都要做一次刻意很慢的密碼運算） |
+| `RATE_LIMIT_CREDENTIAL_BURST` | `10` | 上面那份額度最多累積幾份 |
+| `LIVE_STREAM_CONNECTIONS_PER_CLIENT` | `20` | 每位請求者同時開著幾條即時跟盤 |
+| `LIVE_STREAM_CONNECTIONS_TOTAL` | `1000` | 全服務同時開著幾條即時跟盤 |
+| `REQUEST_BODY_LIMIT_KILOBYTES` | `1024` | 一次請求送進來的內容上限；超過回 `413` |
+| `SERVER_READ_TIMEOUT_SECONDS` | `30` | 一次請求要在幾秒內送完 |
+| `SERVER_IDLE_TIMEOUT_SECONDS` | `120` | 閒置連線幾秒後收回；刻意高於 Traefik 對後端的 90 秒 |
 | `ANTHROPIC_API_KEY` | 空 | 行情對話助手的憑證。沒設就只有 `/chat` 不能用，其餘功能照常 |
 | `ASSISTANT_MODEL` | `claude-opus-5` | 要問哪一個助手 |
 | `ASSISTANT_EFFORT` | `low` | 助手能想多久。對話不需要想太久；挑錯工具的代價比想得淺重得多，所以模型維持能幹的那個、只把力度調低 |
@@ -313,6 +327,14 @@ curl localhost:8080/k-candles/history/1 -H "Authorization: Bearer $TOKEN"
 **一個標的同時只跑一趟。** 再按一次同一個標的回 `409`——兩趟會互搶同一份來源額度、
 寫同一批列，而且誰都不會比較早結束。別的標的不受影響。
 
+**同時在跑的趟數也有上限**（`KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS`，預設 2；合約另有一份）。
+一口氣替很多標的各開一趟，它們會一起吃光同一份來源額度、擠掉每分鐘的例行抓取。
+滿了新的一趟回 `429`、說出上限是多少，**不留輪次、不問來源**——不排隊，等其中一趟結束再開。
+它和 `409` 不同：`409` 是同一個標的按了兩次，`429` 是整體太忙、稍後自然會空。
+回溯天數或代號有錯時先回那個錯，不回「太忙」。進行中幾趟以記下的輪次為準；
+數與記在服務內一個一個來，所以同時到的兩個要求不會一起擠進最後一個空位
+（服務只跑一份、重新部署時舊的先停，這樣就封得住）。
+
 沒登錄過的代號回 `404`（那是呼叫的人要改的），代號空白或回溯天數說不通回 `400`，
 **這個系統自己**問不到（連輪次都記不下來之類）回 `502`（那值得晚點再試一次）。
 
@@ -421,6 +443,17 @@ curl -i -X POST localhost:8080/sessions/revocation -H 'Content-Type: application
 
 要讓**每一個人、每一台裝置**立刻重新登入，換掉 `AUTH_ACCESS_TOKEN_SIGNING_KEY` 即可——
 所有已簽發的登入憑證同時對不上簽章。
+
+### 請求節流
+
+每位**請求者**有一份會補回的請求額度：帶著有效登入憑證的算在那位使用者頭上（外掛替十個人操作就是十位），
+否則算在來源位置頭上（新式位址以 /64 為一個來源）。用完回 `429`，`Retry-After` 說還要等幾秒，被拒的那一次不扣額度。
+建立使用者、登入、續用、改密碼另有一份嚴得多的額度，**只認來源位置**——否則註冊一批帳號就換到一批額度。
+即時跟盤另有同時連線上限，到了新開的回 `429`，已開的不受影響。
+
+- 額度只在記憶體裡、重啟歸零；補滿的請求者直接忘掉（記不記得結果一樣），所以不需要排程清理。
+- 服務**不設「回覆要在幾秒內寫完」**：即時跟盤與接近九十秒的重演都會合法地寫很久。
+- 預設值遠高於操作台與外掛的正常用量；外掛匿名的請求與它代人做的登入、續用，都算在外掛自己的位置頭上。
 
 ### 建立使用者與看行情不需要憑證
 
@@ -742,9 +775,11 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 | 根數不對、K 線不夠 | `400` |
 | 算式跑不動（無法解讀、執行失敗、越權） | `422` |
 | 資料庫讀取失敗 | `502` |
+| 算式隔間全數忙碌，等不到空位（body 帶 `compartmentsBusy: true`，稍後再試） | `503` |
 
 **算不完會被砍掉。** 超過 `INDICATOR_SCRIPT_TIMEOUT_SECONDS`（預設 40 秒）即中止，
-回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。
+回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。算式隔間另有同樣長度的處理器時間上限，
+就算服務自己的計時失靈，作業系統也會把它收掉。
 
 ## K 線自動抓取
 
@@ -981,8 +1016,9 @@ newman run postman/go-trading.postman_collection.json \
 ### 合約重演怎麼算
 
 - **逐倉**：每一注有自己的一筆保證金，最多賠光它；名目 ＝ 保證金 × 槓桿。
-- **一格裡的順序**：先收付這一格的資金費率結算（改動保證金與強平價）→ 止損與強平誰離進場價近誰先 →
-  止盈 → 這一格的信號（收盤成交，套滑點）。
+- **一格裡的順序**：先收付這一格的資金費率結算（改動保證金與強平價）→ 開盤的標記價格已越過強平價就強平 →
+  開盤的成交價已越過止損就以開盤價止損 → 盤中止損與強平誰離進場價近誰先 → 止盈 → 這一格的信號（收盤成交，套滑點）。
+- **跳空的止損**（現貨與合約）：成交在開盤價與止損價中對倉位較不利的那一個；止盈仍成交在止盈價本身。
 - **強平價**：多倉 `(qE − M − c) / (q(1 − r))`、空倉 `(qE + M + c) / (q(1 + r))`，M 含收付過的資金費用。
 - **分級沒有歷史**：重演過去用的是今天那一組，成績單的 `maintenanceMarginBasis` 會說出來。
 

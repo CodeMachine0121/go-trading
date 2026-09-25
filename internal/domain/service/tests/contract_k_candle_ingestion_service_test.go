@@ -2,6 +2,8 @@ package service_test
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -74,7 +76,25 @@ type contractIngestionUnderTest struct {
 func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contractIngestionUnderTest {
 	t.Helper()
 
-	underTest := newContractHistorySyncUnderTest(t, currentTime)
+	return newContractIngestionUnderTestAlongside(t, currentTime, 0)
+}
+
+// newContractIngestionUnderTestAlongside counts otherRunningSyncs already running whenever a sync asks for a place.
+func newContractIngestionUnderTestAlongside(
+	t *testing.T, currentTime time.Time, otherRunningSyncs int,
+) contractIngestionUnderTest {
+	t.Helper()
+
+	return newContractIngestionUnderTestCounting(t, currentTime,
+		func(context.Context) (int, error) { return otherRunningSyncs, nil })
+}
+
+func newContractIngestionUnderTestCounting(
+	t *testing.T, currentTime time.Time, countRunning func(context.Context) (int, error),
+) contractIngestionUnderTest {
+	t.Helper()
+
+	underTest := newContractHistorySyncUnderTestCounting(t, currentTime, countRunning)
 	underTest.archiveProxy.EXPECT().
 		FetchDailyPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, false, nil).AnyTimes()
@@ -88,9 +108,27 @@ func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contract
 func newContractHistorySyncUnderTest(t *testing.T, currentTime time.Time) contractIngestionUnderTest {
 	t.Helper()
 
+	return newContractHistorySyncUnderTestAlongside(t, currentTime, 0)
+}
+
+func newContractHistorySyncUnderTestAlongside(
+	t *testing.T, currentTime time.Time, otherRunningSyncs int,
+) contractIngestionUnderTest {
+	t.Helper()
+
+	return newContractHistorySyncUnderTestCounting(t, currentTime,
+		func(context.Context) (int, error) { return otherRunningSyncs, nil })
+}
+
+func newContractHistorySyncUnderTestCounting(
+	t *testing.T, currentTime time.Time, countRunning func(context.Context) (int, error),
+) contractIngestionUnderTest {
+	t.Helper()
+
 	mockController := gomock.NewController(t)
 	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(mockController)
 	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
+	syncRunRepository.EXPECT().CountRunning(gomock.Any()).DoAndReturn(countRunning).AnyTimes()
 	symbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
 	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
@@ -108,7 +146,7 @@ func newContractHistorySyncUnderTest(t *testing.T, currentTime time.Time) contra
 			service.NewContractPositionStatisticService(
 				statisticRepository, symbolRepository,
 				mocks.NewMockIContractPositionStatisticProxy(mockController),
-				archiveProxy, clockProxy, 1000)),
+				archiveProxy, clockProxy, 1000), 2),
 		kCandleContractRepository: kCandleContractRepository,
 		syncRunRepository:         syncRunRepository,
 		symbolRepository:          symbolRepository,
@@ -587,7 +625,7 @@ func TestContractRoundRefusesRulesItCannotSettle(t *testing.T) {
 		mocks.NewMockIContractMarketDataProxy(mockController),
 		clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		0, lookback, nil)
+		0, lookback, nil, 2)
 
 	_, roundError := brokenService.RunScheduledRound(t.Context())
 	_, backfillError := brokenService.RunBackfill(t.Context())
@@ -887,4 +925,142 @@ func TestContractRoundDoesNotReachBackToAnOldCandleBeforeItsRecentMinutes(t *tes
 
 	require.NoError(t, runError)
 	assert.Equal(t, 1, report.SymbolReports[0].StoredCount)
+}
+
+func TestContractHistorySyncStartsWhileAPlaceIsFree(t *testing.T) {
+	testCases := []struct {
+		name              string
+		otherRunningSyncs int
+	}{
+		{name: "nothing else is running", otherRunningSyncs: 0},
+		{name: "the last place is free", otherRunningSyncs: 1},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newContractIngestionUnderTestAlongside(
+				t, ingestionAt(9, 7, 30), testCase.otherRunningSyncs)
+			underTest.registered("ETHUSDT")
+			runs := underTest.recordsEveryContractSyncRun()
+			underTest.kCandleContractRepository.EXPECT().
+				CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(0, nil).AnyTimes()
+			underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+				Return([]vo.ContractMarketKCandleVo{}, nil).AnyTimes()
+			underTest.kCandleContractRepository.EXPECT().
+				SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+			startedRun, startError := underTest.service.StartHistorySyncFor(
+				t.Context(), dto.KCandleHistorySyncDto{Symbol: "ETHUSDT", LookbackDays: 2},
+				contractHistoryCeilingDays)
+
+			require.NoError(t, startError)
+			assert.Equal(t, string(vo.KCandleHistorySyncRunning), startedRun.Status)
+			runs.awaitEnding(t)
+		})
+	}
+}
+
+func TestContractHistorySyncIsRefusedWhileEveryPlaceIsTaken(t *testing.T) {
+	underTest := newContractIngestionUnderTestAlongside(t, ingestionAt(9, 7, 30), 2)
+	underTest.registered("ETHUSDT")
+	underTest.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), dto.KCandleHistorySyncDto{Symbol: "ETHUSDT", LookbackDays: 2},
+		contractHistoryCeilingDays)
+
+	require.ErrorIs(t, startError, domains.ErrKCandleHistorySyncCapacityReached)
+	assert.Contains(t, startError.Error(), "同時最多 2 趟")
+}
+
+func TestContractHistorySyncStartsNothingWhenTheRunningSyncsCannotBeCounted(t *testing.T) {
+	mockController := gomock.NewController(t)
+	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
+	syncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(0, errors.New("storage unavailable"))
+	syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+	symbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
+	symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "ETHUSDT").Return(
+		entities.ContractTradingSymbol{Symbol: "ETHUSDT", IsWatched: true}, true, nil)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 30)).AnyTimes()
+	ingestionService := service.NewContractKCandleIngestionService(
+		mocks.NewMockIKCandleContractRepository(mockController), syncRunRepository, symbolRepository,
+		mocks.NewMockIContractMarketDataProxy(mockController), clockProxy,
+		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
+		roundCandleCount, lookback, nil, 2)
+
+	_, startError := ingestionService.StartHistorySyncFor(
+		t.Context(), dto.KCandleHistorySyncDto{Symbol: "ETHUSDT", LookbackDays: 2},
+		contractHistoryCeilingDays)
+
+	require.ErrorContains(t, startError, "storage unavailable")
+	assert.NotErrorIs(t, startError, domains.ErrKCandleHistorySyncCapacityReached)
+}
+
+func TestContractHistorySyncLetsOnlyOneOfTwoSimultaneousStartsTakeTheLastPlace(t *testing.T) {
+	// One sync already runs; each recorded start takes another place.
+	var placesMutex sync.Mutex
+	runningSyncs := 1
+	underTest := newContractIngestionUnderTestCounting(t, ingestionAt(9, 7, 30),
+		func(context.Context) (int, error) {
+			placesMutex.Lock()
+			counted := runningSyncs
+			placesMutex.Unlock()
+			// Widens the gap between counting and recording so an unguarded pair would both slip in.
+			time.Sleep(20 * time.Millisecond)
+
+			return counted, nil
+		})
+	underTest.registered("ETHUSDT")
+	underTest.registered("SOLUSDT")
+	underTest.kCandleContractRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(100000, nil).AnyTimes()
+	admittedRunEnded := make(chan struct{}, 1)
+	underTest.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, syncRun entities.KCandleContractHistorySyncRun,
+		) (entities.KCandleContractHistorySyncRun, error) {
+			if syncRun.ID == 0 {
+				placesMutex.Lock()
+				runningSyncs++
+				placesMutex.Unlock()
+				syncRun.ID = 1
+			}
+			if vo.NewKCandleHistorySyncRunStatusVo(syncRun.Status) != vo.KCandleHistorySyncRunning {
+				admittedRunEnded <- struct{}{}
+			}
+
+			return syncRun, nil
+		}).AnyTimes()
+
+	startErrors := make([]error, 2)
+	var waitGroup sync.WaitGroup
+	for index, symbol := range []string{"ETHUSDT", "SOLUSDT"} {
+		waitGroup.Go(func() {
+			_, startErrors[index] = underTest.service.StartHistorySyncFor(
+				t.Context(), dto.KCandleHistorySyncDto{Symbol: symbol, LookbackDays: 2},
+				contractHistoryCeilingDays)
+		})
+	}
+	waitGroup.Wait()
+
+	admitted, refused := 0, 0
+	for _, startError := range startErrors {
+		if startError == nil {
+			admitted++
+		}
+		if errors.Is(startError, domains.ErrKCandleHistorySyncCapacityReached) {
+			refused++
+		}
+	}
+	assert.Equal(t, 1, admitted)
+	assert.Equal(t, 1, refused)
+	select {
+	case <-admittedRunEnded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("合約歷史同步沒有收尾")
+	}
 }

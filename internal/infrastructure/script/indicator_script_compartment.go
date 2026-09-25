@@ -79,6 +79,16 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 ) (indicatorScriptResponse, error) {
 	isolation := indicatorScriptCompartment.isolation
 
+	if takeError := isolation.CompartmentSlots.take(
+		executionContext, isolation.ServesStrategyBotRounds); takeError != nil {
+		return indicatorScriptResponse{}, takeError
+	}
+	// Deferred first so the slot is returned only after the child has been reaped on every path.
+	defer isolation.CompartmentSlots.release()
+
+	// One allowance bounds both the parent's wait and the child's processor time.
+	allowance := isolation.ExecutionTimeout*time.Duration(max(runCount, 1)) + compartmentGracePeriod
+
 	command := exec.Command(isolation.WorkerCommand[0], isolation.WorkerCommand[1:]...)
 	// An explicit empty environment, since a nil Env would inherit the service's.
 	command.Env = append([]string{}, isolation.WorkerEnvironment...)
@@ -103,9 +113,10 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 		defer requestPipe.Close()
 		encoder := gob.NewEncoder(requestPipe)
 		_ = encoder.Encode(indicatorScriptRequestHeader{
-			MarketKind:       indicatorScriptCompartment.input.marketKind,
-			MemoryLimitBytes: isolation.MemoryLimitBytes,
-			ExecutionTimeout: isolation.ExecutionTimeout,
+			MarketKind:         indicatorScriptCompartment.input.marketKind,
+			MemoryLimitBytes:   isolation.MemoryLimitBytes,
+			ExecutionTimeout:   isolation.ExecutionTimeout,
+			ProcessorTimeLimit: allowance,
 		})
 		_ = encoder.Encode(request)
 	}()
@@ -117,7 +128,7 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 		outcomes <- compartmentOutcome{response: response, readError: readError}
 	}()
 
-	outermostLimit := time.NewTimer(isolation.ExecutionTimeout*time.Duration(max(runCount, 1)) + compartmentGracePeriod)
+	outermostLimit := time.NewTimer(allowance)
 	defer outermostLimit.Stop()
 
 	select {

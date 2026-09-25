@@ -42,6 +42,21 @@ func (m *MockIKCandleContractHistorySyncRunRepository) EXPECT() *MockIKCandleCon
 	return m.recorder
 }
 
+// CountRunning mocks base method.
+func (m *MockIKCandleContractHistorySyncRunRepository) CountRunning(executionContext context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRunning", executionContext)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRunning indicates an expected call of CountRunning.
+func (mr *MockIKCandleContractHistorySyncRunRepositoryMockRecorder) CountRunning(executionContext any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRunning", reflect.TypeOf((*MockIKCandleContractHistorySyncRunRepository)(nil).CountRunning), executionContext)
+}
+
 // FailAllRunning mocks base method.
 func (m *MockIKCandleContractHistorySyncRunRepository) FailAllRunning(executionContext context.Context, reason string, finishedAt time.Time) (int, error) {
 	m.ctrl.T.Helper()

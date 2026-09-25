@@ -48,7 +48,7 @@ func newHistorySyncRouterUnderTest(t *testing.T) historySyncRouterUnderTest {
 			kCandleRepository, historySyncRunRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 				vo.MarketCrypto: {},
-			}), 5, time.Hour)),
+			}), 5, time.Hour, 2)),
 		historySyncCeilingDays)
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
@@ -88,6 +88,7 @@ func (underTest historySyncRouterUnderTest) post(body string) *httptest.Response
 // acceptsAndFinishesEveryRun lets a sync be recorded and watched to its end.
 func (underTest historySyncRouterUnderTest) acceptsAndFinishesEveryRun() chan struct{} {
 	ended := make(chan struct{}, 1)
+	underTest.historySyncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(0, nil).AnyTimes()
 	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, syncRun entities.KCandleHistorySyncRun,
@@ -330,9 +331,28 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 					Return(entities.TradingSymbol{
 						Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
 					}, true, nil)
+				underTest.historySyncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(1, nil)
 				underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.KCandleHistorySyncRun{},
 						domains.KCandleHistorySyncInProgress("BTCUSDT"))
+				underTest.marketDataProxy.EXPECT().
+					FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
+			},
+		},
+		{
+			// Every place taken is "retry later", not "you pressed twice", so it must not read as a conflict.
+			name:               "every place for a running sync is taken",
+			body:               `{"symbol":"SOLUSDT","lookbackDays":30}`,
+			expectedStatusCode: http.StatusTooManyRequests,
+			expectedMessage:    "同時最多 2 趟",
+			arrange: func(underTest historySyncRouterUnderTest) {
+				underTest.tradingSymbolRepository.EXPECT().
+					FindBySymbol(gomock.Any(), "SOLUSDT").
+					Return(entities.TradingSymbol{
+						Symbol: "SOLUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+					}, true, nil)
+				underTest.historySyncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(2, nil)
+				underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 				underTest.marketDataProxy.EXPECT().
 					FetchKCandles(gomock.Any(), gomock.Any()).Times(0)
 			},

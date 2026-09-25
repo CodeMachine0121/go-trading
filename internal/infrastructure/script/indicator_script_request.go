@@ -3,6 +3,8 @@ package script
 import (
 	"encoding/gob"
 	"fmt"
+	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"syscall"
@@ -13,11 +15,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// indicatorScriptRequestHeader is read first and carries the market kind, memory cap and allowance needed before the rest of the request.
+// indicatorScriptRequestHeader is read first and carries the market kind, limits and allowance needed before the rest of the request.
 type indicatorScriptRequestHeader struct {
 	MarketKind       string
 	MemoryLimitBytes int64
 	ExecutionTimeout time.Duration
+	// ProcessorTimeLimit backs up the parent's own timer in case it fails to stop the compartment.
+	ProcessorTimeLimit time.Duration
 }
 
 // answer serves the request inside the compartment, setting the OS memory cap before the script is read.
@@ -27,6 +31,27 @@ func (header indicatorScriptRequestHeader) answer(
 	if headerError != nil {
 		return newFailedIndicatorScriptResponse(fmt.Errorf(
 			"%w: 算式執行失敗：算式隔間讀不到要算的內容：%v", domains.ErrIndicatorScriptFailed, headerError))
+	}
+
+	if header.ProcessorTimeLimit > 0 {
+		// One processor keeps processor time within wall time, so the limit cannot cut short a script its allowance would let finish.
+		runtime.GOMAXPROCS(1)
+		processorSeconds := uint64((header.ProcessorTimeLimit + time.Second - 1) / time.Second)
+		// The runtime ignores SIGXCPU, so the soft limit is acted on here; the hard limit is the kernel's backstop.
+		processorTimeSpent := make(chan os.Signal, 1)
+		signal.Notify(processorTimeSpent, syscall.SIGXCPU)
+		go func() {
+			<-processorTimeSpent
+			os.Exit(1)
+		}()
+		limitError := syscall.Setrlimit(syscall.RLIMIT_CPU, &syscall.Rlimit{
+			Cur: processorSeconds,
+			Max: processorSeconds + 1,
+		})
+		if limitError != nil && runtime.GOOS == "linux" {
+			return newFailedIndicatorScriptResponse(fmt.Errorf(
+				"%w: 算式執行失敗：算式隔間無法設定處理器時間上限：%v", domains.ErrIndicatorScriptFailed, limitError))
+		}
 	}
 
 	if header.MemoryLimitBytes > 0 {

@@ -55,6 +55,12 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 			expectedToHalt: false,
 		},
 		{
+			// Waiting for a compartment is nobody's fault, so the next round simply tries again.
+			name:           "every script compartment staying busy only skips the round",
+			roundError:     fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy),
+			expectedToHalt: false,
+		},
+		{
 			// Unknown failures only skip the round, since halting is the destructive answer.
 			name:           "a failure nobody recognises only skips the round",
 			roundError:     errors.New("the database went away"),

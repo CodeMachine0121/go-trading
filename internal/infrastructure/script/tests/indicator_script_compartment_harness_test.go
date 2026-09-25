@@ -34,6 +34,8 @@ func isolationWith(executionTimeout time.Duration) script.IndicatorScriptIsolati
 		WorkerEnvironment: []string{workerRoleVariable + "=1"},
 		ExecutionTimeout:  executionTimeout,
 		MemoryLimitBytes:  memoryLimitBytes,
+		// Roomy enough that only the concurrency tests, which bring their own, ever wait.
+		CompartmentSlots: script.NewIndicatorScriptCompartmentSlots(16),
 	}
 }
 

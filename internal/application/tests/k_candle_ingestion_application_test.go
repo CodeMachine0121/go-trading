@@ -60,7 +60,7 @@ func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTes
 	return ingestionApplicationUnderTest{
 		application: application.NewKCandleIngestionApplication(service.NewKCandleIngestionService(
 			kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
-			ingestionMarketCatalog(), ingestionRoundCandleCount, ingestionLookback)),
+			ingestionMarketCatalog(), ingestionRoundCandleCount, ingestionLookback, 2)),
 		kCandleRepository:       kCandleRepository,
 		tradingSymbolRepository: tradingSymbolRepository,
 		marketDataProxy:         marketDataProxy,

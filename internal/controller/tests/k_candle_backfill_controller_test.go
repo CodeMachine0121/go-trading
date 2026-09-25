@@ -43,7 +43,7 @@ func newBackfillRouterUnderTest(t *testing.T) backfillRouterUnderTest {
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 					vo.MarketCrypto: {},
-				}), 5, time.Hour)))
+				}), 5, time.Hour, 2)))
 
 	engine := gin.New()
 	engine.POST("/k-candles/backfill", doorOpenFor(t, signedInViewerID), backfillController.CatchUpSymbol)

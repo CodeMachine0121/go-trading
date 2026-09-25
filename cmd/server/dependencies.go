@@ -39,6 +39,7 @@ func registerRoutes(
 	contractSeriesApplications,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
+	requestGuards := guardRequests(engine, applicationConfig)
 
 	engine.GET("/health", func(context *gin.Context) {
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})
@@ -106,6 +107,7 @@ func registerRoutes(
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.Ingestion.RoundCandleCount,
 		applicationConfig.Ingestion.BackfillLookback,
+		applicationConfig.Ingestion.HistorySyncMaxConcurrentSyncs,
 	)
 	kCandleIngestionApplication := application.NewKCandleIngestionApplication(kCandleIngestionService)
 
@@ -175,6 +177,7 @@ func registerRoutes(
 		applicationConfig.ContractIngestion.RoundCandleCount,
 		applicationConfig.ContractIngestion.BackfillLookback,
 		contractPositionStatisticService,
+		applicationConfig.ContractIngestion.HistorySyncMaxConcurrentSyncs,
 	)
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)
@@ -324,9 +327,13 @@ func registerRoutes(
 		WorkerCommand:    []string{serverExecutable, script.IndicatorScriptWorkerCommand},
 		ExecutionTimeout: applicationConfig.IndicatorScriptTimeout,
 		MemoryLimitBytes: applicationConfig.IndicatorScriptMemoryLimitBytes,
+		CompartmentSlots: script.NewIndicatorScriptCompartmentSlots(
+			applicationConfig.IndicatorScriptMaxConcurrentCompartments),
 	}
+	// Bot rounds share the slots but wait ahead of on-demand calculations.
+	strategyBotIndicatorScriptIsolation := indicatorScriptIsolation
+	strategyBotIndicatorScriptIsolation.ServesStrategyBotRounds = true
 
-	// Shared with strategy bots so both use the same script runner and timeouts.
 	indicatorCalculationService := service.NewIndicatorCalculationService(
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
@@ -385,15 +392,16 @@ func registerRoutes(
 
 	userController := controller.NewUserController(userApplication)
 
-	engine.POST("/users", userController.RegisterUser)
-	engine.POST("/sessions", userController.SignIn)
+	engine.POST("/users", requestGuards.credentialRequest, userController.RegisterUser)
+	engine.POST("/sessions", requestGuards.credentialRequest, userController.SignIn)
 	// POSTs rather than DELETE because the refresh token must travel in a body.
-	engine.POST("/sessions/renewal", userController.RenewSession)
+	engine.POST("/sessions/renewal", requestGuards.credentialRequest, userController.RenewSession)
 	engine.POST("/sessions/revocation", userController.RevokeSession)
 	// Not behind requiresSignIn: it reads the token itself and would give the same rejection anyway.
 	engine.GET("/users/me", userController.GetCurrentUser)
 	// Behind requiresSignIn so a bad token is not confused with a wrong current password.
-	engine.POST("/users/me/password", requiresSignIn, userController.ChangePassword)
+	engine.POST("/users/me/password", requestGuards.credentialRequest, requiresSignIn,
+		userController.ChangePassword)
 
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		persistence.NewTelegramDeliveryRepository(database),
@@ -446,8 +454,9 @@ func registerRoutes(
 
 	kCandleFollowController := controller.NewKCandleFollowController(
 		kCandleFollowApplication, kCandleContractFollowApplication)
-	engine.GET("/k-candles/live", kCandleFollowController.WatchKCandles)
-	engine.GET("/contract-k-candles/live", kCandleFollowController.WatchKCandleContracts)
+	engine.GET("/k-candles/live", requestGuards.liveStream, kCandleFollowController.WatchKCandles)
+	engine.GET("/contract-k-candles/live", requestGuards.liveStream,
+		kCandleFollowController.WatchKCandleContracts)
 
 	// One service, two applications: managing bots is permission-checked per person, while runs are
 	// driven by the scheduler with no person to ask.
@@ -530,8 +539,23 @@ func registerRoutes(
 		strategyBotService,
 		tradingStrategyService,
 		strategyScriptService,
-		indicatorCalculationService,
-		contractIndicatorCalculationService,
+		service.NewIndicatorCalculationService(
+			kCandleRepository,
+			persistence.NewTradingSymbolRepository(database),
+			script.NewYaegiIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),
+			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+			applicationConfig.KCandleQueryMaxResults,
+		),
+		service.NewContractIndicatorCalculationService(
+			contractKCandleRepository,
+			persistence.NewContractFundingRateSettlementRepository(database),
+			persistence.NewContractPositionStatisticRepository(database),
+			script.NewYaegiContractIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),
+			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+			applicationConfig.KCandleQueryMaxResults,
+		),
 		telegramDeliveryService,
 		kCandleService,
 		kCandleContractService,

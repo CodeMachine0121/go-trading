@@ -44,9 +44,11 @@ type IngestionConfig struct {
 	// HistorySyncMaxLookbackDays is only a typo guard (ten years exceeds any source's history),
 	// since syncs now stream chunk by chunk.
 	HistorySyncMaxLookbackDays int
-	MarketDataBaseUrl          string
-	SymbolCatalogUrl           string
-	MarketDataRequestTimeout   time.Duration
+	// HistorySyncMaxConcurrentSyncs is the real cost limit: running syncs share the venue allowance.
+	HistorySyncMaxConcurrentSyncs int
+	MarketDataBaseUrl             string
+	SymbolCatalogUrl              string
+	MarketDataRequestTimeout      time.Duration
 	// MarketDataRequestsPerMinute is configurable because it is the venue's allowance, which can
 	// change.
 	MarketDataRequestsPerMinute int
@@ -55,9 +57,10 @@ type IngestionConfig struct {
 // ContractIngestionConfig mirrors the spot settings without sharing any: the venues budget requests
 // separately and each contract candle costs two requests.
 type ContractIngestionConfig struct {
-	RoundCandleCount           int
-	BackfillLookback           time.Duration
-	HistorySyncMaxLookbackDays int
+	RoundCandleCount              int
+	BackfillLookback              time.Duration
+	HistorySyncMaxLookbackDays    int
+	HistorySyncMaxConcurrentSyncs int
 	// BaseUrl serves traded figures; the other three serve mark, index and premium index prices,
 	// all combined into one contract candle.
 	BaseUrl         string
@@ -194,6 +197,27 @@ type StrategyBotConfig struct {
 	RoundTimeout        time.Duration
 }
 
+// RequestLimitConfig bounds what one client can ask of the service; defaults sit far above what the front end
+// and the MCP plugin need.
+type RequestLimitConfig struct {
+	// TrustedProxyCidrs empty means no forwarding header is believed.
+	TrustedProxyCidrs []string
+	// ClientIpHeaders are read, in order, only when the direct peer is a trusted proxy.
+	ClientIpHeaders []string
+	BodyLimitBytes  int64
+	ReadTimeout     time.Duration
+	IdleTimeout     time.Duration
+	// RequestsPerMinute and RequestBurst apply per requester: the signed-in user, otherwise the address.
+	RequestsPerMinute int
+	RequestBurst      int
+	// CredentialRequestsPerMinute and CredentialRequestBurst apply per address to register, sign-in, renewal and
+	// password change, each of which costs a deliberately slow hash.
+	CredentialRequestsPerMinute int
+	CredentialRequestBurst      int
+	LiveStreamsPerClient        int
+	LiveStreamsTotal            int
+}
+
 type ApplicationConfig struct {
 	ServerPort             string
 	CorsAllowedOrigins     []string
@@ -202,6 +226,8 @@ type ApplicationConfig struct {
 	// IndicatorScriptMemoryLimitBytes applies per script compartment and must sit well below the
 	// service's own memory, as several run concurrently.
 	IndicatorScriptMemoryLimitBytes int64
+	// IndicatorScriptMaxConcurrentCompartments times the memory limit must leave room for the service.
+	IndicatorScriptMaxConcurrentCompartments int
 	// BacktestMaxCandleCount limits buckets per replay, separately from the single-query ceiling.
 	BacktestMaxCandleCount int
 	// BacktestTimeAllowance covers the whole replay and sits below the common 100s reverse-proxy
@@ -221,6 +247,7 @@ type ApplicationConfig struct {
 	Secrets           SecretsConfig
 	Telegram          TelegramConfig
 	StrategyBot       StrategyBotConfig
+	RequestLimit      RequestLimitConfig
 	Database          DatabaseConfig
 }
 
@@ -236,6 +263,9 @@ func Load() ApplicationConfig {
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		IndicatorScriptMemoryLimitBytes: int64(
 			positiveIntWithDefault("INDICATOR_SCRIPT_MEMORY_LIMIT_MEGABYTES", 512)) << 20,
+		// Six 512MB compartments fill 3GB of the production 4GB, leaving 1GB for the service.
+		IndicatorScriptMaxConcurrentCompartments: positiveIntWithDefault(
+			"INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS", 6),
 		BacktestMaxCandleCount: positiveIntWithDefault("BACKTEST_MAX_CANDLE_COUNT", 50000),
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
@@ -248,6 +278,8 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			HistorySyncMaxLookbackDays: positiveIntWithDefault(
 				"KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
+			HistorySyncMaxConcurrentSyncs: positiveIntWithDefault(
+				"KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS", 2),
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
 			SymbolCatalogUrl: stringWithDefault(
@@ -266,6 +298,8 @@ func Load() ApplicationConfig {
 				"CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			HistorySyncMaxLookbackDays: positiveIntWithDefault(
 				"CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
+			HistorySyncMaxConcurrentSyncs: positiveIntWithDefault(
+				"CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS", 2),
 			BaseUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_BASE_URL", "https://fapi.binance.com/fapi/v1/klines"),
 			MarkPriceUrl: stringWithDefault(
@@ -382,6 +416,24 @@ func Load() ApplicationConfig {
 			MaxConcurrentRounds: positiveIntWithDefault("STRATEGY_BOT_MAX_CONCURRENT_ROUNDS", 4),
 			RoundTimeout: time.Duration(
 				positiveIntWithDefault("STRATEGY_BOT_ROUND_TIMEOUT_SECONDS", 120)) * time.Second,
+		},
+		RequestLimit: RequestLimitConfig{
+			TrustedProxyCidrs: commaSeparatedList("TRUSTED_PROXY_CIDRS"),
+			ClientIpHeaders: commaSeparatedListWithDefault(
+				"CLIENT_IP_HEADERS", []string{"X-Forwarded-For", "X-Real-IP"}),
+			BodyLimitBytes: int64(positiveIntWithDefault("REQUEST_BODY_LIMIT_KILOBYTES", 1024)) << 10,
+			ReadTimeout: time.Duration(
+				positiveIntWithDefault("SERVER_READ_TIMEOUT_SECONDS", 30)) * time.Second,
+			// Above the reverse proxy's 90-second idle timeout, so the proxy never reuses a connection we just closed.
+			IdleTimeout: time.Duration(
+				positiveIntWithDefault("SERVER_IDLE_TIMEOUT_SECONDS", 120)) * time.Second,
+			RequestsPerMinute: positiveIntWithDefault("RATE_LIMIT_REQUESTS_PER_MINUTE", 600),
+			RequestBurst:      positiveIntWithDefault("RATE_LIMIT_BURST", 120),
+			CredentialRequestsPerMinute: positiveIntWithDefault(
+				"RATE_LIMIT_CREDENTIAL_REQUESTS_PER_MINUTE", 10),
+			CredentialRequestBurst: positiveIntWithDefault("RATE_LIMIT_CREDENTIAL_BURST", 10),
+			LiveStreamsPerClient:   positiveIntWithDefault("LIVE_STREAM_CONNECTIONS_PER_CLIENT", 20),
+			LiveStreamsTotal:       positiveIntWithDefault("LIVE_STREAM_CONNECTIONS_TOTAL", 1000),
 		},
 		Database: DatabaseConfig{
 			Host:     stringWithDefault("POSTGRES_HOST", "localhost"),

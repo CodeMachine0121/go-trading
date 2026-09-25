@@ -69,6 +69,8 @@ func TestCorsMiddlewareAnswersThePreflightWithoutReachingARoute(t *testing.T) {
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Content-Type")
 	// Without this, browsers drop the Authorization header and a signed-in front end looks signed out.
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Authorization")
+	// Without this, a throttled front end cannot read how long to wait.
+	assert.Contains(t, recorder.Header().Get("Access-Control-Expose-Headers"), "Retry-After")
 }
 
 func corsEngine(allowedOrigins []string) *gin.Engine {

@@ -27,6 +27,9 @@ type ContractKCandleIngestionService struct {
 	backfillLookback    time.Duration
 	// positionStatisticService fills the position statistics half of each history sync.
 	positionStatisticService *ContractPositionStatisticService
+	historySyncCapacity      domains.KCandleHistorySyncCapacityDomain
+	// historySyncStartMutex makes counting and recording one step, so two starts cannot both take the last place.
+	historySyncStartMutex sync.Mutex
 }
 
 func NewContractKCandleIngestionService(
@@ -39,6 +42,7 @@ func NewContractKCandleIngestionService(
 	roundCandleCount int,
 	backfillLookback time.Duration,
 	positionStatisticService *ContractPositionStatisticService,
+	historySyncMaxConcurrentSyncs int,
 ) *ContractKCandleIngestionService {
 	return &ContractKCandleIngestionService{
 		kCandleContractRepository:               kCandleContractRepository,
@@ -50,6 +54,7 @@ func NewContractKCandleIngestionService(
 		roundCandleCount:                        roundCandleCount,
 		backfillLookback:                        backfillLookback,
 		positionStatisticService:                positionStatisticService,
+		historySyncCapacity:                     domains.NewKCandleHistorySyncCapacityDomain(historySyncMaxConcurrentSyncs),
 	}
 }
 
@@ -123,8 +128,8 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 	positionStatisticHistory := domains.NewContractPositionStatisticHistoryDomain(
 		ingestionDomain.CurrentTime(), lookback.Duration())
 
-	syncRun, saveError := contractKCandleIngestionService.kCandleContractHistorySyncRunRepository.
-		Save(executionContext, entities.KCandleContractHistorySyncRun{
+	syncRun, saveError := contractKCandleIngestionService.recordRunningHistorySync(
+		executionContext, entities.KCandleContractHistorySyncRun{
 			Symbol:                     registeredSymbol.Symbol,
 			LookbackDays:               syncDto.LookbackDays,
 			Status:                     string(vo.KCandleHistorySyncRunning),
@@ -150,6 +155,27 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 	}).run()
 
 	return syncRun.ToDto(), nil
+}
+
+// recordRunningHistorySync holds historySyncStartMutex from the count to the write, so the lock is released on every return.
+func (contractKCandleIngestionService *ContractKCandleIngestionService) recordRunningHistorySync(
+	executionContext context.Context, syncRun entities.KCandleContractHistorySyncRun,
+) (entities.KCandleContractHistorySyncRun, error) {
+	contractKCandleIngestionService.historySyncStartMutex.Lock()
+	defer contractKCandleIngestionService.historySyncStartMutex.Unlock()
+
+	runningCount, countError := contractKCandleIngestionService.kCandleContractHistorySyncRunRepository.
+		CountRunning(executionContext)
+	if countError != nil {
+		return entities.KCandleContractHistorySyncRun{}, countError
+	}
+
+	if admitError := contractKCandleIngestionService.historySyncCapacity.Admit(runningCount); admitError != nil {
+		return entities.KCandleContractHistorySyncRun{}, admitError
+	}
+
+	return contractKCandleIngestionService.kCandleContractHistorySyncRunRepository.Save(
+		executionContext, syncRun)
 }
 
 func (contractKCandleIngestionService *ContractKCandleIngestionService) GetHistorySyncRun(

@@ -42,7 +42,7 @@ func newTradingSymbolListAssistantQueryUnderTest(t *testing.T) tradingSymbolList
 					tradingSymbolMarketCatalog()), service.NewKCandleIngestionService(
 					kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(controller), tradingSymbolRepository,
 					mocks.NewMockIMarketDataProxy(controller), tradingSymbolClockProxy(controller),
-					tradingSymbolMarketCatalog(), 5, time.Hour))),
+					tradingSymbolMarketCatalog(), 5, time.Hour, 2))),
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
 	}

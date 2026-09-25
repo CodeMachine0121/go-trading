@@ -175,6 +175,33 @@ func TestContractHistorySyncRunRepositoryReadsARunBackAndSweepsAnInterruptedOne(
 	assert.Equal(t, sweptAt, storedRun.FinishedAt.UTC())
 }
 
+func TestContractHistorySyncRunRepositoryCountsOnlyItsOwnRunningRuns(t *testing.T) {
+	// A spot run draws on another venue's allowance, so it must not take a contract place.
+	database := newTestDatabase(t)
+	runRepository := persistence.NewKCandleContractHistorySyncRunRepository(database)
+	_, spotError := persistence.NewKCandleHistorySyncRunRepository(database).Save(
+		t.Context(), entities.KCandleHistorySyncRun{
+			Symbol:       "XRPUSDT",
+			LookbackDays: 30,
+			Status:       string(vo.KCandleHistorySyncRunning),
+			StartedAt:    time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC),
+		})
+	require.NoError(t, spotError)
+	_, runningError := runRepository.Save(t.Context(), runningContractSyncRun("BTCUSDT"))
+	require.NoError(t, runningError)
+	finishedAt := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
+	endedRun := runningContractSyncRun("ETHUSDT")
+	endedRun.Status = string(vo.KCandleHistorySyncSucceeded)
+	endedRun.FinishedAt = &finishedAt
+	_, endedError := runRepository.Save(t.Context(), endedRun)
+	require.NoError(t, endedError)
+
+	runningCount, countError := runRepository.CountRunning(t.Context())
+
+	require.NoError(t, countError)
+	assert.Equal(t, 1, runningCount)
+}
+
 func TestContractHistorySyncRunRepositoryAnswersNotFoundForAnUnknownRun(t *testing.T) {
 	database := newTestDatabase(t)
 	runRepository := persistence.NewKCandleContractHistorySyncRunRepository(database)
@@ -192,8 +219,9 @@ func TestContractHistorySyncRunRepositorySaysSoWhenStorageIsUnreachable(t *testi
 	_, saveError := runRepository.Save(t.Context(), runningContractSyncRun("BTCUSDT"))
 	_, _, findError := runRepository.FindOne(t.Context(), 1)
 	_, sweepError := runRepository.FailAllRunning(t.Context(), "boom", time.Now().UTC())
+	_, countError := runRepository.CountRunning(t.Context())
 
-	for _, storageError := range []error{saveError, findError, sweepError} {
+	for _, storageError := range []error{saveError, findError, sweepError, countError} {
 		assert.Error(t, storageError)
 	}
 }

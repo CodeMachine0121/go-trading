@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "go-trading",
-    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -663,6 +663,50 @@
                   "});"
                 ]
               }
+            }
+          ],
+          "response": [
+            {
+              "name": "太頻繁 — 身分相關額度用完",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/sessions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "sessions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Too Many Requests",
+              "code": 429,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "Retry-After",
+                  "value": "6"
+                }
+              ],
+              "body": "{\n    \"message\": \"請求太頻繁，請 6 秒後再試\"\n}"
             }
           ]
         },
@@ -5289,6 +5333,33 @@
           ]
         },
         {
+          "name": "拒絕：同時在跑的合約歷史同步已滿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ETHUSDT\",\n  \"lookbackDays\": 1\n}"
+            },
+            "description": "已有 `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS`（預設 2）趟合約歷史同步在跑時送這一發，會回 429 並說出上限，不留輪次。與現貨那一份各算各的：現貨滿了不擋合約。未滿時這一發照常 202。"
+          }
+        },
+        {
           "name": "從合約追蹤名單移除",
           "request": {
             "method": "DELETE",
@@ -5462,7 +5533,7 @@
     },
     {
       "name": "指標計算",
-      "description": "送出交易標的、要用幾根 K 線、以及一段算式，拿回一組「指標名稱 → 數字」。結果不留存。",
+      "description": "送出交易標的、要用幾根 K 線、以及一段算式，拿回一組「指標名稱 → 數字」。結果不留存。\n\n**同時運作的算式隔間有上限**（`INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`，預設 6）。滿了會排隊（策略機器人的輪次排在最前），在你的請求時限內等不到空位就回 `503`，body 帶 `\"compartmentsBusy\": true`——不是算式的問題，稍後再試即可。",
       "item": [
         {
           "name": "準備第 1 根",
@@ -10795,7 +10866,7 @@
                 "backtests"
               ]
             },
-            "description": "同一支算式、同一段歷史，與「買進之後一路抱著」那一發**只差一個止損距離**——而成績單從 +25% 變成 −2%。\n\n第二根（收盤 120）全押開多，拿到 100 單位，止損價是進場價下面兩個百分點：117.6。第三根的最低價是 90，掃到它，以 **117.6** 出場，這一筆虧 240，帳上剩 11,760。\n\n**止損用那一根的最低價判，不是收盤價**——停損是盤中被掃到的。而**進場那一根不判**：成交在它的收盤價，它的最低價在成交之前就已經發生過了。\n\n兩個距離留白就完全不模擬，所以這一刀之前的每一發都一個數字都沒變。",
+            "description": "同一支算式、同一段歷史，與「買進之後一路抱著」那一發**只差一個止損距離**——而成績單從 +25% 變成約 −16.7%。\n\n第二根（收盤 120）全押開多，拿到 100 單位，止損價是進場價下面兩個百分點：117.6。第三根**開盤就在 100**，已經跳過止損價，止損單能拿到的最好價格就是開盤價，所以以 **100** 出場，這一筆虧 2,000，帳上剩 10,000。\n\n**止損用那一根的最低價判，不是收盤價**——停損是盤中被掃到的；**開盤就跳過止損價時成交在開盤價**，盤中才碰到才成交在止損價本身。而**進場那一根不判**：成交在它的收盤價，它的最低價在成交之前就已經發生過了。\n\n兩個距離留白就完全不模擬，所以這一刀之前的每一發都一個數字都沒變。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\"\n}",
@@ -10815,20 +10886,20 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"被止損掃出場，成交在止損價本身\", function () {",
-                  "    // 進場 120 下面兩個百分點是 117.6；第三根最低 90 掃到它。",
+                  "pm.test(\"開盤跳過止損價，成交在開盤價\", function () {",
+                  "    // 進場 120 下面兩個百分點是 117.6；第三根開盤 100 已經跳過它。",
                   "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"117.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"100\");",
                   "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"stopLoss\");",
                   "});",
                   "pm.test(\"成績單數得出那一筆是止損出場\", function () {",
                   "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(1);",
                   "    pm.expect(pm.response.json().summary.takeProfitExitCount).to.eql(0);",
                   "});",
-                  "pm.test(\"同一支算式不設止損是 +25%，設了是 −2%\", function () {",
-                  "    // 12,000 − 240 = 11,760。不設止損時它抱到最後是 15,000。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"11760\");",
-                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(-0.02);",
+                  "pm.test(\"同一支算式不設止損是 +25%，設了約 −16.7%\", function () {",
+                  "    // 12,000 − 2,000 = 10,000。不設止損時它抱到最後是 15,000。",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"10000\");",
+                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.be.closeTo(-2000 / 12000, 0.000001);",
                   "});"
                 ]
               }
@@ -10904,7 +10975,7 @@
                 "backtests"
               ]
             },
-            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根最低 90 掃到止損價 117.6，成交金額是 100 × 117.6 = 11,760，出場成本 **117.6**。價差虧 240，這一筆的損益是 **−477.6**（淨額，已扣掉兩筆成本），帳上剩 **11,642.4**。\n\n沒有成本的那一發同樣虧 240 的價差，帳上剩 11,760。\n\n**別拿兩個餘額相減**——兩發的本金本來就不同（12,000 對 12,120），差的 117.6 說不出任何事情。對得起來的是**淨變化**：不計成本那一發是 −240，這一發是 −477.6，相差的 **237.6** 正是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
+            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根開盤 100 就跳過止損價 117.6，成交在開盤價，成交金額是 100 × 100 = 10,000，出場成本 **100**。價差虧 2,000，這一筆的損益是 **−2,220**（淨額，已扣掉兩筆成本），帳上剩 **9,900**。\n\n沒有成本的那一發同樣虧 2,000 的價差，帳上剩 10,000。\n\n**別拿兩個餘額相減**——兩發的本金本來就不同（12,000 對 12,120），差的 100 說不出任何事情。對得起來的是**淨變化**：不計成本那一發是 −2,000，這一發是 −2,220，相差的 **220** 正是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12120\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\",\n  \"entryCostPercentage\": \"1\",\n  \"exitCostPercentage\": \"1\"\n}",
@@ -10925,18 +10996,18 @@
                   "    pm.response.to.have.status(200);",
                   "});",
                   "pm.test(\"兩端各收一筆，出場那筆算的是成交金額\", function () {",
-                  "    // 成交金額是 100 單位 × 117.6 = 11,760，不是那一注當時值的 11,760 以外的任何數字。",
+                  "    // 成交金額是 100 單位 × 開盤價 100 = 10,000，不是當初押下去的 12,000。",
                   "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
                   "    pm.expect(pm.response.json().closedTrades[0].entryCost).to.eql(\"120\");",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitCost).to.eql(\"117.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitCost).to.eql(\"100\");",
                   "});",
                   "pm.test(\"逐筆損益是扣掉兩筆成本之後的淨額\", function () {",
-                  "    // 價差虧 240，再扣 120 與 117.6。",
-                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-477.6\");",
+                  "    // 價差虧 2,000，再扣 120 與 100。",
+                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-2220\");",
                   "});",
                   "pm.test(\"成績單說得出總共付了多少\", function () {",
-                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.eql(\"237.6\");",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"11642.4\");",
+                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.eql(\"220\");",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"9900\");",
                   "});"
                 ]
               }
@@ -10993,7 +11064,8 @@
             }
           ]
         }
-      ]
+      ],
+      "description": "**同時運作的算式隔間有上限**（`INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`，預設 6）。滿了會排隊（策略機器人的輪次排在最前），在你的請求時限內等不到空位就回 `503`，body 帶 `\"compartmentsBusy\": true`——不是算式的問題，稍後再試即可。"
     },
     {
       "name": "交易策略",
@@ -12648,7 +12720,8 @@
             }
           ]
         }
-      ]
+      ],
+      "description": "**同時運作的算式隔間有上限**（`INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`，預設 6）。滿了會排隊（策略機器人的輪次排在最前），在你的請求時限內等不到空位就回 `503`，body 帶 `\"compartmentsBusy\": true`——不是算式的問題，稍後再試即可。"
     },
     {
       "name": "策略機器人",
@@ -14539,6 +14612,34 @@
               ]
             },
             "description": "上面那一發還在跑的時候送這一發，會回 409。兩趟會互搶同一份來源額度、寫同一批列，而且誰都不會比較早結束。"
+          },
+          "response": []
+        },
+        {
+          "name": "拒絕：同時在跑的歷史同步已滿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ETHUSDT\",\n  \"lookbackDays\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "description": "已有 `KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS`（預設 2）趟現貨歷史同步在跑時送這一發（換一個沒在跑的已登錄代號），會回 429，訊息說出上限：「同時最多 2 趟歷史同步，等其中一趟結束再開」。不留輪次、不問來源、不排隊。與 409 不同：409 是同一個標的按了兩次，429 是整體太忙、稍後自然會空。未滿時這一發照常 202。"
           },
           "response": []
         },

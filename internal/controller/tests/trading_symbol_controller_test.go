@@ -49,7 +49,7 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 				tradingSymbolMarketCatalog()), service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository,
 				marketDataProxy, tradingSymbolClockProxy(mockController),
-				tradingSymbolMarketCatalog(), 5, time.Hour)))
+				tradingSymbolMarketCatalog(), 5, time.Hour, 2)))
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
