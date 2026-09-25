@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -35,3 +36,6 @@ var indicatorNow = at(9, 15)
 
 // assistantViewerID owns every strategy script these tests save or read, so they test capabilities rather than visibility.
 const assistantViewerID = uint(1)
+
+// assistantOrigin is a lookup asked by the viewer from one answer of one conversation.
+var assistantOrigin = vo.AssistantQueryOriginVo{ViewerID: assistantViewerID, ConversationID: 5, TurnID: 50}

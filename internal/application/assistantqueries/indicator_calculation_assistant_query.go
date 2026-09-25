@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // indicatorCalculationAssistantArguments names a saved strategy script or brings its own
@@ -78,7 +79,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ar
 // Run surfaces every refusal of the calculation as a readable reason; a stretch merely shorter
 // than asked is answered, with required and used candle counts so the assistant can say so.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	calculationArguments := indicatorCalculationAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &calculationArguments); unmarshalError != nil {
@@ -101,7 +102,7 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 	}
 
 	resultDto, calculateError := indicatorCalculationAssistantQuery.calculate(
-		executionContext, viewerID, calculationArguments,
+		executionContext, origin.ViewerID, calculationArguments,
 		indicatorCalculationAssistantQuery.requestFor(calculationArguments, startTime, endTime))
 	if calculateError != nil {
 		return "", calculateError

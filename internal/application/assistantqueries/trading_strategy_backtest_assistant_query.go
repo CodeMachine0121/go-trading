@@ -9,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -148,7 +149,7 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 }
 
 func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	backtestArguments := tradingStrategyBacktestAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &backtestArguments); unmarshalError != nil {
@@ -157,7 +158,7 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 
 	resultDto, replayError := tradingStrategyBacktestAssistantQuery.tradingStrategyBacktestApplication.
 		RunTradingStrategyBacktest(
-			executionContext, viewerID, backtestArguments.TradingStrategyID,
+			executionContext, origin.ViewerID, backtestArguments.TradingStrategyID,
 			backtestArguments.ToRequestDto())
 	if replayError != nil {
 		return "", replayError

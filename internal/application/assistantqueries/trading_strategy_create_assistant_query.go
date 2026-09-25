@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // TradingStrategyCreateAssistantQuery lets the assistant assemble scripts and buy/sell trees into
@@ -38,7 +39,7 @@ func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) 
 }
 
 func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	writeArguments := tradingStrategyWriteAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
@@ -46,7 +47,7 @@ func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) 
 	}
 
 	tradingStrategyDto, createError := tradingStrategyCreateAssistantQuery.tradingStrategyApplication.
-		CreateTradingStrategy(executionContext, viewerID, writeArguments.ToWriteDto(0))
+		CreateTradingStrategy(executionContext, origin.ViewerID, writeArguments.ToWriteDto(0))
 	if createError != nil {
 		return "", createError
 	}

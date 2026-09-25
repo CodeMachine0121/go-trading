@@ -102,9 +102,10 @@ func (assistantConversationService *AssistantConversationService) Ask(
 
 	go assistantAnswerWriter{
 		assistantConversationService: assistantConversationService,
-		viewerID:                     askDto.ViewerID,
-		turnID:                       turnID,
-		exchange:                     exchange,
+		origin: vo.AssistantQueryOriginVo{
+			ViewerID: askDto.ViewerID, ConversationID: conversationID, TurnID: turnID,
+		},
+		exchange: exchange,
 	}.write()
 
 	return dto.AssistantAnswerStartedDto{
@@ -179,7 +180,7 @@ func (assistantConversationService *AssistantConversationService) recentMessages
 
 // writeAnswer loops round trips until an answer; lookups are checked before text because the assistant often narrates alongside a lookup, and an empty reply after the query limit counts as no answer.
 func (assistantConversationService *AssistantConversationService) writeAnswer(
-	executionContext context.Context, viewerID uint, exchange domains.AssistantExchangeDomain,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, exchange domains.AssistantExchangeDomain,
 ) (domains.AssistantExchangeDomain, string, error) {
 	for {
 		reply, replyError := assistantConversationService.assistantProxy.Reply(
@@ -195,7 +196,7 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 		if len(allowedCalls) > 0 {
 			exchange = exchange.RecordRound(
 				reply.Answer,
-				assistantConversationService.runAssistantQueries(executionContext, viewerID, allowedCalls))
+				assistantConversationService.runAssistantQueries(executionContext, origin, allowedCalls))
 
 			continue
 		}
@@ -210,11 +211,11 @@ func (assistantConversationService *AssistantConversationService) writeAnswer(
 
 // runAssistantQueries runs lookups in the order asked; every request gets a result, refusals included, as the assistant's interface requires.
 func (assistantConversationService *AssistantConversationService) runAssistantQueries(
-	executionContext context.Context, viewerID uint, calls []vo.AssistantQueryCallVo,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, calls []vo.AssistantQueryCallVo,
 ) []vo.AssistantQueryExchangeVo {
 	exchanges := make([]vo.AssistantQueryExchangeVo, 0, len(calls))
 	for _, call := range calls {
-		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, viewerID, call)
+		outcome, rejected := assistantConversationService.runAssistantQuery(executionContext, origin, call)
 		exchanges = append(exchanges, vo.AssistantQueryExchangeVo{
 			Call:     call,
 			Outcome:  outcome,
@@ -227,14 +228,14 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 
 // runAssistantQuery turns refusals into data for the assistant rather than failures, so one bad lookup does not discard the ones that succeeded.
 func (assistantConversationService *AssistantConversationService) runAssistantQuery(
-	executionContext context.Context, viewerID uint, call vo.AssistantQueryCallVo,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, call vo.AssistantQueryCallVo,
 ) (string, bool) {
 	for _, assistantQuery := range assistantConversationService.assistantQueries {
 		if assistantQuery.Name() != call.Name {
 			continue
 		}
 
-		outcome, runError := assistantQuery.Run(executionContext, viewerID, call.Arguments)
+		outcome, runError := assistantQuery.Run(executionContext, origin, call.Arguments)
 		if runError != nil {
 			return domains.AssistantReadableReason(runError), true
 		}

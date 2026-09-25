@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // StrategyScriptListAssistantQuery lists saved strategy scripts without their algorithms, since
@@ -43,10 +44,10 @@ type strategyScriptDigest struct {
 // Run lists the asker's own strategy scripts and those adopted from the marketplace as one list;
 // holding none is an answer, not a refusal.
 func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, _ string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, _ string,
 ) (string, error) {
 	availableStrategyScriptsDto, listError := strategyScriptListAssistantQuery.strategyScriptApplication.ListAvailableStrategyScripts(
-		executionContext, viewerID)
+		executionContext, origin.ViewerID)
 	if listError != nil {
 		return "", listError
 	}

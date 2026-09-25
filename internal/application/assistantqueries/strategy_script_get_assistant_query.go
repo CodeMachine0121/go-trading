@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 type strategyScriptGetAssistantArguments struct {
@@ -40,7 +41,7 @@ func (strategyScriptGetAssistantQuery *StrategyScriptGetAssistantQuery) Argument
 }
 
 func (strategyScriptGetAssistantQuery *StrategyScriptGetAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	getArguments := strategyScriptGetAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &getArguments); unmarshalError != nil {
@@ -48,7 +49,7 @@ func (strategyScriptGetAssistantQuery *StrategyScriptGetAssistantQuery) Run(
 	}
 
 	strategyScriptDto, findError := strategyScriptGetAssistantQuery.strategyScriptApplication.GetStrategyScript(
-		executionContext, viewerID, getArguments.StrategyScriptID)
+		executionContext, origin.ViewerID, getArguments.StrategyScriptID)
 	if findError != nil {
 		return "", findError
 	}

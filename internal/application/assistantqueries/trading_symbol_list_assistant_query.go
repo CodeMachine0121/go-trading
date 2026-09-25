@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // TradingSymbolListAssistantQuery lists known markets so the assistant need not guess names, since
@@ -35,7 +36,7 @@ func (tradingSymbolListAssistantQuery *TradingSymbolListAssistantQuery) Argument
 
 // Run lists every known market; holding none is an answer, since a fresh system knows of none.
 func (tradingSymbolListAssistantQuery *TradingSymbolListAssistantQuery) Run(
-	executionContext context.Context, _ uint, _ string,
+	executionContext context.Context, _ vo.AssistantQueryOriginVo, _ string,
 ) (string, error) {
 	tradingSymbolDtos, listError := tradingSymbolListAssistantQuery.tradingSymbolApplication.ListTradingSymbols(
 		executionContext)

@@ -124,7 +124,7 @@ func TestTradingStrategyCreateAssistantQueryStoresItForWhoeverAskedTheAssistant(
 		})
 
 	outcome, runError := fixture.createAssistantQuery.Run(
-		t.Context(), assistantViewerID, aWellFormedTradingStrategyArgument)
+		t.Context(), assistantOrigin, aWellFormedTradingStrategyArgument)
 
 	require.NoError(t, runError)
 	assert.Contains(t, outcome, "動能追蹤")
@@ -148,7 +148,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenTheNameIsTake
 			"%w: 交易策略名稱「動能追蹤」已被使用", domains.ErrTradingStrategyNameConflict))
 
 	_, runError := fixture.createAssistantQuery.Run(
-		t.Context(), assistantViewerID, aWellFormedTradingStrategyArgument)
+		t.Context(), assistantOrigin, aWellFormedTradingStrategyArgument)
 
 	require.ErrorIs(t, runError, domains.ErrTradingStrategyNameConflict)
 	assert.Contains(t, runError.Error(), "動能追蹤")
@@ -159,7 +159,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenAConditionNam
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
-	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantViewerID, `{
+	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantOrigin, `{
       "name": "動能追蹤",
       "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h"}],
       "buyCondition": {"sourceLabel": "C", "signal": "buy"},
@@ -173,7 +173,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenAConditionNam
 func TestTradingStrategyCreateAssistantQueryRefusesArgumentsThatAreNotJson(t *testing.T) {
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 
-	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantViewerID, "not json")
+	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantOrigin, "not json")
 
 	require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 }
@@ -195,7 +195,7 @@ func TestTradingStrategyUpdateAssistantQueryRewritesTheNamedOne(t *testing.T) {
 			return stored, nil
 		})
 
-	outcome, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantViewerID, `{
+	outcome, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantOrigin, `{
       "tradingStrategyId": 11,
       "name": "動能追蹤",
       "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h",
@@ -221,7 +221,7 @@ func TestTradingStrategyUpdateAssistantQueryHandsBackTheRefusalWhenABotIsRunning
 			{ID: 3, Name: "夜班", TradingStrategyID: assistantTradingStrategyID, RunState: "running"},
 		}, nil)
 
-	_, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantViewerID, `{
+	_, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantOrigin, `{
       "tradingStrategyId": 11,
       "name": "動能追蹤",
       "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h"}],
@@ -241,7 +241,7 @@ func TestTradingStrategyGetAssistantQueryReadsItInFull(t *testing.T) {
 		Return(aStoredTradingStrategy(assistantTradingStrategyID, "動能追蹤", assistantViewerID), nil)
 
 	outcome, runError := fixture.getAssistantQuery.Run(
-		t.Context(), assistantViewerID, `{"tradingStrategyId": 11}`)
+		t.Context(), assistantOrigin, `{"tradingStrategyId": 11}`)
 
 	require.NoError(t, runError)
 	assert.Contains(t, outcome, "動能追蹤")
@@ -256,7 +256,7 @@ func TestTradingStrategyGetAssistantQueryAnswersSomebodyElsesAsNotFound(t *testi
 		Return(aStoredTradingStrategy(assistantTradingStrategyID, "別人的", assistantViewerID+1), nil)
 
 	_, runError := fixture.getAssistantQuery.Run(
-		t.Context(), assistantViewerID, `{"tradingStrategyId": 11}`)
+		t.Context(), assistantOrigin, `{"tradingStrategyId": 11}`)
 
 	require.ErrorIs(t, runError, domains.ErrTradingStrategyNotFound)
 }
@@ -271,7 +271,7 @@ func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testi
 			aStoredTradingStrategy(assistantTradingStrategyID, "動能追蹤", assistantViewerID),
 		}, nil)
 
-	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantViewerID, "")
+	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantOrigin, "")
 
 	require.NoError(t, runError)
 
@@ -297,7 +297,7 @@ func TestTradingStrategyListAssistantQueryAnswersHoldingNoneWithAnEmptyList(t *t
 		FindAllByOwner(gomock.Any(), assistantViewerID).
 		Return([]entities.TradingStrategy{}, nil)
 
-	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantViewerID, "")
+	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantOrigin, "")
 
 	require.NoError(t, runError)
 	assert.JSONEq(t, `{"tradingStrategies":[]}`, outcome)
@@ -341,7 +341,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesA
 		))
 
 	_, runError := createAssistantQuery.Run(
-		t.Context(), assistantViewerID, aWellFormedTradingStrategyArgument)
+		t.Context(), assistantOrigin, aWellFormedTradingStrategyArgument)
 
 	require.ErrorIs(t, runError, domains.ErrStrategyScriptNotFound)
 }
@@ -351,7 +351,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceSetsAK
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
-	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantViewerID, `{
+	_, runError := fixture.createAssistantQuery.Run(t.Context(), assistantOrigin, `{
       "name": "動能追蹤",
       "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h",
         "parameterValues": [{"name": "這支腳本沒宣告過的參數", "value": 3}]}],

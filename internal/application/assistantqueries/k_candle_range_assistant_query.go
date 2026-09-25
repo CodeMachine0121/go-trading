@@ -8,6 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 type kCandleRangeAssistantArguments struct {
@@ -54,7 +55,7 @@ func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) ArgumentSchema() s
 
 // Run hands over at most the ceiling's worth of the stretch, most recent last.
 func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) Run(
-	executionContext context.Context, _ uint, arguments string,
+	executionContext context.Context, _ vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	rangeArguments := kCandleRangeAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &rangeArguments); unmarshalError != nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // StrategyScriptCreateAssistantQuery lets the assistant save a new algorithm; deleting is
@@ -34,7 +35,7 @@ func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Ar
 }
 
 func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	writeArguments := strategyScriptWriteAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
@@ -42,7 +43,7 @@ func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Ru
 	}
 
 	strategyScriptDto, createError := strategyScriptCreateAssistantQuery.strategyScriptApplication.CreateStrategyScript(
-		executionContext, writeArguments.ToWriteDto(0, viewerID))
+		executionContext, writeArguments.ToWriteDto(0, origin.ViewerID))
 	if createError != nil {
 		return "", createError
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // TradingStrategyUpdateAssistantQuery lets the assistant rewrite a trading strategy, which
@@ -41,7 +42,7 @@ func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) 
 }
 
 func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) Run(
-	executionContext context.Context, viewerID uint, arguments string,
+	executionContext context.Context, origin vo.AssistantQueryOriginVo, arguments string,
 ) (string, error) {
 	writeArguments := tradingStrategyWriteAssistantArguments{}
 	if unmarshalError := json.Unmarshal([]byte(arguments), &writeArguments); unmarshalError != nil {
@@ -50,7 +51,7 @@ func (tradingStrategyUpdateAssistantQuery *TradingStrategyUpdateAssistantQuery) 
 
 	tradingStrategyDto, updateError := tradingStrategyUpdateAssistantQuery.tradingStrategyApplication.
 		UpdateTradingStrategy(
-			executionContext, viewerID, writeArguments.ToWriteDto(writeArguments.TradingStrategyID))
+			executionContext, origin.ViewerID, writeArguments.ToWriteDto(writeArguments.TradingStrategyID))
 	if updateError != nil {
 		return "", updateError
 	}

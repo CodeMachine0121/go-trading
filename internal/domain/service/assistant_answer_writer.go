@@ -7,13 +7,13 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // assistantAnswerWriter drives one answer to completion off the request, so a closed tab or refresh does not lose work in progress.
 type assistantAnswerWriter struct {
 	assistantConversationService *AssistantConversationService
-	viewerID                     uint
-	turnID                       uint
+	origin                       vo.AssistantQueryOriginVo
 	exchange                     domains.AssistantExchangeDomain
 }
 
@@ -29,29 +29,29 @@ func (assistantAnswerWriter assistantAnswerWriter) write() {
 		}
 
 		log.Printf("assistant answer %d panicked: %v\n%s",
-			assistantAnswerWriter.turnID, panicValue, debug.Stack())
+			assistantAnswerWriter.origin.TurnID, panicValue, debug.Stack())
 
 		assistantAnswerWriter.recordEnding(
 			executionContext,
 			assistantAnswerWriter.exchange.ToFailedTurn(
-				assistantAnswerWriter.turnID, domains.AssistantBrokeDown().Error()))
+				assistantAnswerWriter.origin.TurnID, domains.AssistantBrokeDown().Error()))
 	}()
 
 	answeredExchange, answer, exchangeError := assistantAnswerWriter.assistantConversationService.writeAnswer(
-		executionContext, assistantAnswerWriter.viewerID, assistantAnswerWriter.exchange)
+		executionContext, assistantAnswerWriter.origin, assistantAnswerWriter.exchange)
 
 	if exchangeError != nil {
 		// Record the assistant's own error sentence, which is written for the asker.
 		assistantAnswerWriter.recordEnding(
 			executionContext,
-			answeredExchange.ToFailedTurn(assistantAnswerWriter.turnID, exchangeError.Error()))
+			answeredExchange.ToFailedTurn(assistantAnswerWriter.origin.TurnID, exchangeError.Error()))
 
 		return
 	}
 
 	assistantAnswerWriter.recordEnding(
 		executionContext,
-		answeredExchange.ToAnsweredTurn(assistantAnswerWriter.turnID, answer))
+		answeredExchange.ToAnsweredTurn(assistantAnswerWriter.origin.TurnID, answer))
 }
 
 // recordEnding swallows write failures; the startup sweep reports an exchange left running as interrupted.
