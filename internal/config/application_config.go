@@ -113,6 +113,11 @@ type ContractIngestionConfig struct {
 	// is why they have an allowance of their own.
 	StatisticsBaseUrl           string
 	StatisticsRequestsPerMinute int
+	// PositionStatisticArchiveBaseUrl is the venue's history archive of the same
+	// statistics, one file per contract per day and years deep, where the live
+	// addresses above keep thirty days. A different host, so an allowance of its own.
+	PositionStatisticArchiveBaseUrl           string
+	PositionStatisticArchiveRequestsPerMinute int
 	// The three rounds beside the candles, each at the pace its own data changes: a
 	// funding rate settles a few times a day, a position statistic is taken every
 	// five minutes, and a trading specification barely changes at all. Zero switches
@@ -449,6 +454,14 @@ func Load() ApplicationConfig {
 			// never meet the ceiling together.
 			StatisticsRequestsPerMinute: positiveIntWithDefault(
 				"CONTRACT_MARKET_DATA_STATISTICS_REQUESTS_PER_MINUTE", 180),
+			PositionStatisticArchiveBaseUrl: stringWithDefault(
+				"CONTRACT_MARKET_DATA_POSITION_STATISTIC_ARCHIVE_BASE_URL",
+				"https://data.binance.vision/data/futures/um/daily/metrics"),
+			// The archive is a static file host that publishes no allowance. Two a
+			// second walks four years of days in under a quarter of an hour, which is
+			// already far quicker than the candles of the same stretch.
+			PositionStatisticArchiveRequestsPerMinute: positiveIntWithDefault(
+				"CONTRACT_MARKET_DATA_POSITION_STATISTIC_ARCHIVE_REQUESTS_PER_MINUTE", 120),
 			FundingRateIngestionInterval: jobIntervalWithDefault(
 				"CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", 60, time.Minute),
 			PositionStatisticIngestionInterval: jobIntervalWithDefault(

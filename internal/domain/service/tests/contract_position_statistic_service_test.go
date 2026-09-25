@@ -61,7 +61,8 @@ func newPositionStatisticServiceUnderTest(t *testing.T) positionStatisticService
 
 	return positionStatisticServiceUnderTest{
 		service: service.NewContractPositionStatisticService(
-			statisticRepository, symbolRepository, statisticProxy, clockProxy, 3),
+			statisticRepository, symbolRepository, statisticProxy,
+			mocks.NewMockIContractPositionStatisticArchiveProxy(mockController), clockProxy, 3),
 		statisticRepository: statisticRepository,
 		symbolRepository:    symbolRepository,
 		statisticProxy:      statisticProxy,

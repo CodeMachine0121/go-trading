@@ -5022,7 +5022,7 @@
               "mode": "raw",
               "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"lookbackDays\": 1\n}"
             },
-            "description": "不等抓完——每一根要問兩次，長區間是現貨的兩倍往返。"
+            "description": "不等抓完——每一根要問兩次，長區間是現貨的兩倍往返。合約 K 線補完後，同一趟接著以同一個回溯天數從持倉統計歷史資料庫一天一天補持倉統計；輪次的 positionStatistic 另外說那一份的進度（回溯 1 天是昨天與今天兩天）。"
           },
           "event": [
             {
@@ -5032,6 +5032,7 @@
                 "exec": [
                   "pm.test(\"回 202\", () => pm.response.to.have.status(202));",
                   "pm.test(\"回一筆輪次\", () => pm.expect(pm.response.json().status).to.eql(\"running\"));",
+                  "pm.test(\"說出持倉統計要走幾天\", () => pm.expect(pm.response.json().positionStatistic.totalDays).to.eql(2));",
                   "pm.collectionVariables.set(\"contractHistorySyncRunId\", pm.response.json().id);"
                 ]
               }
@@ -5061,7 +5062,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));"
+                  "pm.test(\"回 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"持倉統計的進度與合約 K 線分開說\", () => {",
+                  "  const positionStatistic = pm.response.json().positionStatistic;",
+                  "  pm.expect(positionStatistic).to.have.all.keys(\"totalDays\", \"completedDays\", \"storedCount\", \"skippedCount\", \"fetchFailureReason\");",
+                  "  pm.expect(pm.response.json()).to.have.property(\"storedCount\");",
+                  "});"
                 ]
               }
             }

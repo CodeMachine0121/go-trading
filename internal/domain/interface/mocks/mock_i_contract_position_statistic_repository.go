@@ -12,6 +12,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	domains "github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -40,6 +41,21 @@ func NewMockIContractPositionStatisticRepository(ctrl *gomock.Controller) *MockI
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockIContractPositionStatisticRepository) EXPECT() *MockIContractPositionStatisticRepositoryMockRecorder {
 	return m.recorder
+}
+
+// CountInRange mocks base method.
+func (m *MockIContractPositionStatisticRepository) CountInRange(executionContext context.Context, symbol string, startTime, endTime time.Time) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInRange", executionContext, symbol, startTime, endTime)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInRange indicates an expected call of CountInRange.
+func (mr *MockIContractPositionStatisticRepositoryMockRecorder) CountInRange(executionContext, symbol, startTime, endTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInRange", reflect.TypeOf((*MockIContractPositionStatisticRepository)(nil).CountInRange), executionContext, symbol, startTime, endTime)
 }
 
 // FindInRange mocks base method.

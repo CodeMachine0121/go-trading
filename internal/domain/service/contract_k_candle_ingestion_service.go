@@ -41,6 +41,10 @@ type ContractKCandleIngestionService struct {
 	roundTheClockMarket domains.MarketDomain
 	roundCandleCount    int
 	backfillLookback    time.Duration
+	// positionStatisticService fills in the second half of every history sync: the
+	// same stretch of position statistics, out of the venue's archive. It is the one
+	// that knows their rules; this service only runs it inside the same run.
+	positionStatisticService *ContractPositionStatisticService
 }
 
 func NewContractKCandleIngestionService(
@@ -52,6 +56,7 @@ func NewContractKCandleIngestionService(
 	marketCatalogDomain domains.MarketCatalogDomain,
 	roundCandleCount int,
 	backfillLookback time.Duration,
+	positionStatisticService *ContractPositionStatisticService,
 ) *ContractKCandleIngestionService {
 	return &ContractKCandleIngestionService{
 		kCandleContractRepository:               kCandleContractRepository,
@@ -62,6 +67,7 @@ func NewContractKCandleIngestionService(
 		roundTheClockMarket:                     marketCatalogDomain.MarketOf(string(vo.MarketCrypto)),
 		roundCandleCount:                        roundCandleCount,
 		backfillLookback:                        backfillLookback,
+		positionStatisticService:                positionStatisticService,
 	}
 }
 
@@ -124,7 +130,8 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) RunBackf
 }
 
 // StartHistorySyncFor accepts a request to fill in the minutes missing from a stretch
-// of one contract's history, and answers with where to watch it happen.
+// of one contract's history — and, once the candles are done, the position statistics
+// missing from the same stretch — and answers with where to watch it happen.
 //
 // **It answers before the fetching starts.** A stretch of years is thousands of paced
 // requests — and twice as many here as on the spot side, because every minute takes
@@ -136,34 +143,39 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) RunBackf
 // recorded.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHistorySyncFor(
 	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, ceilingDays int,
-) (dto.KCandleHistorySyncRunDto, error) {
+) (dto.KCandleContractHistorySyncRunDto, error) {
 	lookback, lookbackError := domains.NewKCandleHistoryLookbackDomain(
 		syncDto.LookbackDays, ceilingDays)
 	if lookbackError != nil {
-		return dto.KCandleHistorySyncRunDto{}, lookbackError
+		return dto.KCandleContractHistorySyncRunDto{}, lookbackError
 	}
 
 	registeredSymbol, ingestionDomain, reachError := contractKCandleIngestionService.
 		reachSymbolOnDemand(executionContext, syncDto.Symbol)
 	if reachError != nil {
-		return dto.KCandleHistorySyncRunDto{}, reachError
+		return dto.KCandleContractHistorySyncRunDto{}, reachError
 	}
 
 	chunks := ingestionDomain.HistoryChunks(
 		registeredSymbol.Symbol, vo.MarketCrypto, lookback.Duration())
+	// The statistics are cut against the same reading of the clock and the same
+	// lookback, so the two histories one run fills in cover the same stretch.
+	positionStatisticHistory := domains.NewContractPositionStatisticHistoryDomain(
+		ingestionDomain.CurrentTime(), lookback.Duration())
 
 	syncRun, saveError := contractKCandleIngestionService.kCandleContractHistorySyncRunRepository.
 		Save(executionContext, entities.KCandleContractHistorySyncRun{
-			Symbol:       registeredSymbol.Symbol,
-			LookbackDays: syncDto.LookbackDays,
-			Status:       string(vo.KCandleHistorySyncRunning),
-			TotalChunks:  len(chunks),
-			StartedAt:    ingestionDomain.CurrentTime(),
+			Symbol:                     registeredSymbol.Symbol,
+			LookbackDays:               syncDto.LookbackDays,
+			Status:                     string(vo.KCandleHistorySyncRunning),
+			TotalChunks:                len(chunks),
+			StartedAt:                  ingestionDomain.CurrentTime(),
+			PositionStatisticTotalDays: len(positionStatisticHistory.Days()),
 		})
 	if saveError != nil {
 		// Nothing is started. A run nobody can find is work nobody can ask about and
 		// a restart cannot sweep up, which is worse than not having begun.
-		return dto.KCandleHistorySyncRunDto{}, saveError
+		return dto.KCandleContractHistorySyncRunDto{}, saveError
 	}
 
 	go (&contractKCandleHistorySyncRunner{
@@ -172,6 +184,10 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 		registeredSymbol:                registeredSymbol,
 		ingestionDomain:                 ingestionDomain,
 		chunks:                          chunks,
+		positionStatisticHistory:        positionStatisticHistory,
+		positionStatisticProgress: dto.ContractPositionStatisticSyncProgressDto{
+			TotalDays: len(positionStatisticHistory.Days()),
+		},
 	}).run()
 
 	return syncRun.ToDto(), nil
@@ -180,14 +196,14 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 // GetHistorySyncRun answers with where one contract history sync has got to.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) GetHistorySyncRun(
 	executionContext context.Context, id uint,
-) (dto.KCandleHistorySyncRunDto, error) {
+) (dto.KCandleContractHistorySyncRunDto, error) {
 	syncRun, found, findError := contractKCandleIngestionService.
 		kCandleContractHistorySyncRunRepository.FindOne(executionContext, id)
 	if findError != nil {
-		return dto.KCandleHistorySyncRunDto{}, findError
+		return dto.KCandleContractHistorySyncRunDto{}, findError
 	}
 	if !found {
-		return dto.KCandleHistorySyncRunDto{}, ErrKCandleHistorySyncRunNotFound
+		return dto.KCandleContractHistorySyncRunDto{}, ErrKCandleHistorySyncRunNotFound
 	}
 
 	return syncRun.ToDto(), nil

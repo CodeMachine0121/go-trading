@@ -33,6 +33,11 @@ type contractKCandleHistorySyncRunner struct {
 	// planned, like a panic — reports what really happened instead of nothing.
 	completedChunks int
 	symbolReport    dto.KCandleSymbolIngestionReportDto
+	// positionStatisticHistory is the stretch of position statistics walked once the
+	// candles are done, and positionStatisticProgress how far that walk got — kept the
+	// same way, and for the same reason, as the two above.
+	positionStatisticHistory  domains.ContractPositionStatisticHistoryDomain
+	positionStatisticProgress dto.ContractPositionStatisticSyncProgressDto
 }
 
 // run walks the stretch to an end and records it, either way.
@@ -67,7 +72,23 @@ func (contractKCandleHistorySyncRunner *contractKCandleHistorySyncRunner) run() 
 		contractKCandleHistorySyncRunner.recordProgress,
 	)
 	if syncError != nil {
+		// This system broke on the candles, so it is not trusted with the statistics.
 		contractKCandleHistorySyncRunner.recordEnding(executionContext, syncError.Error())
+
+		return
+	}
+
+	// The candle source refusing is not a reason to skip the statistics: they come
+	// from a different source, and that one may well answer.
+	statisticError := contractKCandleHistorySyncRunner.contractKCandleIngestionService.
+		positionStatisticService.syncHistory(
+		executionContext,
+		contractKCandleHistorySyncRunner.registeredSymbol.Symbol,
+		contractKCandleHistorySyncRunner.positionStatisticHistory,
+		contractKCandleHistorySyncRunner.recordPositionStatisticProgress,
+	)
+	if statisticError != nil {
+		contractKCandleHistorySyncRunner.recordEnding(executionContext, statisticError.Error())
 
 		return
 	}
@@ -83,19 +104,46 @@ func (contractKCandleHistorySyncRunner *contractKCandleHistorySyncRunner) record
 	contractKCandleHistorySyncRunner.completedChunks = completedChunks
 	contractKCandleHistorySyncRunner.symbolReport = symbolReport
 
-	syncRun := contractKCandleHistorySyncRunner.syncRun
-	syncRun.CompletedChunks = completedChunks
-	syncRun.StoredCount = symbolReport.StoredCount
-	syncRun.SkippedCount = symbolReport.SkippedCount
-
-	contractKCandleHistorySyncRunner.save(context.Background(), syncRun, progressWriteAttempts)
+	contractKCandleHistorySyncRunner.save(
+		context.Background(), contractKCandleHistorySyncRunner.currentRun(), progressWriteAttempts)
 }
 
-// recordEnding closes the run at wherever the walk actually reached.
+// recordPositionStatisticProgress brings the run up to date after each day of position
+// statistics, for the reason recordProgress does after each chunk of candles.
+func (contractKCandleHistorySyncRunner *contractKCandleHistorySyncRunner) recordPositionStatisticProgress(
+	progress dto.ContractPositionStatisticSyncProgressDto,
+) {
+	contractKCandleHistorySyncRunner.positionStatisticProgress = progress
+
+	contractKCandleHistorySyncRunner.save(
+		context.Background(), contractKCandleHistorySyncRunner.currentRun(), progressWriteAttempts)
+}
+
+// currentRun is the run as far as both walks have actually got. Every write goes
+// through it, so a progress write about the candles never rolls back what the
+// statistics had reached, nor the other way round.
+func (contractKCandleHistorySyncRunner *contractKCandleHistorySyncRunner) currentRun() entities.KCandleContractHistorySyncRun {
+	syncRun := contractKCandleHistorySyncRunner.syncRun
+	syncRun.CompletedChunks = contractKCandleHistorySyncRunner.completedChunks
+	syncRun.StoredCount = contractKCandleHistorySyncRunner.symbolReport.StoredCount
+	syncRun.SkippedCount = contractKCandleHistorySyncRunner.symbolReport.SkippedCount
+	syncRun.FetchFailureReason = contractKCandleHistorySyncRunner.symbolReport.FetchFailureReason
+
+	// The number of days was written when the run was, and never changes.
+	statisticProgress := contractKCandleHistorySyncRunner.positionStatisticProgress
+	syncRun.PositionStatisticCompletedDays = statisticProgress.CompletedDays
+	syncRun.PositionStatisticStoredCount = statisticProgress.StoredCount
+	syncRun.PositionStatisticSkippedCount = statisticProgress.SkippedCount
+	syncRun.PositionStatisticFetchFailureReason = statisticProgress.FetchFailureReason
+
+	return syncRun
+}
+
+// recordEnding closes the run at wherever both walks actually reached.
 //
-// **The chunk count is the one it got to, not the one it was given.** A run that gave
-// up at chunk five of fifteen hundred reporting 1500 of 1500 would be worse than no
-// figure at all: it reads as finished.
+// **The chunk and day counts are the ones it got to, not the ones it was given.** A
+// run that gave up at chunk five of fifteen hundred reporting 1500 of 1500 would be
+// worse than no figure at all: it reads as finished.
 //
 // An empty failure reason is a run that walked the whole stretch. The source having
 // refused is carried separately, because a source refusing is something the run found
@@ -108,11 +156,7 @@ func (contractKCandleHistorySyncRunner *contractKCandleHistorySyncRunner) record
 	// would make every run, however long, look instantaneous.
 	finishedAt := contractKCandleHistorySyncRunner.contractKCandleIngestionService.clockProxy.Now()
 
-	syncRun := contractKCandleHistorySyncRunner.syncRun
-	syncRun.CompletedChunks = contractKCandleHistorySyncRunner.completedChunks
-	syncRun.StoredCount = contractKCandleHistorySyncRunner.symbolReport.StoredCount
-	syncRun.SkippedCount = contractKCandleHistorySyncRunner.symbolReport.SkippedCount
-	syncRun.FetchFailureReason = contractKCandleHistorySyncRunner.symbolReport.FetchFailureReason
+	syncRun := contractKCandleHistorySyncRunner.currentRun()
 	syncRun.FailureReason = failureReason
 	syncRun.FinishedAt = &finishedAt
 	syncRun.Status = string(vo.KCandleHistorySyncSucceeded)

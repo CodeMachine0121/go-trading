@@ -68,9 +68,31 @@ type contractIngestionUnderTest struct {
 	symbolRepository          *mocks.MockIContractTradingSymbolRepository
 	marketDataProxy           *mocks.MockIContractMarketDataProxy
 	clockProxy                *mocks.MockIClockProxy
+	statisticRepository       *mocks.MockIContractPositionStatisticRepository
+	archiveProxy              *mocks.MockIContractPositionStatisticArchiveProxy
 }
 
+// newContractIngestionUnderTest is for every case about the candles. A history sync
+// fills in the position statistics after them, so the archive here holds no day at
+// all and no statistic is held — the statistics half walks its days and stores
+// nothing, and says nothing about the candles.
 func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contractIngestionUnderTest {
+	t.Helper()
+
+	underTest := newContractHistorySyncUnderTest(t, currentTime)
+	underTest.archiveProxy.EXPECT().
+		FetchDailyPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, false, nil).AnyTimes()
+	underTest.statisticRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+
+	return underTest
+}
+
+// newContractHistorySyncUnderTest is for the cases about the position statistics half
+// of a history sync: nothing is expected of the archive or the statistics store, so
+// each case says exactly what they answer.
+func newContractHistorySyncUnderTest(t *testing.T, currentTime time.Time) contractIngestionUnderTest {
 	t.Helper()
 
 	mockController := gomock.NewController(t)
@@ -78,6 +100,8 @@ func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contract
 	syncRunRepository := mocks.NewMockIKCandleContractHistorySyncRunRepository(mockController)
 	symbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
+	statisticRepository := mocks.NewMockIContractPositionStatisticRepository(mockController)
+	archiveProxy := mocks.NewMockIContractPositionStatisticArchiveProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
@@ -87,12 +111,18 @@ func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contract
 			kCandleContractRepository, syncRunRepository, symbolRepository,
 			marketDataProxy, clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-			roundCandleCount, lookback),
+			roundCandleCount, lookback,
+			service.NewContractPositionStatisticService(
+				statisticRepository, symbolRepository,
+				mocks.NewMockIContractPositionStatisticProxy(mockController),
+				archiveProxy, clockProxy, 1000)),
 		kCandleContractRepository: kCandleContractRepository,
 		syncRunRepository:         syncRunRepository,
 		symbolRepository:          symbolRepository,
 		marketDataProxy:           marketDataProxy,
 		clockProxy:                clockProxy,
+		statisticRepository:       statisticRepository,
+		archiveProxy:              archiveProxy,
 	}
 }
 
@@ -571,7 +601,7 @@ func TestContractRoundRefusesRulesItCannotSettle(t *testing.T) {
 		mocks.NewMockIContractMarketDataProxy(mockController),
 		clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		0, lookback)
+		0, lookback, nil)
 
 	_, roundError := brokenService.RunScheduledRound(t.Context())
 	_, backfillError := brokenService.RunBackfill(t.Context())

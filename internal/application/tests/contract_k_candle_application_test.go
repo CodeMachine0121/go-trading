@@ -93,10 +93,19 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	clockProxy.EXPECT().Now().Return(contractAt(9, 7)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
 
+	// A history sync fills in the position statistics after the candles; these tests
+	// are about the candles, so the archive has no day at all.
+	archiveProxy := mocks.NewMockIContractPositionStatisticArchiveProxy(mockController)
+	archiveProxy.EXPECT().FetchDailyPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, false, nil).AnyTimes()
+	statisticRepository.EXPECT().CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	positionStatisticService := service.NewContractPositionStatisticService(
+		statisticRepository, symbolRepository, statisticProxy, archiveProxy, clockProxy, contractQueryMaxResults)
 	ingestionService := service.NewContractKCandleIngestionService(
 		candleRepository, syncRunRepository, symbolRepository, marketDataProxy, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		5, 24*time.Hour)
+		5, 24*time.Hour, positionStatisticService)
 
 	return contractApplicationsUnderTest{
 		candleApplication: application.NewKCandleContractApplication(
@@ -107,8 +116,7 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 			ingestionService,
 			service.NewContractFundingRateService(
 				settlementRepository, symbolRepository, fundingRateProxy, clockProxy, contractQueryMaxResults),
-			service.NewContractPositionStatisticService(
-				statisticRepository, symbolRepository, statisticProxy, clockProxy, contractQueryMaxResults),
+			positionStatisticService,
 			service.NewContractMaintenanceMarginTierService(
 				tierRepository, symbolRepository, tierProxy, clockProxy)),
 		ingestionApplication: application.NewKCandleContractIngestionApplication(ingestionService),
