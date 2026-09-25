@@ -290,7 +290,18 @@ func registerRoutes(
 	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
 
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
-	strategyScriptApplication := application.NewStrategyScriptApplication(strategyScriptService)
+	// One service, two applications: managing bots is permission-checked per person, while runs are
+	// driven by the scheduler with no person to ask.
+	strategyBotService := service.NewStrategyBotService(
+		persistence.NewStrategyBotRepository(database),
+		persistence.NewStrategyBotRunRecordRepository(database),
+		contractTradingSymbolRepository,
+		persistence.NewContractMaintenanceMarginTierRepository(database),
+		persistence.NewContractFundingRateSettlementRepository(database),
+		clock.NewSystemClockProxy(),
+	)
+
+	strategyScriptApplication := application.NewStrategyScriptApplication(strategyScriptService, strategyBotService)
 
 	strategyScriptController := controller.NewStrategyScriptController(strategyScriptApplication)
 
@@ -457,17 +468,6 @@ func registerRoutes(
 	engine.GET("/k-candles/live", requestGuards.liveStream, kCandleFollowController.WatchKCandles)
 	engine.GET("/contract-k-candles/live", requestGuards.liveStream,
 		kCandleFollowController.WatchKCandleContracts)
-
-	// One service, two applications: managing bots is permission-checked per person, while runs are
-	// driven by the scheduler with no person to ask.
-	strategyBotService := service.NewStrategyBotService(
-		persistence.NewStrategyBotRepository(database),
-		persistence.NewStrategyBotRunRecordRepository(database),
-		contractTradingSymbolRepository,
-		persistence.NewContractMaintenanceMarginTierRepository(database),
-		persistence.NewContractFundingRateSettlementRepository(database),
-		clock.NewSystemClockProxy(),
-	)
 
 	tradingStrategyService := service.NewTradingStrategyService(
 		persistence.NewTradingStrategyRepository(database),

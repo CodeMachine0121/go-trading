@@ -155,6 +155,40 @@ func TestStrategyBotRepositoryFindAllByTradingStrategyAnswersRunningAndStoppedAl
 	assert.Equal(t, "B 已停止的", followers[1].Name)
 }
 
+func TestStrategyBotRepositoryFindAllByStrategyScriptReachesTheScriptThroughTheTradingStrategy(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+
+	for _, strategyScript := range []entities.StrategyScript{
+		{ID: 11, OwnerID: botRowOwnerID, Name: "均線", Script: "x", ResultType: "signal"},
+		{ID: 12, OwnerID: botRowOwnerID, Name: "量能", Script: "x", ResultType: "signal"},
+	} {
+		require.NoError(t, database.WithContext(t.Context()).Create(&strategyScript).Error)
+	}
+	require.NoError(t, database.WithContext(t.Context()).Create(&entities.TradingStrategy{
+		ID: 2, OwnerID: botRowOwnerID, Name: "死亡交叉",
+	}).Error)
+	for _, signalSource := range []entities.TradingStrategySignalSource{
+		{TradingStrategyID: botRowTradingStrategyID, Label: "A", StrategyScriptID: 11, AggregationInterval: "1h"},
+		{TradingStrategyID: 2, Label: "A", StrategyScriptID: 12, AggregationInterval: "1h"},
+	} {
+		require.NoError(t, database.WithContext(t.Context()).Create(&signalSource).Error)
+	}
+
+	_, saveError := repository.Save(t.Context(), aBotRow("用均線的"))
+	require.NoError(t, saveError)
+	otherRulesBot := aBotRow("用量能的")
+	otherRulesBot.TradingStrategyID = 2
+	_, saveError = repository.Save(t.Context(), otherRulesBot)
+	require.NoError(t, saveError)
+
+	botsUsingScript, findError := repository.FindAllByStrategyScript(t.Context(), 11)
+	require.NoError(t, findError)
+
+	require.Len(t, botsUsingScript, 1)
+	assert.Equal(t, "用均線的", botsUsingScript[0].Name)
+}
+
 func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)

@@ -124,6 +124,44 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 	return bots, nil
 }
 
+// FindAllByStrategyScript reaches the script through the signal sources, because a bot names a trading strategy, never a script.
+func (strategyBotRepository *StrategyBotRepository) FindAllByStrategyScript(
+	executionContext context.Context, strategyScriptID uint,
+) ([]entities.StrategyBot, error) {
+	database := strategyBotRepository.database.WithContext(executionContext)
+
+	tradingStrategyIDs := []uint{}
+	pluckResult := database.
+		Model(&entities.TradingStrategySignalSource{}).
+		Where(clause.Eq{Column: "strategy_id", Value: strategyScriptID}).
+		Distinct().
+		Pluck("trading_strategy_id", &tradingStrategyIDs)
+	if pluckResult.Error != nil {
+		return nil, fmt.Errorf("find trading strategies naming strategy script: %w", pluckResult.Error)
+	}
+
+	bots := []entities.StrategyBot{}
+	if len(tradingStrategyIDs) == 0 {
+		return bots, nil
+	}
+
+	// The ORM's IN clause only takes untyped values.
+	values := make([]any, 0, len(tradingStrategyIDs))
+	for _, tradingStrategyID := range tradingStrategyIDs {
+		values = append(values, tradingStrategyID)
+	}
+
+	result := database.
+		Where(clause.IN{Column: "trading_strategy_id", Values: values}).
+		Order("name ASC").
+		Find(&bots)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find strategy bots by strategy script: %w", result.Error)
+	}
+
+	return bots, nil
+}
+
 // FindAllByTradingStrategy does not filter by owner, since a strategy already has exactly one owner who alone can reference it.
 func (strategyBotRepository *StrategyBotRepository) FindAllByTradingStrategy(
 	executionContext context.Context, tradingStrategyID uint,

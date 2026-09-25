@@ -3,6 +3,7 @@ package domains
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrStrategyScriptValidation wraps a message naming the broken rule.
@@ -12,6 +13,15 @@ var ErrStrategyScriptValidation = errors.New("strategy script validation failed"
 var ErrStrategyScriptNameConflict = errors.New("strategy script name already in use")
 
 var ErrStrategyScriptNotFound = errors.New("strategy script not found")
+
+// ErrStrategyScriptBotRunning refuses a rewrite while the owner's running bots use the script, since a round must not straddle two versions of it.
+var ErrStrategyScriptBotRunning = errors.New("strategy script is used by a running bot")
+
+func StrategyScriptBotRunning(runningBotNames []string) error {
+	return fmt.Errorf(
+		"%w: 這幾台機器人正在用它跑：%s，請先停止它們",
+		ErrStrategyScriptBotRunning, strings.Join(runningBotNames, "、"))
+}
 
 // StrategyScriptNotFound is the shared wording for both the store and the service so the refusal reads identically.
 func StrategyScriptNotFound(id uint) error {

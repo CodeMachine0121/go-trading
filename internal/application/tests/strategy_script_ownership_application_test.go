@@ -148,7 +148,7 @@ func TestStrategyScriptApplicationDescription(t *testing.T) {
 	t.Run("a rewrite past the limit leaves the strategy script alone", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil).AnyTimes()
 
 		writeDto := aStrategyScriptWrite()
 		writeDto.ID = 7

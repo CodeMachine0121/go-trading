@@ -71,7 +71,7 @@ func TestStrategyScriptApplicationUpdateKeepsTheKindOfMarketTheScriptWasCreatedW
 	t.Run("switching a spot script to contract bars is refused and nothing is written", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil).AnyTimes()
 		writeDto := aStrategyScriptWrite()
 		writeDto.ID = 7
 		writeDto.MarketDataKind = "contractKCandle"
@@ -85,7 +85,7 @@ func TestStrategyScriptApplicationUpdateKeepsTheKindOfMarketTheScriptWasCreatedW
 	t.Run("a rewrite that says nothing about the kind keeps contract bars", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredContractStrategyScript(7, "費率反轉"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredContractStrategyScript(7, "費率反轉"), nil).AnyTimes()
 		fixture.strategyScriptRepository.EXPECT().
 			Update(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, strategyScript entities.StrategyScript) (entities.StrategyScript, error) {
@@ -107,7 +107,7 @@ func TestStrategyScriptApplicationUpdateKeepsTheKindOfMarketTheScriptWasCreatedW
 	t.Run("a rewrite that restates the same kind is not a change", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredContractStrategyScript(7, "費率反轉"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredContractStrategyScript(7, "費率反轉"), nil).AnyTimes()
 		fixture.strategyScriptRepository.EXPECT().
 			Update(gomock.Any(), gomock.Any()).Return(aStoredContractStrategyScript(7, "費率反轉二號"), nil)
 		writeDto := aStrategyScriptWrite()
@@ -123,7 +123,7 @@ func TestStrategyScriptApplicationUpdateKeepsTheKindOfMarketTheScriptWasCreatedW
 	t.Run("a rewrite naming a kind nobody knows is refused as bad content", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil).AnyTimes()
 		writeDto := aStrategyScriptWrite()
 		writeDto.ID = 7
 		writeDto.MarketDataKind = "選擇權"
@@ -140,7 +140,7 @@ func TestStrategyScriptApplicationUpdateRefusesToGuessAStoredKindOfMarketItDoesN
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	stored := aStoredStrategyScript(7, "二十根均線")
 	stored.MarketDataKind = "選擇權"
-	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(stored, nil)
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(stored, nil).AnyTimes()
 	writeDto := aStrategyScriptWrite()
 	writeDto.ID = 7
 
