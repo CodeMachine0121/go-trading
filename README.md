@@ -97,6 +97,7 @@ curl localhost:8080/health
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 允許讀取本 API 回應的前端來源，逗號分隔；清單外的來源不會拿到授權標頭 |
 | `KCANDLE_QUERY_MAX_RESULTS` | `1000` | 單次區間查詢最多回傳幾根 K 線；超過即拒絕。指標計算的最大根數也用這個值（重演另有 `BACKTEST_MAX_CANDLE_COUNT`） |
 | `INDICATOR_SCRIPT_TIMEOUT_SECONDS` | `40` | 一段指標算式最多能跑幾秒；超過即中止 |
+| `INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS` | `6` | 整個服務同時最多幾個算式隔間在跑；滿了就排隊（機器人輪次排在最前），在呼叫端時限內等不到空位回 `503`。乘上算式記憶體上限必須留得下服務本身的記憶體 |
 | `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
 | `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取 |
@@ -740,9 +741,11 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 | 根數不對、K 線不夠 | `400` |
 | 算式跑不動（無法解讀、執行失敗、越權） | `422` |
 | 資料庫讀取失敗 | `502` |
+| 算式隔間全數忙碌，等不到空位（body 帶 `compartmentsBusy: true`，稍後再試） | `503` |
 
 **算不完會被砍掉。** 超過 `INDICATOR_SCRIPT_TIMEOUT_SECONDS`（預設 40 秒）即中止，
-回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。
+回 `422` 並告知逾時；被放棄的算式不會繼續佔用資源。算式隔間另有同樣長度的處理器時間上限，
+就算服務自己的計時失靈，作業系統也會把它收掉。
 
 ## K 線自動抓取
 

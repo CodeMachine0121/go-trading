@@ -325,9 +325,13 @@ func registerRoutes(
 		WorkerCommand:    []string{serverExecutable, script.IndicatorScriptWorkerCommand},
 		ExecutionTimeout: applicationConfig.IndicatorScriptTimeout,
 		MemoryLimitBytes: applicationConfig.IndicatorScriptMemoryLimitBytes,
+		CompartmentSlots: script.NewIndicatorScriptCompartmentSlots(
+			applicationConfig.IndicatorScriptMaxConcurrentCompartments),
 	}
+	// Bot rounds share the slots but wait ahead of on-demand calculations.
+	strategyBotIndicatorScriptIsolation := indicatorScriptIsolation
+	strategyBotIndicatorScriptIsolation.ServesStrategyBotRounds = true
 
-	// Shared with strategy bots so both use the same script runner and timeouts.
 	indicatorCalculationService := service.NewIndicatorCalculationService(
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
@@ -531,8 +535,23 @@ func registerRoutes(
 		strategyBotService,
 		tradingStrategyService,
 		strategyScriptService,
-		indicatorCalculationService,
-		contractIndicatorCalculationService,
+		service.NewIndicatorCalculationService(
+			kCandleRepository,
+			persistence.NewTradingSymbolRepository(database),
+			script.NewYaegiIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),
+			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+			applicationConfig.KCandleQueryMaxResults,
+		),
+		service.NewContractIndicatorCalculationService(
+			contractKCandleRepository,
+			persistence.NewContractFundingRateSettlementRepository(database),
+			persistence.NewContractPositionStatisticRepository(database),
+			script.NewYaegiContractIndicatorScriptProxy(strategyBotIndicatorScriptIsolation),
+			clock.NewSystemClockProxy(),
+			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
+			applicationConfig.KCandleQueryMaxResults,
+		),
 		telegramDeliveryService,
 		kCandleService,
 		kCandleContractService,
