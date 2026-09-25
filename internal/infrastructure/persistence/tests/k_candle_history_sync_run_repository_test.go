@@ -176,7 +176,8 @@ func TestAHistorySyncRepositorySaysSoWhenStorageIsGone(t *testing.T) {
 }
 
 func TestCountingRunningHistorySyncsLeavesTheEndedOnesOut(t *testing.T) {
-	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
+	database := newTestDatabase(t)
+	repository := persistence.NewKCandleHistorySyncRunRepository(database)
 	nothingCount, nothingError := repository.CountRunning(t.Context())
 	require.NoError(t, nothingError)
 	assert.Zero(t, nothingCount)
@@ -195,6 +196,16 @@ func TestCountingRunningHistorySyncsLeavesTheEndedOnesOut(t *testing.T) {
 		_, endedError := repository.Save(t.Context(), endedRun)
 		require.NoError(t, endedError)
 	}
+
+	// A contract run draws on another venue's allowance, so it must not take a spot place.
+	_, contractError := persistence.NewKCandleContractHistorySyncRunRepository(database).Save(
+		t.Context(), entities.KCandleContractHistorySyncRun{
+			Symbol:       "XRPUSDT",
+			LookbackDays: 30,
+			Status:       string(vo.KCandleHistorySyncRunning),
+			StartedAt:    time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC),
+		})
+	require.NoError(t, contractError)
 
 	runningCount, countError := repository.CountRunning(t.Context())
 
