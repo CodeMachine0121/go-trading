@@ -36,3 +36,20 @@ var ErrRunSubjectAmbiguous = errors.New("run subject ambiguous")
 
 // ErrStrategyScriptMarketDataKindMismatch marks a well-formed script written for the other market data kind.
 var ErrStrategyScriptMarketDataKindMismatch = errors.New("strategy script market data kind mismatch")
+
+// ErrForeignStrategyScriptFailed marks a script failure whose wording came out of someone else's script, so
+// only a person, never the assistant, may read it.
+var ErrForeignStrategyScriptFailed = errors.New("foreign strategy script failed")
+
+// foreignStrategyScriptFailureError reads exactly like its cause, so people see the same message as before.
+type foreignStrategyScriptFailureError struct {
+	cause error
+}
+
+func (foreignFailure *foreignStrategyScriptFailureError) Error() string {
+	return foreignFailure.cause.Error()
+}
+
+func (foreignFailure *foreignStrategyScriptFailureError) Unwrap() []error {
+	return []error{foreignFailure.cause, ErrForeignStrategyScriptFailed}
+}

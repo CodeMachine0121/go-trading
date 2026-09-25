@@ -6,10 +6,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// ErrForeignStrategyScriptFailed marks a script failure whose wording came out of someone else's script, so
-// only a person, never the assistant, may read it.
-var ErrForeignStrategyScriptFailed = errors.New("foreign strategy script failed")
-
 // StrategyScriptAuthorshipDomain says whose words a run's failure can carry: a run counts as the viewer's only
 // when every script in it is, since a failed replay cannot say which of its sources failed.
 type StrategyScriptAuthorshipDomain struct {
@@ -40,17 +36,4 @@ func (strategyScriptAuthorshipDomain StrategyScriptAuthorshipDomain) AttributeFa
 	}
 
 	return &foreignStrategyScriptFailureError{cause: runError}
-}
-
-// foreignStrategyScriptFailureError reads exactly like its cause, so people see the same message as before.
-type foreignStrategyScriptFailureError struct {
-	cause error
-}
-
-func (foreignFailure *foreignStrategyScriptFailureError) Error() string {
-	return foreignFailure.cause.Error()
-}
-
-func (foreignFailure *foreignStrategyScriptFailureError) Unwrap() []error {
-	return []error{foreignFailure.cause, ErrForeignStrategyScriptFailed}
 }

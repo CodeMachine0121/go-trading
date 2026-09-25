@@ -68,6 +68,11 @@ func (tradingStrategyRevisionApplier *TradingStrategyRevisionApplier) writeDtoOf
 		return dto.TradingStrategyWriteDto{}, fmt.Errorf(
 			"%w: 參數不是合法的 JSON: %s", domains.ErrAssistantQueryArgument, unmarshalError)
 	}
+	// Anything after the arguments would be shown to the owner yet never written, and would break reading them back.
+	if decoder.More() {
+		return dto.TradingStrategyWriteDto{}, fmt.Errorf(
+			"%w: 參數只能是一個 JSON 物件，後面不得再有其他內容", domains.ErrAssistantQueryArgument)
+	}
 
 	return writeArguments.ToWriteDto(writeArguments.TradingStrategyID), nil
 }

@@ -36,13 +36,6 @@ func NewAssistantRevisionService(
 	}
 }
 
-// pendingRevisionReport is what the assistant reads when its rewrite waits for the owner.
-type pendingRevisionReport struct {
-	PendingRevisionID uint   `json:"pendingRevisionId"`
-	Status            string `json:"status"`
-	Notice            string `json:"notice"`
-}
-
 // Revise checks the rewrite first, so one that could never be carried out is refused to the assistant rather than
 // left for the owner; it then writes it now or leaves it pending, and returns what the assistant should read.
 func (assistantRevisionService *AssistantRevisionService) Revise(
@@ -85,7 +78,7 @@ func (assistantRevisionService *AssistantRevisionService) Revise(
 		return "", saveError
 	}
 
-	payload, marshalError := json.Marshal(pendingRevisionReport{
+	payload, marshalError := json.Marshal(dto.AssistantPendingRevisionReportDto{
 		PendingRevisionID: savedRevision.ID,
 		Status:            savedRevision.Status,
 		Notice:            domains.AssistantRevisionProposedNotice,

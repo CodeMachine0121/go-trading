@@ -581,3 +581,33 @@ func TestAssistantRevisionAppliersRefuseFieldsTheirCapabilityDoesNotTake(t *test
 	require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
 	assert.Contains(t, runError.Error(), "ownerId")
 }
+
+func TestAssistantRevisionAppliersRefuseAnythingAfterTheArguments(t *testing.T) {
+	// A second object would be shown to the owner but never written, and would break reading the conversation back.
+	strategyScriptFixture := newStrategyScriptAssistantQueriesUnderTest(t)
+	tradingStrategyFixture := newTradingStrategyAssistantQueriesUnderTest(t)
+
+	testCases := map[string]func() error{
+		"a strategy script rewrite": func() error {
+			_, runError := strategyScriptFixture.updateAssistantQuery.Run(t.Context(), assistantOrigin,
+				aStrategyScriptRewrite+` {"name":"另一個"}`)
+
+			return runError
+		},
+		"a trading strategy rewrite": func() error {
+			_, runError := tradingStrategyFixture.updateAssistantQuery.Run(t.Context(), assistantOrigin,
+				aTradingStrategyRewrite+` {"name":"另一個"}`)
+
+			return runError
+		},
+	}
+
+	for name, act := range testCases {
+		t.Run(name, func(t *testing.T) {
+			runError := act()
+
+			require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
+			assert.Contains(t, runError.Error(), "後面不得再有其他內容")
+		})
+	}
+}

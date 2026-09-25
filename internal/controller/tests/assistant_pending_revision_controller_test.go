@@ -184,6 +184,17 @@ func TestPendingRevisionRouterMapsEachRefusalToItsStatus(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
+			name:   "stored content the capability cannot read",
+			target: "/chat/pending-revisions/70/confirm",
+			arrange: func(fixture pendingRevisionRouterUnderTest) {
+				fixture.pendingRevisionRepository.EXPECT().FindOne(gomock.Any(), uint(70)).
+					Return(aStoredPendingRevision(vo.AssistantPendingRevisionPending), nil)
+				fixture.applier.EXPECT().Inspect(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(dto.RewriteTargetDto{}, domains.ErrAssistantQueryArgument)
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
 			name:   "storage failing",
 			target: "/chat/pending-revisions/70/confirm",
 			arrange: func(fixture pendingRevisionRouterUnderTest) {
