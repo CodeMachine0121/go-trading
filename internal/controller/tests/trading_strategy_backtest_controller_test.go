@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,6 +205,21 @@ func TestTradingStrategyBacktestRouterMapsEachRefusalOntoItsOwnStatus(t *testing
 				`"endTime":"2026-08-29T04:00:00Z","initialCapital":"0",` +
 				`"positionSizingMode":"allIn"}`,
 			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "every compartment staying busy is unavailable for now",
+			arrange: func(fixture tradingStrategyBacktestRouterUnderTest) {
+				fixture.tradingStrategyRepository.EXPECT().
+					FindOne(gomock.Any(), uint(11)).Return(aRoutedTradingStrategy("1h"), nil)
+				fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]entities.KCandle{aRoutedHourlyCandle(0, "100"), aRoutedHourlyCandle(1, "110")}, nil)
+				fixture.indicatorScriptProxy.EXPECT().
+					ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy))
+			},
+			target:         "/trading-strategies/11/backtests",
+			body:           tradingStrategyBacktestBody,
+			expectedStatus: http.StatusServiceUnavailable,
 		},
 	}
 

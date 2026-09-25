@@ -129,6 +129,10 @@ var errReplayTimeAllowanceSpent = errors.New("replay time allowance spent")
 
 // refusalFor explains an unfinished replay, with an actionable message when the allowance ran out.
 func (backtestService *BacktestService) refusalFor(replayContext context.Context, executionError error) error {
+	// Waiting for a compartment is not cured by asking for less, so it is not blamed on the allowance.
+	if errors.Is(executionError, domains.ErrIndicatorScriptCompartmentsBusy) {
+		return executionError
+	}
 	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
 		return domains.BacktestTimeAllowanceSpent(backtestService.replayTimeAllowance)
 	}

@@ -112,6 +112,13 @@ func (backtestController *BacktestController) respondWithError(ginContext *gin.C
 		})
 		return
 	}
+	if errors.Is(err, domains.ErrIndicatorScriptCompartmentsBusy) {
+		ginContext.JSON(http.StatusServiceUnavailable, gin.H{
+			"message":          err.Error(),
+			"compartmentsBusy": true,
+		})
+		return
+	}
 	if errors.Is(err, domains.ErrIndicatorScriptFailed) {
 		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
 		return

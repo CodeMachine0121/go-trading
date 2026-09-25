@@ -141,6 +141,10 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 func (contractBacktestService *ContractBacktestService) refusalFor(
 	replayContext context.Context, executionError error,
 ) error {
+	// Waiting for a compartment is not cured by asking for less, so it is not blamed on the allowance.
+	if errors.Is(executionError, domains.ErrIndicatorScriptCompartmentsBusy) {
+		return executionError
+	}
 	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
 		return domains.BacktestTimeAllowanceSpent(contractBacktestService.replayTimeAllowance)
 	}

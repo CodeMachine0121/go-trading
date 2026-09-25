@@ -12,4 +12,7 @@ type IndicatorScriptIsolation struct {
 	ExecutionTimeout time.Duration
 	// MemoryLimitBytes of zero means no cap, which is only for tests.
 	MemoryLimitBytes int64
+	// CompartmentSlots is shared by every proxy so the cap holds across the whole service.
+	CompartmentSlots        *IndicatorScriptCompartmentSlots
+	ServesStrategyBotRounds bool
 }

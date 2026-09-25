@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -236,6 +237,19 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 		recorder := fixture.post(indicatorBody)
 
 		assert.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+	})
+
+	t.Run("reports every compartment staying busy as unavailable for now", func(t *testing.T) {
+		fixture := newIndicatorRouterUnderTest(t)
+		fixture.expectTwoUsableCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy))
+
+		recorder := fixture.post(indicatorBody)
+
+		assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), `"compartmentsBusy":true`)
 	})
 
 	t.Run("reports a storage failure as a bad gateway", func(t *testing.T) {
