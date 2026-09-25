@@ -5112,6 +5112,33 @@
           ]
         },
         {
+          "name": "拒絕：同時在跑的合約歷史同步已滿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-k-candles",
+                "history"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ETHUSDT\",\n  \"lookbackDays\": 1\n}"
+            },
+            "description": "已有 `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS`（預設 2）趟合約歷史同步在跑時送這一發，會回 429 並說出上限，不留輪次。與現貨那一份各算各的：現貨滿了不擋合約。未滿時這一發照常 202。"
+          }
+        },
+        {
           "name": "從合約追蹤名單移除",
           "request": {
             "method": "DELETE",
@@ -14212,6 +14239,34 @@
               ]
             },
             "description": "上面那一發還在跑的時候送這一發，會回 409。兩趟會互搶同一份來源額度、寫同一批列，而且誰都不會比較早結束。"
+          },
+          "response": []
+        },
+        {
+          "name": "拒絕：同時在跑的歷史同步已滿",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ETHUSDT\",\n  \"lookbackDays\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/k-candles/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "k-candles",
+                "history"
+              ]
+            },
+            "description": "已有 `KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS`（預設 2）趟現貨歷史同步在跑時送這一發（換一個沒在跑的已登錄代號），會回 429，訊息說出上限：「同時最多 2 趟歷史同步，等其中一趟結束再開」。不留輪次、不問來源、不排隊。與 409 不同：409 是同一個標的按了兩次，429 是整體太忙、稍後自然會空。未滿時這一發照常 202。"
           },
           "response": []
         },
