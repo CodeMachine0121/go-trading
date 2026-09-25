@@ -99,8 +99,7 @@ func (positionDomain ContractBacktestPositionDomain) ValueAt(price decimal.Decim
 	return decimal.Max(decimal.Zero, positionDomain.margin.Add(positionDomain.ProfitAt(price)))
 }
 
-// ExitOn settles the open first: a mark open past liquidation liquidates, otherwise a traded open past the stop fills there.
-// Within the bar the adverse side still comes first, taking whichever of the stop (traded high/low) or liquidation (mark price) is nearer the entry, then the take profit, so ambiguous bars never flatter the strategy.
+// ExitOn settles the open first (a mark open past liquidation liquidates, a traded open past the stop fills there), then the nearer of stop and liquidation within the bar, then the take profit.
 func (positionDomain ContractBacktestPositionDomain) ExitOn(
 	bucket dto.KCandleContractDto, exitTime time.Time,
 ) (vo.ContractClosedTradeVo, bool) {
