@@ -20,8 +20,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// replayStart is where every stretch replayed below begins, and replayNow sits well
-// after all of them so nothing is refused for reaching into an unfinished interval.
+// replayNow sits well after every stretch starting at replayStart, so none reaches into an unfinished interval.
 var (
 	replayStart = time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
 	replayNow   = time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
@@ -34,10 +33,7 @@ type tradingStrategyBacktestAssistantQueryUnderTest struct {
 	indicatorScriptProxy      *mocks.MockIIndicatorScriptProxy
 }
 
-// newTradingStrategyBacktestAssistantQueryUnderTest wires the real application, the
-// real domain services and the real models, mocking only storage and script
-// execution — so the assistant replaying a set of rules runs the very same replay a
-// person does.
+// newTradingStrategyBacktestAssistantQueryUnderTest mocks only storage and script execution, so the assistant runs the same replay a person does.
 func newTradingStrategyBacktestAssistantQueryUnderTest(
 	t *testing.T,
 ) tradingStrategyBacktestAssistantQueryUnderTest {
@@ -75,9 +71,7 @@ func newTradingStrategyBacktestAssistantQueryUnderTest(
 	}
 }
 
-// aReplayableTradingStrategy is one source A on the given coarsenesses, buying on A's
-// buy and selling on A's sell. Two coarsenesses means two sources, which is how a
-// case asks for the mismatch refusal.
+// aReplayableTradingStrategy has one source A per interval, buying on A's buy and selling on A's sell; two intervals trigger the mismatch refusal.
 func aReplayableTradingStrategy(intervals ...string) entities.TradingStrategy {
 	sources := make([]entities.TradingStrategySignalSource, 0, len(intervals))
 	for index, interval := range intervals {
@@ -123,7 +117,6 @@ func replaySignals(signals ...vo.SignalVo) []map[string]vo.IndicatorValueVo {
 	return perCandleIndicatorValues
 }
 
-// aReplayArgument is what the assistant sends to replay the trading strategy.
 const aReplayArgument = `{
   "tradingStrategyId": 11,
   "symbol": "BTCUSDT",
@@ -133,8 +126,6 @@ const aReplayArgument = `{
   "positionSizingMode": "allIn"
 }`
 
-// replayReport is the report as the assistant reads it, named here so a case can say
-// which fields it expects to find and which it expects to be absent.
 type replayReport struct {
 	Symbol   string `json:"symbol"`
 	Interval string `json:"interval"`
@@ -174,8 +165,6 @@ func (fixture tradingStrategyBacktestAssistantQueryUnderTest) replay(
 }
 
 func TestTradingStrategyBacktestAssistantQueryHandsBackTheReportCard(t *testing.T) {
-	// The assistant writes an algorithm and then goes blind. This is the capability
-	// that lets it see what it wrote actually did.
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -193,17 +182,14 @@ func TestTradingStrategyBacktestAssistantQueryHandsBackTheReportCard(t *testing.
 	assert.Equal(t, "BTCUSDT", report.Symbol)
 	assert.Equal(t, "1h", report.Interval)
 	assert.Equal(t, "10000", report.Summary.InitialCapital)
-	// One opening and one round trip: the sell closed back to cash rather than
-	// turning around.
+	// One opening: the sell closed to cash rather than reversing.
 	assert.Equal(t, 1, report.Summary.PositionOpenCount)
 	require.Len(t, report.ClosedTrades, 1)
 	assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
 }
 
 func TestTradingStrategyBacktestAssistantQueryLeavesTheEquityCurveOut(t *testing.T) {
-	// A three-hundred-point curve rendered as text is three hundred numbers that
-	// crowd out the report card the assistant actually has to read — and not one of
-	// them is new: the trades plus the opening capital give it back.
+	// The equity curve is omitted since it crowds the report and is derivable from the trades and opening capital.
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -222,8 +208,7 @@ func TestTradingStrategyBacktestAssistantQueryLeavesTheEquityCurveOut(t *testing
 }
 
 func TestTradingStrategyBacktestAssistantQueryAlwaysReportsTheConflictCount(t *testing.T) {
-	// Without it the assistant reads a report card with almost no trades as a very
-	// steady strategy, when what happened is that the rules decided nothing at all.
+	// Without this, a report with almost no trades reads as a steady strategy rather than one that decided nothing.
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -244,8 +229,7 @@ func TestTradingStrategyBacktestAssistantQueryAlwaysReportsTheConflictCount(t *t
 }
 
 func TestTradingStrategyBacktestAssistantQueryHandsBackTheCoarsenessRefusal(t *testing.T) {
-	// The refusal names the coarsenesses in play, and the assistant is the party
-	// that can go and make them agree.
+	// The refusal names the coarsenesses so the assistant can make them agree.
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -287,8 +271,7 @@ func TestTradingStrategyBacktestAssistantQueryIsNamedForWhatItReplays(t *testing
 	assert.Equal(t, "run_trading_strategy_backtest", fixture.backtestAssistantQuery.Name())
 }
 
-// aConflictingTradingStrategy buys and sells on the very same word, so every candle
-// its source speaks on has both conditions holding at once.
+// aConflictingTradingStrategy buys and sells on the same signal, so both conditions hold on every candle its source speaks on.
 func aConflictingTradingStrategy() entities.TradingStrategy {
 	tradingStrategy := aReplayableTradingStrategy("1h")
 	tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
@@ -302,21 +285,13 @@ func aConflictingTradingStrategy() entities.TradingStrategy {
 }
 
 func TestTradingStrategyBacktestAssistantQueryCapsTheTradesItHandsOverAndSaysSo(t *testing.T) {
-	// What a capability hands back is replayed to the assistant on every later round
-	// of the same answer. Four or five replays of a chatty strategy would carry every
-	// trade of every attempt, and it would run out of room to think before it ran out
-	// of queries.
-	//
-	// Being told is the other half: fifty trades out of six hundred, read as all of
-	// them, describe a strategy that does not exist — and nothing about the list
-	// itself gives that away.
+	// Trades are capped because the result is replayed on every later round of the answer, and the cap is reported so a partial list isn't read as complete.
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
 		Return(aReplayableTradingStrategy("1h"), nil)
 
-	// Alternating buy and sell on every candle is the shape that produces the most
-	// round trips per candle there is.
+	// Alternating buy and sell every candle maximises round trips.
 	candleCount := 260
 	candles := make([]entities.KCandle, 0, candleCount)
 	signals := make([]vo.SignalVo, 0, candleCount)
@@ -346,8 +321,7 @@ func TestTradingStrategyBacktestAssistantQueryCapsTheTradesItHandsOverAndSaysSo(
 
 	assert.Len(t, report.ClosedTrades, 50)
 	assert.Contains(t, outcome, "只列出最近的 50 筆")
-	// The report card still counts every one of them — that is why leaving trades out
-	// costs nothing that matters.
+	// The summary still counts every trade, so omitting some loses nothing that matters.
 	assert.Greater(t, report.Summary.PositionOpenCount, 50)
 }
 
@@ -369,8 +343,7 @@ func TestTradingStrategyBacktestAssistantQuerySaysNothingAboutTruncationWhenNoth
 	assert.NotContains(t, outcome, "closedTradesTruncated")
 }
 
-// The assistant converges by replaying, reading and adjusting. There is one set of
-// rules to replay by, so there is nothing for it to declare and nothing to get wrong.
+// Spot is the only mode, so there is nothing for the assistant to declare.
 func TestTradingStrategyBacktestAssistantQueryReplaysSpot(t *testing.T) {
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
@@ -393,15 +366,7 @@ func TestTradingStrategyBacktestAssistantQueryReplaysSpot(t *testing.T) {
 	assert.Equal(t, string(vo.PositionDirectionLong), report.ClosedTrades[0].Direction)
 }
 
-// What a broker charges is the assistant's to say: a set of rules has no opinion about
-// it, and the person asking "does this still make money after fees" is asking a
-// question only this capability can answer.
-//
-// The two exit distances are here for the same reason, and they arrived late: the
-// capability was built without them, which left the assistant handing back a report
-// card the person could not reproduce from the screen. Three doors into one replay
-// have to offer the same boxes, or the difference between two report cards says
-// nothing about the strategy.
+// Transaction costs and the two exit distances are the assistant's to set, matching the other replay entry points so report cards stay comparable.
 func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts(t *testing.T) {
 	replayingWith := func(t *testing.T, costArguments string) replayReport {
 		t.Helper()
@@ -475,10 +440,7 @@ func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts
 	})
 }
 
-// Declaring a box is not the same as honouring it. The two exit distances arrived on
-// this capability late, and a schema that offers them while the value goes nowhere
-// would pass every assertion about the schema and still hand back a report card with
-// no stop in it.
+// Checks the exit distances are actually simulated, not merely declared in the schema.
 func TestTradingStrategyBacktestAssistantQuerySimulatesTheExitDistancesItWasGiven(t *testing.T) {
 	replayingWith := func(t *testing.T, exitArguments string) replayReport {
 		t.Helper()
@@ -527,17 +489,13 @@ func TestTradingStrategyBacktestAssistantQuerySimulatesTheExitDistancesItWasGive
 	})
 }
 
-// Four boxes the assistant may fill and none it must. A required cost rate would make
-// every replay an argument about fees; an absent one would make the assistant guess.
+// All four fields are optional: a required cost rate would force a fee argument on every replay.
 func TestTradingStrategyBacktestAssistantQueryOffersCostsAndExitsWithoutDemandingThem(t *testing.T) {
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 
 	argumentSchema := fixture.backtestAssistantQuery.ArgumentSchema()
 
-	// The schema is assembled by hand out of string pieces, so the first thing worth
-	// asserting is that it is still a document at all. A broken one does not fail
-	// here — it fails wherever the assistant is told about its tools, far from the
-	// edit that broke it.
+	// The schema is hand-assembled from strings, so check it is valid JSON here rather than failing far away when tools are described.
 	require.True(t, json.Valid([]byte(argumentSchema)), "argument schema is not valid JSON")
 
 	requiredArguments := argumentSchema[strings.Index(argumentSchema, `"required":`):]
@@ -549,28 +507,24 @@ func TestTradingStrategyBacktestAssistantQueryOffersCostsAndExitsWithoutDemandin
 		assert.NotContains(t, requiredArguments, optionalArgument)
 	}
 
-	// It also has to know that leaving them out is not neutral — a report card with no
-	// fees in it is the one that flatters a strategy that trades constantly.
+	// The description warns that omitting costs flatters strategies that trade constantly.
 	assert.Contains(t, fixture.backtestAssistantQuery.Description(), "totalTransactionCost")
 	assert.Contains(t, fixture.backtestAssistantQuery.Description(), "淨額")
 }
 
-// The assistant has no set of rules to name and no loan to ask for, and the tool says
-// so — otherwise it would keep offering somebody a choice that is refused on arrival.
+// The tool offers no mode or borrowing, since either would be refused.
 func TestTradingStrategyBacktestAssistantQueryOffersNoModeAndNoBorrowing(t *testing.T) {
 	fixture := newTradingStrategyBacktestAssistantQueryUnderTest(t)
 
 	argumentSchema := fixture.backtestAssistantQuery.ArgumentSchema()
 	description := fixture.backtestAssistantQuery.Description()
 
-	// No box for either, and nothing else may be sent.
 	assert.NotContains(t, argumentSchema, "tradingMode")
 	assert.NotContains(t, argumentSchema, "leverage")
 	assert.NotContains(t, argumentSchema, "maintenanceMarginRate")
 	assert.Contains(t, argumentSchema, `"additionalProperties":false`)
 
-	// And it is told what this replay does, so that somebody asking to short or to
-	// borrow gets an answer rather than a setting substituted on their behalf.
+	// The description says the replay is spot only, so a request to short gets an answer instead of a substituted setting.
 	assert.Contains(t, description, "只做現貨")
 	assert.Contains(t, description, "沒有交易模式可以給")
 	assert.NotContains(t, description, "liquidationExitCount")

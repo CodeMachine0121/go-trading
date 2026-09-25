@@ -87,9 +87,7 @@ func (fixture tradingStrategyRouterUnderTest) send(
 	return recorder
 }
 
-// aMixedCoarsenessTradingStrategyBody is the same trading strategy with its two
-// sources reading different coarsenesses — the one shape that is well formed in every
-// other way and still cannot be saved.
+// aMixedCoarsenessTradingStrategyBody has sources at different intervals, the one otherwise valid shape that cannot be saved.
 const aMixedCoarsenessTradingStrategyBody = `{
 	"name": "黃金交叉",
 	"signalSources": [
@@ -100,8 +98,7 @@ const aMixedCoarsenessTradingStrategyBody = `{
 	"sellCondition": {"sourceLabel": "A", "signal": "sell"}
 }`
 
-// aTradingStrategyBody has a nested buy condition, so that the nesting a person
-// builds on screen is proven to survive the journey in.
+// aTradingStrategyBody has a nested buy condition to prove nesting survives binding.
 const aTradingStrategyBody = `{
 	"name": "黃金交叉",
 	"signalSources": [
@@ -167,7 +164,6 @@ func TestTradingStrategyRouterCreatesOneAndAnswersWithIt(t *testing.T) {
 	answer := map[string]any{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
 	assert.Equal(t, "黃金交叉", answer["name"])
-	// The owner is nothing a person reading their own learns from.
 	assert.NotContains(t, answer, "ownerId")
 }
 
@@ -213,7 +209,6 @@ func TestTradingStrategyRouterRewritesAndDeletes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rewriteResponse.Code)
 
 	deleteResponse := fixture.send(http.MethodDelete, "/trading-strategies/11", "")
-	// Nothing to say back, so nothing is said back.
 	assert.Equal(t, http.StatusNoContent, deleteResponse.Code)
 }
 
@@ -360,8 +355,7 @@ func TestTradingStrategyRouterRefusesAnUnreadableBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 
-// Saying spot out loud is free — it is the one set of rules these are written for
-// either way — and the answer no longer carries a mode at all.
+// Spot is accepted explicitly, and the answer carries no mode.
 func TestTradingStrategyRouterAcceptsSpotAndAnswersWithoutAMode(t *testing.T) {
 	fixture := newTradingStrategyRouterUnderTest(t)
 	fixture.expectResolvableStrategyScript()
@@ -380,8 +374,7 @@ func TestTradingStrategyRouterAcceptsSpotAndAnswersWithoutAMode(t *testing.T) {
 	assert.NotContains(t, answer, "tradingMode")
 }
 
-// Any other set of rules is refused rather than quietly stored as the one that does
-// exist — the caller would otherwise get a report card of a run they did not ask for.
+// Any other mode is refused rather than stored as spot.
 func TestTradingStrategyRouterRefusesAnyOtherSetOfRules(t *testing.T) {
 	fixture := newTradingStrategyRouterUnderTest(t)
 	fixture.expectResolvableStrategyScript()
@@ -392,10 +385,8 @@ func TestTradingStrategyRouterRefusesAnyOtherSetOfRules(t *testing.T) {
 
 	response := fixture.send(http.MethodPost, "/trading-strategies", shortableBody)
 
-	// The same status every other refused trading strategy gets, because it carries
-	// the same sentinel — no controller learned a second one.
+	// Same status as any refused trading strategy, because it carries the same sentinel.
 	require.Equal(t, http.StatusBadRequest, response.Code)
-	// Nothing was stored: the repository was never told to save, which gomock enforces
-	// by having no expectation for it.
+	// Nothing was stored: gomock has no expectation for Save.
 	assert.Contains(t, response.Body.String(), "只重演現貨")
 }

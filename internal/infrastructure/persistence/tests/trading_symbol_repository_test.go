@@ -79,9 +79,7 @@ func TestTradingSymbolStorageFailures(t *testing.T) {
 	})
 }
 
-// watched is a symbol the system keeps up to date, registered at the given moment.
-// Registration time is stated rather than taken from the clock, because the order it
-// produces is the whole point of the tests below.
+// watched takes an explicit registration time because the tests assert on that order.
 func watched(symbol string, market string, registeredAt time.Time) entities.TradingSymbol {
 	return entities.TradingSymbol{
 		Symbol: symbol, Market: market, IsWatched: true, RegisteredAt: registeredAt,
@@ -107,9 +105,7 @@ func TestFindWatched(t *testing.T) {
 
 	t.Run("hands them back earliest registered first", func(t *testing.T) {
 		repository := persistence.NewTradingSymbolRepository(newTestDatabase(t))
-		// The names run the other way to the registrations on purpose. Symbols whose
-		// alphabetical order matched their registration order would pass this whether
-		// or not registration order was consulted at all.
+		// Names run opposite to registration order so alphabetical order cannot pass by accident.
 		require.NoError(t, repository.Save(t.Context(),
 			watched("2454", "taiwanStock", time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC))))
 		require.NoError(t, repository.Save(t.Context(),
@@ -123,9 +119,7 @@ func TestFindWatched(t *testing.T) {
 
 	t.Run("settles symbols registered at the same moment by name", func(t *testing.T) {
 		repository := persistence.NewTradingSymbolRepository(newTestDatabase(t))
-		// Everything registered before registration time was recorded ties on it. An
-		// order left to the database would put a different set of symbols in a
-		// market's follow places on different days.
+		// Symbols registered before registration time was recorded tie on it, so name must break the tie deterministically.
 		sameMoment := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
 		require.NoError(t, repository.Save(t.Context(), watched("ETHUSDT", "crypto", sameMoment)))
 		require.NoError(t, repository.Save(t.Context(), watched("BTCUSDT", "crypto", sameMoment)))
@@ -171,8 +165,6 @@ func TestFindBySymbol(t *testing.T) {
 	})
 
 	t.Run("reports a symbol nobody registered without failing", func(t *testing.T) {
-		// Not being registered is an answer, not a breakage: it is what "the system
-		// does not know this market" looks like.
 		repository := persistence.NewTradingSymbolRepository(newTestDatabase(t))
 
 		_, isRegistered, findError := repository.FindBySymbol(t.Context(), "2330")

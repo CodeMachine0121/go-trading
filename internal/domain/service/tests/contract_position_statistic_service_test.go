@@ -320,8 +320,7 @@ func TestPositionStatisticsReadBack(t *testing.T) {
 }
 
 func TestPositionStatisticRoundAsksAgainAboutAMomentSkippedBehindOnesThatWereStored(t *testing.T) {
-	// Last round, 09:05 was missing a split and was skipped while 09:10 was stored.
-	// This round, 09:05 has all three answers: it has to be asked about and stored.
+	// 09:05 was skipped last round for a missing split while 09:10 was stored; now complete, 09:05 must be asked about and stored.
 	underTest := newPositionStatisticServiceUnderTest(t)
 	underTest.watching("BTCUSDT")
 	underTest.latestHeld("BTCUSDT", statisticMoment(9, 10))

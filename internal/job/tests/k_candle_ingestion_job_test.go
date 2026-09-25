@@ -29,8 +29,7 @@ const (
 
 var currentTime = time.Date(2026, 8, 30, currentHour, currentMinute, 0, 0, time.UTC)
 
-// scheduledWindowStart is where a periodic round begins: four candles back from the
-// newest closed one.
+// scheduledWindowStart is four candles back from the newest closed one.
 var scheduledWindowStart = time.Date(2026, 8, 30, 9, 2, 0, 0, time.UTC)
 
 type jobUnderTest struct {
@@ -39,8 +38,7 @@ type jobUnderTest struct {
 	backfillSymbols chan string
 }
 
-// newJobUnderTest builds the real ingestion path and records which half of the job
-// reached the outside world, in the order it happened.
+// newJobUnderTest records, in order, which half of the job reached the outside world.
 func newJobUnderTest(t *testing.T, symbols []string) jobUnderTest {
 	t.Helper()
 
@@ -158,9 +156,7 @@ func TestTheIntervalBetweenRoundsIsTheLengthOneKCandleCovers(t *testing.T) {
 	assert.Equal(t, time.Minute, job.KCandleIngestionInterval)
 }
 
-// The context is the second way a job ends, and it has to work on its own: an
-// orderly shutdown reaches for Stop first, but a shutdown that has run out of
-// patience has only this.
+// A done context must stop the job on its own, for shutdowns that never call Stop.
 func TestAJobWhoseContextIsDoneRunsNoFurtherRounds(t *testing.T) {
 	underTest := newJobUnderTest(t, []string{"BTCUSDT"})
 	backgroundJobWork, giveUpOnBackgroundJobWork := context.WithCancel(t.Context())
@@ -177,10 +173,7 @@ func TestAJobWhoseContextIsDoneRunsNoFurtherRounds(t *testing.T) {
 	assert.Empty(t, underTest.stages)
 }
 
-// slowJobUnderTest is the same real ingestion path, except that a scheduled round
-// does not finish until the test lets it. Holding a round open is what leaves the
-// interval free to tick past it, which is the only way a tick comes to be waiting in
-// the channel when something else happens.
+// slowJobUnderTest holds a scheduled round open so the interval ticks past it.
 type slowJobUnderTest struct {
 	job             *job.KCandleIngestionJob
 	stages          chan string
@@ -229,18 +222,14 @@ func newSlowJobUnderTest(t *testing.T) slowJobUnderTest {
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback)),
 		testInterval)
-	// Released first whatever happens, so a test that fails partway cannot leave the
-	// round blocked and the job unable to notice it was stopped.
+	// Released first so a failing test cannot leave the round blocked.
 	t.Cleanup(releaseTheRound)
 	t.Cleanup(ingestionJob.Stop)
 
 	return slowJobUnderTest{job: ingestionJob, stages: stages, releaseTheRound: releaseTheRound}
 }
 
-// A round that outruns the interval leaves a tick waiting in the ticker's channel,
-// so when a stop arrives both cases are ready at once and a select picks between them
-// at random. Told to stop, the job must not start one more round anyway — half the
-// time was the old answer.
+// A round outrunning the interval leaves a tick waiting, so a stop races it in select; the job must still start no further round.
 func TestAJobToldToStopStartsNoRoundFromATickThatWasAlreadyWaiting(t *testing.T) {
 	underTest := newSlowJobUnderTest(t)
 
@@ -248,10 +237,7 @@ func TestAJobToldToStopStartsNoRoundFromATickThatWasAlreadyWaiting(t *testing.T)
 	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
 	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
 
-	// The round is held open well past the interval, so a tick is certainly waiting
-	// by the time the stop lands. Nothing is drained after this point: a round the
-	// job should not have started announces itself on this channel, and draining
-	// would be throwing away the evidence.
+	// Held well past the interval so a tick is certainly waiting; nothing is drained so a wrongly started round remains visible.
 	time.Sleep(10 * testInterval)
 	underTest.job.Stop()
 	underTest.releaseTheRound()

@@ -14,9 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// StrategyBotRepository stores strategy bots in PostgreSQL. The rules a bot follows
-// are stored by TradingStrategyRepository; a bot row only names which set it points
-// at.
+// StrategyBotRepository stores bots; their rules live with the trading strategy they reference.
 type StrategyBotRepository struct {
 	database *gorm.DB
 }
@@ -25,10 +23,6 @@ func NewStrategyBotRepository(database *gorm.DB) *StrategyBotRepository {
 	return &StrategyBotRepository{database: database}
 }
 
-// Save stores this bot, replacing whatever it had before.
-//
-// There are no children to clear and rewrite any more: the sources and the two
-// condition trees moved to the trading strategy this bot names, so a bot is one row.
 func (strategyBotRepository *StrategyBotRepository) Save(
 	executionContext context.Context, bot entities.StrategyBot,
 ) (entities.StrategyBot, error) {
@@ -47,11 +41,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 		return strategyBotRepository.FindOne(executionContext, botRow.ID)
 	}
 
-	// The columns are named so that a rewrite cannot reach the ones a bot's life
-	// owns — a run state, a next round, a last sent signal — nor the kind of market
-	// it eats, which is settled once when it is created. Naming them also makes
-	// an empty value mean empty rather than "unchanged", which is how GORM reads a
-	// struct otherwise.
+	// Named columns keep a rewrite from touching lifecycle fields or the immutable market kind, and make empty values written rather than skipped.
 	updates := strategyBotRepository.database.WithContext(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: botRow.ID}).
@@ -80,16 +70,10 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 	return strategyBotRepository.FindOne(executionContext, botRow.ID)
 }
 
-// StrategyBotNameIndex is the index that makes a bot's name unique within its
-// owner's collection. It is named here because the write path has to recognise this
-// one breaking specifically — any other broken constraint is a fault, not a person
-// reusing a name.
+// StrategyBotNameIndex enforces unique bot names per owner; the write path recognises its violation as a name conflict.
 const StrategyBotNameIndex = "idx_strategy_bots_owner_name"
 
-// writeFailureOf turns a failed write into the refusal it actually is. A broken name
-// index is a person reusing a name they already have; anything else is a fault, and
-// dressing it up as a name conflict would send them off renaming a bot that was
-// never the problem.
+// writeFailureOf maps a name-index violation to a name conflict; any other error stays a fault.
 func (strategyBotRepository *StrategyBotRepository) writeFailureOf(
 	writeError error, name string,
 ) error {
@@ -103,15 +87,12 @@ func (strategyBotRepository *StrategyBotRepository) writeFailureOf(
 	return fmt.Errorf("save strategy bot: %w", writeError)
 }
 
-// FindOne returns this bot, with the name of the trading strategy it follows.
 func (strategyBotRepository *StrategyBotRepository) FindOne(
 	executionContext context.Context, id uint,
 ) (entities.StrategyBot, error) {
 	bot := entities.StrategyBot{}
 
-	// The condition is spelled out rather than given as a struct, because GORM
-	// drops zero-valued struct fields — and an identifier of nothing would become
-	// no condition at all, handing back whichever bot happens to be first.
+	// A string condition, because GORM drops zero-valued struct fields and ID zero would match the first bot.
 	result := strategyBotRepository.database.WithContext(executionContext).
 		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "id", Value: id}).
@@ -126,7 +107,6 @@ func (strategyBotRepository *StrategyBotRepository) FindOne(
 	return bot, nil
 }
 
-// FindAllByOwner returns this person's bots, by name.
 func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 	executionContext context.Context, ownerID uint,
 ) ([]entities.StrategyBot, error) {
@@ -144,11 +124,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 	return bots, nil
 }
 
-// FindAllByTradingStrategy returns every bot following this set of rules.
-//
-// It does not filter by owner. A trading strategy already belongs to exactly one
-// person and only they can point a bot at it, so an owner clause here would narrow
-// nothing and would quietly become the place a future sharing feature goes wrong.
+// FindAllByTradingStrategy does not filter by owner, since a strategy already has exactly one owner who alone can reference it.
 func (strategyBotRepository *StrategyBotRepository) FindAllByTradingStrategy(
 	executionContext context.Context, tradingStrategyID uint,
 ) ([]entities.StrategyBot, error) {
@@ -165,8 +141,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByTradingStrategy(
 	return bots, nil
 }
 
-// Delete removes this bot. Its rounds go with it by cascade; the trading strategy it
-// followed is untouched — that is a thing of its own, and other bots may use it.
+// Delete cascades to the bot's runs but leaves its trading strategy, which other bots may use.
 func (strategyBotRepository *StrategyBotRepository) Delete(
 	executionContext context.Context, id uint,
 ) error {
@@ -180,11 +155,7 @@ func (strategyBotRepository *StrategyBotRepository) Delete(
 	return nil
 }
 
-// UpdateRunState writes only the columns a bot's life touches.
-//
-// Naming them is the point. A round finishing must not be able to alter a condition,
-// and the narrow write is what makes that true of the code rather than of its
-// author's intentions.
+// UpdateRunState writes only lifecycle columns, so a finished round cannot alter the bot's configuration.
 func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 	executionContext context.Context, bot entities.StrategyBot,
 ) error {
@@ -192,11 +163,7 @@ func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: bot.ID}).
 		Select("run_state", "next_run_at", "last_sent_signal", "halt_reason", "conflicting").
-		// UpdateColumns rather than Updates, because Updates also touches the
-		// auto-managed UpdatedAt even under a Select. A bot's last-modified time is
-		// handed to its owner next to its creation time; advancing it every
-		// trigger interval, for ever, with nobody having modified anything, leaves
-		// the field saying nothing at all.
+		// UpdateColumns rather than Updates, which would bump UpdatedAt on every round even though nothing was modified.
 		UpdateColumns(entities.StrategyBot{
 			RunState:       bot.RunState,
 			NextRunAt:      bot.NextRunAt,
@@ -211,7 +178,6 @@ func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 	return nil
 }
 
-// CountRunningByOwner is how many of this person's bots are running.
 func (strategyBotRepository *StrategyBotRepository) CountRunningByOwner(
 	executionContext context.Context, ownerID uint,
 ) (int, error) {
@@ -229,7 +195,7 @@ func (strategyBotRepository *StrategyBotRepository) CountRunningByOwner(
 	return int(runningBotCount), nil
 }
 
-// FindDue returns running bots that are due, oldest due first and at most this many.
+// FindDue returns at most limit due running bots, oldest due first.
 func (strategyBotRepository *StrategyBotRepository) FindDue(
 	executionContext context.Context, moment time.Time, limit int,
 ) ([]entities.StrategyBot, error) {

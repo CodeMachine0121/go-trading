@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleController exposes the K candle use cases over HTTP.
 type KCandleController struct {
 	kCandleApplication *application.KCandleApplication
 }
@@ -167,9 +166,7 @@ func (kCandleController *KCandleController) DeleteKCandle(ginContext *gin.Contex
 	ginContext.Status(http.StatusNoContent)
 }
 
-// readTime reads one RFC3339 time out of the request, answering the caller with a
-// bad request when it cannot be read. The second return value says whether the
-// handler may carry on — a handler that gets false has already had its answer sent.
+// readTime answers a bad request itself when the RFC3339 time is unreadable; false means the response was already sent.
 func (kCandleController *KCandleController) readTime(
 	ginContext *gin.Context, name string, value string,
 ) (time.Time, bool) {
@@ -182,7 +179,6 @@ func (kCandleController *KCandleController) readTime(
 	return parsedTime, true
 }
 
-// respondWithError maps a domain error onto the status code that reports it.
 func (kCandleController *KCandleController) respondWithError(ginContext *gin.Context, err error) {
 	if errors.Is(err, domains.ErrKCandleValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -196,14 +192,7 @@ func (kCandleController *KCandleController) respondWithError(ginContext *gin.Con
 	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
 }
 
-// readDisplayableCandleCount reads how many candles the caller can display, telling
-// "did not say" apart from "said a number".
-//
-// Absent is nil, which is how the query reads "let me name the coarseness myself".
-// Present but not a whole number is answered here, because it is the request that is
-// unreadable rather than the ask that is wrong — the same split every other parameter
-// on this path already makes. A number that is readable but unusable (zero, negative)
-// travels on and is refused where the rest of the query's rules live.
+// readDisplayableCandleCount returns nil when absent and rejects a non-integer here; a zero or negative number is left for the query's own validation.
 func (kCandleController *KCandleController) readDisplayableCandleCount(
 	ginContext *gin.Context,
 ) (*int, bool) {

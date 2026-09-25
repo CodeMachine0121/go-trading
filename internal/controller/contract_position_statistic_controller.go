@@ -11,8 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ContractPositionStatisticController answers questions about a perpetual contract's
-// five-minute position statistics.
 type ContractPositionStatisticController struct {
 	positionStatisticApplication *application.ContractPositionStatisticApplication
 }

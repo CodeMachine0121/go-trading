@@ -90,8 +90,7 @@ func (fixture tradingStrategyBacktestRouterUnderTest) send(
 	return recorder
 }
 
-// aRoutedTradingStrategy is one source reading hourly candles, buying on its buy and
-// selling on its sell.
+// aRoutedTradingStrategy reads one source at the given interval, buying on its buy and selling on its sell.
 func aRoutedTradingStrategy(interval string) entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID: 11, OwnerID: signedInViewerID, Name: "黃金交叉",
@@ -137,8 +136,7 @@ func TestTradingStrategyBacktestRouterReplaysAndAnswersWithTheReport(t *testing.
 	require.Equal(t, http.StatusOK, response.Code)
 	answer := map[string]any{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
-	// The coarseness comes back even though nobody sent one: it is the trading
-	// strategy's answer, and whoever draws the curve has to know which it was.
+	// The interval is returned even though none was sent, since it comes from the trading strategy.
 	assert.Equal(t, "1h", answer["interval"])
 	summary, isObject := answer["summary"].(map[string]any)
 	require.True(t, isObject)
@@ -221,8 +219,7 @@ func TestTradingStrategyBacktestRouterMapsEachRefusalOntoItsOwnStatus(t *testing
 	}
 }
 
-// The refusal about coarseness names the field somebody has to go and change, so the
-// sentence can be put beside it rather than at the top of a page.
+// The field is named so the message can be shown beside that input.
 func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 	disagreeing := aRoutedTradingStrategy("1h")
@@ -243,8 +240,7 @@ func TestTradingStrategyBacktestRouterNamesTheInputAtFault(t *testing.T) {
 	assert.Contains(t, answer["message"], "5m")
 }
 
-// Replaying a whole set of rules trades the one way this system replays. A body still
-// naming a set of rules of its own is refused rather than quietly ignored.
+// Only spot replays exist, so a body naming another mode is refused rather than ignored.
 func TestTradingStrategyBacktestRouterTradesSpot(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 
@@ -281,12 +277,7 @@ func TestTradingStrategyBacktestRouterTradesSpot(t *testing.T) {
 	assert.Equal(t, float64(1), summary["positionOpenCount"])
 }
 
-// Naming another set of rules is refused here too.
-//
-// This is the half that can rot in silence: a body that does not declare the field
-// drops it without a word, so the caller gets two hundred and a report card of the
-// run this system *does* perform — which is precisely the outcome the whole slice
-// exists to prevent, arriving through the one door nobody checked.
+// Another mode is refused here too, since an undeclared field would otherwise be silently dropped and a spot result returned.
 func TestTradingStrategyBacktestRouterRefusesAnotherSetOfRules(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
@@ -305,8 +296,7 @@ func TestTradingStrategyBacktestRouterRefusesAnotherSetOfRules(t *testing.T) {
 	assert.Contains(t, response.Body.String(), "只重演現貨")
 }
 
-// Asking to borrow is refused here in the same words a strategy-script replay refuses
-// it, because both ask the same gate.
+// Borrowing is refused with the same message as a script replay, because both use the same gate.
 func TestTradingStrategyBacktestRouterRefusesBorrowing(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).
@@ -325,9 +315,7 @@ func TestTradingStrategyBacktestRouterRefusesBorrowing(t *testing.T) {
 	assert.Contains(t, response.Body.String(), "沒有人借錢給你")
 }
 
-// A rate for being closed out is refused here too, and for the reason a declared set
-// of rules is: a field this body does not declare is dropped without a word, and the
-// caller gets a spot report card back with nothing on it about what they asked for.
+// A maintenance margin rate is refused because an undeclared field would be silently dropped and a spot result returned.
 func TestTradingStrategyBacktestRouterRefusesAMaintenanceMarginRate(t *testing.T) {
 	fixture := newTradingStrategyBacktestRouterUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(11)).

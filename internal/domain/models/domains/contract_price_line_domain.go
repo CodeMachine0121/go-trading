@@ -6,16 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// contractPriceLineDomain is one of the lines a contract K candle carries beside its
-// traded prices — an open, a high, a low and a close the venue computes on its own —
-// with the two rules every such line answers to: all four were given, and the high
-// is not below the low.
-//
-// It is unexported because it is a part of a contract K candle and nothing else: it
-// exists so that "every line is complete and ordered" is written once for the lines
-// that share it, with each line's own name in the sentence a caller is refused with.
-// What differs between lines — whether a figure may be negative — stays with the
-// candle, which is the one that knows what each line means.
+// contractPriceLineDomain is one venue-computed OHLC line on a contract K candle, checked for completeness and high >= low; sign rules stay with the candle.
 type contractPriceLineDomain struct {
 	open  decimal.Decimal
 	high  decimal.Decimal
@@ -23,7 +14,6 @@ type contractPriceLineDomain struct {
 	close decimal.Decimal
 }
 
-// newContractPriceLineDomain checks the four figures of the line called lineName.
 func newContractPriceLineDomain(
 	lineName string, open, high, low, close decimal.NullDecimal,
 ) (contractPriceLineDomain, error) {
@@ -44,9 +34,7 @@ func newContractPriceLineDomain(
 	}, nil
 }
 
-// hasNegativeFigure says whether any of the four sits below zero. The low is not
-// enough to look at: the constructor keeps it at or below the high, but it says
-// nothing about the open and the close.
+// hasNegativeFigure checks all four figures because the high/low ordering says nothing about open and close.
 func (contractPriceLineDomain contractPriceLineDomain) hasNegativeFigure() bool {
 	for _, figure := range []decimal.Decimal{
 		contractPriceLineDomain.open, contractPriceLineDomain.high,

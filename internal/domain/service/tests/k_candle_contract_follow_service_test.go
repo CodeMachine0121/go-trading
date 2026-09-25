@@ -19,12 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// contractFollowTestBed wires a contract follow whose feed the test hands out, over a
-// contract watchlist of ETHUSDT and BTCUSDT, with DOGEUSDT known but not followed.
-//
-// It holds no K candle store at all, and that is the point: a contract follow has no
-// way to store a candle, so "a closed candle is not stored by the follow" is a fact
-// about what it is built from rather than something a test has to catch it not doing.
+// contractFollowTestBed follows a contract watchlist of ETHUSDT and BTCUSDT (DOGEUSDT known but not followed) and has no K candle store, since a contract follow cannot store candles.
 type contractFollowTestBed struct {
 	service        *service.KCandleContractFollowService
 	feedsRequested chan vo.LiveFollowChannelVo
@@ -103,8 +98,7 @@ func TestAContractIsFollowedOnceHoweverManyWatchIt(t *testing.T) {
 	require.NoError(t, secondError)
 	assert.Equal(t, 1, testBed.service.FollowedSymbolCount(), "第二個觀看者不該讓系統跟第二份")
 
-	// One line for the contract, carrying exactly it — and no second one for the
-	// second viewer.
+	// One line carrying exactly this contract, and no second line for the second viewer.
 	channel := <-testBed.feedsRequested
 	assert.Equal(t, []string{"BTCUSDT"}, channel.Symbols)
 	assert.Empty(t, testBed.feedsRequested, "第二個觀看者不該讓系統多開一條連線")
@@ -305,8 +299,7 @@ func TestAContractSourceThatRefusesIsRetried(t *testing.T) {
 	assert.Equal(t, dto.KCandleFollowStatusForming, firstUpdateFrom(t, updates).Status)
 }
 
-// Contracts never close and have no places to hand out, so a viewer is never told the
-// market is shut or that there is no room.
+// Contracts never close and have no place ceiling, so a viewer is never told the market is shut or full.
 func TestAContractViewerIsNeverToldTheMarketIsShutOrFull(t *testing.T) {
 	testBed, feed := oneContractFeed(t)
 	viewer, viewerLeaves := context.WithCancel(context.Background())
@@ -342,8 +335,7 @@ func TestStoppingEndsEveryContractFollowAndTurnsLateViewersAway(t *testing.T) {
 	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
 }
 
-// A viewer of an earlier follow leaving late must never close a later follow's viewer
-// who happens to hold the same id.
+// A late leaver of an earlier follow must never close a later follow's viewer holding the same id.
 func TestALateLeaverNeverClosesALaterContractFollowsViewer(t *testing.T) {
 	testBed, _ := oneContractFeed(t)
 
@@ -361,8 +353,7 @@ func TestALateLeaverNeverClosesALaterContractFollowsViewer(t *testing.T) {
 	assert.Equal(t, 1, testBed.service.FollowedSymbolCount(), "後來那一份跟盤不該被先前的離開收掉")
 }
 
-// A candle naming a contract this line does not carry belongs to nobody here and is
-// dropped, rather than drawn on somebody else's chart.
+// A candle naming a contract this line does not carry is dropped rather than drawn on another chart.
 func TestACandleNamingAnotherContractIsDropped(t *testing.T) {
 	testBed, feed := oneContractFeed(t)
 	viewer, viewerLeaves := context.WithCancel(context.Background())
@@ -379,9 +370,7 @@ func TestACandleNamingAnotherContractIsDropped(t *testing.T) {
 	assert.Equal(t, "64000.5", update.KCandle.Close.String(), "別的合約的那一根不該畫到這張圖上")
 }
 
-// Whether a contract is followed is asked when a viewer arrives and not again: one taken
-// off the contract watchlist while somebody is looking keeps their picture until they
-// leave, while a newcomer is refused.
+// Watch status is checked only on arrival: a contract removed mid-watch keeps its viewer while newcomers are refused.
 func TestAContractTakenOffTheWatchlistMidWatchKeepsItsViewer(t *testing.T) {
 	mockController := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
@@ -423,8 +412,7 @@ func TestAContractTakenOffTheWatchlistMidWatchKeepsItsViewer(t *testing.T) {
 		"已經在看的人照常收到，直到他離開")
 }
 
-// With a real ceiling, the first forming candle of a new follow reaches its first viewer
-// at once, and the next one inside the ceiling is held back.
+// With a real ceiling, a new follow's first forming candle arrives at once and the next inside the ceiling is held back.
 func TestTheFirstFormingContractCandleArrivesAtOnceAndTheNextIsThrottled(t *testing.T) {
 	feed := newLiveFeed()
 	testBed := newContractFollowTestBed(t, 10*time.Second, func(int) (<-chan vo.LiveKCandleVo, error) {

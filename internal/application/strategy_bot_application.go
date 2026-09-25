@@ -7,12 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyBotApplication orchestrates everything a person does to a strategy bot.
-//
-// It joins three domain services, which is this layer's job and not theirs. A bot
-// names a trading strategy, so saving one has to ask the trading strategy rules
-// whether that one may be seen at all; starting one has to ask the delivery setting
-// whether its owner can be spoken to. Neither question belongs to the bots.
+// StrategyBotApplication joins the bot, trading strategy and delivery services, since a domain service does not call another.
 type StrategyBotApplication struct {
 	strategyBotService      *service.StrategyBotService
 	tradingStrategyService  *service.TradingStrategyService
@@ -31,7 +26,6 @@ func NewStrategyBotApplication(
 	}
 }
 
-// CreateStrategyBot saves a new bot for whoever is signed in.
 func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
@@ -47,7 +41,6 @@ func (strategyBotApplication *StrategyBotApplication) CreateStrategyBot(
 		executionContext, writeDto, followedTradingStrategy)
 }
 
-// UpdateStrategyBot rewrites one of this person's bots.
 func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 ) (dto.StrategyBotDto, error) {
@@ -61,8 +54,6 @@ func (strategyBotApplication *StrategyBotApplication) UpdateStrategyBot(
 		executionContext, viewerID, writeDto, followedTradingStrategy)
 }
 
-// ListStrategyBots returns this person's bots — all of them, or only those of one kind
-// of market when one is named.
 func (strategyBotApplication *StrategyBotApplication) ListStrategyBots(
 	executionContext context.Context, viewerID uint, marketDataKind string,
 ) ([]dto.StrategyBotDto, error) {
@@ -70,14 +61,12 @@ func (strategyBotApplication *StrategyBotApplication) ListStrategyBots(
 		executionContext, viewerID, marketDataKind)
 }
 
-// GetStrategyBot returns one of this person's bots.
 func (strategyBotApplication *StrategyBotApplication) GetStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyBotDto, error) {
 	return strategyBotApplication.strategyBotService.GetStrategyBot(executionContext, viewerID, id)
 }
 
-// DeleteStrategyBot removes one of this person's bots.
 func (strategyBotApplication *StrategyBotApplication) DeleteStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -85,10 +74,6 @@ func (strategyBotApplication *StrategyBotApplication) DeleteStrategyBot(
 		executionContext, viewerID, id)
 }
 
-// StartStrategyBot puts one of this person's bots to work.
-//
-// Whether they have somewhere to be spoken to is read here, because that fact
-// belongs to the delivery setting and a domain service does not call another one.
 func (strategyBotApplication *StrategyBotApplication) StartStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyBotDto, error) {
@@ -113,7 +98,6 @@ func (strategyBotApplication *StrategyBotApplication) StartStrategyBot(
 	return startedBot, nil
 }
 
-// StopStrategyBot takes one of this person's bots off duty.
 func (strategyBotApplication *StrategyBotApplication) StopStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyBotDto, error) {
@@ -132,7 +116,6 @@ func (strategyBotApplication *StrategyBotApplication) StopStrategyBot(
 	return stoppedBot, nil
 }
 
-// ListRunRecords is what this bot has been doing.
 func (strategyBotApplication *StrategyBotApplication) ListRunRecords(
 	executionContext context.Context, viewerID uint, id uint,
 ) ([]dto.StrategyBotRunRecordDto, error) {
@@ -140,12 +123,7 @@ func (strategyBotApplication *StrategyBotApplication) ListRunRecords(
 		executionContext, viewerID, id)
 }
 
-// announce sends a bot's own news, and lets it fail.
-//
-// Pressing stop is not undone because Telegram was busy: the bot **is** stopped,
-// the button did what it said, and reporting a failure would leave somebody pressing
-// it again at a bot that is already off. The message is a courtesy on top of an
-// action that has already happened.
+// announce sends a bot notification and ignores failure, since the action it reports has already happened.
 func (strategyBotApplication *StrategyBotApplication) announce(
 	executionContext context.Context, viewerID uint, message string,
 ) {
@@ -153,17 +131,7 @@ func (strategyBotApplication *StrategyBotApplication) announce(
 		executionContext, viewerID, message)
 }
 
-// readFollowedTradingStrategy reads the set of rules a bot names, as this person can see
-// it.
-//
-// Naming somebody else's fails here with the same sentence as naming one that does
-// not exist, which is what stops the field becoming a way to probe for other
-// people's trading strategies. What is asked of the rules after that — whether they
-// eat the kind of market the bot eats — is a rule about bots, answered where bots are
-// validated.
-//
-// Naming nothing passes with nothing read, and is not refused here — that a bot must
-// name exactly one set of rules is a rule about bots too.
+// readFollowedTradingStrategy fails for someone else's strategy with the same error as a missing one, so the field can't probe other users' strategies; naming nothing passes here.
 func (strategyBotApplication *StrategyBotApplication) readFollowedTradingStrategy(
 	executionContext context.Context, viewerID uint, tradingStrategyID uint,
 ) (dto.TradingStrategyDto, error) {

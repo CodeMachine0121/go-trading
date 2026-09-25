@@ -81,8 +81,7 @@ func aStoredStrategyScriptRow(id uint, name string) entities.StrategyScript {
 	}
 }
 
-// aPublishedStrategyScriptRow is one strategy script on the marketplace, owned by somebody who
-// is not the signed-in viewer.
+// aPublishedStrategyScriptRow is a marketplace script owned by someone other than the viewer.
 func aPublishedStrategyScriptRow(id uint, name string) entities.PublishedStrategyScript {
 	strategyScript := aStoredStrategyScriptRow(id, name)
 	strategyScript.OwnerID = signedInViewerID + 1
@@ -101,8 +100,7 @@ func TestStrategyScriptRouterCreateStrategyScript(t *testing.T) {
 		fixture.strategyScriptRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, strategyScript entities.StrategyScript) (entities.StrategyScript, error) {
-				// Every field the body carried has to arrive, and a strategy script being
-				// created carries no identifier of its own — the path had none to give.
+				// Every body field must arrive, and a new script has no identifier.
 				assert.Equal(t, uint(0), strategyScript.ID)
 				assert.Equal(t, "二十根均線", strategyScript.Name)
 				assert.Equal(t, aStoredStrategyScriptRow(0, "").Script, strategyScript.Script)
@@ -121,9 +119,7 @@ func TestStrategyScriptRouterCreateStrategyScript(t *testing.T) {
 	})
 
 	t.Run("a plan for feeding the algorithm is not part of a strategy script", func(t *testing.T) {
-		// A caller that still sends how coarse the candles are and how many of them
-		// is not refused — those fields simply bind to nothing, and nothing comes
-		// back carrying them either.
+		// Legacy interval/count fields are not refused; they bind to nothing and are not echoed.
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
@@ -152,10 +148,7 @@ func TestStrategyScriptRouterCreateStrategyScript(t *testing.T) {
 	})
 
 	t.Run("says the body could not be read rather than blaming its content", func(t *testing.T) {
-		// Every field is present; only the name is written as a number. Reading the
-		// body fails, and the caller has to be told that — being told "a strategy script
-		// needs a name" would send them looking for a missing field rather than a
-		// mistyped one.
+		// Only the name is mistyped as a number, so the caller must be told the body is unreadable, not that a name is missing.
 		fixture := newStrategyScriptRouterUnderTest(t)
 
 		response := fixture.send(http.MethodPost, "/strategy-scripts",
@@ -198,9 +191,7 @@ func TestStrategyScriptRouterCreateStrategyScript(t *testing.T) {
 }
 
 func TestStrategyScriptRouterSavesTheStrategyScriptForWhoeverCameThroughTheDoor(t *testing.T) {
-	// Who a strategy script belongs to comes from the proof on the request, never from
-	// what the request says about itself. Without this, a door that recognised
-	// everybody as the same person would still pass every other test in this file.
+	// The owner comes from the proof, never the body; otherwise a middleware treating everyone as one person would pass every other test.
 	fixture := newStrategyScriptRouterUnderTest(t)
 	storedOwnerID := uint(0)
 	fixture.strategyScriptRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
@@ -252,8 +243,7 @@ func TestStrategyScriptRouterListAvailableStrategyScripts(t *testing.T) {
 	})
 
 	t.Run("never puts an adopted strategy script's algorithm on the wire", func(t *testing.T) {
-		// The adopted half is a shape with no script field at all, so this is not a
-		// promise the handler keeps — it is one it cannot break.
+		// The adopted shape has no script field, so the handler cannot leak it.
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{}, nil)
@@ -268,8 +258,7 @@ func TestStrategyScriptRouterListAvailableStrategyScripts(t *testing.T) {
 	})
 
 	t.Run("answers with empty collections rather than nothing at all", func(t *testing.T) {
-		// A reader that gets null has to guard against it; one that gets [] can just
-		// read it, which is why holding none still answers with a collection.
+		// Holding none still answers [] rather than null, so readers need no null guard.
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{}, nil)
@@ -328,13 +317,7 @@ func TestStrategyScriptRouterGetStrategyScript(t *testing.T) {
 }
 
 func TestStrategyScriptRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
-	// Nothing is stubbed on the repository, so a request that got as far as storage
-	// would fail the test rather than quietly answer.
-	// The last one is larger than an identifier can hold. Read too wide and then
-	// narrowed, it would wrap onto a real strategy script and answer for that one instead.
-	// The last two are larger than an identifier can hold: one overflows the parse,
-	// the other parses cleanly and would otherwise reach the database and come back
-	// as a storage failure rather than as "no strategy script has that identifier".
+	// Nothing is stubbed on the repository; the last two exceed an identifier's range and must answer "not found" rather than wrap onto a real script or reach storage.
 	for _, id := range []string{
 		"abc", "0", "-1", "1.5", "%20", "18446744073709551616", "9223372036854775808",
 	} {
@@ -460,10 +443,7 @@ func TestStrategyScriptRouterDeleteStrategyScript(t *testing.T) {
 	})
 }
 
-// A NUL byte is legal JSON and decodes into a real character, so it reaches the
-// rules like any other text. Left to the database it comes back as a broken
-// encoding, which the error mapping cannot recognise and reports as 502 — telling
-// the caller the system failed when what failed was what they sent.
+// A NUL byte is valid JSON but the database rejects it as a broken encoding, which would surface as 502 for the caller's mistake.
 func TestStrategyScriptRouterRefusesTextThatCannotBeStored(t *testing.T) {
 	testCases := []struct {
 		name string

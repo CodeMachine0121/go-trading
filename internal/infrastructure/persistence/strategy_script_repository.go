@@ -12,34 +12,16 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// StrategyScriptNameIndex is the unique index on an owner and a strategy script's name, and
-// uniqueViolationCode is what PostgreSQL calls a broken unique constraint. Together
-// they are how a name clash is told apart from any other constraint on the table —
-// the primary key included, which breaks when a restored dump leaves the identifier
-// sequence behind and has nothing to do with anyone's choice of name.
-//
-// The index name is repeated from the entity's tag because a struct tag cannot hold
-// a constant. If the two ever drift, storing a duplicate name stops being reported
-// as a conflict and starts being reported as a storage failure. It is exported so
-// that the agreement between the two spellings is asserted by a test needing no
-// database, rather than only by one that skips when there is none.
+// StrategyScriptNameIndex repeats the entity's index tag (tags cannot hold constants); it is exported so a database-free test asserts the two spellings agree.
 const StrategyScriptNameIndex = "idx_strategies_owner_name"
 
-// uniqueViolationCode is what PostgreSQL calls a broken unique constraint.
 const uniqueViolationCode = "23505"
 
-// strategyScriptWritableColumns are the only columns a rewrite may touch. Naming them is
-// what makes "the identifier and the time it was first saved never change" true:
-// they are not on the list, so no update can reach them however the entity handed in
-// was filled.
-//
-// The owner is not on the list either, which is what makes "a strategy script never
-// changes hands" a thing this code cannot express rather than a thing it remembers.
+// strategyScriptWritableColumns excludes the identifier, creation time and owner, so no update can change them.
 var strategyScriptWritableColumns = []string{
 	"name", "description", "script", "result_type",
 }
 
-// StrategyScriptRepository stores saved strategy scripts in PostgreSQL.
 type StrategyScriptRepository struct {
 	database *gorm.DB
 }
@@ -48,9 +30,7 @@ func NewStrategyScriptRepository(database *gorm.DB) *StrategyScriptRepository {
 	return &StrategyScriptRepository{database: database}
 }
 
-// Save stores a new strategy script, letting the unique index on the name decide whether it
-// may exist. Asking first and creating afterwards would let two requests arriving at
-// once both find the name free.
+// Save lets the unique name index decide, since check-then-create races.
 func (strategyScriptRepository *StrategyScriptRepository) Save(
 	executionContext context.Context, strategyScript entities.StrategyScript,
 ) (entities.StrategyScript, error) {
@@ -62,22 +42,15 @@ func (strategyScriptRepository *StrategyScriptRepository) Save(
 	return strategyScript, nil
 }
 
-// Update rewrites the five things a strategy script remembers and hands back the strategy script as
-// it now stands. Only the writable columns are sent, so the identifier and the time
-// the strategy script was first saved are out of reach by construction.
+// Update writes only the writable columns and returns the stored row.
 func (strategyScriptRepository *StrategyScriptRepository) Update(
 	executionContext context.Context, strategyScript entities.StrategyScript,
 ) (entities.StrategyScript, error) {
-	// The write and the read-back share one transaction, so what comes back is what
-	// this call stored. Apart, a second rewrite landing between them would hand this
-	// caller somebody else's values as though they were its own — and a deletion
-	// landing there would report not found for a row this call had just written.
+	// Write and read-back share one transaction so a concurrent rewrite or delete cannot leak into the result.
 	updatedStrategyScript := entities.StrategyScript{}
 
 	transactionError := strategyScriptRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
-			// The strategy script handed to Model carries the identifier, which is what
-			// picks the row; only the writable columns are then sent.
 			result := transaction.
 				Model(&entities.StrategyScript{ID: strategyScript.ID}).
 				Select(strategyScriptWritableColumns).
@@ -88,18 +61,13 @@ func (strategyScriptRepository *StrategyScriptRepository) Update(
 				return writeError
 			}
 
-			// The knobs are replaced outright rather than reconciled one by one.
-			// They have no identity a caller ever names — a knob is its name inside
-			// its strategy script — so "which of these is the same knob as before" is a
-			// question nobody asks and this one does not answer.
+			// Parameters have no identity of their own, so they are replaced outright.
 			if parametersError := strategyScriptRepository.replaceParameters(
 				transaction, strategyScript); parametersError != nil {
 				return parametersError
 			}
 
-			// Reading it back is also what reports a strategy script that is not there:
-			// nothing was rewritten, so nothing can be found. Checking the rows
-			// written first would ask the same question twice.
+			// The read-back also reports a missing script as not found.
 			readBack := transaction.
 				Preload(strategyScriptParametersAssociation).
 				First(&updatedStrategyScript, strategyScript.ID)
@@ -120,32 +88,19 @@ func (strategyScriptRepository *StrategyScriptRepository) Update(
 	return updatedStrategyScript, nil
 }
 
-// strategyScriptParametersAssociation is how GORM is asked for a strategy script's knobs. It is
-// written once here so that every read fetches them the same way — a strategy script read
-// back without them looks like a strategy script that has none.
+// A script read without this association looks like one with no parameters.
 const strategyScriptParametersAssociation = "Parameters"
 
-// strategyScriptPublicationAssociation is how GORM is asked whether a strategy script is on the
-// marketplace. It is read alongside an owner's own strategy scripts because that is the
-// only place the answer is used — it decides whether the button in front of them
-// publishes or withdraws — and asking per strategy script would be one query each.
+// Preloaded with an owner's scripts to decide publish vs. withdraw without a query per script.
 const strategyScriptPublicationAssociation = "Publication"
 
-// The three associations a marketplace row is read with. A publication on its own
-// is an identifier and a moment; what a reader wants is the strategy script behind it, the
-// knobs it declares and who published it.
 const (
 	publishedStrategyScriptAssociation           = "StrategyScript"
 	publishedStrategyScriptParametersAssociation = "StrategyScript.Parameters"
 	publishedStrategyScriptOwnerAssociation      = "StrategyScript.Owner"
 )
 
-// replaceParameters swaps a strategy script's whole set of knobs for the ones handed in.
-//
-// Deleting then inserting, rather than working out which rows changed, is the honest
-// shape here: a knob has no identity of its own, so there is nothing to match old
-// rows against. Both statements share the caller's transaction, so a reader never
-// sees a strategy script midway between two sets.
+// replaceParameters deletes then inserts within the caller's transaction, since parameters have no identity to diff against.
 func (strategyScriptRepository *StrategyScriptRepository) replaceParameters(
 	transaction *gorm.DB, strategyScript entities.StrategyScript,
 ) error {
@@ -174,14 +129,7 @@ func (strategyScriptRepository *StrategyScriptRepository) replaceParameters(
 	return nil
 }
 
-// writeFailureOf says what went wrong with a write, in the terms the domain uses. A
-// broken name index is the one storage failure that is really a business answer: the
-// name belongs to another strategy script. It is written here once because both writes
-// reach the same index and owe the caller the same answer.
-//
-// Every other broken constraint stays a storage failure. Answering "that name is
-// taken" for a clash the name had no part in would send whoever reads it hunting for
-// a strategy script that does not exist.
+// writeFailureOf maps a broken name index to a name conflict; every other constraint violation stays a storage failure.
 func (strategyScriptRepository *StrategyScriptRepository) writeFailureOf(
 	writeError error, name string, attempt string,
 ) error {
@@ -195,7 +143,6 @@ func (strategyScriptRepository *StrategyScriptRepository) writeFailureOf(
 	return nil
 }
 
-// isNameAlreadyHeld says whether this write broke the name index specifically.
 func (strategyScriptRepository *StrategyScriptRepository) isNameAlreadyHeld(writeError error) bool {
 	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](writeError)
 	if !isPostgresError {
@@ -206,7 +153,6 @@ func (strategyScriptRepository *StrategyScriptRepository) isNameAlreadyHeld(writ
 		postgresError.ConstraintName == StrategyScriptNameIndex
 }
 
-// FindOne returns the strategy script carrying this identifier.
 func (strategyScriptRepository *StrategyScriptRepository) FindOne(executionContext context.Context, id uint) (entities.StrategyScript, error) {
 	strategyScript := entities.StrategyScript{}
 
@@ -224,7 +170,6 @@ func (strategyScriptRepository *StrategyScriptRepository) FindOne(executionConte
 	return strategyScript, nil
 }
 
-// FindAllOwnedBy returns every strategy script belonging to this owner, ordered by name.
 func (strategyScriptRepository *StrategyScriptRepository) FindAllOwnedBy(
 	executionContext context.Context, ownerID uint,
 ) ([]entities.StrategyScript, error) {
@@ -243,12 +188,7 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllOwnedBy(
 	return strategyScripts, nil
 }
 
-// FindAllPublished returns everything on the marketplace, newest publication first,
-// each row already carrying the strategy script, its knobs and its owner.
-//
-// Reading all four together is one question rather than four: a listing that came
-// back as identifiers would send the caller round again per row, and the marketplace
-// is the one page where every row needs all of it.
+// FindAllPublished returns the marketplace newest first, preloading script, parameters and owner.
 func (strategyScriptRepository *StrategyScriptRepository) FindAllPublished(
 	executionContext context.Context,
 ) ([]entities.PublishedStrategyScript, error) {
@@ -267,13 +207,7 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllPublished(
 	return publications, nil
 }
 
-// FindAllAdoptedBy returns everything this person has taken off the marketplace and
-// that is still on it, ordered by the strategy script's name.
-//
-// "Still on it" needs no clause of its own: an adoption points at a publication and
-// goes with it, so a row that is here has a publication by construction. The join
-// onto the adoptions is what narrows this to one person's shelf, and it is also why
-// the ordering is stated over the strategy script's own column rather than the row's.
+// FindAllAdoptedBy returns this person's adopted scripts by name; adoptions cascade with their publication, so no "still published" clause is needed.
 func (strategyScriptRepository *StrategyScriptRepository) FindAllAdoptedBy(
 	executionContext context.Context, userID uint,
 ) ([]entities.PublishedStrategyScript, error) {
@@ -296,9 +230,7 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllAdoptedBy(
 	return publications, nil
 }
 
-// Delete removes the strategy script for good. There is no keeping of what was deleted:
-// a name that is still held by something nobody can read is a name nobody can
-// explain, and this is a single person's own collection.
+// Delete is a hard delete.
 func (strategyScriptRepository *StrategyScriptRepository) Delete(executionContext context.Context, id uint) error {
 	result := strategyScriptRepository.database.WithContext(executionContext).Delete(&entities.StrategyScript{}, id)
 	if result.Error != nil {

@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// BacktestController exposes the strategy script backtest use case over HTTP.
 type BacktestController struct {
 	backtestApplication *application.BacktestApplication
 }
@@ -47,9 +46,7 @@ func (backtestController *BacktestController) RunBacktest(ginContext *gin.Contex
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
-// RunContractBacktest replays a contract strategy script on a contract account and
-// answers with the contract report card, the finished round trips and the equity
-// curve. Nothing is stored.
+// RunContractBacktest replays a contract strategy script and returns the report without storing anything.
 func (backtestController *BacktestController) RunContractBacktest(ginContext *gin.Context) {
 	var contractBacktestRequest models.ContractBacktestRequest
 
@@ -77,24 +74,13 @@ func (backtestController *BacktestController) RunContractBacktest(ginContext *gi
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
-// respondWithError separates what went wrong by what the caller has to go and change:
-// the conditions of the replay, a knob's name, the script, or this system.
-//
-// The last three are answered exactly as a plain indicator calculation answers them —
-// deliberately, because the same script fails the same way whichever of the two asked
-// it to run, and a screen showing both should not have to tell two stories about one
-// broken line.
+// respondWithError answers script, parameter and system failures exactly as indicator calculation does, so one broken script fails the same way on both routes.
 func (backtestController *BacktestController) respondWithError(ginContext *gin.Context, err error) {
-	// A strategy script that is not there, one belonging to somebody else, and one that is
-	// not on the marketplace all arrive as this single refusal, and all leave as the
-	// same 404. Telling them apart would let a caller learn which identifiers exist.
+	// Missing, foreign and unpublished scripts all answer 404 so callers cannot probe which identifiers exist.
 	if errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
-	// Naming the input at fault is what lets a caller put the sentence where the
-	// person can act on it, rather than at the top of a page away from the box they
-	// have to change. The name travels as a value, not inside the sentence.
 	if fieldName, namesField := domains.BacktestFieldName(err); namesField {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
 			"message": err.Error(),
@@ -106,16 +92,11 @@ func (backtestController *BacktestController) respondWithError(ginContext *gin.C
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	// A strategy script eating the other kind of market is the caller's choice of
-	// script, not a script written wrong.
 	if errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	// A knob the script reached for that nobody declared is the caller's mistake, not
-	// the script's and not this system's. The name travels as a value, not only inside
-	// the sentence: a caller telling this failure apart by reading prose would be
-	// matching on words written for a person, which change whenever the wording does.
+	// The parameter name travels as a value so callers need not parse the message.
 	if parameterName, isUndeclared := domains.UndeclaredParameterName(err); isUndeclared {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
 			"message":       err.Error(),
@@ -123,9 +104,7 @@ func (backtestController *BacktestController) respondWithError(ginContext *gin.C
 		})
 		return
 	}
-	// Nothing was wrong with what was asked; it could not be answered in time.
-	// Said apart from a script failure, which shares the status: the one is fixed by
-	// asking for less, the other by fixing the script.
+	// Answered apart from a script failure that shares the status: this one is fixed by asking for less.
 	if errors.Is(err, domains.ErrBacktestTimeAllowanceSpent) {
 		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{
 			"message":            err.Error(),

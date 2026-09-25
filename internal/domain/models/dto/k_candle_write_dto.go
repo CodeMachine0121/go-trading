@@ -6,7 +6,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleWriteDto is the shape the application hands the domain to create or update a K candle.
 type KCandleWriteDto struct {
 	Symbol              string
 	OpenTime            time.Time

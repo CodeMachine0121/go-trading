@@ -7,8 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyScriptMarketplaceApplication orchestrates the shared shelf: publishing,
-// withdrawing, browsing, and one person's selection from it.
 type StrategyScriptMarketplaceApplication struct {
 	strategyScriptMarketplaceService *service.StrategyScriptMarketplaceService
 }

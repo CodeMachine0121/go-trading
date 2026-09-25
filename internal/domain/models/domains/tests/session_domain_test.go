@@ -47,8 +47,7 @@ func TestSessionDomainTellsRevokedAndExpiredApart(t *testing.T) {
 		},
 		{
 			name: "its moment is exactly now",
-			// An expiry is the first instant something stops working, not the last
-			// instant it still does.
+			// Expiry is the first instant it stops working.
 			session:         aSession(sessionNow, nil),
 			expectedExpired: true,
 		},
@@ -58,9 +57,7 @@ func TestSessionDomainTellsRevokedAndExpiredApart(t *testing.T) {
 		},
 		{
 			name: "both ended and expired",
-			// The two are asked separately because they lead to different actions:
-			// expired is simply refused, ended-but-still-presented means the proof
-			// was copied and the whole chain has to go.
+			// Checked separately: expired is simply refused, while an ended session still presented means the proof was copied and the whole chain must go.
 			session:         aSession(sessionNow.Add(-time.Second), &revokedAt),
 			expectedRevoked: true,
 			expectedExpired: true,
@@ -99,9 +96,7 @@ func TestSessionDomainRenewedStaysOnTheSameChain(t *testing.T) {
 }
 
 func TestSessionDomainRenewedStartsTheClockAgainFromNow(t *testing.T) {
-	// Carrying the old expiry forward would make a session that can never be kept
-	// alive past its original month, however often it is used. Counting from now is
-	// what makes "keep using it and you stay in; leave it and you do not" true.
+	// Renewal counts from now, not the old expiry, so an actively used session stays alive.
 	testCases := []struct {
 		name              string
 		now               time.Time

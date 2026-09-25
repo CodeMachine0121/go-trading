@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// IndicatorCalculationController exposes the indicator calculation use case over HTTP.
 type IndicatorCalculationController struct {
 	indicatorCalculationApplication *application.IndicatorCalculationApplication
 }
@@ -33,8 +32,7 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateI
 	indicatorCalculationController.calculate(ginContext, indicatorCalculationController.indicatorCalculationApplication.CalculateIndicator)
 }
 
-// CalculateContractIndicator handles POST /contract-indicator-calculations: the same
-// body and the same answers as the spot route, over perpetual contract bars.
+// CalculateContractIndicator handles POST /contract-indicator-calculations with the same body and answers as the spot route, over contract bars.
 func (indicatorCalculationController *IndicatorCalculationController) CalculateContractIndicator(
 	ginContext *gin.Context,
 ) {
@@ -42,9 +40,6 @@ func (indicatorCalculationController *IndicatorCalculationController) CalculateC
 		ginContext, indicatorCalculationController.indicatorCalculationApplication.CalculateContractIndicator)
 }
 
-// calculate is everything the two routes share: reading the body, settling what is
-// being run, and answering. Only which calculation runs differs, so that is the one
-// thing each route hands in.
 func (indicatorCalculationController *IndicatorCalculationController) calculate(
 	ginContext *gin.Context,
 	runCalculation func(
@@ -82,49 +77,28 @@ func (indicatorCalculationController *IndicatorCalculationController) calculate(
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
-// respondWithError separates what went wrong by what the caller has to go and change,
-// so the answer can be told apart without reading the message: the request itself, a
-// stretch of market too thin to answer, a knob's name, the script, or this system.
-//
-// The order matters. Each of the specific failures is also a validation failure, so
-// every one of them has to be asked about before the general validation answer —
-// otherwise it is caught there first and arrives stripped of the values that make it
-// actionable.
+// respondWithError must check each specific failure before the general validation one, since they all wrap it and would otherwise lose their actionable values.
 func (indicatorCalculationController *IndicatorCalculationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
-	// A strategy script that is not there, one belonging to somebody else, and one that is
-	// not on the marketplace all arrive as this single refusal, and all leave as the
-	// same 404. Telling them apart would let a caller learn which identifiers exist.
+	// Missing, foreign and unpublished scripts all answer 404 so callers cannot probe which identifiers exist.
 	if errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
-	// A strategy script named for the other kind of market is the caller's choice to
-	// change, not a broken script and not this system's failure: the sentence says
-	// which kind of market the script eats.
 	if errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	// Naming the input at fault is what lets a caller put the sentence where the
-	// person can act on it. Only this one validation failure has a specific input to
-	// name — the rest are answered as they were.
 	if errors.Is(err, domains.ErrIndicatorCalculationCandleCountExceeded) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
 			"message": err.Error(),
-			// The stretch asked about is the input at fault: it is what the count is
-			// worked out from, and shortening it is one of the two ways out. The
-			// other is a coarser interval, which the sentence names.
+			// The stretch is blamed because shortening it (or a coarser interval) is the way out.
 			"field": "startTime",
 		})
 		return
 	}
-	// A stretch that holds no market at all is a third failure with a way out of its
-	// own, and it is unrelated to both of the others: neither a finer interval nor a
-	// coarser one puts trading into a Saturday. It says so as a value rather than
-	// only in the sentence, so a caller can send the person to pick a time the market
-	// was open instead of to turn a dial that changes nothing.
+	// No finer or coarser interval puts trading into a closed market, so this is flagged as a value to send the person to pick an open time.
 	if errors.Is(err, domains.ErrObservationWindowHoldsNoTrading) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
 			"message":                         err.Error(),
@@ -132,12 +106,7 @@ func (indicatorCalculationController *IndicatorCalculationController) respondWit
 		})
 		return
 	}
-	// A stretch too thin to yield even one value is the other failure with a specific
-	// way out, and it is the *opposite* way out from the one above: read the market
-	// more finely, or fill in the missing history. Both counts travel as values, not
-	// only inside the sentence, so a caller can put them where the person can act on
-	// them. Left to fall through to the general validation answer below, it would
-	// arrive as a sentence with no numbers a caller could use.
+	// The opposite remedy from the above (finer interval or more history); both counts travel as values so callers can act on them.
 	if availableCandleCount, minimumCandleCount, isTooThin := domains.CandleCoverageShortfall(
 		err); isTooThin {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
@@ -151,16 +120,10 @@ func (indicatorCalculationController *IndicatorCalculationController) respondWit
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	// A knob the script reached for that nobody declared is the caller's mistake, not
-	// the script's and not this system's. Left to fall through it would be answered
-	// as a gateway failure — telling somebody the backend broke when what happened is
-	// that they renamed a knob and forgot the line that reads it.
+	// An undeclared parameter is the caller's mistake; falling through would misreport it as a gateway failure.
 	if parameterName, isUndeclared := domains.UndeclaredParameterName(err); isUndeclared {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
-			"message": err.Error(),
-			// The name travels as a value, not only inside the sentence: a caller
-			// telling this failure apart by reading prose would be matching on words
-			// written for a person, which change whenever the wording improves.
+			"message":       err.Error(),
 			"parameterName": parameterName,
 		})
 		return

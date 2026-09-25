@@ -27,8 +27,7 @@ type backfillRouterUnderTest struct {
 	marketDataProxy         *mocks.MockIMarketDataProxy
 }
 
-// newBackfillRouterUnderTest wires the real application and domain service, mocking
-// only the outermost boundaries: storage and the market source.
+// newBackfillRouterUnderTest wires real application and domain services, mocking only storage and the market source.
 func newBackfillRouterUnderTest(t *testing.T) backfillRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
@@ -80,18 +79,13 @@ func TestCatchingUpASymbolReportsWhatItCollected(t *testing.T) {
 
 	response := underTest.post(`{"symbol":"BTCUSDT"}`)
 
-	// The names on the wire are the contract, so the whole body is pinned rather than
-	// only searched for the symbol. A caller looking for storedCount and handed
-	// StoredCount reads nothing at all, and finds out only when it goes to add the
-	// counts up — a page-breaking error about a field, one layer away from the field.
+	// The wire field names are the contract, so the whole body is pinned.
 	assert.Equal(t, http.StatusOK, response.Code)
 	assert.JSONEq(t, `{"symbolReports":[{"symbol":"BTCUSDT","market":"crypto","wasAsked":true,"storedCount":0,"skippedCount":0,"skippedKCandles":[],"skippedKCandlesTruncated":false,"fetchFailureReason":""}]}`, response.Body.String())
 }
 
 func TestCatchingUpAnswersWithASkippedListEvenWhenTheSourceWillNotAnswer(t *testing.T) {
-	// The path a reader inspects the skipped list on is this one, not the happy one.
-	// Answered with null here, a caller counting the list would break on exactly the
-	// round it was asking about — and nowhere else, so nobody would find it.
+	// The skipped list must be [] rather than null on this path, where callers actually count it.
 	underTest := newBackfillRouterUnderTest(t)
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.TradingSymbol{
@@ -109,9 +103,7 @@ func TestCatchingUpAnswersWithASkippedListEvenWhenTheSourceWillNotAnswer(t *test
 }
 
 func TestCatchingUpASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
-	// "We have never heard of this" is the caller's to fix. Answering it the same way
-	// as a source that would not answer sends them off to wait for something that is
-	// never going to happen.
+	// An unknown symbol is the caller's to fix, so it must not look like an unavailable source.
 	underTest := newBackfillRouterUnderTest(t)
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "9999").
 		Return(entities.TradingSymbol{}, false, nil)
@@ -130,8 +122,7 @@ func TestCatchingUpWithNoSymbolNamedIsRefusedAsTheCallersMistake(t *testing.T) {
 }
 
 func TestCatchingUpIsAnsweredAsThisSystemsFaultWhenStorageWillNotAnswer(t *testing.T) {
-	// Nothing is wrong with the request, so it must not be answered as though there
-	// were: this one is worth making again, and the one above is not.
+	// The request is valid and worth retrying, so it must not be answered as a client error.
 	underTest := newBackfillRouterUnderTest(t)
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
 		Return(entities.TradingSymbol{}, false, errors.New("storage unreachable"))

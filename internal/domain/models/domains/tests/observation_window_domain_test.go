@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// windowNow is the moment every window below is settled against, so that "up to
-// when" is decided by the arguments rather than by whenever the suite runs.
+// windowNow pins "now" so windows don't depend on when the suite runs.
 var windowNow = time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
 
 func TestObservationWindowSettlesWhereTheStretchEnds(t *testing.T) {

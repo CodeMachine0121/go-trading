@@ -7,8 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// TelegramDeliveryApplication orchestrates the use cases about where this system
-// speaks to somebody.
 type TelegramDeliveryApplication struct {
 	telegramDeliveryService *service.TelegramDeliveryService
 }

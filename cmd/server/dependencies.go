@@ -26,12 +26,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// registerRoutes is the composition root: it wires every concrete type and mounts
-// the routes. It hands back the two things a background job and a route both reach
-// for, so that there is exactly one of each: the live follows, which outlive the
-// request that started them, and the ingestion, which remembers which markets it has
-// decided are shut today — a memory that would be two different memories if the job
-// and the routes each built their own.
+// registerRoutes is the composition root; it returns the instances background jobs must share with
+// the routes, such as the ingestion that remembers which markets are closed today.
 func registerRoutes(
 	engine *gin.Engine, database *gorm.DB, applicationConfig config.ApplicationConfig,
 ) (
@@ -48,12 +44,7 @@ func registerRoutes(
 		context.JSON(http.StatusOK, gin.H{"status": "Healthy"})
 	})
 
-	// Recognising a person is built first because everything that belongs to
-	// somebody is built behind it. It is wired from two capabilities that are pure
-	// cryptography: turning a password into something storable, and turning an
-	// identity into something signed. Both are behind interfaces, so replacing
-	// either — bcrypt for something newer, one shared key for a key pair — is a new
-	// implementation and one changed line here.
+	// Built first because every owned resource sits behind sign-in.
 	userApplication := application.NewUserApplication(
 		service.NewUserService(
 			persistence.NewUserRepository(database),
@@ -78,24 +69,13 @@ func registerRoutes(
 		),
 	)
 
-	// The door. Everything mounted through it carries an identified user; everything
-	// mounted beside it is open to anybody who can reach this address.
-	//
-	// What is open is deliberate rather than overlooked. Creating the first user and
-	// signing in cannot require being signed in. The market — candles, symbols, the
-	// watchlist — is nobody's property: putting a door on it would only make a chart
-	// blank for a visitor, and there is nothing behind it to protect. What is closed
-	// is everything that belongs to a person: their strategy scripts, the marketplace,
-	// running one, and the assistant that acts as them.
+	// Market data is deliberately public; only what belongs to a person (scripts, strategies, bots,
+	// the assistant) is mounted behind sign-in.
 	requiresSignIn := middlewares.NewAuthenticationMiddleware(userApplication).Handle
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
 
-	// Built once and shared, because a strategy bot quoting a reference price is
-	// asking the same question of the market as the chart is. Two instances would be
-	// two read ceilings, and the one a bot used would be the one nobody tuned.
-	// 每個來源一個節奏，所有打到那個來源的 proxy 共用——額度是照來源算的，
-	// 不是照問什麼問題算的。
+	// 每個來源一個節奏，所有打到那個來源的 proxy 共用，因為額度是照來源算的。
 	venuePacers := newVenuePacers(applicationConfig)
 
 	kCandleService := service.NewKCandleService(
@@ -117,9 +97,7 @@ func registerRoutes(
 	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
 
-	// 抓取在這裡組起來而不是在背景工作那邊：加入觀察清單要立刻補齊那一檔，手動補齊也是
-	// 一條路由，兩者都不該等背景工作被打開才存在——而它們必須跟背景工作共用同一份，
-	// 否則「今天休市」會各記各的。
+	// 與背景工作共用同一份實例，否則「今天休市」會各記各的。
 	kCandleIngestionService := service.NewKCandleIngestionService(
 		kCandleRepository,
 		persistence.NewKCandleHistorySyncRunRepository(database),
@@ -135,13 +113,7 @@ func registerRoutes(
 	engine.POST("/k-candles/backfill",
 		controller.NewKCandleBackfillController(kCandleIngestionApplication).CatchUpSymbol)
 
-	// 補缺口與同步一段歷史是兩條路，因為它們對「要回溯多久」的答案相反：
-	// 前者由系統決定（那句話寫在它的請求物件上當理由），後者由要求的人說。
-	// 在前者身上加一個選填欄位，會讓那句話變成半真的。
-	//
-	// 它先回 202 與一筆輪次，而不是等抓完才回：四年的一分鐘 K 線是幾千次照節奏發出的
-	// 請求，沒有哪一條連線值得開那麼久。抓取由活得比這個請求久的東西推動，
-	// 所以下面這條查詢路由才是它真正的答案。
+	// 歷史同步先回 202 與一筆輪次，因為長區間抓取要數千次請求，進度由下面的查詢路由取得。
 	kCandleHistorySyncController := controller.NewKCandleHistorySyncController(
 		kCandleIngestionApplication,
 		applicationConfig.Ingestion.HistorySyncMaxLookbackDays,
@@ -149,7 +121,6 @@ func registerRoutes(
 	engine.POST("/k-candles/history", kCandleHistorySyncController.StartSymbolHistorySync)
 	engine.GET("/k-candles/history/:id", kCandleHistorySyncController.GetSymbolHistorySync)
 
-	// 交易標的是另一個資源（系統認得哪幾個市場），不是某一根 K 線，所以有自己的 controller 與路徑。
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		service.NewTradingSymbolService(
 			persistence.NewTradingSymbolRepository(database),
@@ -165,25 +136,13 @@ func registerRoutes(
 
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
 
-	// 觀察清單是自己的資源（系統打算持續追蹤哪幾個市場），與「系統認得哪幾個」是兩件事，
-	// 所以有自己的路徑。
 	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
 	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
 
-	// 永續合約自成一條路徑,從來源到儲存都不與現貨共用。
-	//
-	// 兩件事逼出這個決定。一是同一個代號在兩個場所是兩種不同的商品,而 K 線以
-	// 「交易標的 ＋ 起始時間」唯一——共用一張表,每分鐘那一輪會安靜地互相覆蓋。
-	// 二是合約 K 線帶著標記價格,而現貨**沒有這個概念**:那不是某個市場不提供的
-	// 一項數字,是一件在現貨那邊不存在的事。
-	//
-	// 它與抓取共用同一個 service 實例,理由與現貨那邊一字不差:加入合約追蹤名單要
-	// 立刻補齊那一檔,手動補齊也是一條路由,兩者都不該等背景工作被打開才存在。
+	// 永續合約從來源到儲存都不與現貨共用：同一代號在兩個場所是不同商品，共用一張表會互相覆蓋。
 	contractKCandleRepository := persistence.NewKCandleContractRepository(database)
 	contractTradingSymbolRepository := persistence.NewContractTradingSymbolRepository(database)
-	// Built before the candle ingestion because a contract history sync fills in the
-	// position statistics of the same stretch once the candles are done, and it is
-	// this service that knows their rules and reads the venue's archive of them.
+	// Built before candle ingestion, which fills in position statistics after a history sync.
 	contractPositionStatisticService := service.NewContractPositionStatisticService(
 		persistence.NewContractPositionStatisticRepository(database),
 		contractTradingSymbolRepository,
@@ -221,10 +180,6 @@ func registerRoutes(
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)
 
-	// Funding rate settlements and position statistics are caught up by the same
-	// service instances the rounds use, for the reason the candles are: joining the
-	// watchlist catches a contract up at once, and that must not wait for background
-	// work to be switched on.
 	contractFundingRateService := service.NewContractFundingRateService(
 		persistence.NewContractFundingRateSettlementRepository(database),
 		contractTradingSymbolRepository,
@@ -236,8 +191,7 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 		applicationConfig.KCandleQueryMaxResults,
 	)
-	// The ladder is an account's to see. Without a key the proxy asks nothing and says
-	// so, and every use case that meets that simply goes without.
+	// The tier ladder needs account credentials; without them the proxy reports so and callers go without.
 	contractMaintenanceMarginTierService := service.NewContractMaintenanceMarginTierService(
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		contractTradingSymbolRepository,
@@ -252,8 +206,7 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 	)
 
-	// Shared with the contract bots below, which quote a contract's newest candle as
-	// the reference price of every round they send.
+	// Shared with the contract bots, which quote the newest candle as the reference price.
 	kCandleContractService := service.NewKCandleContractService(
 		contractKCandleRepository,
 		clock.NewSystemClockProxy(),
@@ -275,8 +228,7 @@ func registerRoutes(
 		kCandleContractIngestionApplication,
 		applicationConfig.ContractIngestion.HistorySyncMaxLookbackDays,
 	)
-	// 這兩條掛在 :symbol/:openTime 之前,因為 history 與一個代號在路由樹上是同一層,
-	// 先註冊具體的那一條才不會被萬用的那一條吃掉。
+	// 必須在 :symbol/:openTime 之前註冊，否則 history 會被萬用路由吃掉。
 	engine.POST("/contract-k-candles/history",
 		kCandleContractHistorySyncController.StartSymbolHistorySync)
 	engine.GET("/contract-k-candles/history/:id",
@@ -330,15 +282,8 @@ func registerRoutes(
 	engine.DELETE("/contract-watchlist/:symbol",
 		contractTradingSymbolController.RemoveFromWatchlist)
 
-	// A saved strategy script is its own resource: it holds an algorithm, who it belongs
-	// to, and nothing else — how coarse the K candles are, how many of them and up
-	// to when describe one run and travel with the calculation instead. It reads no
-	// K candles, so it is given no K candle repository.
-	//
-	// It is built before the two use cases that run a strategy script, because both of them
-	// resolve an identifier through it first. That resolution is the only way a
-	// script leaves storage, and it is what lets one person run another's published
-	// algorithm without ever being handed it.
+	// Every script run resolves its identifier here first, which lets a person run a published
+	// algorithm without ever being handed its source.
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
 
@@ -353,11 +298,6 @@ func registerRoutes(
 	engine.PUT("/strategy-scripts/:id", requiresSignIn, strategyScriptController.UpdateStrategyScript)
 	engine.DELETE("/strategy-scripts/:id", requiresSignIn, strategyScriptController.DeleteStrategyScript)
 
-	// The marketplace is the same rows read a different way, and a separate resource
-	// because it answers a different question: not "what is mine" but "what is out
-	// there". Publishing hangs off the strategy script's own path because it is something
-	// done to a strategy script; browsing and adopting hang off the marketplace because
-	// they are things done to the shelf.
 	strategyScriptMarketplaceController := controller.NewStrategyScriptMarketplaceController(
 		application.NewStrategyScriptMarketplaceApplication(
 			service.NewStrategyScriptMarketplaceService(
@@ -375,9 +315,8 @@ func registerRoutes(
 	engine.POST("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AdoptStrategyScript)
 	engine.DELETE("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AbandonStrategyScript)
 
-	// Every script runs in a compartment of its own: this same binary started again
-	// as a worker, with its memory capped before it reads a line of the script. A
-	// script that eats past the cap takes down its compartment, never this process.
+	// Each script runs in this binary re-launched as a memory-capped worker, so a runaway script
+	// kills only its compartment.
 	serverExecutable, executableError := os.Executable()
 	if executableError != nil {
 		log.Fatalf("failed to locate the server binary for script compartments: %v", executableError)
@@ -388,10 +327,7 @@ func registerRoutes(
 		MemoryLimitBytes: applicationConfig.IndicatorScriptMemoryLimitBytes,
 	}
 
-	// Built once and shared, because a strategy bot asks exactly the same question
-	// of it as somebody sitting at the screen does. Two instances would be two
-	// script runners with two timeouts, and the one a bot used would be the one
-	// nobody ever tuned.
+	// Shared with strategy bots so both use the same script runner and timeouts.
 	indicatorCalculationService := service.NewIndicatorCalculationService(
 		kCandleRepository,
 		persistence.NewTradingSymbolRepository(database),
@@ -401,9 +337,6 @@ func registerRoutes(
 		applicationConfig.KCandleQueryMaxResults,
 	)
 
-	// The contract counterpart reads contract candles and lines funding and
-	// positioning up beside them; it keeps the same read ceiling and the same script
-	// allowance as the spot one, so the two answer the same question the same way.
 	contractIndicatorCalculationService := service.NewContractIndicatorCalculationService(
 		contractKCandleRepository,
 		persistence.NewContractFundingRateSettlementRepository(database),
@@ -425,16 +358,7 @@ func registerRoutes(
 	engine.POST("/contract-indicator-calculations", requiresSignIn,
 		indicatorCalculationController.CalculateContractIndicator)
 
-	// Replaying a strategy script is its own use case rather than a mode of calculating an
-	// indicator: it asks a different question of the same script, and it stores
-	// nothing — which is why it is given no repository beyond the one it reads from.
-	//
-	// It has a ceiling of its own and a whole-run time allowance: a replay walks far
-	// more buckets than any one query hands back, and a long one must say it ran out
-	// of time before whoever is waiting for it gives up.
-	// Built once and shared by both kinds of replay. Two of these would be two read
-	// ceilings and two clocks, and the day they drifted apart the same stretch of
-	// market would replay differently depending on which subject was named.
+	// A backtest stores nothing and has its own candle ceiling and whole-run time allowance.
 	backtestService := service.NewBacktestService(
 		kCandleRepository,
 		script.NewYaegiIndicatorScriptProxy(indicatorScriptIsolation),
@@ -443,10 +367,6 @@ func registerRoutes(
 		applicationConfig.BacktestTimeAllowance,
 	)
 
-	// The contract replay walks a contract account over contract bars: it reads what
-	// the contract indicator calculation reads, plus the venue's trading rules for the
-	// symbol, and keeps the same read ceiling and script allowance so a contract bar
-	// is the same bar either way.
 	contractBacktestService := service.NewContractBacktestService(
 		contractKCandleRepository,
 		persistence.NewContractFundingRateSettlementRepository(database),
@@ -464,36 +384,18 @@ func registerRoutes(
 	engine.POST("/backtests", requiresSignIn, backtestController.RunBacktest)
 	engine.POST("/contract-backtests", requiresSignIn, backtestController.RunContractBacktest)
 
-	// Creating a user and signing in are open, and have to be: a system holding no
-	// users has nobody who could be allowed to create the first one. "Who am I" is
-	// the one route here that reads the proof through the same door as everything
-	// else.
 	userController := controller.NewUserController(userApplication)
 
 	engine.POST("/users", userController.RegisterUser)
 	engine.POST("/sessions", userController.SignIn)
-	// Renewing and ending are POSTs rather than one body-carrying DELETE: which
-	// session is meant is named by the renewal proof, and a proof can only travel in
-	// a body.
+	// POSTs rather than DELETE because the refresh token must travel in a body.
 	engine.POST("/sessions/renewal", userController.RenewSession)
 	engine.POST("/sessions/revocation", userController.RevokeSession)
-	// "Who am I" reads the proof itself rather than sitting behind the door, and
-	// that is not an oversight: the door answers a rejected proof with the same
-	// sentence this route would, so putting one in front of the other would only
-	// mean reading the header twice to reach the same answer.
+	// Not behind requiresSignIn: it reads the token itself and would give the same rejection anyway.
 	engine.GET("/users/me", userController.GetCurrentUser)
-	// Changing a password does sit behind the door, unlike "who am I" above. The
-	// difference is what the two do with a rejected proof: reading who you are is
-	// the same refusal either way, whereas this one has a second refusal of its own
-	// ("that is not your current password") that must not be confused with the
-	// first — and the door is what keeps them apart.
+	// Behind requiresSignIn so a bad token is not confused with a wrong current password.
 	engine.POST("/users/me/password", requiresSignIn, userController.ChangePassword)
 
-	// Where this system speaks to somebody. It is the first thing here that talks
-	// without being asked, so it is wired from two capabilities named for what they
-	// do rather than for who does them: locking a secret away, and delivering a
-	// message. Telegram is today's only carrier; a second one is a second
-	// implementation and one changed line here.
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		persistence.NewTelegramDeliveryRepository(database),
 		security.NewAesSecretSealProxy(applicationConfig.Secrets.SealKey),
@@ -509,8 +411,7 @@ func registerRoutes(
 
 	engine.GET("/users/me/telegram-delivery",
 		requiresSignIn, telegramDeliveryController.GetDeliverySetting)
-	// PUT rather than POST: there is at most one of these per person, and sending
-	// it twice leaves the same single setting behind.
+	// PUT because each person has at most one setting, so it is idempotent.
 	engine.PUT("/users/me/telegram-delivery",
 		requiresSignIn, telegramDeliveryController.SaveDeliverySetting)
 	engine.DELETE("/users/me/telegram-delivery",
@@ -518,9 +419,7 @@ func registerRoutes(
 	engine.POST("/users/me/telegram-delivery/test-message",
 		requiresSignIn, telegramDeliveryController.SendTestMessage)
 
-	// Following a market live is an addition, not a replacement: the scheduled
-	// round keeps running, and it is what fills in every candle that closed while
-	// nobody was looking. This path only shortens the wait for whoever is looking.
+	// Live follow only shortens the wait for viewers; the scheduled round still stores every closed candle.
 	kCandleFollowService := service.NewKCandleFollowService(
 		liveMarketDataProxyFor(applicationConfig, venuePacers),
 		kCandleRepository,
@@ -534,10 +433,8 @@ func registerRoutes(
 
 	kCandleFollowApplication := application.NewKCandleFollowApplication(kCandleFollowService)
 
-	// The contract line follows live on its own: its own venue stream, its own viewers,
-	// its own route. The stream speaks the same candle messages as the spot one, so the
-	// same proxy reads it from a different address. Nothing it follows is stored — a
-	// contract candle is four readings, and the round that reads all four stores it.
+	// Reuses the spot stream proxy at the contract address; nothing is stored because a contract candle
+	// needs four readings that only the ingestion round collects.
 	kCandleContractFollowApplication := application.NewKCandleContractFollowApplication(
 		service.NewKCandleContractFollowService(
 			marketdata.NewBinanceLiveMarketDataProxy(applicationConfig.LiveFollow.ContractMarketDataStreamUrl),
@@ -553,15 +450,8 @@ func registerRoutes(
 	engine.GET("/k-candles/live", kCandleFollowController.WatchKCandles)
 	engine.GET("/contract-k-candles/live", kCandleFollowController.WatchKCandleContracts)
 
-	// Standing bots: the first thing here that both decides something and says it
-	// without anybody asking. They are wired last because they lean on almost
-	// everything above — the strategy script gates, the script runner, the candles and the
-	// way out to Telegram — and add only one store of their own.
-	//
-	// The run side and the managing side share one service but are two
-	// applications, because they answer to different callers. One is a person
-	// pressing a button and is refused when they may not; the other is a clock, and
-	// has no person whose permission could be asked.
+	// One service, two applications: managing bots is permission-checked per person, while runs are
+	// driven by the scheduler with no person to ask.
 	strategyBotService := service.NewStrategyBotService(
 		persistence.NewStrategyBotRepository(database),
 		persistence.NewStrategyBotRunRecordRepository(database),
@@ -571,8 +461,6 @@ func registerRoutes(
 		clock.NewSystemClockProxy(),
 	)
 
-	// The rules are their own thing, built before the bots that follow them and
-	// shared by every one of them. Nothing here knows how often anything wakes up.
 	tradingStrategyService := service.NewTradingStrategyService(
 		persistence.NewTradingStrategyRepository(database),
 	)
@@ -597,7 +485,6 @@ func registerRoutes(
 		contractBacktestService,
 	)
 
-	// 重演是對某一份交易策略做的事，所以掛在它底下——與機器人的輪次同一個形狀。
 	tradingStrategyBacktestController := controller.NewTradingStrategyBacktestController(
 		tradingStrategyBacktestApplication)
 	engine.POST("/trading-strategies/:id/backtests", requiresSignIn,
@@ -605,10 +492,6 @@ func registerRoutes(
 	engine.POST("/trading-strategies/:id/contract-backtests", requiresSignIn,
 		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
 
-	// The assistant is wired after the trading strategies rather than before,
-	// because it is now handed them: it assembles a set of rules out of the scripts
-	// it writes and replays it to see what it would have done. Everything it reaches
-	// for has to exist by the time this list is built.
 	assistantConversationApplication := application.NewAssistantConversationApplication(
 		service.NewAssistantConversationService(
 			persistence.NewConversationRepository(database),
@@ -639,9 +522,7 @@ func registerRoutes(
 	assistantConversationController := controller.NewAssistantConversationController(
 		assistantConversationApplication)
 
-	// The assistant acts as whoever asked it, so it is behind the door like anything
-	// else that touches a strategy script. Without that, a strategy script it saved would belong
-	// to nobody, and "every strategy script has an owner" would have its one exception.
+	// Behind sign-in because the assistant acts as the caller, so every script it saves has an owner.
 	engine.POST("/chat", requiresSignIn, assistantConversationController.Ask)
 	engine.GET("/chat/conversations", requiresSignIn, assistantConversationController.ListConversations)
 	engine.GET("/chat/conversations/:id", requiresSignIn, assistantConversationController.GetConversation)
@@ -675,19 +556,11 @@ func registerRoutes(
 	engine.GET("/strategy-bots/:id", requiresSignIn, strategyBotController.GetStrategyBot)
 	engine.PUT("/strategy-bots/:id", requiresSignIn, strategyBotController.UpdateStrategyBot)
 	engine.DELETE("/strategy-bots/:id", requiresSignIn, strategyBotController.DeleteStrategyBot)
-	// Being on is a subresource that either exists or does not, rather than two
-	// verbs. Pressing either button twice is then harmless because of the shape,
-	// not because something remembered to allow it.
-	//
-	// It is /power and not /run because a round is /runs, and two paths that differ
-	// by one letter while meaning completely different things is a mistake waiting
-	// to be made — by a reader, by a caller, and by whoever edits this next.
+	// Power is an idempotent subresource; named /power rather than /run to avoid confusion with /runs.
 	engine.POST("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StartStrategyBot)
 	engine.DELETE("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StopStrategyBot)
-	// 一台機器人跑過哪幾輪，是它自己的一份東西，所以掛在它底下而不是另開一條路徑。
 	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
-	// 立刻跑一輪。它與排程跑的那一輪走完全同一條路——不然「按下去看到的」
-	// 與「它自己跑出來的」就是兩件事，而那正是這顆按鈕要用來排除的東西。
+	// 立刻跑一輪，與排程那一輪走完全同一條路。
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
 
 	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
@@ -702,24 +575,17 @@ func registerRoutes(
 		}
 }
 
-// liveFollowApplications are the two live follows — spot and contract — which the
-// entry point has to stop together on the way down, and the spot one's roster job
-// needs besides.
 type liveFollowApplications struct {
 	spot     *application.KCandleFollowApplication
 	contract *application.KCandleContractFollowApplication
 }
 
-// Stop ends every live follow on both lines.
 func (liveFollowApplications liveFollowApplications) Stop() {
 	liveFollowApplications.spot.Stop()
 	liveFollowApplications.contract.Stop()
 }
 
-// contractSeriesApplications are the contract use cases that have background rounds
-// of their own beside the candles. They travel together because they are handed to
-// the jobs together, and a list of three more positional returns would be three more
-// places to put one in the wrong slot.
+// contractSeriesApplications groups the contract use cases that run their own background rounds.
 type contractSeriesApplications struct {
 	fundingRate       *application.ContractFundingRateApplication
 	positionStatistic *application.ContractPositionStatisticApplication
@@ -727,16 +593,8 @@ type contractSeriesApplications struct {
 	maintenanceMargin *application.ContractMaintenanceMarginTierApplication
 }
 
-// assistantQueriesFor is everything the assistant is allowed to do.
-//
-// It is assembled here and only here, which is what makes "it cannot delete a
-// strategy script" — or a trading strategy, or touch a bot — a fact about the system
-// rather than a check somebody could remove: there is no deleting capability to reach
-// for, and no K candle writing one either. Adding a capability is adding one line to
-// this list.
-//
-// Each capability calls the very same use case a person calls, so no rule is relaxed
-// for the assistant and none had to be written twice.
+// assistantQueriesFor is the complete list of what the assistant may do; deleting and bot control are
+// absent by design, and each query calls the same use case a person does.
 func assistantQueriesFor(
 	tradingSymbolApplication *application.TradingSymbolApplication,
 	kCandleApplication *application.KCandleApplication,
@@ -763,9 +621,6 @@ func assistantQueriesFor(
 	}
 }
 
-// backgroundJobsFor assembles the work the system does on its own. Switching
-// background jobs off leaves nothing to start; an empty watchlist means every round
-// has nothing to fetch, which is a state rather than a failure.
 func backgroundJobsFor(
 	applicationConfig config.ApplicationConfig,
 	kCandleFollowApplication *application.KCandleFollowApplication,
@@ -781,22 +636,15 @@ func backgroundJobsFor(
 	kCandleIngestionJob := job.NewKCandleIngestionJob(
 		kCandleIngestionApplication, job.KCandleIngestionInterval)
 
-	// The contract venue gets a round of its own rather than more work inside the spot
-	// one. The two spend different allowances, and one refusing to answer must not
-	// hold the other up — which is exactly what sharing a round would do.
+	// Separate from the spot round so one unresponsive venue cannot hold up the other.
 	contractKCandleIngestionJob := job.NewContractKCandleIngestionJob(
 		kCandleContractIngestionApplication, job.KCandleIngestionInterval)
 
-	// Handing out a market's live places is its own job rather than another step of
-	// a round: a round held up by a source that will not answer would otherwise hold
-	// up a market that has just opened.
+	// Its own job so a stalled ingestion round cannot delay a market that has just opened.
 	liveFollowRosterJob := job.NewLiveFollowRosterJob(
 		kCandleFollowApplication, job.LiveFollowRosterInterval)
 
-	// One scan for every standing bot, rather than one goroutine per bot. What a bot
-	// is doing lives in the store, so this job asks rather than remembers — and a
-	// restart costs one scan interval instead of switching every bot off without
-	// telling anybody.
+	// One scan over stored bot state rather than a goroutine per bot, so a restart loses at most one interval.
 	strategyBotScanJob := job.NewStrategyBotScanJob(
 		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
 
@@ -804,10 +652,7 @@ func backgroundJobsFor(
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 	}
 
-	// Each contract series keeps its own time, so each is a job of its own rather
-	// than more work inside the candle round: a venue slow to answer about funding
-	// rates must not hold up the candles, and the other way round. Any of them can be
-	// switched off alone.
+	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.
 	contractIngestion := applicationConfig.ContractIngestion
 	if contractIngestion.FundingRateIngestionInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractFundingRateIngestionJob(
@@ -822,8 +667,7 @@ func backgroundJobsFor(
 			contractSeries.tradingSymbol, contractIngestion.TradingSpecificationRefreshInterval))
 	}
 
-	// Only with an account: without one there is nothing this round could ask, and a
-	// line every day saying so is noise, not information.
+	// Only with account credentials; without them the round could ask nothing.
 	if contractIngestion.MaintenanceMarginTierRefreshInterval > 0 && contractIngestion.HasAccountCredentials() {
 		backgroundJobs = append(backgroundJobs, job.NewContractMaintenanceMarginTierRefreshJob(
 			contractSeries.maintenanceMargin, contractIngestion.MaintenanceMarginTierRefreshInterval))
@@ -832,38 +676,17 @@ func backgroundJobsFor(
 	return backgroundJobs
 }
 
-// marketDataProxyFor is where every market's candle source is named, and the only
-// place they are all named together.
-//
-// Recognising a third market is one more entry in each of these three, plus its
-// rules in the settings. Nothing else in the system changes: everything above these
-// asks for a window of candles and never learns which venue answered.
-// venuePacers is one pacer per venue, shared by every proxy that spends that venue's
-// allowance.
-//
-// **The allowance is counted per venue, not per kind of question.** Asking whether a
-// symbol is listed and asking for a day of candles both spend it, so a pacer each
-// would let the two of them together go at twice the rate either was allowed — and
-// the one being paced is the one doing thousands of requests in a row.
+// venuePacers holds one pacer per venue allowance, shared by every proxy that spends it, because the
+// venue counts requests per host rather than per kind of question.
 type venuePacers struct {
 	crypto marketdata.RequestPacer
-	// cryptoContract is the perpetual contract venue's own. It is **not** the spot
-	// one: the two count their allowances separately, so sharing a pacer would spend
-	// half of each. Every proxy that reaches the contract venue takes this one, so a
-	// second contract series added later joins the same budget rather than opening a
-	// second one beside it.
+	// cryptoContract is separate from spot because the two venues count allowances apart.
 	cryptoContract marketdata.RequestPacer
-	// cryptoContractStatistics is the contract venue's allowance for its position
-	// statistics, which it counts apart from the one above. It is the one exception
-	// to "one venue, one budget", and it is the venue's exception, not this system's.
+	// cryptoContractStatistics is the venue's separate allowance for position statistics.
 	cryptoContractStatistics marketdata.RequestPacer
-	// cryptoContractArchive is the venue's history archive of position statistics: a
-	// separate file host, which counts nothing against the two allowances above.
+	// cryptoContractArchive is a separate file host with its own allowance.
 	cryptoContractArchive marketdata.RequestPacer
-	// taiwanStock is the market data plan's allowance, which the live quotes no longer
-	// spend: they come from the exchange itself, and its pace is the poll interval
-	// rather than an allowance shared with anybody.
-	taiwanStock marketdata.RequestPacer
+	taiwanStock           marketdata.RequestPacer
 }
 
 func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
@@ -895,9 +718,7 @@ func marketDataProxyFor(
 				applicationConfig.TaiwanStock.IntradayCandlesUrl,
 				applicationConfig.TaiwanStock.HistoricalCandlesUrl,
 				applicationConfig.TaiwanStock.ApiKey,
-				// 這個來源是一天打一次，所以它要問得到「哪幾天這個市場根本不開」——
-				// 把窗口收進交易時段只動得到頭尾，中間那些休市日還留在裡面。
-				// 給的是市場本身而不是時段，那個問題才不會在這裡被回答第二次。
+				// 給市場本身而不是時段，讓它能跳過窗口中間的休市日。
 				domains.NewMarketCatalogDomain(applicationConfig.MarketRules).
 					MarketOf(string(vo.MarketTaiwanStock)),
 				clock.NewSystemClockProxy(),
@@ -907,7 +728,6 @@ func marketDataProxyFor(
 		})
 }
 
-// liveMarketDataProxyFor is where every market's live feed is named.
 func liveMarketDataProxyFor(
 	applicationConfig config.ApplicationConfig, venuePacers venuePacers,
 ) domaininterface.ILiveMarketDataProxy {
@@ -915,9 +735,7 @@ func liveMarketDataProxyFor(
 		map[vo.MarketVo]domaininterface.ILiveMarketDataProxy{
 			vo.MarketCrypto: marketdata.NewBinanceLiveMarketDataProxy(
 				applicationConfig.LiveFollow.MarketDataStreamUrl),
-			// Live comes from the same venue as the stored history, so a live update
-			// and the candle it lands beside cannot disagree about a figure. It also
-			// shares that venue's one allowance, which is why it takes the same pacer.
+			// Same venue and pacer as stored history, so live and stored figures agree and share one allowance.
 			vo.MarketTaiwanStock: marketdata.NewFugleIntradayLiveMarketDataProxy(
 				applicationConfig.TaiwanStock.IntradayCandlesUrl,
 				applicationConfig.TaiwanStock.ApiKey,
@@ -929,7 +747,6 @@ func liveMarketDataProxyFor(
 		})
 }
 
-// symbolLookupProxyFor is where every market is asked whether it has heard of a code.
 func symbolLookupProxyFor(
 	applicationConfig config.ApplicationConfig, venuePacers venuePacers,
 ) domaininterface.ISymbolLookupProxy {

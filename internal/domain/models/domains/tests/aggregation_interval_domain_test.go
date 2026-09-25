@@ -65,9 +65,7 @@ func TestNewAggregationIntervalDomainRefusesAnythingElse(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, validationError := domains.NewAggregationIntervalDomain(testCase.declared)
 
-			// The reason is all an interval owes anyone. Which sentinel it counts as
-			// is asserted where the wrapping happens — see the series query and the
-			// strategy script, which refuse the same bad spelling under their own sentinels.
+			// The wrapping sentinel is asserted by the callers that wrap this error.
 			require.Error(t, validationError)
 			assert.Contains(t, validationError.Error(), "彙總刻度只能是 1m、5m、15m、1h、4h、1d 其中之一")
 		})
@@ -127,13 +125,7 @@ func TestAggregationIntervalDomainBucketStartCutsFromMidnight(t *testing.T) {
 	}
 }
 
-// everyDeclarableInterval reads the whole declarable set out of the refusal an
-// unrecognised spelling comes back with — the only place that set is exposed outside
-// its own package.
-//
-// Reading prose in a test is worth it here: this is the enumeration the "every length
-// divides a day" invariant has to be checked against, and a hard-coded copy would go
-// quietly out of step with the set the moment anyone added a row.
+// everyDeclarableInterval reads the declarable set from the refusal message, so the invariant check can't drift from the real set.
 func everyDeclarableInterval(t *testing.T) []string {
 	t.Helper()
 
@@ -149,20 +141,13 @@ func everyDeclarableInterval(t *testing.T) []string {
 }
 
 func TestTheCoarsestIntervalIsADayAndItsEdgesServeEveryOtherInterval(t *testing.T) {
-	// Anything aligning to a bucket edge asks for this one rather than naming a length
-	// of its own. That is only sound because its edges are a subset of every other
-	// interval's — which holds because each declarable length divides a day.
+	// One day-aligned edge serves every interval only because each declarable length divides a day.
 	t.Run("it is a day", func(t *testing.T) {
 		assert.Equal(t, vo.AggregationIntervalOneDay,
 			domains.NewCoarsestAggregationIntervalDomain().Value())
 	})
 
 	t.Run("its edge is also an edge for each of the six on offer", func(t *testing.T) {
-		// This is the whole reason one alignment covers all of them.
-		//
-		// The spellings are read out of the refusal, which is the only place the set
-		// is exposed. Hard-coding them here would mean a seventh length was simply
-		// absent from the list rather than caught by it — the opposite of a guard.
 		coarsestEdge := domains.NewCoarsestAggregationIntervalDomain().BucketStart(
 			time.Date(2026, 9, 7, 14, 3, 0, 0, time.UTC))
 		require.Equal(t, time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC), coarsestEdge)
@@ -180,10 +165,7 @@ func TestTheCoarsestIntervalIsADayAndItsEdgesServeEveryOtherInterval(t *testing.
 	})
 
 	t.Run("the oldest bucket of a coarse interval starts where a backfill did", func(t *testing.T) {
-		// The acceptance criterion that says aligning once serves a coarser reading
-		// too. The edge has to come from a real backfill: taken from BucketStart it
-		// would only restate that truncation is idempotent, which the loop above
-		// already says, and it would pass with the alignment removed entirely.
+		// The edge must come from a real backfill; taken from BucketStart it would pass even with the alignment removed.
 		ingestionDomain, ingestionError := domains.NewKCandleIngestionDomain(
 			time.Date(2026, 9, 8, 14, 3, 0, 0, time.UTC), 5, 24*time.Hour)
 		require.NoError(t, ingestionError)
@@ -283,11 +265,7 @@ func TestAggregationIntervalDomainSourceCandleCountBoundsWhatABucketCanHold(t *t
 	}
 }
 
-// 一段時間裡有幾格——**數格子，不是把交易時間除以刻度長度**。
-//
-// 一個格子只要裝得到任何一點交易時間就算一整格，所以時間除得出零點幾格的地方，
-// 格子數是一。台股一個交易日在四小時刻度是兩格（它跨過了世界標準時間 04:00 那條線），
-// 不是一格——那正是這個算法取代的那個除法少算掉的東西。
+// 數格子而非以交易時間除以刻度長度：只要裝得到任何交易時間就算一格，例如台股一個交易日在四小時刻度是兩格（跨過 UTC 04:00）。
 func TestTradingSlotCountCountsTheBucketsThatHoldTrading(t *testing.T) {
 	testCases := []struct {
 		name              string
@@ -417,8 +395,7 @@ func mustParseIntervalTime(t *testing.T, value string) time.Time {
 	return parsed
 }
 
-// 這一段裡有這麼多格、畫面有這麼多位置，哪一種刻度最細又擺得下。
-// **它問的是格子數而不是交易時間**，所以會收盤的市場在較粗的刻度上得到的答案更大。
+// 以格子數而非交易時間判斷，所以會收盤的市場在較粗刻度上得到較大的答案。
 func TestFittingAggregationIntervalIsTheFinestThatFits(t *testing.T) {
 	testCases := []struct {
 		name                   string

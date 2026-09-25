@@ -10,8 +10,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// ContractTradingSymbolApplication orchestrates the perpetual contract watchlist use
-// cases.
 type ContractTradingSymbolApplication struct {
 	contractTradingSymbolService     *service.ContractTradingSymbolService
 	contractKCandleIngestionService  *service.ContractKCandleIngestionService
@@ -36,7 +34,6 @@ func NewContractTradingSymbolApplication(
 	}
 }
 
-// ListContractTradingSymbols returns every perpetual contract the system knows about.
 func (contractTradingSymbolApplication *ContractTradingSymbolApplication) ListContractTradingSymbols(
 	executionContext context.Context,
 ) ([]dto.ContractTradingSymbolDto, error) {
@@ -44,24 +41,8 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) ListCo
 		ListContractTradingSymbols(executionContext)
 }
 
-// AddToWatchlist starts keeping one perpetual contract's data up to date, and catches
-// that contract up on the spot: its candles, its whole funding rate history, the last
-// thirty days of its position statistics, and — with an account configured — its full
-// maintenance margin ladder.
-//
-// Without the second half a contract added now would hold no candles until the next
-// start-up's backfill, because the scheduled round only ever collects what has closed
-// since it last ran. The position statistics are the ones that cannot wait at all:
-// the venue forgets them after thirty days.
-//
-// The three are caught up one after another rather than at once. Two of them spend
-// the same venue allowance, so running them side by side would only queue them
-// behind each other, and a person adding a contract waits for all three either way.
-//
-// **A failed catch-up does not fail the add.** The contract is on the watchlist — that
-// is what was asked for and it is true — and the ordinary rounds will reach it anyway;
-// refusing the add would undo something that already succeeded in order to report
-// something that will fix itself.
+// AddToWatchlist also catches the contract up at once, sequentially since the series share a venue allowance; position statistics can't wait because the venue forgets them after thirty days.
+// A failed catch-up does not fail the add, since the add itself succeeded and regular rounds will catch up.
 func (contractTradingSymbolApplication *ContractTradingSymbolApplication) AddToWatchlist(
 	executionContext context.Context, symbol string,
 ) error {
@@ -85,9 +66,7 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) AddToW
 	contractTradingSymbolApplication.noteCatchUpFailure(
 		symbol, "position statistics", positionStatisticReport, positionStatisticError)
 
-	// The venue answers about every contract's ladder at once, so the new one is
-	// caught up by refreshing them all — one question either way. Without an account
-	// there is nothing to ask and nothing worth saying.
+	// The venue returns every contract's ladder at once, so refresh them all; without an account there is nothing to ask.
 	marginReport, marginError := contractTradingSymbolApplication.maintenanceMarginTierService.
 		RefreshLadders(executionContext)
 	switch {
@@ -105,8 +84,6 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) AddToW
 	return nil
 }
 
-// RefreshTradingSpecifications brings every known contract's trading specification up
-// to date, and says how many it updated.
 func (contractTradingSymbolApplication *ContractTradingSymbolApplication) RefreshTradingSpecifications(
 	executionContext context.Context,
 ) (int, error) {
@@ -114,9 +91,7 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) Refres
 		RefreshTradingSpecifications(executionContext)
 }
 
-// RemoveFromWatchlist stops keeping one perpetual contract's data up to date, leaving
-// every candle, funding rate settlement and position statistic it already holds
-// exactly where it is.
+// RemoveFromWatchlist keeps all data already stored for the contract.
 func (contractTradingSymbolApplication *ContractTradingSymbolApplication) RemoveFromWatchlist(
 	executionContext context.Context, symbol string,
 ) error {
@@ -124,12 +99,7 @@ func (contractTradingSymbolApplication *ContractTradingSymbolApplication) Remove
 		executionContext, symbol)
 }
 
-// noteCatchUpFailure writes down a series that could not be caught up when a contract
-// joined the watchlist. There are two ways it can go wrong, and both have to be said
-// out loud: the catch-up refusing outright, and the catch-up running while the venue
-// or storage would not answer — which comes back as a report, not an error, because a
-// round never fails for one contract. Left unsaid, the second looks exactly like a
-// catch-up that found nothing.
+// noteCatchUpFailure logs both an outright error and a report of venue/storage failures, since a round reports per-contract failures instead of erroring.
 func (contractTradingSymbolApplication *ContractTradingSymbolApplication) noteCatchUpFailure(
 	symbol string, seriesName string, symbolReport dto.ContractSeriesSymbolReportDto, catchUpError error,
 ) {

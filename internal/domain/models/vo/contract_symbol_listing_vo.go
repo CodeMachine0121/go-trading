@@ -1,8 +1,6 @@
 package vo
 
-// ContractSymbolListingVo is what the contract venue said about one symbol when asked
-// whether it can be followed: whether it can, and — when it can — how trading it
-// looks.
+// ContractSymbolListingVo says whether a contract symbol can be followed and, if so, its trading specification.
 type ContractSymbolListingVo struct {
 	IsListed      bool
 	Specification ContractTradingSpecificationVo

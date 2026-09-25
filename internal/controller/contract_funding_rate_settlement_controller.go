@@ -11,8 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ContractFundingRateSettlementController answers questions about a perpetual
-// contract's funding rate settlements.
 type ContractFundingRateSettlementController struct {
 	contractFundingRateApplication *application.ContractFundingRateApplication
 }

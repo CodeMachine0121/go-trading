@@ -6,9 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractTradingStrategyBacktestRequestDto is one replay of a contract trading
-// strategy on a contract account. The sources, the two condition trees, the kind and
-// the trading mode are the trading strategy's own; the rest travels with this replay.
+// ContractTradingStrategyBacktestRequestDto takes sources, conditions, kind and trading mode
+// from the trading strategy; the rest is per replay.
 type ContractTradingStrategyBacktestRequestDto struct {
 	Symbol    string
 	StartTime time.Time
@@ -27,26 +26,19 @@ type ContractTradingStrategyBacktestRequestDto struct {
 	TakeProfitPercentage decimal.Decimal
 	EntryCostPercentage  decimal.Decimal
 	ExitCostPercentage   decimal.Decimal
-	// FillTiming is at what price this replay fills its signals: close (blank) or
-	// nextOpen.
+	// FillTiming is close (blank) or nextOpen.
 	FillTiming string
 	// ValidationStartTime splits the replay for validation; zero is no split.
 	ValidationStartTime time.Time
 	Leverage            decimal.Decimal
 	SlippagePercentage  decimal.Decimal
-	// MaintenanceMarginRate is carried only to be refused: on a contract account it is
-	// the symbol's ladder that says it, and a figure typed in would otherwise be
-	// quietly ignored.
+	// MaintenanceMarginRate is carried only to be refused, since the symbol's margin ladder
+	// decides it.
 	MaintenanceMarginRate decimal.Decimal
-	// TradingMode is what the caller declared for this replay. The trading strategy
-	// already says which trading mode it trades by, so anything declared here is
-	// refused rather than quietly winning or losing against it.
+	// TradingMode is carried only to be refused, since the trading strategy already fixes it.
 	TradingMode string
 }
 
-// ToContractBacktestRequestDto is this replay as a replay of one contract strategy
-// script would be told it, the coarseness and the trading mode being the trading
-// strategy's.
 func (requestDto ContractTradingStrategyBacktestRequestDto) ToContractBacktestRequestDto(
 	sharedAggregationInterval string,
 ) ContractBacktestRequestDto {

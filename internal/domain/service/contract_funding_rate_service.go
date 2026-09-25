@@ -13,16 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// ContractFundingRateService keeps the stored funding rate settlements of every
-// watched perpetual contract complete, and answers questions about them. Its public
-// use cases never call one another.
-//
-// **There is one way to catch a contract up, and every trigger uses it.** Starting
-// up, a contract joining the watchlist and the hourly round all ask the same thing —
-// every settlement after the last one held — and a contract with nothing held is
-// asked about from its very first settlement. So there is no backfill window to keep
-// in step with a scheduled one, and a contract that was down for a week and one that
-// missed an hour are the same case.
+// ContractFundingRateService keeps every watched contract's funding settlements complete via one catch-up path (after the last held settlement, or from the first) used by every trigger.
 type ContractFundingRateService struct {
 	settlementRepository            domaininterface.IContractFundingRateSettlementRepository
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
@@ -47,9 +38,7 @@ func NewContractFundingRateService(
 	}
 }
 
-// RunRound catches every watched contract up. It reports what happened rather than
-// failing: a contract the venue would not answer for must not take the others with
-// it, and the next round starts from wherever each one got to.
+// RunRound catches every watched contract up, reporting per-contract failures instead of returning an error.
 func (contractFundingRateService *ContractFundingRateService) RunRound(
 	executionContext context.Context,
 ) (dto.ContractSeriesIngestionReportDto, error) {
@@ -63,9 +52,7 @@ func (contractFundingRateService *ContractFundingRateService) RunRound(
 
 	symbolReports := make([]dto.ContractSeriesSymbolReportDto, len(watchedSymbols))
 
-	// A plain wait group rather than an error group: an error group would cancel the
-	// remaining contracts the moment one failed, which is the opposite of what
-	// independence per contract means here.
+	// A plain WaitGroup, not errgroup, so one failing contract does not cancel the rest.
 	var waitGroup sync.WaitGroup
 	for index, watchedSymbol := range watchedSymbols {
 		waitGroup.Go(func() {
@@ -78,8 +65,7 @@ func (contractFundingRateService *ContractFundingRateService) RunRound(
 	return dto.ContractSeriesIngestionReportDto{SymbolReports: symbolReports}, nil
 }
 
-// RunRoundFor catches one registered contract up on demand — the one that has just
-// joined the watchlist.
+// RunRoundFor catches one contract up on demand, e.g. when it joins the watchlist.
 func (contractFundingRateService *ContractFundingRateService) RunRoundFor(
 	executionContext context.Context, symbol string,
 ) (dto.ContractSeriesSymbolReportDto, error) {
@@ -103,22 +89,18 @@ func (contractFundingRateService *ContractFundingRateService) RunRoundFor(
 		executionContext, registeredSymbol, contractFundingRateService.clockProxy.Now()), nil
 }
 
-// FindSettlementsInRange returns the settlements of one contract whose settlement
-// time falls inside the range, earliest first. A range holding more than the
-// configured maximum is refused rather than cut short.
+// FindSettlementsInRange returns one contract's settlements in range, earliest first; a range over the maximum is refused rather than truncated.
 func (contractFundingRateService *ContractFundingRateService) FindSettlementsInRange(
 	executionContext context.Context, queryDto dto.KCandleQueryDto,
 ) ([]dto.ContractFundingRateSettlementDto, error) {
 	queryDomain, validationError := domains.NewKCandleQueryDomain(queryDto)
 	if validationError != nil {
-		// Re-badged before it leaves: the query model answers in the K candle
-		// sentinel, and a caller of this path recognises this path's.
+		// Re-badge the query model's K candle sentinel error as this path's own.
 		return nil, fmt.Errorf("%w: %w",
 			domains.ErrContractFundingRateSettlementValidation, validationError)
 	}
 
-	// One more than the maximum is asked for, so that "too many" is something the
-	// answer shows rather than something a second count has to establish.
+	// Fetch one more than the maximum so "too many" shows without a separate count.
 	settlements, findError := contractFundingRateService.settlementRepository.FindInRange(
 		executionContext, queryDomain, contractFundingRateService.queryMaxResults+1)
 	if findError != nil {
@@ -138,9 +120,7 @@ func (contractFundingRateService *ContractFundingRateService) FindSettlementsInR
 	return settlementDtos, nil
 }
 
-// catchUpSymbol carries one contract from its last held settlement to now. The venue
-// or storage failing ends this contract's turn; one settlement breaking a rule only
-// ends itself.
+// catchUpSymbol brings one contract up to date; venue or storage errors end its turn, while a rule-breaking settlement only skips itself.
 func (contractFundingRateService *ContractFundingRateService) catchUpSymbol(
 	executionContext context.Context,
 	contractSymbol entities.ContractTradingSymbol,
@@ -156,8 +136,7 @@ func (contractFundingRateService *ContractFundingRateService) catchUpSymbol(
 		return symbolReport.ToDto()
 	}
 
-	// Nothing held means from the contract's first settlement, which the proxy
-	// reads a zero moment as.
+	// A zero moment tells the proxy to start from the contract's first settlement.
 	after := time.Time{}
 	if hasLatest {
 		after = latestSettlement.SettlementTime

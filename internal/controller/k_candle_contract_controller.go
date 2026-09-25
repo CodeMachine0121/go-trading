@@ -13,8 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleContractController exposes the perpetual contract K candle use cases over
-// HTTP.
 type KCandleContractController struct {
 	kCandleContractApplication *application.KCandleContractApplication
 }
@@ -80,8 +78,7 @@ func (kCandleContractController *KCandleContractController) GetKCandleContractsI
 	ginContext.JSON(http.StatusOK, contractDtos)
 }
 
-// GetKCandleContractSeries handles GET /contract-k-candles/series. It takes exactly
-// what the spot series takes, so a chart asks both the same way.
+// GetKCandleContractSeries handles GET /contract-k-candles/series with the same parameters as the spot series.
 func (kCandleContractController *KCandleContractController) GetKCandleContractSeries(
 	ginContext *gin.Context,
 ) {
@@ -150,10 +147,6 @@ func (kCandleContractController *KCandleContractController) GetKCandleContract(
 }
 
 // UpdateKCandleContract handles PUT /contract-k-candles/:symbol/:openTime.
-//
-// **Which candle is changed is decided by the path, never by the body.** A body
-// naming a different symbol or minute is refused rather than obeyed, because obeying
-// it would let one request edit a candle the caller never named.
 func (kCandleContractController *KCandleContractController) UpdateKCandleContract(
 	ginContext *gin.Context,
 ) {
@@ -193,8 +186,7 @@ func (kCandleContractController *KCandleContractController) UpdateKCandleContrac
 	ginContext.JSON(http.StatusOK, contractDto)
 }
 
-// DeleteKCandleContract handles DELETE /contract-k-candles/:symbol/:openTime. The
-// spot candle of the same name and minute is a different record and is untouched.
+// DeleteKCandleContract handles DELETE /contract-k-candles/:symbol/:openTime; the same-named spot candle is untouched.
 func (kCandleContractController *KCandleContractController) DeleteKCandleContract(
 	ginContext *gin.Context,
 ) {
@@ -215,9 +207,7 @@ func (kCandleContractController *KCandleContractController) DeleteKCandleContrac
 	ginContext.Status(http.StatusNoContent)
 }
 
-// readTime reads one RFC3339 time out of the request, answering the caller with a bad
-// request when it cannot be read. The second return value says whether the handler
-// may carry on — a handler that gets false has already had its answer sent.
+// readTime answers a bad request itself when the RFC3339 time is unreadable; false means the response was already sent.
 func (kCandleContractController *KCandleContractController) readTime(
 	ginContext *gin.Context, name string, value string,
 ) (time.Time, bool) {
@@ -231,7 +221,6 @@ func (kCandleContractController *KCandleContractController) readTime(
 	return parsedTime, true
 }
 
-// respondWithError maps a domain error onto the status code that reports it.
 func (kCandleContractController *KCandleContractController) respondWithError(
 	ginContext *gin.Context, respondedError error,
 ) {

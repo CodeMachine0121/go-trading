@@ -10,12 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ContractTradingSymbolController exposes the perpetual contract watchlist use cases
-// over HTTP.
-//
-// It is its own listing rather than more rows on the spot one, which means a caller
-// wanting everything asks twice. That is the price of the spot listing not changing at
-// all, and of the same code being followable on both venues at once.
+// ContractTradingSymbolController is a listing separate from the spot one, so the same code can be followed on both venues without changing the spot listing.
 type ContractTradingSymbolController struct {
 	contractTradingSymbolApplication *application.ContractTradingSymbolApplication
 }
@@ -43,12 +38,7 @@ func (contractTradingSymbolController *ContractTradingSymbolController) ListCont
 	ginContext.JSON(http.StatusOK, contractTradingSymbolDtos)
 }
 
-// AddToWatchlist handles POST /contract-watchlist.
-//
-// The three ways this can fail are told apart deliberately, because the reader's next
-// move differs for each: a name the system will not accept and a code the venue has
-// never heard of are both "fix what you typed", while a venue that could not be
-// reached is "try again shortly" and says nothing about the request at all.
+// AddToWatchlist handles POST /contract-watchlist; invalid names and unknown codes are the caller's to fix, while an unreachable venue means retry later.
 func (contractTradingSymbolController *ContractTradingSymbolController) AddToWatchlist(
 	ginContext *gin.Context,
 ) {
@@ -71,9 +61,7 @@ func (contractTradingSymbolController *ContractTradingSymbolController) AddToWat
 }
 
 // RemoveFromWatchlist handles DELETE /contract-watchlist/:symbol.
-//
-// Removing something that was not being followed answers the same way as removing
-// something that was: what the caller asked for is true either way.
+// Removing a contract that was not followed succeeds, since the requested state holds either way.
 func (contractTradingSymbolController *ContractTradingSymbolController) RemoveFromWatchlist(
 	ginContext *gin.Context,
 ) {
@@ -88,9 +76,6 @@ func (contractTradingSymbolController *ContractTradingSymbolController) RemoveFr
 	ginContext.Status(http.StatusNoContent)
 }
 
-// reportWatchlistFailure maps a watchlist failure onto the status that tells the
-// caller what to do about it. Both handlers reach for it, so the mapping is written
-// once and cannot drift between them.
 func (contractTradingSymbolController *ContractTradingSymbolController) reportWatchlistFailure(
 	ginContext *gin.Context, watchlistError error,
 ) {

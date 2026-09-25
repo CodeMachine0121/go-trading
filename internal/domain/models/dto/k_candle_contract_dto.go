@@ -6,10 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleContractDto is the only shape in which a contract K candle leaves the
-// domain. Nothing here is optional except the index price and premium index lines,
-// which are null only on a candle stored before either line existed — "not recorded
-// when it was stored", never zero.
+// KCandleContractDto has nil index price and premium index only on candles stored before
+// those lines existed.
 type KCandleContractDto struct {
 	Symbol              string              `json:"symbol"`
 	OpenTime            time.Time           `json:"openTime"`

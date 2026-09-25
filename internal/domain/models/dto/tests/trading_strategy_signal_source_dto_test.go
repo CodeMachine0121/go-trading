@@ -9,11 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A bot's knob values go out and come straight back in: the screen that reads a bot
-// is the screen that saves it, so every name it cannot read is a name it cannot hand
-// back — and a write naming a knob the strategy script never declared is refused. The
-// refusal names the knob, three steps away from the field that lost it, so the shape
-// this goes out in is worth pinning rather than reading off the struct.
+// Parameter values must serialize with the names they are read by, since bots round-trip
+// them and unknown names are refused.
 func TestTradingStrategySignalSourceDtoIsWrittenInTheShapeItIsReadIn(t *testing.T) {
 	signalSource := dto.TradingStrategySignalSourceDto{
 		Label:               "A",

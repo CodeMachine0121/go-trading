@@ -20,21 +20,16 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// indicatorBody asks about the two minutes of market ending at the moment the suite
-// answers at, which at one-minute coarseness is two slots.
+// indicatorBody covers the two minutes ending at indicatorRouterNow, i.e. two one-minute slots.
 const indicatorBody = `{"symbol":"BTCUSDT","startTime":"2026-08-29T09:13:00Z","strategyScriptId":9}`
 
-// indicatorRouterNow is the moment every request below is answered at, so that "up
-// to when" is decided by the request rather than by whenever the suite runs.
+// indicatorRouterNow pins the request time so "up to when" doesn't depend on when the suite runs.
 var indicatorRouterNow = at(9, 15)
 
-// indicatorRouterStrategyScriptID is the strategy script every calculation below names. It
-// belongs to the signed-in viewer and holds "the script".
+// indicatorRouterStrategyScriptID belongs to the signed-in viewer.
 const indicatorRouterStrategyScriptID = uint(9)
 
-// indicatorRouterStrategyScriptStore is a strategy script store that answers with that one
-// strategy script. The gates it goes through are a different feature's tests; here it only
-// has to resolve.
+// indicatorRouterStrategyScriptStore always resolves that one script; its access gates are tested elsewhere.
 func indicatorRouterStrategyScriptStore(
 	mockController *gomock.Controller, declaredResultType string,
 ) *service.StrategyScriptService {
@@ -57,22 +52,18 @@ type indicatorRouterUnderTest struct {
 	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
 }
 
-// newIndicatorRouterUnderTest runs a strategy script that declares nothing, which is what
-// most of these cases are about.
+// newIndicatorRouterUnderTest runs a script that declares no result type, as most cases need.
 func newIndicatorRouterUnderTest(t *testing.T) indicatorRouterUnderTest {
 	return newIndicatorRouterRunning(t, "")
 }
 
-// newIndicatorRouterRunning runs a strategy script that declares this kind of value. The
-// declaration lives on the strategy script now, not on the request, so a case about kinds
-// varies the strategy script rather than the body.
+// newIndicatorRouterRunning runs a script declaring this result type, since the kind is declared on the script, not the request.
 func newIndicatorRouterRunning(t *testing.T, declaredResultType string) indicatorRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
-	// Every symbol in this file trades round the clock unless a case says otherwise,
-	// so a minute of the clock is a minute of market.
+	// Every symbol here trades around the clock unless a case says otherwise.
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(mockController)
@@ -136,9 +127,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 
 	t.Run("reads at the coarseness and up to the moment the body named", func(t *testing.T) {
-		// One hour is twelve five-minute candles, so two buckets plus the spare is a
-		// read of 36; and an end time of 14:30 stops the read at 14:00, because the
-		// hour it falls into has not finished.
+		// One hour is twelve 5m candles, so two buckets plus the spare reads 36; an end time of 14:30 stops at 14:00 since that hour is unfinished.
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", time.Date(2025, 3, 1, 14, 0, 0, 0, time.UTC), 180).
@@ -195,8 +184,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 
 	t.Run("answers a short stretch with both counts rather than refusing", func(t *testing.T) {
-		// Two buckets asked for, one stored. It comes back as a success carrying the
-		// pair, so a caller can draw the shorter line and say why it is shorter.
+		// Two buckets asked for, one stored: a success carrying the shortfall so the caller can explain the shorter line.
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorRouterNow, 3).
@@ -213,9 +201,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 
 	t.Run("reports a stretch too thin to answer, handing over both counts", func(t *testing.T) {
-		// The two numbers travel as values, not only inside the sentence: the way out
-		// depends on them, and a caller reading them out of the prose would break the
-		// day the wording improves.
+		// The two numbers are returned as fields so callers don't have to parse the message.
 		fixture := newIndicatorRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorRouterNow, 3).
@@ -229,8 +215,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 
 	t.Run("keeps asking for too much apart from a stretch too thin", func(t *testing.T) {
-		// Their remedies are opposite — read more finely versus read more coarsely —
-		// so a caller has to be able to tell which one it got. Never reaches storage.
+		// Their remedies are opposite (finer vs coarser), so callers must tell them apart; neither reaches storage.
 		fixture := newIndicatorRouterUnderTest(t)
 
 		recorder := fixture.post(
@@ -273,8 +258,7 @@ func TestCalculateIndicatorResponses(t *testing.T) {
 	})
 }
 
-// 每一種失敗要被分開回答，判準是「使用者得去改哪裡」。
-// 名字對不上要去改參數那一列或算式那一行——那是他自己的請求，不是這個系統壞了。
+// 每種失敗依「使用者該改哪裡」分開回答；名稱對不上是請求本身的錯，不是系統故障。
 func TestCalculateIndicatorTellsAMismatchedParameterNameApartFromEverythingElse(t *testing.T) {
 	fixture := newIndicatorRouterUnderTest(t)
 	fixture.expectTwoUsableCandles()
@@ -290,9 +274,7 @@ func TestCalculateIndicatorTellsAMismatchedParameterNameApartFromEverythingElse(
 		"名字要以一個欄位交出去——靠讀訊息比對，等於讓呼叫端依賴給人看的文字")
 }
 
-// 這一種失敗有兩條具體的出路——縮短要看的區間，或換粗一點的刻度。
-// 呼叫端只有在知道自己收到的是「這一種」時才提得出它們，而從句子裡讀出來，
-// 等於讓它依賴一段寫給人看的文字。
+// 這種失敗的出路是縮短區間或換粗刻度，呼叫端需從欄位而非句子辨識它。
 func TestCalculateIndicatorNamesTheInputWhenTheSpanNeedsMoreCandlesThanOneCallMayRead(t *testing.T) {
 	fixture := newIndicatorRouterUnderTest(t)
 
@@ -371,9 +353,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 	})
 
 	t.Run("reports a kind that is not on offer as a bad request", func(t *testing.T) {
-		// The kind can no longer arrive from a caller — it comes off the strategy script,
-		// which was judged when it was saved. A stored row holding a kind nobody
-		// offers is therefore a corrupt row, and it is still refused rather than run.
+		// The kind comes from the stored script, so an unknown kind is a corrupt row and is still refused.
 		fixture := newIndicatorRouterRunning(t, "string")
 
 		recorder := fixture.post(indicatorBody)
@@ -384,9 +364,7 @@ func TestCalculateIndicatorReportsTheDeclaredResultType(t *testing.T) {
 	})
 }
 
-// Calculating an indicator names a trading symbol, so it is the fifth way in that
-// used to hand PostgreSQL a byte it will not hold and report the refusal as a
-// broken server.
+// Calculating an indicator also names a symbol, so an unstorable one must be refused here rather than reported as a server failure.
 func TestIndicatorCalculationRouterRefusesAnUnstorableSymbol(t *testing.T) {
 	// No expectation is set on the repository: nothing may reach storage.
 	fixture := newIndicatorRouterUnderTest(t)
@@ -398,8 +376,7 @@ func TestIndicatorCalculationRouterRefusesAnUnstorableSymbol(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "NUL")
 }
 
-// 「這一段時間市場沒有交易」與「要太多」「湊得太薄」的出路互不相干：
-// 換刻度不會讓週六長出成交。呼叫端因此要分辨得出它收到的是哪一種。
+// 「沒有交易」與「要太多」「湊得太薄」的出路不同（換刻度不會讓週六有成交），呼叫端須能分辨。
 func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
@@ -453,8 +430,7 @@ func TestCalculateIndicatorNamesAStretchThatHoldsNoMarketAsItsOwnKind(t *testing
 }
 
 func TestCalculateIndicatorTurnsAwayARequestCarryingNoProof(t *testing.T) {
-	// Nothing is stubbed on the market store: an unproven request must not reach
-	// the strategy script, let alone the candles behind it.
+	// Nothing is stubbed on the market store: an unproven request must not reach the script or its candles.
 	fixture := newIndicatorRouterUnderTest(t)
 
 	request := httptest.NewRequest(http.MethodPost, "/indicator-calculations",

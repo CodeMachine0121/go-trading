@@ -44,8 +44,7 @@ func archivedWholeDay(day time.Time) []vo.ContractPositionStatisticArchiveVo {
 	return statistics
 }
 
-// contractSyncRunWrites keeps every write the background walk makes to its run, in
-// order, so a case can look at what the run said while it was still going.
+// contractSyncRunWrites records every run write in order, so a case can inspect what the run said mid-walk.
 type contractSyncRunWrites struct {
 	lock   *sync.Mutex
 	writes *[]entities.KCandleContractHistorySyncRun
@@ -105,8 +104,7 @@ func (runWrites contractSyncRunWrites) awaitEnding(t *testing.T) entities.KCandl
 	}
 }
 
-// candlesAlreadyWhole makes the candle half of the run a walk that asks nothing, so a
-// case is only about the statistics.
+// candlesAlreadyWhole makes the candle half ask nothing, so a case is only about the statistics.
 func (underTest contractIngestionUnderTest) candlesAlreadyWhole() {
 	underTest.kCandleContractRepository.EXPECT().
 		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(1000000, nil).AnyTimes()
@@ -544,8 +542,7 @@ func TestContractHistorySyncStoresEachDayOnItsOwnBeforeReadingTheNext(t *testing
 
 	endedRun := runWrites.awaitEnding(t)
 	assert.Equal(t, []string{"read 09-24", "store 09-24", "read 09-25", "store 09-25"}, events)
-	// Yesterday whole, and today up to the sync's own 10:00 — the rest of today is
-	// still in the future and refused by the live rules.
+	// Yesterday whole and today up to the sync's 10:00; the rest of today is in the future and refused.
 	assert.Equal(t, 288+121, endedRun.PositionStatisticStoredCount)
 	assert.Equal(t, 288-121, endedRun.PositionStatisticSkippedCount)
 }

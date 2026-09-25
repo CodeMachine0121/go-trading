@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TradingStrategyController exposes the trading strategy use cases over HTTP.
 type TradingStrategyController struct {
 	tradingStrategyApplication *application.TradingStrategyApplication
 }
@@ -126,7 +125,6 @@ func (tradingStrategyController *TradingStrategyController) DeleteTradingStrateg
 	ginContext.Status(http.StatusNoContent)
 }
 
-// readID reads which trading strategy the path names.
 func (tradingStrategyController *TradingStrategyController) readID(
 	ginContext *gin.Context,
 ) (uint, bool) {
@@ -140,15 +138,7 @@ func (tradingStrategyController *TradingStrategyController) readID(
 }
 
 // respondWithError maps a domain error onto the status code that reports it.
-//
-// A strategy script that cannot be seen comes back as this feature's own not-found,
-// not as the strategy script one. A caller naming a script they may not use is told
-// the same thing whichever way they reached it, and nothing about the answer says
-// whether that script exists.
-//
-// A rewrite blocked by a running bot and a delete blocked by any bot are both
-// conflicts rather than refusals of the request: nothing about what was sent is
-// wrong, and the same request succeeds once those bots are dealt with.
+// An invisible strategy script answers as this feature's own not-found so its existence is not revealed; rewrites blocked by a running bot and deletes blocked by any bot are 409 conflicts.
 func (tradingStrategyController *TradingStrategyController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {

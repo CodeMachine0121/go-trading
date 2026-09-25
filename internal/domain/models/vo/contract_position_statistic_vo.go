@@ -6,13 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractPositionStatisticVo is one five-minute position statistic as the venue
-// reported it, its three answers already aligned on the statistic time.
-//
-// The open interest decides which moments exist at all, so its two figures are
-// always there. The two long-short splits come from answers of their own that may
-// not cover the same moment, so each arrives absent when it did not — and the domain,
-// not this type, decides that a statistic missing one is not stored.
+// ContractPositionStatisticVo is one five-minute statistic aligned on its time; open interest is always present, while each long/short split may be absent.
 type ContractPositionStatisticVo struct {
 	Symbol            string
 	StatisticTime     time.Time

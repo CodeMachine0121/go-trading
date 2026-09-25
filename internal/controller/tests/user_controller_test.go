@@ -44,9 +44,7 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 	refreshTokenProxy := mocks.NewMockIRefreshTokenProxy(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(userSignInMoment).AnyTimes()
-	// Every sign-in records what it left behind. These tests are about which status
-	// code comes back, so the recording is allowed and not inspected — what it holds
-	// is asserted where the rule lives, not here at the edge.
+	// Sign-in recording is allowed but not inspected; its content is asserted where the rule lives.
 	userRepository.EXPECT().
 		SaveSignInLockoutState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
@@ -66,10 +64,7 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 	engine.POST("/sessions/renewal", userController.RenewSession)
 	engine.POST("/sessions/revocation", userController.RevokeSession)
 	engine.GET("/users/me", userController.GetCurrentUser)
-	// The real door goes in front of this one, exactly as it does in the server,
-	// because the account whose password changes is named by the door and not by
-	// the body. A route wired without it would pass these tests while changing
-	// nobody's password.
+	// The real auth middleware is mounted because it, not the body, names the account whose password changes.
 	engine.POST("/users/me/password", doorOpenFor(t, signedInViewerID),
 		userController.ChangePassword)
 
@@ -83,8 +78,7 @@ func newUserRouterUnderTest(t *testing.T) userRouterUnderTest {
 	}
 }
 
-// expectSessionOpened sets up everything opening a session touches, for the tests
-// that are about the response rather than about how it got there.
+// expectSessionOpened stubs everything opening a session touches, for tests about the response.
 func (fixture userRouterUnderTest) expectSessionOpened() {
 	fixture.refreshTokenProxy.EXPECT().
 		Mint().
@@ -131,7 +125,7 @@ func aStoredUserRow(id uint) entities.User {
 	}
 }
 
-// aLetInUserRow is the same person after somebody let them in.
+// aLetInUserRow is the same user after activation.
 func aLetInUserRow(id uint) entities.User {
 	user := aStoredUserRow(id)
 	user.IsEnabled = true
@@ -139,10 +133,7 @@ func aLetInUserRow(id uint) entities.User {
 	return user
 }
 
-// waitingBody is what a person who has not been let in is told about themselves,
-// including where to write and exactly what to put in the subject line. The subject
-// is spelled out in full rather than assembled here, because assembling it is the
-// thing under test.
+// waitingBody spells the subject line out in full because assembling it is what is under test.
 const waitingBody = `{
 	"id": 7,
 	"email": "james@example.com",
@@ -252,10 +243,7 @@ func TestUserRouterSignIn(t *testing.T) {
 	})
 
 	t.Run("answers too many requests when the account has been shut", func(t *testing.T) {
-		// 429 and deliberately not 401. In this system 401 means "this sign-in no
-		// longer counts, go and sign in again", and a caller acting on it sends the
-		// person back to the sign-in screen — the one thing that cannot help for as
-		// long as the lock lasts. What they have to do is wait, and 429 is that.
+		// 429, not 401: 401 sends the person back to sign in, which cannot help while the lock lasts.
 		fixture := newUserRouterUnderTest(t)
 		shutUser := aStoredUserRow(7)
 		shutUntil := userSignInMoment.Add(7 * 24 * time.Hour)
@@ -268,10 +256,7 @@ func TestUserRouterSignIn(t *testing.T) {
 		recorder := fixture.send(http.MethodPost, "/sessions", aCredentialsBody, "")
 
 		require.Equal(t, http.StatusTooManyRequests, recorder.Code)
-		// The moment has to reach the person, or they will come back every few
-		// minutes for a week to find out whether it is over yet. It travels as a
-		// field of its own so that a caller showing it in the reader's own timezone
-		// never has to pick it out of a sentence written for a person.
+		// The lock's end is returned as its own field so callers can show it in the reader's timezone.
 		var body struct {
 			Message     string `json:"message"`
 			LockedUntil string `json:"lockedUntil"`
@@ -331,8 +316,7 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 	})
 
 	t.Run("still answers somebody who has not been let in yet", func(t *testing.T) {
-		// This is the whole reason "who am I" stays outside the door: it is the one
-		// place a person waiting can look to find out whether they still are.
+		// This is why "who am I" stays outside the auth middleware: it is where a waiting person checks their status.
 		fixture := newUserRouterUnderTest(t)
 		fixture.accessTokenProxy.EXPECT().
 			UserIdentifiedBy("a-signed-token").
@@ -390,8 +374,7 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
-				// Nothing is set up on any mock: a request presenting no proof must
-				// be turned away before anything downstream is asked anything.
+				// No mock is set up: an unproven request must be refused before anything downstream.
 				fixture := newUserRouterUnderTest(t)
 
 				recorder := fixture.send(
@@ -429,7 +412,7 @@ func TestUserRouterGetCurrentUser(t *testing.T) {
 
 const aRenewalBody = `{"refreshToken":"a-refresh-token"}`
 
-// aStoredSessionRow is a session as storage hands it back, good for another month.
+// aStoredSessionRow is a stored session valid for another month.
 func aStoredSessionRow() entities.Session {
 	return entities.Session{
 		ID:                 11,
@@ -549,9 +532,7 @@ func TestUserRouterRevokeSession(t *testing.T) {
 	})
 
 	t.Run("answers no content even when there was nothing to end", func(t *testing.T) {
-		// The caller asked for this sign-in to stop working. It already does not
-		// work. Telling them otherwise would have them retrying to reach a state
-		// they are already in.
+		// The sign-in already doesn't work, so reporting failure would have them retrying for a state they're in.
 		fixture := newUserRouterUnderTest(t)
 		fixture.refreshTokenProxy.EXPECT().DigestOf(gomock.Any()).Return("a-digest")
 		fixture.sessionRepository.EXPECT().
@@ -585,8 +566,7 @@ func TestUserRouterRevokeSession(t *testing.T) {
 }
 
 func TestUserRouterChangePassword(t *testing.T) {
-	// The person the door lets through, with the proof their current password is
-	// checked against.
+	// The user the middleware lets through, whose current password is checked.
 	signedInUser := entities.User{
 		ID:            signedInViewerID,
 		Email:         "viewer@example.com",
@@ -612,10 +592,7 @@ func TestUserRouterChangePassword(t *testing.T) {
 		assert.Empty(t, response.Body.String())
 	})
 
-	// 403 rather than 401. In this system 401 means "your sign-in no longer
-	// counts", and a caller acts on it by sending the person back to sign in —
-	// which is the wrong place to send somebody whose sign-in is fine and whose
-	// typing was not.
+	// 403, not 401: 401 sends the person back to sign in, but their sign-in is fine and only the typed password was wrong.
 	t.Run("the wrong current password is forbidden, not unauthorised", func(t *testing.T) {
 		fixture := newUserRouterUnderTest(t)
 		fixture.userRepository.EXPECT().
@@ -655,8 +632,7 @@ func TestUserRouterChangePassword(t *testing.T) {
 		response := httptest.NewRecorder()
 		fixture.engine.ServeHTTP(response, request)
 
-		// No repository or proxy call is set up, so the mock controller fails this
-		// test if the handler ran at all.
+		// No mock is set up, so the mock controller fails the test if the handler ran.
 		require.Equal(t, http.StatusUnauthorized, response.Code)
 		assert.Contains(t, response.Body.String(), domains.ErrAuthenticationRequired.Error())
 	})
@@ -673,7 +649,6 @@ func TestUserRouterChangePassword(t *testing.T) {
 	})
 }
 
-// changePassword sends a signed-in request to replace the password.
 func (fixture userRouterUnderTest) changePassword(body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/users/me/password", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

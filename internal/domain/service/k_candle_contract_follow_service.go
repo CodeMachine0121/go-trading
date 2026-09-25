@@ -13,39 +13,21 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// KCandleContractFollowService owns which perpetual contracts are being followed live:
-// one follow per contract, started by the first viewer and ended by the last.
-//
-// It is the contract line's own registry, kept apart from the spot one for the reason
-// the two lines are kept apart everywhere: BTCUSDT on spot and BTCUSDT as a perpetual
-// are two markets, and a viewer of one must never be handed the other's price. Nothing
-// here is shared with the spot follow but the mechanism — the viewers of one contract
-// (kCandleFollowSymbol), the line they travel on (kCandleFollowChannel) and the keeping
-// of that line against the source (kCandleFollowFeed).
-//
-// It is simpler than its spot twin in two ways, both deliberate. Contracts never close
-// and the venue sets no ceiling on how many may be followed, so there is no roster.
-// And a candle that closes is passed on but never stored: a contract K candle is four
-// readings lined up, and the live line carries only the first, so the scheduled round —
-// which reads all four — is what stores it.
+// KCandleContractFollowService keeps one live follow per perpetual contract, apart from the spot registry because spot and perpetual BTCUSDT are different markets.
+// It has no roster (contracts never close and have no follow ceiling) and never stores closed candles, since only the scheduled round reads all four readings.
 type KCandleContractFollowService struct {
 	contractTradingSymbolRepository _interface.IContractTradingSymbolRepository
 	clockProxy                      _interface.IClockProxy
 	updateIntervalCeiling           time.Duration
 	feed                            *kCandleFollowFeed
 
-	mutex sync.Mutex
-	// follows is every contract somebody is watching, keyed by contract.
+	mutex   sync.Mutex
 	follows map[string]*kCandleFollowSymbol
-	// channels is every line currently open. A contract is followed one to a line, so
-	// there is one per follow; it is keyed the way the spot registry keys its lines so
-	// that the same channel value always names the same line.
+	// channels holds one line per follow, keyed like the spot registry so a channel value always names the same line.
 	channels map[string]*kCandleFollowChannel
 	stopped  bool
 }
 
-// NewKCandleContractFollowService takes the contract venue's live source and the three
-// timing rules once; every contract it follows is judged by them.
 func NewKCandleContractFollowService(
 	liveMarketDataProxy _interface.ILiveMarketDataProxy,
 	contractTradingSymbolRepository _interface.IContractTradingSymbolRepository,
@@ -68,20 +50,8 @@ func NewKCandleContractFollowService(
 	return kCandleContractFollowService
 }
 
-// WatchKCandleContracts joins this viewer to the live follow of one contract, starting
-// that follow if nobody was watching it yet, and hands back the updates they will
-// receive. Leaving is the viewer's own context ending.
-//
-// Only a contract on the contract watchlist is served. A contract the system has never
-// heard of is not found; one it knows but does not follow is refused, because what
-// closes on a live line is stored only by the round that follows the watchlist — a
-// contract off it would show a candle closing and then leave nothing behind.
-//
-// Whether it is followed is asked when the viewer arrives and not again. A contract
-// taken off the watchlist while somebody is looking keeps their picture until they
-// leave, the same way the watchlist never reaches back into a follow already running.
-//
-// The returned channel is closed when the viewer leaves or the service stops.
+// WatchKCandleContracts joins the viewer to the contract's live follow; only watchlisted contracts are served because closed candles are stored only by the watchlist round.
+// Watch status is checked once on arrival, and the returned channel closes when the viewer's context ends or the service stops.
 func (kCandleContractFollowService *KCandleContractFollowService) WatchKCandleContracts(
 	executionContext context.Context, symbol string,
 ) (<-chan dto.KCandleFollowUpdateDto, error) {
@@ -114,16 +84,13 @@ func (kCandleContractFollowService *KCandleContractFollowService) WatchKCandleCo
 
 	follow, isFollowing := kCandleContractFollowService.follows[contractSymbol.Value()]
 	if !isFollowing {
-		// The throttle starts with nothing ever sent, so the first forming candle of a
-		// new follow goes straight out: the first viewer is promised the shape now, and
-		// a quiet contract would otherwise leave them an empty stream for a whole ceiling.
+		// A zero last-sent time lets the first forming candle go out immediately instead of after a whole ceiling.
 		follow = newKCandleFollowSymbol(contractSymbol.Value(), vo.MarketCrypto, false,
 			domains.NewViewerUpdateThrottleDomain(
 				kCandleContractFollowService.updateIntervalCeiling, time.Time{}))
 		kCandleContractFollowService.follows[contractSymbol.Value()] = follow
 
-		// The line outlives the viewer who asked for it, so it must not inherit their
-		// context — the next viewer would be following a contract on a cancelled one.
+		// The line outlives the requesting viewer, so it must not inherit their cancellable context.
 		channel := vo.NewLiveFollowChannelVo(vo.MarketCrypto, []string{contractSymbol.Value()})
 		channelContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
 		openChannel := newKCandleFollowChannel(
@@ -148,8 +115,7 @@ func (kCandleContractFollowService *KCandleContractFollowService) WatchKCandleCo
 	return updates, nil
 }
 
-// Stop ends every contract follow and closes every viewer's updates. A viewer arriving
-// after this is turned away rather than left waiting on a channel nothing will feed.
+// Stop ends every follow and closes all viewers' updates; viewers arriving afterwards are turned away.
 func (kCandleContractFollowService *KCandleContractFollowService) Stop() {
 	kCandleContractFollowService.mutex.Lock()
 	if kCandleContractFollowService.stopped {
@@ -179,8 +145,6 @@ func (kCandleContractFollowService *KCandleContractFollowService) Stop() {
 	}
 }
 
-// FollowedSymbolCount reports how many contracts are being followed right now — the
-// only observable trace of "one follow per contract, ending with the last viewer".
 func (kCandleContractFollowService *KCandleContractFollowService) FollowedSymbolCount() int {
 	kCandleContractFollowService.mutex.Lock()
 	defer kCandleContractFollowService.mutex.Unlock()
@@ -188,17 +152,7 @@ func (kCandleContractFollowService *KCandleContractFollowService) FollowedSymbol
 	return len(kCandleContractFollowService.follows)
 }
 
-// leave removes one viewer and, when they were the last, takes the contract's follow
-// and its line out of the registry, handing the line back to be cancelled.
-//
-// It is a method of its own because it draws the stretch the lock is held for: the
-// line is cancelled by the caller after the lock is let go, so that a line winding
-// down never holds up somebody opening another contract's chart.
-//
-// A contract's follow leaves the registry only when its last viewer does, or when the
-// service stops and empties it, so the follow found here is always the one the viewer
-// joined — unlike the spot registry, whose roster can replace a follow under a viewer
-// still attached to it.
+// leave removes a viewer and, if they were the last, removes the follow and returns its line for the caller to cancel outside the lock.
 func (kCandleContractFollowService *KCandleContractFollowService) leave(
 	symbol string, viewerId int,
 ) (*kCandleFollowChannel, bool) {
@@ -220,9 +174,7 @@ func (kCandleContractFollowService *KCandleContractFollowService) leave(
 	return departingChannel, isOpen
 }
 
-// report decides what one reported contract candle amounts to: whether it is worth
-// passing on now. A closed one always is — it is that candle's last word — and it is
-// never stored here; the scheduled round stores it with all four readings.
+// report throttles each candle; closed ones are not stored here because the scheduled round stores them with all four readings.
 func (kCandleContractFollowService *KCandleContractFollowService) report(
 	_ context.Context, follow *kCandleFollowSymbol, liveKCandle vo.LiveKCandleVo,
 ) {

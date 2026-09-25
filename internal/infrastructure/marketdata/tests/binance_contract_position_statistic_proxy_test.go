@@ -31,8 +31,6 @@ func splitJson(statisticTime time.Time, longShare string, shortShare string, rat
 		longShare, shortShare, ratio, statisticTime.UnixMilli())
 }
 
-// statisticsVenue answers the three statistic addresses with a body each, and keeps
-// every question it was asked.
 type statisticsVenue struct {
 	baseUrl   string
 	lock      *sync.Mutex

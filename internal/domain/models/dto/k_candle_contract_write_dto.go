@@ -6,15 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleContractWriteDto is the shape the application hands the domain to create or
-// update a contract K candle.
-//
-// Every figure arrives as an optional even though a stored contract K candle has
-// none. That is the point: "not given" has to be expressible for the domain to be
-// the one place that rejects it. It reaches here missing for two quite different
-// reasons — a caller who left it out, and a market source that answered some of the
-// series a contract candle is assembled from but not all of them — and both deserve the same answer, which is only
-// possible if they arrive in the same shape.
+// KCandleContractWriteDto uses optional figures so the domain alone rejects missing ones,
+// whether omitted by a caller or missing from a partial market source response.
 type KCandleContractWriteDto struct {
 	Symbol              string
 	OpenTime            time.Time

@@ -9,24 +9,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// defaultFundingIntervalHours is how often a contract settles its funding rate when
-// the venue does not list it among those with a setting of their own. The venue lists
-// only the exceptions.
+// defaultFundingIntervalHours applies to contracts the venue does not list, since it lists only the exceptions.
 const defaultFundingIntervalHours = 8
 
-// ContractTradingSpecificationDomain is one contract's trading specification, checked
-// and with the venue's silences filled in. An instance only exists when every rule
-// passed.
+// ContractTradingSpecificationDomain is a validated specification with the venue's omissions filled in.
 type ContractTradingSpecificationDomain struct {
 	specification        vo.ContractTradingSpecificationVo
 	fundingIntervalHours int
 }
 
-// NewContractTradingSpecificationDomain checks one reported specification.
-//
-// The sizes have to be positive: a tick of zero is a price that cannot move, and a
-// minimum of zero is an order of nothing. The rates only have to be non-negative — a
-// venue waiving a fee is a venue saying something, not a broken figure.
+// NewContractTradingSpecificationDomain requires sizes to be positive but rates only non-negative, since a waived fee is legitimate.
 func NewContractTradingSpecificationDomain(
 	specification vo.ContractTradingSpecificationVo,
 ) (ContractTradingSpecificationDomain, error) {
@@ -75,8 +67,7 @@ func NewContractTradingSpecificationDomain(
 	}, nil
 }
 
-// ApplyTo writes this specification onto a contract, stamped with when it was
-// confirmed, and hands the contract back. Nothing else about the contract changes.
+// ApplyTo stamps this specification onto the contract with its confirmation time, leaving everything else unchanged.
 func (specificationDomain ContractTradingSpecificationDomain) ApplyTo(
 	contractTradingSymbol entities.ContractTradingSymbol, confirmedAt time.Time,
 ) entities.ContractTradingSymbol {

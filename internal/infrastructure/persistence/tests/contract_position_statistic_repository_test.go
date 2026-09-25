@@ -113,8 +113,7 @@ func TestContractPositionStatisticRepositorySaysSoWhenStorageIsUnreachable(t *te
 }
 
 func TestContractPositionStatisticRepositoryStoresAThirtyDayCatchUpInOneCall(t *testing.T) {
-	// Thirty days is 8640 statistics of ten figures each — more values than one
-	// statement can carry.
+	// 8640 ten-column statistics exceed one statement's parameter limit.
 	database := newTestDatabase(t)
 	statisticRepository := persistence.NewContractPositionStatisticRepository(database)
 	thirtyDays := make([]entities.ContractPositionStatistic, 0, 8640)

@@ -12,9 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sourceNamed is one signal source declaring one knob and naming a strategy script
-// that speaks in signals, which is enough for every rule about sources to have
-// something to bite on.
+// sourceNamed declares one parameter and names a signal-producing script.
 func sourceNamed(label string, strategyScriptID uint) dto.TradingStrategySignalSourceWriteDto {
 	return dto.TradingStrategySignalSourceWriteDto{
 		Label:               label,
@@ -25,8 +23,7 @@ func sourceNamed(label string, strategyScriptID uint) dto.TradingStrategySignalS
 	}
 }
 
-// aTradingStrategyWriteDto passes every rule, so that a test changing one field says
-// exactly which rule it is about.
+// aTradingStrategyWriteDto passes every rule, so each test changes only the field under test.
 func aTradingStrategyWriteDto() dto.TradingStrategyWriteDto {
 	return dto.TradingStrategyWriteDto{
 		OwnerID: 7,
@@ -69,9 +66,7 @@ func TestNewTradingStrategyDomainKeepsNoBlanks(t *testing.T) {
 	assert.Equal(t, "A", tradingStrategyEntity.SignalSources[0].Label)
 }
 
-// A set of rules holds no market, no interval and no run state. Those describe a
-// machine following it, and a shape with nowhere to put them is what lets several
-// machines follow one set.
+// A trading strategy holds no market, interval or run state, so several bots can follow it.
 func TestNewTradingStrategyDomainHoldsNothingAboutAnyMachine(t *testing.T) {
 	tradingStrategy, buildError := domains.NewTradingStrategyDomain(aTradingStrategyWriteDto())
 	require.NoError(t, buildError)
@@ -107,9 +102,8 @@ func TestNewTradingStrategyDomainRefusals(t *testing.T) {
 			expectedMessage: "長度上限為 128 個字",
 		},
 		{
-			// A name carrying a NUL cannot be stored by PostgreSQL at all, so it is
-			// refused as a bad name here rather than surfacing later as a storage
-			// failure nobody can act on.
+			// PostgreSQL cannot store NUL in text, so it is refused as a bad name rather
+			// than failing at storage.
 			name:            "a name carrying a null character",
 			mutate:          func(writeDto *dto.TradingStrategyWriteDto) { writeDto.Name = "黃金\x00交叉" },
 			expectedMessage: "不得包含空字元",
@@ -157,8 +151,7 @@ func TestNewTradingStrategyDomainRefusals(t *testing.T) {
 			expectedMessage: "彙總刻度不對",
 		},
 		{
-			// Caught now rather than at three in the morning, when the same mistake
-			// would come back as a script failure and stop every bot following this.
+			// Caught at save time rather than as a script failure that stops every bot at run time.
 			name: "a value set on a knob the strategy script never declared",
 			mutate: func(writeDto *dto.TradingStrategyWriteDto) {
 				writeDto.SignalSources[0].ParameterValues = []dto.StrategyScriptParameterValueDto{
@@ -236,10 +229,7 @@ func TestNewTradingStrategyDomainLetsOneStrategyScriptBeTwoSources(t *testing.T)
 	assert.Equal(t, 60.0, signalSources[1].ParameterValues[0].Value)
 }
 
-// A condition compares a source against buy, sell or hold, and only a strategy script
-// declared as a signal ever produces those. Naming any other kind builds a set of
-// rules whose every sentence has nothing on the other side of it — and nothing would
-// say so until the bot woke up in the night and stopped on a script failure.
+// Only signal-kind scripts produce buy, sell or hold, so other kinds are refused as sources.
 func TestNewTradingStrategyDomainRefusesASourceThatDoesNotSpeakInSignals(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
@@ -258,18 +248,14 @@ func TestNewTradingStrategyDomainRefusesASourceThatDoesNotSpeakInSignals(t *test
 			_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
 			require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-			// The refusal names the source, because a trading strategy may hold ten
-			// of them and "one of them is wrong" is not something anybody can act on.
+			// The refusal names the source, since there may be ten of them.
 			assert.ErrorContains(t, buildError, "A")
 			assert.ErrorContains(t, buildError, "signal")
 		})
 	}
 }
 
-// A trading strategy whose sources read different coarsenesses cannot do anything:
-// replaying it is refused, and once it is running two sources on two different clocks
-// have their opinions read as two sentences about the same candle. Refusing it here
-// means the person finds out while they are still looking at the form.
+// Sources on different intervals cannot be replayed and would compare different candles live.
 func TestNewTradingStrategyDomainRefusesSourcesThatReadDifferentCoarseness(t *testing.T) {
 	writeDto := aTradingStrategyWriteDto()
 	writeDto.SignalSources[1].AggregationInterval = string(vo.AggregationIntervalFiveMinutes)
@@ -277,8 +263,7 @@ func TestNewTradingStrategyDomainRefusesSourcesThatReadDifferentCoarseness(t *te
 	_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
 	require.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
-	// The refusal names them. Told only that they differ, somebody has to open every
-	// source to see how — and making them the same is the thing they then have to do.
+	// The refusal names the intervals so the user knows what to align.
 	assert.ErrorContains(t, buildError, "1h")
 	assert.ErrorContains(t, buildError, "5m")
 }
@@ -297,7 +282,6 @@ func TestNewTradingStrategyDomainNamesEveryCoarsenessItFound(t *testing.T) {
 	assert.ErrorContains(t, buildError, "1d")
 }
 
-// One source cannot disagree with anybody, so the rule has nothing to say about it.
 func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.T) {
 	writeDto := aTradingStrategyWriteDto()
 	writeDto.SignalSources = []dto.TradingStrategySignalSourceWriteDto{sourceNamed("A", 1)}
@@ -312,9 +296,7 @@ func TestNewTradingStrategyDomainAcceptsASingleSourceWhateverItReads(t *testing.
 		tradingStrategy.ToEntity().SignalSources[0].AggregationInterval)
 }
 
-// A set of rules is written for the one kind of account this system replays, so there
-// is nothing to declare. Saying spot is free; saying anything else is refused, rather
-// than quietly stored as the one set of rules that does exist.
+// Only spot or blank is accepted; anything else is refused rather than silently stored as spot.
 func TestNewTradingStrategyDomainAcceptsOnlySpotOrSilence(t *testing.T) {
 	for _, declaredMode := range []string{"", "   ", "spot", "SPOT"} {
 		writeDto := aTradingStrategyWriteDto()
@@ -334,16 +316,12 @@ func TestNewTradingStrategyDomainRefusesAnyOtherSetOfRules(t *testing.T) {
 		_, buildError := domains.NewTradingStrategyDomain(writeDto)
 
 		require.Error(t, buildError, declaredMode)
-		// The one sentinel every refused trading strategy carries, so that a
-		// controller maps this without learning a second one.
 		assert.ErrorIs(t, buildError, domains.ErrTradingStrategyValidation)
 		assert.Contains(t, buildError.Error(), "只重演現貨")
 	}
 }
 
-// Not merely similar: the reason is the one sentence, carried through. Two separately
-// worded refusals would eventually disagree, and a person reading one of them would be
-// told something untrue.
+// The refusal is the replay's exact sentence, so the two cannot drift apart.
 func TestNewTradingStrategyDomainRefusesInTheSameWordsAReplayDoes(t *testing.T) {
 	writeDto := aTradingStrategyWriteDto()
 	writeDto.TradingMode = "longShort"

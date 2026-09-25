@@ -10,7 +10,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// TradingSymbolRepository stores registered trading symbols in PostgreSQL.
 type TradingSymbolRepository struct {
 	database *gorm.DB
 }
@@ -19,7 +18,6 @@ func NewTradingSymbolRepository(database *gorm.DB) *TradingSymbolRepository {
 	return &TradingSymbolRepository{database: database}
 }
 
-// FindAll returns every registered trading symbol, ordered by name.
 func (tradingSymbolRepository *TradingSymbolRepository) FindAll(
 	executionContext context.Context,
 ) ([]entities.TradingSymbol, error) {
@@ -35,13 +33,7 @@ func (tradingSymbolRepository *TradingSymbolRepository) FindAll(
 	return tradingSymbols, nil
 }
 
-// FindWatched returns the trading symbols the system is keeping up to date, earliest
-// registered first.
-//
-// Name settles a tie deliberately. Symbols registered before registration time was
-// recorded all carry the same zero value, and an order that depends on which row the
-// database happens to hand back first would put a different set of symbols in a
-// market's follow places on different days.
+// FindWatched orders by registration time with name as tiebreak, since older rows share a zero registration time.
 func (tradingSymbolRepository *TradingSymbolRepository) FindWatched(
 	executionContext context.Context,
 ) ([]entities.TradingSymbol, error) {
@@ -59,8 +51,6 @@ func (tradingSymbolRepository *TradingSymbolRepository) FindWatched(
 	return watchedSymbols, nil
 }
 
-// FindBySymbol returns one registered trading symbol, reporting whether it was
-// registered at all.
 func (tradingSymbolRepository *TradingSymbolRepository) FindBySymbol(
 	executionContext context.Context, symbol string,
 ) (entities.TradingSymbol, bool, error) {
@@ -79,11 +69,7 @@ func (tradingSymbolRepository *TradingSymbolRepository) FindBySymbol(
 	return tradingSymbol, true, nil
 }
 
-// Save stores one trading symbol, replacing whatever was held under the same name.
-//
-// Replacing rather than inserting is what makes registering the same market twice
-// leave one market: the name is the key, so there is nothing a second row could
-// distinguish.
+// Save upserts by name so registering the same market twice leaves one row.
 func (tradingSymbolRepository *TradingSymbolRepository) Save(
 	executionContext context.Context, tradingSymbol entities.TradingSymbol,
 ) error {
@@ -100,12 +86,7 @@ func (tradingSymbolRepository *TradingSymbolRepository) Save(
 	return nil
 }
 
-// RegisterAll stores the given trading symbols, leaving any that are already
-// registered exactly as they are.
-//
-// The caller has already worked out which ones are missing; skipping conflicts here
-// is not a substitute for that check but a guard against two migrations racing each
-// other, where neither should fail over which got there first.
+// RegisterAll skips conflicts to tolerate racing migrations; callers still filter out existing symbols first.
 func (tradingSymbolRepository *TradingSymbolRepository) RegisterAll(
 	executionContext context.Context, tradingSymbols []entities.TradingSymbol,
 ) error {

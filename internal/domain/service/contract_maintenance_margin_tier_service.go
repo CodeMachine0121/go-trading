@@ -12,13 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// ContractMaintenanceMarginTierService keeps every known perpetual contract's full
-// maintenance margin ladder current, and answers questions about it. Its public use
-// cases never call one another.
-//
-// The ladder is something only an account is told. When no account is configured the
-// refresh says so with ErrContractAccountCredentialsMissing, which is not a failure:
-// it is how the rest of the system knows to go without.
+// ContractMaintenanceMarginTierService keeps every contract's maintenance margin ladder current; without an account the refresh returns ErrContractAccountCredentialsMissing, which is not a failure.
 type ContractMaintenanceMarginTierService struct {
 	tierRepository                  domaininterface.IContractMaintenanceMarginTierRepository
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
@@ -40,13 +34,7 @@ func NewContractMaintenanceMarginTierService(
 	}
 }
 
-// RefreshLadders replaces the ladder of every registered contract the venue reports a
-// sensible one for, and says what it did.
-//
-// A contract the venue did not report keeps its ladder. A contract whose reported
-// ladder cannot be one keeps its ladder too, and is named in the report — only that
-// contract: one broken ladder is no reason to keep every other one stale. The venue
-// failing, or refusing the account, changes nothing at all.
+// RefreshLadders replaces each contract's ladder when the venue reports a valid one; unreported or invalid ladders are kept (invalid ones are named in the report), and a venue failure changes nothing.
 func (tierService *ContractMaintenanceMarginTierService) RefreshLadders(
 	executionContext context.Context,
 ) (dto.ContractMaintenanceMarginRefreshReportDto, error) {
@@ -99,8 +87,7 @@ func (tierService *ContractMaintenanceMarginTierService) RefreshLadders(
 	}, nil
 }
 
-// FindTiers is one contract's ladder, first tier first. A contract with none held
-// answers with none, which is not an error.
+// FindTiers returns one contract's ladder, first tier first; none held is not an error.
 func (tierService *ContractMaintenanceMarginTierService) FindTiers(
 	executionContext context.Context, symbol string,
 ) ([]dto.ContractMaintenanceMarginTierDto, error) {

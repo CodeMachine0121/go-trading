@@ -17,39 +17,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tradedKLineJson spells the traded half of a contract candle the way the source
-// does, with the number of trades sitting unquoted among the quoted figures.
+// tradedKLineJson has the trade count unquoted among quoted figures, as the venue sends it.
 func tradedKLineJson(openTime time.Time, tradeCount int) string {
 	return fmt.Sprintf(
 		`[%d,"85570.30","85594.40","85570.30","85572.00","55.714",%d,"4767877.86870",%d,"34.469","2949728.83040","0"]`,
 		openTime.UnixMilli(), openTime.Add(time.Minute).UnixMilli()-1, tradeCount)
 }
 
-// markPriceKLineJson spells a mark price answer the way the source does: four real
-// prices, and placeholder zeros where a traded answer carries its volumes.
+// markPriceKLineJson carries four real prices and placeholder zeros where volumes would be.
 func markPriceKLineJson(openTime time.Time, closePrice string) string {
 	return fmt.Sprintf(
 		`[%d,"85573.82868116","85594.40000000","85572.77281159","%s","0",%d,"0",60,"0","0","0"]`,
 		openTime.UnixMilli(), closePrice, openTime.Add(time.Minute).UnixMilli()-1)
 }
 
-// indexPriceKLineJson spells an index price answer: four prices, placeholder zeros.
 func indexPriceKLineJson(openTime time.Time, closePrice string) string {
 	return fmt.Sprintf(
 		`[%d,"87248.06217391","87268.33000000","87220.35326087","%s","0",%d,"0",48,"0","0","0"]`,
 		openTime.UnixMilli(), closePrice, openTime.Add(time.Minute).UnixMilli()-1)
 }
 
-// premiumIndexKLineJson spells a premium index answer. The premium is a proportion,
-// and this one is negative, which is one of its two ordinary states.
 func premiumIndexKLineJson(openTime time.Time, closeFigure string) string {
 	return fmt.Sprintf(
 		`[%d,"-0.00049929","-0.00038347","-0.00071252","%s","0",%d,"0",10,"0","0","0"]`,
 		openTime.UnixMilli(), closeFigure, openTime.Add(time.Minute).UnixMilli()-1)
 }
 
-// contractVenue answers the four addresses of one contract candle separately, counts
-// how often each was asked, and remembers the last question each was asked.
+// contractVenue serves the four endpoints separately, counting requests and recording the last query to each.
 type contractVenue struct {
 	tradedUrl         string
 	markPriceUrl      string
@@ -63,9 +57,7 @@ type contractVenue struct {
 	premiumIndexQuery *atomic.Value
 }
 
-// servedByContractVenue answers each address with its body once, then with nothing,
-// so that paging stops. The index price and premium index answer with nothing at all
-// unless given a body.
+// servedByContractVenue answers each address once then empty so paging stops; index and premium answer empty unless given a body.
 func servedByContractVenue(
 	t *testing.T, tradedBody string, markPriceBody string, laterLineBodies ...string,
 ) contractVenue {
@@ -116,7 +108,6 @@ func servedByContractVenue(
 	return venue
 }
 
-// proxyFor is the proxy pointed at every address of one venue.
 func (venue contractVenue) proxyFor(pacer marketdata.RequestPacer) *marketdata.BinanceContractMarketDataProxy {
 	return marketdata.NewBinanceContractMarketDataProxy(
 		venue.tradedUrl, venue.markPriceUrl, venue.indexPriceUrl, venue.premiumIndexUrl,
@@ -337,8 +328,7 @@ func TestContractProxyWalksAWindowWiderThanOnePage(t *testing.T) {
 	assert.Equal(t, at(9, 1), contractKCandles[1].OpenTime)
 }
 
-// controlCharacterUrl cannot be turned into a request at all, which is the only way
-// to reach the failure that happens before anything is sent.
+// controlCharacterUrl cannot be turned into a request, reaching the failure before anything is sent.
 const controlCharacterUrl = "http://\x7f"
 
 func TestContractProxyGivesUpWhenTheCallerHasGoneAway(t *testing.T) {
@@ -422,8 +412,7 @@ func TestContractProxyMergesTheIndexPriceAndPremiumIndexIntoTheCandle(t *testing
 	assert.True(t, decimal.RequireFromString("-0.00038347").Equal(fetchedCandle.PremiumIndexHigh.Decimal))
 	assert.True(t, decimal.RequireFromString("-0.00071252").Equal(fetchedCandle.PremiumIndexLow.Decimal))
 	assert.True(t, decimal.RequireFromString("-0.00051123").Equal(fetchedCandle.PremiumIndexClose.Decimal))
-	// The traded figures are the traded answer's, not the placeholder zeros the
-	// index price answer carries where a volume would be.
+	// Volume comes from the traded answer, not the index answer's placeholder zeros.
 	assert.True(t, decimal.RequireFromString("55.714").Equal(fetchedCandle.Volume))
 }
 

@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aContractSuggestion is a contract round's suggestion: short, five times, 5000 of
-// notional on a margin of 1000, stopped at 102.
+// aContractSuggestion is short at 5x leverage, 5000 notional on 1000 margin, stop at 102.
 func aContractSuggestion() dto.PositionPlanDto {
 	return dto.PositionPlanDto{
 		Stake: decimal.NewFromInt(1000), Affordable: true,
@@ -45,8 +44,7 @@ func TestStrategyBotRunRecordRepositoryRemembersWhichWayAndHowFarAContractRoundL
 	assert.Equal(t, "1000", runRecordDto.SuggestedStake.String())
 }
 
-// A spot round's suggestion is remembered as it always was: no direction, no leverage,
-// no notional — and none of the three words on the wire.
+// A spot suggestion stores no direction, leverage or notional, and none of them appear on the wire.
 func TestStrategyBotRunRecordRepositoryKeepsASpotRoundAsItWas(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	botID := aBotToRecordAgainst(t, database)
@@ -73,7 +71,6 @@ func TestStrategyBotRunRecordRepositoryKeepsASpotRoundAsItWas(t *testing.T) {
 	assert.NotContains(t, string(wire), "suggestedNotional")
 }
 
-// An order the venue would have refused leaves nothing to remember.
 func TestStrategyBotRunRecordRepositoryRemembersNothingTheVenueWouldHaveRefused(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	botID := aBotToRecordAgainst(t, database)

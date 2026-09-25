@@ -9,16 +9,8 @@ import (
 
 //go:generate go tool mockgen -source=i_contract_funding_rate_proxy.go -destination=mocks/mock_i_contract_funding_rate_proxy.go -package=mocks
 
-// IContractFundingRateProxy fetches a perpetual contract's funding rate settlements.
-//
-// One call, one answer: every settlement strictly after the given moment, up to now,
-// oldest first. A zero moment means from the very first settlement the contract ever
-// had. That the venue answers a page at a time, and how the first page has to be
-// asked for, is this contract's to hide.
-//
-// Nothing is judged here. A settlement the venue recorded no mark price for comes
-// back with that figure absent, because what an absent mark price means is a rule,
-// and rules belong to the domain.
+// IContractFundingRateProxy returns every settlement strictly after the given moment (zero means from the first ever), oldest first, hiding venue paging.
+// A settlement with no recorded mark price comes back with it absent; judging that is the domain's job.
 type IContractFundingRateProxy interface {
 	FetchFundingRateSettlements(
 		executionContext context.Context, symbol string, after time.Time,

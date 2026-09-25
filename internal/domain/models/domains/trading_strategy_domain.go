@@ -10,30 +10,17 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// tradingStrategyNameMaxLength is how long a trading strategy's name may be, counted
-// after the blanks around it are dropped. It matches a strategy script's limit and a
-// bot's rather than picking a third number, because there is no reason the three
-// would ever want to differ and three numbers are three things to keep in step.
+// tradingStrategyNameMaxLength matches the strategy script and bot name limits and applies
+// after trimming.
 const tradingStrategyNameMaxLength = 128
 
-// TradingStrategyDomain holds one trading strategy as it is being saved and
-// guarantees its own invariants. An instance only exists when every rule passed, so
-// there is no half-valid trading strategy.
-//
-// It delegates the two halves that have rules of their own — the sources and the
-// conditions — rather than restating them. That is also what makes the ordering here
-// matter: the sources are settled first because the conditions may only name labels
-// the sources declared, and the labels are not known until the sources are.
-//
-// It knows nothing about any bot. Which market to watch, how often, and whether
-// anything is running are questions about a machine following these rules, not about
-// the rules — which is the whole reason the two are separate things.
+// TradingStrategyDomain settles sources before conditions because conditions may only name
+// labels the sources declared.
 type TradingStrategyDomain struct {
 	id      uint
 	ownerID uint
 	name    string
-	// marketDataKind is which kind of market every one of its sources eats; a contract
-	// one also carries the trading mode its buys and sells are read by.
+	// marketDataKind also carries the trading mode for contract trading strategies.
 	marketDataKind MarketDataKindDomain
 	tradingMode    ContractTradingModeDomain
 	signalSources  TradingStrategySignalSourcesDomain
@@ -41,13 +28,7 @@ type TradingStrategyDomain struct {
 	sellCondition  TradingStrategyConditionDomain
 }
 
-// NewTradingStrategyDomain validates it against every rule that applies. The rules
-// are identical whether it is being created or rewritten, because both arrive here
-// as the same shape.
 func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStrategyDomain, error) {
-	// One with nobody behind it is refused here rather than at the store, because
-	// "every trading strategy has an owner" is a rule about trading strategies, not
-	// a constraint that happens to exist on a column.
 	if writeDto.OwnerID == 0 {
 		return TradingStrategyDomain{}, fmt.Errorf(
 			"%w: 交易策略必須屬於一位使用者", ErrTradingStrategyValidation)
@@ -70,17 +51,13 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 			ErrTradingStrategyValidation, tradingStrategyNameMaxLength)
 	}
 
-	// A set of rules is written for the one kind of account this system replays, so
-	// there is nothing here to choose. Declaring anything is refused in the same words
-	// a replay refuses it, because there is only one model that owns that sentence.
 	marketDataKind, kindError := NewMarketDataKindDomain(writeDto.MarketDataKind)
 	if kindError != nil {
 		return TradingStrategyDomain{}, fmt.Errorf("%w: %w", ErrTradingStrategyValidation, kindError)
 	}
 
-	// A K candle trading strategy is spot rules, and spot has no trading mode to name —
-	// the refusal is the spot replay's own, word for word. A contract one reads its
-	// trading mode, blank being long and short.
+	// Spot trading strategies refuse any trading mode with the spot replay's wording; blank
+	// means long and short for contracts.
 	tradingMode := ContractTradingModeDomain{}
 	if marketDataKind.Value() == vo.MarketDataKindKCandle {
 		if _, spotOnlyRefusal := NewSpotOnlyReplayDomain(
@@ -106,8 +83,6 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 		return TradingStrategyDomain{}, kindMismatch
 	}
 
-	// Both conditions are required. A set of rules missing one only ever says a
-	// single kind of thing, which is not a set of rules that judges anything.
 	buyCondition, buyError := NewTradingStrategyConditionDomain(
 		writeDto.BuyCondition, signalSources.Labels())
 	if buyError != nil {
@@ -132,7 +107,6 @@ func NewTradingStrategyDomain(writeDto dto.TradingStrategyWriteDto) (TradingStra
 	}, nil
 }
 
-// ToEntity is this trading strategy as the rows it is stored as.
 func (tradingStrategyDomain TradingStrategyDomain) ToEntity() entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID:             tradingStrategyDomain.id,

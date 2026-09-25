@@ -21,53 +21,36 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// botRunNow is the moment every round below happens at.
 var botRunNow = at(9, 15)
 
 type strategyBotRunUnderTest struct {
-	strategyBotRunApplication  *application.StrategyBotRunApplication
-	strategyBotRepository      *mocks.MockIStrategyBotRepository
-	kCandleRepository          *mocks.MockIKCandleRepository
-	indicatorScriptProxy       *mocks.MockIIndicatorScriptProxy
-	messageDeliveryProxy       *mocks.MockIMessageDeliveryProxy
-	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
-	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
-	// kCandleContractRepository and contractIndicatorScriptProxy are the contract
-	// market a contract bot reads its signals and its reference price from.
-	kCandleContractRepository    *mocks.MockIKCandleContractRepository
-	contractIndicatorScriptProxy *mocks.MockIContractIndicatorScriptProxy
-	// contractTradingSymbolRepository, contractMaintenanceMarginTierRepository and
-	// contractFundingRateSettlementRepository are the venue a contract suggestion is
-	// worked out by.
+	strategyBotRunApplication               *application.StrategyBotRunApplication
+	strategyBotRepository                   *mocks.MockIStrategyBotRepository
+	kCandleRepository                       *mocks.MockIKCandleRepository
+	indicatorScriptProxy                    *mocks.MockIIndicatorScriptProxy
+	messageDeliveryProxy                    *mocks.MockIMessageDeliveryProxy
+	strategyScriptRepository                *mocks.MockIStrategyScriptRepository
+	telegramDeliveryRepository              *mocks.MockITelegramDeliveryRepository
+	kCandleContractRepository               *mocks.MockIKCandleContractRepository
+	contractIndicatorScriptProxy            *mocks.MockIContractIndicatorScriptProxy
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository *mocks.MockIContractFundingRateSettlementRepository
 	roundGuard                              *application.StrategyBotRoundGuard
-	// tradingStrategy is the rules every round in this file reads, held by pointer
-	// so that a test can change them and have the next round see the change — which
-	// is exactly what a round does against a set of rules somebody has edited.
-	tradingStrategy *entities.TradingStrategy
-	// tradingStrategyFailure makes that read fail instead, for the one test about a
-	// bot whose rules are gone.
+	// Held by pointer so a test can edit the rules and the next round sees the change.
+	tradingStrategy        *entities.TradingStrategy
 	tradingStrategyFailure *error
-	// appendedRunRecords is every round this fixture booked into the history.
-	//
-	// Captured on the one expectation the fixture already sets rather than left to a
-	// test to expect for itself: that expectation is AnyTimes, so gomock would match
-	// it first and a second one added later would never fire.
+	// Captured by the fixture's own AnyTimes expectation, since gomock would match it before any later one a test adds.
 	appendedRunRecords *[]dto.StrategyBotRunRecordWriteDto
 	t                  *testing.T
 }
 
-// newStrategyBotRunUnderTest wires the real services and models a round goes
-// through — resolving a strategy script, running its script, reading the conditions,
-// working out what a failure means — and mocks only storage, script execution and
-// the carrier.
+// newStrategyBotRunUnderTest wires the real services a round goes through, mocking only storage, script execution and the carrier.
 func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	controller := gomock.NewController(t)
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
-	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
+	// 歷史寫入與這些測試無關，一律放行。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
 	appendedRunRecords := []dto.StrategyBotRunRecordWriteDto{}
 	strategyBotRunRecordRepository.EXPECT().
@@ -85,7 +68,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(botRunNow).AnyTimes()
 
-	// 測試拿得到那把鎖，才問得出「正在跑的時候按下去會怎樣」。
+	// 讓測試能自己佔住鎖，模擬「正在跑的時候按下去」。
 	roundGuard := application.NewStrategyBotRoundGuard()
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
@@ -113,7 +96,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
 	secretSealProxy.EXPECT().Unseal("sealed").Return("the-token", nil).AnyTimes()
 
-	// 合約那一條線：只有合約機器人會讀到。資金費率與持倉統計不是這幾個測試在問的事。
+	// 只有合約機器人會讀到；資金費率與持倉統計與這些測試無關。
 	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(controller)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
 	contractFundingRateSettlementRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -124,7 +107,6 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	contractPositionStatisticRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).AnyTimes()
 	contractIndicatorScriptProxy := mocks.NewMockIContractIndicatorScriptProxy(controller)
-	// 合約機器人要建議部位時才讀：交易規格、分級與最近一次資金費率結算。
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
@@ -175,14 +157,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	}
 }
 
-// expectDeliverySetting 讓這位使用者有一個講得出話的地方。
-//
-// 它不是預設就有的：有沒有設定是這一段少數幾個**改得動結果**的前提之一——
-// 設定被移除時機器人要停擺，而不是靜靜跳過。
-// expectNoRoundMessage 說的是「這一輪不對市場說話」。
-//
-// 它不是「一則都不送」：機器人**關於它自己**的動靜——被系統停下來了——是另一回事，
-// 而那一則正是使用者最需要收到的。兩者用開頭那個括號分得出來。
+// expectNoRoundMessage 只禁止對市場說話的訊息；機器人關於自己停擺的通知仍放行。
 func (underTest strategyBotRunUnderTest) expectNoRoundMessage() {
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -203,8 +178,6 @@ func (underTest strategyBotRunUnderTest) expectDeliverySetting() {
 		}, nil).AnyTimes()
 }
 
-// aDueBot is one running bot, due now, following the rules aDueTradingStrategy
-// describes.
 func aDueBot(lastSentSignal string) entities.StrategyBot {
 	return entities.StrategyBot{
 		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", Symbol: "BTCUSDT",
@@ -212,19 +185,14 @@ func aDueBot(lastSentSignal string) entities.StrategyBot {
 		TradingStrategy:        entities.TradingStrategy{ID: botsTradingStrategyID, Name: "黃金交叉"},
 		TriggerIntervalMinutes: 5,
 		RunState:               string(vo.StrategyBotRunning),
-		// 這一輪是憑這個時刻被領走的。送出前與寫回前都會再確認它沒有被別人動過。
+		// 送出前與寫回前都會以此時刻確認這台機器人沒被別人動過。
 		NextRunAt:      botRunNow.Add(-time.Minute),
 		LastSentSignal: lastSentSignal,
 	}
 }
 
-// aDueTradingStrategy is two sources and the conditions "buy when both say buy" and
-// "sell when A says sell", written for an account that cannot short.
-//
-// Spot rather than the default, because these tests are what holds the wording of a
-// bot's message to the letter — it is the half of this that must not move, and
-// asserting it here means any drift shows up as a failing message rather than as a
-// message nobody compared.
+// aDueTradingStrategy buys when A and B both say buy and sells when A says sell, on a spot
+// account so these tests pin the exact wording of a spot bot's message.
 func aDueTradingStrategy() entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID: botsTradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
@@ -251,12 +219,7 @@ func parentOf(id uint) *uint {
 	return &id
 }
 
-// expectSources makes both strategy scripts resolvable and has each one's script say its
-// own signal.
-//
-// Which signal belongs to which source is keyed on the script rather than on the
-// order the runner is called in, because the sources run side by side: an assertion
-// that depended on that order would pass or fail depending on which goroutine won.
+// expectSources keys each signal on the script, not call order, because sources run concurrently.
 func (underTest strategyBotRunUnderTest) expectSources(
 	firstSourceSignal vo.SignalVo, secondSourceSignal vo.SignalVo,
 ) {
@@ -289,8 +252,6 @@ func (underTest strategyBotRunUnderTest) expectSources(
 		}).AnyTimes()
 }
 
-// scriptOfStrategyScript gives each strategy script a script of its own, which is what lets a
-// test say which source said what without depending on when each one ran.
 func scriptOfStrategyScript(id uint) string {
 	return fmt.Sprintf("the script of %d", id)
 }
@@ -346,8 +307,7 @@ func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *t
 		Return(aDueBot(string(vo.SignalBuy)), nil)
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
-	// A bot waking every five minutes on a condition that holds for an hour reaches
-	// the same conclusion twelve times. Sending all twelve gets the bot muted.
+	// A repeated conclusion is not resent, or a long-held condition would spam the owner.
 	underTest.expectNoRoundMessage()
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -358,9 +318,7 @@ func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *t
 func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
-	// A says sell — which is the whole sell condition — while the buy condition is
-	// "A and B both buy". To hold both at once the bot needs a buy condition A also
-	// satisfies, so this one uses a bot whose conditions overlap on purpose.
+	// Conditions overlap on purpose so buy (B) and sell (A) both hold at once.
 	conflictingBot := aDueBot(string(vo.SignalBuy))
 	underTest.tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
 		{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
@@ -484,8 +442,7 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 				Script: scriptOfStrategyScript(id), ResultType: "signal",
 			}, nil
 		}).AnyTimes()
-	// Nothing stored yet: the calculation refuses for want of candles, which is a
-	// failure that tomorrow fixes by itself.
+	// No candles yet is a failure that fixes itself, so the bot waits.
 	underTest.kCandleRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
 		Return([]entities.KCandle{}, nil).AnyTimes()
@@ -573,8 +530,7 @@ func TestStrategyBotRunApplicationReadsTelegramsRefusalTheWayItWasMeant(t *testi
 				DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
 					assert.Equal(t, string(testCase.expectedRunState), bot.RunState)
 					assert.Equal(t, string(testCase.expectedHaltReason), bot.HaltReason)
-					// Nothing arrived, so nothing was said: the next round offers
-					// the same conclusion again rather than assuming it got through.
+					// Undelivered means unsaid, so the next round offers the conclusion again.
 					assert.Empty(t, bot.LastSentSignal)
 
 					return nil
@@ -604,7 +560,6 @@ func TestStrategyBotRunApplicationStillSendsWhenThereIsNoPriceToQuote(t *testing
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
 		) (vo.DeliveryFailureReasonVo, error) {
-			// The conclusion is the part somebody acts on; the price is context.
 			assert.Contains(t, message, "【買入】")
 			assert.Contains(t, message, "讀不到這個交易標的的最新 K 線")
 
@@ -644,10 +599,7 @@ func TestStrategyBotRoundGuardKeepsOneBotToOneRoundAtATime(t *testing.T) {
 	roundGuard := application.NewStrategyBotRoundGuard()
 
 	assert.True(t, roundGuard.TryEnter(strategyBotID))
-	// A round waiting behind the one in flight would read the same candles and
-	// arrive as a second message saying the same thing.
 	assert.False(t, roundGuard.TryEnter(strategyBotID))
-	// A different bot is nothing to do with it.
 	assert.True(t, roundGuard.TryEnter(strategyBotID+1))
 
 	roundGuard.Leave(strategyBotID)
@@ -659,9 +611,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	// A condition naming a label this bot no longer declares. It is not one of the
-	// four things a person can go and correct, so it skips rather than halts — the
-	// rule that covers anything unrecognised.
+	// A condition naming an undeclared label is not user-correctable, so it skips rather than halts.
 	brokenBot := aDueBot("")
 	underTest.tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
 		{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
@@ -700,8 +650,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 		Return(aDueBot(""), nil).AnyTimes()
 	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
-	// Not Telegram refusing — this side failing to ask at all. It is not one of the
-	// four reasons, so the round waits rather than stopping the bot.
+	// This side failing to ask (not Telegram refusing) waits rather than halting the bot.
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(vo.DeliveryFailureNone, errors.New("the request could not be built"))
@@ -720,20 +669,12 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 	require.NoError(t, runError)
 }
 
-// One round per bot per scan, whatever the batch says.
-//
-// This used to lean on the mid-round claim to skip the second entry, which only held
-// while the first round was still in flight. A round that finished before the loop
-// reached the second entry released the claim, the second entry took it, and the same
-// bot ran twice — two messages, same candles, same answer. Whether that happened came
-// down to how fast the round was, so the test passed on one machine and failed on
-// another. The scan decides it now, before anything is dispatched.
+// One round per bot per scan even when the batch names it twice, independent of round timing.
 func TestStrategyBotRunApplicationLeavesABotThatIsAlreadyMidRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot(""), aDueBot("")}, nil)
-	// Both entries name the same bot, so the second is dropped by the scan.
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).Times(1)
 	underTest.expectDeliverySetting()
@@ -794,9 +735,7 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			testCase.arrange(underTest)
 
-			// One bot's round failing to be recorded is that bot's problem. The scan
-			// still reports the round as run, and the bots beside it are untouched:
-			// a scan that gave up here would stop every other bot in the system.
+			// A failed record is that bot's problem; the scan must not give up on the others.
 			roundsRun, runError := underTest.strategyBotRunApplication.RunDueRounds(
 				context.Background())
 
@@ -811,9 +750,6 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	// The sell tree is checked as thoroughly as the buy one. Checked only on one
-	// side, a bot with a broken sell condition would keep concluding "buy" from a
-	// tree nobody had looked at.
 	brokenBot := aDueBot("")
 	underTest.tradingStrategy.ConditionNodes = []entities.TradingStrategyConditionNode{
 		{ID: 10, TradingStrategyID: botsTradingStrategyID, Side: "buy",
@@ -851,8 +787,6 @@ func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
 		) (vo.DeliveryFailureReasonVo, error) {
-			// Nothing stored is an ordinary state, not a failure — and the message
-			// still goes out, because the conclusion is the part somebody acts on.
 			assert.Contains(t, message, "【買入】")
 			assert.Contains(t, message, "讀不到這個交易標的的最新 K 線")
 
@@ -882,11 +816,7 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 			vo.SignalIndicatorKey: {Signal: vo.SignalHold},
 		}, nil).AnyTimes()
 
-	// Each source stops at the start of the interval it is still inside: the hourly
-	// one at the top of this hour, the five-minute one at 09:15. Two sources sharing
-	// one coarseness could not tell an hourly average for direction from a
-	// five-minute oscillator for timing, which is the whole reason coarseness lives
-	// on the source and not on the bot.
+	// Each source stops at the start of its current interval: hourly at 09:00, five-minute at 09:15.
 	cutoffs := make(chan time.Time, 8)
 	underTest.kCandleRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
@@ -924,12 +854,10 @@ func TestStrategyBotRunApplicationSaysNothingForABotDeletedMidRound(t *testing.T
 
 	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
-	// 這一輪算完之後它就不在了。
+	// 這一輪算完之後機器人已被刪除。
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(entities.StrategyBot{}, domains.StrategyBotNotFound(strategyBotID)).AnyTimes()
 
-	// 一則來自剛被刪掉的機器人的訊息是一輪絕對不能送的東西：
-	// 它的擁有者已經沒有任何地方可以回去看它是從哪來的。
 	underTest.expectNoRoundMessage()
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -942,7 +870,7 @@ func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *tes
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	// 這一輪開始之後，擁有者停了又啟動——啟動把 NextRunAt 設成現在、把上次訊號清空。
+	// 這一輪開始後擁有者停了又啟動，NextRunAt 被設成現在、上次訊號被清空。
 	restarted := aDueBot("")
 	restarted.NextRunAt = botRunNow
 
@@ -951,9 +879,7 @@ func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *tes
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(restarted, nil).AnyTimes()
 
-	// 這一輪講的已經不是這台機器人現在的狀態了，所以它一個字都不寫回去——
-	// 寫回去的話，剛按下的那個「立刻跑第一輪」會被推遲一個間隔，
-	// 而被清空的上次訊號會復活，把啟動後的第一個結論吃掉。
+	// 寫回會推遲剛啟動的第一輪並復活被清空的上次訊號，所以一個字都不寫。
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).Times(0)
 	underTest.expectNoRoundMessage()
@@ -981,9 +907,7 @@ func TestStrategyBotRunApplicationHaltsWhenTheDeliverySettingIsGone(t *testing.T
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
-			// 沒地方講話的機器人，執行中與已停止之間沒有任何差別——
-			// 而這正是當初拒絕啟動它的理由。跳過這一輪的話，它會永遠靜靜地
-			// 保持「執行中」、沒有原因、什麼都不說。
+			// 沒地方講話的機器人要停擺，否則會永遠靜靜地保持「執行中」。
 			assert.Equal(t, string(vo.StrategyBotStopped), bot.RunState)
 			assert.Equal(t, string(vo.StrategyBotHaltDeliveryNotConfigured), bot.HaltReason)
 
@@ -996,7 +920,6 @@ func TestStrategyBotRunApplicationHaltsWhenTheDeliverySettingIsGone(t *testing.T
 }
 
 func TestStrategyBotRunApplicationRunsARoundByHandDownTheSamePath(t *testing.T) {
-	// 按下去看到的，必須就是它自己跑會做的事——不然這顆鍵沒辦法用來確認任何事。
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
@@ -1027,8 +950,6 @@ func TestStrategyBotRunApplicationRunsARoundByHandDownTheSamePath(t *testing.T) 
 }
 
 func TestStrategyBotRunApplicationRunsAStoppedBotByHand(t *testing.T) {
-	// 派它出去之前先試一次，是確認它說的是不是你要的意思最普通的做法。
-	// 非要執行中才試得動的話，唯一的測法就是讓它一直跑著。
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
@@ -1047,7 +968,7 @@ func TestStrategyBotRunApplicationRunsAStoppedBotByHand(t *testing.T) {
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updated entities.StrategyBot) error {
-			// 跑一輪不會把它打開——那是電源鍵的事。
+			// 手動跑一輪不會啟動它。
 			assert.Equal(t, string(vo.StrategyBotStopped), updated.RunState)
 
 			return nil
@@ -1060,8 +981,6 @@ func TestStrategyBotRunApplicationRunsAStoppedBotByHand(t *testing.T) {
 }
 
 func TestStrategyBotRunApplicationRefusesAHandPressedRoundWhileOneIsInFlight(t *testing.T) {
-	// 排隊的那一輪會讀到同樣的 K 線、得到同樣的答案，而後跑完的那一個會發現
-	// 這台機器人已經往前走了。
 	underTest := newStrategyBotRunUnderTest(t)
 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
@@ -1086,12 +1005,7 @@ func TestStrategyBotRunApplicationRefusesToRunSomebodyElsesBotByHand(t *testing.
 	require.ErrorIs(t, runError, domains.ErrStrategyBotNotFound)
 }
 
-// A bot whose rules are gone has nothing left to run, and waiting fixes nothing.
-//
-// Deleting a set of rules is refused while any bot follows it, so this is very nearly
-// unreachable — but "very nearly" is why it halts rather than skips: a bot reporting
-// itself as running while saying nothing for ever is the one outcome its owner can
-// neither see nor fix.
+// A bot whose rules are gone halts rather than skips, since waiting fixes nothing.
 func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
@@ -1100,8 +1014,7 @@ func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil)
 	*underTest.tradingStrategyFailure = domains.TradingStrategyNotFound(botsTradingStrategyID)
-	// Halting says so out loud, and the message names which of the six reasons it
-	// was — a bot that stops without saying why leaves its owner nothing to act on.
+	// The halt message names its reason.
 	underTest.expectDeliverySetting()
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -1126,8 +1039,7 @@ func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 	require.NoError(t, runError)
 }
 
-// aPositionPlannedDueBot is a due bot that suggests a position: fifty thousand,
-// staking a tenth of it, out at three and five percent.
+// aPositionPlannedDueBot stakes 10% of 50000 with a 3% stop loss and 5% take profit.
 func aPositionPlannedDueBot() entities.StrategyBot {
 	bot := aDueBot("")
 	bot.PositionPlanCapital = decimal.NewFromInt(50000)
@@ -1139,9 +1051,7 @@ func aPositionPlannedDueBot() entities.StrategyBot {
 	return bot
 }
 
-// The whole point of the slice, end to end: the figures reach the message its owner
-// reads, and the history they read it back in — worked out once, so the two cannot
-// disagree.
+// The planned figures reach both the message and the history, computed once so they cannot disagree.
 func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
@@ -1160,7 +1070,6 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
 		) (vo.DeliveryFailureReasonVo, error) {
-			// A tenth of fifty thousand, out three percent below and five above.
 			assert.Contains(t, message, "開倉金額 5000")
 			assert.Contains(t, message, "止損 62255.085（往下，虧 150）")
 			assert.Contains(t, message, "止盈 67389.525（往上，賺 250）")
@@ -1175,8 +1084,6 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 
 	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
 
-	// The very figures the message carried. Worked out once, read twice — so the
-	// history and the message cannot disagree about what was suggested.
 	require.Len(t, *underTest.appendedRunRecords, 1)
 	recorded := (*underTest.appendedRunRecords)[0]
 	require.True(t, recorded.HasPositionPlan)

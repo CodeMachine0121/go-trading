@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aBotWriteDto is a bot that passes every rule, so that a test changing one field
-// says exactly which rule it is about.
+// aBotWriteDto passes every rule, so each test changes only the field under test.
 func aBotWriteDto() dto.StrategyBotWriteDto {
 	return dto.StrategyBotWriteDto{
 		OwnerID:                7,
@@ -35,7 +34,6 @@ func TestNewStrategyBotDomainAcceptsAWellFormedBot(t *testing.T) {
 	assert.Equal(t, "BTCUSDT", botEntity.Symbol)
 	assert.Equal(t, uint(9), botEntity.TradingStrategyID)
 	assert.Equal(t, 5, botEntity.TriggerIntervalMinutes)
-	// A saved bot is always stopped. Saving one must not be able to start it.
 	assert.Equal(t, string(vo.StrategyBotStopped), botEntity.RunState)
 }
 
@@ -76,9 +74,8 @@ func TestNewStrategyBotDomainRefusals(t *testing.T) {
 			expectedMessage: "長度上限為 128 個字",
 		},
 		{
-			// A name carrying a NUL cannot be stored by PostgreSQL at all, so it is
-			// refused as a bad name here rather than surfacing later as a storage
-			// failure nobody can act on.
+			// PostgreSQL cannot store NUL in text, so it is refused as a bad name rather
+			// than failing at storage.
 			name:            "a name carrying a null character",
 			mutate:          func(writeDto *dto.StrategyBotWriteDto) { writeDto.Name = "早盤\x00突破" },
 			expectedMessage: "不得包含空字元",
@@ -99,8 +96,6 @@ func TestNewStrategyBotDomainRefusals(t *testing.T) {
 			expectedMessage: "觸發間隔上限是 1440 分鐘",
 		},
 		{
-			// A bot is rules plus a machine. Without the rules it is a machine with
-			// nothing to do, which is not a bot anybody can start.
 			name:            "no trading strategy named",
 			mutate:          func(writeDto *dto.StrategyBotWriteDto) { writeDto.TradingStrategyID = 0 },
 			expectedMessage: "必須指名這台機器人要用哪一份交易策略",
@@ -120,8 +115,7 @@ func TestNewStrategyBotDomainRefusals(t *testing.T) {
 	}
 }
 
-// A bot carries no rules of its own. It names a set and nothing more, which is what
-// lets three bots watch three markets by one set instead of three copies that drift.
+// A bot only names a trading strategy, so several bots can share one set of rules.
 func TestNewStrategyBotDomainCarriesNoRulesOfItsOwn(t *testing.T) {
 	strategyBot, buildError := domains.NewStrategyBotDomain(aBotWriteDto())
 	require.NoError(t, buildError)
@@ -132,10 +126,7 @@ func TestNewStrategyBotDomainCarriesNoRulesOfItsOwn(t *testing.T) {
 	assert.Zero(t, botEntity.TradingStrategy.ID)
 }
 
-// A bot's symbol is what its rounds later query with. Lower case is not a mistake
-// anybody can see — it reads as the instrument it means — so it is normalised rather
-// than refused, and normalised here so that what was written and what is later read
-// cannot disagree.
+// Lower-case symbols are normalised rather than refused so writes and later reads agree.
 func TestNewStrategyBotDomainStoresTheSymbolInOneCase(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -162,8 +153,7 @@ func TestNewStrategyBotDomainStoresTheSymbolInOneCase(t *testing.T) {
 	}
 }
 
-// aPositionPlannedBotWriteDto is a bot that suggests a position: fifty thousand,
-// staking a tenth of it, out at three and five percent.
+// aPositionPlannedBotWriteDto stakes a tenth of 50000 with 3% and 5% exits.
 func aPositionPlannedBotWriteDto() dto.StrategyBotWriteDto {
 	writeDto := aBotWriteDto()
 	writeDto.PositionPlan = dto.PositionPlanSettingsDto{
@@ -191,8 +181,7 @@ func TestNewStrategyBotDomainKeepsThePositionPlanItWasGiven(t *testing.T) {
 	assert.Equal(t, "5", botEntity.PositionPlanTakeProfitPercentage.String())
 }
 
-// Leaving the whole group out is an ordinary thing to do — it is what every bot
-// stored before position plans existed reads as.
+// Bots stored before position plans existed read as having none.
 func TestNewStrategyBotDomainAcceptsABotWithNoPositionPlan(t *testing.T) {
 	strategyBot, buildError := domains.NewStrategyBotDomain(aBotWriteDto())
 	require.NoError(t, buildError)
@@ -207,9 +196,7 @@ func TestNewStrategyBotDomainRefusesAPositionPlanItCannotUse(t *testing.T) {
 		expectedWords string
 	}{
 		{
-			// The replay's own sentence, carried through rather than reworded — so a
-			// bot and a replay cannot end up disagreeing about what a percentage of a
-			// hundred and fifty means.
+			// The replay's own wording is reused so bots and replays cannot disagree.
 			name: "a percentage above a hundred",
 			adjust: func(settings *dto.PositionPlanSettingsDto) {
 				settings.SizingValue = decimal.NewFromInt(150)
@@ -240,9 +227,6 @@ func TestNewStrategyBotDomainRefusesAPositionPlanItCannotUse(t *testing.T) {
 			_, buildError := domains.NewStrategyBotDomain(writeDto)
 
 			require.Error(t, buildError)
-			// The one sentinel every refused bot carries, so that a controller maps
-			// this without learning a second one — and so that nobody is told a
-			// backtest failed while saving a bot.
 			assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
 			assert.Contains(t, buildError.Error(), testCase.expectedWords)
 			assert.NotContains(t, buildError.Error(), "backtest")
@@ -250,8 +234,6 @@ func TestNewStrategyBotDomainRefusesAPositionPlanItCannotUse(t *testing.T) {
 	}
 }
 
-// A bot may only ever suggest what a replay could have modelled, and nothing here
-// lends. The refusal is the replay's own sentence, because there is one of it.
 func TestNewStrategyBotDomainRefusesBorrowing(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -264,8 +246,6 @@ func TestNewStrategyBotDomainRefusesBorrowing(t *testing.T) {
 			expectsSaving: false,
 		},
 		{
-			// No loan, so the rule does not apply. This is the shape of every bot
-			// this system has ever stored.
 			name:          "suggesting no leverage at all",
 			leverage:      "0",
 			expectsSaving: true,
@@ -291,20 +271,15 @@ func TestNewStrategyBotDomainRefusesBorrowing(t *testing.T) {
 
 			require.Error(t, buildError)
 			assert.ErrorIs(t, buildError, domains.ErrStrategyBotValidation)
-			// Word for word what a replay says about the same figure, because there
-			// is one sentence and both ask the same model for it.
+			// Same wording as the replay, since both use one model.
 			assert.Contains(t, buildError.Error(),
 				"這個系統只重演現貨，開不了槓桿——現貨是拿現金換東西，沒有人借錢給你")
 		})
 	}
 }
 
-// A negative multiplier is refused, where saving a bot used to read it as one times
-// and save it.
-//
-// A replay always refused it; only this path did not, because it had its own copy of
-// the rule and that copy answered a negative before it answered "below one". The two
-// share one model now, so there is no longer a figure the two doors disagree about.
+// A negative multiplier is refused, not read as one, now that bots and replays share the
+// leverage rule.
 func TestNewStrategyBotDomainRefusesANegativeMultiplierRatherThanReadingItAsOne(t *testing.T) {
 	writeDto := aPositionPlannedBotWriteDto()
 	writeDto.DeclaredLeverage = decimal.RequireFromString("-2")

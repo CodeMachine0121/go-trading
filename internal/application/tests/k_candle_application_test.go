@@ -52,8 +52,8 @@ type applicationUnderTest struct {
 	kCandleRepository  *mocks.MockIKCandleRepository
 }
 
-// newApplicationUnderTest wires the real domain service and real domain models,
-// mocking only the outermost boundaries: storage and the clock.
+// newApplicationUnderTest wires the real domain service and models, mocking only storage and the
+// clock.
 func newApplicationUnderTest(t *testing.T) applicationUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -212,9 +212,8 @@ func TestKCandleApplicationGetUpdateDelete(t *testing.T) {
 	})
 }
 
-// cryptoOnlyCatalog is the market this file's symbols trade on: the round-the-clock
-// one, whose every minute holds market. A venue that shuts is what the market-hours
-// tests are for; here it would only add a second reason for a number to change.
+// cryptoOnlyCatalog trades round the clock so market hours never affect these numbers; closing
+// venues are covered by the market-hours tests.
 func cryptoOnlyCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 }

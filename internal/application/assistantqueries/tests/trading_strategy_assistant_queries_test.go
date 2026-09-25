@@ -20,8 +20,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// assistantTradingStrategyID is the one trading strategy every case below reads or
-// rewrites.
 const assistantTradingStrategyID = uint(11)
 
 type tradingStrategyAssistantQueriesUnderTest struct {
@@ -33,9 +31,7 @@ type tradingStrategyAssistantQueriesUnderTest struct {
 	strategyBotRepository     *mocks.MockIStrategyBotRepository
 }
 
-// newTradingStrategyAssistantQueriesUnderTest wires the real application, the real
-// domain services and the real models, mocking only storage — so every rule that
-// governs a person building a trading strategy governs the assistant building one.
+// newTradingStrategyAssistantQueriesUnderTest mocks only storage, so the assistant is bound by every rule a person is.
 func newTradingStrategyAssistantQueriesUnderTest(t *testing.T) tradingStrategyAssistantQueriesUnderTest {
 	controller := gomock.NewController(t)
 
@@ -80,8 +76,7 @@ func newTradingStrategyAssistantQueriesUnderTest(t *testing.T) tradingStrategyAs
 	}
 }
 
-// aStoredTradingStrategy is one trading strategy as it comes back from storage: a
-// single source A reading hourly candles, buying on A's buy and selling on A's sell.
+// aStoredTradingStrategy has a single hourly source A, buying on A's buy and selling on A's sell.
 func aStoredTradingStrategy(id uint, name string, ownerID uint) entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID:        id,
@@ -105,8 +100,7 @@ func aStoredTradingStrategy(id uint, name string, ownerID uint) entities.Trading
 	}
 }
 
-// aWellFormedTradingStrategyArgument is what the assistant sends to build the same
-// trading strategy aStoredTradingStrategy describes.
+// aWellFormedTradingStrategyArgument builds the same strategy as aStoredTradingStrategy.
 const aWellFormedTradingStrategyArgument = `{
   "name": "動能追蹤",
   "signalSources": [
@@ -118,9 +112,7 @@ const aWellFormedTradingStrategyArgument = `{
 }`
 
 func TestTradingStrategyCreateAssistantQueryStoresItForWhoeverAskedTheAssistant(t *testing.T) {
-	// The assistant acts for the person who asked it. It never names an owner —
-	// there is no field for one — so a trading strategy it builds can only ever
-	// belong to them.
+	// The assistant cannot name an owner, so what it builds belongs to the asker.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
@@ -140,8 +132,7 @@ func TestTradingStrategyCreateAssistantQueryStoresItForWhoeverAskedTheAssistant(
 }
 
 func TestTradingStrategyCreateAssistantQueryOffersNoWayToNameAnOwner(t *testing.T) {
-	// An owner the assistant could name is an owner it could get wrong. The schema
-	// it is handed is the whole of what it may send, so the absence is checked there.
+	// The schema is the whole of what the assistant may send, so the missing owner field is checked there.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 
 	assert.NotContains(t, fixture.createAssistantQuery.ArgumentSchema(), "ownerId")
@@ -149,7 +140,7 @@ func TestTradingStrategyCreateAssistantQueryOffersNoWayToNameAnOwner(t *testing.
 }
 
 func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenTheNameIsTaken(t *testing.T) {
-	// A refusal is the assistant's to read and act on — it renames and sends again.
+	// The assistant reads the refusal and can rename and retry.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
@@ -164,8 +155,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenTheNameIsTake
 }
 
 func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenAConditionNamesAnUndeclaredLabel(t *testing.T) {
-	// The single most likely thing for the assistant to get wrong, and the one it
-	// is best placed to fix: it reads "C was never declared" and declares C.
+	// An undeclared source is the most likely assistant mistake, and the error tells it what to declare.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
@@ -219,9 +209,7 @@ func TestTradingStrategyUpdateAssistantQueryRewritesTheNamedOne(t *testing.T) {
 }
 
 func TestTradingStrategyUpdateAssistantQueryHandsBackTheRefusalWhenABotIsRunning(t *testing.T) {
-	// The assistant relays this rather than working around it: a round that began
-	// under one version of the rules and ended under another leaves nobody able to
-	// say which version it used.
+	// Relayed rather than worked around, since a round spanning two rule versions couldn't say which it used.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -246,8 +234,7 @@ func TestTradingStrategyUpdateAssistantQueryHandsBackTheRefusalWhenABotIsRunning
 }
 
 func TestTradingStrategyGetAssistantQueryReadsItInFull(t *testing.T) {
-	// Reading in full is what makes rewriting possible: a rewrite replaces
-	// everything, so the assistant has to know the rest before it changes one knob.
+	// A full read is needed because a rewrite replaces everything.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), assistantTradingStrategyID).
@@ -275,8 +262,7 @@ func TestTradingStrategyGetAssistantQueryAnswersSomebodyElsesAsNotFound(t *testi
 }
 
 func TestTradingStrategyListAssistantQueryNamesEachOneWithItsCoarseness(t *testing.T) {
-	// The coarseness travels with the digest so the assistant can tell at a glance
-	// which of these it cannot replay, without reading each one in full first. The
+	// The coarseness is in the digest so the assistant can see which strategies it cannot replay without reading each in full.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 
 	fixture.tradingStrategyRepository.EXPECT().
@@ -327,10 +313,7 @@ func TestTradingStrategyAssistantQueriesAreNamedSoTheAssistantCanTellThemApart(t
 }
 
 func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesAStrategyScriptItCannotSee(t *testing.T) {
-	// The assistant reaches strategy scripts through the same three gates a person
-	// does. A script that is somebody else's and not on the marketplace comes back as
-	// one that is not there — which is what stops a trading strategy's sources
-	// becoming a way to probe for other people's algorithms.
+	// Someone else's unpublished script reads as missing, so a strategy's sources can't probe other people's algorithms.
 	controller := gomock.NewController(t)
 
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
@@ -364,9 +347,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesA
 }
 
 func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceSetsAKnobNobodyDeclared(t *testing.T) {
-	// The other mistake the assistant is well placed to fix itself: it reads which
-	// knob was never declared and drops it. Caught here rather than at three in the
-	// morning when the script it feeds finally runs.
+	// An undeclared knob is refused at save time by name, rather than failing when the script runs.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 
@@ -382,8 +363,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceSetsAK
 	assert.Contains(t, runError.Error(), "這支腳本沒宣告過的參數")
 }
 
-// The assistant has no set of rules to pick, and the schema says so — otherwise it
-// would keep offering a choice that is refused on arrival.
+// The schema offers no trading mode, since any choice would be refused.
 func TestTradingStrategyWritingAssistantQueriesOfferNoTradingMode(t *testing.T) {
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 

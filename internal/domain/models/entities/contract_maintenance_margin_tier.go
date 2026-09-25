@@ -7,12 +7,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractMaintenanceMarginTier is one tier of a perpetual contract's maintenance
-// margin ladder. It is a plain data model: fields, persistence mapping and shape
-// conversion only.
-//
-// A ladder is only ever replaced whole, so every tier of one contract carries the same
-// confirmation time — the moment that ladder was the venue's answer.
+// ContractMaintenanceMarginTier ladders are replaced whole, so all tiers of one contract
+// share a confirmation time.
 type ContractMaintenanceMarginTier struct {
 	ID     uint   `gorm:"primaryKey"`
 	Symbol string `gorm:"size:64;not null;uniqueIndex:idx_contract_maintenance_margin_tiers_symbol_tier,priority:1"`
@@ -26,12 +22,10 @@ type ContractMaintenanceMarginTier struct {
 	ConfirmedAt           time.Time       `gorm:"type:timestamptz;not null"`
 }
 
-// TableName pins the table to ContractMaintenanceMarginTiers instead of GORM's default.
 func (contractMaintenanceMarginTier ContractMaintenanceMarginTier) TableName() string {
 	return "ContractMaintenanceMarginTiers"
 }
 
-// ToDto converts this tier into the shape the domain hands outwards.
 func (contractMaintenanceMarginTier ContractMaintenanceMarginTier) ToDto() dto.ContractMaintenanceMarginTierDto {
 	return dto.ContractMaintenanceMarginTierDto{
 		Symbol:                contractMaintenanceMarginTier.Symbol,

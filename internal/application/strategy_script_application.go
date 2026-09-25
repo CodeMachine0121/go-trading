@@ -7,11 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyScriptApplication orchestrates the saved strategy script use cases.
-//
-// Every one of them names who is asking. That is not plumbing: which strategy scripts
-// exist, for the purposes of an answer, depends on who is asking, so a use case
-// that did not know would have to guess.
 type StrategyScriptApplication struct {
 	strategyScriptService *service.StrategyScriptService
 }
@@ -50,13 +45,7 @@ func (strategyScriptApplication *StrategyScriptApplication) DeleteStrategyScript
 	return strategyScriptApplication.strategyScriptService.DeleteStrategyScript(executionContext, viewerID, id)
 }
 
-// ResolveRunnableStrategyScript hands back the algorithm behind an identifier, for
-// whoever may run it.
-//
-// It is exported because running is orchestrated one layer up — a calculation is a
-// strategy script service answer followed by a calculation service answer, and a domain
-// service does not call another domain service. What it returns never reaches a
-// controller.
+// ResolveRunnableStrategyScript returns the algorithm behind an identifier for whoever may run it; it is exported for cross-service orchestration and its result never reaches a controller.
 func (strategyScriptApplication *StrategyScriptApplication) ResolveRunnableStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.RunnableStrategyScriptDto, error) {

@@ -10,34 +10,19 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// strategyBotSignalSourceMaxCount is how many strategy scripts one bot may run.
-//
-// Every source is a whole indicator calculation of its own — a script interpreted
-// over freshly read candles — and they all happen again every trigger interval, for
-// every running bot. Ten is where one round stops being cheap.
+// strategyBotSignalSourceMaxCount bounds round cost, since every source is a full script run
+// per trigger for every running bot.
 const strategyBotSignalSourceMaxCount = 10
 
-// strategyBotSignalSourceLabelMaxLength is how long a label may be. Labels are
-// meant to be A, B, C: the thing a condition says out loud. The limit is generous
-// enough for a short word and short enough that a condition stays readable.
 const strategyBotSignalSourceLabelMaxLength = 32
 
-// TradingStrategySignalSourcesDomain is everything one bot's signal sources have to be
-// true of together: distinct labels, a bounded number of them, and values that the
-// strategy scripts they name actually declared.
-//
-// It is a model of the set rather than of one source, because every rule here is
-// about the set. A label is unique *among these*; the count is a count *of these*;
-// and the one rule that is about a single source — does this strategy script declare this
-// knob — is checked here too, because that is where the labels are already being
-// walked.
+// TradingStrategySignalSourcesDomain validates the source set: distinct labels, bounded
+// count, and only declared parameters.
 type TradingStrategySignalSourcesDomain struct {
 	sources []dto.TradingStrategySignalSourceWriteDto
 	labels  []string
 }
 
-// NewTradingStrategySignalSourcesDomain validates the sources against every rule that
-// applies to them.
 func NewTradingStrategySignalSourcesDomain(
 	sources []dto.TradingStrategySignalSourceWriteDto,
 ) (TradingStrategySignalSourcesDomain, error) {
@@ -68,9 +53,6 @@ func NewTradingStrategySignalSourcesDomain(
 				ErrTradingStrategyValidation, strategyBotSignalSourceLabelMaxLength)
 		}
 
-		// Two sources answering to one label would make every condition naming it
-		// mean two things at once, and no reading of that is the one somebody
-		// intended.
 		if slices.Contains(labels, label) {
 			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
 				"%w: 信號來源代號 %q 重複了，同一份交易策略內的代號必須各不相同",
@@ -88,15 +70,8 @@ func NewTradingStrategySignalSourcesDomain(
 				"%w: 信號來源 %q 的彙總刻度不對：%w", ErrTradingStrategyValidation, label, intervalError)
 		}
 
-		// A condition compares a source against buy, sell or hold. A strategy script
-		// that hands back numbers or true/false answers has none of those to give, so
-		// every condition naming this source would be a sentence with nothing on the
-		// other side of it — and nothing would say so until the bot woke up at three in
-		// the morning and stopped on a script failure.
-		//
-		// Refused here rather than filtered out of the picker, because the picker is
-		// one of several ways a source is named: the screen, the assistant, and a
-		// request written by hand all arrive at this model.
+		// A source must produce signals to be compared in conditions; this is refused here
+		// because sources can be named by the screen, the assistant or raw requests.
 		declaredResultType, resultTypeError := NewIndicatorResultTypeDomain(source.DeclaredResultType)
 		if resultTypeError != nil {
 			return TradingStrategySignalSourcesDomain{}, fmt.Errorf(
@@ -112,9 +87,7 @@ func NewTradingStrategySignalSourcesDomain(
 				string(declaredResultType.Value()), string(vo.IndicatorResultTypeSignal))
 		}
 
-		// Setting a knob the strategy script never declared is caught now rather than at
-		// three in the morning, when the same mistake would come back as a script
-		// failure and stop the bot.
+		// Undeclared parameters are refused now rather than failing the bot at run time.
 		for _, parameterValue := range source.ParameterValues {
 			parameterName := strings.TrimSpace(parameterValue.Name)
 			declaresIt := slices.ContainsFunc(
@@ -135,14 +108,8 @@ func NewTradingStrategySignalSourcesDomain(
 		labels = append(labels, label)
 	}
 
-	// Every source having its own coarseness would let somebody save a trading
-	// strategy that cannot do anything: replaying it is refused, and once it is
-	// running, two sources on two different clocks have their opinions read as two
-	// sentences about the same candle. Asked here, the refusal arrives while they are
-	// still looking at the form.
-	//
-	// It is asked after the loop rather than inside it because the question is about
-	// the set. Asked one at a time, the first source would be judged against nothing.
+	// Sources must share one interval, otherwise the trading strategy cannot be replayed and
+	// live signals would compare different candles.
 	intervals := make([]string, 0, len(settledSources))
 	for _, source := range settledSources {
 		intervals = append(intervals, source.AggregationInterval)
@@ -157,10 +124,8 @@ func NewTradingStrategySignalSourcesDomain(
 	return TradingStrategySignalSourcesDomain{sources: settledSources, labels: labels}, nil
 }
 
-// Labels are what the conditions may name, in the order they were declared.
-// RequireMarketDataKind refuses a source whose strategy script eats a different kind
-// of market from the trading strategy, naming it. The two kinds' bars are not the
-// same bars, so a condition tree cannot read one source's opinion beside another's.
+// RequireMarketDataKind refuses, by name, a source whose script reads a different kind of
+// market than the trading strategy.
 func (tradingStrategySignalSourcesDomain TradingStrategySignalSourcesDomain) RequireMarketDataKind(
 	marketDataKind MarketDataKindDomain,
 ) error {
@@ -185,8 +150,7 @@ func (tradingStrategySignalSourcesDomain TradingStrategySignalSourcesDomain) Lab
 	return tradingStrategySignalSourcesDomain.labels
 }
 
-// ToEntities flattens the sources into the rows they are stored as. Identifiers are
-// left unset: they belong to the store.
+// ToEntities leaves IDs unset for the store to assign.
 func (tradingStrategySignalSourcesDomain TradingStrategySignalSourcesDomain) ToEntities() []entities.TradingStrategySignalSource {
 	signalSources := make(
 		[]entities.TradingStrategySignalSource, 0, len(tradingStrategySignalSourcesDomain.sources))

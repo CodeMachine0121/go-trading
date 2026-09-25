@@ -7,28 +7,17 @@ import (
 	"os"
 )
 
-// IndicatorScriptWorkerCommand is the argument that turns the server binary into a
-// script compartment instead of a server. The service starts itself with it for every
-// run of a script.
+// IndicatorScriptWorkerCommand is the argument that makes the server binary act as a script compartment.
 const IndicatorScriptWorkerCommand = "indicator-script-worker"
 
-// IndicatorScriptWorker is the inside of a script compartment: it serves exactly one
-// request, in a process of its own, and then that process ends.
-//
-// What the request header announces decides everything else — the memory cap is set
-// and the matching sandbox is built from it before the script is looked at (see
-// indicatorScriptRequestHeader.answer).
+// IndicatorScriptWorker serves exactly one request in its own process, then exits.
 type IndicatorScriptWorker struct{}
 
 func NewIndicatorScriptWorker() *IndicatorScriptWorker {
 	return &IndicatorScriptWorker{}
 }
 
-// Serve reads one request from input, runs it, and writes the answer to output. It
-// returns the exit code the process should end with: zero whenever an answer was
-// written, however the script itself fared. A compartment that cannot even write its
-// answer has nothing left to say it with, so it says so on its error output and ends
-// with a failing code; the service reads that as the compartment having gone down.
+// Serve returns exit code zero whenever an answer was written, regardless of script outcome; a failure to write exits non-zero.
 func (indicatorScriptWorker *IndicatorScriptWorker) Serve(input io.Reader, output io.Writer) int {
 	decoder := gob.NewDecoder(input)
 

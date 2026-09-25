@@ -12,34 +12,18 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// tradingStatus is the only listing status whose candles will ever arrive. The venue
-// also publishes contracts it has stopped trading (SETTLING) and ones it has not
-// started (PENDING_TRADING), and both answer every fetch with nothing at all.
+// tradingStatus is the only status that yields candles; SETTLING and PENDING_TRADING contracts return nothing.
 const tradingStatus = "TRADING"
 
-// perpetualContractTypes are the venue's two kinds of contract that never deliver:
-// the crypto ones and the traditional-finance ones (gold, silver, a share). Both
-// carry a delivery date a century out, which is how the venue spells "no delivery".
-//
-// A dated future — CURRENT_QUARTER, NEXT_QUARTER, and whatever the venue adds next —
-// is not one of these, and is deliberately refused rather than followed: a watchlist
-// whose whole subject is 永續合約 must not quietly fill up with things that expire.
-//
-// **A kind this list does not recognise is refused, not assumed.** Refusing a new
-// perpetual kind is a sentence somebody reads and one line to fix; following a new
-// dated kind is a contract that silently stops producing candles on its delivery day.
+// perpetualContractTypes lists the non-delivering contract types; any unrecognised type, including dated futures, is refused rather than assumed perpetual.
 var perpetualContractTypes = map[string]bool{
 	"PERPETUAL":         true,
 	"TRADIFI_PERPETUAL": true,
 }
 
-// maintenanceMarginPercentScale turns the venue's maintenance margin, which it writes
-// as a percentage ("2.5000"), into the proportion the rest of the system speaks in.
-// The liquidation fee it already writes as a proportion ("0.012500").
+// maintenanceMarginPercentScale converts the venue's percentage maintenance margin to a proportion; the liquidation fee is already a proportion.
 var maintenanceMarginPercentScale = decimal.NewFromInt(100)
 
-// binanceContractFilter is one of the rules the venue attaches to a contract. Each
-// kind carries its own fields, and a field a kind does not carry arrives empty.
 type binanceContractFilter struct {
 	FilterType string `json:"filterType"`
 	TickSize   string `json:"tickSize"`
@@ -48,8 +32,6 @@ type binanceContractFilter struct {
 	Notional   string `json:"notional"`
 }
 
-// binanceContractListing is one contract in the venue's catalogue, as far as this
-// proxy reads it.
 type binanceContractListing struct {
 	Symbol             string                  `json:"symbol"`
 	Status             string                  `json:"status"`
@@ -59,50 +41,22 @@ type binanceContractListing struct {
 	Filters            []binanceContractFilter `json:"filters"`
 }
 
-// binanceContractExchangeInfo is the part of the venue's catalogue answer this needs.
-//
-// It reads fields the spot catalogue never had to: this venue answers with its whole
-// listing whatever it is asked, so whether a contract is tradable, whether it is
-// perpetual, and how trading it looks are all already in hand — and without the first
-// two the only question this proxy can answer is "is that string in the file", which
-// a delisted contract and a quarterly future both pass.
 type binanceContractExchangeInfo struct {
 	Symbols []binanceContractListing `json:"symbols"`
 }
 
-// binanceFundingInterval is one entry of the venue's list of contracts whose funding
-// settles on an interval of their own.
+// binanceFundingInterval lists only contracts with a non-default funding interval.
 type binanceFundingInterval struct {
 	Symbol               string `json:"symbol"`
 	FundingIntervalHours int    `json:"fundingIntervalHours"`
 }
 
-// BinanceContractSymbolLookupProxy answers whether Binance lists a perpetual
-// contract that can actually be followed, and how trading each one looks.
-//
-// It cannot be the spot lookup pointed at another address, and that is a fact about
-// the venue rather than a preference. The spot catalogue narrows to the pair it is
-// asked about and refuses an unknown one, which is what lets the spot lookup read a
-// refusal as "no such symbol". **The contract catalogue ignores the question
-// entirely** — asked about a pair that does not exist, it answers with the whole
-// catalogue and a perfectly ordinary success. A lookup written against the spot
-// behaviour would therefore call every typo a real contract.
-//
-// So the whole catalogue is fetched and scanned. That costs about a megabyte per
-// question, which is affordable because it is asked when somebody adds a contract to
-// the watchlist and once a day to refresh the specifications — and having the whole
-// catalogue is what lets the scan also refuse a contract that is listed but not
-// followable.
-//
-// **A specification takes two answers.** The catalogue says how finely a contract
-// trades; how often it settles its funding rate lives in a second list that names
-// only the contracts with a setting of their own.
+// BinanceContractSymbolLookupProxy scans the whole contract catalogue, because the venue ignores the symbol parameter and returns everything with a success; specifications also need the separate funding interval list.
 type BinanceContractSymbolLookupProxy struct {
 	baseUrl        string
 	fundingInfoUrl string
 	httpClient     *http.Client
-	// pacer is the contract venue's, shared with every other proxy that reaches it.
-	// The allowance is counted per venue rather than per kind of question.
+	// The pacer is shared with every proxy on the contract venue, since the allowance is per venue.
 	pacer RequestPacer
 }
 
@@ -117,19 +71,7 @@ func NewBinanceContractSymbolLookupProxy(
 	}
 }
 
-// LookUpSymbol reports whether the contract venue lists the symbol as a perpetual
-// contract that is trading, and when it does, how trading it looks.
-//
-// **Being in the catalogue is not enough**, and the difference is not cosmetic. A
-// contract the venue has stopped trading stays listed for a while and answers every
-// fetch with nothing — so following one would put a symbol on the watchlist that is
-// fetched every minute forever and stores nothing, which on this venue is
-// indistinguishable from a quiet market because a perpetual contract is never
-// presumed shut. A dated future would do the same on its delivery day.
-//
-// It never carries a display name. A pair on this venue is already its own name, and
-// putting a translated one on screen would label it with something the venue has
-// never used.
+// LookUpSymbol accepts only trading perpetuals, since delisted contracts and dated futures stay in the catalogue but stop producing candles; it never sets a display name.
 func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, symbol string,
 ) (vo.ContractSymbolListingVo, error) {
@@ -147,20 +89,14 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) LookUp
 			return vo.ContractSymbolListingVo{}, nil
 		}
 
-		// The funding interval list not answering does not make the contract
-		// unfollowable either — the catalogue already said it is. Without the list the
-		// interval cannot be known, and guessing eight hours for a contract that settles
-		// every four would be wrong for a day, so no specification is handed on at all
-		// and the daily refresh records it.
+		// If the funding interval list fails the contract is still followable, but no specification is returned rather than guessing the interval.
 		fundingIntervals, intervalError := binanceContractSymbolLookupProxy.fetchFundingIntervals(
 			executionContext, symbol)
 		if intervalError != nil {
 			return vo.ContractSymbolListingVo{IsListed: true}, nil
 		}
 
-		// A specification spelled in a way this cannot read does not make the contract
-		// unfollowable. It is handed on empty, which is no specification at all, and
-		// the daily refresh tries again.
+		// An unreadable specification is returned empty and the daily refresh retries.
 		specification, specificationError := listing.toContractTradingSpecificationVo(fundingIntervals)
 		if specificationError != nil {
 			return vo.ContractSymbolListingVo{IsListed: true}, nil
@@ -172,9 +108,7 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) LookUp
 	return vo.ContractSymbolListingVo{}, nil
 }
 
-// FetchTradingSpecifications reports the specification of every contract the venue
-// lists as a perpetual that is trading. A contract it no longer lists that way — or
-// lists in a form this cannot read — is simply absent from the answer.
+// FetchTradingSpecifications returns specifications for trading perpetuals; unreadable or no-longer-listed contracts are absent.
 func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) FetchTradingSpecifications(
 	executionContext context.Context,
 ) ([]vo.ContractTradingSpecificationVo, error) {
@@ -198,9 +132,7 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) FetchT
 			continue
 		}
 
-		// One listing the venue spelled in a way this cannot read is left out rather
-		// than failing the whole answer: absent means "keep what was confirmed last",
-		// and every other contract's refresh should not wait on one odd entry.
+		// Skip one unreadable listing rather than failing all; absent means keep the last confirmed specification.
 		specification, specificationError := listing.toContractTradingSpecificationVo(fundingIntervals)
 		if specificationError != nil {
 			continue
@@ -211,8 +143,7 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) FetchT
 	return specifications, nil
 }
 
-// fetchCatalogue reads the venue's whole catalogue. subject is only what the error
-// names when it cannot.
+// fetchCatalogue reads the whole catalogue; subject only labels the error.
 func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) fetchCatalogue(
 	executionContext context.Context, subject string,
 ) (binanceContractExchangeInfo, error) {
@@ -231,8 +162,6 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) fetchC
 	return exchangeInfo, nil
 }
 
-// fetchFundingIntervals reads the venue's list of contracts whose funding settles on
-// an interval of their own, keyed by symbol.
 func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) fetchFundingIntervals(
 	executionContext context.Context, subject string,
 ) (map[string]int, error) {
@@ -255,11 +184,7 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) fetchF
 	return intervalsBySymbol, nil
 }
 
-// ask puts one question to the venue and hands the answer back as it arrived.
-//
-// **It stays a method of its own because of what it encloses: one answer's body, from
-// the moment it arrives to the moment it is let go** — and the catalogue is a
-// megabyte of it.
+// ask is separate so each response body (the catalogue is about a megabyte) is closed promptly.
 func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) ask(
 	executionContext context.Context, address string, subject string,
 ) ([]byte, error) {
@@ -291,19 +216,15 @@ func (binanceContractSymbolLookupProxy *BinanceContractSymbolLookupProxy) ask(
 	return answer, nil
 }
 
-// isFollowable says whether this listing is a perpetual that is trading.
 func (listing binanceContractListing) isFollowable() bool {
 	return listing.Status == tradingStatus && perpetualContractTypes[listing.ContractType]
 }
 
-// toContractTradingSpecificationVo reads this listing's specification. A contract the
-// funding interval list does not name is handed on with no interval at all, rather
-// than a guessed one: what that silence means is the domain's to say.
+// toContractTradingSpecificationVo leaves the interval absent for contracts not in the funding interval list; the domain decides what that means.
 func (listing binanceContractListing) toContractTradingSpecificationVo(
 	fundingIntervals map[string]int,
 ) (vo.ContractTradingSpecificationVo, error) {
-	// Each figure lives in the filter of its own kind; a kind the listing lacks leaves
-	// its figures empty, which fails to read below rather than passing as zero.
+	// A missing filter leaves its figures empty so parsing fails rather than reading as zero.
 	quotedTickSize, quotedStepSize, quotedMinimumQuantity, quotedMinimumNotional := "", "", "", ""
 	for _, filter := range listing.Filters {
 		switch filter.FilterType {

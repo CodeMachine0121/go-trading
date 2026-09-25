@@ -8,12 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
-// TradingSymbolListAssistantQuery lets the assistant find out which markets the
-// system knows about.
-//
-// It is the capability the assistant reaches for first, because every other one needs
-// a market named. Without it the assistant would have to guess at names, and a guessed
-// name comes back empty in a way that looks exactly like a market with no data.
+// TradingSymbolListAssistantQuery lists known markets so the assistant need not guess names, since
+// a guessed name comes back empty just like a market with no data.
 type TradingSymbolListAssistantQuery struct {
 	tradingSymbolApplication *application.TradingSymbolApplication
 }
@@ -37,8 +33,7 @@ func (tradingSymbolListAssistantQuery *TradingSymbolListAssistantQuery) Argument
 	return `{"type":"object","properties":{},"additionalProperties":false}`
 }
 
-// Run hands over every market the system knows about. Holding none is an answer, not
-// a refusal — a freshly built system genuinely knows of none.
+// Run lists every known market; holding none is an answer, since a fresh system knows of none.
 func (tradingSymbolListAssistantQuery *TradingSymbolListAssistantQuery) Run(
 	executionContext context.Context, _ uint, _ string,
 ) (string, error) {

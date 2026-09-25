@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// replayStart is where every replay below begins; candles run one hour apart so a
-// point on the curve is easy to name.
+// replayStart begins every replay; candles are one hour apart.
 var replayStart = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
 const (
@@ -21,7 +20,6 @@ const (
 	sellSignal = vo.SignalSell
 )
 
-// replayedCandleAt builds the nth candle of a replay closing at that price.
 func replayedCandleAt(candleIndex int, closePrice float64) vo.KCandleVo {
 	return vo.KCandleVo{
 		Symbol:              "BTCUSDT",
@@ -30,9 +28,7 @@ func replayedCandleAt(candleIndex int, closePrice float64) vo.KCandleVo {
 	}
 }
 
-// replayOf walks a strategy script over candles priced by closePrices, acting on the signal
-// standing at the same position. The two lists are always the same length here, which
-// is what the script runner guarantees.
+// replayOf pairs each candle with the signal at the same index, as the script runner guarantees.
 func replayOf(
 	t *testing.T,
 	initialCapital int64,
@@ -81,7 +77,7 @@ func TestBacktestSimulationHoldsOnePositionAtATime(t *testing.T) {
 
 		assert.Equal(t, 0, result.Summary.PositionOpenCount)
 		assert.Empty(t, result.ClosedTrades)
-		// There was nothing to sell, so the account never left cash.
+		// Nothing to sell, so the account never left cash.
 		assert.True(t, decimal.NewFromInt(10000).Equal(result.Summary.FinalEquity),
 			"final equity was %s", result.Summary.FinalEquity)
 	})
@@ -106,8 +102,7 @@ func TestBacktestSimulationHoldsOnePositionAtATime(t *testing.T) {
 		require.Len(t, result.ClosedTrades, 1)
 		assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
 		assert.True(t, decimal.NewFromInt(100).Equal(result.ClosedTrades[0].ExitPrice))
-		// One opening, not two: the sale went to cash rather than out the other way,
-		// so the fall to 90 happened to somebody else.
+		// The sale went to cash, so the fall to 90 didn't matter.
 		assert.Equal(t, 1, result.Summary.PositionOpenCount)
 		assert.True(t, decimal.NewFromInt(10000).Equal(result.Summary.FinalEquity),
 			"final equity was %s", result.Summary.FinalEquity)
@@ -153,7 +148,7 @@ func TestBacktestSimulationStakesWhatTheSizingModeSays(t *testing.T) {
 		assert.Equal(t, 0, result.Summary.PositionOpenCount)
 		assert.Empty(t, result.ClosedTrades)
 		assert.True(t, decimal.NewFromInt(2000).Equal(result.Summary.FinalEquity))
-		// Skipping is not failing: the curve still has a point per candle.
+		// A skipped opening still leaves one curve point per candle.
 		assert.Len(t, result.EquityCurve, 2)
 	})
 
@@ -242,9 +237,7 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 
 	t.Run("the win rate counts only the trades that made money", func(t *testing.T) {
-		// Each sell closes one round trip and each buy opens the next, so six
-		// alternating opinions leave three finished trades: 100 to 110, 100 to 120
-		// and 130 to 120. Only the last one lost.
+		// Six alternating signals give three trades: 100→110, 100→120 and 130→120; only the last lost.
 		result := replayOf(t, 10000, "percentage", 10,
 			[]float64{100, 110, 100, 120, 130, 120},
 			buySignal, sellSignal, buySignal, sellSignal, buySignal, sellSignal).ToDto()
@@ -255,8 +248,7 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 
 	t.Run("a trade that broke even does not count as a win", func(t *testing.T) {
-		// Bought at 100 and sold at 110 makes money; bought back at 110 and sold at
-		// that very same price gives nothing back.
+		// Bought back at 110 and sold at the same price: no gain, no loss.
 		result := replayOf(t, 10000, "percentage", 10,
 			[]float64{100, 110, 110, 110},
 			buySignal, sellSignal, buySignal, sellSignal).ToDto()
@@ -275,7 +267,7 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 
 	t.Run("a position still open counts as an opening but not as a trade", func(t *testing.T) {
-		// Buy, sell, buy again — the last one never closes.
+		// Buy, sell, buy: the last position never closes.
 		result := replayOf(t, 10000, "percentage", 10,
 			[]float64{100, 110, 120, 120},
 			buySignal, sellSignal, buySignal, holdSignal).ToDto()
@@ -320,35 +312,30 @@ func TestBacktestSimulationReportCard(t *testing.T) {
 	})
 }
 
-// One walk over three candles, read in full: it buys, it sells into cash, and the fall
-// afterwards happens to somebody else.
 func TestBacktestSimulationSitsInCashAfterSelling(t *testing.T) {
 	result := replayOf(t, 10000, "allIn", 0,
 		[]float64{100, 120, 90}, buySignal, sellSignal, holdSignal).ToDto()
 
-	// Bought at 100, sold at 120, and the drop to 90 happened to somebody else.
+	// Bought at 100, sold at 120; the drop to 90 happened after.
 	assert.True(t, decimal.NewFromInt(12000).Equal(result.Summary.FinalEquity),
 		"final equity was %s", result.Summary.FinalEquity)
 	assert.Equal(t, 1, result.Summary.PositionOpenCount)
 	require.Len(t, result.ClosedTrades, 1)
 	assert.Equal(t, string(vo.PositionDirectionLong), result.ClosedTrades[0].Direction)
 	assert.True(t, decimal.NewFromInt(2000).Equal(result.ClosedTrades[0].Profit))
-	// The last point sits still because the account is holding cash, not a bet.
+	// The last point is flat because the account holds cash.
 	require.Len(t, result.EquityCurve, 3)
 	assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[1].Equity))
 	assert.True(t, decimal.NewFromInt(12000).Equal(result.EquityCurve[2].Equity))
 }
 
-// Three things a replay does that only show up over a whole stretch rather than on
-// one candle.
 func TestBacktestSimulationOverAWholeStretch(t *testing.T) {
 	t.Run("a stretch that never buys finishes with nothing having happened", func(t *testing.T) {
 		result := replayOf(t, 10000, "allIn", 0,
 			[]float64{100, 90, 80},
 			sellSignal, sellSignal, holdSignal).ToDto()
 
-		// Nothing to sell, and no way to short: the account simply sat there. This is
-		// a legitimate outcome, not a failure.
+		// Only sells and no position to sell: a legitimate zero-trade outcome.
 		assert.Equal(t, 0, result.Summary.PositionOpenCount)
 		assert.Empty(t, result.ClosedTrades)
 		require.Len(t, result.EquityCurve, 3)
@@ -359,8 +346,7 @@ func TestBacktestSimulationOverAWholeStretch(t *testing.T) {
 	})
 
 	t.Run("a fixed stake it cannot cover after a sale skips that opening", func(t *testing.T) {
-		// Stakes 8,000 a time. The first buy fits; the sale returns only 4,000, so the
-		// next buy cannot be placed and the replay carries on in cash.
+		// Stakes 8,000 a time: after the sale returns only 4,000 the next buy can't be placed.
 		result := replayOf(t, 10000, "fixedAmount", 8000,
 			[]float64{100, 50, 60},
 			buySignal, sellSignal, buySignal).ToDto()

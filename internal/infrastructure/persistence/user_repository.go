@@ -13,20 +13,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// UserEmailIndex is the unique index on a user's email address. It is how an address
-// that is already somebody's account is told apart from any other constraint on the
-// table — the primary key included, which breaks when a restored dump leaves the
-// identifier sequence behind and has nothing to do with anybody's address.
-//
-// The index name is repeated from the entity's tag because a struct tag cannot hold
-// a constant. If the two ever drift, registering a taken address stops being
-// reported as "somebody has that one" and starts being reported as a storage
-// failure. It is exported so that the agreement between the two spellings is
-// asserted by a test needing no database, rather than only by one that skips when
-// there is none.
+// UserEmailIndex repeats the entity's index tag (tags cannot hold constants); it is exported so a database-free test asserts the two spellings agree.
 const UserEmailIndex = "idx_users_email"
 
-// UserRepository stores the people this system recognises, in PostgreSQL.
 type UserRepository struct {
 	database *gorm.DB
 }
@@ -35,9 +24,7 @@ func NewUserRepository(database *gorm.DB) *UserRepository {
 	return &UserRepository{database: database}
 }
 
-// Save stores a new user, letting the unique index on the email address decide
-// whether they may exist. Asking first and creating afterwards would let two
-// registrations arriving at once both find the address free.
+// Save lets the unique email index decide, since check-then-create races.
 func (userRepository *UserRepository) Save(
 	executionContext context.Context, user entities.User,
 ) (entities.User, error) {
@@ -52,19 +39,13 @@ func (userRepository *UserRepository) Save(
 	return user, nil
 }
 
-// FindOneByEmail returns the user whose account is this address. The address is used
-// exactly as handed in: deciding that two spellings are the same address is the
-// domain's job, and doing it again here would be a second opinion that can disagree.
+// FindOneByEmail uses the address as given; normalization is the domain's job.
 func (userRepository *UserRepository) FindOneByEmail(
 	executionContext context.Context, email string,
 ) (entities.User, error) {
 	user := entities.User{}
 
-	// The condition is spelled out rather than given as a struct, because GORM drops
-	// zero-valued struct fields — so an empty address would become no condition at
-	// all, and this would hand back whichever user happens to be first in the table
-	// for their password to be checked against. Nothing reaches here with an empty
-	// address today; this is so that nothing can start to.
+	// A string condition is used because GORM drops zero-valued struct fields, so an empty address would match any user.
 	result := userRepository.database.WithContext(executionContext).
 		Where(clause.Eq{Column: "email", Value: email}).
 		First(&user)
@@ -78,7 +59,6 @@ func (userRepository *UserRepository) FindOneByEmail(
 	return user, nil
 }
 
-// FindOne returns the user carrying this identifier.
 func (userRepository *UserRepository) FindOne(
 	executionContext context.Context, id uint,
 ) (entities.User, error) {
@@ -95,10 +75,7 @@ func (userRepository *UserRepository) FindOne(
 	return user, nil
 }
 
-// isEmailAlreadyHeld says whether this write broke the email index specifically.
-// Every other broken constraint stays a storage failure: answering "somebody has
-// that address" for a clash the address had no part in would send whoever reads it
-// hunting for an account that does not exist.
+// isEmailAlreadyHeld detects the email index specifically; other constraint violations stay storage failures.
 func (userRepository *UserRepository) isEmailAlreadyHeld(writeError error) bool {
 	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](writeError)
 	if !isPostgresError {
@@ -109,30 +86,13 @@ func (userRepository *UserRepository) isEmailAlreadyHeld(writeError error) bool 
 		postgresError.ConstraintName == UserEmailIndex
 }
 
-// ChangePasswordProof replaces a user's password proof and ends every session they
-// still have open, both inside one transaction.
-//
-// One transaction is the whole point. The half-done state this avoids is not merely
-// untidy — it is the new password in force while sessions opened with the old one
-// keep working, which is precisely the situation somebody changes their password to
-// end. A caller sequencing two writes would have to know which order avoids it, and
-// would still be exposed to the second one failing.
-//
-// Sessions already ended keep the moment they were ended, for the same reason
-// RevokeChain leaves them alone: the first answer to "when did this stop" is the
-// true one, and overwriting it erases the trail.
+// ChangePasswordProof replaces the proof and revokes all open sessions in one transaction; already-ended sessions keep their original end time.
 func (userRepository *UserRepository) ChangePasswordProof(
 	executionContext context.Context, userID uint, newPasswordProof string,
 ) error {
 	return userRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
-			// The lock goes in the same statement as the proof rather than a
-			// second one: somebody who changed their password has already proved
-			// who they are, and there is no instant in between where the new
-			// password works but the door is still shut.
-			// Select names all three so that the two being cleared are written
-			// rather than skipped: an update from a struct leaves zero values
-			// alone, and "no wrong passwords" and "not shut" are both zero.
+			// Select names all three columns so the cleared lockout fields (zero values) are actually written.
 			replaced := transaction.Model(&entities.User{}).
 				Where(clause.Eq{Column: "id", Value: userID}).
 				Select("password_proof", "failed_sign_in_count", "locked_until").
@@ -140,9 +100,7 @@ func (userRepository *UserRepository) ChangePasswordProof(
 			if replaced.Error != nil {
 				return fmt.Errorf("change password proof: %w", replaced.Error)
 			}
-			// No rows updated means there is nobody by that identifier. Returning
-			// an error rolls the transaction back, so a change that reached nobody
-			// never gets to sign anybody out either.
+			// No rows means no such user; returning an error rolls back the session revocation.
 			if replaced.RowsAffected == 0 {
 				return domains.ErrUserNotFound
 			}
@@ -159,28 +117,14 @@ func (userRepository *UserRepository) ChangePasswordProof(
 		})
 }
 
-// SaveSignInLockoutState records what one attempt at signing in left behind.
-//
-// Both columns are written every time, including the nil that clears the lock. A
-// partial write — the count without the moment, or the other way round — would leave
-// a row saying two things that cannot both be true, and nothing downstream could tell
-// which half to believe.
+// SaveSignInLockoutState always writes both columns together, including the nil that clears the lock.
 func (userRepository *UserRepository) SaveSignInLockoutState(
 	executionContext context.Context,
 	userID uint,
 	observedFailedSignInCount int,
 	state vo.SignInLockoutStateVo,
 ) error {
-	// Both columns are named in Select so that clearing them actually clears them:
-	// an update from a struct skips zero values, and both halves of "nothing held
-	// against this account" are zero.
-	//
-	// The second Where is the whole defence against parallel guessing. The caller
-	// read a streak, spent a deliberately slow comparison, and worked out the next
-	// one — so by now the row may say something else, and writing a whole number
-	// over it would throw the other attempt away. Guarding on the number that was
-	// read turns that into a refusal the caller can answer by looking again, which
-	// is the same shape as rotating a session that was already rotated.
+	// Select forces the zero values to be written, and the guard on the previously read streak rejects concurrent attempts instead of overwriting them.
 	saved := userRepository.database.WithContext(executionContext).
 		Model(&entities.User{}).
 		Where(clause.Eq{Column: "id", Value: userID}).
@@ -197,10 +141,7 @@ func (userRepository *UserRepository) SaveSignInLockoutState(
 		return nil
 	}
 
-	// Nothing was written, and the two reasons need telling apart: the row moved
-	// under us, or there is no row. A missing user is not a quiet no-op here — the
-	// caller is the sign-in flow recording what just happened, and a record that
-	// reached nobody means the lock silently does not exist for that account.
+	// Distinguish a concurrent change from a missing user; a missing user must not be a silent no-op.
 	if userRepository.database.WithContext(executionContext).
 		Model(&entities.User{}).
 		Where(clause.Eq{Column: "id", Value: userID}).

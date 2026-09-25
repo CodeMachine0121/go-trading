@@ -11,14 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// costedReplaySpec is one replay written the way the requirements talk about it, so
-// the numbers below can be read against the specification without decoding six
-// positional arguments.
-//
-// Most cases start from 10100 with everything staked and both rates at one percent.
-// That is not a round number by accident: it makes the ceiling exactly 10000, so the
-// first candle closing at 100 buys exactly 100 units and every figure afterwards can
-// be checked in the head.
+// costedReplaySpec names a replay's inputs; most cases start from 10100 all-in at 1% rates, making the ceiling exactly 10000 so a first close of 100 buys 100 units.
 type costedReplaySpec struct {
 	initialCapital      string
 	sizingMode          string
@@ -55,8 +48,7 @@ func (costedReplaySpec costedReplaySpec) run(t *testing.T) dto.BacktestResultDto
 		inputKCandles, signalDomainsSaying(costedReplaySpec.signals...)).ToDto()
 }
 
-// aStakedSpotReplay is the shared setup: everything staked, 10100 on hand. A sell
-// returns to cash, which is what makes a single round trip readable.
+// aStakedSpotReplay stakes everything from 10100.
 func aStakedSpotReplay(
 	entryCostPercentage string, exitCostPercentage string,
 	closePrices []float64, signals ...vo.SignalVo,
@@ -72,8 +64,6 @@ func aStakedSpotReplay(
 	}
 }
 
-// The whole slice as one comparison: the same script over the same three bars, once
-// paying what a broker charges and once not.
 func TestBacktestSimulationChargesBothEndsOfARoundTrip(t *testing.T) {
 	closePrices := []float64{100, 105, 110}
 	signals := []vo.SignalVo{buySignal, holdSignal, sellSignal}
@@ -103,7 +93,6 @@ func TestBacktestSimulationChargesBothEndsOfARoundTrip(t *testing.T) {
 	})
 }
 
-// A round trip that ends where it started is not a round trip that cost nothing.
 func TestBacktestSimulationLosesExactlyTheTwoChargesOnAFlatRoundTrip(t *testing.T) {
 	result := aStakedSpotReplay("1", "1",
 		[]float64{100, 100, 100}, buySignal, holdSignal, sellSignal).run(t)
@@ -116,8 +105,7 @@ func TestBacktestSimulationLosesExactlyTheTwoChargesOnAFlatRoundTrip(t *testing.
 	assert.InDelta(t, 0.0, *result.Summary.WinRate, 1e-9)
 }
 
-// Staking everything means the cash becomes the trade, not the position. The position
-// ends up a little smaller and nothing is left owing.
+// Staking everything splits the cash between the stake and its entry charge, leaving nothing owed.
 func TestBacktestSimulationSplitsTheCashBetweenTheStakeAndItsCharge(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -169,8 +157,7 @@ func TestBacktestSimulationSplitsTheCashBetweenTheStakeAndItsCharge(t *testing.T
 	}
 }
 
-// Affording an opening now means affording the charge that comes with it. The replay
-// carries on flat, exactly as it always has when the cash fell short.
+// An opening that can't also pay its charge is skipped and the replay stays flat.
 func TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge(t *testing.T) {
 	testCases := []struct {
 		name                      string
@@ -194,10 +181,7 @@ func TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge(t *testing.T)
 			expectedPositionOpenCount: 1,
 		},
 		{
-			// Reachable here but not through the front door: a replay declared this
-			// way is refused before it starts, because it could never open anything
-			// on any candle. The account's own rule is still the general one, and
-			// this is where it is stated.
+			// A replay declared this way is refused up front; this states the account's general rule.
 			name:                      "staking a hundred percent is a figure, and it no longer fits",
 			sizingMode:                "percentage",
 			sizingValue:               "100",
@@ -231,9 +215,7 @@ func TestBacktestSimulationSkipsAnOpeningThatCannotPayItsOwnCharge(t *testing.T)
 	}
 }
 
-// The reason the profit is net, stated as the only number anybody reads: three round
-// trips that all moved the right way, two of which did not move far enough to cover
-// what they cost.
+// Win rate counts only round trips whose gain beat their own charges.
 func TestBacktestSimulationWinRateCountsOnlyRoundTripsThatBeatTheirOwnCharges(t *testing.T) {
 	scalpingBars := []float64{100, 101, 100, 101, 100, 105}
 	scalpingSignals := []vo.SignalVo{
@@ -279,9 +261,7 @@ func TestBacktestSimulationWinRateCountsOnlyRoundTripsThatBeatTheirOwnCharges(t 
 	})
 }
 
-// A position still open has paid to get in and has not paid to get out. Reporting the
-// second would describe something that has not happened; the price of not reporting it
-// is a final equity one exit charge too kind, which the report card says out loud.
+// An open position isn't pre-charged its exit, so final equity is one exit charge too kind.
 func TestBacktestSimulationNeverPreChargesAPositionStillOpen(t *testing.T) {
 	result := aStakedSpotReplay("1", "1",
 		[]float64{100, 110}, buySignal, holdSignal).run(t)
@@ -291,9 +271,7 @@ func TestBacktestSimulationNeverPreChargesAPositionStillOpen(t *testing.T) {
 	assert.Equal(t, "100", result.Summary.TotalTransactionCost.String())
 }
 
-// The charge for opening is money already gone, so the curve drops on the candle that
-// paid it — and the worst fall along the way grows accordingly. That is not noise in
-// the measurement; it is the measurement.
+// The entry charge hits the curve on the candle that paid it, deepening the drawdown.
 func TestBacktestSimulationDrawsTheEntryChargeOnTheCurveAtOnce(t *testing.T) {
 	closePrices := []float64{100, 110}
 	signals := []vo.SignalVo{buySignal, holdSignal}
@@ -307,8 +285,7 @@ func TestBacktestSimulationDrawsTheEntryChargeOnTheCurveAtOnce(t *testing.T) {
 	assert.Greater(t, costed.Summary.MaximumDrawdown, free.Summary.MaximumDrawdown)
 }
 
-// Two candles' worth of Taiwan's real numbers, as a guard on the shape of the thing:
-// asymmetric rates, neither of them round, and a position that pays both ends.
+// Taiwan's real, asymmetric, non-round rates on a position that pays both ends.
 func TestBacktestSimulationChargesTaiwanRatesAsymmetrically(t *testing.T) {
 	result := costedReplaySpec{
 		initialCapital:      "1000000",
@@ -329,8 +306,7 @@ func TestBacktestSimulationChargesTaiwanRatesAsymmetrically(t *testing.T) {
 	assert.Equal(t, "471", result.Summary.TotalTransactionCost.String())
 }
 
-// Naming only one rate charges it at both ends. The two boxes exist so asymmetry can
-// be said, not so symmetry has to be said twice.
+// Naming only the entry rate charges it at both ends.
 func TestBacktestSimulationChargesTheEntryRateOnTheWayOutWhenNoneWasNamed(t *testing.T) {
 	named := aStakedSpotReplay("1", "1",
 		[]float64{100, 105, 110}, buySignal, holdSignal, sellSignal).run(t)
@@ -344,9 +320,7 @@ func TestBacktestSimulationChargesTheEntryRateOnTheWayOutWhenNoneWasNamed(t *tes
 		inherited.Summary.FinalEquity.String())
 }
 
-// A replay handed nothing behaves as it did before any of this existed. The suite
-// around this file is the real guard — not one assertion in it changed — and this is
-// the statement of intent beside it.
+// No rates means no charges, preserving the pre-cost behaviour.
 func TestBacktestSimulationChargesNothingWhenNoRatesAreNamed(t *testing.T) {
 	transactionCosts, buildError := domains.NewBacktestTransactionCostsDomain(
 		decimal.Zero, decimal.Zero)

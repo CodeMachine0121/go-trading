@@ -12,13 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleContractHistorySyncController fetches a named stretch of one perpetual
-// contract's history on demand.
-//
-// The ceiling is held here rather than by the domain service, because how far this
-// system is willing to reach in one request is an operator's decision — and it is the
-// contract venue's own ceiling, not the spot one's, because the two venues do not
-// hold the same amount of history.
+// KCandleContractHistorySyncController fetches a stretch of one contract's history on demand; the operator-set ceiling is the contract venue's own, since venues hold different amounts of history.
 type KCandleContractHistorySyncController struct {
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication
 	lookbackCeilingDays                 int
@@ -35,11 +29,6 @@ func NewKCandleContractHistorySyncController(
 }
 
 // StartSymbolHistorySync handles POST /contract-k-candles/history.
-//
-// **It answers before the fetching is done**, with the run to come back and look at.
-// Every minute of this stretch takes two questions to the venue, so a long one is
-// twice the round trips the spot side makes and there is no connection worth holding
-// open for it.
 func (kCandleContractHistorySyncController *KCandleContractHistorySyncController) StartSymbolHistorySync(
 	ginContext *gin.Context,
 ) {
@@ -55,9 +44,7 @@ func (kCandleContractHistorySyncController *KCandleContractHistorySyncController
 			ginContext.Request.Context(),
 			historySyncRequest.ToSyncDto(),
 			kCandleContractHistorySyncController.lookbackCeilingDays)
-	// The four are deliberately four, because what the caller has to do about them
-	// differs: ask for a shorter stretch, register the contract or retype it, wait for
-	// the run already going, or come back later.
+	// Each case calls for a different caller action: shorten, register or retype, wait for the running sync, or retry later.
 	switch {
 	case errors.Is(syncError, domains.ErrKCandleHistoryLookback),
 		errors.Is(syncError, domains.ErrTradingSymbolNamed):
@@ -78,15 +65,10 @@ func (kCandleContractHistorySyncController *KCandleContractHistorySyncController
 		return
 	}
 
-	// Accepted rather than done: the run is recorded and the fetching has started,
-	// and the body says where to watch it.
 	ginContext.JSON(http.StatusAccepted, syncRun)
 }
 
 // GetSymbolHistorySync handles GET /contract-k-candles/history/:id.
-//
-// The run numbers are the contract venue's own, unrelated to the spot ones, so an
-// identifier has to be taken to the listing it came from.
 func (kCandleContractHistorySyncController *KCandleContractHistorySyncController) GetSymbolHistorySync(
 	ginContext *gin.Context,
 ) {

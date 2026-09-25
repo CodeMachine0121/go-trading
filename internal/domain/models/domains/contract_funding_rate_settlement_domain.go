@@ -9,12 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractFundingRateSettlementDomain holds one funding rate settlement and guarantees
-// its rules. An instance only exists when every rule passed.
-//
-// **The rate itself answers to no rule.** Positive means the long side pays the short
-// side, negative the other way round, and zero that nobody paid — all three are the
-// market saying something, and none of them is a figure this system gets to refuse.
+// ContractFundingRateSettlementDomain is a validated settlement; any funding rate sign is accepted (positive means longs pay shorts).
 type ContractFundingRateSettlementDomain struct {
 	symbol         string
 	settlementTime time.Time
@@ -22,8 +17,7 @@ type ContractFundingRateSettlementDomain struct {
 	markPrice      decimal.NullDecimal
 }
 
-// NewContractFundingRateSettlementDomain checks one reported settlement, judging "in
-// the future" against currentTime.
+// NewContractFundingRateSettlementDomain refuses settlements after currentTime.
 func NewContractFundingRateSettlementDomain(
 	settlementVo vo.ContractFundingRateSettlementVo, currentTime time.Time,
 ) (ContractFundingRateSettlementDomain, error) {
@@ -38,8 +32,7 @@ func NewContractFundingRateSettlementDomain(
 			"%w: 結算時間不得指向未來", ErrContractFundingRateSettlementValidation)
 	}
 
-	// Absent is lawful — the venue's earliest settlements recorded none. A mark price
-	// that is there, though, is a price, and a price of zero or less is not one.
+	// An absent mark price is allowed (early settlements lack one), but a present one must be positive.
 	if settlementVo.MarkPrice.Valid && !settlementVo.MarkPrice.Decimal.IsPositive() {
 		return ContractFundingRateSettlementDomain{}, fmt.Errorf(
 			"%w: 結算當下的標記價格必須大於零", ErrContractFundingRateSettlementValidation)
@@ -53,7 +46,6 @@ func NewContractFundingRateSettlementDomain(
 	}, nil
 }
 
-// ToEntity converts this settlement into the record shape that is stored.
 func (settlementDomain ContractFundingRateSettlementDomain) ToEntity() entities.ContractFundingRateSettlement {
 	return entities.ContractFundingRateSettlement{
 		Symbol:         settlementDomain.symbol,

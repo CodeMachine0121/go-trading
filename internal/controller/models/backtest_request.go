@@ -7,68 +7,40 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestRequest is the body a caller sends to replay a strategy script over a stretch of
-// market that has already happened.
-//
-// It carries no indicator value kind. A replay reads one number per candle — the
-// signal — so there is nothing here for a caller to declare and nothing to get wrong.
-// Like an indicator calculation, it either names a strategy script or carries an
-// algorithm the caller wrote and has not saved — never both. It declares no kind of
-// value either way: a replay reads signals, so there is nothing to choose.
+// BacktestRequest either names a strategy script or carries an unsaved one, never both; it declares no value kind since a replay reads signals.
 type BacktestRequest struct {
 	StrategyScriptID uint   `json:"strategyScriptId"`
 	Symbol           string `json:"symbol"`
-	// Script and Parameters describe an algorithm the caller wrote and has not
-	// saved. They are read only when no strategy script is named.
+	// Read only when no strategy script is named.
 	Script              string                           `json:"script"`
 	Parameters          []StrategyScriptParameterRequest `json:"parameters"`
 	AggregationInterval string                           `json:"aggregationInterval"`
 	StartTime           time.Time                        `json:"startTime"`
 	EndTime             time.Time                        `json:"endTime"`
-	// ParameterValues are what the strategy script's knobs are worth this time, used for
-	// this replay only and never written back.
+	// Used for this replay only and never written back.
 	ParameterValues []StrategyScriptParameterValueRequest `json:"parameterValues"`
 	InitialCapital  decimal.Decimal                       `json:"initialCapital"`
-	// PositionSizingMode is how much each opening stakes, and PositionSizingValue the
-	// figure that goes with it. Staking everything needs no figure, so a caller that
-	// chose it may leave the figure out entirely.
+	// Staking everything needs no PositionSizingValue.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
-	// TradingMode is carried for the reason Leverage is: there is one set of rules
-	// left, so declaring anything other than spot is refused rather than quietly read
-	// as it.
+	// Anything other than spot is refused rather than silently treated as spot.
 	TradingMode string `json:"tradingMode"`
-	// StopLossPercentage and TakeProfitPercentage are how far from its entry a
-	// position may be wrong, and how far right is far enough. Leaving both out means
-	// simulating no exits, which is what every replay did before these existed — so
-	// a caller that says nothing gets exactly the report card it got before.
+	// Both empty means no simulated exits.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
-	// Leverage is carried only so that a caller still asking to borrow is told this
-	// system does not. Nothing, zero and one all mean a position paid for in full,
-	// which is what every replay here is; anything above one is refused outright.
+	// Only carried to refuse borrowing: empty, zero and one mean fully paid, anything above one is refused.
 	Leverage decimal.Decimal `json:"leverage"`
-	// MaintenanceMarginRate is carried for the reason Leverage is: it describes when
-	// a borrowed position is closed out for running low on collateral, and nothing
-	// here borrows. Anything other than nothing is refused rather than ignored.
+	// Carried only to be refused, since nothing here borrows.
 	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
-	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
-	// act of trading, at each end, as a percentage of the money that changes hands.
-	// Leaving both out means trading is free, which is what every replay assumed
-	// before these existed — so a caller that says nothing gets exactly the report
-	// card it got before. Leaving only the exit out means it costs the same as the
-	// entry.
+	// Percentages of traded notional; both empty means free trading, and an empty exit cost equals the entry cost.
 	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
 	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
-	// FillTiming is close (the default: fill at the signalling bar's close) or
-	// nextOpen (fill at the next bar's open).
+	// FillTiming is close (default, the signalling bar's close) or nextOpen (the next bar's open).
 	FillTiming string `json:"fillTiming"`
-	// ValidationStartTime, when given, splits the replay into an in-sample part and a
-	// validation part, each replayed on its own from the initial capital.
+	// ValidationStartTime, when given, splits the replay into in-sample and validation parts, each starting from the initial capital.
 	ValidationStartTime time.Time `json:"validationStartTime"`
 }
 
-// ToParameterWriteDtos hands on the knobs an unsaved algorithm declares.
 func (backtestRequest BacktestRequest) ToParameterWriteDtos() []dto.StrategyScriptParameterWriteDto {
 	parameterWriteDtos := make([]dto.StrategyScriptParameterWriteDto, 0, len(backtestRequest.Parameters))
 	for _, parameterRequest := range backtestRequest.Parameters {
@@ -78,7 +50,6 @@ func (backtestRequest BacktestRequest) ToParameterWriteDtos() []dto.StrategyScri
 	return parameterWriteDtos
 }
 
-// ToRequestDto turns the request into the shape the domain accepts.
 func (backtestRequest BacktestRequest) ToRequestDto() dto.BacktestRequestDto {
 	return dto.BacktestRequestDto{
 		Symbol:               backtestRequest.Symbol,

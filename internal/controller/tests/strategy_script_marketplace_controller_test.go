@@ -69,7 +69,6 @@ func (fixture marketplaceRouterUnderTest) send(method string, target string) *ht
 	return recorder
 }
 
-// sendUnproven is the same request with no proof of identity on it.
 func (fixture marketplaceRouterUnderTest) sendUnproven(method string, target string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, nil)
 	recorder := httptest.NewRecorder()
@@ -232,8 +231,7 @@ func TestMarketplaceRouterAdoption(t *testing.T) {
 }
 
 func TestMarketplaceRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
-	// Every path that names a strategy script reads it the same way, so every one of them
-	// turns the same nonsense away before anything is read or written.
+	// Every path naming a script parses it the same way, so all reject the same nonsense before any storage access.
 	testCases := []struct {
 		name   string
 		method string

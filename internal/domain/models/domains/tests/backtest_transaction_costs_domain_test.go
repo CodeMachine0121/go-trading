@@ -9,9 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// transactionCostsOf builds the model from two rates written the way a caller types
-// them, and fails the test if they were refused. Cases that expect a refusal build it
-// themselves.
+// transactionCostsOf fails the test on refusal; cases expecting a refusal build the model themselves.
 func transactionCostsOf(
 	t *testing.T, entryCostPercentage string, exitCostPercentage string,
 ) domains.BacktestTransactionCostsDomain {
@@ -70,9 +68,7 @@ func TestBacktestTransactionCostsRefuseRatesThatCannotBeCharged(t *testing.T) {
 	}
 }
 
-// A rate of exactly a hundred is absurd and still arithmetic: the whole of what
-// changed hands goes to the charge. Refusing it would need a rule that says where
-// absurd begins, and there is no such place.
+// A 100% rate is absurd but still arithmetic, and there is no principled cutoff below it.
 func TestBacktestTransactionCostsAllowExactlyAHundred(t *testing.T) {
 	transactionCosts := transactionCostsOf(t, "100", "100")
 
@@ -82,9 +78,7 @@ func TestBacktestTransactionCostsAllowExactlyAHundred(t *testing.T) {
 		transactionCosts.EntryCostFor(decimal.NewFromInt(5050)).String())
 }
 
-// The rate left out is the entry rate charged again. These two boxes are the halves of
-// one thing — what trading costs — which is why one of them can stand in for the other,
-// and why the two exit distances beside them deliberately cannot.
+// An omitted exit rate falls back to the entry rate (unlike the two exit distances).
 func TestBacktestTransactionCostsFallBackToTheEntryRateOnTheWayOut(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -136,8 +130,7 @@ func TestBacktestTransactionCostsFallBackToTheEntryRateOnTheWayOut(t *testing.T)
 	}
 }
 
-// The ceiling is what lets all three sizing modes share one answer to "can this
-// opening happen": a stake at or below it can always pay its own entry charge.
+// A stake at or below the ceiling can always pay its own entry charge, which lets every sizing mode share one affordability check.
 func TestBacktestTransactionCostsMaximumStakeLeavesRoomForTheEntryCharge(t *testing.T) {
 	testCases := []struct {
 		name                 string
@@ -183,15 +176,7 @@ func TestBacktestTransactionCostsMaximumStakeLeavesRoomForTheEntryCharge(t *test
 	}
 }
 
-// A rate that never divides evenly is the ordinary case — Taiwan's discounted
-// commission is one — and the ceiling has to stay affordable anyway. Rounding to
-// nearest could hand back a stake whose own charge no longer fits and leave the
-// account a fraction below zero.
-//
-// Swept rather than sampled, because the failure this guards against depends on where
-// the digits fall: one rate and one amount would pass while the pair two rows down
-// overdrew by a fraction of a cent, and nothing else in the system would notice a
-// balance of minus one ten-thousandth of a cent until it showed up on a chart.
+// Swept rather than sampled: rounding to nearest could overdraw by a fraction for particular rate/amount pairs when the division never ends.
 func TestBacktestTransactionCostsMaximumStakeStaysAffordableWhenTheDivisionNeverEnds(t *testing.T) {
 	for _, entryCostPercentage := range []string{
 		"0.0855", "0.1425", "0.3855", "1", "3", "7", "33.3333", "99.9999", "100",
@@ -215,10 +200,7 @@ func TestBacktestTransactionCostsMaximumStakeStaysAffordableWhenTheDivisionNever
 	}
 }
 
-// A percentage bigger than the share the costs leave affordable can never open
-// anything. Left to run it produces a report card of a strategy that never traded,
-// and nothing on that screen points at the two numbers that caused it — so it is
-// refused at the door, exactly as a percentage of zero already is.
+// A percentage above the affordable share can never open anything, so it is refused up front like a zero percentage.
 func TestPositionSizingKnowsWhenItCouldNeverStake(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -282,9 +264,7 @@ func TestPositionSizingKnowsWhenItCouldNeverStake(t *testing.T) {
 	}
 }
 
-// Money leaving is money leaving. A price arriving from outside as a negative would
-// otherwise turn the charge into income — a mistake that improves every report card
-// it touches and never fails.
+// A negative price must never turn a charge into income.
 func TestBacktestTransactionCostsAreAlwaysACharge(t *testing.T) {
 	transactionCosts := transactionCostsOf(t, "1", "1")
 

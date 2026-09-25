@@ -7,10 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// LiveKCandleVo is one K candle as a market source is reporting it right now,
-// already normalized: the wire format stops at the proxy and never reaches the
-// domain. Closed says whether the interval it covers has finished, which is the
-// difference between a shape that will still move and this candle's last word.
+// LiveKCandleVo is one normalized K candle as the source reports it right now; Closed says whether its interval has finished.
 type LiveKCandleVo struct {
 	Symbol              string
 	OpenTime            time.Time
@@ -25,10 +22,7 @@ type LiveKCandleVo struct {
 	Closed              bool
 }
 
-// ToWriteDto converts this reported candle into the shape the domain validates and
-// stores. It is deliberately the same shape a fetched candle converts to, so a
-// candle that closes walks into the existing rules rather than a second copy of
-// them. Nothing is judged here.
+// ToWriteDto converts to the same shape a fetched candle does, so a closing candle goes through the existing rules.
 func (liveKCandleVo LiveKCandleVo) ToWriteDto() dto.KCandleWriteDto {
 	return dto.KCandleWriteDto{
 		Symbol:              liveKCandleVo.Symbol,
@@ -44,9 +38,7 @@ func (liveKCandleVo LiveKCandleVo) ToWriteDto() dto.KCandleWriteDto {
 	}
 }
 
-// ToDto hands out this candle's current shape for a viewer to look at. It is a
-// separate road from ToWriteDto on purpose: what a viewer may see and what the
-// system may believe are different questions, and only the second one is judged.
+// ToDto is the unvalidated view for display, deliberately separate from ToWriteDto.
 func (liveKCandleVo LiveKCandleVo) ToDto() dto.KCandleDto {
 	return dto.KCandleDto{
 		Symbol:              liveKCandleVo.Symbol,

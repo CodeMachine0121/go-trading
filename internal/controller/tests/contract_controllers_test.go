@@ -23,12 +23,9 @@ import (
 
 const contractLookbackCeilingDays = 3650
 
-// assertAnError stands in for anything below the controller breaking, which every
-// handler has to report as a bad gateway rather than as the caller's fault.
+// assertAnError stands in for any downstream failure, which handlers must report as a bad gateway.
 var assertAnError = errors.New("storage unreachable")
 
-// validContractBody is a complete contract candle: every figure, the trade count and
-// all four mark prices, index prices and premium index figures.
 const validContractBody = `{"symbol":"BTCUSDT","openTime":"2026-08-29T09:00:00Z",
 "open":"100","high":"120","low":"90","close":"120",
 "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600",
@@ -74,8 +71,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
 
-	// A history sync fills in the position statistics after the candles; these tests
-	// are about the candles and the answers, so the archive has no day at all.
+	// History sync also fills position statistics; these tests are about candles, so the archive is empty.
 	archiveProxy := mocks.NewMockIContractPositionStatisticArchiveProxy(mockController)
 	archiveProxy.EXPECT().FetchDailyPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, false, nil).AnyTimes()
@@ -105,8 +101,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 				tierProxy, clockProxy)))
 	tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
 		Return(nil, domains.ErrContractAccountCredentialsMissing).AnyTimes()
-	// Joining the watchlist also catches funding rates and position statistics up;
-	// these tests are about the candles and the answers, so those two have nothing.
+	// Joining the watchlist also catches up funding rates and position statistics; these tests leave both empty.
 	settlementRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
 		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
 	fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).

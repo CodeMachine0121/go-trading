@@ -9,11 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// MarketRoutedLiveMarketDataProxy opens each live feed against the source that
-// serves the market it belongs to.
-//
-// Like its fetching counterpart it satisfies the contract it routes to, so following
-// a market live reads the same whether the system knows one venue or four.
+// MarketRoutedLiveMarketDataProxy routes each live feed to the source serving its market.
 type MarketRoutedLiveMarketDataProxy struct {
 	liveMarketDataProxies map[vo.MarketVo]_interface.ILiveMarketDataProxy
 }
@@ -24,7 +20,6 @@ func NewMarketRoutedLiveMarketDataProxy(
 	return &MarketRoutedLiveMarketDataProxy{liveMarketDataProxies: maps.Clone(liveMarketDataProxies)}
 }
 
-// FollowKCandles opens one channel against the source that serves its market.
 func (marketRoutedLiveMarketDataProxy *MarketRoutedLiveMarketDataProxy) FollowKCandles(
 	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {

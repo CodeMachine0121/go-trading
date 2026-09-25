@@ -7,9 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// KCandleContractIngestionApplication orchestrates automatic contract K candle
-// ingestion. Each method is one call into the domain; the ordering between backfill
-// and the periodic rounds belongs to whoever drives them, not here.
 type KCandleContractIngestionApplication struct {
 	contractKCandleIngestionService *service.ContractKCandleIngestionService
 }
@@ -29,8 +26,6 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 		executionContext)
 }
 
-// CatchUpSymbol closes one contract's gap on demand, for somebody who wants its
-// history now rather than at the next start-up.
 func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) CatchUpSymbol(
 	executionContext context.Context, symbol string,
 ) (dto.KCandleIngestionReportDto, error) {
@@ -45,11 +40,7 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 		executionContext)
 }
 
-// StartSymbolHistorySync accepts a request to fill in the minutes missing from a
-// named stretch of one contract's history, and answers with the run to watch.
-//
-// The ceiling travels through rather than being held anywhere in the middle: it is an
-// operator's decision, settled once at the composition root.
+// StartSymbolHistorySync starts filling missing minutes in a stretch of one contract's history and returns the run to watch; the ceiling is passed in from the composition root.
 func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) StartSymbolHistorySync(
 	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, lookbackCeilingDays int,
 ) (dto.KCandleContractHistorySyncRunDto, error) {
@@ -57,7 +48,6 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 		executionContext, syncDto, lookbackCeilingDays)
 }
 
-// GetSymbolHistorySync answers with where one contract history sync has got to.
 func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) GetSymbolHistorySync(
 	executionContext context.Context, id uint,
 ) (dto.KCandleContractHistorySyncRunDto, error) {
@@ -65,8 +55,7 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 		executionContext, id)
 }
 
-// FailInterruptedHistorySyncs clears out the contract runs the last shutdown cut off,
-// and says how many there were so that whoever starts the system can say it out loud.
+// FailInterruptedHistorySyncs fails runs the last shutdown cut off and returns how many.
 func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) FailInterruptedHistorySyncs(
 	executionContext context.Context,
 ) (int, error) {

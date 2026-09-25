@@ -21,8 +21,7 @@ func present(value string) decimal.NullDecimal {
 	return decimal.NewNullDecimal(decimal.RequireFromString(value))
 }
 
-// minuteOfContract is one contract candle whose figures all move with a single
-// number, so a merge taking the wrong candle shows up as the wrong number.
+// minuteOfContract derives every figure from one level so a merge picking the wrong candle shows the wrong number.
 func minuteOfContract(minute int, level int64) entities.KCandleContract {
 	price := decimal.NewFromInt(level)
 

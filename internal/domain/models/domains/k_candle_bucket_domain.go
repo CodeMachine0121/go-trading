@@ -8,14 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// KCandleBucketDomain is the K candles that fell into one bucket of the aggregation
-// grid, and the single candle they make together. It is the only place the merging
-// rule is written down: the bucket opens where its earliest candle opened and closes
-// where its latest candle closed, reaches as high and as low as any candle in it, and
-// traded everything they all traded.
-//
-// The candles need not arrive in time order — earliest and latest are decided by open
-// time, not by position.
+// KCandleBucketDomain is the single place candles in one grid bucket are merged; earliest and latest are decided by open time, so input order does not matter.
 type KCandleBucketDomain struct {
 	bucketStart time.Time
 	kCandles    []entities.KCandle
@@ -25,24 +18,18 @@ func NewKCandleBucketDomain(bucketStart time.Time, kCandles []entities.KCandle) 
 	return KCandleBucketDomain{bucketStart: bucketStart, kCandles: kCandles}
 }
 
-// OpenTime is where this bucket of the grid begins. It is the bucket's own start
-// rather than any candle's, so two readings of the same stretch of market line up even
-// when the market did not trade at the very start of a bucket.
+// OpenTime is the bucket's own start rather than any candle's, so readings of the same stretch line up.
 func (kCandleBucketDomain KCandleBucketDomain) OpenTime() time.Time {
 	return kCandleBucketDomain.bucketStart
 }
 
-// ToDto merges the bucket into the one candle that stands for it. The open time it
-// carries is the bucket's own start, not any candle's — that is what makes two
-// queries over the same stretch of market line up.
+// ToDto merges the bucket into one candle stamped with the bucket's start.
 func (kCandleBucketDomain KCandleBucketDomain) ToDto() dto.KCandleDto {
 	mergedKCandle := dto.KCandleDto{OpenTime: kCandleBucketDomain.bucketStart}
 
 	earliestKCandle := entities.KCandle{}
 	latestKCandle := entities.KCandle{}
-	// The three figures a market may not report are accumulated as such, so that
-	// merging candles from a market that publishes none of them produces a coarser
-	// candle that publishes none of them either — rather than a confident zero.
+	// Optional figures stay absent when no candle reports them, rather than becoming a confident zero.
 	quoteVolume := OptionalFigureDomain{}
 	takerBuyBaseVolume := OptionalFigureDomain{}
 	takerBuyQuoteVolume := OptionalFigureDomain{}
@@ -77,13 +64,7 @@ func (kCandleBucketDomain KCandleBucketDomain) ToDto() dto.KCandleDto {
 	return mergedKCandle
 }
 
-// ToVo merges the bucket into the one candle an indicator script sees. It is the
-// same merge — it asks ToDto for it rather than repeating the rule — turned into the
-// shape a script is handed: plain numbers, and the open time as seconds so that a
-// script can never reach the clock through it.
-//
-// A script therefore cannot tell an aggregated candle from a stored one, which is
-// what lets one algorithm run at any coarseness without knowing it has.
+// ToVo is ToDto's merge in script shape, with the open time as Unix seconds so scripts cannot reach the clock and cannot tell aggregated candles from stored ones.
 func (kCandleBucketDomain KCandleBucketDomain) ToVo() vo.KCandleVo {
 	mergedKCandle := kCandleBucketDomain.ToDto()
 

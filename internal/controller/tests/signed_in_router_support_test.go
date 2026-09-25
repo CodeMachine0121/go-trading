@@ -14,21 +14,12 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// signedInViewerID is whoever every guarded route below is reached as.
 const signedInViewerID = uint(1)
 
-// signedInProof is the header value those requests carry. Its content does not
-// matter — what turns it into a person is the token proxy, which is mocked.
+// signedInProof's content is irrelevant; the mocked token proxy resolves it.
 const signedInProof = "Bearer a-proof"
 
-// doorOpenFor builds the real authentication middleware with a proof that resolves
-// to this person.
-//
-// The real door is used rather than a stand-in that plants a user directly, because
-// a stand-in would let these tests pass on a route nobody had actually guarded. The
-// two things being asserted here — that a guarded route knows who is asking, and
-// that an unproven request never reaches the handler — are properties of the door,
-// so the door has to be in the picture.
+// doorOpenFor builds the real authentication middleware with a proof resolving to viewerID, so routes are proven to be actually guarded.
 func doorOpenFor(t *testing.T, viewerID uint) gin.HandlerFunc {
 	mockController := gomock.NewController(t)
 
@@ -36,9 +27,7 @@ func doorOpenFor(t *testing.T, viewerID uint) gin.HandlerFunc {
 	userRepository.EXPECT().FindOne(gomock.Any(), viewerID).
 		Return(entities.User{
 			ID: viewerID, Email: "viewer@example.com",
-			// Let in, because every test that reaches for this door is about the
-			// route behind it rather than about the door. Being turned away for not
-			// having been let in yet has its own tests, next to the door itself.
+			// Enabled, because tests using this door are about the route; being disabled is tested beside the middleware.
 			IsEnabled: true,
 		}, nil).AnyTimes()
 

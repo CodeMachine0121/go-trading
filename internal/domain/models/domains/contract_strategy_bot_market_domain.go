@@ -7,31 +7,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractStrategyBotMarketDomain is one perpetual contract as a contract bot sees it
-// when the bot is saved: is the system following it, and how much leverage may a
-// position on it carry.
-//
-// A contract bot reads the contract bars that are stored, and only the contracts on the
-// contract watchlist have bars arriving. A bot watching any other contract would say
-// "hold" every round — which from outside looks exactly like a bot that ran fine and
-// concluded nothing. So it is refused where its owner is there to read why, rather than
-// discovered weeks later.
-//
-// Both answers are about the bot being saved, never about a round. A contract taken off
-// the watchlist later, or a ladder that tightens later, does not reach back and void a
-// bot that was saved under the old answer.
+// ContractStrategyBotMarketDomain checks at save time that a contract bot watches a followed contract within its leverage ceiling, since an unwatched contract has no bars and would silently hold forever.
+// Later watchlist or ladder changes do not void an already saved bot.
 type ContractStrategyBotMarketDomain struct {
 	symbol    string
 	isWatched bool
-	// maximumLeverage is the most any position on this contract may carry — what its
-	// smallest tier allows — and hasLadder whether the system knows that at all.
+	// maximumLeverage is the smallest tier's limit; hasLadder says whether it is known at all.
 	maximumLeverage int
 	hasLadder       bool
 }
 
-// NewContractStrategyBotMarketDomain reads the contract as it is stored: its entry in
-// the contract trading symbols, whether there was one, and its maintenance margin
-// ladder.
 func NewContractStrategyBotMarketDomain(
 	symbol string,
 	contractTradingSymbol entities.ContractTradingSymbol,
@@ -51,12 +36,7 @@ func NewContractStrategyBotMarketDomain(
 	}
 }
 
-// Admit refuses a contract bot that would watch a contract nobody is following, or
-// carry more leverage than the contract allows any position. A contract with no ladder
-// yet names no ceiling, and this does not invent one.
-//
-// The ceiling is refused in the words a contract replay refuses it in, so the same 150
-// typed into either comes back with the same sentence.
+// Admit refuses an unwatched contract or leverage above the ladder's ceiling, using the same wording as a contract replay; no ladder means no ceiling.
 func (contractMarketDomain ContractStrategyBotMarketDomain) Admit(leverage decimal.Decimal) error {
 	if !contractMarketDomain.isWatched {
 		return fmt.Errorf(

@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TradingStrategyBacktestController exposes replaying a trading strategy over HTTP.
 type TradingStrategyBacktestController struct {
 	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication
 }
@@ -27,9 +26,6 @@ func NewTradingStrategyBacktestController(
 }
 
 // RunTradingStrategyBacktest handles POST /trading-strategies/:id/backtests.
-//
-// A replay hangs off the trading strategy it is about, for the reason a bot's rounds
-// hang off the bot: it is something done *to* that one, not a thing of its own.
 func (controller *TradingStrategyBacktestController) RunTradingStrategyBacktest(
 	ginContext *gin.Context,
 ) {
@@ -58,8 +54,7 @@ func (controller *TradingStrategyBacktestController) RunTradingStrategyBacktest(
 	ginContext.JSON(http.StatusOK, resultDto)
 }
 
-// RunContractTradingStrategyBacktest replays one of this person's contract trading
-// strategies on a contract account, by its own trading mode.
+// RunContractTradingStrategyBacktest replays a contract trading strategy using the strategy's own trading mode.
 func (controller *TradingStrategyBacktestController) RunContractTradingStrategyBacktest(
 	ginContext *gin.Context,
 ) {
@@ -98,24 +93,17 @@ func (controller *TradingStrategyBacktestController) readID(ginContext *gin.Cont
 	return uint(id), true
 }
 
-// respondWithError separates what went wrong by what the caller has to go and change.
-//
-// It answers exactly as replaying a single strategy script answers — deliberately.
-// The same broken line fails the same way whichever kind of replay asked it to run,
-// and a screen showing both should not have to tell two stories about one of them.
+// respondWithError answers exactly as a single strategy script replay does, so the same broken script fails the same way on both routes.
 func (controller *TradingStrategyBacktestController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
-	// A trading strategy that is not there and one belonging to somebody else arrive
-	// as one refusal and leave as one 404; so does a strategy script a source names
-	// and the caller may not read.
+	// Missing and foreign strategies, and unreadable scripts named by a source, all answer the same 404.
 	if errors.Is(err, domains.ErrTradingStrategyNotFound) ||
 		errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
-	// Naming the input at fault is what lets a caller put the sentence where the
-	// person can act on it. The name travels as a value, not inside the sentence.
+	// The field name travels as a value so callers need not parse the message.
 	if fieldName, namesField := domains.BacktestFieldName(err); namesField {
 		ginContext.JSON(http.StatusBadRequest, gin.H{
 			"message": err.Error(),
@@ -134,9 +122,7 @@ func (controller *TradingStrategyBacktestController) respondWithError(
 		})
 		return
 	}
-	// Nothing was wrong with what was asked; it could not be answered in time.
-	// Said apart from a script failure, which shares the status: the one is fixed by
-	// asking for less, the other by fixing the script.
+	// Answered apart from a script failure that shares the status: this one is fixed by asking for less.
 	if errors.Is(err, domains.ErrBacktestTimeAllowanceSpent) {
 		ginContext.JSON(http.StatusUnprocessableEntity, gin.H{
 			"message":            err.Error(),

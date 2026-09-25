@@ -10,8 +10,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// kCandleSeriesAssistantArguments is what the assistant sends to ask for a stretch of
-// market at a chosen coarseness.
 type kCandleSeriesAssistantArguments struct {
 	Symbol      string `json:"symbol"`
 	StartTime   string `json:"startTime"`
@@ -20,14 +18,8 @@ type kCandleSeriesAssistantArguments struct {
 	CandleCount int    `json:"candleCount"`
 }
 
-// KCandleSeriesAssistantQuery lets the assistant read a stretch of market at a chosen
-// coarseness.
-//
-// This is the capability most likely to be expensive, so it is the one the candle
-// ceiling exists for. The assistant is handed the most recent candles of the stretch
-// it asked for, never more than the ceiling, and is told plainly when it is being
-// shown less than it asked for — an assistant shown two hundred of five hundred
-// candles without being told will describe a trend that is not there.
+// KCandleSeriesAssistantQuery lets the assistant read a stretch of market at a chosen coarseness,
+// capped at the most recent candles and with a note whenever it is shown less than it asked for.
 type KCandleSeriesAssistantQuery struct {
 	kCandleApplication *application.KCandleApplication
 	candleLimit        int
@@ -65,11 +57,8 @@ func (kCandleSeriesAssistantQuery *KCandleSeriesAssistantQuery) ArgumentSchema()
 		`},"required":["symbol","startTime","endTime"],"additionalProperties":false}`
 }
 
-// Run reads the stretch and hands over at most the ceiling's worth of it, most recent
-// last. Every rule the underlying query obeys is obeyed here unrelaxed: an
-// unrecognised coarseness, a range that ends before it starts or a stretch too long
-// to answer all come back as the reason they were refused, which the assistant reads
-// and may act on.
+// Run hands over at most the ceiling's worth of the stretch, most recent last, returning every
+// refusal of the underlying query as a reason the assistant can act on.
 func (kCandleSeriesAssistantQuery *KCandleSeriesAssistantQuery) Run(
 	executionContext context.Context, _ uint, arguments string,
 ) (string, error) {

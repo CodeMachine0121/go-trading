@@ -14,17 +14,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// botRowOwnerID is whoever owns every bot in this file unless a test says otherwise.
 const botRowOwnerID = uint(1)
 
-// botRowTradingStrategyID is the set of rules every bot in this file follows unless
-// a test says otherwise.
 const botRowTradingStrategyID = uint(1)
 
-// newStrategyBotTestDatabase is a cleared database with the person these bots belong
-// to, and the rules they follow, already in it. Planting them first is not
-// scaffolding: both columns carry a foreign key, so a bot owned by nobody or
-// following nothing is a row the schema refuses.
+// newStrategyBotTestDatabase seeds the owner and trading strategy that the bot foreign keys require.
 func newStrategyBotTestDatabase(t *testing.T) *gorm.DB {
 	database := newTestDatabase(t)
 	require.NoError(t, database.WithContext(t.Context()).Create(&entities.User{
@@ -37,9 +31,6 @@ func newStrategyBotTestDatabase(t *testing.T) *gorm.DB {
 	return database
 }
 
-// aBotRow is one bot: a name, a market, how often, and the rules it follows. The
-// rules themselves are not here — they are a thing of their own now, and a bot only
-// names one.
 func aBotRow(name string) entities.StrategyBot {
 	return entities.StrategyBot{
 		OwnerID: botRowOwnerID, Name: name, Symbol: "BTCUSDT",
@@ -63,8 +54,7 @@ func TestStrategyBotRepositorySaveAndReadBackAWholeBot(t *testing.T) {
 	assert.Equal(t, "早盤突破", readBot.Name)
 	assert.Equal(t, "BTCUSDT", readBot.Symbol)
 	assert.Equal(t, botRowTradingStrategyID, readBot.TradingStrategyID)
-	// The rules' current name comes back with the bot, so a list says what each bot
-	// is doing without a second read per bot.
+	// The trading strategy is preloaded so a listing needs no read per bot.
 	assert.Equal(t, "黃金交叉", readBot.TradingStrategy.Name)
 }
 
@@ -91,7 +81,6 @@ func TestStrategyBotRepositorySaveReplacesWhatItHadBefore(t *testing.T) {
 	assert.Equal(t, savedBot.ID, rewrittenBot.ID)
 	assert.Equal(t, "收盤反轉", rewrittenBot.Name)
 	assert.Equal(t, "ETHUSDT", rewrittenBot.Symbol)
-	// Pointing a bot at another set of rules is a rewrite like any other.
 	assert.Equal(t, uint(2), rewrittenBot.TradingStrategyID)
 	assert.Equal(t, 15, rewrittenBot.TriggerIntervalMinutes)
 }
@@ -114,8 +103,6 @@ func TestStrategyBotRepositoryFindOneReportsTheDomainsNotFound(t *testing.T) {
 
 	_, findError := repository.FindOne(t.Context(), 4242)
 
-	// Reported as the domain's own sentinel, so nobody outside has to recognise a
-	// storage library's.
 	require.ErrorIs(t, findError, domains.ErrStrategyBotNotFound)
 }
 
@@ -131,17 +118,13 @@ func TestStrategyBotRepositoryDeleteLeavesTheRulesItFollowedAlone(t *testing.T) 
 	_, findError := repository.FindOne(t.Context(), savedBot.ID)
 	require.ErrorIs(t, findError, domains.ErrStrategyBotNotFound)
 
-	// The rules are a thing of their own, and other bots may follow them. Deleting
-	// a machine must not take the rules with it.
+	// Deleting a bot must not delete the trading strategy, which other bots may follow.
 	remainingTradingStrategies := int64(0)
 	require.NoError(t, database.WithContext(t.Context()).
 		Model(&entities.TradingStrategy{}).Count(&remainingTradingStrategies).Error)
 	assert.Equal(t, int64(1), remainingTradingStrategies)
 }
 
-// Both refusals that protect a set of rules — a rewrite blocked by a running bot, a
-// delete blocked by any bot — are answered from this one read, whatever state those
-// bots are in.
 func TestStrategyBotRepositoryFindAllByTradingStrategyAnswersRunningAndStoppedAlike(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)
@@ -185,8 +168,7 @@ func TestStrategyBotRepositoryUpdateRunStateTouchesOnlyABotsLife(t *testing.T) {
 	savedBot.LastSentSignal = string(vo.SignalBuy)
 	savedBot.HaltReason = string(vo.StrategyBotHaltScriptFailed)
 	savedBot.Conflicting = true
-	// A round must not be able to rewrite a condition, so this is set to something
-	// the write is expected to ignore entirely.
+	// A round must not rewrite configuration, so this change must be ignored.
 	savedBot.Name = "這個名字不該被寫進去"
 
 	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
@@ -216,9 +198,7 @@ func TestStrategyBotRepositoryUpdateRunStateLeavesTheLastModifiedTimeAlone(t *te
 	readBot, findError := repository.FindOne(t.Context(), savedBot.ID)
 	require.NoError(t, findError)
 
-	// 「最後修改時間」是交給擁有者看的，就擺在建立時間旁邊。一台執行中的機器人
-	// 每個觸發間隔都把它往前推一次、而沒有人改過任何東西的話，那一格就不再說得出
-	// 任何事——一輪跑完不是一次修改。
+	// 最後修改時間是給擁有者看的，一輪跑完不算修改，不應推進它。
 	assert.Equal(t, savedBot.UpdatedAt.UTC(), readBot.UpdatedAt.UTC())
 	assert.Equal(t, savedBot.CreatedAt.UTC(), readBot.CreatedAt.UTC())
 }
@@ -235,9 +215,7 @@ func TestStrategyBotRepositoryUpdateRunStateClearsRatherThanSkippingEmptyValues(
 	savedBot.Conflicting = true
 	require.NoError(t, repository.UpdateRunState(t.Context(), savedBot))
 
-	// Starting a bot clears all three. Written as a struct without naming the
-	// columns, an empty value would read as "leave it alone" — and a bot would
-	// start carrying yesterday's halt reason and never send its first signal.
+	// Columns are named so these empty values are written rather than skipped.
 	savedBot.LastSentSignal = ""
 	savedBot.HaltReason = ""
 	savedBot.Conflicting = false
@@ -278,8 +256,6 @@ func TestStrategyBotRepositoryFindDueAnswersOnlyRunningBotsThatAreDue(t *testing
 
 	require.Len(t, dueBots, 1)
 	assert.Equal(t, "到期的", dueBots[0].Name)
-	// Which rules it follows comes with it, so a round never has to ask twice which
-	// bot it is about before it can ask what that bot does.
 	assert.Equal(t, botRowTradingStrategyID, dueBots[0].TradingStrategyID)
 }
 
@@ -300,10 +276,8 @@ func TestStrategyBotRepositoryFindDueHonoursTheCapOnTheReadItself(t *testing.T) 
 	dueBots, findError := repository.FindDue(t.Context(), now, 2)
 	require.NoError(t, findError)
 
-	// A system coming back after a long stop must not pull every bot it owns into
-	// memory in order to run two of them.
+	// The due query is limited so a long outage does not load every bot.
 	require.Len(t, dueBots, 2)
-	// Oldest due first, so nothing starves behind a bot that wakes more often.
 	assert.Equal(t, "第一台", dueBots[0].Name)
 	assert.Equal(t, "第二台", dueBots[1].Name)
 }
@@ -322,8 +296,7 @@ func TestStrategyBotRepositoryCountsAndListsPerOwner(t *testing.T) {
 	strangersBot := aBotRow("我的")
 	strangersBot.OwnerID = stranger
 	strangersSaved, saveError := repository.Save(t.Context(), strangersBot)
-	// Two people may each have a bot by the same name: a name is what its owner
-	// recognises a bot by, and nobody recognises a stranger's.
+	// Bot names are unique per owner, not globally.
 	require.NoError(t, saveError)
 	strangersSaved.RunState = string(vo.StrategyBotRunning)
 	require.NoError(t, repository.UpdateRunState(t.Context(), strangersSaved))
@@ -341,9 +314,7 @@ func TestStrategyBotRepositoryCountsAndListsPerOwner(t *testing.T) {
 func TestStrategyBotRepositorySaysSoWhenStorageCannotAnswer(t *testing.T) {
 	repository := persistence.NewStrategyBotRepository(closedDatabase(t))
 
-	// Every one of these must report the failure rather than quietly answering with
-	// nothing — a scan that read "no bots are due" from a shut connection would
-	// leave every running bot silent and nobody any the wiser.
+	// A closed connection must fail loudly, not read as "no bots are due".
 	_, saveError := repository.Save(t.Context(), aBotRow("早盤突破"))
 	assert.Error(t, saveError)
 	assert.NotErrorIs(t, saveError, domains.ErrStrategyBotNameConflict)
@@ -376,8 +347,7 @@ func TestStrategyBotRepositorySaveReportsAFailedRewriteAsItself(t *testing.T) {
 	savedBot, saveError := repository.Save(t.Context(), aBotRow("早盤突破"))
 	require.NoError(t, saveError)
 
-	// A second bot, so that renaming the first onto the second's name breaks the
-	// index on the rewrite path rather than on the insert one.
+	// A second bot, so the rename breaks the name index on the rewrite path.
 	_, secondError := repository.Save(t.Context(), aBotRow("收盤反轉"))
 	require.NoError(t, secondError)
 
@@ -389,9 +359,6 @@ func TestStrategyBotRepositorySaveReportsAFailedRewriteAsItself(t *testing.T) {
 	require.ErrorIs(t, rewriteError, domains.ErrStrategyBotNameConflict)
 }
 
-// A position plan has to survive both journeys: written once and read back, and
-// reached by a rewrite. A rewrite that quietly left it alone would have somebody
-// reading their new stop distance on screen while every message used the old one.
 func TestStrategyBotRepositorySaveKeepsAndRewritesThePositionPlan(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)
@@ -430,14 +397,10 @@ func TestStrategyBotRepositorySaveKeepsAndRewritesThePositionPlan(t *testing.T) 
 		string(vo.PositionSizingModeFixedAmount), rewrittenRow.PositionPlanSizingMode)
 	assert.Equal(t, "8000", rewrittenRow.PositionPlanSizingValue.String())
 	assert.Equal(t, "2", rewrittenRow.PositionPlanStopLossPercentage.String())
-	// Cleared rather than left behind: a rewrite replaces everything a bot is, so a
-	// target somebody removed has to actually be gone.
 	assert.True(t, rewrittenRow.PositionPlanTakeProfitPercentage.IsZero())
 }
 
-// A row written with no plan at all stands for every bot stored before these columns
-// existed. It has to read back as suggesting nothing, or those bots would start
-// sending a paragraph their owners never asked for.
+// A row with no plan (as stored before these columns existed) must read back as no suggestion.
 func TestStrategyBotRepositorySaveLeavesABotWithoutAPositionPlanSuggestingNothing(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)

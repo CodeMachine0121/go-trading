@@ -12,50 +12,27 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// tradingStrategyBacktestAssistantArguments is what the assistant sends to replay one
-// trading strategy over a stretch of market that has already happened.
-//
-// There is no coarseness here, no algorithm and no trading mode, for the same reason
-// a person's request carries none of them: the trading strategy already says all
-// three, and a second answer would need a rule about which one wins.
-//
-// The money arrives as text and is parsed into an exact decimal. Sending it as a JSON
-// number would hand the amounts a person stakes to a binary float, which is the one
-// type this system refuses everywhere else money is involved.
+// tradingStrategyBacktestAssistantArguments carries no interval, algorithm or trading mode
+// because the trading strategy defines them; amounts arrive as text so money is never a float.
 type tradingStrategyBacktestAssistantArguments struct {
 	TradingStrategyID uint      `json:"tradingStrategyId"`
 	Symbol            string    `json:"symbol"`
 	StartTime         time.Time `json:"startTime"`
 	EndTime           time.Time `json:"endTime"`
 	InitialCapital    string    `json:"initialCapital"`
-	// PositionSizingMode is how much each opening stakes, and PositionSizingValue the
-	// figure that goes with it. Staking everything needs no figure.
+	// PositionSizingValue goes with PositionSizingMode; staking everything needs no figure.
 	PositionSizingMode  string `json:"positionSizingMode"`
 	PositionSizingValue string `json:"positionSizingValue"`
-	// StopLossPercentage and TakeProfitPercentage are the two exit distances this run
-	// simulates, and EntryCostPercentage and ExitCostPercentage what the act of
-	// trading costs at each end. All four are optional; left out, nothing is
-	// simulated and nothing is charged.
-	//
-	// They are here because the assistant's whole job is a loop — build the rules,
-	// replay, read the report card, adjust — and the two most valuable adjustments in
-	// it are hanging a stop and putting the real fees in. An entry point missing them
-	// would hand back a different report card from the one the person gets for the
-	// same settings, with nothing on the page to say the difference came from which
-	// door was used.
+	// StopLossPercentage, TakeProfitPercentage and the two cost percentages are optional (left out,
+	// nothing is simulated or charged) and mirror the person's path so both get the same report card.
 	StopLossPercentage   string `json:"stopLossPercentage"`
 	TakeProfitPercentage string `json:"takeProfitPercentage"`
 	EntryCostPercentage  string `json:"entryCostPercentage"`
 	ExitCostPercentage   string `json:"exitCostPercentage"`
 }
 
-// ToRequestDto turns what the assistant declared into the shape the domain replays,
-// reading each amount as an exact decimal.
-//
-// An amount that is not a number at all becomes zero rather than a failure here, and
-// that is deliberate: zero capital is already refused by the replay itself, in words
-// the assistant can act on, so parsing does not need a second vocabulary for the same
-// mistake.
+// ToRequestDto parses each amount as an exact decimal; an unparsable amount becomes zero because
+// the replay itself already refuses zero capital in words the assistant can act on.
 func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
 		Symbol:               arguments.Symbol,
@@ -71,12 +48,8 @@ func (arguments tradingStrategyBacktestAssistantArguments) ToRequestDto() dto.Tr
 	}
 }
 
-// mostRecentClosedTrades is the tail of the round trips, at most closedTradeLimit of
-// them, plus the sentence that says so when there were more.
-//
-// The most recent rather than the first, because a replay is read backwards: what the
-// strategy has been doing lately is what decides whether to adjust it. An empty
-// sentence means nothing was left out.
+// mostRecentClosedTrades keeps the last closedTradeLimit round trips, since recent behaviour
+// decides adjustments, plus a notice when trades were left out (empty when none were).
 func mostRecentClosedTrades(closedTrades []dto.ClosedTradeDto) ([]dto.ClosedTradeDto, string) {
 	if len(closedTrades) <= closedTradeLimit {
 		return closedTrades, ""
@@ -87,7 +60,6 @@ func mostRecentClosedTrades(closedTrades []dto.ClosedTradeDto) ([]dto.ClosedTrad
 		len(closedTrades), closedTradeLimit, len(closedTrades))
 }
 
-// decimalOrZero reads an amount, answering zero for anything it cannot read.
 func decimalOrZero(amount string) decimal.Decimal {
 	parsedAmount, parseError := decimal.NewFromString(amount)
 	if parseError != nil {
@@ -97,62 +69,28 @@ func decimalOrZero(amount string) decimal.Decimal {
 	return parsedAmount
 }
 
-// closedTradeLimit is how many round trips one replay hands the assistant.
-//
-// It exists for the same reason the K candle ceiling does, and it bites harder here:
-// what a capability hands back is replayed to the assistant on **every subsequent
-// round** of the same answer. An assistant that replays a chatty strategy four or
-// five times — which is exactly what forty queries are for — would be carrying every
-// trade of every attempt, and would run out of room to think before it ran out of
-// queries.
-//
-// Fifty is enough to see how a strategy behaves: how long it holds, whether it wins
-// in streaks, whether the losses are small. Reading all six hundred is not how that
-// question gets answered, and the report card above already counts them all.
+// closedTradeLimit caps round trips per replay because each result is replayed to the assistant
+// on every later round, and fifty is enough to judge behaviour while the summary counts them all.
 const closedTradeLimit = 50
 
-// tradingStrategyBacktestReport is one replay as the assistant reads it: the report
-// card and the round trips, and deliberately not the equity curve.
-//
-// It is its own shape rather than the result with a field hidden, because the curve
-// is wanted on the HTTP path — a screen draws it. Marking it unsendable there to keep
-// it from the assistant would break the drawing to fix the reading.
-//
-// What it leaves out costs nothing. A point per candle rendered as text is hundreds
-// of numbers crowding out the report card, and every one of them can be worked back
-// out from the round trips and the opening capital.
+// tradingStrategyBacktestReport is its own shape so the assistant gets the report card and round
+// trips without the equity curve, which the HTTP path still needs for drawing.
 type tradingStrategyBacktestReport struct {
 	Symbol   string `json:"symbol"`
 	Interval string `json:"interval"`
-	// StartTime and EndTime are where the candles actually replayed begin and end,
-	// which is not always what was asked for: an end reaching into an interval that
-	// has not finished is pulled back to the last one that has.
+	// StartTime and EndTime are the replayed range, with an end in an unfinished interval pulled back.
 	StartTime       time.Time              `json:"startTime"`
 	EndTime         time.Time              `json:"endTime"`
 	UsedCandleCount int                    `json:"usedCandleCount"`
 	Summary         dto.BacktestSummaryDto `json:"summary"`
-	// ClosedTrades holds the most recent round trips, at most closedTradeLimit of
-	// them. ClosedTradesTruncated says so outright when there were more.
-	//
-	// Being told is the whole point. An assistant reading fifty of six hundred trades
-	// without knowing it will describe a strategy that does not exist — and unlike a
-	// truncated answer, nothing about the list itself gives that away.
+	// ClosedTradesTruncated says outright when older trades were dropped, since nothing in the list
+	// itself would reveal it.
 	ClosedTrades          []dto.ClosedTradeDto `json:"closedTrades"`
 	ClosedTradesTruncated string               `json:"closedTradesTruncated,omitempty"`
 }
 
-// TradingStrategyBacktestAssistantQuery lets the assistant find out what the rules it
-// built would have done.
-//
-// This is the capability that closes the loop. Without it the assistant hands over an
-// algorithm and goes blind: whether the thing it wrote makes money is a question it
-// cannot answer, so the person has to run the replay and report back. With it, a
-// single answer can build a set of rules, replay it, read that the return is three
-// percent against a target of ten, loosen a condition and replay again.
-//
-// Nothing is stored, exactly as on the person's own path: the assistant will run this
-// many times while it converges, and a table filling up with attempts nobody asked to
-// keep is the cost of pretending otherwise.
+// TradingStrategyBacktestAssistantQuery lets the assistant replay the rules it built and iterate
+// on them; nothing is stored, since it will run many times while converging.
 type TradingStrategyBacktestAssistantQuery struct {
 	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication
 }
@@ -209,8 +147,6 @@ func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQue
 		`"additionalProperties":false}`
 }
 
-// Run replays the trading strategy and hands back the report card and the round
-// trips.
 func (tradingStrategyBacktestAssistantQuery *TradingStrategyBacktestAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {

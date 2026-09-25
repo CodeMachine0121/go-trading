@@ -32,8 +32,7 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 
-	// Nothing is watched unless a test says so, so a listing that also asks what
-	// holds a market's live places finds none held.
+	// Nothing is watched unless a test says so.
 	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
 		Return([]entities.TradingSymbol{}, nil).AnyTimes()
 
@@ -101,9 +100,7 @@ func TestListTradingSymbolsResponses(t *testing.T) {
 	})
 }
 
-// The handler must hand the application the request's own context rather than one it
-// made up, and a caller that has already gone away is how that is told apart: the
-// cancellation can only be there if it travelled the whole way from the request.
+// Only a context cancelled at the request can prove the handler passes the request's own context through.
 func TestTheRequestsOwnContextReachesStorage(t *testing.T) {
 	fixture := newTradingSymbolRouterUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).
@@ -121,8 +118,7 @@ func TestTheRequestsOwnContextReachesStorage(t *testing.T) {
 	fixture.engine.ServeHTTP(httptest.NewRecorder(), request)
 }
 
-// tradingSymbolClockProxy stamps registrations with a moment the test states, rather
-// than with whatever the wall clock said while it ran.
+// tradingSymbolClockProxy stamps registrations with a fixed moment.
 func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockProxy {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
@@ -130,7 +126,6 @@ func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockPro
 	return clockProxy
 }
 
-// tradingSymbolMarketCatalog is the markets these tests are written against.
 func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},

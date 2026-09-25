@@ -9,24 +9,12 @@ import (
 
 //go:generate go tool mockgen -source=i_published_strategy_script_repository.go -destination=mocks/mock_i_published_strategy_script_repository.go -package=mocks
 
-// IPublishedStrategyScriptRepository records which strategy scripts are on the marketplace.
-//
-// Publishing and withdrawing are both stated as the state to end in rather than as
-// an event, so saying it twice says the same thing as saying it once. Two people
-// pressing publish at the same moment leave one row, and pressing withdraw on
-// something already withdrawn is not a failure — it is somebody agreeing with the
-// world.
+// IPublishedStrategyScriptRepository records marketplace publications; publish and withdraw are idempotent end states.
 type IPublishedStrategyScriptRepository interface {
-	// Publish puts this strategy script on the marketplace as of this moment, or leaves it
-	// where it already is. An already-published strategy script keeps the moment it first
-	// got there: it has been out since then, and pressing the button again does not
-	// change when that started.
+	// Publish keeps the original publication moment when the script is already published.
 	Publish(executionContext context.Context, strategyScriptID uint, publishedAt time.Time) error
-	// Withdraw takes this strategy script off the marketplace, clearing every adoption of
-	// it on the way out. Withdrawing one that is not on the marketplace does
-	// nothing and is not a failure.
+	// Withdraw also clears every adoption; withdrawing an unpublished script is a no-op.
 	Withdraw(executionContext context.Context, strategyScriptID uint) error
-	// FindOne returns this strategy script's place on the marketplace, or
-	// ErrStrategyScriptNotPublished when it has none. It answers the third gate.
+	// FindOne returns ErrStrategyScriptNotPublished when the script is not on the marketplace.
 	FindOne(executionContext context.Context, strategyScriptID uint) (entities.PublishedStrategyScript, error)
 }

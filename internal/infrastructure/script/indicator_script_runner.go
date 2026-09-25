@@ -19,56 +19,29 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
-// errScriptAllowanceSpent is why a run was given up on when the script outlived its
-// allowance. It is carried as the deadline's cause so that this reason can be told
-// apart from the caller having gone away, which reaches the same context but is not
-// the script's fault and must not be reported as though it were.
+// errScriptAllowanceSpent is the deadline cause, distinguishing a timed-out script from a caller that went away.
 var errScriptAllowanceSpent = errors.New("indicator script allowance spent")
 
-// scriptEntryPoint is the one name every indicator script must define.
 const scriptEntryPoint = "main.Calculate"
 
-// scriptCall is how that entry point is invoked. Running it through the interpreter
-// rather than calling it directly is what lets a script that never finishes be
-// stopped when its time runs out.
+// scriptCall runs the entry point through the interpreter so a script that never finishes can be stopped.
 const scriptCall = "main.Calculate(indicator.Data)"
 
-// scriptDataPackage is the package a script imports to reach its input.
 const scriptDataPackage = "indicator/indicator"
 
-// allowedPackages is the entire world an indicator script can reach. Anything not
-// listed here cannot be imported, which is what keeps a script to pure arithmetic:
-// no files, no network, no clock, no randomness. Widening what scripts may do
-// means adding an entry here and nowhere else.
+// allowedPackages is the only set of imports a script may use: no files, network, clock or randomness.
 var allowedPackages = interp.Exports{
 	"math/math": stdlib.Symbols["math/math"],
 	"sort/sort": stdlib.Symbols["sort/sort"],
 }
 
-// indicatorScriptRunner is everything about running an indicator script over one
-// kind of input: the sandbox, the symbols a script may reach, the check that its entry
-// point has the form the declared kind calls for, the allowance, and the replay over a
-// growing stretch of market.
-//
-// It is generic over the element a script is fed because that element is the one
-// thing that differs between the markets a script can eat. Spot scripts are fed K
-// candles and contract scripts are fed contract bars, and apart from the entry point's
-// argument and the types a script can name, running the two is the same work — work
-// that must not drift apart, since a fix to the allowance or to how a failure is
-// reported belongs to both.
-//
-// It runs inside a compartment, never in the service itself: see
-// indicatorScriptCompartment for the side that starts one and indicatorScriptWorker
-// for the side that hands the request to this runner.
+// indicatorScriptRunner runs a script over one input element type (spot K candles or contract bars) inside a compartment, sharing the sandbox, allowance and failure reporting across markets.
 type indicatorScriptRunner[Input any] struct {
 	executionTimeout time.Duration
 	input            indicatorScriptInput
 }
 
-// execute runs the script over the input once. Anything that goes wrong — the script
-// cannot be read, it has no usable entry point, it hands back a shape other than the
-// declared one, it reaches for something it may not use, it fails while running, or
-// it outlives its allowance — is reported as a script failure with no partial result.
+// execute runs the script once; any failure is reported as a script failure with no partial result.
 func (runner indicatorScriptRunner[Input]) execute(
 	executionContext context.Context,
 	script string,
@@ -81,28 +54,14 @@ func (runner indicatorScriptRunner[Input]) execute(
 		return nil, prepareError
 	}
 
-	// A copy of exactly the input's length, for the same two reasons the replay makes
-	// one: nothing the script writes reaches the caller, and nothing past the input is
-	// within its reach.
+	// A copy of exact length, so the script can neither mutate the caller's input nor read past it.
 	isolatedInput := make([]Input, len(input))
 	copy(isolatedInput, input)
 
 	return preparedScript.runOver(executionContext, isolatedInput)
 }
 
-// executeForEachElement runs the same script once per element: the nth run sees the
-// elements from the first up to and including the nth, and the results come back in
-// that same order, one set per element.
-//
-// It lives here rather than as a loop in the caller because only this side can do the
-// thing that makes it affordable: read the script **once** and then feed it different
-// data. A caller looping over execute would rebuild the interpreter and re-read the
-// whole script on every element — a fixed cost paid a thousand times over for a replay
-// of a thousand candles.
-//
-// Every element's run gets the full allowance of its own, and the first failure ends
-// everything with no partial result: half a replay is not a shorter replay, it is a
-// wrong one.
+// executeForEachElement reads the script once and runs it per element over a growing prefix, each with its own allowance; the first failure aborts with no partial result.
 func (runner indicatorScriptRunner[Input]) executeForEachElement(
 	executionContext context.Context,
 	script string,
@@ -115,11 +74,7 @@ func (runner indicatorScriptRunner[Input]) executeForEachElement(
 		return nil, prepareError
 	}
 
-	// The replay works on a copy of its own, so a script that writes into what it is
-	// shown can never reach back into the caller's market. Each run is then cut to a
-	// capacity equal to its length: a slice carries the array behind it, and without
-	// that cut a script could re-slice up to cap(data) and read — or rewrite — the
-	// candles it has not reached yet, which would make every replay a lie.
+	// Each run sees a copy capped to its length, so the script cannot re-slice to read or rewrite future candles.
 	isolatedInput := make([]Input, len(input))
 	copy(isolatedInput, input)
 
@@ -137,26 +92,15 @@ func (runner indicatorScriptRunner[Input]) executeForEachElement(
 	return perElementIndicatorValues, nil
 }
 
-// prepare reads the script once: it builds the interpreter, hands it the only world a
-// script may reach, evaluates the source, and checks that the entry point has the
-// exact form the declared kind calls for.
-//
-// Everything that can be judged without data is judged here, so a script that is
-// broken is reported as broken before a single element has been looked at — rather
-// than on the first one, which would read like the data's fault.
+// prepare builds the interpreter, evaluates the source and checks the entry-point signature, so broken scripts fail before any data is read.
 func (runner indicatorScriptRunner[Input]) prepare(
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
 	parameters domains.StrategyScriptParametersDomain,
 ) (*preparedScript[Input], error) {
-	// The reader records the first knob a script reaches for that nobody declared.
-	// It is consulted before the error the script came back with, so the answer does
-	// not depend on how the interpreter happens to word a panic — that is somebody
-	// else's implementation detail and it changes between versions.
+	// The reader records the first undeclared parameter so the report does not depend on the interpreter's panic wording.
 	preparedScript := &preparedScript[Input]{
-		// Whatever a script prints is thrown away. The compartment it runs in speaks
-		// to the service over its standard output, and a stray line there would turn
-		// a sound answer into one that cannot be read.
+		// Script output is discarded because the compartment's stdout is the response channel.
 		interpreter: interp.New(interp.Options{Stdout: io.Discard, Stderr: io.Discard}),
 		shape: indicatorScriptShape{
 			resultType:     resultType,
@@ -167,18 +111,12 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	}
 
 	dataSymbols := map[string]reflect.Value{
-		// The interpreter is handed the address of the field rather than a copy of
-		// its value, so that what a script sees can be replaced between runs. That
-		// is the whole mechanism behind reading the script once and replaying it
-		// over a growing stretch of market.
+		// The field's address (not a copy) is exported so its contents can be swapped between runs.
 		"Data":          reflect.ValueOf(&preparedScript.visibleInput).Elem(),
 		"LookbackCount": reflect.ValueOf(preparedScript.parameterReader.lookbackCount),
 		"Number":        reflect.ValueOf(preparedScript.parameterReader.number),
 		"Boolean":       reflect.ValueOf(preparedScript.parameterReader.boolean),
-		// The only way a signal-kind script may state a signal: pick one of these
-		// three. It cannot build its own — Signal is exported as a bare type with
-		// no constructor — and it cannot name a fourth. These sit in scope for
-		// every script; a script of another kind simply never returns one.
+		// Signal has no constructor, so a signal-kind script can only return one of these three values.
 		"Signal": reflect.ValueOf((*vo.SignalVo)(nil)),
 		"Buy":    reflect.ValueOf(vo.SignalBuy),
 		"Sell":   reflect.ValueOf(vo.SignalSell),
@@ -193,24 +131,10 @@ func (runner indicatorScriptRunner[Input]) prepare(
 		scriptSymbols[packagePath] = packageSymbols
 	}
 
-	// The symbol table is assembled here from compile-time constants, so this cannot
-	// fail; were it ever malformed, the script would simply fail to read on the next
-	// line and be reported the same way as any other unreadable script.
+	// The symbol table is built from constants and cannot fail; a malformed one would surface as an unreadable script anyway.
 	_ = preparedScript.interpreter.Use(scriptSymbols)
 
-	// Goroutines and channels are refused before the script is evaluated. A goroutine
-	// is the one thing a script can start that outlives the run: the allowance cannot
-	// stop it, and a panic on it is beyond what the interpreter can catch, so it takes
-	// the whole server down instead of failing the script. A channel is only good for
-	// talking to a goroutine; without one, all it can do is block a run forever, and a
-	// run blocked on a receive stays parked after its allowance is spent. Nothing an
-	// indicator computes needs either.
-	//
-	// The check fails closed. The interpreter is more forgiving than a Go file: it
-	// accepts a script with no package clause, and it runs statements written outside
-	// any function. The first is read again as package main, so such scripts keep
-	// working and are checked all the same; anything that still is not a Go file
-	// cannot be checked, and a script that cannot be checked is not run.
+	// Goroutines and channels are rejected because they can outlive the allowance or crash the server with an uncatchable panic; the check fails closed, retrying scripts without a package clause as package main.
 	parsedScript, parseError := parser.ParseFile(token.NewFileSet(), "", script, 0)
 	if parseError != nil {
 		parsedAsMain, parseAsMainError := parser.ParseFile(
@@ -256,42 +180,29 @@ func (runner indicatorScriptRunner[Input]) prepare(
 	return preparedScript, nil
 }
 
-// preparedScript is one script that has already been read and accepted, waiting to be
-// run over some input. Holding the interpreter open between runs is what makes
-// replaying a strategy script affordable; holding the input in a field is what makes
-// those runs see different data.
+// preparedScript keeps the interpreter open between runs and swaps the input via a field.
 type preparedScript[Input any] struct {
-	interpreter *interp.Interpreter
-	shape       indicatorScriptShape
-	// visibleInput is what the script sees. Its address is in the interpreter's
-	// symbol table, so assigning to it changes the script's input without re-reading
-	// a single line of the script.
+	interpreter      *interp.Interpreter
+	shape            indicatorScriptShape
 	visibleInput     []Input
 	parameterReader  *strategyScriptParameterReader
 	executionTimeout time.Duration
 }
 
-// runOver runs the already-read script over exactly this input. Running the entry
-// point through the interpreter rather than calling it directly is what makes both the
-// giving up and the reporting possible: the interpreter turns every failure, including
-// a deliberate one, into an error rather than letting it escape.
+// runOver runs the prepared script through the interpreter, which turns every failure, including panics, into an error.
 func (preparedScript *preparedScript[Input]) runOver(
 	executionContext context.Context, input []Input,
 ) (map[string]vo.IndicatorValueVo, error) {
 	preparedScript.visibleInput = input
 
-	// The allowance is measured from the caller's own context rather than from a
-	// fresh one, so a caller that has gone away takes its script with it instead of
-	// leaving it running for the rest of the allowance with nobody left to answer.
+	// Derived from the caller's context so a departed caller stops the script too.
 	allowanceContext, stopWaiting := context.WithTimeoutCause(
 		executionContext, preparedScript.executionTimeout, errScriptAllowanceSpent)
 	defer stopWaiting()
 
 	calculated, callError := preparedScript.interpreter.EvalWithContext(allowanceContext, scriptCall)
 
-	// Asked before anything else, because a script that reached for a knob nobody
-	// declared did not fail on its own terms — it failed because a name does not
-	// match, and every other answer here would send the reader to the wrong place.
+	// Checked first so an undeclared parameter is reported as such rather than as whatever error it caused.
 	if missingName, isMissing := preparedScript.parameterReader.missingName(); isMissing {
 		return nil, domains.UndeclaredParameter(missingName)
 	}
@@ -313,10 +224,7 @@ func (preparedScript *preparedScript[Input]) runOver(
 	return preparedScript.shape.readValues(calculated)
 }
 
-// answer reads the one request a compartment was started for and runs it, inside the
-// compartment. Every way it can go — values, a replay's values, an undeclared knob, a
-// failed script — comes back as a response rather than an error, because the response
-// is the only thing that can cross back to the service.
+// answer runs the compartment's single request and always returns a response, since only a response can cross back.
 func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicatorScriptResponse {
 	var request indicatorScriptRequest[Input]
 	if decodeError := decoder.Decode(&request); decodeError != nil {
@@ -338,9 +246,7 @@ func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicato
 		return newFailedIndicatorScriptResponse(parametersError)
 	}
 
-	// Nobody inside the compartment can go away: the caller lives in the service, and
-	// when it leaves, the service ends the whole compartment rather than asking it to
-	// stop.
+	// The caller cannot cancel from inside the compartment; the service kills the whole process instead.
 	if request.ForEachElement {
 		perElementIndicatorValues, replayError := runner.executeForEachElement(
 			context.Background(), request.Script, resultType, request.Input, parameters)

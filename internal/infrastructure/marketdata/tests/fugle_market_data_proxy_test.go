@@ -17,13 +17,9 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// taipei is the zone this source states its times in, fixed so that these rules hold
-// on any machine whatever time zone database it ships with.
+// taipei is a fixed zone so tests do not depend on the machine's time zone database.
 var taipei = time.FixedZone("Asia/Taipei", 8*60*60)
 
-// taipeiMarket is the market this source answers for. The proxy is handed the market
-// itself rather than just its zone, because it is asked one local day at a time and
-// "does this market trade that day" is the market's question, not the source's.
 func taipeiMarket() domains.MarketDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketTaiwanStock: {
@@ -39,8 +35,6 @@ func taipeiMarket() domains.MarketDomain {
 	}).MarketOf(string(vo.MarketTaiwanStock))
 }
 
-// taipeiAt is a moment said in Taipei time, which is how the requirements for this
-// market are written.
 func taipeiAt(t *testing.T, moment string) time.Time {
 	t.Helper()
 
@@ -50,8 +44,7 @@ func taipeiAt(t *testing.T, moment string) time.Time {
 	return parsedTime
 }
 
-// fugleCandleJson spells one candle the way this source does: a time with its own
-// offset written into it, and figures as plain JSON numbers.
+// fugleCandleJson carries its own offset and figures as plain JSON numbers.
 func fugleCandleJson(localTime string) string {
 	return fmt.Sprintf(
 		`{"date":"%s","open":574,"high":576,"low":572,"close":575,"volume":8450,"average":573.82}`,
@@ -70,8 +63,6 @@ func fugleAnswerJson(symbol string, candles ...string) string {
 	return fmt.Sprintf(`{"symbol":"%s","timeframe":"1","data":[%s]}`, symbol, joined)
 }
 
-// fugleSourceUnderTest stands in for the two addresses this source answers at, and
-// records what it was asked.
 type fugleSourceUnderTest struct {
 	server *httptest.Server
 
@@ -93,9 +84,7 @@ func newFugleSourceUnderTest(t *testing.T) *fugleSourceUnderTest {
 			} else {
 				source.historicalRequest = append(source.historicalRequest, request)
 			}
-			// Keyed by the day asked about, with a day nobody set up answering with
-			// nothing — a day standing in for another day would let a test pass on
-			// candles it never actually asked for.
+			// Unconfigured days answer empty so a test cannot pass on candles it never asked for.
 			answer, hasAnswer := source.answers[request.URL.Query().Get("from")]
 			source.mutex.Unlock()
 
@@ -159,20 +148,18 @@ func TestFugleReadsAPushedCandleIntoTheShapeTheDomainKnows(t *testing.T) {
 	require.NoError(t, fetchError)
 	require.Len(t, marketKCandles, 1)
 	assert.Equal(t, "2330", marketKCandles[0].Symbol)
-	// The source states its own offset; the system keeps every open time universal.
+	// The source states its own offset; open times are kept in UTC.
 	assert.Equal(t, taipeiAt(t, "2026-09-08T10:00:00+08:00").UTC(), marketKCandles[0].OpenTime)
 	assert.Equal(t, "574", marketKCandles[0].Open.String())
 	assert.Equal(t, "576", marketKCandles[0].High.String())
 	assert.Equal(t, "572", marketKCandles[0].Low.String())
 	assert.Equal(t, "575", marketKCandles[0].Close.String())
-	// Shares, exactly as reported. Converting to the lots a person reads on a screen
-	// would be this system inventing a number nobody sent it.
+	// Volume stays in shares as reported.
 	assert.Equal(t, "8450", marketKCandles[0].Volume.String())
 }
 
 func TestFugleLeavesTheFiguresItDoesNotPublishAbsent(t *testing.T) {
-	// This venue publishes no turnover and no taker-buy breakdown on minute candles.
-	// Absent is not zero: zero would say the market turned over nothing.
+	// Absent is not zero: zero would claim no turnover.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("", fugleAnswerJson("2330", fugleCandleJson("2026-09-08T10:00:00.000+08:00")))
 
@@ -187,9 +174,7 @@ func TestFugleLeavesTheFiguresItDoesNotPublishAbsent(t *testing.T) {
 }
 
 func TestFugleAsksTheAddressThatAnswersAboutTheDayWanted(t *testing.T) {
-	// Today is only answered about at the intraday address. Asking the historical one
-	// for today can come back empty long after the market has traded, which would read
-	// as a quiet day — and, for a whole market, as a holiday.
+	// Today must use the intraday address; the historical one can return empty for today.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("", fugleAnswerJson("2330"))
 
@@ -200,7 +185,7 @@ func TestFugleAsksTheAddressThatAnswersAboutTheDayWanted(t *testing.T) {
 	require.Len(t, source.askedIntraday(), 1)
 	assert.Empty(t, source.askedHistorical())
 	assert.Equal(t, "1", source.askedIntraday()[0].URL.Query().Get("timeframe"))
-	// Oldest first, said out loud: this source answers newest first unless told.
+	// The source answers newest first unless told otherwise.
 	assert.Equal(t, "asc", source.askedIntraday()[0].URL.Query().Get("sort"))
 	assert.Equal(t, "a-key", source.askedIntraday()[0].Header.Get("X-API-KEY"))
 }
@@ -220,8 +205,6 @@ func TestFugleAsksTheHistoricalAddressForAnEarlierDay(t *testing.T) {
 }
 
 func TestFugleAsksEachLocalDayAWindowSpansAndMergesTheAnswers(t *testing.T) {
-	// A window reaching back over a weekend touches two trading days, and the source
-	// answers about one day at a time.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("2026-09-11",
 		fugleAnswerJson("2330", fugleCandleJson("2026-09-11T13:25:00.000+08:00")))
@@ -238,8 +221,7 @@ func TestFugleAsksEachLocalDayAWindowSpansAndMergesTheAnswers(t *testing.T) {
 }
 
 func TestFugleKeepsOnlyTheCandlesInsideTheWindow(t *testing.T) {
-	// The source answers about whole days, so it will hand back candles from outside
-	// the stretch that was actually wanted.
+	// The source answers whole days, so out-of-window candles must be trimmed.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("", fugleAnswerJson("2330",
 		fugleCandleJson("2026-09-08T09:00:00.000+08:00"),
@@ -258,13 +240,7 @@ func TestFugleKeepsOnlyTheCandlesInsideTheWindow(t *testing.T) {
 }
 
 func TestFugleLeavesOutTheClosingAuctionThatEndsATaiwanSession(t *testing.T) {
-	// Taiwan trades until 13:30, so the last candle a session can hold is the one
-	// that opened at 13:29. The source also publishes the closing auction at 13:30 —
-	// a moment of trading, not a minute of it — and storing that as a candle would
-	// put a bar on the chart for a minute the market was already shut.
-	//
-	// Nothing detects it as a special case: the window a round asks for already ends
-	// at 13:29, and anything outside the window is dropped here.
+	// The 13:30 closing auction is published as a candle but falls outside the session window, so it is dropped with other out-of-window candles.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("", fugleAnswerJson("2330",
 		fugleCandleJson("2026-09-08T13:28:00.000+08:00"),
@@ -283,8 +259,7 @@ func TestFugleLeavesOutTheClosingAuctionThatEndsATaiwanSession(t *testing.T) {
 }
 
 func TestFugleReportsADayItHasNothingForAsNothing(t *testing.T) {
-	// Nothing is an answer. A market that did not trade in this stretch is not a
-	// source that broke.
+	// An empty stretch is not a failure.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("", fugleAnswerJson("2330"))
 
@@ -314,8 +289,6 @@ func TestFugleReportsASourceThatWillNotAnswer(t *testing.T) {
 			},
 		},
 		{
-			// Ignored, a good answer followed by junk reads as a market with nothing to
-			// report rather than as a source that cannot be read.
 			name: "a good answer with junk after it",
 			handle: func(writer http.ResponseWriter, _ *http.Request) {
 				_, _ = writer.Write([]byte(fugleAnswerJson("2330") + `<html>an error page</html>`))
@@ -355,9 +328,9 @@ func TestFugleAnswersWhetherASymbolExists(t *testing.T) {
 		expectedError  bool
 	}{
 		{name: "a listed stock", status: http.StatusOK, expectedExists: true},
-		// Not finding it is an answer about the symbol, not a failure to answer.
+		// 404 is an answer about the symbol.
 		{name: "a code that is not listed", status: http.StatusNotFound, expectedExists: false},
-		// Being refused says nothing about the symbol, so it must not read as "no".
+		// A refusal says nothing about the symbol.
 		{name: "a refusal", status: http.StatusTooManyRequests, expectedError: true},
 	}
 
@@ -391,8 +364,6 @@ func TestFugleAnswersWhetherASymbolExists(t *testing.T) {
 }
 
 func TestFugleCarriesTheCompanyNameOutOfTheSameAnswer(t *testing.T) {
-	// The name is in the answer that proves the code real. Asking again for it would
-	// be a second trip for something already on the desk.
 	server := httptest.NewServer(http.HandlerFunc(
 		func(writer http.ResponseWriter, _ *http.Request) {
 			_, _ = writer.Write([]byte(`{"symbol":"2330","name":"台積電","industry":"24"}`))
@@ -409,8 +380,7 @@ func TestFugleCarriesTheCompanyNameOutOfTheSameAnswer(t *testing.T) {
 }
 
 func TestFugleStillWatchesASymbolWhoseNameItCouldNotRead(t *testing.T) {
-	// The source said the code exists, and that is the question that decides whether
-	// somebody may watch it. A name is worth having and worth going without.
+	// The code exists, so it may be watched even without a name.
 	server := httptest.NewServer(http.HandlerFunc(
 		func(writer http.ResponseWriter, _ *http.Request) {
 			_, _ = writer.Write([]byte(`not json at all`))
@@ -435,8 +405,7 @@ func TestFugleReportsALookupItCannotReach(t *testing.T) {
 }
 
 func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
-	// A misconfigured address is this system's fault rather than the market's, and it
-	// has to say so out loud instead of reporting a market with nothing to say.
+	// A misconfigured address must fail rather than report an empty market.
 	clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
 	clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-08T10:07:00+08:00")).AnyTimes()
 
@@ -457,19 +426,11 @@ func TestFugleReportsALookupAddressItCannotEvenAskAt(t *testing.T) {
 }
 
 func TestFugleNeverAsksAboutADayTheMarketCannotTradeOn(t *testing.T) {
-	// This source is asked one local day at a time, which was cheap while the only
-	// lookback-driven window was a day or two. A history sync can now hand it ninety,
-	// and a quarter of those are weekends that can only ever answer empty — paid for
-	// in sequential, API-keyed requests, on a plan that answers 429 when pushed.
-	//
-	// The days a market cannot trade on are the market's own knowledge, which is why
-	// the session comes in rather than the zone alone.
+	// Non-trading days must not cost a request, and the market domain decides which days those are.
 	source := newFugleSourceUnderTest(t)
 	source.answersWith("", fugleAnswerJson("2330"))
 
-	// Friday through Monday: four calendar days, two of them a weekend. "Now" is the
-	// Tuesday after, so every one of them goes to the historical address rather than
-	// the intraday one — which is what makes the requests countable in one place.
+	// Friday to Monday with "now" the following Tuesday, so every day goes to the historical address.
 	_, fetchError := source.proxyAt(t, taipeiAt(t, "2026-09-15T20:00:00+08:00")).
 		FetchKCandles(t.Context(), fugleWindow(
 			t, "2026-09-11T09:00:00+08:00", "2026-09-14T13:29:00+08:00"))

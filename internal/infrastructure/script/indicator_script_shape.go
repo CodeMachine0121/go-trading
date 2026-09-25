@@ -8,24 +8,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// indicatorScriptShape is what a declared indicator value kind looks like to the
-// interpreter: the form a script's entry point must have, and how to read what that
-// entry point hands back. It is the only place the running of a script meets the
-// kind that was declared, and the only place that needs the Go runtime's own view of
-// types — which is why the kind's own model, living in the domain, stays free of it.
-//
-// It asks the kind three questions — is the value a series, does it hold numbers, is
-// it a signal — so supporting the four map-shaped kinds adds nothing here. The signal
-// kind is the one genuinely different content shape: no indicator name, one value,
-// and a value the script may only pick from a fixed set.
+// indicatorScriptShape maps a declared value kind to the entry-point signature and result reading, keeping reflection out of the domain.
 type indicatorScriptShape struct {
 	resultType domains.IndicatorResultTypeDomain
-	// inputSliceType is what the entry point must take: a slice of whatever this kind
-	// of script is fed — K candles for a spot script, contract bars for a contract one.
+	// inputSliceType is K candles for spot scripts and contract bars for contract ones.
 	inputSliceType reflect.Type
 }
 
-// entryPointType is the exact form the entry point must have under this kind.
 func (indicatorScriptShape indicatorScriptShape) entryPointType() reflect.Type {
 	if indicatorScriptShape.resultType.IsSignal() {
 		return reflect.FuncOf(
@@ -49,9 +38,7 @@ func (indicatorScriptShape indicatorScriptShape) entryPointType() reflect.Type {
 		false)
 }
 
-// readValues collects what the entry point handed back. The form check has already
-// guaranteed its shape, so one walk serves every map-shaped kind. A script that named
-// nothing gives an empty set, which is a valid result rather than a failure.
+// readValues relies on the signature check for shape; an empty result is valid.
 func (indicatorScriptShape indicatorScriptShape) readValues(
 	calculated reflect.Value,
 ) (map[string]vo.IndicatorValueVo, error) {
@@ -75,11 +62,7 @@ func (indicatorScriptShape indicatorScriptShape) readValues(
 	return indicatorValues, nil
 }
 
-// readSignal reads the one signal a signal-kind script handed back. The form check
-// has already guaranteed the return type is indicator.Signal; what is checked here is
-// that the script actually set it to one of buy, sell or hold. A signal left unset —
-// the zero value — is a script that built an opinion and never gave it a direction:
-// the script's mistake to fix, not an opinion to bet money on.
+// readSignal rejects an unset (zero) signal as the script's mistake.
 func (indicatorScriptShape indicatorScriptShape) readSignal(
 	calculated reflect.Value,
 ) (map[string]vo.IndicatorValueVo, error) {
@@ -99,9 +82,7 @@ func (indicatorScriptShape indicatorScriptShape) readSignal(
 	}
 }
 
-// valueOf reads one named value. A lone value and a series are stored alike — a
-// series is simply the elements it holds — so only the two questions above decide
-// what is read and where it is put.
+// valueOf stores a single value and a series alike.
 func (indicatorScriptShape indicatorScriptShape) valueOf(
 	calculatedValue reflect.Value,
 ) vo.IndicatorValueVo {

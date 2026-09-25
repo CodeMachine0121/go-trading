@@ -13,22 +13,12 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// ContractPositionStatisticService keeps recording the five-minute position
-// statistics of every watched perpetual contract, and answers questions about them.
-// Its public use cases never call one another.
-//
-// **Recording is the whole point.** The venue keeps only the last thirty days, so a
-// stretch this system did not record while it could is a stretch nobody will ever
-// have. Every trigger — starting up, a contract joining the watchlist, the round every
-// five minutes — asks the same thing: everything since an hour before the last
-// statistic held, and no further back than the venue can still answer for.
+// ContractPositionStatisticService records every watched contract's five-minute position statistics, since the venue keeps only thirty days; every trigger fetches from an hour before the last held statistic.
 type ContractPositionStatisticService struct {
 	statisticRepository             domaininterface.IContractPositionStatisticRepository
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
 	positionStatisticProxy          domaininterface.IContractPositionStatisticProxy
-	// positionStatisticArchiveProxy is the venue's history archive, which keeps the
-	// same statistics for years where the live source keeps thirty days. Only a
-	// contract history sync reads it; every round above still asks the live source.
+	// positionStatisticArchiveProxy reads the venue's multi-year archive; only contract history syncs use it.
 	positionStatisticArchiveProxy domaininterface.IContractPositionStatisticArchiveProxy
 	clockProxy                    domaininterface.IClockProxy
 	queryMaxResults               int
@@ -52,9 +42,7 @@ func NewContractPositionStatisticService(
 	}
 }
 
-// RunRound records whatever is new for every watched contract. It reports what
-// happened rather than failing: one contract the venue would not answer for must not
-// take the others with it, and the next round picks each one up where it stopped.
+// RunRound records new statistics for every watched contract, reporting per-contract failures instead of returning an error.
 func (contractPositionStatisticService *ContractPositionStatisticService) RunRound(
 	executionContext context.Context,
 ) (dto.ContractSeriesIngestionReportDto, error) {
@@ -68,8 +56,7 @@ func (contractPositionStatisticService *ContractPositionStatisticService) RunRou
 
 	symbolReports := make([]dto.ContractSeriesSymbolReportDto, len(watchedSymbols))
 
-	// A plain wait group rather than an error group, for the reason the funding rate
-	// round gives: independence per contract means one failure cancels nothing.
+	// A plain WaitGroup, not errgroup, so one failing contract does not cancel the rest.
 	var waitGroup sync.WaitGroup
 	for index, watchedSymbol := range watchedSymbols {
 		waitGroup.Go(func() {
@@ -82,8 +69,7 @@ func (contractPositionStatisticService *ContractPositionStatisticService) RunRou
 	return dto.ContractSeriesIngestionReportDto{SymbolReports: symbolReports}, nil
 }
 
-// RunRoundFor records whatever is new for one registered contract — the one that has
-// just joined the watchlist, whose last thirty days are waiting.
+// RunRoundFor records new statistics for one contract, e.g. one that just joined the watchlist.
 func (contractPositionStatisticService *ContractPositionStatisticService) RunRoundFor(
 	executionContext context.Context, symbol string,
 ) (dto.ContractSeriesSymbolReportDto, error) {
@@ -107,9 +93,7 @@ func (contractPositionStatisticService *ContractPositionStatisticService) RunRou
 		executionContext, registeredSymbol, contractPositionStatisticService.clockProxy.Now()), nil
 }
 
-// FindStatisticsInRange returns the statistics of one contract whose statistic time
-// falls inside the range, earliest first. A range holding more than the configured
-// maximum is refused rather than cut short.
+// FindStatisticsInRange returns one contract's statistics in range, earliest first; a range over the maximum is refused rather than truncated.
 func (contractPositionStatisticService *ContractPositionStatisticService) FindStatisticsInRange(
 	executionContext context.Context, queryDto dto.KCandleQueryDto,
 ) ([]dto.ContractPositionStatisticDto, error) {
@@ -137,22 +121,7 @@ func (contractPositionStatisticService *ContractPositionStatisticService) FindSt
 	return statisticDtos, nil
 }
 
-// syncHistory walks one contract's position statistics a day at a time out of the
-// venue's archive, storing only the ones not held yet. It is the second half of a
-// contract history sync, driven by the same run as the candles; it is not a use case
-// of its own, which is why nothing outside this package can reach it.
-//
-// **A day already whole is not asked about**, exactly as a candle chunk already whole
-// is not. What is held is read only to decide whether to ask, never where to start.
-//
-// **A day the archive has no file for is simply passed**: not published yet, or the
-// contract did not exist. The archive not answering — or answering with something that
-// cannot be read — stops the statistics and is written down, but is not an error: the
-// run found something out about the source rather than doing anything wrong. Only
-// this system breaking is returned as one.
-//
-// Every archive reading is worked into a statistic judged by the live rules, so a
-// statistic from the archive and one recorded live are one kind of thing.
+// syncHistory is the statistics half of a contract history sync: it walks the archive day by day, skipping complete days and missing files; an archive refusal is recorded rather than returned, and only internal failures are errors.
 func (contractPositionStatisticService *ContractPositionStatisticService) syncHistory(
 	executionContext context.Context,
 	symbol string,
@@ -189,8 +158,7 @@ func (contractPositionStatisticService *ContractPositionStatisticService) syncHi
 		archivedStatistics, found, fetchError := contractPositionStatisticService.
 			positionStatisticArchiveProxy.FetchDailyPositionStatistics(executionContext, symbol, day.Day)
 		if fetchError != nil {
-			// The rest of the days are abandoned rather than attempted: an archive that
-			// just refused one day will refuse the next thousand the same way.
+			// Abandon the remaining days: an archive that refused one will refuse the rest.
 			symbolReport.NoteFetchFailure(fetchError.Error())
 			recordProgress(progressAt(dayIndex))
 
@@ -224,11 +192,7 @@ func (contractPositionStatisticService *ContractPositionStatisticService) syncHi
 	return nil
 }
 
-// recordSymbol carries one contract from its last held statistic to now. The venue or
-// storage failing ends this contract's turn; one statistic breaking a rule — one of
-// its splits missing among them — only ends itself, and since every round asks again
-// over the last hour behind the latest one held, a gap left that way is asked about
-// again.
+// recordSymbol brings one contract up to date; venue or storage errors end its turn, while a rule-breaking statistic only skips itself and is retried by the next round's one-hour overlap.
 func (contractPositionStatisticService *ContractPositionStatisticService) recordSymbol(
 	executionContext context.Context,
 	contractSymbol entities.ContractTradingSymbol,

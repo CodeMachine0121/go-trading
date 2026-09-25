@@ -9,14 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleContractSeriesDomain is a stretch of contract K candles merged into one
-// candle per interval bucket — the contract counterpart of KCandleSeriesDomain.
-//
-// The traded figures merge exactly as spot ones do. The three lines the venue computes
-// beside them merge the same way each on its own: first open, last close, highest
-// high, lowest low. **A bucket holding even one candle without its index price or
-// premium index has no such line at all** — the rest could be merged into a figure
-// that looks whole and quietly leaves out minutes, which is worse than saying nothing.
+// KCandleContractSeriesDomain merges contract K candles one per interval bucket; an index or premium-index line missing from any candle is absent for the whole bucket rather than silently merged over a gap.
 type KCandleContractSeriesDomain struct {
 	symbol   string
 	interval AggregationIntervalDomain
@@ -29,8 +22,7 @@ func NewKCandleContractSeriesDomain(
 	return KCandleContractSeriesDomain{symbol: symbol, interval: interval, kCandles: kCandles}
 }
 
-// ToDto merges each bucket and hands the series outwards, earliest bucket first. A
-// bucket nothing was held for produces nothing: no gap is filled.
+// ToDto returns buckets earliest first; empty buckets are not filled.
 func (seriesDomain KCandleContractSeriesDomain) ToDto() dto.KCandleContractSeriesDto {
 	kCandlesByBucketStart := make(map[time.Time][]entities.KCandleContract)
 	bucketStarts := make([]time.Time, 0, len(seriesDomain.kCandles))
@@ -58,7 +50,6 @@ func (seriesDomain KCandleContractSeriesDomain) ToDto() dto.KCandleContractSerie
 	}
 }
 
-// mergeBucket merges one bucket's candles into one.
 func (seriesDomain KCandleContractSeriesDomain) mergeBucket(
 	bucketStart time.Time, kCandles []entities.KCandleContract,
 ) dto.KCandleContractDto {
@@ -99,8 +90,7 @@ func (seriesDomain KCandleContractSeriesDomain) mergeBucket(
 	return merged
 }
 
-// mergedPriceLine is one optional price line being merged across a bucket's candles,
-// taken in open-time order. It stays whole only while every candle had the line.
+// mergedPriceLine merges one optional price line in open-time order and stays whole only while every candle had it.
 type mergedPriceLine struct {
 	isStarted bool
 	isBroken  bool
@@ -114,8 +104,7 @@ func newMergedPriceLine() mergedPriceLine {
 	return mergedPriceLine{}
 }
 
-// including folds the next candle's figures of the line in. A candle without the line
-// breaks it for the whole bucket.
+// including folds in the next candle; a candle without the line breaks it for the whole bucket.
 func (line mergedPriceLine) including(open, high, low, close decimal.NullDecimal) mergedPriceLine {
 	if line.isBroken || !open.Valid || !high.Valid || !low.Valid || !close.Valid {
 		line.isBroken = true
@@ -135,7 +124,7 @@ func (line mergedPriceLine) including(open, high, low, close decimal.NullDecimal
 	return line
 }
 
-// figures hands the merged line out, or four absent figures when a candle lacked it.
+// figures returns four absent figures when the line is broken or empty.
 func (line mergedPriceLine) figures() (decimal.NullDecimal, decimal.NullDecimal, decimal.NullDecimal, decimal.NullDecimal) {
 	if line.isBroken || !line.isStarted {
 		return decimal.NullDecimal{}, decimal.NullDecimal{}, decimal.NullDecimal{}, decimal.NullDecimal{}

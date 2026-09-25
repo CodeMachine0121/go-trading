@@ -26,12 +26,7 @@ import (
 
 var followingOpenTime = time.Date(2026, 9, 3, 9, 5, 0, 0, time.UTC)
 
-// streamRecorder collects a response that is still being written.
-//
-// The recorder from the standard library is not built to be read while a handler
-// is still writing to it, and a stream is by definition read while it is still
-// being written — so reading one with that recorder is a race, and the race
-// detector says so. This one guards the body, which is the whole difference.
+// streamRecorder guards its body so it can be read while the handler is still writing, which httptest.ResponseRecorder cannot do race-free.
 type streamRecorder struct {
 	responseHeader http.Header
 	mutex          sync.Mutex
@@ -61,8 +56,7 @@ func (streamRecorder *streamRecorder) Write(body []byte) (int, error) {
 	return streamRecorder.body.Write(body)
 }
 
-// Flush is required rather than optional: the handler flushes after every event,
-// and the framework reaches for the flusher without asking whether there is one.
+// Flush is required because the handler flushes after every event and gin assumes a flusher exists.
 func (streamRecorder *streamRecorder) Flush() {}
 
 func (streamRecorder *streamRecorder) written() string {
@@ -72,8 +66,7 @@ func (streamRecorder *streamRecorder) written() string {
 	return streamRecorder.body.String()
 }
 
-// followRouterUnderTest mounts the live route over a follow service whose feed the
-// test hands out, so what a viewer receives can be read off the response body.
+// followRouterUnderTest mounts the live route over a follow service whose feed the test controls.
 type followRouterUnderTest struct {
 	engine       *gin.Engine
 	liveKCandles chan vo.LiveKCandleVo
@@ -85,8 +78,7 @@ func newFollowRouterUnderTest(t *testing.T, followError error) followRouterUnder
 	mockController := gomock.NewController(t)
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
-	// A candle that closes is stored on its way past; storing is pinned by the
-	// follow's own tests, so here it only has to be allowed to happen.
+	// Storing closed candles is covered by the follow's own tests; here it is just allowed.
 	kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 
@@ -133,8 +125,6 @@ func newFollowRouterUnderTest(t *testing.T, followError error) followRouterUnder
 	}
 }
 
-// Without a symbol there is no market to follow, and guessing one would be worse
-// than saying so.
 func TestFollowingWithoutASymbolIsRefused(t *testing.T) {
 	router := newFollowRouterUnderTest(t, nil)
 
@@ -145,8 +135,6 @@ func TestFollowingWithoutASymbolIsRefused(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "請指定交易標的")
 }
 
-// A viewer arriving after shutdown has begun is turned away rather than left on a
-// connection nothing will ever feed.
 func TestFollowingAfterShutdownIsTurnedAway(t *testing.T) {
 	router := newFollowRouterUnderTest(t, nil)
 	router.stop()
@@ -158,8 +146,7 @@ func TestFollowingAfterShutdownIsTurnedAway(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 }
 
-// What the viewer receives is one event per update, carrying the candle and which
-// of the three states it is in.
+// Each event carries the candle and which of the three states it is in.
 func TestEachUpdateIsWrittenAsOneEvent(t *testing.T) {
 	router := newFollowRouterUnderTest(t, nil)
 
@@ -199,8 +186,6 @@ func TestEachUpdateIsWrittenAsOneEvent(t *testing.T) {
 	assert.True(t, strings.HasSuffix(body, "\n\n"), "每一則更新自成一個事件")
 }
 
-// A viewer walking away must end the request rather than hold a connection open
-// against a market nobody is watching.
 func TestTheRequestEndsWhenTheViewerLeaves(t *testing.T) {
 	router := newFollowRouterUnderTest(t, nil)
 
@@ -223,8 +208,7 @@ func TestTheRequestEndsWhenTheViewerLeaves(t *testing.T) {
 	}
 }
 
-// A source that will not answer is not a reason to refuse the viewer: the follow
-// keeps retrying and tells them it is stalled, which is a live connection saying so.
+// The follow keeps retrying and reports itself stalled over the open stream.
 func TestASourceThatRefusesStillOpensTheStream(t *testing.T) {
 	router := newFollowRouterUnderTest(t, errors.New("行情來源拒絕連線"))
 
@@ -246,9 +230,7 @@ func TestASourceThatRefusesStillOpensTheStream(t *testing.T) {
 }
 
 func TestWatchingASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
-	// Naming a market the system has never been told about is the caller's to fix.
-	// Answering it the way a system on its way down answers would have them waiting
-	// for something that is never coming.
+	// An unknown symbol is the caller's to fix, so it must not be answered like a system shutting down.
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)

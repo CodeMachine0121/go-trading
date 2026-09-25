@@ -14,9 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sentRequestBody is the request the proxy actually put on the wire, only as far as
-// these tests look into it. What is asserted here is the layout of one round trip:
-// get it wrong and the assistant answers a conversation that never happened.
 type sentRequestBody struct {
 	Model        string `json:"model"`
 	MaxTokens    int    `json:"max_tokens"`
@@ -52,8 +49,6 @@ type assistantUnderTest struct {
 	sentRequest    *sentRequestBody
 }
 
-// newAssistantUnderTest points the proxy at a stand-in that records what it was sent
-// and answers with the given reply.
 func newAssistantUnderTest(
 	t *testing.T, statusCode int, responseBody string, responseDelay time.Duration,
 ) assistantUnderTest {
@@ -84,7 +79,6 @@ func newAssistantUnderTest(
 	}
 }
 
-// aTurnRequest is one round trip's worth of input.
 func aTurnRequest() vo.AssistantTurnRequestVo {
 	return vo.AssistantTurnRequestVo{
 		Messages: []vo.AssistantMessageVo{
@@ -115,8 +109,7 @@ func TestClaudeAssistantProxyAsksWithWhatItWasGiven(t *testing.T) {
 	require.NoError(t, replyError)
 	assert.Equal(t, "最近在盤整", reply.Answer)
 	assert.Empty(t, reply.QueryCalls)
-	// Every kind of token the round trip touched is counted. A ceiling that could not
-	// see the cached ones would be a ceiling in name only.
+	// Cached tokens count toward usage too.
 	assert.Equal(t, 200, reply.Usage)
 
 	assert.Equal(t, "claude-opus-5", fixture.sentRequest.Model)
@@ -125,9 +118,6 @@ func TestClaudeAssistantProxyAsksWithWhatItWasGiven(t *testing.T) {
 }
 
 func TestClaudeAssistantProxyCachesTheOnePartThatNeverChanges(t *testing.T) {
-	// The instructions are the same bytes on every request and are rendered before the
-	// messages, so one breakpoint at the end of them turns the largest fixed part of
-	// every exchange into a cache read instead of a fresh charge.
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
@@ -175,8 +165,7 @@ func TestClaudeAssistantProxyLaysOutTheConversationInTurns(t *testing.T) {
 }
 
 func TestClaudeAssistantProxyGivesEveryLookupItsResult(t *testing.T) {
-	// What the assistant needs is that every request it made has a result attached.
-	// A request left unanswered is what the assistant's own API refuses outright.
+	// Every tool request must have a result attached, or the API refuses it.
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	request := aTurnRequest()
@@ -217,9 +206,7 @@ func TestClaudeAssistantProxyGivesEveryLookupItsResult(t *testing.T) {
 }
 
 func TestClaudeAssistantProxyTellsTheAssistantWhenItsQueriesAreSpent(t *testing.T) {
-	// The note rides on the last message rather than the instructions, because the
-	// instructions are the cached part: rewriting them here would throw the cache away
-	// on the one round trip that already carries the most.
+	// The note goes on the last message so the cached system prompt stays intact.
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	request := aTurnRequest()
@@ -264,8 +251,6 @@ func TestClaudeAssistantProxyReportsAnAssistantThatWouldNotAnswer(t *testing.T) 
 }
 
 func TestClaudeAssistantProxyStopsWaitingAfterTheTimeAllowed(t *testing.T) {
-	// Being too slow and being unreachable are the same thing to whoever is waiting,
-	// and the wait is bounded here so both leave nothing behind.
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 500*time.Millisecond)
 
 	_, replyError := fixture.assistantProxy.Reply(t.Context(), aTurnRequest())
@@ -275,9 +260,6 @@ func TestClaudeAssistantProxyStopsWaitingAfterTheTimeAllowed(t *testing.T) {
 }
 
 func TestClaudeAssistantProxyRefusesToOfferACapabilityItCannotDescribe(t *testing.T) {
-	// An assistant offered a capability it cannot call correctly will keep calling it
-	// incorrectly and pay for every attempt, so a broken schema stops the round trip
-	// instead of being handed over half formed.
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	request := aTurnRequest()
@@ -292,8 +274,7 @@ func TestClaudeAssistantProxyRefusesToOfferACapabilityItCannotDescribe(t *testin
 }
 
 func TestClaudeAssistantProxyReplaysOneRoundAsOneTurn(t *testing.T) {
-	// 一輪裡問了三件事，就要以**一則助手訊息帶三個請求**、**一則回覆帶三個結果**送回去。
-	// 拆成三輪，助手會學到「一次問幾件事沒有用」，從此每件事都多花一次往返。
+	// 一輪的三個請求要以一則助手訊息、三個結果以一則回覆送回，否則助手會學到不該一次問多件事。
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	request := aTurnRequest()
@@ -309,12 +290,11 @@ func TestClaudeAssistantProxyReplaysOneRoundAsOneTurn(t *testing.T) {
 	_, replyError := fixture.assistantProxy.Reply(t.Context(), request)
 
 	require.NoError(t, replyError)
-	// 三則近期訊息，加上這一輪的助手訊息與回覆——一共五則，不是八則。
+	// 三則近期訊息加上這一輪的助手訊息與回覆，共五則。
 	require.Len(t, fixture.sentRequest.Messages, 5)
 
 	assistantTurn := fixture.sentRequest.Messages[3]
 	assert.Equal(t, "assistant", assistantTurn.Role)
-	// 那句旁白在最前面，三個請求接在後面：助手下一輪才看得到自己剛才在想什麼。
 	require.Len(t, assistantTurn.Content, 4)
 	assert.Equal(t, "text", assistantTurn.Content[0].Type)
 	assert.Equal(t, "我先看一下系統裡既有策略腳本的算式寫法。", assistantTurn.Content[0].Text)
@@ -329,8 +309,7 @@ func TestClaudeAssistantProxyReplaysOneRoundAsOneTurn(t *testing.T) {
 }
 
 func TestClaudeAssistantProxyLeavesOutANarrationThatWasNotThere(t *testing.T) {
-	// 助手什麼都沒說就直接要查的時候，不要替它插一則空白的文字區塊——
-	// 那是它自己的 API 會拒絕的形狀。
+	// 助手沒說話就直接查時，不要插入空白文字區塊，API 會拒絕。
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
 	request := aTurnRequest()
@@ -348,13 +327,6 @@ func TestClaudeAssistantProxyLeavesOutANarrationThatWasNotThere(t *testing.T) {
 	assert.Equal(t, "tool_use", assistantTurn.Content[0].Type)
 }
 
-// The assistant hears what a replay actually does, because it is the only place it
-// could hear it: there is no tool schema for a set of rules to trade by any more.
-//
-// The cost of these instructions drifting is exactly what this slice removes:
-// somebody says they want to short or to use leverage, the assistant follows
-// instructions that never say otherwise, and hands back a report card built on
-// positions this system cannot model.
 func TestClaudeAssistantProxyTellsTheAssistantAReplayOnlyEverTradesSpot(t *testing.T) {
 	fixture := newAssistantUnderTest(t, http.StatusOK, answeredResponse, 0)
 
@@ -364,18 +336,11 @@ func TestClaudeAssistantProxyTellsTheAssistantAReplayOnlyEverTradesSpot(t *testi
 	require.Len(t, fixture.sentRequest.System, 1)
 	instructions := fixture.sentRequest.System[0].Text
 
-	// What it does: a buy opens, a sell returns to cash, and a sell while flat does
-	// nothing at all.
 	assert.Contains(t, instructions, "只做現貨")
 	assert.Contains(t, instructions, "空手時賣出什麼都不做")
-	// What it cannot do, said out loud rather than left to be discovered by refusal.
 	assert.Contains(t, instructions, "沒有交易模式可以指定")
 	assert.Contains(t, instructions, "開不了槓桿")
-	// And what to tell somebody who asks for one of those, so the assistant does not
-	// quietly substitute a setting that replays something else.
 	assert.Contains(t, instructions, "不要替他改成別的設定去湊")
-	// A sell no longer opens anything, and no set of rules is on offer. Saying
-	// otherwise is what made the old wording false rather than merely incomplete.
 	assert.NotContains(t, instructions, "賣出（開空）")
 	assert.NotContains(t, instructions, "longShort")
 	assert.NotContains(t, instructions, "shortOnly")

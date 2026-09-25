@@ -7,42 +7,18 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// StrategyBotRoundFailureDomain is the one place that decides what a failed round
-// means: skip it and try again next time, or stop this bot and say why.
-//
-// It exists so that decision is written once. Spread across the call sites that
-// produce failures, it would be a dozen `if` statements that have to agree with each
-// other forever — and the day a new kind of failure appears, the one place it was
-// forgotten is the place a bot quietly fails every five minutes while pretending to
-// be alive.
-//
-// The dividing line is whether running it again could give a different answer. A
-// closed market opens; missing candles arrive; Telegram comes back. A deleted
-// strategy script does not undelete itself, and a broken script does not fix itself.
-//
-// Anything unrecognised skips rather than halts. Halting is the destructive answer —
-// it takes a bot its owner started and turns it off — so an unfamiliar failure gets
-// the benign reading, and the worst case is a bot that retries something hopeless
-// instead of one switched off by a database hiccup.
+// StrategyBotRoundFailureDomain decides whether a failed round skips (retrying could succeed) or halts the bot (it can't); unrecognised failures skip because halting is the destructive answer.
 type StrategyBotRoundFailureDomain struct {
 	haltReason vo.StrategyBotHaltReasonVo
 }
 
-// NewStrategyBotRoundFailureDomain reads a failure that happened while working out
-// this round's signals.
 func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureDomain {
 	switch {
-	// Not being able to see a strategy script is one fact with two histories — its owner
-	// deleted it, or they withdrew it from the marketplace. They share one reason
-	// here for the same cause they share one sentence everywhere else: telling them
-	// apart would say whether somebody else's strategy script still exists.
+	// Unpublished and deleted scripts share one reason so it doesn't reveal whether someone else's script exists.
 	case errors.Is(roundError, ErrStrategyScriptNotFound),
 		errors.Is(roundError, ErrStrategyScriptNotPublished):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltStrategyScriptUnavailable}
 
-	// The rules a bot follows being gone is not something time fixes either, and
-	// the bot has nothing left to run. It stops and says so rather than skipping
-	// for ever, which is the only outcome its owner could neither see nor fix.
 	case errors.Is(roundError, ErrTradingStrategyNotFound):
 		return StrategyBotRoundFailureDomain{
 			haltReason: vo.StrategyBotHaltTradingStrategyUnavailable}
@@ -51,10 +27,6 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltScriptFailed}
 
-	// The owner removed their delivery setting while this bot was running. Nothing
-	// is broken, and waiting fixes nothing either — a bot with nowhere to speak is
-	// one for which running and stopped are the same state, which is exactly why
-	// starting one in this state is refused.
 	case errors.Is(roundError, ErrTelegramDeliveryNotConfigured):
 		return StrategyBotRoundFailureDomain{
 			haltReason: vo.StrategyBotHaltDeliveryNotConfigured}
@@ -64,13 +36,7 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 	}
 }
 
-// NewStrategyBotDeliveryFailureDomain reads a failure that happened while sending
-// this round's message.
-//
-// This is what the four delivery failure reasons were separated for. A rejected
-// token and an unknown chat need somebody to go and retype something, so the bot
-// stops and says which; not being able to reach Telegram needs nothing but time, so
-// the bot waits.
+// NewStrategyBotDeliveryFailureDomain halts on a rejected token or unknown chat (the owner must fix them) and skips on unreachable Telegram.
 func NewStrategyBotDeliveryFailureDomain(
 	failureReason vo.DeliveryFailureReasonVo,
 ) StrategyBotRoundFailureDomain {
@@ -84,12 +50,7 @@ func NewStrategyBotDeliveryFailureDomain(
 	}
 }
 
-// ToOutcomeDto is this failure as the outcome it makes the round: halted with a
-// reason, or waiting for the next one.
-//
-// Handing out the outcome rather than the two halves is what stops a caller pairing
-// them wrongly — there is no way from here to produce a halt with no reason, or a
-// reason nobody halts for.
+// ToOutcomeDto hands out the combined outcome so callers can't pair a halt with no reason.
 func (strategyBotRoundFailureDomain StrategyBotRoundFailureDomain) ToOutcomeDto() dto.StrategyBotRoundOutcomeDto {
 	if !strategyBotRoundFailureDomain.HaltsTheBot() {
 		return dto.StrategyBotRoundOutcomeDto{Kind: strategyBotRoundSkipped}
@@ -101,16 +62,11 @@ func (strategyBotRoundFailureDomain StrategyBotRoundFailureDomain) ToOutcomeDto(
 	}
 }
 
-// HaltsTheBot says whether this failure is one that stops the bot.
 func (strategyBotRoundFailureDomain StrategyBotRoundFailureDomain) HaltsTheBot() bool {
 	return strategyBotRoundFailureDomain.haltReason != vo.StrategyBotHaltNone
 }
 
-// HaltReason is why, and is empty for a failure that only skips the round.
-//
-// Whether it halts is worked out from this rather than carried beside it, because
-// two fields saying one thing are two fields that can disagree — and the pair that
-// disagrees is "it halted, and here is no reason why".
+// HaltReason is empty for a failure that only skips; halting is derived from it so the two can't disagree.
 func (strategyBotRoundFailureDomain StrategyBotRoundFailureDomain) HaltReason() vo.StrategyBotHaltReasonVo {
 	return strategyBotRoundFailureDomain.haltReason
 }

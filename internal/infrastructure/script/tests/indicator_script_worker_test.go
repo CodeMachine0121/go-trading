@@ -13,11 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These cases talk to the worker the way the service does — header first, then the
-// request — but with what the service would never send, to pin that a compartment
-// always answers rather than going down. The shapes below are this test's own; the
-// wire matches them to the worker's by field name, which is exactly the contract
-// between the two sides.
+// These cases send the worker malformed input to pin that it always answers; the local wire types match the worker's by field name.
 
 type workerRequestHeader struct {
 	MarketKind       string
@@ -60,7 +56,6 @@ type workerResponse struct {
 	HasUndeclaredParameter  bool
 }
 
-// sealedInput writes the header and then any request, the way the service sends them.
 func sealedInput(t *testing.T, header workerRequestHeader, requests ...workerRequest) io.Reader {
 	t.Helper()
 	var input bytes.Buffer
@@ -74,8 +69,7 @@ func sealedInput(t *testing.T, header workerRequestHeader, requests ...workerReq
 }
 
 func TestWorkerAnswersEvenARequestItCannotServe(t *testing.T) {
-	// No memory cap in any of these: the worker runs inside the test process here,
-	// and a cap would be set on the test process itself.
+	// No memory cap: an in-process worker would set it on the test process itself.
 	spotHeader := workerRequestHeader{MarketKind: "kCandle", ExecutionTimeout: 2 * time.Second}
 
 	testCases := []struct {
@@ -139,8 +133,7 @@ func TestWorkerEndsWithAFailingCodeWhenItCannotEvenAnswer(t *testing.T) {
 	assert.Equal(t, 1, exitCode)
 }
 
-// serveInProcess hands one request to a worker running inside this test process and
-// reads its answer. No memory cap is asked for, since it would land on this process.
+// serveInProcess runs one request in-process without a memory cap, since it would land on this process.
 func serveInProcess(t *testing.T, request workerRequest) workerResponse {
 	t.Helper()
 	var output bytes.Buffer
@@ -271,8 +264,6 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 	assert.Equal(t, []float64{0.0003}, response.Values["rate"].Numbers)
 }
 
-// sealedContractInput writes a contract header and request, the way the service sends
-// them for a contract script.
 func sealedContractInput(t *testing.T, request workerContractRequest) io.Reader {
 	t.Helper()
 	var input bytes.Buffer
@@ -286,8 +277,7 @@ func sealedContractInput(t *testing.T, request workerContractRequest) io.Reader 
 }
 
 func TestWorkerCapsItsMemoryBeforeServing(t *testing.T) {
-	// A cap far beyond anything this process holds, so setting it on the test process
-	// — which is where an in-process worker sets it — changes nothing for the tests.
+	// A cap far above this process's usage, so setting it in-process changes nothing.
 	var output bytes.Buffer
 
 	exitCode := script.NewIndicatorScriptWorker().Serve(sealedInput(t,

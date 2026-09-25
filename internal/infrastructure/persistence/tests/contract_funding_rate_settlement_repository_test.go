@@ -131,8 +131,7 @@ func TestContractFundingRateSettlementRepositorySaysSoWhenStorageIsUnreachable(t
 }
 
 func TestContractFundingRateSettlementRepositoryStoresAHistoryLongerThanOneStatementCarries(t *testing.T) {
-	// 17000 settlements of four figures each is more values than one statement can
-	// carry — about fifteen years of an eight-hour contract, or four of an hourly one.
+	// 17000 four-column settlements exceed one statement's parameter limit.
 	database := newTestDatabase(t)
 	settlementRepository := persistence.NewContractFundingRateSettlementRepository(database)
 	longHistory := make([]entities.ContractFundingRateSettlement, 0, 17000)

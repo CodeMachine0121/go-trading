@@ -42,8 +42,6 @@ func TestPublishedStrategyScriptShowsEverythingButTheAlgorithm(t *testing.T) {
 }
 
 func TestPublishedStrategyScriptWithNoKnobsHandsOutAnEmptyList(t *testing.T) {
-	// An absence and an empty list read the same to a person and differently to a
-	// caller, and only one of them can be looped over without checking first.
 	publication := PublishedStrategyScript{StrategyScriptID: 7, StrategyScript: StrategyScript{ID: 7, Name: "甲"}}
 
 	publishedStrategyScriptDto := publication.ToDto()

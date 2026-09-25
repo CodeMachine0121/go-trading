@@ -19,8 +19,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// strategyBotOwnerID is whoever these tests act as, and strategyBotStrangerID is
-// somebody else — the two identities every ownership rule here is about.
 const (
 	strategyBotOwnerID    = uint(1)
 	strategyBotStrangerID = uint(2)
@@ -37,22 +35,17 @@ type strategyBotApplicationUnderTest struct {
 	tradingStrategyRepository      *mocks.MockITradingStrategyRepository
 	telegramDeliveryRepository     *mocks.MockITelegramDeliveryRepository
 	clockProxy                     *mocks.MockIClockProxy
-	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository are
-	// what a contract bot being saved is checked against: is the contract followed,
-	// and how much leverage may it carry.
+	// Consulted when saving a contract bot: is the contract followed, and how much leverage may it carry.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 }
 
-// newStrategyBotApplicationUnderTest wires the real domain services and the real
-// models, mocking only the outermost boundaries: storage, the seal, the carrier and
-// the clock. Every rule about bots, sources and conditions is therefore exercised
-// through this, not stubbed out behind it.
+// newStrategyBotApplicationUnderTest wires real domain services, mocking only storage, the seal, the carrier and the clock.
 func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnderTest {
 	controller := gomock.NewController(t)
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
-	// 歷史是每一輪都會寫的，而它寫不寫得成不是這幾個測試在問的事。
+	// 歷史寫入與這些測試無關，一律放行。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
 	strategyBotRunRecordRepository.EXPECT().
 		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -62,8 +55,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
 
-	// 啟動與停止現在會讓機器人說一句它自己的動靜。送不送得出去不是這幾個測試在問的事，
-	// 所以整條路一律放行。
+	// 啟動與停止會發通知，送不送得出去與這些測試無關，一律放行。
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
 	secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("the-token", nil).AnyTimes()
 	announcements := &[]string{}
@@ -104,8 +96,6 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	}
 }
 
-// expectTheNamedTradingStrategyIsThisPersons is the one question saving a bot asks
-// of anything outside itself: may this person use the rules they named?
 func (underTest strategyBotApplicationUnderTest) expectTheNamedTradingStrategyIsThisPersons() {
 	underTest.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), botsTradingStrategyID).
@@ -114,7 +104,6 @@ func (underTest strategyBotApplicationUnderTest) expectTheNamedTradingStrategyIs
 		}, nil)
 }
 
-// announced is every message this bot said about itself so far.
 func (underTest strategyBotApplicationUnderTest) announced() []string {
 	return *underTest.announcements
 }
@@ -128,8 +117,6 @@ func aBotWrite() dto.StrategyBotWriteDto {
 	}
 }
 
-// storedBot is a bot as it comes back out of storage. It carries no rules of its
-// own: it names a set, and the set is a thing of its own.
 func storedBot(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	return entities.StrategyBot{
 		ID: strategyBotID, OwnerID: strategyBotOwnerID, Name: "早盤突破", Symbol: "BTCUSDT",
@@ -147,11 +134,9 @@ func TestStrategyBotApplicationCreateChecksTheNamedTradingStrategyIsThisPersons(
 	underTest.strategyBotRepository.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
-			// The owner is taken from whoever is signed in, never from the body.
+			// The owner comes from the signed-in caller, never the body.
 			assert.Equal(t, strategyBotOwnerID, bot.OwnerID)
-			// A saved bot is stopped. Saving one cannot start it.
 			assert.Equal(t, string(vo.StrategyBotStopped), bot.RunState)
-			// The rules are named, never copied: a bot carries one identifier.
 			assert.Equal(t, botsTradingStrategyID, bot.TradingStrategyID)
 
 			return storedBot(vo.StrategyBotStopped), nil
@@ -177,8 +162,7 @@ func TestStrategyBotApplicationCreateRefusesATradingStrategyThisPersonCannotSee(
 	_, createError := underTest.strategyBotApplication.CreateStrategyBot(
 		context.Background(), strategyBotOwnerID, aBotWrite())
 
-	// The same sentence as naming one that does not exist, which is what stops the
-	// field becoming a way to probe for other people's trading strategies.
+	// Same error as a missing one, so the field cannot probe for other people's strategies.
 	require.ErrorIs(t, createError, domains.ErrTradingStrategyNotFound)
 }
 
@@ -196,7 +180,6 @@ func TestStrategyBotApplicationReadsAndListsOnlyThisPersonsBots(t *testing.T) {
 	_, strangerError := underTest.strategyBotApplication.GetStrategyBot(
 		context.Background(), strategyBotStrangerID, strategyBotID)
 
-	// A stranger is owed the same sentence as a bot that is not there.
 	require.ErrorIs(t, strangerError, domains.ErrStrategyBotNotFound)
 }
 
@@ -227,8 +210,7 @@ func TestStrategyBotApplicationUpdateRefusesWhileTheBotIsRunning(t *testing.T) {
 	_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(
 		context.Background(), strategyBotOwnerID, writeDto)
 
-	// Nobody could say which version a round in flight used, so the answer is to
-	// stop it first rather than to guess.
+	// A round in flight could not say which version it used, so a running bot must be stopped first.
 	require.ErrorIs(t, updateError, domains.ErrStrategyBotRunning)
 }
 
@@ -324,7 +306,7 @@ func TestStrategyBotApplicationStartingAlreadyRunningChangesNothing(t *testing.T
 
 	require.NoError(t, startError)
 	assert.Equal(t, string(vo.StrategyBotRunning), botDto.RunState)
-	// A second press must not turn what it already said into a repeat message.
+	// Starting again must not reset the last sent signal into a repeat message.
 	assert.Equal(t, string(vo.SignalBuy), botDto.LastSentSignal)
 }
 
@@ -511,9 +493,6 @@ func TestStrategyBotApplicationReportsStorageThatCouldNotAnswer(t *testing.T) {
 			underTest := newStrategyBotApplicationUnderTest(t)
 			testCase.arrange(underTest)
 
-			// A failure to read or write must be reported, never quietly answered
-			// with nothing: a bot that looks stopped because the write failed is a
-			// bot its owner believes they turned off.
 			assert.Error(t, testCase.act(underTest))
 		})
 	}
@@ -534,14 +513,10 @@ func TestStrategyBotApplicationRewriteRefusesATradingStrategyThisPersonCannotSee
 	_, updateError := underTest.strategyBotApplication.UpdateStrategyBot(
 		context.Background(), strategyBotOwnerID, writeDto)
 
-	// The gate is walked on a rewrite exactly as on a create: a bot must not be able
-	// to acquire rules it could not have been built with.
 	require.ErrorIs(t, updateError, domains.ErrTradingStrategyNotFound)
 }
 
 func TestStrategyBotApplicationTellsItsOwnerWhenABotStartsAndStops(t *testing.T) {
-	// 按下播放然後走開，是機器人的全部重點——而在此之前，第一件證實那一走開有效的事
-	// 是一個可能好幾個小時之後才出現的交易訊號。
 	underTest := newStrategyBotApplicationUnderTest(t)
 
 	underTest.telegramDeliveryRepository.EXPECT().
@@ -563,7 +538,6 @@ func TestStrategyBotApplicationTellsItsOwnerWhenABotStartsAndStops(t *testing.T)
 }
 
 func TestStrategyBotApplicationSaysNothingWhenTheButtonChangedNothing(t *testing.T) {
-	// 第二次按的是一個它已經在的狀態，而一則說明那件事的訊息是一則關於沒發生的事的訊息。
 	underTest := newStrategyBotApplicationUnderTest(t)
 
 	underTest.telegramDeliveryRepository.EXPECT().
@@ -579,8 +553,7 @@ func TestStrategyBotApplicationSaysNothingWhenTheButtonChangedNothing(t *testing
 }
 
 func TestStrategyBotApplicationStopsEvenWhenItCannotSaySo(t *testing.T) {
-	// 按下停止不會因為 Telegram 忙就被收回：那台**已經**停了，按鈕做了它說的事。
-	// 回報失敗只會讓人對著一台已經關掉的機器人再按一次。
+	// 通知送不出去不代表停止失敗：機器人已經停了，回報失敗只會讓人再按一次。
 	underTest := newStrategyBotApplicationUnderTest(t)
 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
@@ -621,7 +594,6 @@ func TestStrategyBotApplicationListsWhatABotHasBeenDoing(t *testing.T) {
 }
 
 func TestStrategyBotApplicationRefusesSomebodyElsesHistory(t *testing.T) {
-	// 歷史與機器人本身同一條規則：看不到就是找不到。
 	underTest := newStrategyBotApplicationUnderTest(t)
 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
@@ -633,8 +605,7 @@ func TestStrategyBotApplicationRefusesSomebodyElsesHistory(t *testing.T) {
 	require.ErrorIs(t, listError, domains.ErrStrategyBotNotFound)
 }
 
-// Nothing here lends, so a bot may not suggest a loan. The refusal is the replay's own
-// sentence, because there is one of it.
+// The system does not lend, so a bot may not suggest borrowing; the refusal reuses the replay's error.
 func TestStrategyBotApplicationCreateRefusesBorrowing(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 

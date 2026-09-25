@@ -23,10 +23,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// contractFollowRouterUnderTest mounts the contract live route over a contract follow
-// whose feed the test hands out. BTCUSDT is on the contract watchlist, DOGEUSDT is known
-// but not followed, and anything else is unknown. The spot route is mounted too, over a
-// spot follow that must never be reached from here.
+// contractFollowRouterUnderTest mounts the contract live route: BTCUSDT is watched, DOGEUSDT is known but unwatched, anything else is unknown.
+// The spot route is mounted too and must never be reached.
 type contractFollowRouterUnderTest struct {
 	engine       *gin.Engine
 	liveKCandles chan vo.LiveKCandleVo
@@ -72,8 +70,7 @@ func newContractFollowRouterUnderTest(t *testing.T, repositoryError error) contr
 		time.Nanosecond, time.Hour, 10*time.Millisecond)
 	t.Cleanup(contractFollowService.Stop)
 
-	// The spot follow's source and registry have no expectations: a contract viewer
-	// reaching either would fail the test.
+	// The spot follow's mocks have no expectations, so reaching them fails the test.
 	spotFollowService := service.NewKCandleFollowService(
 		mocks.NewMockILiveMarketDataProxy(mockController), mocks.NewMockIKCandleRepository(mockController),
 		mocks.NewMockITradingSymbolRepository(mockController), clockProxy,
@@ -131,7 +128,7 @@ func TestWatchingAContractIsRefusedWithTheStatusItsReasonCallsFor(t *testing.T) 
 	}
 }
 
-// A contract viewer receives one event per update, in the same shape as a spot one.
+// Contract updates use the same event shape as spot ones.
 func TestAContractUpdateIsWrittenAsOneEvent(t *testing.T) {
 	router := newContractFollowRouterUnderTest(t, nil)
 
@@ -167,7 +164,7 @@ func TestAContractUpdateIsWrittenAsOneEvent(t *testing.T) {
 	assert.Contains(t, body, `"symbol":"BTCUSDT"`)
 	assert.Contains(t, body, `"close":"64000.5"`)
 	assert.True(t, strings.HasSuffix(body, "\n\n"), "每一則更新自成一個事件")
-	// The last price and nothing else: no mark, index or premium figures travel live.
+	// Only the last price travels live: no mark, index or premium figures.
 	for _, absent := range []string{"mark", "index", "premium"} {
 		assert.NotContains(t, strings.ToLower(body), absent)
 	}

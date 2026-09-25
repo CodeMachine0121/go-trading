@@ -20,8 +20,7 @@ import (
 
 const replayTimeAllowanceUnderTest = 20 * time.Millisecond
 
-// aScriptOutlastingItsAllowance runs until whoever asked stops waiting, the way a
-// script over a very long stretch would.
+// aScriptOutlastingItsAllowance blocks until the caller stops waiting, like a script over a very long stretch.
 func aScriptOutlastingItsAllowance[Input any](
 	executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
 	_ []Input, _ domains.StrategyScriptParametersDomain,

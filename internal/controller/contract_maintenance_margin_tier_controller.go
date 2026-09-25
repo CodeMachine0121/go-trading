@@ -9,8 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ContractMaintenanceMarginTierController answers questions about a perpetual
-// contract's maintenance margin ladder.
 type ContractMaintenanceMarginTierController struct {
 	tierApplication *application.ContractMaintenanceMarginTierApplication
 }

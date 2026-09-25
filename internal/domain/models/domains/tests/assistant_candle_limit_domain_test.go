@@ -37,8 +37,7 @@ func TestNewAssistantCandleLimitDomainHandsOverAtMostTheLimit(t *testing.T) {
 			expectedCount: 200, expectedTruncated: true,
 		},
 		{
-			// Not saying how many is not asking for everything, so nothing was
-			// withheld and there is nothing to report.
+			// Naming no count isn't asking for everything, so nothing was withheld.
 			name: "naming no count means the limit itself", limit: 200, requestedCount: 0,
 			expectedCount: 200, expectedTruncated: false,
 		},

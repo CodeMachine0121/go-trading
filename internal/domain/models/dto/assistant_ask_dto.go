@@ -1,17 +1,10 @@
 package dto
 
-// AssistantAskDto is the shape the application hands the domain to ask one question.
-//
-// A zero conversation identifier names no conversation yet, so it is a question that
-// starts one. Anything else names the conversation the question is added to. One
-// shape covers both, so the rules about a question are written once instead of twice.
+// AssistantAskDto asks one question; a zero ConversationID starts a new conversation.
 type AssistantAskDto struct {
 	ConversationID uint
 	Question       string
-	// ViewerID is who the assistant is acting for. Everything it does with
-	// strategy scripts it does as this person: what it creates belongs to them, and what
-	// it can read is what they can read. Without it, an assistant asked to save a
-	// strategy script would produce one belonging to nobody — and "every strategy script has an
-	// owner" would have its first exception.
+	// ViewerID is who the assistant acts for; strategy scripts it creates belong to, and
+	// reads are scoped to, this user.
 	ViewerID uint
 }

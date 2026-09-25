@@ -18,8 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// userWithEmail is a user who differs from their siblings only by address, so that a
-// test about addresses is not also a test about anything else.
 func userWithEmail(email string) entities.User {
 	return entities.User{Email: email, PasswordProof: "a-password-proof"}
 }
@@ -110,11 +108,7 @@ func TestUserRepositorySaysStorageBrokeRatherThanAnsweringWithNothing(t *testing
 		"連不上資料庫不等於查無此人——那會讓人以為自己的帳號被刪了")
 }
 
-// The repository names the index it blames in Go; the entity spells it in a struct
-// tag, which cannot hold a constant. Nothing but this stops the two drifting, and if
-// they drift a taken address stops being answered as a conflict and starts being
-// answered as a storage failure. This test needs no database, so unlike the ones
-// above it cannot skip.
+// The index name is repeated because struct tags cannot hold constants; this test needs no database, so it never skips.
 func TestTheEmailIndexTheRepositoryBlamesIsTheOneTheEntityDeclares(t *testing.T) {
 	emailField, found := reflect.TypeFor[entities.User]().FieldByName("Email")
 	require.True(t, found, "the entity has no Email field to carry the index")
@@ -123,11 +117,7 @@ func TestTheEmailIndexTheRepositoryBlamesIsTheOneTheEntityDeclares(t *testing.T)
 }
 
 func TestUserRepositorySaveBlamesTheAddressOnlyWhenTheAddressIsWhatClashed(t *testing.T) {
-	// Every table has more than one thing that can clash. The identifier is the
-	// obvious other one, and it clashes for a reason nobody's choice of address had
-	// any part in — a restored dump that left the identifier sequence behind. Saying
-	// "somebody has that address" there would send whoever reads it hunting for an
-	// account that does not exist.
+	// A primary-key clash (e.g. a stale sequence after a restore) must not be reported as a taken address.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 	firstUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
 	require.NoError(t, saveError)
@@ -143,11 +133,7 @@ func TestUserRepositorySaveBlamesTheAddressOnlyWhenTheAddressIsWhatClashed(t *te
 }
 
 func TestUserRepositoryFindOneByEmailRefusesToGuessWhenGivenNothing(t *testing.T) {
-	// GORM drops zero-valued struct fields, so a struct-form condition on an empty
-	// address becomes no condition at all — and this would hand back whichever user
-	// is first in the table, whose stored proof would then be checked against
-	// somebody's typed password. Nothing reaches here with an empty address today;
-	// this is so that nothing can start to.
+	// GORM drops zero-valued struct fields, so an empty address must not become no condition at all.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 	_, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
 	require.NoError(t, saveError)
@@ -171,9 +157,6 @@ func TestUserRepositoryChangePasswordProofReplacesTheProof(t *testing.T) {
 	assert.Equal(t, "the-new-proof", reloadedUser.PasswordProof)
 }
 
-// This is the whole reason the two writes are one method. A password changed while
-// an old session keeps working is exactly the situation somebody changes their
-// password to end.
 func TestUserRepositoryChangePasswordProofEndsEverySessionThatUserHasOpen(t *testing.T) {
 	database := newTestDatabase(t)
 	userRepository := persistence.NewUserRepository(database)
@@ -201,8 +184,6 @@ func TestUserRepositoryChangePasswordProofEndsEverySessionThatUserHasOpen(t *tes
 	assert.Equal(t, phone.ID, reloadedPhone.ID)
 }
 
-// Somebody else's sign-ins are not this person's business, and neither is their
-// password.
 func TestUserRepositoryChangePasswordProofLeavesEverybodyElseAlone(t *testing.T) {
 	database := newTestDatabase(t)
 	userRepository := persistence.NewUserRepository(database)
@@ -227,8 +208,6 @@ func TestUserRepositoryChangePasswordProofLeavesEverybodyElseAlone(t *testing.T)
 	assert.Nil(t, reloadedSession.RevokedAt, "別人的登入階段不該因為這一次變更而失效")
 }
 
-// A session that had already ended keeps the moment it ended. Overwriting it would
-// erase the only trail there is to when the sign-in actually stopped.
 func TestUserRepositoryChangePasswordProofLeavesAlreadyEndedSessionsAsTheyWere(t *testing.T) {
 	database := newTestDatabase(t)
 	userRepository := persistence.NewUserRepository(database)
@@ -252,8 +231,6 @@ func TestUserRepositoryChangePasswordProofLeavesAlreadyEndedSessionsAsTheyWere(t
 	assert.Equal(t, endedBefore.RevokedAt.UTC(), endedAfter.RevokedAt.UTC())
 }
 
-// A change aimed at nobody must not quietly succeed, and must not sign anybody out
-// on its way to finding that out.
 func TestUserRepositoryChangePasswordProofSaysNobodyIsThere(t *testing.T) {
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 
@@ -262,10 +239,7 @@ func TestUserRepositoryChangePasswordProofSaysNobodyIsThere(t *testing.T) {
 	require.ErrorIs(t, changeError, domains.ErrUserNotFound)
 }
 
-// A proof the column cannot hold is a storage failure, not a missing user. Saying
-// "no such user" for it would send whoever reads it looking for an account that is
-// sitting right there — and because the write happens inside a transaction, the
-// refusal must also leave the password exactly as it was.
+// An unstorable proof is a storage failure, not a missing user, and the transaction must leave the password unchanged.
 func TestUserRepositoryChangePasswordProofSaysStorageBrokeRatherThanBlamingTheUser(t *testing.T) {
 	database := newTestDatabase(t)
 	userRepository := persistence.NewUserRepository(database)
@@ -285,9 +259,7 @@ func TestUserRepositoryChangePasswordProofSaysStorageBrokeRatherThanBlamingTheUs
 }
 
 func TestUserRepositoryStartsEverybodyWithNothingHeldAgainstThem(t *testing.T) {
-	// The column defaults are what make this safe to add to a table that already has
-	// rows: everybody who was here before this lock existed begins with a clean
-	// record, rather than needing a one-off script somebody has to remember to run.
+	// Column defaults give existing rows a clean lockout record without a backfill.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 
 	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
@@ -312,8 +284,7 @@ func TestUserRepositorySavesAndClearsWhatAnAttemptLeftBehind(t *testing.T) {
 	require.NotNil(t, shutUser.LockedUntil)
 	assert.Equal(t, shutUntil, shutUser.LockedUntil.UTC())
 
-	// Clearing has to reach both columns. A count left at three beside an absent
-	// moment would shut the account again on the very next mistake.
+	// Clearing must reset both columns.
 	require.NoError(t, userRepository.SaveSignInLockoutState(t.Context(), savedUser.ID, 3,
 		vo.SignInLockoutStateVo{FailedSignInCount: 0, LockedUntil: nil}))
 
@@ -324,8 +295,6 @@ func TestUserRepositorySavesAndClearsWhatAnAttemptLeftBehind(t *testing.T) {
 }
 
 func TestUserRepositoryRefusesToRecordAnAttemptAgainstNobody(t *testing.T) {
-	// Quietly writing nothing would mean the lock silently does not exist for that
-	// account, and the sign-in flow that asked would carry on believing it does.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 
 	recordError := userRepository.SaveSignInLockoutState(t.Context(), 4242, 0,
@@ -335,9 +304,7 @@ func TestUserRepositoryRefusesToRecordAnAttemptAgainstNobody(t *testing.T) {
 }
 
 func TestUserRepositoryChangingThePasswordAlsoOpensTheDoor(t *testing.T) {
-	// Somebody changing their password needed a valid proof of identity to get
-	// this far, so they have already proved they are the account holder. Keeping
-	// them shut out afterwards protects nothing.
+	// A password change requires a valid identity proof, so it also lifts the lock.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
 	require.NoError(t, saveError)
@@ -356,10 +323,6 @@ func TestUserRepositoryChangingThePasswordAlsoOpensTheDoor(t *testing.T) {
 }
 
 func TestUserRepositorySaysSoWhenTheStoreCannotRecordAnAttempt(t *testing.T) {
-	// A store that cannot answer is not the same as an account that does not exist,
-	// and the sign-in flow acts differently on each: one is a failed sign-in, the
-	// other is an address nobody holds. Returning the storage failure as itself is
-	// what keeps them apart.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
 	require.NoError(t, saveError)
@@ -376,10 +339,7 @@ func TestUserRepositorySaysSoWhenTheStoreCannotRecordAnAttempt(t *testing.T) {
 }
 
 func TestUserRepositoryRefusesAWriteCountedFromAStreakThatHasSinceMoved(t *testing.T) {
-	// Two attempts on one address read the same streak, and the slow password
-	// comparison between reading and writing is where the second one lands. Letting
-	// both write their number would throw one of them away, which is how a hundred
-	// parallel guesses come to cost a single increment.
+	// Two attempts reading the same streak must not both write, or parallel guesses would cost a single increment.
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
 	savedUser, saveError := userRepository.Save(t.Context(), userWithEmail("james@example.com"))
 	require.NoError(t, saveError)
@@ -400,11 +360,7 @@ func TestUserRepositoryRefusesAWriteCountedFromAStreakThatHasSinceMoved(t *testi
 }
 
 func TestUserRepositoryLosesNoAttemptWhenManyArriveAtOnce(t *testing.T) {
-	// The whole point of the guard, stated as the thing it protects: fire a batch of
-	// attempts at one address at once, have each one count against the streak it
-	// actually read, and every single attempt must be accounted for. Without the
-	// guard they would all read zero, all write one, and ninety-nine guesses would
-	// be free.
+	// Every concurrent attempt must be counted against the streak it actually read.
 	const attemptCount = 100
 
 	userRepository := persistence.NewUserRepository(newTestDatabase(t))
@@ -417,8 +373,7 @@ func TestUserRepositoryLosesNoAttemptWhenManyArriveAtOnce(t *testing.T) {
 		attempts.Add(1)
 		go func() {
 			defer attempts.Done()
-			// Each attempt keeps looking until its own increment lands, which is
-			// what the sign-in flow does with its retry budget.
+			// Each attempt retries until its own increment lands, as the sign-in flow does.
 			for {
 				current, findError := userRepository.FindOne(t.Context(), savedUser.ID)
 				if findError != nil {

@@ -17,7 +17,6 @@ import (
 
 const signingKey = "test-signing-key"
 
-// tokenExpiry is far enough ahead that these tests never race the clock.
 var tokenExpiry = time.Date(2099, 9, 6, 8, 0, 0, 0, time.UTC)
 
 func TestJwtAccessTokenProxyIssuesAProofItCanReadBack(t *testing.T) {
@@ -68,9 +67,7 @@ func TestJwtAccessTokenProxyRefusesEveryProofThatIsNotOne(t *testing.T) {
 			accessToken: unsignedTokenFor("7"),
 		},
 		{
-			// Signed with the very same key, correctly, by a method this system does
-			// not use. Accepting it would mean the token gets to nominate how it is
-			// checked — and a token is written by whoever presents it.
+			// Same key, different method: accepting it would let the token choose how it is checked.
 			name:        "one signed by a method this system does not use",
 			accessToken: tokenSignedWithAnotherMethod(t, "7"),
 		},
@@ -111,8 +108,7 @@ func TestJwtAccessTokenProxyWithNoKeyRecognisesNobody(t *testing.T) {
 	require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
 }
 
-// tamperedTail changes the last character of a token, which is enough to break the
-// signature without changing the shape of the thing.
+// tamperedTail breaks the signature without changing the token's shape.
 func tamperedTail(accessToken string) string {
 	lastCharacter := accessToken[len(accessToken)-1]
 	replacement := byte('A')
@@ -123,8 +119,7 @@ func tamperedTail(accessToken string) string {
 	return accessToken[:len(accessToken)-1] + string(replacement)
 }
 
-// unsignedTokenFor builds a token that names no signing method, which is the oldest
-// way of walking in through a checker that believes what a token says about itself.
+// unsignedTokenFor builds an alg-none token.
 func unsignedTokenFor(subject string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	claims, _ := json.Marshal(map[string]string{"sub": subject})
@@ -132,9 +127,7 @@ func unsignedTokenFor(subject string) string {
 	return header + "." + base64.RawURLEncoding.EncodeToString(claims) + "."
 }
 
-// mustIssueForSubject signs a token whose subject is whatever is handed in, by
-// rebuilding the middle of a real one. It is how a proof carrying nonsense where the
-// identifier belongs is produced without an interface for producing nonsense.
+// mustIssueForSubject rebuilds a real token's payload with an arbitrary subject.
 func mustIssueForSubject(t *testing.T, subject string) string {
 	t.Helper()
 
@@ -150,9 +143,7 @@ func mustIssueForSubject(t *testing.T, subject string) string {
 	return header + "." + payload + "." + signatureOf(header+"."+payload)
 }
 
-// tokenSignedWithAnotherMethod signs a genuine token with the same key but a
-// different HMAC size, which is the shape of every "let the token choose the
-// algorithm" mistake.
+// tokenSignedWithAnotherMethod signs with the same key but a different HMAC size.
 func tokenSignedWithAnotherMethod(t *testing.T, subject string) string {
 	t.Helper()
 

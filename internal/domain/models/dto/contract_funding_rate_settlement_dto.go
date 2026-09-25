@@ -6,9 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractFundingRateSettlementDto is the only shape in which a funding rate
-// settlement leaves the domain. The mark price is null only for a settlement the
-// venue recorded none for.
+// ContractFundingRateSettlementDto has a nil mark price only when the venue recorded none.
 type ContractFundingRateSettlementDto struct {
 	Symbol         string              `json:"symbol"`
 	SettlementTime time.Time           `json:"settlementTime"`

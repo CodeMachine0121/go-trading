@@ -12,12 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// TelegramMessageDeliveryProxy sends messages through Telegram.
-//
-// Nothing it logs or returns ever contains the request address. That is not
-// squeamishness: Telegram puts the bot token in the path, so an address written to
-// a log file is a token written to a log file — and log files are the likeliest way
-// a secret escapes, far ahead of anybody reading the database.
+// TelegramMessageDeliveryProxy never logs or returns the request address, because Telegram puts the bot token in the path.
 type TelegramMessageDeliveryProxy struct {
 	apiBaseUrl string
 	httpClient *http.Client
@@ -32,12 +27,7 @@ func NewTelegramMessageDeliveryProxy(
 	}
 }
 
-// Deliver sends one message as one bot into one chat.
-//
-// Every outcome Telegram can produce lands in one of four reasons, including the
-// ones nothing here recognises. There is no fifth "something else" for a caller to
-// puzzle over, because the caller's job is to repeat the reason to a person, and a
-// person cannot act on "something else".
+// Deliver maps every Telegram outcome, including unrecognised ones, to one of four failure reasons.
 func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) Deliver(
 	executionContext context.Context,
 	credential vo.MessageDeliveryCredentialVo,
@@ -55,17 +45,14 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) Deliver(
 		telegramMessageDeliveryProxy.sendMessageAddress(credential.BotToken),
 		bytes.NewReader(body))
 	if buildError != nil {
-		// The address is deliberately absent from this message. It carries the
-		// token, and this error is on its way to somewhere it will be written down.
+		// The address is omitted because it carries the token.
 		return vo.DeliveryFailureUnreachable, errors.New("build message request failed")
 	}
 	request.Header.Set("Content-Type", "application/json")
 
 	response, requestError := telegramMessageDeliveryProxy.httpClient.Do(request)
 	if requestError != nil {
-		// A request cut short because time ran out is reported as time running
-		// out, not as an unreachable service. They lead somebody to wait
-		// different lengths before deciding something is wrong.
+		// A timeout is reported distinctly from an unreachable service.
 		if errors.Is(requestError, context.DeadlineExceeded) {
 			return vo.DeliveryFailureTimedOut, nil
 		}
@@ -77,11 +64,7 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) Deliver(
 	return telegramMessageDeliveryProxy.reasonFrom(response), nil
 }
 
-// reasonFrom reads Telegram's answer and says which of the four things happened.
-//
-// An answer that cannot be decoded at all is unreachable rather than an error: the
-// person asked whether the route works, and "it answered something I cannot read"
-// is an answer to that question, not a fault in the asking.
+// reasonFrom treats an undecodable answer as unreachable rather than an error.
 func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) reasonFrom(
 	response *http.Response,
 ) vo.DeliveryFailureReasonVo {
@@ -92,14 +75,11 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) reasonFrom(
 		return vo.DeliveryFailureNone
 	}
 	if response.StatusCode == http.StatusOK && decodeError == nil {
-		// A 200 that says ok:false is Telegram disagreeing with itself. Treated as
-		// unreachable so that nobody is told to change something.
+		// A 200 with ok:false is treated as unreachable so nobody is told to change anything.
 		return vo.DeliveryFailureUnreachable
 	}
 
-	// The token is what a 401 rejects, and Telegram also answers 404 for a token
-	// it does not recognise at all — the path it was addressed with does not
-	// exist, because the token is in the path.
+	// Telegram answers 404 for an unknown token, because the token is part of the path.
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusNotFound {
 		return vo.DeliveryFailureCredentialRejected
 	}
@@ -109,17 +89,14 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) reasonFrom(
 			return vo.DeliveryFailureDestinationNotFound
 		}
 
-		// A refusal whose wording is unfamiliar is not guessed at. Sending
-		// somebody to regenerate a working token costs more than telling them to
-		// try again.
+		// Unfamiliar wording is not guessed at; telling someone to retry is cheaper than sending them to regenerate a working token.
 		return vo.DeliveryFailureUnreachable
 	}
 
 	return vo.DeliveryFailureUnreachable
 }
 
-// sendMessageAddress is where Telegram is asked to send a message. The token sits in
-// the path, which is why this value never appears in a log line or an error.
+// sendMessageAddress contains the token in its path, so it must never appear in logs or errors.
 func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) sendMessageAddress(
 	botToken string,
 ) string {

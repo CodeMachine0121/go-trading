@@ -19,9 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// gatekeeping stands in for wherever the person running this console reads their
-// mail. These tests are about which refusal comes back and what it carries, not
-// about any particular inbox.
+// gatekeeping is a stand-in inbox; these tests are about the refusal, not the address.
 var gatekeeping = vo.AccountActivationPolicyVo{
 	RequestMailbox: "gatekeeper@example.com",
 	SubjectPrefix:  "console access request",
@@ -32,12 +30,7 @@ type doorUnderTest struct {
 	handlerRunCount *int
 }
 
-// newDoorUnderTest mounts the real door in front of a handler that does nothing but
-// record that it ran.
-//
-// What is asserted here is a property of the door, so the door is the real one and
-// the only stand-ins are the two boundaries behind it: the store that holds people,
-// and the thing that reads a proof.
+// newDoorUnderTest mounts the real middleware, mocking only the user store and the token reader.
 func newDoorUnderTest(t *testing.T, storedUser entities.User, proofIsGood bool) doorUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
@@ -106,8 +99,7 @@ func TestTheDoorTurnsAwaySomebodyStillWaitingToBeLetIn(t *testing.T) {
 
 	recorder := door.knock("Bearer a-proof")
 
-	// 403, not 401. Their sign-in is fine; sending them back to sign in again is the
-	// one thing that cannot change their situation.
+	// 403, not 401: the sign-in is valid, so sending them to sign in again cannot help.
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.Equal(t, 0, *door.handlerRunCount)
 }
@@ -151,8 +143,7 @@ func TestTheDoorTurnsAwayAnUnprovenRequestWithADifferentAnswer(t *testing.T) {
 
 			require.Equal(t, http.StatusUnauthorized, recorder.Code)
 			assert.Equal(t, 0, *door.handlerRunCount)
-			// The two refusals stay apart, and a caller tells them apart by the
-			// status alone — without reading a sentence written for a person.
+			// Callers must be able to tell the two refusals apart by status alone.
 			assert.JSONEq(t, `{"message":"請重新登入"}`, recorder.Body.String())
 		})
 	}

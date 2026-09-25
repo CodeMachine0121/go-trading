@@ -6,8 +6,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractPositionStatisticDto is the only shape in which a position statistic leaves
-// the domain. Nothing here is optional: a stored statistic is a complete one.
 type ContractPositionStatisticDto struct {
 	Symbol                          string          `json:"symbol"`
 	StatisticTime                   time.Time       `json:"statisticTime"`

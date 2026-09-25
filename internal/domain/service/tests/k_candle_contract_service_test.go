@@ -75,8 +75,7 @@ func newContractServiceUnderTest(t *testing.T) contractServiceUnderTest {
 	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 30)).AnyTimes()
 
 	return contractServiceUnderTest{
-		// A market that closes sits in the catalogue beside the round-the-clock one, so a
-		// contract series that consulted the wrong calendar would lose the hours it shuts.
+		// A closing market sits beside the round-the-clock one, so a contract series using the wrong calendar would lose closed hours.
 		service: service.NewKCandleContractService(repository, clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 				vo.MarketCrypto: {},

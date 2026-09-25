@@ -18,8 +18,7 @@ func TestFetchingIsSentToTheSourceThatServesTheWindowsMarket(t *testing.T) {
 	cryptoSource := mocks.NewMockIMarketDataProxy(mockController)
 	window := vo.NewKCandleFetchWindowVo(
 		"2330", vo.MarketTaiwanStock, at(9, 0), at(9, 20))
-	// Only one of them may be asked. An expectation on the other would fail here, and
-	// its absence is what makes "the right source" mean something.
+	// No expectation on the other source, so asking it fails the test.
 	taiwanSource.EXPECT().FetchKCandles(gomock.Any(), window).
 		Return([]vo.MarketKCandleVo{{Symbol: "2330"}}, nil)
 
@@ -35,8 +34,6 @@ func TestFetchingIsSentToTheSourceThatServesTheWindowsMarket(t *testing.T) {
 }
 
 func TestFetchingForAMarketWithNoSourceIsAFailureRatherThanNothing(t *testing.T) {
-	// Empty would read as "the market had nothing", and a whole market quietly
-	// holding nothing is how a missing wire-up survives to production.
 	marketKCandles, fetchError := marketdata.NewMarketRoutedMarketDataProxy(
 		map[vo.MarketVo]_interface.IMarketDataProxy{}).
 		FetchKCandles(t.Context(), vo.NewKCandleFetchWindowVo(
@@ -89,14 +86,11 @@ func TestALookupIsSentToTheSourceThatServesThatMarket(t *testing.T) {
 
 	require.NoError(t, lookupError)
 	assert.True(t, listing.IsListed)
-	// What the source said it is called comes back untouched: routing decides who
-	// answers, never what the answer says.
+	// Routing never alters what the source answered.
 	assert.Equal(t, "台積電", listing.DisplayName)
 }
 
 func TestALookupForAMarketWithNoSourceIsAFailureRatherThanANo(t *testing.T) {
-	// "No such symbol" and "this system is not finished" mean opposite things to
-	// whoever asked, and answering the wrong one sends them looking in the wrong place.
 	listing, lookupError := marketdata.NewMarketRoutedSymbolLookupProxy(
 		map[vo.MarketVo]_interface.ISymbolLookupProxy{}).
 		LookUpSymbol(t.Context(), vo.MarketTaiwanStock, "2330")
@@ -106,8 +100,7 @@ func TestALookupForAMarketWithNoSourceIsAFailureRatherThanANo(t *testing.T) {
 }
 
 func TestRoutingWorksFromItsOwnCopyOfTheSources(t *testing.T) {
-	// The map handed in belongs to whoever built it. A later change to theirs must
-	// not silently repoint where a market's requests go.
+	// The map is copied, so a later change by its owner does not repoint routing.
 	mockController := gomock.NewController(t)
 	taiwanSource := mocks.NewMockIMarketDataProxy(mockController)
 	window := vo.NewKCandleFetchWindowVo("2330", vo.MarketTaiwanStock, at(9, 0), at(9, 20))

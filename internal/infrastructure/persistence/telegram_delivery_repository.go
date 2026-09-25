@@ -11,8 +11,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// TelegramDeliveryRepository stores where each person wants this system to speak to
-// them, in PostgreSQL.
 type TelegramDeliveryRepository struct {
 	database *gorm.DB
 }
@@ -21,16 +19,12 @@ func NewTelegramDeliveryRepository(database *gorm.DB) *TelegramDeliveryRepositor
 	return &TelegramDeliveryRepository{database: database}
 }
 
-// FindOneByUser returns this person's setting.
 func (telegramDeliveryRepository *TelegramDeliveryRepository) FindOneByUser(
 	executionContext context.Context, userID uint,
 ) (entities.TelegramDelivery, error) {
 	delivery := entities.TelegramDelivery{}
 
-	// The condition is spelled out rather than given as a struct, because GORM
-	// drops zero-valued struct fields — so an identifier of nobody would become no
-	// condition at all, and this would hand back whichever setting happens to be
-	// first in the table, along with somebody else's token.
+	// A string condition is used because GORM drops zero-valued struct fields, which would match any row.
 	result := telegramDeliveryRepository.database.WithContext(executionContext).
 		Where(clause.Eq{Column: "user_id", Value: userID}).
 		First(&delivery)
@@ -44,13 +38,7 @@ func (telegramDeliveryRepository *TelegramDeliveryRepository) FindOneByUser(
 	return delivery, nil
 }
 
-// Upsert stores this setting, replacing whatever this person had before.
-//
-// The unique index on the person is what decides, rather than a look followed by a
-// write: two settings arriving at once would both find nothing there and both
-// insert, and only the index stops that becoming two rows. Naming the index in the
-// conflict clause is how the write says which collision it means to absorb, so that
-// any other broken constraint still surfaces as the failure it is.
+// Upsert relies on the unique user index (named in the conflict clause) so concurrent writes cannot create two rows and other constraint violations still surface.
 func (telegramDeliveryRepository *TelegramDeliveryRepository) Upsert(
 	executionContext context.Context, delivery entities.TelegramDelivery,
 ) (entities.TelegramDelivery, error) {
@@ -68,11 +56,7 @@ func (telegramDeliveryRepository *TelegramDeliveryRepository) Upsert(
 	return delivery, nil
 }
 
-// DeleteByUser removes this person's setting.
-//
-// Deleting nothing is success. What was asked for is that this system stop being
-// able to speak to them, and with no setting it already cannot — reporting a failure
-// would only have the caller pressing the button again.
+// DeleteByUser treats deleting nothing as success.
 func (telegramDeliveryRepository *TelegramDeliveryRepository) DeleteByUser(
 	executionContext context.Context, userID uint,
 ) error {

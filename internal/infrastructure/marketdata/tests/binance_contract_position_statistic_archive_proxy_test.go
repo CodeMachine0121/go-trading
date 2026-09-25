@@ -36,8 +36,7 @@ func zippedArchiveDay(t *testing.T, csvContent string) []byte {
 	return zipped.Bytes()
 }
 
-// withUnknownCompression marks the zip's one file as compressed by a method nobody
-// knows, in both places a zip names it: the file's own header and the directory.
+// withUnknownCompression sets an unknown compression method in both the local file header and the central directory.
 func withUnknownCompression(zipped []byte) []byte {
 	marked := bytes.Clone(zipped)
 	for _, header := range []struct {
@@ -55,8 +54,6 @@ func withUnknownCompression(zipped []byte) []byte {
 	return marked
 }
 
-// archiveHost answers every file with one status and body, and keeps the paths it was
-// asked for.
 type archiveHost struct {
 	baseUrl string
 	lock    *sync.Mutex
@@ -104,8 +101,7 @@ func TestArchiveProxyReadsEveryStatisticOfTheDayOldestFirst(t *testing.T) {
 	assert.Equal(t, "ETHUSDT", statistics[1].Symbol)
 	assert.True(t, decimal.RequireFromString("1793061.383").Equal(statistics[1].OpenInterest.Decimal))
 	assert.True(t, decimal.RequireFromString("3513539641.21616").Equal(statistics[1].OpenInterestValue.Decimal))
-	// The account ratio is the one counted across every account; the largest
-	// accounts' ratio is the one counted by position, not by account.
+	// The account ratio counts all accounts; the top-trader ratio counts positions.
 	assert.True(t, decimal.RequireFromString("2.25912179").Equal(statistics[1].AccountLongShortRatio.Decimal))
 	assert.True(t, decimal.RequireFromString("1.362704").Equal(statistics[1].TopTraderPositionLongShortRatio.Decimal))
 }
@@ -182,7 +178,6 @@ func TestArchiveProxyRefusesWhatItCannotRead(t *testing.T) {
 		status int
 		body   func(t *testing.T) []byte
 	}{
-		// A readable day behind a status other than success is still not an answer.
 		{name: "來源回錯誤", status: http.StatusInternalServerError, body: func(t *testing.T) []byte {
 			return zippedArchiveDay(t, archiveHeader)
 		}},
@@ -199,8 +194,7 @@ func TestArchiveProxyRefusesWhatItCannotRead(t *testing.T) {
 		}},
 		{name: "沒有表頭", status: http.StatusOK,
 			body: func(t *testing.T) []byte { return zippedArchiveDay(t, "") }},
-		// Every other cell of this file would read as a number, so only noticing the
-		// missing column refuses it.
+		// Every other cell parses as a number, so only the missing-column check refuses this file.
 		{name: "少了需要的欄位", status: http.StatusOK, body: func(t *testing.T) []byte {
 			return zippedArchiveDay(t, "sum_open_interest,create_time,sum_open_interest_value,count_long_short_ratio\n"+
 				"1,2026-03-01 00:00:00,2,3\n")

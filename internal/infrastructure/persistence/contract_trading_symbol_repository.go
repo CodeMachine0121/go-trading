@@ -10,12 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ContractTradingSymbolRepository stores the perpetual contracts the system knows
-// about, in PostgreSQL.
-//
-// It is a separate table from the spot list so that the same name can be registered
-// on both venues at once, which it has to be: BTCUSDT is a different instrument on
-// each, and the spot list keys on the name alone.
+// ContractTradingSymbolRepository uses a table separate from spot symbols, since the same name (e.g. BTCUSDT) is a different instrument on each venue.
 type ContractTradingSymbolRepository struct {
 	database *gorm.DB
 }
@@ -24,7 +19,6 @@ func NewContractTradingSymbolRepository(database *gorm.DB) *ContractTradingSymbo
 	return &ContractTradingSymbolRepository{database: database}
 }
 
-// FindAll returns every registered contract, ordered by name.
 func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindAll(
 	executionContext context.Context,
 ) ([]entities.ContractTradingSymbol, error) {
@@ -40,9 +34,7 @@ func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindAll(
 	return contractTradingSymbols, nil
 }
 
-// FindWatched returns the contracts the system is keeping up to date, ordered by
-// name. Name alone settles the order because this list has no follow places to hand
-// out, so nothing here depends on which contract was registered first.
+// FindWatched orders by name only, since contracts have no follow positions.
 func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindWatched(
 	executionContext context.Context,
 ) ([]entities.ContractTradingSymbol, error) {
@@ -59,8 +51,6 @@ func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindWatc
 	return watchedSymbols, nil
 }
 
-// FindBySymbol answers with the registered contract carrying this name, and whether
-// there is one.
 func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindBySymbol(
 	executionContext context.Context, symbol string,
 ) (entities.ContractTradingSymbol, bool, error) {
@@ -80,16 +70,11 @@ func (contractTradingSymbolRepository *ContractTradingSymbolRepository) FindBySy
 	return contractTradingSymbol, true, nil
 }
 
-// Save registers a contract or updates the one already registered under that name.
-//
-// The watched flag is named explicitly so that switching it off is stored: false is
-// an empty value to the ORM, and left to its own reading it would take "stop
-// following this" to mean "change nothing".
+// Save upserts by name, naming the watched column explicitly so false is written instead of skipped as a zero value.
 func (contractTradingSymbolRepository *ContractTradingSymbolRepository) Save(
 	executionContext context.Context, contractTradingSymbol entities.ContractTradingSymbol,
 ) error {
-	// A contract carrying no specification leaves the one held alone: saving "now
-	// watched" or "no longer watched" is not saying the specification went away.
+	// A contract without a specification leaves the stored one untouched.
 	writtenColumns := []string{"is_watched"}
 	if contractTradingSymbol.SpecificationUpdatedAt != nil {
 		writtenColumns = append(writtenColumns, tradingSpecificationColumns...)
@@ -108,16 +93,14 @@ func (contractTradingSymbolRepository *ContractTradingSymbolRepository) Save(
 	return nil
 }
 
-// tradingSpecificationColumns are the columns a specification refresh writes, listed
-// so that nothing else about a contract — whether it is watched — is touched by one.
+// tradingSpecificationColumns lists the columns a refresh writes, so the watched flag is never touched.
 var tradingSpecificationColumns = []string{
 	"tick_size", "quantity_step", "minimum_quantity", "minimum_notional",
 	"maintenance_margin_rate", "liquidation_fee_rate", "funding_interval_hours",
 	"specification_updated_at",
 }
 
-// SaveTradingSpecifications writes each contract's specification in one transaction,
-// so a refresh is either recorded for every contract it covered or for none of them.
+// SaveTradingSpecifications writes all specifications in one transaction.
 func (contractTradingSymbolRepository *ContractTradingSymbolRepository) SaveTradingSpecifications(
 	executionContext context.Context, contractTradingSymbols []entities.ContractTradingSymbol,
 ) error {

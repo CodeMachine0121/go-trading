@@ -13,13 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// ContractBacktestService is the application layer's only entry point for replaying a
-// contract strategy script, or a contract trading strategy, on an isolated contract
-// account over a stretch of market that has already happened.
-//
-// It orchestrates and nothing more: which symbol's rules apply, which bars to read,
-// which funding and positioning to line up beside them, and in what order the script
-// runs. Every rule lives in the domain models it hands those to.
+// ContractBacktestService is the application layer's only entry point for contract replays on an isolated account; it only sequences the domain steps.
 type ContractBacktestService struct {
 	kCandleContractRepository               domaininterface.IKCandleContractRepository
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
@@ -29,8 +23,7 @@ type ContractBacktestService struct {
 	contractIndicatorScriptProxy            domaininterface.IContractIndicatorScriptProxy
 	clockProxy                              domaininterface.IClockProxy
 	maxCandleCount                          int
-	// replayTimeAllowance is how long one whole replay may take, reading and running
-	// together — the same allowance the spot replay has.
+	// replayTimeAllowance matches the spot replay's.
 	replayTimeAllowance time.Duration
 }
 
@@ -58,14 +51,11 @@ func NewContractBacktestService(
 	}
 }
 
-// RunContractBacktest replays one contract strategy script: the script runs once per
-// finished bar and sees every bar from the first up to the one it stands on, and the
-// account trades on what it says. Nothing is stored.
+// RunContractBacktest replays one contract script once per finished bar, each run seeing all bars up to its own; nothing is stored.
 func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	executionContext context.Context, requestDto dto.ContractBacktestRequestDto,
 ) (dto.ContractBacktestResultDto, error) {
-	// The allowance covers the whole replay — reading the market as well as running
-	// the scripts — because whoever is waiting waits for all of it.
+	// The allowance covers reading the market as well as running the scripts.
 	replayContext, stopReplaying := context.WithTimeoutCause(
 		executionContext, contractBacktestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
 	defer stopReplaying()
@@ -101,19 +91,11 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		alignment, signalsOf(perBarIndicatorValues), settlements, nil), nil
 }
 
-// RunContractTradingStrategyBacktest replays a whole contract trading strategy over
-// the same kind of stretch: every source runs its own script over the same bars, the
-// two condition trees turn each bar's several opinions into one, and the account trades
-// on that by the trading strategy's own trading mode.
-//
-// The bars are read once and every source runs over that one batch, for the reason
-// the spot replay does: reading per source would be up to ten chances for two sources
-// to replay slightly different stretches.
+// RunContractTradingStrategyBacktest replays a contract trading strategy by its trading mode; bars are read once so every source sees the identical stretch.
 func (contractBacktestService *ContractBacktestService) RunContractTradingStrategyBacktest(
 	executionContext context.Context, requestDto dto.ContractTradingStrategyBacktestRequestDto,
 ) (dto.ContractBacktestResultDto, error) {
-	// The allowance covers the whole replay — reading the market as well as running
-	// the scripts — because whoever is waiting waits for all of it.
+	// The allowance covers reading the market as well as running the scripts.
 	replayContext, stopReplaying := context.WithTimeoutCause(
 		executionContext, contractBacktestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
 	defer stopReplaying()
@@ -144,8 +126,7 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 			contractBacktestDomain.ResultType(),
 			contractKCandles,
 			strategyBacktestDomain.SourceParameters(sourceIndex))
-		// One source failing ends the whole replay: half a replay would answer the
-		// conditions against signals that are simply absent.
+		// One failing source ends the replay; missing signals would silently make conditions false.
 		if executionError != nil {
 			return dto.ContractBacktestResultDto{}, contractBacktestService.refusalFor(replayContext, executionError)
 		}
@@ -156,8 +137,7 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	return strategyBacktestDomain.ReplayOver(alignment, signalsBySource, settlements), nil
 }
 
-// refusalFor is what a replay says when it could not finish: the allowance, in words a
-// person can act on, when that is what ran out; otherwise whatever went wrong.
+// refusalFor explains an unfinished replay, with an actionable message when the allowance ran out.
 func (contractBacktestService *ContractBacktestService) refusalFor(
 	replayContext context.Context, executionError error,
 ) error {
@@ -168,9 +148,7 @@ func (contractBacktestService *ContractBacktestService) refusalFor(
 	return executionError
 }
 
-// readTradingRules reads the venue's rules for the symbol a replay names: its trading
-// specification and its maintenance margin ladder. They are read before anything else,
-// because the leverage a request may ask for is one of them.
+// readTradingRules reads the symbol's specification and margin ladder first, since the allowed leverage depends on them.
 func (contractBacktestService *ContractBacktestService) readTradingRules(
 	executionContext context.Context, declaredSymbol string,
 ) (domains.ContractTradingRulesDomain, error) {
@@ -195,12 +173,7 @@ func (contractBacktestService *ContractBacktestService) readTradingRules(
 	return domains.NewContractTradingRulesDomain(contractTradingSymbol, isRegistered, maintenanceMarginTiers)
 }
 
-// readReplayBars reads the stored contract K candles of the stretch, merges them into
-// finished bars and lines each bar's funding and positioning up beside it — exactly as
-// a contract indicator calculation does, so a script sees the same bar either way.
-//
-// It hands back the bars as the account reads them (the alignment), the same bars as
-// the script reads them, and the funding settlements that fall among them.
+// readReplayBars merges stored contract K candles into bars with funding and positioning aligned, exactly as indicator calculation does, returning the account view, the script view and the settlements.
 func (contractBacktestService *ContractBacktestService) readReplayBars(
 	executionContext context.Context, contractBacktestDomain domains.ContractBacktestDomain,
 ) (domains.ContractKCandleAlignmentDomain, []vo.ContractKCandleVo, []entities.ContractFundingRateSettlement, error) {

@@ -7,34 +7,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractTradingSymbol is a perpetual contract the system knows about, whether or
-// not it currently holds any contract K candles for it.
-//
-// It is a separate list from TradingSymbol rather than a row in it, because a symbol
-// names a different instrument on each venue and TradingSymbol keys on the name
-// alone. Sharing the list would make BTCUSDT registrable once, on one venue.
-//
-// It carries neither a display name nor a market, and both omissions are deliberate.
-// The contract venue names nothing — a pair is already its own name — and this list
-// serves exactly one venue, so a column recording which one would hold the same value
-// on every row.
+// ContractTradingSymbol is separate from TradingSymbol because TradingSymbol keys on name
+// alone, and it has no display name or market since it serves one venue whose pairs name
+// themselves.
 type ContractTradingSymbol struct {
-	Symbol string `gorm:"primaryKey;size:64;not null"`
-	// IsWatched says whether the system keeps this contract's candles up to date. It
-	// lives here rather than on a list of its own because "the system knows this
-	// contract" and "the system is following it" are two facts about one thing.
-	IsWatched bool `gorm:"not null;default:false"`
+	Symbol    string `gorm:"primaryKey;size:64;not null"`
+	IsWatched bool   `gorm:"not null;default:false"`
 
-	// The trading specification is what the venue says trading this contract looks
-	// like: how finely a price and a quantity move, the smallest order it takes, and
-	// what holding and losing a leveraged position costs. It is the contract's own
-	// property, so it lives on the contract — once — rather than being repeated on
-	// every candle.
-	//
-	// Every figure is nullable for one reason: a contract registered before the
-	// specification was recorded has none until the first refresh, and "not yet
-	// recorded" is not a tick size of zero. SpecificationUpdatedAt being set is what
-	// says the rest are.
+	// Specification figures are nullable because contracts registered before specifications
+	// were recorded have none until the first refresh; SpecificationUpdatedAt marks them as
+	// set.
 	TickSize               decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	QuantityStep           decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	MinimumQuantity        decimal.NullDecimal `gorm:"type:numeric(38,18)"`
@@ -45,19 +27,16 @@ type ContractTradingSymbol struct {
 	SpecificationUpdatedAt *time.Time `gorm:"type:timestamptz"`
 }
 
-// TableName pins the table to ContractTradingSymbols instead of GORM's default.
 func (contractTradingSymbol ContractTradingSymbol) TableName() string {
 	return "ContractTradingSymbols"
 }
 
-// ToDto is the shape this contract leaves the domain in.
 func (contractTradingSymbol ContractTradingSymbol) ToDto() dto.ContractTradingSymbolDto {
 	contractTradingSymbolDto := dto.ContractTradingSymbolDto{
 		Symbol:    contractTradingSymbol.Symbol,
 		IsWatched: contractTradingSymbol.IsWatched,
 	}
 
-	// The specification is handed out only once it has been recorded.
 	if contractTradingSymbol.SpecificationUpdatedAt != nil && contractTradingSymbol.FundingIntervalHours != nil {
 		contractTradingSymbolDto.TradingSpecification = &dto.ContractTradingSpecificationDto{
 			TickSize:               contractTradingSymbol.TickSize.Decimal,

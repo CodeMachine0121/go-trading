@@ -12,23 +12,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tiring is the shipped policy rather than convenient small numbers, so that a test
-// named "the third wrong password" is about the third one here too.
+// tiring is the shipped policy so "the third wrong password" means the real third.
 var tiring = vo.SignInLockoutPolicyVo{
 	FailureThreshold: 3,
 	LockoutDuration:  7 * 24 * time.Hour,
 }
 
-// attemptMoment is when every attempt below happens, and aWeekOn is what the policy
-// makes of it. Both are written out rather than computed, so that asserting one is
-// asserting the requirement instead of repeating the code's own arithmetic.
+// attemptMoment and aWeekOn are written out rather than computed so assertions check the requirement, not the code's arithmetic.
 var (
 	attemptMoment = time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	aWeekOn       = time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC)
 )
 
-// anAccount is one row's standing with the door, carrying only what decides the
-// outcome — the streak and the moment it is shut until.
+// anAccount carries only the streak and the lock end.
 func anAccount(failedSignInCount int, lockedUntil *time.Time) entities.User {
 	return entities.User{ID: 7, Email: "james@example.com", FailedSignInCount: failedSignInCount,
 		LockedUntil: lockedUntil}
@@ -64,8 +60,7 @@ func TestSignInLockoutRefusesAnAttemptOnlyWhileTheAccountIsStillShut(t *testing.
 			expectedRefused:   true,
 		},
 		{
-			// The moment the lock names is itself open. A lock that ends at eight
-			// o'clock is over at eight o'clock, not at one past.
+			// A lock ending at eight is over at eight.
 			name:              "an account whose lock ends exactly now is let through",
 			failedSignInCount: 3,
 			lockedUntil:       shutUntil(attemptMoment),
@@ -84,9 +79,7 @@ func TestSignInLockoutRefusesAnAttemptOnlyWhileTheAccountIsStillShut(t *testing.
 			expectedRefused:   false,
 		},
 		{
-			// Nobody holding the address arrives here as a zero-valued row. It has
-			// to pass, or an unregistered address would be refused differently from
-			// a wrong password — which is the one distinction this door never draws.
+			// An unknown address arrives as a zero-valued row and must pass, so it isn't refused differently from a wrong password.
 			name:              "an address that is nobody's account is let through",
 			failedSignInCount: 0,
 			lockedUntil:       nil,
@@ -117,8 +110,6 @@ func TestSignInLockoutSaysWhenARefusedAttemptMayTryAgain(t *testing.T) {
 
 	refusal := lockout.Refusal()
 
-	// The moment travels inside the error so that the layer saying the sentence
-	// never has to know how long a lock lasts.
 	var locked domains.SignInLockedError
 	require.ErrorAs(t, refusal, &locked)
 	assert.Equal(t, aWeekOn, locked.LockedUntil)
@@ -156,9 +147,7 @@ func TestSignInLockoutCountsAWrongPasswordAndShutsTheAccountOnTheThird(t *testin
 			expectedLockedUntil: shutUntil(aWeekOn),
 		},
 		{
-			// Somebody who sat out a week would otherwise get one attempt back
-			// rather than three: the count the expired lock left behind would carry
-			// straight on into a fourth.
+			// An expired lock's leftover count resets, so a served lock gives back three attempts rather than one.
 			name:                "the first wrong password after a served lock counts as one again",
 			failedSignInCount:   3,
 			lockedUntil:         shutUntil(attemptMoment.Add(-time.Second)),
@@ -166,8 +155,7 @@ func TestSignInLockoutCountsAWrongPasswordAndShutsTheAccountOnTheThird(t *testin
 			expectedLockedUntil: nil,
 		},
 		{
-			// If the threshold is ever lowered, the rows already above it must still
-			// be shut. "Exactly equal" would leave them able to fail forever.
+			// Counts above a lowered threshold still lock, which an exact-equality check would miss.
 			name:                "a count already past the threshold still shuts the account",
 			failedSignInCount:   5,
 			lockedUntil:         nil,
@@ -216,8 +204,7 @@ func TestSignInLockoutClearsEverythingWhenTheRightPasswordArrives(t *testing.T) 
 
 			state := lockout.AfterSuccess()
 
-			// Getting in ends a streak of any length: that is the whole of what
-			// "consecutive" promises.
+			// Success resets a streak of any length.
 			assert.Equal(t, 0, state.FailedSignInCount)
 			assert.Nil(t, state.LockedUntil)
 		})
@@ -225,9 +212,7 @@ func TestSignInLockoutClearsEverythingWhenTheRightPasswordArrives(t *testing.T) 
 }
 
 func TestSignInLockedErrorIsRecognisedWithoutUnwrappingIt(t *testing.T) {
-	// Callers that only want to know which refusal this is keep writing errors.Is;
-	// the one that needs the moment reaches for errors.As. Both have to work, or the
-	// status code and the sentence would come apart.
+	// Both errors.Is and errors.As must work so the status code and message stay together.
 	err := error(domains.SignInLockedError{LockedUntil: aWeekOn})
 
 	assert.True(t, errors.Is(err, domains.ErrSignInLocked))

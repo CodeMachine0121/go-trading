@@ -54,7 +54,7 @@ func newRouterUnderTest(t *testing.T) routerUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
-	// 這一份測試裡的每一檔都是全天候交易的，所以一段時間裡每一分鐘都算數。
+	// 這份測試的每一檔都全天候交易，所以每一分鐘都算數。
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
@@ -212,8 +212,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 	})
 
 	t.Run("naming nothing over ten minutes is chosen as one minute", func(t *testing.T) {
-		// Not a fallback any more: the coarseness is chosen, and ten minutes is short
-		// enough that the finest one is what fits.
+		// The coarseness is chosen, and ten minutes is short enough that the finest fits.
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -227,8 +226,7 @@ func TestGetKCandleSeriesResponses(t *testing.T) {
 	})
 
 	t.Run("naming nothing over a week is answered coarsely instead of refused", func(t *testing.T) {
-		// This is the ask a chart makes: "the user is looking at this stretch." Before,
-		// it was answered with 區間過大 for anything longer than about seventeen hours.
+		// This is a chart's request for the stretch the user is looking at.
 		fixture := newRouterUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -452,9 +450,7 @@ func TestNamedKCandleResponses(t *testing.T) {
 	})
 }
 
-// The same refusal a strategy script's name gets, for the same reason: carried through to
-// the database this is a storage failure, and a storage failure is reported as the
-// system having broken rather than as an answer about what was asked for.
+// Refused for the same reason as a strategy script name: reaching the database it would surface as a storage failure.
 func TestKCandleRouterRefusesATradingSymbolThatCannotBeStored(t *testing.T) {
 	// No expectation is set on the repository: nothing may reach storage.
 	fixture := newRouterUnderTest(t)
@@ -468,9 +464,7 @@ func TestKCandleRouterRefusesATradingSymbolThatCannotBeStored(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "NUL")
 }
 
-// Refusing a NUL on the way in is only half a fix if every other way in still hands
-// it to PostgreSQL, which refuses it as a broken encoding that no sentinel matches —
-// so the caller is told the server failed. Reads and deletes name a symbol too.
+// Reads and deletes name a symbol too, and PostgreSQL rejects a NUL as a broken encoding that surfaces as a server failure.
 func TestKCandleRouterRefusesAnUnstorableSymbolOnEveryWayIn(t *testing.T) {
 	const nulSymbol = "%00"
 
@@ -516,9 +510,7 @@ func TestKCandleRouterRefusesAnUnstorableSymbolOnEveryWayIn(t *testing.T) {
 	}
 }
 
-// cryptoOnlyCatalog is the market this file's symbols trade on: the round-the-clock
-// one, whose every minute holds market. A venue that shuts is what the market-hours
-// tests are for; here it would only add a second reason for a number to change.
+// cryptoOnlyCatalog trades around the clock, keeping market-hours effects out of these tests.
 func cryptoOnlyCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 }

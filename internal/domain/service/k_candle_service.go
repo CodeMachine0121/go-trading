@@ -10,8 +10,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// KCandleService is the application layer's only entry point for K candles.
-// Its public use-case methods never call one another.
 type KCandleService struct {
 	kCandleRepository       domaininterface.IKCandleRepository
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
@@ -36,8 +34,7 @@ func NewKCandleService(
 	}
 }
 
-// SaveKCandle stores one K candle, replacing any candle already held for the
-// same trading symbol and open time.
+// SaveKCandle upserts one K candle by trading symbol and open time.
 func (kCandleService *KCandleService) SaveKCandle(
 	executionContext context.Context, writeDto dto.KCandleWriteDto,
 ) (dto.KCandleDto, error) {
@@ -54,8 +51,7 @@ func (kCandleService *KCandleService) SaveKCandle(
 	return savedKCandle.ToDto(), nil
 }
 
-// GetKCandlesInRange returns the K candles whose open time falls inside the range,
-// earliest first. A range holding more than the configured maximum is refused.
+// GetKCandlesInRange returns candles in the range, earliest first, refusing ranges over the configured maximum.
 func (kCandleService *KCandleService) GetKCandlesInRange(
 	executionContext context.Context, queryDto dto.KCandleQueryDto,
 ) ([]dto.KCandleDto, error) {
@@ -84,17 +80,11 @@ func (kCandleService *KCandleService) GetKCandlesInRange(
 	return kCandleDtos, nil
 }
 
-// GetKCandleSeries returns the K candles inside the range merged into one candle per
-// bucket, earliest first, at whichever coarseness the query settles on — the one the
-// caller named, or the finest one its display can hold. A range cut into more buckets
-// than the configured maximum is refused before anything is read.
+// GetKCandleSeries merges the range into one candle per bucket, earliest first, at the requested or finest displayable interval, refusing too many buckets before reading.
 func (kCandleService *KCandleService) GetKCandleSeries(
 	executionContext context.Context, seriesQueryDto dto.KCandleSeriesQueryDto,
 ) (dto.KCandleSeriesDto, error) {
-	// Which venue the symbol trades on is what decides how much of the range holds
-	// market, and therefore how many candles it can possibly hold. A symbol nobody
-	// registered is not refused: its registration comes back empty, and an empty market
-	// reads as the round-the-clock one — how such a symbol behaved before any of this.
+	// The symbol's market sizes the range; an unregistered symbol reads as the round-the-clock market rather than being refused.
 	registeredSymbol, _, findSymbolError := kCandleService.tradingSymbolRepository.
 		FindBySymbol(executionContext, seriesQueryDto.Symbol)
 	if findSymbolError != nil {
@@ -119,14 +109,10 @@ func (kCandleService *KCandleService) GetKCandleSeries(
 	return seriesQueryDomain.SeriesOf(kCandles).ToDto(), nil
 }
 
-// GetKCandle returns the single K candle named by trading symbol and open time.
 func (kCandleService *KCandleService) GetKCandle(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) (dto.KCandleDto, error) {
-	// A symbol and an open time name one candle, and no model is built for the pair,
-	// so the symbol is checked here — every other path that reaches storage with one
-	// has a model doing it, and the two that did not were the two that answered a bad
-	// request with a broken server.
+	// No domain model validates the symbol on this path, so it is checked here to report a bad request instead of a server error.
 	tradingSymbol, symbolError := domains.NewTradingSymbolDomain(symbol)
 	if symbolError != nil {
 		return dto.KCandleDto{}, fmt.Errorf("%w: %w", domains.ErrKCandleValidation, symbolError)
@@ -141,16 +127,7 @@ func (kCandleService *KCandleService) GetKCandle(
 	return kCandle.ToDto(), nil
 }
 
-// GetLatestKCandle returns the newest K candle stored for this symbol, and whether
-// there was one at all.
-//
-// Nothing stored is an answer rather than a failure: a symbol nobody has ingested
-// yet is an ordinary state, and a caller told it was a failure would have to work
-// out which failures are really nothing.
-//
-// It is a question of its own rather than a range read with a count of one. "The
-// latest" has no time to name, and a caller handed a range would have to invent two
-// moments that could only be wrong.
+// GetLatestKCandle returns the newest stored candle for the symbol; nothing stored is reported as false rather than an error.
 func (kCandleService *KCandleService) GetLatestKCandle(
 	executionContext context.Context, symbol string,
 ) (dto.KCandleDto, bool, error) {
@@ -173,8 +150,7 @@ func (kCandleService *KCandleService) GetLatestKCandle(
 	return kCandles[0].ToDto(), true, nil
 }
 
-// UpdateKCandle replaces the figures of an existing K candle. The candle it acts on
-// is the one named by the trading symbol and open time carried in the input.
+// UpdateKCandle replaces the figures of the candle named by the input's symbol and open time.
 func (kCandleService *KCandleService) UpdateKCandle(
 	executionContext context.Context, writeDto dto.KCandleWriteDto,
 ) (dto.KCandleDto, error) {
@@ -191,7 +167,6 @@ func (kCandleService *KCandleService) UpdateKCandle(
 	return updatedKCandle.ToDto(), nil
 }
 
-// DeleteKCandle removes the single K candle named by trading symbol and open time.
 func (kCandleService *KCandleService) DeleteKCandle(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) error {

@@ -7,25 +7,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// ErrIndicatorCalculationValidation marks a request the caller got wrong: the candle
-// count, or a stretch of market too thin to yield even one value.
+// ErrIndicatorCalculationValidation marks a request the caller got wrong.
 var ErrIndicatorCalculationValidation = errors.New("indicator calculation validation failed")
 
-// ErrIndicatorCalculationCandleCountExceeded marks the one validation failure a
-// caller can act on by changing two specific inputs: the span asked for, together
-// with the look-back the algorithm declares, needs more candles than one call may
-// read.
-//
-// It is told apart from the other validation failures for the same reason the
-// mismatched-knob failure is told apart from a broken script: the caller has two
-// concrete ways out — ask for a shorter span, or aggregate more coarsely — and a
-// caller can only offer them if it knows this is the failure it got. Reading that
-// out of the sentence would be matching on prose written for a person.
+// ErrIndicatorCalculationCandleCountExceeded is distinguishable so callers can suggest a shorter span or a coarser interval without parsing the message.
 var ErrIndicatorCalculationCandleCountExceeded = errors.New("indicator calculation candle count exceeded")
 
-// CandleCountExceeded builds that failure. It answers to both sentinels: it is still
-// a validation failure to everything that only cares about that, and it is the
-// candle-count one to whoever can offer the two ways out.
+// CandleCountExceeded matches both ErrIndicatorCalculationValidation and ErrIndicatorCalculationCandleCountExceeded.
 func CandleCountExceeded(neededCandleCount int, maxCandleCount int) error {
 	return &candleCountExceededError{
 		neededCandleCount: neededCandleCount,
@@ -47,23 +35,11 @@ func (exceeded *candleCountExceededError) Unwrap() []error {
 	return []error{ErrIndicatorCalculationValidation, ErrIndicatorCalculationCandleCountExceeded}
 }
 
-// ErrIndicatorCalculationCandleCoverageTooThin marks the one shortfall that cannot be
-// answered at all: the finished buckets do not even reach the look-back the algorithm
-// declares, so not a single indicator value can come out of them.
-//
-// Coming up short of the count asked for is no longer a refusal — the calculation
-// answers over whatever is there. This is the floor below that, and it is told apart
-// from every other validation failure for the same reason the over-wide one is: the
-// caller has concrete ways out, and they are the *opposite* ways out. Too thin is
-// fixed by reading the market more finely or by filling in the missing history; too
-// wide is fixed by asking for less or reading more coarsely. Answered as one failure,
-// a caller would send people to turn the dial the wrong way.
+// ErrIndicatorCalculationCandleCoverageTooThin marks buckets that do not reach the declared look-back; it is separate from the too-wide error because the remedies are opposite.
 var ErrIndicatorCalculationCandleCoverageTooThin = errors.New(
 	"indicator calculation candle coverage too thin")
 
-// CandleCoverageTooThin builds that failure. It answers to both sentinels: still a
-// validation failure to everything that only cares about that, and the too-thin one
-// to whoever can offer the way out.
+// CandleCoverageTooThin matches both ErrIndicatorCalculationValidation and ErrIndicatorCalculationCandleCoverageTooThin.
 func CandleCoverageTooThin(availableCandleCount int, minimumCandleCount int) error {
 	return &candleCoverageTooThinError{
 		availableCandleCount: availableCandleCount,
@@ -71,12 +47,7 @@ func CandleCoverageTooThin(availableCandleCount int, minimumCandleCount int) err
 	}
 }
 
-// CandleCoverageShortfall digs the two counts out of a too-thin failure, so that
-// whoever answers the caller can hand them over as values of their own.
-//
-// They travel as numbers rather than only inside the sentence for the same reason the
-// undeclared knob's name does: a caller reading them out of the message would be
-// parsing prose written for a person, which changes whenever the wording improves.
+// CandleCoverageShortfall extracts the available and minimum counts so callers need not parse the message.
 func CandleCoverageShortfall(err error) (int, int, bool) {
 	var tooThin *candleCoverageTooThinError
 	if !errors.As(err, &tooThin) {
@@ -102,20 +73,10 @@ func (tooThin *candleCoverageTooThinError) Unwrap() []error {
 	return []error{ErrIndicatorCalculationValidation, ErrIndicatorCalculationCandleCoverageTooThin}
 }
 
-// ErrObservationWindowHoldsNoTrading marks a stretch of market that holds no market:
-// the window a caller is looking at and the hours its venue trades do not overlap at
-// all — a Taiwan night, a weekend, the wrong side of the closing bell.
-//
-// It is told apart from a stretch that is merely too thin because the ways out are
-// not just different but unrelated. Too thin is answered by reading more finely or
-// waiting for history to fill in; this one is answered by looking at a time the
-// market was open. Offered as the same failure, a caller would send people to turn a
-// dial that changes nothing.
+// ErrObservationWindowHoldsNoTrading marks a window with no overlap with the venue's trading hours, whose remedy (a different time) is unrelated to changing the interval.
 var ErrObservationWindowHoldsNoTrading = errors.New("observation window holds no trading")
 
-// ObservationWindowHoldsNoTrading builds that failure. It answers to both sentinels:
-// still a validation failure to everything that only cares about that, and the
-// no-trading one to whoever can offer the way out.
+// ObservationWindowHoldsNoTrading matches both ErrIndicatorCalculationValidation and ErrObservationWindowHoldsNoTrading.
 func ObservationWindowHoldsNoTrading(market vo.MarketVo) error {
 	return &observationWindowHoldsNoTradingError{market: market}
 }
@@ -133,26 +94,13 @@ func (holdsNoTrading *observationWindowHoldsNoTradingError) Unwrap() []error {
 	return []error{ErrIndicatorCalculationValidation, ErrObservationWindowHoldsNoTrading}
 }
 
-// ErrIndicatorScriptFailed marks a well-formed request whose script could not run:
-// unreadable, failed while running, or reaching for something it may not use.
+// ErrIndicatorScriptFailed marks a well-formed request whose script could not compile, failed at runtime, or used something forbidden.
 var ErrIndicatorScriptFailed = errors.New("indicator script failed")
 
-// ErrIndicatorParameterNotDeclared is what a script reaching for a knob nobody
-// declared comes back as.
-//
-// It is its own sentinel rather than a script failure, and that distinction is the
-// whole point: renaming a knob and forgetting to change the line that reads it is an
-// easy mistake and an invisible one, and reporting it as "your algorithm is broken"
-// sends the person to read the wrong thing. What went wrong is that a name does not
-// match — so that is what it says.
+// ErrIndicatorParameterNotDeclared is separate from a script failure so a renamed-but-not-updated knob is reported as a name mismatch, not a broken algorithm.
 var ErrIndicatorParameterNotDeclared = errors.New("indicator parameter not declared")
 
-// UndeclaredParameterName digs the name out of a mismatched-knob failure, so that
-// whoever answers the caller can hand it over as a field of its own.
-//
-// A caller telling this failure apart by reading the message would be matching on
-// prose written for a person — it changes whenever the wording improves. The name
-// travels as a value instead.
+// UndeclaredParameterName extracts the knob name so callers need not parse the message.
 func UndeclaredParameterName(err error) (string, bool) {
 	var undeclared *undeclaredParameterError
 	if !errors.As(err, &undeclared) {
@@ -162,8 +110,6 @@ func UndeclaredParameterName(err error) (string, bool) {
 	return undeclared.name, true
 }
 
-// UndeclaredParameter builds the failure for a knob nobody declared, carrying both
-// the sentence a person reads and the name a caller acts on.
 func UndeclaredParameter(name string) error {
 	return &undeclaredParameterError{name: name}
 }

@@ -12,19 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleFollowController streams live K candle updates to one viewer — of a spot
-// trading symbol on one route, of a perpetual contract on another.
-//
-// It is the only place that knows how an update reaches a browser, and it does
-// nothing but translate: it writes whatever it is handed, one event per update, and
-// leaves when the updates end or the request does. Every decision about what to
-// send and when was already made before it was handed the channel, which is why a
-// connection that lives for hours is still only doing request-to-response
-// translation — just repeatedly.
-//
-// The two routes share this translation and nothing else: each asks its own line's
-// application, so a spot viewer and a contract viewer of the same code never share a
-// follow.
+// KCandleFollowController streams live spot and contract K candle updates as server-sent events, only translating what the application hands it.
 type KCandleFollowController struct {
 	kCandleFollowApplication         *application.KCandleFollowApplication
 	kCandleContractFollowApplication *application.KCandleContractFollowApplication
@@ -55,8 +43,7 @@ func (kCandleFollowController *KCandleFollowController) WatchKCandles(ginContext
 	kCandleFollowController.stream(ginContext, updates, watchError)
 }
 
-// WatchKCandleContracts handles GET /contract-k-candles/live?symbol=BTCUSDT: the live
-// follow of a perpetual contract, never of the spot market sharing its code.
+// WatchKCandleContracts handles GET /contract-k-candles/live?symbol=BTCUSDT, never following the spot market of the same code.
 func (kCandleFollowController *KCandleFollowController) WatchKCandleContracts(ginContext *gin.Context) {
 	symbol := ginContext.Query("symbol")
 	if symbol == "" {
@@ -71,25 +58,17 @@ func (kCandleFollowController *KCandleFollowController) WatchKCandleContracts(gi
 	kCandleFollowController.stream(ginContext, updates, watchError)
 }
 
-// stream answers a refused follow with the status its reason calls for, and otherwise
-// writes every update as a server-sent event until the updates end or the request does.
-// Both routes answer the same way, which is why this is shared rather than written
-// twice.
+// stream answers a refused follow with the matching status, otherwise writes each update as an SSE event until the updates or the request end.
 func (kCandleFollowController *KCandleFollowController) stream(
 	ginContext *gin.Context, updates <-chan dto.KCandleFollowUpdateDto, watchError error,
 ) {
 	if watchError != nil {
-		// Naming a market the system has never been told about is the caller's to
-		// fix, and it must not be answered the same way as a system on its way down —
-		// one says "check what you asked for", the other says "come back later", and
-		// a viewer given the wrong one waits for something that will not happen.
+		// An unknown market is the caller's to fix and must not read like a system shutting down.
 		switch {
 		case errors.Is(watchError, domains.ErrTradingSymbolNotRegistered):
 			ginContext.JSON(http.StatusNotFound, gin.H{"message": watchError.Error()})
 		case errors.Is(watchError, domains.ErrKCandleContractValidation):
 			ginContext.JSON(http.StatusBadRequest, gin.H{"message": watchError.Error()})
-		// A contract the system knows but is not following is a state, not a
-		// mistake in the request: following it is the whole cure.
 		case errors.Is(watchError, domains.ErrContractTradingSymbolNotWatched):
 			ginContext.JSON(http.StatusConflict, gin.H{"message": watchError.Error()})
 		default:
@@ -102,14 +81,10 @@ func (kCandleFollowController *KCandleFollowController) stream(
 	ginContext.Header("Content-Type", "text/event-stream")
 	ginContext.Header("Cache-Control", "no-cache")
 	ginContext.Header("Connection", "keep-alive")
-	// Proxies that buffer would hold updates back until the connection ends, which
-	// is the one thing a live feed cannot survive.
+	// Stops buffering proxies from holding updates until the connection ends.
 	ginContext.Header("X-Accel-Buffering", "no")
 
-	// Written by hand rather than through the framework's streaming helper, because
-	// that helper watches a connection-closed signal the standard library has
-	// deprecated. The request's own context says the same thing, and says it for
-	// every way a request can end rather than only for a dropped connection.
+	// Written by hand because gin's streaming helper relies on the deprecated CloseNotify; the request context covers every way a request ends.
 	requestEnded := ginContext.Request.Context().Done()
 	for {
 		select {
@@ -129,8 +104,6 @@ func (kCandleFollowController *KCandleFollowController) stream(
 			if _, writeError := fmt.Fprintf(ginContext.Writer, "data: %s\n\n", body); writeError != nil {
 				return
 			}
-			// Without this the update sits in a buffer until the connection ends,
-			// which for a feed that never ends means it is never seen.
 			ginContext.Writer.Flush()
 		}
 	}

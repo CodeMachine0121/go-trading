@@ -9,12 +9,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// TestEachVenueIsPacedOnItsOwnAllowance holds the one wiring fact nothing else can:
-// the contract venue is paced separately from the spot one.
-//
-// The two venues count their request budgets apart, so a pacer shared between them
-// would spend half of each — and the failure is silent, because a shared pacer works
-// perfectly until the day a long fetch is throttled halfway through.
+// TestEachVenueIsPacedOnItsOwnAllowance guards that venues with separate request budgets never share
+// a pacer, which would silently halve each budget.
 func TestEachVenueIsPacedOnItsOwnAllowance(t *testing.T) {
 	pacers := newVenuePacers(config.Load())
 
@@ -22,12 +18,10 @@ func TestEachVenueIsPacedOnItsOwnAllowance(t *testing.T) {
 		"合約與現貨必須各有一份節奏，共用一份等於各只用到一半的額度")
 	assert.NotSame(t, pacers.crypto.Limiter(), pacers.taiwanStock.Limiter())
 	assert.NotSame(t, pacers.cryptoContract.Limiter(), pacers.taiwanStock.Limiter())
-	// The contract venue counts its position statistics apart from its candles.
 	assert.NotSame(t, pacers.cryptoContract.Limiter(), pacers.cryptoContractStatistics.Limiter(),
 		"持倉統計與合約 K 線各有一份額度")
 	assert.NotSame(t, pacers.crypto.Limiter(), pacers.cryptoContractStatistics.Limiter())
-	// The archive of those statistics is another host again, counting nothing
-	// against either of the contract venue's allowances.
+	// The statistics archive is a separate host with its own allowance.
 	for _, otherLimiter := range []struct {
 		name    string
 		pacerOf func(venuePacers) *rate.Limiter
@@ -41,8 +35,6 @@ func TestEachVenueIsPacedOnItsOwnAllowance(t *testing.T) {
 	}
 }
 
-// TestEachVenuesPaceComesFromItsOwnSetting checks the other half: separate pacers
-// built from the same number would be two pacers that only look independent.
 func TestEachVenuesPaceComesFromItsOwnSetting(t *testing.T) {
 	t.Setenv("MARKET_DATA_REQUESTS_PER_MINUTE", "600")
 	t.Setenv("CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE", "111")

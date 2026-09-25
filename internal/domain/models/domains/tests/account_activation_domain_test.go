@@ -10,9 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gatekeeping is a stand-in for wherever the person running this console reads their
-// mail. What the tests below are about is how the subject line is put together, not
-// which inbox it lands in.
 var gatekeeping = vo.AccountActivationPolicyVo{
 	RequestMailbox: "gatekeeper@example.com",
 	SubjectPrefix:  "console access request",
@@ -49,15 +46,13 @@ func TestAccountActivationTellsAWaitingPersonWhereToWriteAndWhatToPutInTheSubjec
 	assert.False(t, userDto.IsEnabled)
 	require.NotNil(t, userDto.ActivationInstruction)
 	assert.Equal(t, "gatekeeper@example.com", userDto.ActivationInstruction.RequestMailbox)
-	// Assembled, not handed over in pieces: the person reading the inbox matches a
-	// letter to an account by this exact string.
+	// The inbox reader matches a letter to an account by this exact string.
 	assert.Equal(t,
 		"console access request：alice@example.com", userDto.ActivationInstruction.Subject)
 }
 
 func TestAccountActivationNamesTheAddressTheAccountIsActuallyUnder(t *testing.T) {
-	// Whatever was typed on the day, the row holds the one spelling the account is
-	// known by — and the subject has to carry that one, or it matches nobody.
+	// The subject must carry the stored spelling, not what was typed.
 	activation := domains.NewAccountActivationDomain(
 		entities.User{ID: 7, Email: "alice@example.com"}, gatekeeping)
 
@@ -75,8 +70,6 @@ func TestAccountActivationDropsTheInstructionOnceSomebodyIsLetIn(t *testing.T) {
 	userDto := activation.ToUserDto()
 
 	assert.True(t, userDto.IsEnabled)
-	// An instruction that no longer applies is worse than none: somebody would
-	// follow it.
 	assert.Nil(t, userDto.ActivationInstruction)
 }
 
@@ -86,8 +79,6 @@ func TestAccountActivationRefusalCarriesTheSameInstruction(t *testing.T) {
 
 	refusal := activation.NotActivatedError()
 
-	// Recognisable without reading the sentence, because that is what lets a caller
-	// act on it.
 	require.ErrorIs(t, refusal, domains.ErrAccountNotActivated)
 
 	var notActivated domains.AccountNotActivatedError
@@ -97,8 +88,7 @@ func TestAccountActivationRefusalCarriesTheSameInstruction(t *testing.T) {
 }
 
 func TestNotBeingLetInIsNotTheSameRefusalAsNotBeingRecognised(t *testing.T) {
-	// The two call for opposite actions. Told to sign in again, a person who is
-	// merely waiting would sign in successfully and land in exactly the same place.
+	// Distinct refusals because they call for opposite actions: a pending user who signs in again lands in the same place.
 	refusal := domains.NewAccountActivationDomain(
 		entities.User{ID: 7, Email: "alice@example.com"}, gatekeeping).NotActivatedError()
 

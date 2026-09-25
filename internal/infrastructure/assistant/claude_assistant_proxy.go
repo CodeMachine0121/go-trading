@@ -11,14 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// assistantSystemPrompt is what the assistant is told about its job, once and for
-// all. It is a constant so that it is byte-identical on every request, which is what
-// lets it be cached: a prompt that carried the time, the conversation or the question
-// would be rewritten on every call and paid for in full every time.
-//
-// What it spends its words on is the two mistakes that cost the most. Inventing a
-// number is worse than admitting ignorance, because a made-up price reads exactly
-// like a real one. Reading more market than it needs is the other, because that is
+// assistantSystemPrompt is a constant so it is byte-identical on every request and therefore cacheable.
 // where the bill actually goes.
 const assistantSystemPrompt = `你是一個台灣使用者的加密貨幣行情助理，接在一個交易資料後端上。
 
@@ -73,23 +66,11 @@ positionSizingMode：allIn（預設，全押）；percentage（需給 1–100 �
 使用者提到要放空、要開槓桿、或說他在合約帳戶上操作時，直接告訴他這個系統目前只重演現貨，
 不要替他改成別的設定去湊：湊出來的成績單是照他做不到的操作算的，而他不會發現。`
 
-// queryLimitReachedNote is what the assistant is told once its queries are spent. It
-// is appended to the last message rather than added to the instructions above,
-// because the instructions are the cached part: changing them mid-exchange would
-// throw the cache away on the one round trip that already has the most to carry.
+// queryLimitReachedNote is appended to the last message rather than the system prompt so the cached prefix stays intact.
 const queryLimitReachedNote = "【系統】本次回答的工具查詢次數已用盡，不會再執行任何查詢。" +
 	"請就目前已取得的資料作答，並明白說出你還缺什麼、因此結論到什麼程度為止。"
 
-// ClaudeAssistantProxy asks Claude once and reports what came back.
-//
-// It is the only file that knows an assistant SDK exists. Everything it decides is a
-// technical decision — which model, how hard it may think, where the cache breakpoint
-// sits, how long to wait — and every business rule about what an exchange may cost
-// lives outside it, in the domain, where it can be tested without paying for an
-// answer.
-//
-// It runs no capability and never loops. One call in, one reply out: either an answer
-// or a list of capabilities it wants run first.
+// ClaudeAssistantProxy makes one Claude call per Reply, returning either an answer or requested tool calls; cost rules live in the domain.
 type ClaudeAssistantProxy struct {
 	client         anthropic.Client
 	model          string
@@ -97,8 +78,7 @@ type ClaudeAssistantProxy struct {
 	requestTimeout time.Duration
 }
 
-// NewClaudeAssistantProxy builds the proxy. An empty base address means the
-// assistant's own, which is what it is in normal use.
+// NewClaudeAssistantProxy uses the SDK's default endpoint when the base address is empty.
 func NewClaudeAssistantProxy(
 	apiKey string, model string, effort string, baseUrl string, requestTimeout time.Duration,
 ) *ClaudeAssistantProxy {
@@ -115,11 +95,7 @@ func NewClaudeAssistantProxy(
 	}
 }
 
-// Reply asks Claude once.
-//
-// The wait is bounded here rather than left to the caller, because being too slow and
-// being unreachable are the same thing to whoever is waiting for an answer, and both
-// have to leave nothing behind.
+// Reply bounds the wait itself, since a slow assistant and an unreachable one must both leave nothing behind.
 func (claudeAssistantProxy *ClaudeAssistantProxy) Reply(
 	executionContext context.Context, request vo.AssistantTurnRequestVo,
 ) (vo.AssistantReplyVo, error) {
@@ -134,10 +110,7 @@ func (claudeAssistantProxy *ClaudeAssistantProxy) Reply(
 	message, replyError := claudeAssistantProxy.client.Messages.New(boundedContext, anthropic.MessageNewParams{
 		Model:     anthropic.Model(claudeAssistantProxy.model),
 		MaxTokens: int64(request.AnswerLengthLimit),
-		// The instructions and the capabilities are the same bytes on every request,
-		// and they are rendered before the messages, so one breakpoint at the end of
-		// them is what turns the largest fixed part of every exchange into a cache
-		// read instead of a fresh charge.
+		// One cache breakpoint after the fixed system prompt and tools makes them a cache read on every request.
 		System: []anthropic.TextBlockParam{{
 			Text:         assistantSystemPrompt,
 			CacheControl: anthropic.NewCacheControlEphemeralParam(),
@@ -153,20 +126,13 @@ func (claudeAssistantProxy *ClaudeAssistantProxy) Reply(
 	return claudeAssistantProxy.replyOf(message), nil
 }
 
-// toolSchema is a capability's arguments once read out of the text they are declared
-// as. The loose value type is what a JSON schema is, and it is required by the SDK;
-// it stays confined to this infrastructure file.
+// toolSchema holds a parsed JSON schema; the loose value type is required by the SDK.
 type toolSchema struct {
 	Properties map[string]any `json:"properties"`
 	Required   []string       `json:"required"`
 }
 
-// toolsFor turns the capabilities into what the SDK offers the assistant.
-//
-// A schema that cannot be read is a fault in this system rather than something the
-// assistant did, so it stops the round trip instead of being handed over half formed:
-// an assistant offered a capability it cannot call correctly will keep calling it
-// incorrectly, and pay for every attempt.
+// toolsFor fails the round trip on an unparseable schema instead of offering a tool the assistant cannot call correctly.
 func (claudeAssistantProxy *ClaudeAssistantProxy) toolsFor(
 	declarations []vo.AssistantQueryDeclarationVo,
 ) ([]anthropic.ToolUnionParam, error) {
@@ -192,16 +158,7 @@ func (claudeAssistantProxy *ClaudeAssistantProxy) toolsFor(
 	return tools, nil
 }
 
-// messagesFor lays out the conversation as the assistant sees it: the recent messages
-// with the question last, then each round of lookups as the assistant's turn and the
-// reply carrying its results.
-//
-// **A round is replayed whole.** Whatever the assistant said on the way goes back in
-// the same turn as the requests it made, and all of that round's results come back in
-// a single reply. Both halves matter: without the sentence, the assistant's next turn
-// continues from a thought it can no longer see; and results split one per reply
-// teach it that asking for several lookups at once does not work, which costs a round
-// trip per lookup from then on.
+// messagesFor replays each lookup round whole, text and all tool calls in one assistant turn and all results in one reply, so the assistant keeps its reasoning and keeps batching lookups.
 func (claudeAssistantProxy *ClaudeAssistantProxy) messagesFor(
 	request vo.AssistantTurnRequestVo,
 ) []anthropic.MessageParam {
@@ -248,13 +205,7 @@ func (claudeAssistantProxy *ClaudeAssistantProxy) messagesFor(
 	return messages
 }
 
-// replyOf reads what came back: the text as the answer, the tool requests as
-// capabilities to run.
-//
-// Usage counts every kind of token the round trip touched, cached ones included. They
-// are billed at different rates, but the daily allowance is a ceiling on how much
-// assistant a day may consume, and a ceiling that could not see two thirds of the
-// tokens would be a ceiling in name only.
+// replyOf counts cached tokens in usage too, because the daily allowance caps total consumption.
 func (claudeAssistantProxy *ClaudeAssistantProxy) replyOf(message *anthropic.Message) vo.AssistantReplyVo {
 	answer := ""
 	queryCalls := make([]vo.AssistantQueryCallVo, 0)

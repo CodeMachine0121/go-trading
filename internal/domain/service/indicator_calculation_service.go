@@ -9,8 +9,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// IndicatorCalculationService is the application layer's only entry point for
-// running a user-written indicator script.
 type IndicatorCalculationService struct {
 	kCandleRepository       domaininterface.IKCandleRepository
 	tradingSymbolRepository domaininterface.ITradingSymbolRepository
@@ -38,40 +36,13 @@ func NewIndicatorCalculationService(
 	}
 }
 
-// CalculateIndicator runs the script over the requested number of aggregated K
-// candles for the trading symbol, taking only buckets that have finished, and
-// reports one value per indicator name in the kind the request declared. An empty
-// set of names is a valid result.
+// CalculateIndicator runs the script over the requested number of finished aggregated candles, answering over what is stored and reporting expected versus used bucket counts.
 //
-// A stretch of market only partly stored is answered over what is there, and the
-// result says both how many buckets a full answer would have taken and how many it
-// worked from. Only a stretch too thin to yield a single value is refused; that
-// judgement belongs to the calculation, not here.
-//
-// It reads up to the cut-off the request works out rather than simply the latest
-// few, so that the same question asked twice about the same stretch of market
-// answers the same thing both times — **as long as that stretch has settled**.
-//
-// It has not settled at the live edge. The cut-off is worked out from the clock,
-// not from what has actually been stored, and ingestion writes a candle a little
-// after the minute it covers has passed. So at 10:00:30 with one-hour buckets, the
-// hour that began at 09:00 counts as finished while the candle for 09:59 may still
-// be on its way: that bucket merges fifty-nine of its sixty candles, and the same
-// request a minute later answers differently.
-//
-// The alternative — refusing a bucket until it holds every candle it could hold —
-// is worse: it cannot tell a market that did not trade from one whose data has not
-// arrived, so it would refuse the newest bucket forever on any thin symbol. Naming
-// the limit is the honest option; a caller that needs a settled answer names an
-// end time in the past, where the guarantee does hold.
+// Results are repeatable only for settled stretches: at the live edge a bucket may count as finished before its last candle is ingested, so callers needing a stable answer should pass a past end time.
 func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicator(
 	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	// Which venue the symbol trades on is what decides how much of a stretch of the
-	// clock actually holds market. A symbol nobody registered is not refused: its
-	// registration comes back empty, and an empty market reads as the one this system
-	// had before it knew markets existed — the round-the-clock one, which trades every
-	// minute of every stretch. That is how such a symbol behaved before any of this.
+	// An unregistered symbol reads as the round-the-clock market, matching its behaviour before markets existed.
 	registeredSymbol, _, findSymbolError := indicatorCalculationService.tradingSymbolRepository.
 		FindBySymbol(executionContext, requestDto.Symbol)
 	if findSymbolError != nil {
@@ -112,16 +83,12 @@ func (indicatorCalculationService *IndicatorCalculationService) CalculateIndicat
 		return dto.IndicatorCalculationResultDto{}, executionError
 	}
 
-	// Where each candle the script saw begins, in the same order the script saw
-	// them, so that a caller can put a list of values back where they belong
-	// instead of cutting the same grid a second time to find out.
+	// Candle open times in script order, so callers can align list values.
 	openTimes := make([]time.Time, 0, len(inputKCandleVos))
 	for _, inputKCandleVo := range inputKCandleVos {
 		openTimes = append(openTimes, time.Unix(inputKCandleVo.OpenTimeUnixSeconds, 0).UTC())
 	}
 
-	// What a full answer would have taken, next to what there was to work from.
-	// Both come from the calculation itself rather than being worked out here: this
-	// layer reports the two numbers, it never counts candles of its own.
+	// Both counts come from the calculation itself.
 	return calculationDomain.ToResultDto(openTimes, indicatorValues), nil
 }

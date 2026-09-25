@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// startedRun is a sync just accepted: recorded before a single candle is fetched,
-// which is what makes the work findable while it is still going.
+// startedRun is a sync recorded before any candle is fetched.
 func startedRun(symbol string, totalChunks int) entities.KCandleHistorySyncRun {
 	return entities.KCandleHistorySyncRun{
 		Symbol:       symbol,
@@ -43,8 +42,7 @@ func TestSavingAHistorySyncGivesItSomewhereToBeLookedUp(t *testing.T) {
 }
 
 func TestSavingAHistorySyncAgainMovesItAlongInsteadOfMakingASecondOne(t *testing.T) {
-	// Progress is written over and over as the run walks the stretch. A second row per
-	// update would turn one run into thousands of them.
+	// Progress updates must rewrite the same row, not add rows.
 	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
 	saved, saveError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
 	require.NoError(t, saveError)
@@ -62,8 +60,7 @@ func TestSavingAHistorySyncAgainMovesItAlongInsteadOfMakingASecondOne(t *testing
 }
 
 func TestAHistorySyncGoingBackToNothingStoredIsWrittenDownAsSuch(t *testing.T) {
-	// Zero is a real answer for every count here, and a write that treats it as
-	// "nothing to say" would leave the previous figure standing.
+	// Zero counts must overwrite previous values rather than be skipped as empty.
 	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
 	saved, saveError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
 	require.NoError(t, saveError)
@@ -83,12 +80,7 @@ func TestAHistorySyncGoingBackToNothingStoredIsWrittenDownAsSuch(t *testing.T) {
 }
 
 func TestOneSymbolCannotBeFetchedByTwoHistorySyncsAtOnce(t *testing.T) {
-	// Two runs over the same symbol race each other through the same source allowance
-	// and the same rows, and neither finishes any sooner for it. At the length these
-	// runs reach, a double-clicked request costs hours of quota.
-	//
-	// The database decides rather than a read here: two requests arriving together
-	// would both find the symbol free.
+	// A duplicate running sync per symbol wastes hours of quota, and the database index rather than a read must prevent it.
 	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
 	_, firstError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
 	require.NoError(t, firstError)
@@ -110,8 +102,7 @@ func TestAnotherSymbolMayBeFetchedWhileOneIsRunning(t *testing.T) {
 }
 
 func TestASymbolMayBeFetchedAgainOnceTheRunBeforeItEnded(t *testing.T) {
-	// The rule is one *running* sync per symbol, not one ever. A finished run that
-	// went on blocking the symbol would make the whole route single-use.
+	// Only a running sync blocks the symbol; finished ones do not.
 	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
 	first, firstError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
 	require.NoError(t, firstError)
@@ -137,9 +128,7 @@ func TestLookingUpAHistorySyncNobodyStartedIsNotAnError(t *testing.T) {
 }
 
 func TestFailingTheRunningHistorySyncsLeavesTheFinishedOnesAlone(t *testing.T) {
-	// Every run still recorded as fetching is stale the moment the process restarts:
-	// nothing is fetching for it. The ones that already ended are history and must
-	// not be rewritten.
+	// A restart marks still-fetching runs interrupted and leaves finished ones untouched.
 	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
 	interrupted, firstError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
 	require.NoError(t, firstError)
@@ -161,8 +150,7 @@ func TestFailingTheRunningHistorySyncsLeavesTheFinishedOnesAlone(t *testing.T) {
 	foundInterrupted, _, _ := repository.FindOne(t.Context(), interrupted.ID)
 	assert.Equal(t, string(vo.KCandleHistorySyncFailed), foundInterrupted.Status)
 	assert.Equal(t, "interrupted by restart", foundInterrupted.FailureReason)
-	// A swept run left without a finish time reads as "failed but still going" to
-	// anything using that column to tell a run in flight from one that is over.
+	// A swept run must get a finish time, or it reads as still in flight.
 	require.NotNil(t, foundInterrupted.FinishedAt)
 	assert.Equal(t, sweptAt, foundInterrupted.FinishedAt.UTC())
 

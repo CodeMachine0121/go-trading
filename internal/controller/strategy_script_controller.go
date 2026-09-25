@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// StrategyScriptController exposes the saved strategy script use cases over HTTP.
 type StrategyScriptController struct {
 	strategyScriptApplication *application.StrategyScriptApplication
 }
@@ -41,11 +40,7 @@ func (strategyScriptController *StrategyScriptController) CreateStrategyScript(g
 	ginContext.JSON(http.StatusCreated, strategyScriptDto)
 }
 
-// ListAvailableStrategyScripts handles GET /strategy-scripts: what this caller picks from,
-// which is their own strategy scripts plus the ones they took off the marketplace.
-//
-// The two come back as two lists rather than one, because the adopted ones carry no
-// script and there is no single shape that could hold both.
+// ListAvailableStrategyScripts handles GET /strategy-scripts, returning owned and adopted scripts as two lists since adopted ones carry no script.
 func (strategyScriptController *StrategyScriptController) ListAvailableStrategyScripts(ginContext *gin.Context) {
 	availableStrategyScriptsDto, err := strategyScriptController.strategyScriptApplication.ListAvailableStrategyScripts(
 		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext))
@@ -57,9 +52,7 @@ func (strategyScriptController *StrategyScriptController) ListAvailableStrategyS
 	ginContext.JSON(http.StatusOK, availableStrategyScriptsDto)
 }
 
-// GetStrategyScript handles GET /strategy-scripts/:id, and serves owners only. Somebody else's
-// published strategy script is read from the marketplace, which hands back a different
-// shape — one without a script.
+// GetStrategyScript handles GET /strategy-scripts/:id for owners only; others read published scripts via the marketplace, without the script.
 func (strategyScriptController *StrategyScriptController) GetStrategyScript(ginContext *gin.Context) {
 	id, idIsReadable := strategyScriptController.readID(ginContext)
 	if !idIsReadable {
@@ -116,20 +109,7 @@ func (strategyScriptController *StrategyScriptController) DeleteStrategyScript(g
 	ginContext.Status(http.StatusNoContent)
 }
 
-// readID reads the strategy script identifier out of the path, answering the caller with a
-// bad request when it is not one. The second return value says whether the handler
-// may carry on — a handler that gets false has already had its answer sent.
-//
-// Zero is refused along with anything unreadable: no strategy script carries it, and it is
-// the very value that means "a strategy script that does not exist yet" further in, so
-// letting it through would ask the storage layer to rewrite nothing in particular.
-//
-// It is read at the width an identifier is actually held in, and refused above what
-// the column can hold. Reading it wider would wrap a number too large to hold into a
-// small one and answer for whichever strategy script that landed on; letting an oversized
-// one through instead reaches the database and comes back as a storage failure,
-// which reads as "something broke" when the truth is that no strategy script has that
-// identifier.
+// readID answers a bad request itself for zero or IDs wider than the column (a wider read would wrap onto another script, an unchecked one would surface as a storage failure); false means the response was already sent.
 func (strategyScriptController *StrategyScriptController) readID(ginContext *gin.Context) (uint, bool) {
 	id, parseError := strconv.ParseUint(ginContext.Param("id"), 10, strconv.IntSize)
 	if parseError != nil || id == 0 || id > math.MaxInt64 {
@@ -140,9 +120,7 @@ func (strategyScriptController *StrategyScriptController) readID(ginContext *gin
 	return uint(id), true
 }
 
-// respondWithError maps a domain error onto the status code that reports it. It
-// knows only the strategy script's own errors: a caller must not have to recognise a K
-// candle's failure to find out its strategy script was rejected.
+// respondWithError maps only the strategy script's own errors.
 func (strategyScriptController *StrategyScriptController) respondWithError(ginContext *gin.Context, err error) {
 	if errors.Is(err, domains.ErrStrategyScriptValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})

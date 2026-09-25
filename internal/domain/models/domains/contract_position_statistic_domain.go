@@ -9,19 +9,14 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractPositionStatisticInterval is how often the venue takes a position
-// statistic, and so the grid every statistic time falls on.
+// ContractPositionStatisticInterval is the venue's sampling grid for position statistics.
 const ContractPositionStatisticInterval = 5 * time.Minute
 
-// ContractPositionStatisticDomain holds one position statistic and guarantees its
-// rules. An instance only exists when every rule passed, so there is no statistic
-// with one of its two long-short splits missing.
+// ContractPositionStatisticDomain only exists when every rule passed, so both long-short splits are always present.
 type ContractPositionStatisticDomain struct {
 	statistic entities.ContractPositionStatistic
 }
 
-// NewContractPositionStatisticDomain checks one reported statistic, judging "in the
-// future" against currentTime.
 func NewContractPositionStatisticDomain(
 	statisticVo vo.ContractPositionStatisticVo, currentTime time.Time,
 ) (ContractPositionStatisticDomain, error) {
@@ -50,8 +45,7 @@ func NewContractPositionStatisticDomain(
 			"%w: 持倉價值不得為負", ErrContractPositionStatisticValidation)
 	}
 
-	// Listed in the order they are named to a caller, so that a statistic missing
-	// both splits is always told about the same one.
+	// Fixed order so a statistic missing both splits always names the same one.
 	longShortSplits := []struct {
 		name                  string
 		longShare, shortShare decimal.NullDecimal
@@ -68,8 +62,7 @@ func NewContractPositionStatisticDomain(
 				"%w: 缺%s", ErrContractPositionStatisticValidation, split.name)
 		}
 
-		// A share is a part of a whole, so it lies between none of it and all of it.
-		// One side holding everything is a lopsided market, not a broken reading.
+		// A share of 1 is a lopsided market, not a broken reading.
 		for _, share := range []decimal.Decimal{split.longShare.Decimal, split.shortShare.Decimal} {
 			if share.IsNegative() || share.GreaterThan(decimal.NewFromInt(1)) {
 				return ContractPositionStatisticDomain{}, fmt.Errorf(
@@ -97,7 +90,6 @@ func NewContractPositionStatisticDomain(
 	}}, nil
 }
 
-// ToEntity converts this statistic into the record shape that is stored.
 func (statisticDomain ContractPositionStatisticDomain) ToEntity() entities.ContractPositionStatistic {
 	return statisticDomain.statistic
 }

@@ -2,42 +2,29 @@ package dto
 
 import "time"
 
-// KCandleIngestionReportDto is what one ingestion run — a periodic round or the
-// startup backfill — has to say for itself, one entry per trading symbol.
+// KCandleIngestionReportDto covers one ingestion run (periodic round or startup backfill),
+// one entry per trading symbol.
 type KCandleIngestionReportDto struct {
 	SymbolReports []KCandleSymbolIngestionReportDto `json:"symbolReports"`
 }
 
-// KCandleSymbolIngestionReportDto is one trading symbol's outcome. An empty
-// FetchFailureReason means the source answered; candles it answered with may still
-// have been skipped, which is a different thing from not answering at all.
+// KCandleSymbolIngestionReportDto with an empty FetchFailureReason means the source
+// answered, though some candles may still have been skipped.
 type KCandleSymbolIngestionReportDto struct {
 	Symbol string `json:"symbol"`
-	// Market is which market this symbol belongs to, so that a reader of the report
-	// can tell a market that was shut from one that would not answer.
 	Market string `json:"market"`
-	// WasAsked says the source was actually reached for this symbol. It is false when
-	// the market could hold nothing in the window — a night, a weekend, a day already
-	// decided shut — which is a normal state and not a failure worth writing down.
-	//
-	// It exists because "asked and told nothing" and "never asked" look identical from
-	// the counts alone, and only the first of them says anything about the market.
+	// WasAsked is false when the market could hold nothing in the window (night, weekend,
+	// closed day), distinguishing never-asked from asked-and-got-nothing.
 	WasAsked    bool `json:"wasAsked"`
 	StoredCount int  `json:"storedCount"`
-	// SkippedCount is how many candles did not make it in. SkippedKCandles names
-	// them, but stops at a limit — a run covering years can turn up more broken
-	// candles than anybody will read, and a report nobody can open says less than a
-	// short one. The count is the honest total either way, and
-	// SkippedKCandlesTruncated says when the two stopped agreeing.
+	// SkippedCount is the true total while SkippedKCandles is capped;
+	// SkippedKCandlesTruncated says when they differ.
 	SkippedCount             int                 `json:"skippedCount"`
 	SkippedKCandles          []SkippedKCandleDto `json:"skippedKCandles"`
 	SkippedKCandlesTruncated bool                `json:"skippedKCandlesTruncated"`
 	FetchFailureReason       string              `json:"fetchFailureReason"`
 }
 
-// SkippedKCandleDto names one K candle that did not make it in, and why. It is
-// this precise so that a report says which candle broke which rule rather than
-// only that something went wrong.
 type SkippedKCandleDto struct {
 	OpenTime time.Time `json:"openTime"`
 	Reason   string    `json:"reason"`

@@ -8,11 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
-// ContractMaintenanceMarginTierRefreshJob keeps every known perpetual contract's full
-// maintenance margin ladder current: once on start, then every interval.
-//
-// It is only ever assembled when an account is configured — without one there is
-// nothing it could ask, and a line every day saying so would be noise.
+// ContractMaintenanceMarginTierRefreshJob refreshes maintenance margin tiers on start and every interval; it is only assembled when an account is configured.
 type ContractMaintenanceMarginTierRefreshJob struct {
 	*repeatingRound
 }

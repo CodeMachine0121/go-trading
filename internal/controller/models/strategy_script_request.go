@@ -2,40 +2,18 @@ package models
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 
-// StrategyScriptRequest is the body a caller sends to save or rewrite a strategy script.
-//
-// One shape serves both, because a rewrite replaces everything a strategy script
-// remembers — there is no field a caller may set on the way in and not on the way
-// back. Which strategy script is meant comes from the path, never from the body.
-//
-// How coarse the K candles are and how many of them are absent on purpose: they
-// belong to a calculation, not to a strategy script. A caller that sends them anyway is
-// simply sending fields nothing binds to.
+// StrategyScriptRequest serves both save and full rewrite; the ID comes from the path, and candle interval and count belong to a calculation, not the script.
 type StrategyScriptRequest struct {
-	Name string `json:"name"`
-	// Description is what this strategy script is for, in the owner's words. It may be
-	// left out; on the marketplace it is then the only thing missing from the only
-	// thing a reader has.
+	Name        string `json:"name"`
 	Description string `json:"description"`
 	Script      string `json:"script"`
 	ResultType  string `json:"resultType"`
-	// MarketDataKind is which kind of market the algorithm eats: kCandle (the spot K
-	// candle, and what leaving it out means on a create) or contractKCandle. On a
-	// rewrite, leaving it out keeps the kind the strategy script already has.
-	MarketDataKind string `json:"marketDataKind"`
-	// Parameters are the algorithm's own knobs. Leaving them out declares an
-	// algorithm with no knobs, which is what every algorithm was before knobs.
-	Parameters []StrategyScriptParameterRequest `json:"parameters"`
+	// MarketDataKind is kCandle (default on create) or contractKCandle; omitted on rewrite keeps the existing kind.
+	MarketDataKind string                           `json:"marketDataKind"`
+	Parameters     []StrategyScriptParameterRequest `json:"parameters"`
 }
 
-// ToWriteDto turns the request into the shape the domain accepts, taking the
-// identity and the owner from the arguments so the caller of this method decides
-// both. A zero identifier means a strategy script that does not exist yet.
-//
-// The owner is deliberately not a field on the request. A body that could name its
-// own owner is a body that could claim somebody else's — who is asking comes from
-// the proof of identity on the request, never from what the request says about
-// itself.
+// ToWriteDto takes the ID (zero means new) and the owner from the arguments, since the owner must come from the token, never the body.
 func (strategyScriptRequest StrategyScriptRequest) ToWriteDto(id uint, ownerID uint) dto.StrategyScriptWriteDto {
 	return dto.StrategyScriptWriteDto{
 		ID:             id,
@@ -49,8 +27,7 @@ func (strategyScriptRequest StrategyScriptRequest) ToWriteDto(id uint, ownerID u
 	}
 }
 
-// parameterWriteDtos hands the declarations on untouched, always as a list rather
-// than sometimes nothing: declaring no knobs is an empty list, not an absence.
+// parameterWriteDtos always returns a list, empty rather than nil when no parameters are declared.
 func (strategyScriptRequest StrategyScriptRequest) parameterWriteDtos() []dto.StrategyScriptParameterWriteDto {
 	parameterWriteDtos := make([]dto.StrategyScriptParameterWriteDto, 0, len(strategyScriptRequest.Parameters))
 	for _, parameterRequest := range strategyScriptRequest.Parameters {

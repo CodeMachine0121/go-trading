@@ -13,11 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// contractReplayStart is where every replayed stretch below begins.
 var contractReplayStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// contractReplayBar is one bar of a replay as a table row: only the figures a case is
-// about are given, and every one left at zero falls back to the close — a flat bar.
+// contractReplayBar figures left at zero fall back to the close, giving a flat bar.
 type contractReplayBar struct {
 	open      float64
 	close     float64
@@ -29,8 +27,6 @@ type contractReplayBar struct {
 	signal    vo.SignalVo
 }
 
-// contractReplaySpecification is the trading specification every case replays under
-// unless it says otherwise.
 func contractReplaySpecification() entities.ContractTradingSymbol {
 	confirmedAt := contractReplayStart
 	fundingIntervalHours := 8
@@ -75,8 +71,7 @@ func contractReplayRules(
 	return tradingRules
 }
 
-// contractReplayRequest is a one-minute replay of the whole first day, staking
-// everything, one times leverage, long and short, nothing charged.
+// contractReplayRequest is a one-minute, all-in, 1x, long-and-short replay of the first day with no charges.
 func contractReplayRequest() dto.ContractBacktestRequestDto {
 	return dto.ContractBacktestRequestDto{
 		Symbol:              "BTCUSDT",
@@ -87,8 +82,6 @@ func contractReplayRequest() dto.ContractBacktestRequestDto {
 	}
 }
 
-// replayContract replays the bars, one per interval from the start, with the
-// settlements given.
 func replayContract(
 	t *testing.T,
 	requestDto dto.ContractBacktestRequestDto,
@@ -117,7 +110,6 @@ func replayContract(
 	return contractBacktestDomain.ReplayOver(alignment, signals, settlements, nil)
 }
 
-// contractReplayBarDuration is how far apart consecutive bars of that coarseness open.
 func contractReplayBarDuration(aggregationInterval string) time.Duration {
 	switch aggregationInterval {
 	case "1h":
@@ -754,8 +746,7 @@ func TestContractBacktestFunding(t *testing.T) {
 	})
 
 	t.Run("a settlement on a bar's closing moment belongs to the next bar", func(t *testing.T) {
-		// 02:00 closes the 01:00 bar and opens the 02:00 one; there is no 02:00 bar
-		// here, so the settlement is never paid.
+		// No 02:00 bar exists, so the 02:00 settlement is never paid.
 		resultDto := replayContract(t, fiveTimesHourly("longOnly"),
 			contractReplayRules(t, contractReplaySpecification()),
 			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 100}},
@@ -1133,8 +1124,7 @@ func TestContractBacktestLossNeverExceedsWhatThePositionHeld(t *testing.T) {
 	requestDto.Leverage = decimal.NewFromInt(10)
 	requestDto.TradingMode = "longOnly"
 
-	// The traded close falls to 85 while the mark never reaches the liquidation price:
-	// the signal closes a position worth less than nothing, which hands back nothing.
+	// The traded close falls to 85 without the mark reaching liquidation, so the signal closes a position worth less than nothing and returns zero.
 	resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
 		[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 85, markLow: 91, markClose: 91, signal: vo.SignalSell}})
 

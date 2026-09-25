@@ -22,8 +22,7 @@ func settlementJson(fundingTime time.Time, rate string, markPrice string) string
 		fundingTime.UnixMilli(), rate, markPrice)
 }
 
-// fundingRateVenue answers each question with the next page, and remembers the start
-// every question asked from.
+// fundingRateVenue answers each request with the next page and records each start time asked for.
 type fundingRateVenue struct {
 	url        string
 	lock       *sync.Mutex

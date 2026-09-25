@@ -32,7 +32,6 @@ func resultTypeOf(t *testing.T, declared string) domains.IndicatorResultTypeDoma
 	return resultType
 }
 
-// numberOf reads the lone number an indicator carries.
 func numberOf(indicatorValues map[string]vo.IndicatorValueVo, indicatorName string) float64 {
 	return indicatorValues[indicatorName].Numbers[0]
 }
@@ -366,9 +365,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `,
 		},
 		{
-			// A panic on a goroutine of its own is beyond what the interpreter can
-			// catch: were this script allowed to run, it would take the whole server
-			// down with it rather than fail on its own.
+			// A panic on a goroutine cannot be caught by the interpreter and would crash the server.
 			name:           "starts a goroutine that panics",
 			expectedReason: "goroutine",
 			script: `
@@ -405,8 +402,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `,
 		},
 		{
-			// The interpreter accepts a script with no package clause, so leaving it
-			// out must not be a way around the refusal.
+			// Omitting the package clause must not bypass the refusal.
 			name:           "starts a goroutine without a package clause",
 			expectedReason: "goroutine",
 			script: `
@@ -419,8 +415,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `,
 		},
 		{
-			// The interpreter also runs statements written straight at the top, which
-			// no Go file can hold; what cannot be checked must not be run.
+			// Top-level statements cannot be checked as a Go file, so they must not run.
 			name:           "starts a goroutine as a statement outside any function",
 			expectedReason: "算式無法解讀",
 			script: `
@@ -432,8 +427,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 `,
 		},
 		{
-			// With no goroutine to talk to, a receive can only wait forever, and a run
-			// parked on one stays parked after its allowance is spent.
+			// A receive with no sender blocks forever, beyond the allowance.
 			name:           "waits on a channel nobody will send to",
 			expectedReason: "channel",
 			script: `
@@ -876,10 +870,7 @@ func Calculate(data []indicator.KCandle) map[string]bool {
 	}
 }
 
-// Outliving the allowance and being abandoned by whoever asked both end the run
-// through the same context, so the reason has to be carried rather than guessed at.
-// Reported as the wrong one, "your formula is too slow" would be told to somebody
-// whose formula was never given the chance to be slow.
+// A timeout and a departed caller share one context, so the cause must be carried to report the right reason.
 func TestExecuteGivesUpWhenTheCallerGoesAway(t *testing.T) {
 	neverEndingScript := `
 package main
@@ -894,7 +885,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	return map[string]float64{"never": total}
 }
 `
-	// Long enough that reaching it would be the wrong reason to have stopped.
+	// Long enough that hitting it would be the wrong reason to stop.
 	generousAllowance := 30 * time.Second
 	callerWentAway, abandonTheCall := context.WithCancel(t.Context())
 	go func() {
@@ -914,8 +905,6 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	assert.Less(t, elapsed, generousAllowance)
 }
 
-// noStrategyScriptParameters is an algorithm with no knobs — every algorithm written
-// before knobs existed. Tests that are not about knobs say so with this.
 func noStrategyScriptParameters(t *testing.T) domains.StrategyScriptParametersDomain {
 	t.Helper()
 
@@ -968,8 +957,7 @@ func parametersOf(t *testing.T, declared ...dto.StrategyScriptParameterWriteDto)
 	return parameters
 }
 
-// 算式拿到的必須是它那一種該有的樣子：回看根數要能直接拿去切片，數值要能直接拿去乘。
-// 拿到別的東西，算式就得自己判斷，而判斷失敗會變成算式崩潰。
+// 參數須以該種類的型別交給算式（回看根數可直接切片、數值可直接相乘）。
 func TestAScriptReadsItsParametersByName(t *testing.T) {
 	parameters := parametersOf(t,
 		dto.StrategyScriptParameterWriteDto{Name: "期數", Kind: "lookbackCount", DefaultValue: 2},
@@ -984,8 +972,7 @@ func TestAScriptReadsItsParametersByName(t *testing.T) {
 	assert.InDelta(t, 287.5, numberOf(indicatorValues, "ma"), 0.0001)
 }
 
-// 是非讀出來必須是 bool，才能直接寫進 if。給它一個數字，算式就得自己判斷「幾算是」，
-// 而那個判斷會在每一支算式裡各寫一次、各寫得不一樣。
+// 是非參數必須讀成 bool，才能直接用在 if。
 func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 	candles := candlesWithClosePrices(100, 110, 120)
 
@@ -1012,7 +999,7 @@ func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 	})
 
 	t.Run("名字對不上時一樣被指名，不會安靜地拿到否", func(t *testing.T) {
-		// 否是一個合法的答案，所以「拿不到」絕不能長得跟「答案是否」一樣。
+		// 「否」是合法答案，所以「拿不到」不能長得跟「否」一樣。
 		_, err := spotIndicatorScriptProxy(2*time.Second).Execute(
 			t.Context(), booleanSwitchScript, resultTypeOf(t, "float"), candles,
 			parametersOf(t, dto.StrategyScriptParameterWriteDto{
@@ -1025,8 +1012,7 @@ func TestAScriptReadsABooleanAsAYesOrNo(t *testing.T) {
 	})
 }
 
-// 這一條是整個切片最容易做錯的地方：把參數改了名卻忘了改算式，
-// 是很容易犯、而且完全看不出來的錯。它必須被說成「名字對不上」，不是「你的算式壞了」。
+// 參數改名卻忘了改算式時，必須回報「名字對不上」，而非「算式壞了」。
 func TestReachingForAParameterNobodyDeclaredBlamesTheName(t *testing.T) {
 	parameters := parametersOf(t,
 		dto.StrategyScriptParameterWriteDto{Name: "週期", Kind: "lookbackCount", DefaultValue: 2},
@@ -1042,8 +1028,7 @@ func TestReachingForAParameterNobodyDeclaredBlamesTheName(t *testing.T) {
 	assert.Contains(t, err.Error(), "期數", "它必須指出是哪一個名字")
 }
 
-// 兩種讀法都要擋，不是只有回看根數那一種：一個數值的名字打錯，
-// 同樣會讓算式拿到零然後算出一個看起來正常的答案。
+// 數值名稱打錯同樣必須擋下，否則算式會拿到零而算出看似正常的答案。
 func TestReachingForAnUndeclaredNumberBlamesTheNameToo(t *testing.T) {
 	parameters := parametersOf(t,
 		dto.StrategyScriptParameterWriteDto{Name: "期數", Kind: "lookbackCount", DefaultValue: 2},
@@ -1057,7 +1042,6 @@ func TestReachingForAnUndeclaredNumberBlamesTheNameToo(t *testing.T) {
 	assert.Contains(t, err.Error(), "倍數")
 }
 
-// 沒有宣告任何參數的算式一如既往——這是每一支既有算式的樣子。
 func TestAScriptThatReadsNoParametersIsUnaffected(t *testing.T) {
 	indicatorValues, err := spotIndicatorScriptProxy(2*time.Second).Execute(
 		t.Context(), averageCloseScript, resultTypeOf(t, "float"),

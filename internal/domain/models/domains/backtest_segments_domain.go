@@ -4,22 +4,13 @@ import (
 	"time"
 )
 
-// BacktestSegmentsDomain is whether a replay is split for validation, and where.
-//
-// A split replay is still replayed as a whole, and additionally in two parts — the
-// in-sample part before the validation start, where parameters are tuned, and the
-// validation part from it on, which only ever answers "does this work on market it
-// has not seen". Each part is replayed on its own from the initial capital and flat,
-// so a position left open at the end of one says nothing about the other.
-//
-// Its zero value is no split: every replay made before there was one.
+// BacktestSegmentsDomain is an optional validation split; each part is replayed independently from the initial capital and flat, in addition to the whole.
 type BacktestSegmentsDomain struct {
 	validationStartTime time.Time
 	isSplit             bool
 }
 
-// NewBacktestSegmentsDomain reads the validation start against the stretch it has to
-// fall strictly inside. Declaring none is no split.
+// NewBacktestSegmentsDomain requires the validation start to fall strictly inside the stretch; zero means no split.
 func NewBacktestSegmentsDomain(
 	validationStartTime time.Time, stretchStart time.Time, stretchEnd time.Time,
 ) (BacktestSegmentsDomain, error) {
@@ -36,12 +27,11 @@ func NewBacktestSegmentsDomain(
 	return BacktestSegmentsDomain{validationStartTime: validationStartTime, isSplit: true}, nil
 }
 
-// IsSplit is whether the replay has a validation part at all.
 func (segmentsDomain BacktestSegmentsDomain) IsSplit() bool {
 	return segmentsDomain.isSplit
 }
 
-// ValidationStartTime is where the replay is split, or nothing when it is not.
+// ValidationStartTime is nil when the replay is not split.
 func (segmentsDomain BacktestSegmentsDomain) ValidationStartTime() *time.Time {
 	if !segmentsDomain.isSplit {
 		return nil
@@ -52,9 +42,7 @@ func (segmentsDomain BacktestSegmentsDomain) ValidationStartTime() *time.Time {
 	return &validationStartTime
 }
 
-// SplitIndex is where the bars, opening at those times earliest first, divide: the
-// first bar opening at or after the validation start begins the validation part.
-// Either part holding no bar at all is refused — there would be nothing to judge.
+// SplitIndex is the first bar opening at or after the validation start; either part being empty is refused.
 func (segmentsDomain BacktestSegmentsDomain) SplitIndex(barOpenTimes []time.Time) (int, error) {
 	splitIndex := len(barOpenTimes)
 	for barIndex, barOpenTime := range barOpenTimes {

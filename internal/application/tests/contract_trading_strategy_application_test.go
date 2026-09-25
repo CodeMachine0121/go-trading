@@ -116,8 +116,7 @@ func TestTradingStrategyApplicationKeepsTheKindOnARewrite(t *testing.T) {
 	})
 }
 
-// A spot bot — which is what a bot that says nothing about its kind is — may not follow
-// rules written for contracts.
+// A bot with no kind is a spot bot and may not follow contract rules.
 func TestStrategyBotApplicationRefusesASpotBotFollowingAContractTradingStrategy(t *testing.T) {
 	underTest := newStrategyBotApplicationUnderTest(t)
 	underTest.tradingStrategyRepository.EXPECT().

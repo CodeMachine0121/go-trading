@@ -1,24 +1,14 @@
 package vo
 
-// AggregationIntervalVo is how long one aggregated K candle covers. A query
-// declares exactly one of these; every candle it gets back covers that much time.
-// Immutable, no behavior — how an interval is read, defaulted, aligned and counted
-// lives in AggregationIntervalDomain.
+// AggregationIntervalVo is how long one aggregated K candle covers; parsing and alignment live in AggregationIntervalDomain.
 type AggregationIntervalVo string
 
 const (
-	// AggregationIntervalOneMinute is one candle per minute, the interval assumed
-	// when a caller declares nothing. It matches the length one stored K candle
-	// already covers, so aggregating at it changes nothing.
-	AggregationIntervalOneMinute AggregationIntervalVo = "1m"
-	// AggregationIntervalFiveMinutes is one candle per five minutes.
-	AggregationIntervalFiveMinutes AggregationIntervalVo = "5m"
-	// AggregationIntervalFifteenMinutes is one candle per quarter of an hour.
+	// AggregationIntervalOneMinute is the default and matches a stored K candle, so aggregating at it changes nothing.
+	AggregationIntervalOneMinute      AggregationIntervalVo = "1m"
+	AggregationIntervalFiveMinutes    AggregationIntervalVo = "5m"
 	AggregationIntervalFifteenMinutes AggregationIntervalVo = "15m"
-	// AggregationIntervalOneHour is one candle per hour.
-	AggregationIntervalOneHour AggregationIntervalVo = "1h"
-	// AggregationIntervalFourHours is one candle per four hours.
-	AggregationIntervalFourHours AggregationIntervalVo = "4h"
-	// AggregationIntervalOneDay is one candle per day.
-	AggregationIntervalOneDay AggregationIntervalVo = "1d"
+	AggregationIntervalOneHour        AggregationIntervalVo = "1h"
+	AggregationIntervalFourHours      AggregationIntervalVo = "4h"
+	AggregationIntervalOneDay         AggregationIntervalVo = "1d"
 )

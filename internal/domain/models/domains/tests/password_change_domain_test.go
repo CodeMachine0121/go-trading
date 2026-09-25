@@ -83,8 +83,7 @@ func TestNewPasswordChangeDomainRefusesANewPasswordThatBreaksARule(t *testing.T)
 	}
 }
 
-// A change to the same password is a change that changes nothing, and somebody who
-// made one would walk away believing they had a new password.
+// Reusing the same password would leave the user believing it changed.
 func TestNewPasswordChangeDomainRefusesANewPasswordIdenticalToTheCurrentOne(t *testing.T) {
 	_, err := domains.NewPasswordChangeDomain(dto.PasswordChangeDto{
 		CurrentPassword: "correct horse",
@@ -95,8 +94,7 @@ func TestNewPasswordChangeDomainRefusesANewPasswordIdenticalToTheCurrentOne(t *t
 	assert.Contains(t, err.Error(), "新密碼不得與目前的密碼相同")
 }
 
-// Passwords are compared exactly as typed. Two spellings that differ only in case
-// are two different passwords, so moving between them really is a change.
+// Passwords are compared exactly, so a case-only difference is a real change.
 func TestNewPasswordChangeDomainTreatsADifferenceInCaseAsADifferentPassword(t *testing.T) {
 	passwordChange, err := domains.NewPasswordChangeDomain(dto.PasswordChangeDto{
 		CurrentPassword: "correct horse",
@@ -107,8 +105,7 @@ func TestNewPasswordChangeDomainTreatsADifferenceInCaseAsADifferentPassword(t *t
 	assert.Equal(t, "Correct horse", passwordChange.NewPassword())
 }
 
-// When the new password is both unacceptable and identical to the current one, the
-// refusal that comes back is the one the person has to act on either way.
+// The unacceptable-password refusal wins over the repeat, since it must be fixed either way.
 func TestNewPasswordChangeDomainReportsAnUnacceptableNewPasswordBeforeItReportsARepeat(t *testing.T) {
 	_, err := domains.NewPasswordChangeDomain(dto.PasswordChangeDto{
 		CurrentPassword: "short",
@@ -119,9 +116,7 @@ func TestNewPasswordChangeDomainReportsAnUnacceptableNewPasswordBeforeItReportsA
 	assert.Contains(t, err.Error(), "密碼至少要 8 個字元")
 }
 
-// The current password is not judged against the rules for setting one. It is
-// checked against what is stored, and only the store can do that — judging it here
-// would lock out anybody whose real password predates a rule that has since changed.
+// The current password isn't judged by today's rules, which would lock out users whose password predates a rule change.
 func TestNewPasswordChangeDomainDoesNotJudgeTheCurrentPassword(t *testing.T) {
 	passwordChange, err := domains.NewPasswordChangeDomain(dto.PasswordChangeDto{
 		CurrentPassword: "old",

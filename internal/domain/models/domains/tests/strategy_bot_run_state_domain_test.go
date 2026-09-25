@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aStoredBot is a bot as it comes back out of the store, so that each test changes
-// the one field it is about.
 func aStoredBot(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	return entities.StrategyBot{
 		ID:                     3,
@@ -35,11 +33,9 @@ func TestStrategyBotRunStateStartPutsTheBotToWorkImmediatelyAndForgetsWhatItSaid
 	startedBot := domains.NewStrategyBotRunStateDomain(storedBot).Start(now)
 
 	assert.Equal(t, string(vo.StrategyBotRunning), startedBot.RunState)
-	// Due now, not in five minutes: a bot set to sixty would otherwise do nothing
-	// for an hour after somebody pressed play.
+	// Due immediately so a long interval does not delay the first round after starting.
 	assert.Equal(t, now, startedBot.NextRunAt)
-	// Starting over is starting over, which is what makes the first conclusion after
-	// a start always go out.
+	// Clearing the last signal makes the first conclusion after a start always go out.
 	assert.Empty(t, startedBot.LastSentSignal)
 	assert.Empty(t, startedBot.HaltReason)
 	assert.False(t, startedBot.Conflicting)
@@ -84,8 +80,6 @@ func TestStrategyBotRunStateRequireStartable(t *testing.T) {
 			runningBotCount:    9,
 		},
 		{
-			// A bot that cannot send is a bot for which running and stopped are the
-			// same state.
 			name:               "nowhere to be spoken to",
 			hasDeliverySetting: false,
 			runningBotCount:    0,
@@ -135,8 +129,7 @@ func TestStrategyBotRunStateRoundFinished(t *testing.T) {
 			expectedLastSentSignal: string(vo.SignalBuy),
 		},
 		{
-			// A conclusion nobody received has not been said, so the next round
-			// offers it again rather than assuming it got through.
+			// An unsent conclusion leaves the last signal alone so the next round offers it again.
 			name:                   "a round that sent nothing leaves the last signal alone",
 			lastSentSignal:         string(vo.SignalBuy),
 			sentSignal:             "",
@@ -161,8 +154,8 @@ func TestStrategyBotRunStateRoundFinished(t *testing.T) {
 
 			assert.Equal(t, testCase.expectedLastSentSignal, finishedBot.LastSentSignal)
 			assert.Equal(t, testCase.conflicting, finishedBot.Conflicting)
-			// Measured from the round that happened, not from the one that was due,
-			// which is the whole of "missed rounds are never made up".
+			// Measured from the round that ran, not the one that was due, so missed rounds
+			// are never made up.
 			assert.Equal(t, now.Add(5*time.Minute), finishedBot.NextRunAt)
 			assert.Equal(t, string(vo.StrategyBotRunning), finishedBot.RunState)
 		})
@@ -213,8 +206,7 @@ func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
 			expectsTheClockMoved:   true,
 		},
 		{
-			// A halted bot is stopped, so it is never picked up again and when it
-			// would next have been due means nothing. Starting it sets that afresh.
+			// A halted bot is stopped; starting it resets its next run time.
 			name: "a halted round stops the bot and says why",
 			outcome: domains.NewStrategyBotRoundHaltedOutcome(
 				vo.StrategyBotHaltCredentialRejected),
@@ -255,9 +247,7 @@ func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
 			assert.Equal(t, string(testCase.expectedHaltReason), endedBot.HaltReason)
 			assert.Equal(t, testCase.expectedLastSentSignal, endedBot.LastSentSignal)
 			assert.Equal(t, testCase.expectedConflicting, endedBot.Conflicting)
-			// Every outcome that leaves the bot running moves it on, which is what
-			// stops a failed round becoming due again immediately and failing again
-			// at full speed.
+			// Moving the clock stops a failing round from retrying immediately at full speed.
 			if testCase.expectsTheClockMoved {
 				assert.Equal(t, now.Add(5*time.Minute), endedBot.NextRunAt)
 			}
@@ -278,8 +268,7 @@ func TestStrategyBotRoundOutcomeRecordedResult(t *testing.T) {
 			expectedResult: vo.StrategyBotRoundResultBuy,
 		},
 		{
-			// 記的是這一輪**想的**，不是送出去的那個：一台連續十二輪都認為該買的機器人
-			// 只送了一則訊息，而那十二輪它都想著買入。
+			// 記的是這一輪想的判斷，而非送出的訊號。
 			name: "想了買入但沒送出去，還是記買入",
 			outcome: domains.NewStrategyBotRoundConcludedOutcome(
 				vo.StrategyBotVerdictBuy, "", false),
@@ -298,10 +287,7 @@ func TestStrategyBotRoundOutcomeRecordedResult(t *testing.T) {
 			expectedResult: vo.StrategyBotRoundResultHold,
 		},
 		{
-			// 打架**自己一個字**，與持有分開。讀的人的下一步不一樣：
-			// 持有的機器人在等市場，打架的機器人在等它的主人去改一個條件——
-			// 而它在那之前不會說任何話。記成同一個字，等於把歷史上唯一
-			// 「請你去處理」的那一列藏起來。
+			// 打架與持有分開記：持有在等市場，打架在等主人改條件。
 			name: "打架就記打架",
 			outcome: domains.NewStrategyBotRoundConcludedOutcome(
 				vo.StrategyBotVerdictConflict, "", true),

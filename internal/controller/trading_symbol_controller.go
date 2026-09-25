@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TradingSymbolController exposes the trading symbol use cases over HTTP.
 type TradingSymbolController struct {
 	tradingSymbolApplication *application.TradingSymbolApplication
 }
@@ -33,11 +32,7 @@ func (tradingSymbolController *TradingSymbolController) ListTradingSymbols(ginCo
 }
 
 // AddToWatchlist handles POST /watchlist.
-//
-// The three ways this can fail are told apart deliberately, because the reader's next
-// move differs for each: a name the system will not accept and a code the market has
-// never heard of are both "fix what you typed", while a market that could not be
-// reached is "try again shortly" and says nothing about the request at all.
+// AddToWatchlist handles POST /watchlist; invalid names and unknown codes are the caller's to fix, while an unreachable market means retry later.
 func (tradingSymbolController *TradingSymbolController) AddToWatchlist(ginContext *gin.Context) {
 	var watchlistEntryRequest models.WatchlistEntryRequest
 	if bindError := ginContext.ShouldBindJSON(&watchlistEntryRequest); bindError != nil {
@@ -58,10 +53,7 @@ func (tradingSymbolController *TradingSymbolController) AddToWatchlist(ginContex
 }
 
 // RemoveFromWatchlist handles DELETE /watchlist/:symbol.
-//
-// Removing something that was not being watched answers the same way as removing
-// something that was: what the caller asked for is true either way, and reporting a
-// failure would invite them to fix something that is not broken.
+// Removing a symbol that was not watched succeeds, since the requested state holds either way.
 func (tradingSymbolController *TradingSymbolController) RemoveFromWatchlist(ginContext *gin.Context) {
 	removeError := tradingSymbolController.tradingSymbolApplication.RemoveFromWatchlist(
 		ginContext.Request.Context(), ginContext.Param("symbol"))
@@ -74,9 +66,6 @@ func (tradingSymbolController *TradingSymbolController) RemoveFromWatchlist(ginC
 	ginContext.Status(http.StatusNoContent)
 }
 
-// reportWatchlistFailure maps a watchlist failure onto the status that tells the
-// caller what to do about it. Both watchlist handlers reach for it, so the mapping is
-// written once and cannot drift between them.
 func (tradingSymbolController *TradingSymbolController) reportWatchlistFailure(
 	ginContext *gin.Context, watchlistError error,
 ) {
@@ -88,7 +77,5 @@ func (tradingSymbolController *TradingSymbolController) reportWatchlistFailure(
 		return
 	}
 
-	// Everything else — the market unreachable, storage unreachable — is this system
-	// failing to do what it was correctly asked to do.
 	ginContext.JSON(http.StatusBadGateway, gin.H{"message": watchlistError.Error()})
 }

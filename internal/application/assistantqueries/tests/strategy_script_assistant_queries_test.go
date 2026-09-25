@@ -25,9 +25,7 @@ type strategyScriptAssistantQueriesUnderTest struct {
 	strategyScriptRepository *mocks.MockIStrategyScriptRepository
 }
 
-// newStrategyScriptAssistantQueriesUnderTest wires the real domain service and real domain
-// models, mocking only storage — so every rule that governs a person saving a strategy script
-// governs the assistant saving one.
+// newStrategyScriptAssistantQueriesUnderTest mocks only storage, so the assistant is bound by every rule a person is.
 func newStrategyScriptAssistantQueriesUnderTest(t *testing.T) strategyScriptAssistantQueriesUnderTest {
 	controller := gomock.NewController(t)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
@@ -46,9 +44,7 @@ func newStrategyScriptAssistantQueriesUnderTest(t *testing.T) strategyScriptAssi
 	}
 }
 
-// aStoredStrategyScriptWithKnobs is a strategy script as it comes back from storage, knobs and
-// all. The knobs matter here because what a list may leave out and what a read must
-// include is exactly what these tests are about.
+// aStoredStrategyScriptWithKnobs includes knobs because these tests check what a list omits and a read includes.
 func aStoredStrategyScriptWithKnobs(id uint, name string) entities.StrategyScript {
 	return entities.StrategyScript{
 		ID:         id,
@@ -65,8 +61,7 @@ func aStoredStrategyScriptWithKnobs(id uint, name string) entities.StrategyScrip
 }
 
 func TestStrategyScriptListAssistantQueryNamesEachStrategyScriptWithoutSendingItsAlgorithm(t *testing.T) {
-	// A list is for choosing from, and a script is the longest thing a strategy script holds.
-	// Sending every script every time would be the most expensive habit it could form.
+	// A list omits each script's source, the longest and costliest field.
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().
 		FindAllOwnedBy(gomock.Any(), assistantViewerID).
@@ -99,8 +94,7 @@ func TestStrategyScriptListAssistantQueryAnswersHoldingNoneWithAnEmptyList(t *te
 
 func TestStrategyScriptListAssistantQueryReportsAFailureToRead(t *testing.T) {
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
-	// The caller's own strategy scripts are read first, so a failure there ends the answer
-	// before the shelf is ever asked about.
+	// The caller's own scripts are read first, so a failure there ends before the marketplace is queried.
 	fixture.strategyScriptRepository.EXPECT().
 		FindAllOwnedBy(gomock.Any(), assistantViewerID).
 		Return(nil, errors.New("storage unavailable"))
@@ -111,8 +105,7 @@ func TestStrategyScriptListAssistantQueryReportsAFailureToRead(t *testing.T) {
 }
 
 func TestStrategyScriptGetAssistantQueryHandsOverTheAlgorithmToo(t *testing.T) {
-	// Reading it in full is what makes changing it possible: a rewrite replaces
-	// everything, so the assistant has to know the rest before it can send it back.
+	// A full read is needed because a rewrite replaces everything.
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
 		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil)
@@ -181,8 +174,6 @@ func TestStrategyScriptCreateAssistantQueryIsBoundByEveryRuleAPersonsSaveIsBound
 			expectedMessage: "指標值種類",
 		},
 		{
-			// The name is taken, and the assistant relays that rather than inventing
-			// a second strategy script under a name it cannot have.
 			name:            "a name another strategy script already holds",
 			arguments:       `{"name":"二十根均線","script":"func Calculate() {}"}`,
 			storageAnswer:   domains.ErrStrategyScriptNameConflict,
@@ -269,8 +260,7 @@ func TestStrategyScriptAssistantQueriesRefuseArgumentsTheyCannotRead(t *testing.
 }
 
 func TestStrategyScriptAssistantQueriesRenderStrategyScriptsTheSameWayEveryTime(t *testing.T) {
-	// Reading one, saving one and rewriting one hand back the same shape, so the
-	// assistant never has to learn two ways of looking at the same thing.
+	// Read, save and rewrite return the same shape.
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
 		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil).Times(2)
@@ -301,10 +291,7 @@ func keysOf(shape map[string]json.RawMessage) []string {
 }
 
 func TestStrategyScriptAssistantQueriesActAsWhoeverAskedThem(t *testing.T) {
-	// The assistant has no standing of its own. What it saves belongs to the person
-	// who asked, and what it can read is what they can read — otherwise "every
-	// strategy script has an owner" gets its first exception the moment somebody asks the
-	// assistant to save one.
+	// The assistant has no standing of its own: it saves and reads as the person who asked.
 	t.Run("a strategy script it saves belongs to the asker", func(t *testing.T) {
 		fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 		storedOwnerID := uint(0)
@@ -334,8 +321,7 @@ func TestStrategyScriptAssistantQueriesActAsWhoeverAskedThem(t *testing.T) {
 	})
 
 	t.Run("it cannot rewrite somebody else's strategy script", func(t *testing.T) {
-		// Nothing is stubbed on the writing side: the refusal must land before any
-		// write goes out.
+		// Nothing is stubbed on the write side: the refusal must land before any write.
 		fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 		strangersStrategyScript := aStoredStrategyScriptWithKnobs(7, "別人的")
 		strangersStrategyScript.OwnerID = assistantViewerID + 1

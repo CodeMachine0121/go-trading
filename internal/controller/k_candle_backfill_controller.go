@@ -10,12 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleBackfillController catches one trading symbol up on demand.
-//
-// It is its own controller rather than another handler on the K candle one, because
-// what it exposes is not a candle: it is the ingestion, the same work the start-up
-// backfill does, aimed at a single symbol. A caller of this is not reading or writing
-// a candle — they are asking the system to go and get some.
+// KCandleBackfillController runs the start-up ingestion for a single symbol on demand.
 type KCandleBackfillController struct {
 	kCandleIngestionApplication *application.KCandleIngestionApplication
 }
@@ -38,9 +33,7 @@ func (kCandleBackfillController *KCandleBackfillController) CatchUpSymbol(ginCon
 	report, catchUpError := kCandleBackfillController.kCandleIngestionApplication.CatchUpSymbol(
 		ginContext.Request.Context(), backfillRequest.Symbol)
 	if catchUpError != nil {
-		// Naming a symbol the system has never been told about is the caller's to fix,
-		// and it must not be answered the same way as a source that would not answer —
-		// one says "check what you asked for", the other says "come back later".
+		// An unregistered symbol is the caller's to fix and must not read like an unavailable source.
 		if errors.Is(catchUpError, domains.ErrTradingSymbolNotRegistered) {
 			ginContext.JSON(http.StatusNotFound, gin.H{"message": catchUpError.Error()})
 

@@ -44,7 +44,6 @@ func validContractWriteDto() dto.KCandleContractWriteDto {
 	}
 }
 
-// figure is a present figure, written the way the requirements write it.
 func figure(value string) decimal.NullDecimal {
 	return decimal.NewNullDecimal(decimal.RequireFromString(value))
 }

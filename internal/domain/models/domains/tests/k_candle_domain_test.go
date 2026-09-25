@@ -26,9 +26,7 @@ func validWriteDto() dto.KCandleWriteDto {
 }
 
 func TestNewKCandleDomainAcceptsACandleFromAMarketThatReportsFewerFigures(t *testing.T) {
-	// A market that publishes no turnover is not a broken candle. The figures it does
-	// publish are judged exactly as before, and the ones it does not stay absent all
-	// the way into storage rather than becoming zeros.
+	// Missing turnover is not a broken candle; it stays absent through storage instead of becoming zero.
 	writeDto := validWriteDto()
 	writeDto.QuoteVolume = decimal.NullDecimal{}
 	writeDto.TakerBuyBaseVolume = decimal.NullDecimal{}
@@ -47,9 +45,7 @@ func TestNewKCandleDomainAcceptsACandleFromAMarketThatReportsFewerFigures(t *tes
 }
 
 func TestNewKCandleDomainAcceptsAnyWholeMinute(t *testing.T) {
-	// The mark a candle has to land on is the length it covers, and that is now a
-	// minute. A time on the old five-minute mark still lands on it — the rule got
-	// wider, not different — and a time between two of them lands on it too.
+	// Candles now align to one minute, which still accepts times on the old five-minute mark.
 	currentTime := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
 
 	testCases := []struct {

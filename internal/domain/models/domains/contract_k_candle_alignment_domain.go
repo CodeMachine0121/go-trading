@@ -9,97 +9,47 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// ContractKCandleAlignmentDomain is the stretch of perpetual contract bars a contract
-// script is about to be fed, and every rule that decides what each bar carries.
-//
-// The bars themselves are already settled — merged contract K candles, one per
-// finished bucket, oldest first. What this adds is the two records that are not
-// candles: funding settlements, a few a day, and position statistics, one every five
-// minutes. It says which stretch of each has to be read, and then lines them up.
-//
-// **Every figure on a bar comes from before that bar closed.** A settlement or a
-// statistic stamped exactly at the close belongs to the next bar, so a script can
-// never act on something that had not happened yet when the bar it is looking at was
-// finished.
-//
-// **A figure that is not there is zero** — see ContractKCandleVo. That was chosen by
-// the person writing the scripts: it is the easiest to write against, and the script
-// carries the knowledge that a zero open interest most likely means "not recorded".
+// ContractKCandleAlignmentDomain lines funding settlements and position statistics up with finished contract bars for a script.
+// Every figure on a bar comes from strictly before its close (a record stamped at the close belongs to the next bar), and missing figures are zero, as ContractKCandleVo documents.
 type ContractKCandleAlignmentDomain struct {
 	interval AggregationIntervalDomain
-	// buckets are the merged contract K candles, oldest first, never empty: a
-	// calculation with nothing to feed a script is refused before one of these is
-	// built.
+	// buckets are oldest first and never empty.
 	buckets []dto.KCandleContractDto
 }
 
-// Buckets that have no contract K candle are not here, and that is the rule rather
-// than a gap: which bars exist is decided by the contract K candles alone, whatever
-// settlements or statistics that stretch holds.
+// Only buckets with a contract K candle become bars, whatever settlements or statistics the stretch holds.
 func newContractKCandleAlignmentDomain(
 	interval AggregationIntervalDomain, buckets []dto.KCandleContractDto,
 ) ContractKCandleAlignmentDomain {
 	return ContractKCandleAlignmentDomain{interval: interval, buckets: buckets}
 }
 
-// SettlementLeadInCutoff is the moment the first bar opens. The latest settlement
-// before it is the rate already in force when the stretch begins, and it has to be
-// asked for on its own: it may lie any distance back — a fetch that stopped for a day
-// leaves a day between two stored settlements — and no fixed reach backwards is sure
-// to catch it.
+// SettlementLeadInCutoff is the first bar's open; the latest settlement before it (the rate in force at the start) must be queried separately since it may be arbitrarily far back.
 func (alignmentDomain ContractKCandleAlignmentDomain) SettlementLeadInCutoff() time.Time {
 	return alignmentDomain.buckets[0].OpenTime.UTC()
 }
 
-// SettlementQuery is the stretch of funding settlements the bars themselves cover: from
-// where the first bar opens up to where the last one closes.
+// SettlementQuery spans from the first bar's open to the last bar's close.
 func (alignmentDomain ContractKCandleAlignmentDomain) SettlementQuery() KCandleQueryDomain {
 	return alignmentDomain.queryReachingBack(0)
 }
 
-// SettlementReadLimit is the most settlements that stretch can hold. No contract
-// settles more often than hourly, so one per hour, plus the one at either end, is an
-// upper bound the stored settlements cannot exceed.
+// SettlementReadLimit assumes no contract settles more often than hourly.
 func (alignmentDomain ContractKCandleAlignmentDomain) SettlementReadLimit() int {
 	return alignmentDomain.readLimitReachingBack(0, time.Hour)
 }
 
-// StatisticQuery is the stretch of position statistics the bars can draw on: from one
-// statistic interval before the first bar — the furthest back a bar finer than that
-// interval may reach — up to where the last bar closes.
+// StatisticQuery reaches one statistic interval before the first bar, the furthest a finer bar may look back.
 func (alignmentDomain ContractKCandleAlignmentDomain) StatisticQuery() KCandleQueryDomain {
 	return alignmentDomain.queryReachingBack(ContractPositionStatisticInterval)
 }
 
-// StatisticReadLimit is the most position statistics that stretch can hold: one per
-// statistic interval, plus the one at either end.
 func (alignmentDomain ContractKCandleAlignmentDomain) StatisticReadLimit() int {
 	return alignmentDomain.readLimitReachingBack(ContractPositionStatisticInterval, ContractPositionStatisticInterval)
 }
 
-// Aligning hands back the bars the script sees, oldest first, with the funding and
-// positioning each one carries.
-//
-// For every bar:
-//
-//   - **The funding rate is the one in force at its close**: the rate of the latest
-//     settlement strictly before the close. Between two settlements every bar carries
-//     the earlier one's rate, because that is the rate that was in force. With several
-//     settlements inside one bar — a day, for a symbol settling every eight hours —
-//     the latest of them is the one in force at the close.
-//   - **Whether it settled** is whether any settlement falls inside the bar, its open
-//     included and its close not. Only the latest one before the close has to be
-//     asked: if any settlement is inside the bar, the latest one is.
-//   - **The position statistic is the latest one strictly before the close, if it is
-//     recent enough**: inside the bar, or — for a bar finer than the statistic
-//     interval — within one statistic interval of its close. Statistics come every
-//     five minutes, so a one-minute bar carries the last one taken; one further back
-//     than that means recording stopped, and a bar carrying it would be passing an old
-//     state off as the current one. Such a bar carries zeros instead.
-//
-// The settlements handed in are those the bars cover plus, when there is one, the
-// latest before the first bar — see SettlementLeadInCutoff. Settlements and statistics
-// may arrive in any order; each is walked once.
+// Aligning gives each bar the rate of the latest settlement before its close, whether one fell inside the bar, and the latest position statistic before its close if inside the bar or within one statistic interval of the close (else zeros, so stale data never looks current).
+// Inputs may arrive in any order; the settlements should include the lead-in one from SettlementLeadInCutoff.
 func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 	settlements []entities.ContractFundingRateSettlement,
 	statistics []entities.ContractPositionStatistic,
@@ -193,9 +143,7 @@ func (alignmentDomain ContractKCandleAlignmentDomain) Aligning(
 	return contractKCandleVos
 }
 
-// queryReachingBack is the stretch from the given reach before the first bar to the
-// close of the last one. Both record kinds are read the same way; only how far back
-// each has to reach differs.
+// queryReachingBack spans from reach before the first bar to the last bar's close.
 func (alignmentDomain ContractKCandleAlignmentDomain) queryReachingBack(reach time.Duration) KCandleQueryDomain {
 	firstBucket := alignmentDomain.buckets[0]
 	lastBucket := alignmentDomain.buckets[len(alignmentDomain.buckets)-1]
@@ -207,8 +155,7 @@ func (alignmentDomain ContractKCandleAlignmentDomain) queryReachingBack(reach ti
 	}
 }
 
-// readLimitReachingBack is how many records at most one every spacing can put in the
-// stretch queryReachingBack reads, both ends included.
+// readLimitReachingBack is the maximum record count at one per spacing over that stretch, both ends included.
 func (alignmentDomain ContractKCandleAlignmentDomain) readLimitReachingBack(
 	reach time.Duration, spacing time.Duration,
 ) int {

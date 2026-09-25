@@ -11,13 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// strategyScriptWriteOwnerID is who these strategy scripts belong to. Every strategy script has an
-// owner now, so a write without one is refused before any other rule is read —
-// which would make every case below fail for the wrong reason.
+// strategyScriptWriteOwnerID is set because an ownerless write is refused before any other rule.
 const strategyScriptWriteOwnerID = uint(1)
 
-// aStrategyScriptWriteDto is a strategy script that passes every rule, so that each test can
-// break exactly one thing and nothing else explains the outcome.
+// aStrategyScriptWriteDto passes every rule, so each test breaks exactly one thing.
 func aStrategyScriptWriteDto() dto.StrategyScriptWriteDto {
 	return dto.StrategyScriptWriteDto{
 		OwnerID:    strategyScriptWriteOwnerID,
@@ -39,8 +36,7 @@ func TestNewStrategyScriptDomainKeepsWhatItWasGiven(t *testing.T) {
 }
 
 func TestNewStrategyScriptDomainAppliesTheSameDefaultAsEverywhereElse(t *testing.T) {
-	// Declaring no result type means one number, exactly as a calculation that
-	// declares none gets one number. One rule, not two that have to be kept in step.
+	// No declared result type means one number, matching calculations.
 	writeDto := aStrategyScriptWriteDto()
 	writeDto.ResultType = ""
 
@@ -140,8 +136,7 @@ func TestNewStrategyScriptDomainRefusesContentThatBreaksARule(t *testing.T) {
 }
 
 func TestNewStrategyScriptDomainSavesAScriptItCannotVouchFor(t *testing.T) {
-	// Saving is not running. An algorithm takes several sittings to get right, so a
-	// half-finished one has to be storable or there is no way to pick it up tomorrow.
+	// Unfinished scripts must be savable; saving is not running.
 	writeDto := aStrategyScriptWriteDto()
 	writeDto.Script = "這根本不是一段程式碼 ¯\\_(ツ)_/¯"
 
@@ -152,9 +147,7 @@ func TestNewStrategyScriptDomainSavesAScriptItCannotVouchFor(t *testing.T) {
 }
 
 func TestNewStrategyScriptDomainSavesAScriptThatContradictsItsDeclaredKind(t *testing.T) {
-	// Whether a script's shape matches the kind it was declared under is decided
-	// when the script runs, against the candles it was handed. Saving cannot know it
-	// and does not pretend to.
+	// Whether a script's shape matches its kind is only decided when it runs.
 	writeDto := aStrategyScriptWriteDto()
 	writeDto.ResultType = "bool"
 	writeDto.Script = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return nil }"
@@ -215,9 +208,6 @@ func TestNewStrategyScriptDomainAcceptsTheSignalKind(t *testing.T) {
 }
 
 func TestNewStrategyScriptDomainHandsOutTheKindAlreadyRead(t *testing.T) {
-	// Whatever runs this strategy script needs what the kind knows — whether it is a list —
-	// not the spelling of it. Handing out the spelling would invite that to be
-	// worked out a second time.
 	writeDto := aStrategyScriptWriteDto()
 	writeDto.ResultType = "boolList"
 

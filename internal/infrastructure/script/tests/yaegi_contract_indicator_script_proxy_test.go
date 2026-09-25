@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// contractBarsWithClosePrices are contract bars whose only figures that matter are
-// their closes; everything else about them is left at zero.
 func contractBarsWithClosePrices(closePrices ...float64) []vo.ContractKCandleVo {
 	contractKCandleVos := make([]vo.ContractKCandleVo, 0, len(closePrices))
 	for index, closePrice := range closePrices {
@@ -27,9 +25,7 @@ func contractBarsWithClosePrices(closePrices ...float64) []vo.ContractKCandleVo 
 	return contractKCandleVos
 }
 
-// averageCloseOfContractBarsScript is the spot average-close script with nothing but
-// its entry point's element changed: the line reading the close is word for word the
-// spot one.
+// averageCloseOfContractBarsScript is the spot script with only the entry point's element type changed.
 const averageCloseOfContractBarsScript = `
 package main
 

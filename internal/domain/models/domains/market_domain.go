@@ -6,35 +6,17 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// MarketDomain is one market and everything the rest of the system needs to know
-// about how it behaves: whether it is trading right now, which part of a stretch of
-// time could possibly hold candles, how many of its symbols may be followed live at
-// once, and which of its own days a moment belongs to.
-//
-// The four answers live together because they change together. Opening hours,
-// follow ceiling and calendar are one fact about a venue; splitting them would put
-// the same "which market is this" question in four places and give it four chances
-// to be answered differently.
-//
-// A round-the-clock market is not a special case here — it is the market whose
-// session never closes, and every method reads it through the same rules. That is
-// what keeps `if market == taiwanStock` out of the rest of the codebase entirely.
+// MarketDomain answers every market-behaviour question (trading hours, fetchable stretches, follow ceiling, local calendar) through one set of rules, so no caller branches on a specific market.
 type MarketDomain struct {
 	value vo.MarketVo
 	rules vo.MarketRulesVo
 }
 
-// Value is the market this is, as it is stored and routed on.
 func (marketDomain MarketDomain) Value() vo.MarketVo {
 	return marketDomain.value
 }
 
-// IsOpen reports whether the market is trading at this moment.
-//
-// It answers "can this be followed live" and "should the console say it is closed".
-// It deliberately does not answer "is there anything worth fetching" — a round
-// running at 13:33 still has the 13:29 candle to collect, and conflating the two
-// would lose it. ClampToTradingSession answers that one.
+// IsOpen reports whether the market is trading at this moment; whether a window still has candles to fetch after the close is ClampToTradingSession's question.
 func (marketDomain MarketDomain) IsOpen(moment time.Time) bool {
 	if marketDomain.neverCloses() {
 		return true
@@ -51,17 +33,7 @@ func (marketDomain MarketDomain) IsOpen(moment time.Time) bool {
 		sinceMidnight < marketDomain.rules.TradingSession.DailyEnd
 }
 
-// ClampToTradingSession narrows a fetch window to the part of it that could hold
-// candles at all, and comes back empty when none of it could.
-//
-// This is the whole of "a closed market is not a gap". A window covering a night, a
-// weekend or a holiday shrinks to nothing, and an empty window already means "there
-// is nothing to do" everywhere it is read — so skipping a closed market needs no new
-// branch anywhere. It is also why the round that runs just after the close still
-// collects the day's last candle: the window still overlaps the session even though
-// the market no longer does.
-//
-// A market that never closes gets its window back untouched.
+// ClampToTradingSession narrows a fetch window to what a session could hold, returning an empty window for nights, weekends and holidays so closed markets need no special branch.
 func (marketDomain MarketDomain) ClampToTradingSession(
 	window vo.KCandleFetchWindowVo,
 ) vo.KCandleFetchWindowVo {
@@ -78,37 +50,8 @@ func (marketDomain MarketDomain) ClampToTradingSession(
 		window.Symbol, window.Market, earliestOpenTime, latestOpenTime)
 }
 
-// TradingBucketCountBetween is how many buckets of the given length, inside the
-// stretch, could hold any trading at all. It is what turns a stretch into a number of
-// candles, and it does so by **counting buckets rather than dividing time**.
-//
-// The difference is the whole reason this exists. Dividing the trading time by the
-// bucket length reads as though it should work — a market that trades four and a half
-// hours a day offers that much of a day's clock — but a bucket is not a quantity of
-// time, it is a slot with edges. A bucket that catches one minute of trading is a
-// whole candle, exactly like one that catches all of it. So the division undercounts
-// wherever a bucket is long enough to reach past a session's edges, and it undercounts
-// worse the coarser the bucket: a Taiwan trading day is five hourly buckets rather
-// than four, two four-hour buckets rather than one, and five Taiwan days are five
-// daily buckets rather than the fifth of one the division reports.
-//
-// It counts arithmetically rather than visiting each bucket, and that is not a
-// micro-optimisation: nothing bounds the stretch a caller may name, so visiting them
-// would cost one map entry per bucket — a century at a minute a bucket is nine million
-// entries and most of a gigabyte, spent *before* the ceiling that would have refused
-// the range is consulted.
-//
-// It sums each session's buckets without checking whether two of them share one,
-// because a venue is written down with one session a day and the coarsest bucket is a
-// day: two sessions can never meet in the same bucket. The day that stops being true
-// is the day a second daily session is added, and the note about it lives on the walk
-// that would have to change — not here, where it would be a line no input reaches.
-//
-// **A market that never closes divides**, and that is a known inconsistency rather
-// than an oversight: it answers the way every count in this system has always answered
-// for such a market, which is one short of the buckets an inclusive range can actually
-// produce. Correcting it moves every count on that path and every bar the user sees, so
-// it is written down as its own change rather than smuggled in with this one.
+// TradingBucketCountBetween counts buckets that touch any trading rather than dividing trading time, since a bucket catching one minute is still a whole candle; it counts arithmetically so huge ranges cost nothing before the ceiling check.
+// It assumes one session per day, and for never-closing markets it knowingly divides, answering one short of an inclusive range for compatibility.
 func (marketDomain MarketDomain) TradingBucketCountBetween(
 	startTime time.Time, endTime time.Time, bucketDuration time.Duration,
 ) int {
@@ -124,9 +67,7 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 				overlapStart = sessionStart
 			}
 
-			// The last open time a session can hold, not the moment it shuts: a candle
-			// stamped at the closing bell would cover time the market was closed for,
-			// which is the same reading ClampToTradingSession takes.
+			// The last open time a session can hold, since a candle stamped at the closing bell covers closed time.
 			overlapEnd := endTime
 			if sessionLastOpenTime := sessionEnd.Add(-KCandleInterval); sessionLastOpenTime.Before(overlapEnd) {
 				overlapEnd = sessionLastOpenTime
@@ -144,18 +85,7 @@ func (marketDomain MarketDomain) TradingBucketCountBetween(
 	return tradingBucketCount
 }
 
-// TradingKCandleCountBetween is how many K candles this market should hold across the
-// stretch, **both ends included**.
-//
-// It answers "how many should be there", which is the question asked of a stretch
-// before deciding whether it is worth fetching at all: equal to what storage holds
-// means that stretch is already complete and the source need not be troubled for it.
-//
-// It is its own method rather than a call to TradingBucketCountBetween, because that
-// one answers one short for a market that never closes — a documented reading its
-// callers and the bars they draw all depend on, and one this must not take. For a
-// market that does close, that walk is already inclusive, so this defers to it rather
-// than keeping a second copy of the session arithmetic.
+// TradingKCandleCountBetween is the expected candle count with both ends included, used to skip fetching already-complete stretches; unlike TradingBucketCountBetween it is inclusive for never-closing markets too.
 func (marketDomain MarketDomain) TradingKCandleCountBetween(
 	startTime time.Time, endTime time.Time,
 ) int {
@@ -170,13 +100,7 @@ func (marketDomain MarketDomain) TradingKCandleCountBetween(
 	return int(endTime.Sub(startTime)/KCandleInterval) + 1
 }
 
-// HoldsTrading reports whether the market is open at any point of the stretch.
-//
-// It is asked out loud rather than derived from a bucket count being zero, because a
-// count answers a different question and rounds: a thirty-second stretch of a market
-// that never shuts holds trading throughout and yet holds no whole minute-bucket, so
-// reading the count as the answer would call a round-the-clock market closed. That
-// contradiction is one this system says out loud it cannot have.
+// HoldsTrading is asked directly rather than read off a bucket count, which rounds and would call a sub-minute stretch of a 24/7 market closed.
 func (marketDomain MarketDomain) HoldsTrading(startTime time.Time, endTime time.Time) bool {
 	if marketDomain.neverCloses() {
 		return endTime.After(startTime)
@@ -203,13 +127,7 @@ func (marketDomain MarketDomain) HoldsTrading(startTime time.Time, endTime time.
 	return holdsTrading
 }
 
-// SimultaneousFollowCeiling is how many of this market's symbols may be followed
-// live at the same time. Zero means the market data plan sets no ceiling.
-//
-// It is worked out rather than stored: as many channels as the plan opens, each
-// carrying as many symbols as the plan allows on one. A plan is sold in those two
-// numbers, so those two are what is set — and a ceiling that contradicts them
-// becomes a thing nobody can write down.
+// SimultaneousFollowCeiling is channels times symbols per channel from the data plan, zero meaning no ceiling.
 func (marketDomain MarketDomain) SimultaneousFollowCeiling() int {
 	if marketDomain.rules.SimultaneousChannelCeiling <= 0 {
 		return 0
@@ -218,10 +136,7 @@ func (marketDomain MarketDomain) SimultaneousFollowCeiling() int {
 	return marketDomain.rules.SimultaneousChannelCeiling * marketDomain.SymbolsPerLiveChannel()
 }
 
-// SymbolsPerLiveChannel is how many trading symbols one of this market's live
-// channels may carry, which is never fewer than one: a channel carrying nothing is
-// not a channel. A market whose source follows symbols one at a time therefore needs
-// no setting at all.
+// SymbolsPerLiveChannel is never fewer than one, so one-at-a-time sources need no setting.
 func (marketDomain MarketDomain) SymbolsPerLiveChannel() int {
 	if marketDomain.rules.SymbolsPerLiveChannel <= 0 {
 		return 1
@@ -230,57 +145,21 @@ func (marketDomain MarketDomain) SymbolsPerLiveChannel() int {
 	return marketDomain.rules.SymbolsPerLiveChannel
 }
 
-// HasFollowCeiling reports a market that limits how many of its symbols may be
-// followed live at once.
-//
-// That is **all** it reports. It used to double as "and therefore follows a roster",
-// which held only while the one market with a ceiling was also the one followed from
-// a roster. Those parted company the moment a Taiwan feed arrived without a
-// subscription limit: still followed from a roster, no longer capped. Whether a
-// market is followed from a roster is FollowsFixedRoster's to answer.
-//
-// It is also asked separately from whether the market closes, because a venue could
-// publish round the clock and still cap how many feeds one plan may open.
+// HasFollowCeiling reports only whether live follows are capped; whether the market follows a roster is FollowsFixedRoster's question.
 func (marketDomain MarketDomain) HasFollowCeiling() bool {
 	return marketDomain.rules.SimultaneousChannelCeiling > 0
 }
 
-// FollowsFixedRoster reports a market the system follows from a roster it keeps —
-// every watched symbol, whether or not anybody is looking — rather than one whose
-// follows begin when somebody opens a chart.
-//
-// This is the question that decides whether a symbol nobody asked for is being
-// followed, and whether a viewer arriving for one that is not on the roster is told
-// so. Asking the ceiling instead would mean a market that lifts its subscription
-// limit silently stops following anything until somebody looks, and starts promising
-// live updates for symbols that are not watched at all.
+// FollowsFixedRoster reports a market followed for every watched symbol regardless of viewers, rather than on demand when a chart opens.
 func (marketDomain MarketDomain) FollowsFixedRoster() bool {
 	return marketDomain.rules.FollowsFixedRoster
 }
 
-// oneCalendarDay is the length of a market's own day, for a market that has no local
-// day of its own to speak of.
-//
-// It is named so that it is not mistaken for a bucket length. A daily aggregation
-// bucket happens to be the same duration, and asking for that one goes through
-// NewCoarsestAggregationIntervalDomain — see the note below on why these two must
-// not be folded together.
+// oneCalendarDay is a never-closing market's day length, deliberately not a bucket length.
 const oneCalendarDay = 24 * time.Hour
 
-// TradingDateOf is the market's own calendar day a moment falls on — midnight local,
-// expressed universally.
-//
-// It exists so that "we already decided this market is closed today" survives until
-// the market's own tomorrow, not until midnight somewhere else. A round at 23:00 in
-// Taipei is the same trading day as one at 10:00; a round at 23:00 in universal time
-// is already the next one.
-//
-// **This is not a bucket edge**, however alike the two look for a market that never
-// closes. A daily aggregation bucket is cut from midnight in universal time for every
-// market; a trading date is midnight in the market's own zone, which for Taipei is
-// 16:00 the previous day in universal time — nowhere near a bucket edge. They agree
-// only for a round-the-clock market, and only by coincidence. Anything wanting the
-// edge asks NewCoarsestAggregationIntervalDomain; do not fold these two together.
+// TradingDateOf is local midnight of the market's own day, expressed in UTC, so a "closed today" decision lasts until the market's own tomorrow.
+// It is not a daily bucket edge (those are UTC midnight); use NewCoarsestAggregationIntervalDomain for that.
 func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 	if marketDomain.neverCloses() {
 		return moment.UTC().Truncate(oneCalendarDay)
@@ -294,35 +173,17 @@ func (marketDomain MarketDomain) TradingDateOf(moment time.Time) time.Time {
 	).UTC()
 }
 
-// Zone is the zone this market says its own days in, and nil for one that never
-// closes and therefore has none.
-//
-// It is given out for one purpose: a source whose address takes a local date has to
-// *name* a day to somebody else, which needs the zone both to write it down and to
-// step to the next one. TradingDateOf cannot serve that — it answers in universal
-// time, which is the right answer for comparing days and the wrong one for spelling
-// them.
-//
-// Nothing else should reach for it. Whether a market is open, whether a stretch holds
-// trading, which day a moment falls in — all of those are questions this model
-// already answers, and answering them from the zone outside would be a second copy
-// of rules that live here.
+// Zone is nil for a never-closing market and exists only for sources whose addresses need a local date spelled out; other market questions belong on this model.
 func (marketDomain MarketDomain) Zone() *time.Location {
 	return marketDomain.rules.TradingSession.Location
 }
 
-// NeverCloses reports a market that trades round the clock.
-//
-// It is asked out loud because a market with no hours also has no days off: deciding
-// that such a market is "shut for the day" is not a conclusion about the world but a
-// misreading of a quiet stretch, and one quiet stretch would then stop it being
-// fetched until tomorrow.
+// NeverCloses matters because a 24/7 market must never be concluded "shut for the day" from a quiet stretch.
 func (marketDomain MarketDomain) NeverCloses() bool {
 	return marketDomain.neverCloses()
 }
 
-// neverCloses reads the one shape a session takes when there is no session: a market
-// with no zone to say its hours in has no hours.
+// neverCloses treats a session without a zone as having no hours.
 func (marketDomain MarketDomain) neverCloses() bool {
 	return marketDomain.rules.TradingSession.Location == nil
 }
@@ -337,14 +198,7 @@ func (marketDomain MarketDomain) tradesOn(weekday time.Weekday) bool {
 	return false
 }
 
-// SessionElapsedAt is how much of this market's session is already behind it at this
-// moment: nothing before the bell, the whole session once it has rung.
-//
-// It answers "has this market had a chance to say anything yet". A market with no
-// hours always has: it has been trading all along.
-//
-// It reads the clock fields rather than subtracting from midnight, for the same
-// reason IsOpen does — a day is not always twenty-four hours long.
+// SessionElapsedAt is how much of today's session has passed, clamped to [0, full session]; it reads clock fields because days are not always 24 hours.
 func (marketDomain MarketDomain) SessionElapsedAt(moment time.Time) time.Duration {
 	if marketDomain.neverCloses() {
 		return marketDomain.sinceLocalMidnight(moment.UTC())
@@ -368,16 +222,7 @@ func (marketDomain MarketDomain) SessionElapsedAt(moment time.Time) time.Duratio
 	return elapsed
 }
 
-// sessionMomentOn is the moment a given point of a market's session falls on, on a
-// given local day.
-//
-// It builds the clock reading rather than adding a stretch of time to midnight, for
-// the same reason IsOpen reads clock fields: on a day that gains or loses an hour,
-// "nine in the morning" and "nine hours after midnight" are different moments — and
-// this file would then answer "when does this market trade today" two ways.
-//
-// Nothing in Taipei turns on it. But the zone is a setting, and the next market's
-// might.
+// sessionMomentOn builds the local clock reading rather than adding to midnight, so DST days stay correct.
 func (marketDomain MarketDomain) sessionMomentOn(
 	localDay time.Time, sinceMidnight time.Duration,
 ) time.Time {
@@ -388,21 +233,14 @@ func (marketDomain MarketDomain) sessionMomentOn(
 	).UTC()
 }
 
-// sinceLocalMidnight is how far into its own day a moment is. Reading the clock
-// fields rather than subtracting midnight keeps it right on days that are not
-// twenty-four hours long.
+// sinceLocalMidnight reads clock fields so it stays right on days that are not 24 hours long.
 func (marketDomain MarketDomain) sinceLocalMidnight(localMoment time.Time) time.Duration {
 	return time.Duration(localMoment.Hour())*time.Hour +
 		time.Duration(localMoment.Minute())*time.Minute +
 		time.Duration(localMoment.Second())*time.Second
 }
 
-// overlappingCandleOpenTimes reports the first and last candle open time inside the
-// window that a session could actually hold.
-//
-// It walks the days the window touches rather than the sessions, which is what bounds
-// the work: however long the window is, the search is its own length and no longer, so
-// a holiday of any length costs nothing extra and needs no list of holidays to skip.
+// overlappingCandleOpenTimes returns the first and last candle open times a session in the window could hold, walking days so holidays cost nothing extra.
 func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 	window vo.KCandleFetchWindowVo,
 ) (time.Time, time.Time, bool) {
@@ -411,8 +249,7 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 
 	marketDomain.eachTradingDaySession(window.StartTime, window.EndTime,
 		func(sessionStart time.Time, sessionEnd time.Time) {
-			// The last open time a session can hold, not the moment it shuts: a candle
-			// stamped at the closing bell would cover time the market was closed for.
+			// The last open time a session can hold, since a candle stamped at the closing bell covers closed time.
 			sessionLastOpenTime := sessionEnd.Add(-KCandleInterval)
 			if sessionLastOpenTime.Before(window.StartTime) || sessionStart.After(window.EndTime) {
 				return
@@ -434,19 +271,8 @@ func (marketDomain MarketDomain) overlappingCandleOpenTimes(
 	return earliestOpenTime, latestOpenTime, !earliestOpenTime.IsZero()
 }
 
-// eachTradingDaySession walks the market's own days from one moment to another and
-// hands each trading day's session to the visitor, as the two moments it runs between.
-//
-// It is the single place that knows which days this market trades and when its
-// session runs, so a venue that grows a second daily session — an afternoon board, an
-// evening board — is a change here and nowhere else. Two copies of that walk would go
-// out of step, and the one that was not updated would keep answering.
-//
-// **Whoever adds that second session: read TradingBucketCountBetween before you do.**
-// It sums each session's buckets and never asks whether two sessions met inside one,
-// which is safe only while there is one session a day. With a morning and an afternoon
-// board, a day a candle would be counted twice — and the symptom is a number that is
-// merely too big, reported by nothing.
+// eachTradingDaySession is the single place that knows trading days and session hours.
+// Adding a second daily session would break TradingBucketCountBetween, which assumes sessions never share a bucket.
 func (marketDomain MarketDomain) eachTradingDaySession(
 	startTime time.Time,
 	endTime time.Time,
@@ -467,9 +293,7 @@ func (marketDomain MarketDomain) eachTradingDaySession(
 	}
 }
 
-// localMidnightOf is the start of the local day a moment belongs to. Building the
-// date from its parts rather than truncating is what keeps it a local midnight on
-// zones whose offset is not a whole number of hours.
+// localMidnightOf builds the date from parts rather than truncating, which stays correct for zones with non-whole-hour offsets.
 func (marketDomain MarketDomain) localMidnightOf(localMoment time.Time) time.Time {
 	return time.Date(
 		localMoment.Year(), localMoment.Month(), localMoment.Day(),
@@ -477,8 +301,7 @@ func (marketDomain MarketDomain) localMidnightOf(localMoment time.Time) time.Tim
 	)
 }
 
-// emptyWindow is a window covering nothing, said in the one way the rest of the
-// system already reads as "there is nothing to do here".
+// emptyWindow is the window shape the rest of the system reads as "nothing to do".
 func (marketDomain MarketDomain) emptyWindow(window vo.KCandleFetchWindowVo) vo.KCandleFetchWindowVo {
 	return vo.NewKCandleFetchWindowVo(
 		window.Symbol, window.Market, window.EndTime.Add(KCandleInterval), window.EndTime)

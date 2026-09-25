@@ -13,14 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// UserService is the application layer's only entry point for the people this system
-// recognises. Its three public use-case methods never call one another.
-//
-// Registering, signing in and being recognised live in one service rather than in
-// two, because they change for one reason: what it takes to count as somebody this
-// system knows. Split apart, both halves would hold the same store and the same
-// notion of an account, and no change to either would ever touch only one of them —
-// which is a single module written down twice.
+// UserService owns registration, sign-in and identification.
 type UserService struct {
 	userRepository     domaininterface.IUserRepository
 	sessionRepository  domaininterface.ISessionRepository
@@ -57,14 +50,7 @@ func NewUserService(
 	}
 }
 
-// RegisterUser creates a user and hands them back as stored, which is waiting to be
-// let in. A registration that breaks a rule is refused before the password is turned
-// into anything and before anything is written.
-//
-// The answer carries what to do about the waiting, because this is the one moment the
-// person is certain to be looking. Saying it only here would not be enough — they
-// will have closed the page long before their first refusal — which is why the same
-// instruction comes back with every refusal too.
+// RegisterUser validates before hashing or writing, and returns the user awaiting activation along with what to do about it.
 func (userService *UserService) RegisterUser(
 	executionContext context.Context, registrationDto dto.UserRegistrationDto,
 ) (dto.UserDto, error) {
@@ -78,8 +64,7 @@ func (userService *UserService) RegisterUser(
 		return dto.UserDto{}, proveError
 	}
 
-	// Whether the address is free is left to the write, not asked beforehand. Asking
-	// first would let two registrations arriving at once both find it free.
+	// Uniqueness is enforced by the write, not a prior lookup, so concurrent registrations cannot both pass.
 	savedUser, saveError := userService.userRepository.Save(
 		executionContext, registration.ToEntity(passwordProof))
 	if saveError != nil {
@@ -89,19 +74,10 @@ func (userService *UserService) RegisterUser(
 	return domains.NewAccountActivationDomain(savedUser, userService.activationPolicy).ToUserDto(), nil
 }
 
-// signInFailureCountingAttempts is how many times counting one wrong password will
-// look again after another attempt beat it to the row.
-//
-// Three, and not a setting: it is a property of how many writes can be lost in a row,
-// not something an operator tunes.
+// signInFailureCountingAttempts bounds optimistic-concurrency retries when counting a failed sign-in; it matches the lockout threshold so the retries cannot all be lost.
 const signInFailureCountingAttempts = 3
 
-// SignIn checks a pair and opens a session, handing back the two proofs that session
-// is made of.
-//
-// It writes now, where the previous version wrote nothing. That is the whole point of
-// this slice: something has to be stored for a sign-in to be endable, and the thing
-// stored is deliberately the half nobody carries on ordinary requests.
+// SignIn verifies credentials and stores a new session, returning its access and renewal tokens.
 func (userService *UserService) SignIn(
 	executionContext context.Context, signInDto dto.SignInDto,
 ) (dto.SessionTokensDto, error) {
@@ -110,15 +86,7 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, credentialsError
 	}
 
-	// Nobody holding this address is not a failure to look, so it is deliberately
-	// not returned here. The check below runs either way and refuses either way —
-	// with no account there is no proof, and a password checked against no proof is
-	// as slow to refuse as one checked against the wrong proof. Turning back early
-	// is exactly how "that address is not registered" gets answered in a timing
-	// difference nobody wrote down.
-	//
-	// Storage being broken, on the other hand, is not a wrong password at all.
-	// Dressing it up as one would have somebody retyping a password that was right.
+	// A missing account is not returned early so the password check still runs (no timing leak on unregistered addresses), whereas a storage error is surfaced.
 	user, findError := userService.userRepository.FindOneByEmail(executionContext, signIn.Email())
 	if findError != nil && !errors.Is(findError, domains.ErrUserNotFound) {
 		return dto.SessionTokensDto{}, findError
@@ -127,11 +95,7 @@ func (userService *UserService) SignIn(
 	now := userService.clockProxy.Now()
 	lockout := domains.NewSignInLockoutDomain(user, userService.lockoutPolicy, now)
 
-	// Before the comparison, not after. A shut account that still paid for a bcrypt
-	// comparison on every attempt would be paying exactly the cost this lock exists
-	// to stop — and because the flow turns back here, there is no path from a locked
-	// account to the counting below. "Trying again does not extend the lock" is
-	// therefore not a rule anybody has to keep; it is a road that is not there.
+	// Checked before the bcrypt comparison so a locked account costs nothing and retries cannot extend the lock.
 	if refusal := lockout.Refusal(); refusal != nil {
 		return dto.SessionTokensDto{}, refusal
 	}
@@ -144,9 +108,7 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, domains.ErrCredentialsRejected
 	}
 
-	// A failure to write this is a failure to sign in, deliberately. Swallowed, the
-	// lock would quietly not exist for as long as the store was unwell, and the one
-	// thing nobody would learn is that it had stopped protecting anything.
+	// A failure to record the outcome fails the sign-in; swallowing it would silently disable the lockout.
 	if recordError := userService.recordSignInOutcome(
 		executionContext, user.ID, user.FailedSignInCount,
 		lockout.AfterSuccess()); recordError != nil {
@@ -158,10 +120,7 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, materialError
 	}
 
-	// A brand-new sign-in starts a chain, and the chain is known by the digest of the
-	// proof that started it. That value is already unique (the column says so) and
-	// already random, so minting a second random value here would be two sources of
-	// randomness for one fact — and two things that have to agree.
+	// A new chain is identified by the renewal-token digest, which is already unique and random.
 	savedSession, saveError := userService.sessionRepository.Save(executionContext, entities.Session{
 		UserID:             user.ID,
 		ChainID:            refreshToken.Digest,
@@ -179,15 +138,7 @@ func (userService *UserService) SignIn(
 	}.ToDto(), nil
 }
 
-// recordSignInOutcome stores what an attempt left behind, and says nothing at all
-// when there was no account to leave it against.
-//
-// The guard is the whole reason this is a method rather than two lines written twice.
-// An address nobody has registered arrives here with an identifier of zero, and a
-// write against zero is a write that names no row — which the store correctly refuses
-// as "no such user", turning a plain wrong-address refusal into a failure. Answering
-// early keeps the promise that an unregistered address leaves no trace and reads
-// exactly like every other wrong pair.
+// recordSignInOutcome is a no-op for an unregistered address (user ID zero), so it leaves no trace and reads like any other wrong pair.
 func (userService *UserService) recordSignInOutcome(
 	executionContext context.Context,
 	userID uint,
@@ -202,21 +153,7 @@ func (userService *UserService) recordSignInOutcome(
 		executionContext, userID, observedFailedSignInCount, state)
 }
 
-// countFailedSignIn adds this wrong password to the account's streak, looking again
-// whenever another attempt got there first.
-//
-// Looking again is the point of it. Reading the streak, spending a bcrypt comparison
-// and writing the next number are three moments, and guesses aimed at one address in
-// parallel land inside that gap on purpose: without the retry they would all read the
-// same number and all write the same number, so a hundred guesses would cost one
-// increment and the threshold would never arrive. That is not two people mistyping at
-// once — it is the cheapest way to defeat this lock, and it belongs to exactly the
-// machine the lock exists for.
-//
-// The budget is small and fixed because it does not need to be big: every round that
-// ends in a refused write is a round where somebody else's number did land, so three
-// rounds cannot all be lost while the threshold is three. Running out is not silently
-// forgiven — an attempt nobody could count is an attempt nobody knows about.
+// countFailedSignIn retries on write conflicts so parallel guesses cannot collapse into one increment; running out of retries is an error, not forgiven.
 func (userService *UserService) countFailedSignIn(
 	executionContext context.Context, user entities.User,
 ) error {
@@ -224,9 +161,7 @@ func (userService *UserService) countFailedSignIn(
 		lockout := domains.NewSignInLockoutDomain(user, userService.lockoutPolicy,
 			userService.clockProxy.Now())
 
-		// Somebody else shut it while we were looking. The attempt is accounted
-		// for, and counting on top would work out a fresh moment and push the end
-		// of the lock further out — the one thing it must never do.
+		// Already locked by a concurrent attempt; counting again would push the lock end further out.
 		if lockout.Refusal() != nil {
 			return nil
 		}
@@ -237,12 +172,7 @@ func (userService *UserService) countFailedSignIn(
 			executionContext, user.ID, user.FailedSignInCount, nextStanding)
 		if !errors.Is(recordError, domains.ErrSignInLockoutStateStale) {
 			if recordError == nil && nextStanding.LockedUntil != nil {
-				// Only the moment an account is shut, and never the ordinary single
-				// failure. One wrong password is somebody mistyping; three in a row
-				// is an account being guessed at, and that is the one thing here
-				// worth somebody's attention. Logging every failure instead would
-				// build the running tally of failed sign-ins this feature
-				// deliberately does not keep, only somewhere nobody looks after it.
+				// Log only when the account locks, not every failure.
 				log.Printf("sign in lockout: account %d shut until %s after %d consecutive failures",
 					user.ID, nextStanding.LockedUntil.Format(time.RFC3339),
 					nextStanding.FailedSignInCount)
@@ -258,10 +188,7 @@ func (userService *UserService) countFailedSignIn(
 		user = freshUser
 	}
 
-	// Out of looks, against a row that has been read once more. Every round lost
-	// here is a round somebody else's number landed in, so by now the account is
-	// usually shut — and a shut account means this attempt is accounted for, which
-	// is the same answer the loop gives when it finds one.
+	// Retries exhausted: if the reloaded row is now locked, this attempt is accounted for.
 	if domains.NewSignInLockoutDomain(
 		user, userService.lockoutPolicy, userService.clockProxy.Now()).Refusal() != nil {
 		return nil
@@ -270,14 +197,7 @@ func (userService *UserService) countFailedSignIn(
 	return domains.ErrSignInLockoutStateStale
 }
 
-// RenewSession trades a renewal proof for a fresh pair, and ends the proof it was
-// given in the same breath.
-//
-// A renewal proof works exactly once. So a proof that has already been used turning
-// up again is not a mistake somebody made — it is two copies of it existing, which
-// means one of them was taken. There is no way to tell which of the two holders is
-// the real one, so the only safe answer is to end the whole chain and make the real
-// one sign in again. Refusing just this proof would leave the thief's copy working.
+// RenewSession rotates a renewal token; reuse of an already-rotated token signals theft, so the whole chain is revoked.
 func (userService *UserService) RenewSession(
 	executionContext context.Context, renewalDto dto.SessionRenewalDto,
 ) (dto.SessionTokensDto, error) {
@@ -298,8 +218,7 @@ func (userService *UserService) RenewSession(
 	}
 
 	if session.Expired(now) {
-		// Expiry is not theft. The chain stays as it is: there is nothing to
-		// tear down, and tearing it down would sign out a second device for no reason.
+		// Expiry is not theft, so the chain is left intact.
 		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
 	}
 
@@ -322,14 +241,7 @@ func (userService *UserService) RenewSession(
 		session.ID(),
 		session.Renewed(refreshToken.Digest, now, userService.sessionLifetimes.RefreshToken),
 	)
-	// Reading that the session was still good and writing to it are two moments, and
-	// something can happen in between: a second renewal carrying the same proof, or a
-	// sign-out. The store says so by refusing to rotate, and it means the same thing
-	// the earlier check means — this proof has been used twice, so the chain goes.
-	//
-	// Without this, the second of two simultaneous renewals would quietly succeed and
-	// leave two live sessions on one chain, and a rotation landing just after a
-	// sign-out would put a working proof back into a chain somebody had just ended.
+	// A rotation refused by the store means a concurrent renewal or sign-out used this token, so treat it as reuse and revoke the chain.
 	if errors.Is(rotateError, domains.ErrSessionAlreadyRotated) {
 		return dto.SessionTokensDto{}, userService.tornDownChain(executionContext, session.ChainID())
 	}
@@ -344,16 +256,7 @@ func (userService *UserService) RenewSession(
 	}.ToDto(), nil
 }
 
-// RevokeSession ends the sign-in a renewal proof belongs to.
-//
-// Being handed a proof that matches nothing is success, not failure. What was asked
-// for is that this sign-in stop working, and a sign-in that was never there already
-// does not work. Reporting an error would have the caller retrying to reach a state
-// it is already in.
-//
-// The access token issued for that session is untouched, because it is not stored
-// and cannot be. It keeps working until it expires — which is exactly what its
-// lifetime is for, and why it is measured in minutes.
+// RevokeSession ends the sign-in a renewal token belongs to; an unknown token is success, and the stateless access token stays valid until it expires.
 func (userService *UserService) RevokeSession(
 	executionContext context.Context, renewalDto dto.SessionRenewalDto,
 ) error {
@@ -366,18 +269,11 @@ func (userService *UserService) RevokeSession(
 		return nil
 	}
 
-	// The whole chain goes, not just this session. A chain is one device's one
-	// sign-in, and signing out means that device, not that proof.
+	// Revoke the whole chain, i.e. the device's sign-in, not just this session.
 	return userService.sessionRepository.RevokeChain(executionContext, storedSession.ChainID)
 }
 
-// tornDownChain ends every session of one sign-in and reports the refusal that goes
-// with it, for the two places that discover a proof has been used twice — one by
-// reading, one by failing to write.
-//
-// Tearing the chain down is the answer, so failing to tear it down is a failure of
-// the request. Reporting "sign in again" while the second copy of the proof quietly
-// still works would be the worst of both.
+// tornDownChain revokes a chain after detected token reuse; failing to revoke fails the request.
 func (userService *UserService) tornDownChain(
 	executionContext context.Context, chainID string,
 ) error {
@@ -389,16 +285,7 @@ func (userService *UserService) tornDownChain(
 	return domains.ErrAuthenticationRequired
 }
 
-// sessionHolding finds the session a renewal proof belongs to.
-//
-// The second return value says whether there was one, and it says only that — the
-// two public methods that ask react to "there was not" in opposite ways. Renewing
-// refuses; signing out succeeds, because a sign-in that is not there already does
-// not work. A helper that decided for them would have to be told which of the two
-// was calling, which is the same thing as not being a helper.
-//
-// A proof of nothing at all never reaches storage: there is nothing to look up, and
-// asking would be a query whose answer is already known.
+// sessionHolding looks up the session for a renewal token, reporting "not found" separately because callers react to it differently; an empty token skips storage.
 func (userService *UserService) sessionHolding(
 	executionContext context.Context, refreshToken string,
 ) (entities.Session, bool, error) {
@@ -418,16 +305,7 @@ func (userService *UserService) sessionHolding(
 	return storedSession, true, nil
 }
 
-// newSessionMaterial produces the two things opening a session needs, before
-// anything at all is written.
-//
-// The order matters and is the reason this is one helper rather than two calls at
-// the call sites. Minting and signing can both fail, and both failing before the
-// write means a failed sign-in leaves no session behind, while a failed renewal
-// leaves the caller's existing proof still working. Signing after the write would
-// end somebody's session and then hand them nothing to replace it with.
-//
-// It is private and shared by exactly the two public methods that open a session.
+// newSessionMaterial mints and signs tokens before any write, so a failure leaves no session behind and does not end the caller's existing one.
 func (userService *UserService) newSessionMaterial(
 	userID uint, now time.Time,
 ) (vo.RefreshTokenVo, vo.AccessTokenVo, error) {
@@ -445,14 +323,7 @@ func (userService *UserService) newSessionMaterial(
 	return refreshToken, accessToken, nil
 }
 
-// IdentifyUser says who a proof of identity belongs to, whether or not they have
-// been let in.
-//
-// It answers somebody still waiting rather than refusing them, and that is the whole
-// reason it stays a separate question from the one the doors ask. Somebody waiting
-// has exactly one way to find out they have been let in: look at themselves again.
-// Refuse this and the only thing left to them is to keep signing in, which will
-// never tell them anything.
+// IdentifyUser resolves a token's user even if not yet activated, so a waiting user can check their status.
 func (userService *UserService) IdentifyUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {
@@ -464,18 +335,7 @@ func (userService *UserService) IdentifyUser(
 	return domains.NewAccountActivationDomain(user, userService.activationPolicy).ToUserDto(), nil
 }
 
-// IdentifyActivatedUser says who a proof of identity belongs to, and refuses unless
-// they have been let in.
-//
-// This is the question every door asks, and it is one question on purpose. A door
-// that asked who somebody was and then decided for itself whether that was good
-// enough would be holding this feature's rule in the HTTP layer — and holding it once
-// per door. Asked this way, the day "let in" grows a second meaning is a day the
-// doors do not change.
-//
-// Recognising comes first and being let in comes second. The other order would answer
-// a broken proof with "your account is not activated yet", which says something about
-// an account nobody managed to identify.
+// IdentifyActivatedUser is the single activation check every endpoint uses; identification happens first so a broken token is not reported as "not activated".
 func (userService *UserService) IdentifyActivatedUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {
@@ -492,16 +352,7 @@ func (userService *UserService) IdentifyActivatedUser(
 	return activation.ToUserDto(), nil
 }
 
-// identifiedUser reads back the person a proof of identity was issued to.
-//
-// The user is read from the store rather than taken from the proof, and that is what
-// makes a token stop working when the account behind it is gone — and what makes one
-// start working the moment somebody is let in, with no need to sign in again. A proof
-// carries who it was issued to, not what has become of them since; only the store
-// knows that.
-//
-// It is private and shared by exactly the two public methods above, which is what
-// earns it: one caller and it would belong inlined.
+// identifiedUser reads the user from the store rather than the token, so deletion and activation take effect immediately.
 func (userService *UserService) identifiedUser(
 	executionContext context.Context, accessToken string,
 ) (entities.User, error) {
@@ -525,19 +376,7 @@ func (userService *UserService) identifiedUser(
 	return user, nil
 }
 
-// ChangePassword replaces the password of the user this identifier names, and ends
-// every session they have open.
-//
-// The order of the checks is chosen rather than incidental. Whether the new password
-// is acceptable, and whether it merely repeats the old one, are questions that need
-// no secret to answer and cost nothing to ask; whether the current password is the
-// current password costs a bcrypt comparison, which is deliberately slow. Asking the
-// cheap questions first means a request that simply filled a box in wrongly does not
-// wait for the expensive one.
-//
-// The identifier does not come from anything the caller sent. It comes from the
-// proof of identity the request carried, which is why there is no path here for
-// changing somebody else's password: PasswordChangeDto has nowhere to name one.
+// ChangePassword runs cheap validation before the slow bcrypt check and revokes every open session; the user ID comes from the token, never the request.
 func (userService *UserService) ChangePassword(
 	executionContext context.Context, userID uint, passwordChangeDto dto.PasswordChangeDto,
 ) error {
@@ -554,10 +393,7 @@ func (userService *UserService) ChangePassword(
 		return findError
 	}
 
-	// No decoy work is spent when this fails, unlike signing in. There, refusing
-	// faster than a real comparison would say "no account holds that address"; here
-	// the person has already been recognised, so there is no list a timing
-	// difference could describe.
+	// No timing decoy needed here: the user is already identified, so there is nothing to enumerate.
 	if !userService.passwordProofProxy.Matches(
 		passwordChange.CurrentPassword(), user.PasswordProof) {
 		return domains.ErrCurrentPasswordRejected

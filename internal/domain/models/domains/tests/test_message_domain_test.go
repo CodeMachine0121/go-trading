@@ -31,8 +31,7 @@ func TestNewTestMessageDomainAcceptsAMessageThatCanBeSent(t *testing.T) {
 			expectedMessage: strings.Repeat("字", 4096),
 		},
 		{
-			// Characters, not bytes. Four thousand Chinese characters is three
-			// times as many bytes, and it is characters that a message holds.
+			// The limit counts characters, not bytes.
 			name:            "a message counted in characters rather than bytes",
 			message:         strings.Repeat("字", 2000),
 			expectedMessage: strings.Repeat("字", 2000),
@@ -58,9 +57,7 @@ func TestNewTestMessageDomainRefusesAMessageThatCannotBeSent(t *testing.T) {
 		{name: "nothing at all", message: "", expectedMessage: "訊息不得為空白"},
 		{name: "nothing but blanks", message: "   \n\t ", expectedMessage: "訊息不得為空白"},
 		{
-			// Refused rather than trimmed, for the same reason an over-long
-			// password is refused: somebody told it worked would believe all of it
-			// arrived.
+			// Refused rather than trimmed, so a successful send means all of it arrived.
 			name:            "one character over the maximum",
 			message:         strings.Repeat("字", 4097),
 			expectedMessage: "一則訊息上限為 4096 個字元",

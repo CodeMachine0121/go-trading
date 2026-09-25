@@ -7,23 +7,12 @@ import (
 	"strings"
 )
 
-// SharedAggregationIntervalDomain is a set of signal sources' coarsenesses, and the
-// one question asked of them: is there a single one they all read?
-//
-// It exists because two gates ask it — saving a trading strategy and replaying one —
-// and they have to refuse in the same words. The sentence naming the coarsenesses
-// found is written here once; two copies of it would eventually disagree, and the
-// person reading them would be told two different things about one fact.
-//
-// It holds the coarsenesses rather than the sources because that is all the question
-// is about. Handed the sources, it would be a model of something it does not judge.
+// SharedAggregationIntervalDomain decides whether signal sources share one interval, so strategy save and replay refuse in the same words.
 type SharedAggregationIntervalDomain struct {
 	aggregationIntervals []string
 }
 
-// NewSharedAggregationIntervalDomain reads the coarsenesses in the order the sources
-// declared them. Order is kept because the refusal lists them, and a list somebody is
-// meant to go and reconcile reads best in the order they see on screen.
+// NewSharedAggregationIntervalDomain deduplicates while keeping declaration order, which is how the refusal lists them.
 func NewSharedAggregationIntervalDomain(
 	aggregationIntervals []string,
 ) SharedAggregationIntervalDomain {
@@ -39,15 +28,7 @@ func NewSharedAggregationIntervalDomain(
 	return SharedAggregationIntervalDomain{aggregationIntervals: distinctIntervals}
 }
 
-// Shared is the one coarseness they all read, or a refusal naming the ones found.
-//
-// One answer rather than two — "are they the same" beside "and here is why not" — is
-// what stops a caller pairing them wrongly. There is no way from here to produce a
-// disagreement with nothing said about it.
-//
-// The refusal names the coarsenesses. Told only that they differ, somebody has to
-// open every source to see how, and the thing they then have to do is make them the
-// same.
+// Shared returns the single common interval, or a refusal naming every interval found.
 func (sharedAggregationIntervalDomain SharedAggregationIntervalDomain) Shared() (string, error) {
 	if len(sharedAggregationIntervalDomain.aggregationIntervals) == 0 {
 		return "", errors.New("這一份交易策略沒有任何信號來源")

@@ -64,8 +64,7 @@ func TestDailyUsageAllowanceCutsTheDayAtUniversalMidnight(t *testing.T) {
 			expectedResetsAt:   time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC),
 		},
 		{
-			// The same instant written in another zone is the same instant, so the
-			// day it falls in is the universal one either way.
+			// The day is determined in UTC regardless of the instant's zone.
 			name: "the same instant told in another zone",
 			now: time.Date(2026, 9, 4, 21, 45, 10, 0,
 				time.FixedZone("UTC+8", 8*60*60)),

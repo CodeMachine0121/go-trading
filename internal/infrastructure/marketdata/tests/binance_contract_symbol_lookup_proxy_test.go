@@ -12,14 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// wholeContractCatalogue is what the contract venue answers with whatever it is asked
-// about: the entire listing, and an ordinary success even for a pair that does not
-// exist. Recognising a typo therefore means scanning it — and the listing carries
-// more than names, which is what lets the scan also refuse a contract nobody could
-// follow.
-//
-// The four entries are the four shapes the venue actually publishes: a perpetual, a
-// traditional-finance perpetual, one it has stopped trading, and a dated future.
+// wholeContractCatalogue is returned for any query, covering a perpetual, a traditional-finance perpetual, a delisted contract and a dated future.
 const wholeContractCatalogue = `{"symbols":[
   {"symbol":"BTCUSDT","status":"TRADING","contractType":"PERPETUAL"},
   {"symbol":"1000PEPEUSDT","status":"TRADING","contractType":"PERPETUAL"},
@@ -28,8 +21,7 @@ const wholeContractCatalogue = `{"symbols":[
   {"symbol":"BTCUSDT_260925","status":"TRADING","contractType":"CURRENT_QUARTER"}
 ]}`
 
-// noFundingIntervals is a funding interval list that names no contract: every
-// contract settles on the venue's default.
+// noFundingIntervals names no contract, so every contract uses the venue default.
 func noFundingIntervals(t *testing.T) string {
 	t.Helper()
 
@@ -130,9 +122,7 @@ func TestContractSymbolLookupSaysSoWhenTheAddressCannotBeTurnedIntoARequest(t *t
 }
 
 func TestContractSymbolLookupAcceptsAPerpetualOnATraditionalFinanceUnderlying(t *testing.T) {
-	// Gold, silver and a share are listed as perpetuals here — they carry the venue's
-	// no-delivery date exactly as the crypto ones do, so there is nothing about them
-	// this system cannot follow.
+	// Gold, silver and share perpetuals carry the same no-delivery date as crypto ones and are followable.
 	lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
 		servedBy(t, wholeContractCatalogue), noFundingIntervals(t), requestTimeout, unpaced())
 
@@ -143,11 +133,6 @@ func TestContractSymbolLookupAcceptsAPerpetualOnATraditionalFinanceUnderlying(t 
 }
 
 func TestContractSymbolLookupRefusesAContractNobodyCouldFollow(t *testing.T) {
-	// Being in the catalogue is not enough. A contract the venue has stopped trading
-	// answers every fetch with nothing, so following one would put a symbol on the
-	// watchlist that is fetched every minute forever and stores nothing — which on
-	// this venue reads exactly like a quiet market, because a perpetual contract is
-	// never presumed shut. A dated future does the same on its delivery day.
 	testCases := []struct {
 		name   string
 		symbol string
@@ -170,9 +155,6 @@ func TestContractSymbolLookupRefusesAContractNobodyCouldFollow(t *testing.T) {
 }
 
 func TestContractSymbolLookupRefusesAKindItDoesNotRecognise(t *testing.T) {
-	// Refusing a new perpetual kind is a sentence somebody reads and one line to fix;
-	// following a new dated kind is a contract that silently stops producing candles
-	// on its delivery day. So an unrecognised kind is refused, not assumed.
 	lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
 		servedBy(t, `{"symbols":[{"symbol":"NEWUSDT","status":"TRADING","contractType":"SOMETHING_NEW"}]}`),
 		noFundingIntervals(t), requestTimeout, unpaced())
@@ -183,9 +165,7 @@ func TestContractSymbolLookupRefusesAKindItDoesNotRecognise(t *testing.T) {
 	assert.False(t, listing.IsListed)
 }
 
-// catalogueWithSpecifications is the catalogue as the venue actually spells a
-// specification: filters of several kinds, each carrying its own fields, and the
-// maintenance margin written as a percentage.
+// catalogueWithSpecifications has filters of several kinds and the maintenance margin as a percentage.
 const catalogueWithSpecifications = `{"symbols":[
   {"symbol":"BTCUSDT","status":"TRADING","contractType":"PERPETUAL",
    "maintMarginPercent":"2.5000","liquidationFee":"0.012500",
@@ -256,9 +236,7 @@ func TestContractSymbolLookupStillFollowsAContractWhoseSpecificationCannotBeRead
 }
 
 func TestContractSymbolLookupStillFollowsAContractWhenTheFundingIntervalsCannotBeRead(t *testing.T) {
-	// The catalogue already said the contract can be followed. Without the interval
-	// list its specification cannot be complete, so none is handed on — rather than a
-	// guessed eight hours — and the add goes ahead.
+	// Without the interval list no specification is returned rather than guessing eight hours, but the add still succeeds.
 	for _, fundingIntervalsUrl := range []string{servedBy(t, "not json"), "http://127.0.0.1:1"} {
 		lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
 			servedBy(t, catalogueWithSpecifications), fundingIntervalsUrl, requestTimeout, unpaced())
@@ -273,8 +251,7 @@ func TestContractSymbolLookupStillFollowsAContractWhenTheFundingIntervalsCannotB
 }
 
 func TestContractSymbolLookupRefreshesNothingWhenTheFundingIntervalsCannotBeRead(t *testing.T) {
-	// A refresh that cannot finish changes nothing: every contract keeps what it was
-	// last confirmed with.
+	// A refresh that cannot finish changes nothing.
 	for _, fundingIntervalsUrl := range []string{servedBy(t, "not json"), "http://127.0.0.1:1"} {
 		lookupProxy := marketdata.NewBinanceContractSymbolLookupProxy(
 			servedBy(t, catalogueWithSpecifications), fundingIntervalsUrl, requestTimeout, unpaced())
@@ -293,7 +270,7 @@ func TestContractSymbolLookupReportsTheSpecificationOfEveryFollowableContract(t 
 	specifications, fetchError := lookupProxy.FetchTradingSpecifications(t.Context())
 
 	require.NoError(t, fetchError)
-	// ODDUSDT cannot be read and OMGUSDT is no longer trading: neither is reported.
+	// ODDUSDT is unreadable and OMGUSDT is no longer trading, so neither is reported.
 	require.Len(t, specifications, 2)
 	assert.Equal(t, "BTCUSDT", specifications[0].Symbol)
 	assert.Nil(t, specifications[0].FundingIntervalHours)

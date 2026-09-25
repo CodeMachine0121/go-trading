@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ContractFundingRateSettlementRepository stores perpetual contract funding rate
-// settlements in PostgreSQL.
 type ContractFundingRateSettlementRepository struct {
 	database *gorm.DB
 }
@@ -22,14 +20,10 @@ func NewContractFundingRateSettlementRepository(database *gorm.DB) *ContractFund
 	return &ContractFundingRateSettlementRepository{database: database}
 }
 
-// fundingRateSettlementSaveBatchSize is how many settlements go into one statement.
-// A contract listed years ago has thousands of them, and the count only grows, while
-// PostgreSQL takes at most sixty-five thousand values in a single statement.
+// fundingRateSettlementSaveBatchSize keeps each insert under PostgreSQL's 65,535-parameter limit.
 const fundingRateSettlementSaveBatchSize = 1000
 
-// SaveAllIfAbsent stores every settlement nothing is held for yet, a batch at a time,
-// and says how many it stored. An empty batch never reaches the store: the driver
-// refuses a statement with no rows, and "nothing new this hour" is an ordinary answer.
+// SaveAllIfAbsent inserts new settlements in batches and returns the count stored; an empty input skips the store because the driver rejects empty inserts.
 func (settlementRepository *ContractFundingRateSettlementRepository) SaveAllIfAbsent(
 	executionContext context.Context, settlements []entities.ContractFundingRateSettlement,
 ) (int, error) {
@@ -50,7 +44,6 @@ func (settlementRepository *ContractFundingRateSettlementRepository) SaveAllIfAb
 	return int(result.RowsAffected), nil
 }
 
-// FindLatest is the most recent settlement held for the contract.
 func (settlementRepository *ContractFundingRateSettlementRepository) FindLatest(
 	executionContext context.Context, symbol string,
 ) (entities.ContractFundingRateSettlement, bool, error) {
@@ -71,8 +64,6 @@ func (settlementRepository *ContractFundingRateSettlementRepository) FindLatest(
 	return latestSettlement, true, nil
 }
 
-// FindLatestBefore is the most recent settlement held for the contract whose
-// settlement time is strictly before the cut-off.
 func (settlementRepository *ContractFundingRateSettlementRepository) FindLatestBefore(
 	executionContext context.Context, symbol string, cutoffTime time.Time,
 ) (entities.ContractFundingRateSettlement, bool, error) {
@@ -96,7 +87,6 @@ func (settlementRepository *ContractFundingRateSettlementRepository) FindLatestB
 	return latestSettlement, true, nil
 }
 
-// FindInRange returns the settlements inside the query's range, earliest first.
 func (settlementRepository *ContractFundingRateSettlementRepository) FindInRange(
 	executionContext context.Context, query domains.KCandleQueryDomain, limit int,
 ) ([]entities.ContractFundingRateSettlement, error) {

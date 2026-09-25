@@ -1,8 +1,6 @@
 package vo
 
-// KCandleVo is a K candle as an indicator script sees it: immutable plain data,
-// no behavior. The open time is carried as Unix seconds rather than a time value
-// so that a script can never reach the clock through it.
+// KCandleVo is a K candle as an indicator script sees it; the open time is Unix seconds so a script can never reach the clock through it.
 type KCandleVo struct {
 	Symbol              string
 	OpenTimeUnixSeconds int64

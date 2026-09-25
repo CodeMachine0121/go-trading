@@ -7,13 +7,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// tradingStrategyConditionAssistantArgument is one node of a condition tree as the
-// assistant declares it: either a comparison against one signal source, or a group of
-// conditions joined by an operator.
-//
-// One shape carries both, exactly as it does for a person: the operator being empty
-// is what says this one is a comparison. It recurses through itself, so a condition
-// nested five deep needs no more code than one nested once.
+// tradingStrategyConditionAssistantArgument is a condition tree node: a comparison against one
+// signal source when Operator is empty, otherwise a group of nested conditions.
 type tradingStrategyConditionAssistantArgument struct {
 	Operator    string                                      `json:"operator"`
 	Conditions  []tradingStrategyConditionAssistantArgument `json:"conditions"`
@@ -21,7 +16,6 @@ type tradingStrategyConditionAssistantArgument struct {
 	Signal      string                                      `json:"signal"`
 }
 
-// ToDto turns this node and everything under it into the domain's shape.
 func (tradingStrategyConditionAssistantArgument tradingStrategyConditionAssistantArgument) ToDto() dto.TradingStrategyConditionDto {
 	conditionDtos := make(
 		[]dto.TradingStrategyConditionDto, 0, len(tradingStrategyConditionAssistantArgument.Conditions))
@@ -37,15 +31,11 @@ func (tradingStrategyConditionAssistantArgument tradingStrategyConditionAssistan
 	}
 }
 
-// tradingStrategyParameterValueAssistantArgument is what one knob is worth in one
-// source.
 type tradingStrategyParameterValueAssistantArgument struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
 }
 
-// tradingStrategySignalSourceAssistantArgument is one strategy script as it is to run
-// inside this trading strategy.
 type tradingStrategySignalSourceAssistantArgument struct {
 	Label               string                                           `json:"label"`
 	StrategyScriptID    uint                                             `json:"strategyScriptId"`
@@ -53,13 +43,8 @@ type tradingStrategySignalSourceAssistantArgument struct {
 	ParameterValues     []tradingStrategyParameterValueAssistantArgument `json:"parameterValues"`
 }
 
-// tradingStrategyWriteAssistantArguments is what the assistant sends to build or
-// rewrite a trading strategy.
-//
-// One shape serves both, exactly as it does for a person: a rewrite replaces
-// everything a trading strategy remembers, so there is no field the assistant may set
-// on one path and not the other. Which trading strategy is meant is the identifier,
-// and a zero one means none yet.
+// tradingStrategyWriteAssistantArguments serves both build and rewrite, since a rewrite replaces
+// every field; a zero identifier means the strategy is new.
 type tradingStrategyWriteAssistantArguments struct {
 	TradingStrategyID uint                                           `json:"tradingStrategyId"`
 	Name              string                                         `json:"name"`
@@ -68,14 +53,8 @@ type tradingStrategyWriteAssistantArguments struct {
 	SellCondition     tradingStrategyConditionAssistantArgument      `json:"sellCondition"`
 }
 
-// ToWriteDto turns what the assistant declared into the shape the domain judges,
-// taking the identity from the argument so that the capability calling this decides
-// whether a trading strategy is being built or rewritten.
-//
-// The owner is not taken here at all — there is no field for one. It is settled by
-// the application from whoever the assistant is acting for, which is what makes
-// "the assistant never names an owner" true of the shape rather than of a check
-// somebody keeps having to make.
+// ToWriteDto takes the identity from the calling capability and has no owner field at all, so the
+// application always sets the owner from whoever the assistant acts for.
 func (tradingStrategyWriteAssistantArguments tradingStrategyWriteAssistantArguments) ToWriteDto(id uint) dto.TradingStrategyWriteDto {
 	signalSourceWriteDtos := make(
 		[]dto.TradingStrategySignalSourceWriteDto, 0, len(tradingStrategyWriteAssistantArguments.SignalSources))
@@ -107,16 +86,8 @@ func (tradingStrategyWriteAssistantArguments tradingStrategyWriteAssistantArgume
 	}
 }
 
-// tradingStrategyConditionArgumentSchema is one node of a condition tree as the
-// assistant is told to send it.
-//
-// The nesting is described in words rather than declared, because the schema handed
-// over carries only the top level's properties — a reference back to itself would
-// arrive stripped and leave the assistant with no description at all. Nothing is
-// lost by saying it in prose: the tree's real gatekeeper is the domain, which checks
-// depth, node count, operators and labels and hands any refusal straight back for
-// the assistant to correct. A schema that tried to enforce the same rules would be a
-// second, weaker copy of them.
+// tradingStrategyConditionArgumentSchema describes nesting in prose because the schema handed over
+// keeps only top-level properties; the domain remains the real validator of the tree.
 const tradingStrategyConditionArgumentSchema = `{"type":"object","description":` +
 	`"一棵條件樹。每個節點二選一：【比較】{\"sourceLabel\":\"A\",\"signal\":\"buy\"}——` +
 	`那個來源必須說出這個信號；【群組】{\"operator\":\"and\",\"conditions\":[子節點,子節點]}——` +
@@ -130,9 +101,8 @@ const tradingStrategyConditionArgumentSchema = `{"type":"object","description":`
 	`"signal":{"type":"string","enum":["buy","sell","hold"],"description":"比較節點才有：那個來源要說出的信號"}` +
 	`}}`
 
-// tradingStrategyWriteArgumentSchema is the arguments both writing capabilities take.
-// It is written once because they take the same ones — the only difference is whether
-// the identifier is required, and each says that for itself.
+// tradingStrategyWriteArgumentSchema is shared by both writing capabilities, which differ only in
+// whether the identifier is required.
 const tradingStrategyWriteArgumentSchema = `` +
 	`"name":{"type":"string","description":"交易策略名稱，不得空白、不得與自己既有的交易策略重複，上限 128 字"},` +
 	`"signalSources":{"type":"array","description":"這份交易策略聽哪幾支策略腳本說話，上限 10 個。` +
@@ -149,9 +119,7 @@ const tradingStrategyWriteArgumentSchema = `` +
 	`"buyCondition":` + tradingStrategyConditionArgumentSchema + `,` +
 	`"sellCondition":` + tradingStrategyConditionArgumentSchema
 
-// renderedTradingStrategy is one trading strategy as the assistant reads it. Building
-// one, rewriting one and reading one all hand back the same shape, so the assistant
-// never has to learn two ways of looking at the same thing.
+// renderedTradingStrategy is the one shape building, rewriting and reading all hand back.
 func renderedTradingStrategy(tradingStrategyDto dto.TradingStrategyDto) (string, error) {
 	payload, marshalError := json.Marshal(tradingStrategyDto)
 	if marshalError != nil {

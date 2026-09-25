@@ -13,12 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// bearerScheme is how a proof of identity announces itself in the Authorization
-// header. HTTP says the scheme name is compared without regard to case, which is why
-// it is matched with a case-insensitive prefix rather than with strings.CutPrefix.
+// Matched with a case-insensitive prefix because HTTP compares the scheme name case-insensitively.
 const bearerScheme = "bearer "
 
-// UserController exposes the sign-in use cases over HTTP.
 type UserController struct {
 	userApplication *application.UserApplication
 }
@@ -47,12 +44,7 @@ func (userController *UserController) RegisterUser(ginContext *gin.Context) {
 }
 
 // SignIn handles POST /sessions.
-//
-// Signing in is a POST to a resource of its own rather than to something under
-// /users, because what it creates is a session. The answer stays 200 rather than
-// becoming 201 now that a session really is stored: 201 promises somewhere to go and
-// look at what was created, and there is no such address — a session is only ever
-// reachable by holding its renewal proof, which is the point of it.
+// SignIn stays 200 rather than 201 because a session has no address to look it up at; it is reachable only via its renewal proof.
 func (userController *UserController) SignIn(ginContext *gin.Context) {
 	var signInRequest models.SignInRequest
 
@@ -72,11 +64,7 @@ func (userController *UserController) SignIn(ginContext *gin.Context) {
 }
 
 // RenewSession handles POST /sessions/renewal.
-//
-// It is a POST rather than a body-carrying DELETE or PUT for a plain reason: which
-// session is meant is named by the renewal proof, the proof can only travel in a
-// body, and a DELETE with a body is something an assortment of clients and
-// intermediaries quietly drop.
+// POST because the renewal proof must travel in a body, and clients and intermediaries drop DELETE bodies.
 func (userController *UserController) RenewSession(ginContext *gin.Context) {
 	var sessionRenewalRequest models.SessionRenewalRequest
 
@@ -96,11 +84,7 @@ func (userController *UserController) RenewSession(ginContext *gin.Context) {
 }
 
 // RevokeSession handles POST /sessions/revocation.
-//
-// It answers 204 whether or not there was anything to end, because "this sign-in no
-// longer works" is true either way — and a caller told otherwise would retry to
-// reach a state it is already in. The only thing that makes this fail is the system
-// itself being unable to look.
+// Answers 204 whether or not anything was ended, since the requested state holds either way; only a lookup failure errors.
 func (userController *UserController) RevokeSession(ginContext *gin.Context) {
 	var sessionRenewalRequest models.SessionRenewalRequest
 
@@ -131,15 +115,7 @@ func (userController *UserController) GetCurrentUser(ginContext *gin.Context) {
 }
 
 // ChangePassword handles POST /users/me/password.
-//
-// It answers 204 rather than 200 with the user, because there is nothing to hand
-// back: the proof is not returned, the password is not returned, and the account
-// itself did not otherwise change. A body would only be an invitation to put one of
-// those in it later.
-//
-// Which account this changes comes from the door, not from the body. That is what
-// makes "you can only change your own" a fact about the shape of the request rather
-// than a check somebody has to remember to write.
+// Answers 204 because nothing is returned, and the account comes from the token rather than the body.
 func (userController *UserController) ChangePassword(ginContext *gin.Context) {
 	var passwordChangeRequest models.PasswordChangeRequest
 
@@ -160,18 +136,7 @@ func (userController *UserController) ChangePassword(ginContext *gin.Context) {
 	ginContext.Status(http.StatusNoContent)
 }
 
-// readAccessToken pulls the proof of identity out of the Authorization header,
-// answering with nothing when the header is missing or carries some other scheme.
-//
-// It does not turn those away itself. "No proof was presented" and "the proof
-// presented is not valid" are the same refusal to the person holding neither, and
-// the rule that says so already lives one layer in — writing it here as well would
-// be a second copy that can disagree with the first.
-//
-// This is the seam the day the market endpoints need a door of their own: it becomes
-// a middleware that puts the identified user on the request, and this handler reads
-// it from there instead. It is not one today because one endpoint does not need a
-// layer of indirection to be reached.
+// readAccessToken returns an empty string when the header is missing or not a bearer token, leaving rejection to the domain.
 func (userController *UserController) readAccessToken(ginContext *gin.Context) string {
 	authorization := ginContext.GetHeader("Authorization")
 	if !strings.HasPrefix(strings.ToLower(authorization), bearerScheme) {
@@ -181,9 +146,7 @@ func (userController *UserController) readAccessToken(ginContext *gin.Context) s
 	return strings.TrimSpace(authorization[len(bearerScheme):])
 }
 
-// respondWithError maps a domain error onto the status code that reports it. It
-// knows only this feature's own errors: a caller must not have to recognise a
-// strategy script's failure to find out their password was wrong.
+// respondWithError maps only this feature's own errors.
 func (userController *UserController) respondWithError(ginContext *gin.Context, err error) {
 	if errors.Is(err, domains.ErrUserValidation) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -193,27 +156,13 @@ func (userController *UserController) respondWithError(ginContext *gin.Context, 
 		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return
 	}
-	// Both of these are "you are not getting in", and both are 401. They stay two
-	// errors rather than one because they are refusals of different things — a pair
-	// that did not match, and a proof that is not valid — and the caller does
-	// different things about them: type the password again, or sign in again.
+	// Both are 401 but kept as two errors because the remedies differ: retype the password or sign in again.
 	if errors.Is(err, domains.ErrCredentialsRejected) ||
 		errors.Is(err, domains.ErrAuthenticationRequired) {
 		ginContext.JSON(http.StatusUnauthorized, gin.H{"message": err.Error()})
 		return
 	}
-	// Too many wrong passwords in a row. It is 429 and deliberately not 401: 401
-	// means "this sign-in no longer counts, go and sign in again", and somebody
-	// acting on it signs in again — which is the one thing that cannot help for as
-	// long as the lock lasts. Nor 423: that says the thing being reached is locked,
-	// where the truth here is that this caller has tried too often and what they
-	// have to do is wait. The moment they can stop waiting is already in the
-	// message, put there by the domain.
-	//
-	// The moment travels as a field of its own as well as inside the sentence.
-	// A caller that has to show it in the reader's own timezone would otherwise
-	// have to pick it back out of a sentence written for a person — and the day
-	// somebody rewords that sentence, the parsing quietly stops finding it.
+	// 429, not 401 (which sends callers to sign in again) nor 423; the unlock time is also returned as its own field so callers need not parse the message.
 	var signInLocked domains.SignInLockedError
 	if errors.As(err, &signInLocked) {
 		ginContext.JSON(http.StatusTooManyRequests, gin.H{
@@ -222,20 +171,12 @@ func (userController *UserController) respondWithError(ginContext *gin.Context, 
 		})
 		return
 	}
-	// The password given as the one in force was not the one in force. It is 403
-	// and deliberately not 401: in this system 401 means one thing only — "this
-	// sign-in no longer counts, go and sign in again" — and callers act on it by
-	// taking the person back to the sign-in screen. This person's sign-in is fine.
-	// What is wrong is one box on a form, and they need to stay where they are to
-	// fix it.
+	// 403, not 401: callers treat 401 as "sign in again", but here only the current password field needs fixing.
 	if errors.Is(err, domains.ErrCurrentPasswordRejected) {
 		ginContext.JSON(http.StatusForbidden, gin.H{"message": err.Error()})
 		return
 	}
-	// Having no key to sign with is the system being unable to do its job, not the
-	// caller having asked wrongly — their password was right and there is nothing
-	// they can change. Saying so is what stops somebody debugging their own password
-	// for an hour.
+	// A missing signing key is a system failure; the caller's password was right.
 	if errors.Is(err, domains.ErrAccessTokenUnavailable) {
 		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"message": err.Error()})
 		return

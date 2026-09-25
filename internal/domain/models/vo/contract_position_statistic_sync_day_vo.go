@@ -2,9 +2,7 @@ package vo
 
 import "time"
 
-// ContractPositionStatisticSyncDayVo is one day of position statistics a contract
-// history sync walks: a calendar day in UTC, which is how the venue's archive files
-// them, and the first and last statistic time that day can hold.
+// ContractPositionStatisticSyncDayVo is one UTC calendar day (how the archive files them) with its first and last statistic times.
 type ContractPositionStatisticSyncDayVo struct {
 	Day                time.Time
 	FirstStatisticTime time.Time

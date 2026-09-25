@@ -6,7 +6,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleDto is the only shape in which a K candle leaves the domain.
 type KCandleDto struct {
 	Symbol              string              `json:"symbol"`
 	OpenTime            time.Time           `json:"openTime"`

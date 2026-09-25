@@ -9,29 +9,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractPositionStatisticArchiveDomain is one reading from the venue's daily
-// archive, turned into a position statistic that may be stored — judged by exactly
-// the rules a live reading is, so that nothing downstream learns where it came from.
-//
-// **The archive keeps a long-short ratio where the live source keeps two shares.**
-// The shares are worked back out of it: a ratio r of long to short means the long
-// side holds r parts of every r + 1, so the long share is r ÷ (1 + r) and the short
-// share 1 ÷ (1 + r). They come out with more decimals than the live source's four,
-// and that difference is accepted rather than rounded away.
-//
-// **Only the rules the arithmetic depends on are checked here.** A negative ratio is
-// refused before anything is worked out, because at −1 the sum is zero and below it
-// the shares would be numbers with no meaning; open interest missing is named because
-// there is nothing to carry over. Every other rule — a split missing, a share out of
-// range, a time off the grid or in the future — is ContractPositionStatisticDomain's,
-// which this hands the worked-out reading to rather than repeating.
+// ContractPositionStatisticArchiveDomain turns one daily-archive reading into a position statistic judged by the same rules as a live one.
+// The archive stores a long-short ratio r, so shares are derived as r÷(1+r) and 1÷(1+r), keeping their extra decimals unrounded.
 type ContractPositionStatisticArchiveDomain struct {
 	statistic ContractPositionStatisticDomain
 }
 
-// NewContractPositionStatisticArchiveDomain works the shares out of one archive
-// reading and judges the result, judging "in the future" against currentTime. Any
-// rule broken on the way refuses the reading, with that rule named.
+// NewContractPositionStatisticArchiveDomain refuses a negative ratio or missing open interest itself and leaves every other rule to NewContractPositionStatisticDomain.
 func NewContractPositionStatisticArchiveDomain(
 	archiveVo vo.ContractPositionStatisticArchiveVo, currentTime time.Time,
 ) (ContractPositionStatisticArchiveDomain, error) {
@@ -42,8 +26,6 @@ func NewContractPositionStatisticArchiveDomain(
 		OpenInterestValue: archiveVo.OpenInterestValue.Decimal,
 	}
 
-	// The two figures of open interest are what makes a reading a reading at all, so
-	// one missing is named here rather than stored as a zero nobody asked for.
 	if !archiveVo.OpenInterest.Valid {
 		return ContractPositionStatisticArchiveDomain{}, fmt.Errorf(
 			"%w: 缺持倉量", ErrContractPositionStatisticValidation)
@@ -53,8 +35,7 @@ func NewContractPositionStatisticArchiveDomain(
 			"%w: 缺持倉價值", ErrContractPositionStatisticValidation)
 	}
 
-	// Listed in the order ContractPositionStatisticDomain names them, so a reading
-	// wrong on both sides is always told about the same one.
+	// Same order as ContractPositionStatisticDomain, so a reading wrong on both sides always names the same one.
 	splits := []struct {
 		name                  string
 		ratio                 decimal.NullDecimal
@@ -68,8 +49,7 @@ func NewContractPositionStatisticArchiveDomain(
 			&statistic.TopTraderPositionLongShortRatio},
 	}
 	for _, split := range splits {
-		// An absent ratio stays absent on all three figures, and the live rules below
-		// say "缺…" about it exactly as they would for a live reading missing a split.
+		// An absent ratio stays absent so the live rules report it as missing.
 		if !split.ratio.Valid {
 			continue
 		}
@@ -93,7 +73,6 @@ func NewContractPositionStatisticArchiveDomain(
 	return ContractPositionStatisticArchiveDomain{statistic: statisticDomain}, nil
 }
 
-// ToEntity converts the judged reading into the record shape that is stored.
 func (archiveDomain ContractPositionStatisticArchiveDomain) ToEntity() entities.ContractPositionStatistic {
 	return archiveDomain.statistic.ToEntity()
 }

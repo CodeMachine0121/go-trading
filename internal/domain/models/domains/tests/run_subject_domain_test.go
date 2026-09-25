@@ -18,8 +18,7 @@ func TestRunSubjectDomainTakesOneOrTheOther(t *testing.T) {
 	}{
 		{name: "naming a saved strategy script", strategyScriptID: 7, ownScript: "", refused: false},
 		{name: "carrying an algorithm nobody saved", strategyScriptID: 0, ownScript: "func Calculate() {}", refused: false},
-		// Both at once can disagree about what actually ran, and picking a winner
-		// makes the loser vanish without a word.
+		// Both at once could disagree about what ran, so it is refused rather than picking one.
 		{name: "both at once", strategyScriptID: 7, ownScript: "func Calculate() {}", refused: true},
 		{name: "neither", strategyScriptID: 0, ownScript: "", refused: true},
 	}
@@ -50,8 +49,7 @@ func TestRunSubjectDomainSaysWhichStrategyScriptWasNamed(t *testing.T) {
 }
 
 func TestRunSubjectDomainHandsOverAnUnsavedAlgorithmToRun(t *testing.T) {
-	// The kind of value and the knobs come from the caller, because there is no
-	// strategy script to have declared them.
+	// With no strategy script, the result type and parameters come from the caller.
 	runSubjectDomain, subjectError := domains.NewRunSubjectDomain(
 		0, "func Calculate() {}", "floatList",
 		[]dto.StrategyScriptParameterWriteDto{{Name: "期數", Kind: "lookbackCount", DefaultValue: 20}})

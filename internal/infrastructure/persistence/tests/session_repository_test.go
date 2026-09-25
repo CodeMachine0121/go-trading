@@ -13,8 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// aSessionOwner stores a user for sessions to belong to, because a session with no
-// owner is a row the foreign key will not accept.
+// aSessionOwner stores a user because the session foreign key requires one.
 func aSessionOwner(t *testing.T, database *gorm.DB, email string) entities.User {
 	t.Helper()
 
@@ -106,8 +105,7 @@ func TestSessionRepositoryRotateEndsTheOldAndOpensTheNew(t *testing.T) {
 }
 
 func TestSessionRepositoryRotateLeavesTheOldAloneWhenTheNewCannotBeWritten(t *testing.T) {
-	// Ending the old outside the transaction that writes the new would leave the
-	// holder with two proofs that do nothing and no way to find out why.
+	// Revoking the old session and writing the new one must share a transaction.
 	database := newTestDatabase(t)
 	owner := aSessionOwner(t, database, "james@example.com")
 	sessionRepository := persistence.NewSessionRepository(database)
@@ -147,7 +145,7 @@ func TestSessionRepositoryRevokeChainEndsEverySessionOfOneSignIn(t *testing.T) {
 }
 
 func TestSessionRepositoryRevokeChainLeavesOtherChainsAlone(t *testing.T) {
-	// Signing out one device is signing out that device, not that person.
+	// Signing out revokes only that device's chain.
 	database := newTestDatabase(t)
 	owner := aSessionOwner(t, database, "james@example.com")
 	sessionRepository := persistence.NewSessionRepository(database)
@@ -173,8 +171,7 @@ func TestSessionRepositoryRevokeChainOnNothingIsNotAFailure(t *testing.T) {
 }
 
 func TestSessionRepositoryRevokeChainKeepsTheMomentASessionActuallyEnded(t *testing.T) {
-	// The first time is the answer to "when did this stop". Overwriting it would
-	// erase the trail somebody would follow to work out what happened.
+	// The first revocation time must not be overwritten.
 	database := newTestDatabase(t)
 	owner := aSessionOwner(t, database, "james@example.com")
 	sessionRepository := persistence.NewSessionRepository(database)
@@ -225,9 +222,7 @@ func TestSessionRepositorySaysStorageBrokeRatherThanAnsweringWithNothing(t *test
 	require.Error(t, revokeError)
 }
 
-// The repository names the index it relies on in Go; the entity spells it in a
-// struct tag, which cannot hold a constant. This test needs no database, so unlike
-// the ones above it cannot skip.
+// The index name is repeated because struct tags cannot hold constants; this test needs no database, so it never skips.
 func TestTheDigestIndexTheRepositoryReliesOnIsTheOneTheEntityDeclares(t *testing.T) {
 	digestField, found := reflect.TypeFor[entities.Session]().FieldByName("RefreshTokenDigest")
 	require.True(t, found, "the entity has no RefreshTokenDigest field to carry the index")
@@ -237,11 +232,7 @@ func TestTheDigestIndexTheRepositoryReliesOnIsTheOneTheEntityDeclares(t *testing
 }
 
 func TestSessionRepositoryRotateRefusesASessionThatHasAlreadyEnded(t *testing.T) {
-	// This is what makes "a renewal proof works once" true. Two renewals carrying the
-	// same proof both read a session that is still good and both go on to write, so
-	// the guarantee cannot come from the reading — only the write can establish it.
-	// Without this, the second one succeeds and one chain ends up with two live
-	// sessions, while the reuse detection that was supposed to catch it never fires.
+	// Only the write can guarantee single use, since two concurrent renewals both read a still-valid session.
 	database := newTestDatabase(t)
 	owner := aSessionOwner(t, database, "james@example.com")
 	sessionRepository := persistence.NewSessionRepository(database)
@@ -262,9 +253,7 @@ func TestSessionRepositoryRotateRefusesASessionThatHasAlreadyEnded(t *testing.T)
 }
 
 func TestSessionRepositoryRotateCannotUndoASignOut(t *testing.T) {
-	// A renewal that read its session just before somebody signed out would otherwise
-	// insert a brand-new working proof into a chain that had just been ended: the
-	// person pressed sign out, was told it worked, and that device keeps going.
+	// A renewal that read its session just before sign-out must not add a live proof to the ended chain.
 	database := newTestDatabase(t)
 	owner := aSessionOwner(t, database, "james@example.com")
 	sessionRepository := persistence.NewSessionRepository(database)
@@ -283,9 +272,7 @@ func TestSessionRepositoryRotateCannotUndoASignOut(t *testing.T) {
 }
 
 func TestSessionRepositoryFindOneByDigestRefusesToGuessWhenGivenNothing(t *testing.T) {
-	// The condition is spelled out rather than given as a struct because GORM drops
-	// zero-valued struct fields — and a lookup with no condition hands back whichever
-	// row happens to be first, which here would be somebody else's session.
+	// A string condition is needed because GORM drops zero-valued struct fields and would return someone else's session.
 	database := newTestDatabase(t)
 	owner := aSessionOwner(t, database, "james@example.com")
 	sessionRepository := persistence.NewSessionRepository(database)

@@ -107,8 +107,7 @@ func TestBackfillWindowStartsAfterTheStoredCandleOrAtTheEdgeTheLookbackReaches(t
 			expectedStartTime:    at(7, 1, 0),
 		},
 		{
-			// Reaching back by the lookback lands at 08-29 09:07, which is mid-bucket at
-			// every coarseness above a minute. It starts at that day's edge instead.
+			// The lookback lands at 08-29 09:07, mid-bucket for every coarseness above a minute, so it starts at that day's edge.
 			name:                 "gap wider than the lookback starts at the edge of the day it reaches",
 			latestStoredOpenTime: time.Date(2026, 8, 27, 9, 0, 0, 0, time.UTC),
 			expectedStartTime:    time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC),
@@ -145,14 +144,7 @@ func TestBackfillWindowStartsAfterTheStoredCandleOrAtTheEdgeTheLookbackReaches(t
 }
 
 func TestBackfillReachesBackToABucketEdgeWhateverTimeItIsAsked(t *testing.T) {
-	// A stretch that begins mid-bucket makes the oldest bucket of every coarseness
-	// begin part way through itself, and it is still merged and handed over as a whole
-	// one — at one day, an afternoon's opening price and half a day's volume reported
-	// as the day's. Nothing downstream can tell that from a market that traded little,
-	// so the start has to be right.
-	//
-	// Every case reaches back 24 hours and then down to that day's edge, so they all
-	// land on the same moment however far into the day they were asked.
+	// Starting mid-bucket would merge a partial oldest bucket as if whole, so every case reaches back 24h and aligns down to that day's edge.
 	testCases := []struct {
 		name        string
 		currentTime time.Time
@@ -187,9 +179,7 @@ func TestBackfillReachesBackToABucketEdgeWhateverTimeItIsAsked(t *testing.T) {
 }
 
 func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T) {
-	// The lookback exists to stop the first round after a long silence from bolting.
-	// Reaching down to an edge loosens that, so how much it loosens it has to be
-	// bounded — and the bound is one bucket of the coarsest coarseness, never more.
+	// Aligning down loosens the lookback, so the extra span is bounded by one bucket of the coarsest interval.
 	testCases := []struct {
 		name              string
 		currentTime       time.Time
@@ -219,9 +209,7 @@ func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T
 
 			unalignedStart := testCase.currentTime.Add(-backfillLookback)
 
-			// The bound is the spec's own number, not one asked of the code being
-			// tested: derived from the coarsest interval it would widen by itself the
-			// day a coarser one is added, and go on passing while meaning less.
+			// The bound is the spec's number, not derived from the code, so adding a coarser interval would fail this.
 			assert.Equal(t, testCase.expectedExtraSpan, unalignedStart.Sub(window.StartTime))
 			assert.Less(t, unalignedStart.Sub(window.StartTime), 24*time.Hour,
 				"多抓的量不會達到一整天——回補上限的原始目的（避免第一輪暴衝）靠這個上界成立")
@@ -230,9 +218,7 @@ func TestBackfillNeverReachesBackMoreThanOneBucketBeyondTheLookback(t *testing.T
 }
 
 func TestBackfillLeavesAStartTakenFromStoredDataAlone(t *testing.T) {
-	// That start already sits on a minute edge and abuts the candles that are there.
-	// Reaching down to a bucket edge would step back over them and fetch what is
-	// already stored — so the rounding must not touch this one.
+	// A start already on a minute edge abutting stored candles must not be aligned back over them.
 	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
 		BackfillWindow("BTCUSDT", vo.MarketCrypto,
 			time.Date(2026, 8, 30, 12, 30, 0, 0, time.UTC))
@@ -242,17 +228,12 @@ func TestBackfillLeavesAStartTakenFromStoredDataAlone(t *testing.T) {
 }
 
 func TestABackfillStartedAtAnEdgeProducesAWholeOldestBucket(t *testing.T) {
-	// This is what the whole change is for, and it is the one claim neither half's
-	// tests make on their own: the window's start is tested here, merging is tested
-	// over in the series, and nothing joined them up. Joined up, a run that begins
-	// where the window says produces an oldest bucket whose opening really is that
-	// day's opening — not an afternoon's wearing the day's name.
+	// Joins the window start and the series merge: the oldest daily bucket's open must really be the day's open.
 	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
 		BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
 	require.Equal(t, time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC), window.StartTime)
 
-	// What the source hands back for that window, newest first: the day opens at the
-	// window's own start, so the first candle of the bucket is the first of the day.
+	// The source returns newest first; the day opens at the window's own start.
 	dayOpeningPrice := decimal.NewFromInt(100)
 	storedKCandles := []entities.KCandle{
 		{
@@ -281,14 +262,7 @@ func TestABackfillStartedAtAnEdgeProducesAWholeOldestBucket(t *testing.T) {
 }
 
 func TestABucketIsWholeEvenWhenTheMarketOnlyTradedPartOfTheDay(t *testing.T) {
-	// A symbol listed that morning, or a market that only opens for a few hours. The
-	// bucket still belongs to the whole day and still holds everything that traded in
-	// it — the alignment is about where fetching starts, not about demanding that a
-	// day be busy. Refusing this would turn every listing day and every short session
-	// into missing data.
-	//
-	// The day is taken from the window rather than written down, so this stays a
-	// statement about what a backfill produces — which is what this file is about.
+	// A partly traded day (fresh listing, short session) still forms a whole-day bucket; alignment only controls where fetching starts.
 	window := ingestionDomain(t, time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5).
 		BackfillWindow("BTCUSDT", vo.MarketCrypto, time.Time{})
 	dayStart := window.StartTime
@@ -320,11 +294,7 @@ func TestABucketIsWholeEvenWhenTheMarketOnlyTradedPartOfTheDay(t *testing.T) {
 }
 
 func TestALookbackShorterThanOneBucketIsRaisedToIt(t *testing.T) {
-	// The setting exists to keep the first round after a long silence small. Reaching
-	// back an hour and then down to a bucket edge reaches back up to a day and a half
-	// — twenty-five times what an hour asked for, which defeats the setting instead of
-	// honouring it. Below one bucket the two things asked of a backfill cannot both
-	// hold, so the shorter one gives way and says so.
+	// A lookback shorter than one bucket is raised to one, since aligning an hour's lookback could otherwise reach back a day and a half.
 	oneHourLookback := time.Hour
 	ingestionDomain, buildError := domains.NewKCandleIngestionDomain(
 		time.Date(2026, 8, 30, 0, 30, 0, 0, time.UTC), 5, oneHourLookback)
@@ -337,9 +307,7 @@ func TestALookbackShorterThanOneBucketIsRaisedToIt(t *testing.T) {
 }
 
 func TestTheReachIsNeverMoreThanTwiceTheLookback(t *testing.T) {
-	// This is the bound the setting's purpose rests on, and it only holds because a
-	// lookback below one bucket is raised: at the floor the alignment can add almost
-	// as much again, and any higher lookback dilutes that share further.
+	// Holds only because sub-bucket lookbacks are raised: at the floor alignment can nearly double the span.
 	for _, declaredLookback := range []time.Duration{
 		time.Minute, time.Hour, 24 * time.Hour, 72 * time.Hour,
 	} {
@@ -360,9 +328,7 @@ func TestTheReachIsNeverMoreThanTwiceTheLookback(t *testing.T) {
 }
 
 func TestALookbackOfNoDistanceAtAllIsRefused(t *testing.T) {
-	// Not a small request but an incoherent one — and left unscreened it would now do
-	// the opposite of nothing: aligning zero lands on today's midnight, which fetches
-	// a whole day for every symbol that has never stored a candle.
+	// Zero or negative lookbacks are refused, since aligning zero would fetch a whole day for every empty symbol.
 	for _, declaredLookback := range []time.Duration{0, -time.Hour} {
 		_, buildError := domains.NewKCandleIngestionDomain(
 			time.Date(2026, 8, 30, 14, 3, 0, 0, time.UTC), 5, declaredLookback)

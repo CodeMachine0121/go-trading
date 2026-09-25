@@ -12,19 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// bar is one candle with a real high and a low, because that is what the exit levels
-// are judged against. The candles elsewhere in these tests carry only a close: a
-// replay given no distances never looks at the other two.
+// bar carries a real high and low because exit levels are judged against them.
 type bar struct {
 	high  float64
 	low   float64
 	close float64
 }
 
-// replayWithExitsOf walks the bars under the two distances, staking everything on
-// every opening from ten thousand. Those choices make the arithmetic readable: a
-// first bar closing at 100 buys exactly 100 units, so a price is a percentage and a
-// percentage is a price.
+// replayWithExitsOf stakes everything from 10,000, so a first close of 100 buys exactly 100 units and prices read as percentages.
 func replayWithExitsOf(
 	t *testing.T,
 	stopLossPercentage int64,
@@ -60,9 +55,7 @@ func replayWithExitsOf(
 		inputKCandles, signalDomainsSaying(signals...)).ToDto()
 }
 
-// The bar that does all the work below: it dips to 97 and recovers to close at 101.
-// A stop two percent under 100 is reached inside it and a close-only reading would
-// carry the position straight through.
+// aDippingBar dips to 97 and closes at 101: a 2% stop under 100 triggers inside it, which a close-only reading would miss.
 func aDippingBar() bar {
 	return bar{high: 103, low: 97, close: 101}
 }
@@ -82,8 +75,6 @@ func TestBacktestSimulationClosesALongAtItsStop(t *testing.T) {
 	assert.Equal(t, 0, result.Summary.TakeProfitExitCount)
 }
 
-// The whole point of this slice, as one comparison: the same script over the same
-// three bars, once with a stop and once without.
 func TestBacktestSimulationReportsTwelvePercentLessWithAStopThanWithout(t *testing.T) {
 	bars := []bar{
 		{high: 100, low: 100, close: 100},
@@ -92,12 +83,12 @@ func TestBacktestSimulationReportsTwelvePercentLessWithAStopThanWithout(t *testi
 	}
 
 	withoutAStop := replayWithExitsOf(t, 0, 0, bars, buySignal, holdSignal, holdSignal)
-	// The bet is carried to the end: a hundred units at 110.
+	// Held to the end: 100 units at 110.
 	assert.Equal(t, "11000", withoutAStop.Summary.FinalEquity.String())
 	assert.Empty(t, withoutAStop.ClosedTrades)
 
 	withAStop := replayWithExitsOf(t, 2, 0, bars, buySignal, holdSignal, holdSignal)
-	// The second bar's low reaches 98 and the rally happens without it.
+	// Stopped out at 98 before the rally.
 	assert.Equal(t, "9800", withAStop.Summary.FinalEquity.String())
 }
 
@@ -146,8 +137,7 @@ func TestBacktestSimulationClosesALongAtItsTarget(t *testing.T) {
 	assert.Equal(t, 1, result.Summary.TakeProfitExitCount)
 }
 
-// A single candle's high and low cannot say which price came first. Of the two
-// readings, only this one never flatters the strategy.
+// A candle's high and low don't say which came first, so the stop wins as the reading that never flatters the strategy.
 func TestBacktestSimulationCountsACandleReachingBothLevelsAsAStop(t *testing.T) {
 	result := replayWithExitsOf(t, 2, 5,
 		[]bar{{high: 100, low: 100, close: 100}, {high: 106, low: 97, close: 104}},
@@ -159,8 +149,6 @@ func TestBacktestSimulationCountsACandleReachingBothLevelsAsAStop(t *testing.T) 
 	assert.Equal(t, "9800", result.Summary.FinalEquity.String())
 }
 
-// A replay only ever goes long, so it only ever has the one arrangement of levels —
-// the stop below the entry and the target above it.
 func TestBacktestSimulationHonoursTheLevelsOnItsOneSide(t *testing.T) {
 	result := replayWithExitsOf(t, 2, 0,
 		[]bar{{high: 100, low: 100, close: 100}, aDippingBar()},
@@ -172,9 +160,7 @@ func TestBacktestSimulationHonoursTheLevelsOnItsOneSide(t *testing.T) {
 	assert.Equal(t, "9800", result.Summary.FinalEquity.String())
 }
 
-// The entry filled at that bar's close, and that bar's low had already happened by
-// then. Nothing compares times to know this: the walk examines the levels before
-// applying the signal, so the position does not yet exist when its own bar is read.
+// The walk checks levels before applying the signal, so the entry candle's own low can't stop out the new position.
 func TestBacktestSimulationNeverStopsOutOnTheEntryCandle(t *testing.T) {
 	result := replayWithExitsOf(t, 2, 0,
 		[]bar{{high: 104, low: 96, close: 100}, {high: 110, low: 105, close: 110}},
@@ -185,9 +171,7 @@ func TestBacktestSimulationNeverStopsOutOnTheEntryCandle(t *testing.T) {
 	assert.Equal(t, "11000", result.Summary.FinalEquity.String())
 }
 
-// A stop is reached during the bar and the close comes after it, so the signal
-// standing on that bar is still heard. Swallowing it would let one stop eat an entry
-// that had nothing to do with it.
+// The close comes after an intrabar stop, so that bar's signal still applies.
 func TestBacktestSimulationStillAppliesTheSignalOnTheCandleThatStoppedItOut(t *testing.T) {
 	result := replayWithExitsOf(t, 2, 0,
 		[]bar{
@@ -201,21 +185,17 @@ func TestBacktestSimulationStillAppliesTheSignalOnTheCandleThatStoppedItOut(t *t
 	require.Len(t, result.ClosedTrades, 1)
 	assert.Equal(t, string(vo.TradeExitReasonStopLoss), result.ClosedTrades[0].ExitReason)
 	assert.Equal(t, 2, result.Summary.PositionOpenCount)
-	// 9,800 in cash bought 9800/101 units at 101; at 111 they are worth 10,770.30.
-	// Rounded, because the exact figure recurs and what this case is about is that
-	// the second opening happened at all.
+	// 9,800 buys 9800/101 units at 101, worth 10,770.30 at 111; rounded because the exact figure recurs.
 	assert.Equal(t, "10770.3", result.Summary.FinalEquity.Round(2).String())
 }
 
-// The reopened bet measures its own stop from the price it actually got, not from the
-// one before it. Its stop is two percent under 101, not under 100.
+// A reopened position's stop is measured from its own entry (101), not the previous one (100).
 func TestBacktestSimulationMeasuresAReopenedPositionsStopFromItsOwnEntry(t *testing.T) {
 	result := replayWithExitsOf(t, 2, 0,
 		[]bar{
 			{high: 100, low: 100, close: 100},
 			{high: 103, low: 97, close: 101},
-			// 98.98 is two percent under 101; a low of 99 would have survived the
-			// first position's stop of 98 and does not survive this one.
+			// 98.98 is 2% under 101: this low clears the first stop of 98 but not the reopened one.
 			{high: 102, low: 98.5, close: 100},
 		},
 		buySignal, buySignal, holdSignal)
@@ -226,7 +206,6 @@ func TestBacktestSimulationMeasuresAReopenedPositionsStopFromItsOwnEntry(t *test
 	assert.Equal(t, 2, result.Summary.StopLossExitCount)
 }
 
-// Every trade a replay given no distances produces ends the one way it ever could.
 func TestBacktestSimulationCallsEverySignalledExitWhatItIs(t *testing.T) {
 	result := replayWithExitsOf(t, 0, 0,
 		[]bar{
@@ -241,11 +220,7 @@ func TestBacktestSimulationCallsEverySignalledExitWhatItIs(t *testing.T) {
 	assert.Equal(t, 0, result.Summary.TakeProfitExitCount)
 }
 
-// Three ways out and no fourth. A position is never taken off because the money
-// behind it ran out — nothing here borrows, so there is nobody to call a loan in.
-//
-// Asserted over a walk that exits every way it can, rather than by reading the set of
-// spellings: what matters is that no replay ever produces a fourth one.
+// A position exits only by signal, stop or target; nothing borrows, so there is no margin-call exit.
 func TestBacktestSimulationEndsEveryTradeOneOfThreeWays(t *testing.T) {
 	result := replayWithExitsOf(t, 2, 5,
 		[]bar{
@@ -269,8 +244,7 @@ func TestBacktestSimulationEndsEveryTradeOneOfThreeWays(t *testing.T) {
 		exitReasons = append(exitReasons, closedTrade.ExitReason)
 	}
 
-	// All three really happened, so this is not passing on a walk that only ever
-	// exited one way.
+	// All three exits actually occurred in this walk.
 	assert.ElementsMatch(t, []string{
 		string(vo.TradeExitReasonStopLoss),
 		string(vo.TradeExitReasonTakeProfit),

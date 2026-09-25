@@ -9,8 +9,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ContractMaintenanceMarginTierRepository stores maintenance margin ladders in
-// PostgreSQL.
 type ContractMaintenanceMarginTierRepository struct {
 	database *gorm.DB
 }
@@ -19,9 +17,7 @@ func NewContractMaintenanceMarginTierRepository(database *gorm.DB) *ContractMain
 	return &ContractMaintenanceMarginTierRepository{database: database}
 }
 
-// ReplaceLadders swaps each named contract's ladder for the one given, in a single
-// transaction. A ladder is removed and written back rather than merged, because a new
-// ladder with one tier fewer means that tier no longer exists.
+// ReplaceLadders deletes and rewrites each contract's ladder in one transaction, so dropped tiers disappear.
 func (tierRepository *ContractMaintenanceMarginTierRepository) ReplaceLadders(
 	executionContext context.Context, laddersBySymbol map[string][]entities.ContractMaintenanceMarginTier,
 ) error {
@@ -36,10 +32,7 @@ func (tierRepository *ContractMaintenanceMarginTierRepository) ReplaceLadders(
 				if len(tiers) == 0 {
 					continue
 				}
-				// Two refreshes can meet — a contract joining the watchlist while the
-				// daily one runs. The later one's removal cannot see tiers the earlier
-				// one wrote and has not committed, so it writes over them instead of
-				// failing on them. Both carry the venue's same answer.
+				// Two concurrent refreshes can collide on uncommitted rows, so upsert instead of failing; both carry the same venue answer.
 				if createError := transaction.Clauses(clause.OnConflict{
 					Columns: []clause.Column{{Name: "symbol"}, {Name: "tier"}},
 					DoUpdates: clause.AssignmentColumns([]string{
@@ -60,7 +53,7 @@ func (tierRepository *ContractMaintenanceMarginTierRepository) ReplaceLadders(
 	return nil
 }
 
-// FindBySymbol is one contract's ladder, first tier first.
+// FindBySymbol returns one contract's ladder, first tier first.
 func (tierRepository *ContractMaintenanceMarginTierRepository) FindBySymbol(
 	executionContext context.Context, symbol string,
 ) ([]entities.ContractMaintenanceMarginTier, error) {

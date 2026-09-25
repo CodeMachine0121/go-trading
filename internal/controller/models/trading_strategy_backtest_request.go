@@ -7,63 +7,34 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TradingStrategyBacktestRequest is the body a caller sends to replay one of their
-// trading strategies over a stretch of market that has already happened.
-//
-// Which trading strategy is meant comes from the path, never from the body.
-//
-// It carries **no coarseness and no script**. The trading strategy already says both,
-// so a body with room for them would be a body with two answers and no rule about
-// which one wins.
+// TradingStrategyBacktestRequest takes the strategy from the path and carries no interval or script, since the strategy already defines both.
 type TradingStrategyBacktestRequest struct {
 	Symbol string `json:"symbol"`
-	// TradingMode is carried for the reason Leverage is, and it has to be carried
-	// **here too**: a field this body did not declare would be dropped in silence,
-	// and a caller asking for another set of rules would get two hundred and a spot
-	// report card — the one outcome this whole slice exists to prevent. Both replays
-	// refuse it in the same words because both hand it to the same gate.
-	TradingMode string    `json:"tradingMode"`
-	StartTime   time.Time `json:"startTime"`
-	EndTime     time.Time `json:"endTime"`
-	// InitialCapital is what the account starts with.
+	// Carried only to be refused; an undeclared field would be silently dropped and yield a spot report.
+	TradingMode    string          `json:"tradingMode"`
+	StartTime      time.Time       `json:"startTime"`
+	EndTime        time.Time       `json:"endTime"`
 	InitialCapital decimal.Decimal `json:"initialCapital"`
-	// PositionSizingMode is how much each opening stakes, and PositionSizingValue the
-	// figure that goes with it. Staking everything needs no figure, so a caller that
-	// chose it may leave the figure out entirely.
+	// Staking everything needs no PositionSizingValue.
 	PositionSizingMode  string          `json:"positionSizingMode"`
 	PositionSizingValue decimal.Decimal `json:"positionSizingValue"`
-	// StopLossPercentage and TakeProfitPercentage are the two exit distances this
-	// run simulates. Unlike the coarseness and the trading mode, they are asked for
-	// here: the trading strategy has no opinion about what its owner can sit
-	// through, and the same set of rules is worth replaying against several answers.
+	// Asked for per run because the strategy has no opinion on exit distances.
 	StopLossPercentage   decimal.Decimal `json:"stopLossPercentage"`
 	TakeProfitPercentage decimal.Decimal `json:"takeProfitPercentage"`
-	// Leverage is carried only so that a caller still asking to borrow is told this
-	// system does not. Nothing, zero and one all mean a position paid for in full,
-	// which is what every replay here is; anything above one is refused outright.
+	// Only carried to refuse borrowing: empty, zero and one mean fully paid, anything above one is refused.
 	Leverage decimal.Decimal `json:"leverage"`
-	// MaintenanceMarginRate is carried for the reason Leverage is, and **here too**
-	// for the reason TradingMode is: a field this body did not declare would be
-	// dropped in silence, and the caller would get a spot report card back without a
-	// word about the one they described.
+	// Carried only to be refused; an undeclared field would be silently dropped.
 	MaintenanceMarginRate decimal.Decimal `json:"maintenanceMarginRate"`
-	// EntryCostPercentage and ExitCostPercentage are what this replay pays for the
-	// act of trading. Asked for here rather than read off the trading strategy for
-	// the same reason the exit distances are: a set of rules has no opinion about
-	// what its owner's broker charges.
+	// Asked for per run because trading costs depend on the owner's broker, not the strategy.
 	EntryCostPercentage decimal.Decimal `json:"entryCostPercentage"`
 	ExitCostPercentage  decimal.Decimal `json:"exitCostPercentage"`
-	// FillTiming is close (the default: fill at the signalling bar's close) or
-	// nextOpen (fill at the next bar's open).
+	// FillTiming is close (default, the signalling bar's close) or nextOpen (the next bar's open).
 	FillTiming string `json:"fillTiming"`
-	// ValidationStartTime, when given, splits the replay into an in-sample part and a
-	// validation part, each replayed on its own from the initial capital.
+	// ValidationStartTime, when given, splits the replay into in-sample and validation parts, each starting from the initial capital.
 	ValidationStartTime time.Time `json:"validationStartTime"`
 }
 
-// ToRequestDto turns the request into the shape the domain accepts. The signal
-// sources, the two conditions and the trading mode are not taken from here at all —
-// they come from the trading strategy the path names.
+// ToRequestDto omits signal sources, conditions and trading mode, which come from the strategy named by the path.
 func (request TradingStrategyBacktestRequest) ToRequestDto() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
 		Symbol:               request.Symbol,

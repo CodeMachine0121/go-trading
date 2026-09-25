@@ -9,52 +9,20 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// PositionPlanDomain is what a bot suggests putting down, and where it suggests
-// getting out — plus every rule about the four figures that decide it.
-//
-// It exists because the multiplications behind those numbers are the same ones every
-// round, against the same unchanged settings, with only the price moving. Its
-// owner was doing them on a phone while doing something else, and the round they got
-// wrong is the one that costs money.
-//
-// Its zero value is a bot with no position plan at all: PlanFor answers "no
-// suggestion" and nothing downstream has to know that is what it means. That is not a
-// failure state — leaving the settings empty is a perfectly ordinary thing to do, and
-// the message such a bot sends is word for word the one it sent before plans existed.
+// PositionPlanDomain computes a bot's suggested stake and exits each round; its zero value is a bot with no plan, for which PlanFor simply suggests nothing.
 type PositionPlanDomain struct {
-	// capital being zero is what makes this the zero value, so there is no separate
-	// flag that could contradict the figures. Without money there is nothing to
-	// stake, and that fact cannot disagree with itself.
+	// A zero capital is what makes this the zero value, so no separate flag can contradict it.
 	capital    decimal.Decimal
 	sizing     PositionSizingDomain
 	stopLoss   decimal.Decimal
 	takeProfit decimal.Decimal
-	// exitLevels places the two exits around a price for whichever way a position
-	// faces — the very model a replay places its exits with, so a bot's suggestion and
-	// a replay of the same distances can never put a stop in two different places.
+	// exitLevels is the replay's own model, so a suggestion and a replay can never place a stop differently.
 	exitLevels BacktestExitLevelsDomain
-	// leverage is how many times its margin a contract suggestion carries. Zero is a
-	// spot plan: nothing is borrowed, and the notional is the stake itself. Whether a
-	// figure is allowed was settled where the bot was saved, not here — see
-	// NewPositionPlanDomain.
+	// leverage zero means a spot plan whose notional is the stake; allowed values were settled at save time.
 	leverage decimal.Decimal
 }
 
-// NewPositionPlanDomain reads the four settings and settles every rule about them.
-//
-// **Every rule here is about a figure that is stored**, because this runs again on
-// every round of every bot, from settings saved long ago. A rule about something a
-// caller merely declared — borrowing, most of all — belongs where the bot is settled:
-// refusing it here would stop a bot that predates the rule, silently, every round.
-//
-// No capital is the zero value rather than an error: not filling something in is not
-// the same as filling it in wrongly, and a bot without a position plan is one this
-// system has supported from the day bots existed.
-//
-// How much one opening stakes is asked of the model a replay already asks, in the same
-// words — the three spellings, the default of staking everything, and both refusals
-// come from there rather than from a second list that would eventually disagree with
-// it.
+// NewPositionPlanDomain only enforces rules on stored figures, since it reruns every round on old settings; no capital yields the zero value rather than an error.
 func NewPositionPlanDomain(
 	settings dto.PositionPlanSettingsDto,
 ) (PositionPlanDomain, error) {
@@ -83,17 +51,7 @@ func NewPositionPlanDomain(
 	}, nil
 }
 
-// validatedDistance is one exit's distance from the price, checked.
-//
-// It is shared by both exits because both refusals are about the same two things: a
-// negative distance would put a stop on the wrong side of the price, and one past a
-// hundred percent would put it below zero. Two copies of that would eventually let
-// one exit through a check the other refuses.
-//
-// A replay's own exit distances are checked here too, in these same words. The two
-// are different things — one says what a bot should suggest each round, the other how
-// one replay simulates — but the same 150 typed into either has to come back with the
-// same sentence, and only one copy of a sentence can stay true to itself.
+// validatedDistance is shared by both exits and by replays so the same input always gets the same refusal.
 func validatedDistance(distance decimal.Decimal, name string) error {
 	if distance.IsNegative() {
 		return fmt.Errorf("%s不得為負", name)
@@ -106,9 +64,7 @@ func validatedDistance(distance decimal.Decimal, name string) error {
 	return nil
 }
 
-// ToSettingsDto is these settings as they are stored and handed back.
-//
-// A bot with no position plan hands back nothing at all.
+// ToSettingsDto hands back nothing for a bot without a plan.
 func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSettingsDto {
 	if !positionPlanDomain.capital.IsPositive() {
 		return dto.PositionPlanSettingsDto{}
@@ -124,18 +80,7 @@ func (positionPlanDomain PositionPlanDomain) ToSettingsDto() dto.PositionPlanSet
 	}
 }
 
-// PlanFor is what this round suggests, and whether it suggests anything at all.
-//
-// One question, four ways to answer it with nothing: no capital was ever set, the
-// round is asking to stand aside, the round is asking for no change, or there is no
-// price to measure from. They are deliberately one answer — to somebody reading the
-// message, "this round has nothing to put down" is a single fact, and four separate
-// sentences about it would grow four ways of writing the same paragraph.
-//
-// The target position is what decides whether to suggest anything at all, and which
-// way. A spot target only ever faces long; a contract target may face short too, and
-// then both exits swap sides. Closing either side is being asked to hold nothing, and
-// there is nothing to suggest opening about that.
+// PlanFor suggests nothing when there is no capital, no reference price, or a target that is not long or short; short targets swap both exits.
 func (positionPlanDomain PositionPlanDomain) PlanFor(
 	target vo.TargetPositionVo, referencePrice decimal.Decimal, hasReference bool,
 ) (dto.PositionPlanDto, bool) {
@@ -147,19 +92,15 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		return dto.PositionPlanDto{}, false
 	}
 
-	// No costs, stated rather than implied. What a bot suggests each round is advice
-	// about a trade nobody has placed, so there is no charge to have been paid — and
-	// that line is the only place the decision to leave live advice alone is visible.
+	// No transaction costs: live advice is about a trade nobody has placed.
 	stake, affordable := positionPlanDomain.sizing.StakeFor(
 		positionPlanDomain.capital, BacktestTransactionCostsDomain{})
 	if !affordable {
-		// Said rather than hidden, and not an error: a fixed amount the capital
-		// cannot cover is the same ordinary situation a replay skips an opening for.
-		// Printing a stake nobody can put down would be worse than printing none.
+		// Not an error: an unaffordable fixed amount is reported rather than printing a stake nobody can put down.
 		return dto.PositionPlanDto{Stake: stake, Affordable: false}, true
 	}
 
-	// A spot plan borrows nothing, which is the same as carrying it once.
+	// A spot plan borrows nothing, the same as 1x.
 	leverage := decimal.Max(positionPlanDomain.leverage, oneWhole)
 	notional := stake.Mul(leverage)
 	direction := vo.PositionDirectionLong
@@ -167,9 +108,6 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 		direction = vo.PositionDirectionShort
 	}
 
-	// Which side each exit lies on is the direction's, placed by the model a replay
-	// uses: a stop is the price moving against the position — below a long one, above
-	// a short one — and the target is always on the other side.
 	exitPrices := positionPlanDomain.exitLevels.PricesFacing(direction, referencePrice)
 
 	positionPlanDto := dto.PositionPlanDto{
@@ -185,12 +123,9 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	}
 
 	if positionPlanDto.HasStopLoss {
-		// What moves with the price is the notional, not the margin: at five times, a
-		// two percent move costs ten percent of what was put down.
+		// Losses scale with the notional, not the margin.
 		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
-		// Only a borrowed position can be closed out before its stop. The check is the
-		// plain one — the move that eats the whole margin — and leaves the maintenance
-		// margin out, which the message says out loud.
+		// A simple whole-margin check that ignores maintenance margin, as the message states.
 		positionPlanDto.LiquidatesBeforeStop = positionPlanDomain.leverage.IsPositive() &&
 			positionPlanDomain.stopLoss.Mul(leverage).GreaterThanOrEqual(oneHundredPercent)
 	}
@@ -202,11 +137,7 @@ func (positionPlanDomain PositionPlanDomain) PlanFor(
 	return positionPlanDto, true
 }
 
-// NeedsVenue is whether a suggestion for that target has to be worked out by the venue's
-// rules at all: money to stake that can actually be put down, a price to measure from,
-// and a target that holds a position. Asked before anything about the venue is read, so
-// a round with nothing to place — including a stake the capital cannot cover — reads
-// nothing.
+// NeedsVenue reports whether a suggestion needs the venue's rules at all, so a round with nothing affordable to place reads nothing from the venue.
 func (positionPlanDomain PositionPlanDomain) NeedsVenue(target vo.TargetPositionVo, hasReference bool) bool {
 	if !positionPlanDomain.capital.IsPositive() || !hasReference ||
 		(target != vo.TargetPositionLong && target != vo.TargetPositionShort) {
@@ -219,16 +150,8 @@ func (positionPlanDomain PositionPlanDomain) NeedsVenue(target vo.TargetPosition
 	return affordable
 }
 
-// PlanOnContractVenue is PlanFor on a contract account, by the venue's own rules.
-//
-// It opens the suggestion the way a contract replay opens a position — the replay's
-// own opening model, at the reference price, with no costs and no slippage — so the
-// quantity is stepped down, the margin is what that quantity needs, the exits sit on the
-// venue's ticks, and an order the venue would refuse is refused here too, saying why.
-// What a replay would then liquidate the position at is the liquidation estimate.
-//
-// A contract whose rules are not known yet is suggested as PlanFor suggests it, and the
-// suggestion says so. The funding estimate needs no rules and is given either way.
+// PlanOnContractVenue opens the suggestion with the contract replay's own opening model (no costs or slippage), so quantity, margin, ticks, refusals and liquidation match a replay.
+// Without known trading rules it falls back to PlanFor and says so; the funding estimate is added either way.
 func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 	target vo.TargetPositionVo,
 	referencePrice decimal.Decimal,
@@ -256,9 +179,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 		leverage, BacktestSlippageDomain{}, tradingRules,
 	).OpenFor(direction, referenceTime, referencePrice, positionPlanDomain.capital)
 
-	// A price the venue cannot open at — nothing to divide a quantity by — leaves the
-	// suggestion as it reads without the venue, rather than working a liquidation out of
-	// a position that was never opened.
+	// An unopenable price keeps the plain suggestion rather than deriving a liquidation from a position never opened.
 	if outcome == vo.ContractOpeningUnaffordable {
 		plainPlan.ForContract = true
 
@@ -283,9 +204,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 
 	notional := position.Quantity().Mul(position.EntryPrice())
 	exitPrices := position.ExitPrices()
-	// Where the replay would close this out, and that price on the venue's ticks. Whether
-	// it can be closed out at all is judged on the rounded figure, so a price the venue
-	// cannot quote above zero is never printed as a liquidation price of nothing.
+	// Judged on the tick-rounded price so a liquidation price of zero is never printed.
 	liquidationPrice := position.LiquidationPrice()
 	roundedLiquidationPrice := tradingRules.RoundedToTick(liquidationPrice)
 	cannotBeLiquidated := !liquidationPrice.IsPositive() || !roundedLiquidationPrice.IsPositive()
@@ -314,10 +233,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 
 	if positionPlanDto.HasStopLoss {
 		positionPlanDto.LossAtStop = portionOf(notional, positionPlanDomain.stopLoss)
-		// The stop is judged against the estimate by the replay's own rule: against the
-		// unrounded price, and a stop exactly at it fires first. A long's stop below where
-		// it would be closed out is never reached, and the mirror image for a short — so a
-		// bot never warns of a close-out the replay of the same figures would stop out of.
+		// Same rule as the replay: compare against the unrounded price, with a stop exactly at it firing first.
 		positionPlanDto.LiquidatesBeforeStop = !cannotBeLiquidated &&
 			((direction == vo.PositionDirectionLong &&
 				positionPlanDto.StopLossPrice.LessThan(liquidationPrice)) ||
@@ -332,11 +248,7 @@ func (positionPlanDomain PositionPlanDomain) PlanOnContractVenue(
 	return venue.WithFundingEstimate(positionPlanDto), true
 }
 
-// portionOf is that percentage of an amount.
-//
-// It is the one piece of arithmetic every exit shares — how far from a price a
-// distance actually is — and which side that lands on is left to whoever is placing
-// it, because that depends on which way the position faces.
+// portionOf is that percentage of an amount; which side of the price it lands on is the caller's concern.
 func portionOf(amount decimal.Decimal, percentage decimal.Decimal) decimal.Decimal {
 	return amount.Mul(percentage).Div(oneHundredPercent)
 }

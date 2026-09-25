@@ -17,8 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The strategy scripts the contract calculation below may be asked to run, one of
-// each kind the tests turn on.
+// The strategy scripts the contract calculation may run, one per kind under test.
 const (
 	ownSpotStrategyScriptID              = uint(20)
 	ownContractStrategyScriptID          = uint(21)
@@ -34,8 +33,7 @@ type contractIndicatorUnderTest struct {
 	contractIndicatorScriptProxy    *mocks.MockIContractIndicatorScriptProxy
 }
 
-// newContractIndicatorUnderTest wires the real domain services and models, mocking
-// only storage, the clock and the two script runners.
+// newContractIndicatorUnderTest mocks only storage, the clock and the two script runners.
 func newContractIndicatorUnderTest(t *testing.T) contractIndicatorUnderTest {
 	controller := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(controller)

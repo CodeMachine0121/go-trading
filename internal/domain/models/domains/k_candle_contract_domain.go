@@ -9,10 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleContractDomain holds one contract K candle and guarantees its own
-// invariants. An instance only exists when every rule passed, so there is no
-// half-valid contract K candle — and in particular no contract K candle that is
-// indistinguishable from a spot one because its mark price never arrived.
+// KCandleContractDomain only exists when every rule passed, so no contract candle lacks the mark price that distinguishes it from a spot one.
 type KCandleContractDomain struct {
 	kCandle    KCandleDomain
 	tradeCount int64
@@ -20,19 +17,12 @@ type KCandleContractDomain struct {
 	markHigh   decimal.Decimal
 	markLow    decimal.Decimal
 	markClose  decimal.Decimal
-	// indexLine and premiumIndexLine are the two lines the venue computes beside the
-	// traded one. Each answers to its own rules and neither is compared with the
-	// traded prices or the mark ones: how far apart they sit is the market's business.
+	// indexLine and premiumIndexLine are validated on their own and never compared with traded or mark prices.
 	indexLine        contractPriceLineDomain
 	premiumIndexLine contractPriceLineDomain
 }
 
-// NewKCandleContractDomain validates the figures against every contract K candle
-// rule, judging "in the future" against currentTime.
-//
-// The rules a contract K candle shares with a spot one are not restated here — they
-// are applied by building a spot K candle out of the same figures first. Restating
-// them would give the system two lists that merely happen to agree today.
+// NewKCandleContractDomain applies the shared spot rules by building a spot K candle first, then the contract-only rules.
 func NewKCandleContractDomain(
 	writeDto dto.KCandleContractWriteDto, currentTime time.Time,
 ) (KCandleContractDomain, error) {
@@ -52,11 +42,7 @@ func NewKCandleContractDomain(
 		return KCandleContractDomain{}, fmt.Errorf("%w: %w", ErrKCandleContractValidation, kCandleError)
 	}
 
-	// Every figure is required, which is this record's whole difference from a spot
-	// one: it has a single source and that source reports all of them, so a figure
-	// that did not arrive is a candle that did not fully arrive.
-	// Listed rather than mapped so that a caller who omits two of them is told about
-	// the same one every time.
+	// Unlike spot, the single contract source reports every figure, so a missing one means an incomplete candle; listed so the same omission is always named first.
 	requiredFigures := []struct {
 		name   string
 		figure decimal.NullDecimal
@@ -73,8 +59,7 @@ func NewKCandleContractDomain(
 	}
 
 	if writeDto.TradeCount == nil {
-		// Zero is a lawful trade count — a minute in which nothing traded — so a
-		// blank one cannot quietly be read as zero.
+		// Zero is a lawful trade count, so blank cannot be read as zero.
 		return KCandleContractDomain{}, fmt.Errorf(
 			"%w: 成交筆數不得留白", ErrKCandleContractValidation)
 	}
@@ -88,8 +73,6 @@ func NewKCandleContractDomain(
 	}
 	for _, markFigure := range markFigures {
 		if !markFigure.Valid {
-			// Without it this record is a spot K candle wearing another table's name,
-			// which is the one thing keeping the two apart was meant to prevent.
 			return KCandleContractDomain{}, fmt.Errorf(
 				"%w: 標記價格不得留白", ErrKCandleContractValidation)
 		}
@@ -99,10 +82,7 @@ func NewKCandleContractDomain(
 		}
 	}
 
-	// The mark figures answer to their own high-low rule and to nothing else. They
-	// are a second price line the venue computes, so how far they sit from the last
-	// traded price is the market's business, not a rule this system gets to have an
-	// opinion about.
+	// Mark prices only need high >= low; their distance from traded prices is the market's business.
 	if writeDto.MarkHigh.Decimal.LessThan(writeDto.MarkLow.Decimal) {
 		return KCandleContractDomain{}, fmt.Errorf(
 			"%w: 標記的最高價不得低於最低價", ErrKCandleContractValidation)
@@ -113,15 +93,13 @@ func NewKCandleContractDomain(
 	if indexError != nil {
 		return KCandleContractDomain{}, indexError
 	}
-	// An index is a weighted average of spot prices, and no spot price is negative.
+	// An index averages spot prices, none of which is negative.
 	if indexLine.hasNegativeFigure() {
 		return KCandleContractDomain{}, fmt.Errorf(
 			"%w: 指數價格不得為負", ErrKCandleContractValidation)
 	}
 
-	// The premium index is a proportion, not a price: a contract trading below its
-	// index has a negative one, and that is one of the two ordinary states of the
-	// market rather than a broken figure. So it answers to the high-low rule alone.
+	// The premium index is a proportion that is negative whenever the contract trades below its index, so only high >= low applies.
 	premiumIndexLine, premiumIndexError := newContractPriceLineDomain(
 		"溢價指數", writeDto.PremiumIndexOpen, writeDto.PremiumIndexHigh,
 		writeDto.PremiumIndexLow, writeDto.PremiumIndexClose)
@@ -141,8 +119,6 @@ func NewKCandleContractDomain(
 	}, nil
 }
 
-// ToEntity converts this validated contract K candle into the record shape that is
-// stored.
 func (kCandleContractDomain KCandleContractDomain) ToEntity() entities.KCandleContract {
 	kCandle := kCandleContractDomain.kCandle.ToEntity()
 

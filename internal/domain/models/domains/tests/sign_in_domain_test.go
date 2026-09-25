@@ -82,11 +82,7 @@ func TestNewSignInDomainSaysTheSameSentenceWhicheverHalfIsWrong(t *testing.T) {
 	assert.Equal(t, missingAddressError.Error(), missingPasswordError.Error())
 }
 
-// A password shorter than registering would allow is not refused here, and that is
-// deliberate: the length rules say what a password may be set to, not whether it is
-// the right one now. Refusing it here would answer "your password is too short" to
-// somebody whose password is merely not ours — and would lock every existing account
-// out the day the minimum length goes up.
+// Sign-in doesn't apply the password-setting length rules, which would mislabel a wrong password and lock accounts out if the minimum rose.
 func TestNewSignInDomainDoesNotJudgeThePasswordAgainstTheRulesForSettingOne(t *testing.T) {
 	signInDomain, err := domains.NewSignInDomain(
 		dto.SignInDto{Email: "james@example.com", Password: "1234567"})

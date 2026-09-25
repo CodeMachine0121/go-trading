@@ -6,9 +6,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractBacktestRequestDto is one replay of a contract strategy script on a contract
-// account: everything a spot replay is told, plus the leverage, the trading mode and
-// the slippage.
 type ContractBacktestRequestDto struct {
 	Symbol               string
 	AggregationInterval  string
@@ -24,8 +21,7 @@ type ContractBacktestRequestDto struct {
 	TakeProfitPercentage decimal.Decimal
 	EntryCostPercentage  decimal.Decimal
 	ExitCostPercentage   decimal.Decimal
-	// FillTiming is at what price this replay fills its signals: close (blank) or
-	// nextOpen.
+	// FillTiming is close (blank) or nextOpen.
 	FillTiming string
 	// ValidationStartTime splits the replay for validation; zero is no split.
 	ValidationStartTime time.Time
@@ -34,15 +30,13 @@ type ContractBacktestRequestDto struct {
 	TradingMode string
 	// SlippagePercentage blank is none.
 	SlippagePercentage decimal.Decimal
-	// MaintenanceMarginRate is carried only to be refused: on a contract account it is
-	// the symbol's ladder that says it, and a figure typed in would otherwise be
-	// quietly ignored.
+	// MaintenanceMarginRate is carried only to be refused, since the symbol's margin ladder
+	// decides it.
 	MaintenanceMarginRate decimal.Decimal
 }
 
-// ToBacktestRequestDto is the part of this request a spot replay understands too —
-// the stretch, the capital, the sizing, the exits and the costs — so that those are
-// read by the very rules a spot replay reads them by.
+// ToBacktestRequestDto extracts the spot-compatible part so it is validated by the same
+// rules as a spot replay.
 func (requestDto ContractBacktestRequestDto) ToBacktestRequestDto() BacktestRequestDto {
 	return BacktestRequestDto{
 		Symbol:               requestDto.Symbol,

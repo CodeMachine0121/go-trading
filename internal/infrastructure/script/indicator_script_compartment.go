@@ -14,31 +14,18 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// compartmentGracePeriod is how long past the script's own allowance the service waits
-// before it stops waiting for a compartment. The compartment gives up on a slow script
-// by itself and says so; this is only for one that cannot even do that.
+// compartmentGracePeriod is how long past the script's allowance the service waits for a compartment that cannot time itself out.
 const compartmentGracePeriod = 5 * time.Second
 
-// outOfMemoryMark is what the Go runtime writes on its way down when the memory cap
-// refuses it more. It is the one sign, among all the ways a compartment can end, that
-// tells running out of memory apart from everything else.
+// outOfMemoryMark is what the Go runtime prints when the memory cap is hit; it is the only way to tell out-of-memory apart from other endings.
 const outOfMemoryMark = "out of memory"
 
-// indicatorScriptCompartment is the service's side of a script compartment: it starts a
-// child process for one run — a single calculation or a whole replay — hands it the
-// request, and watches it until there is an answer or a reason there will not be one.
-//
-// Whatever happens in the child stays there. A script that eats past the memory cap
-// ends the child, not the service. A caller that goes away, or a child that outlives
-// every allowance, gets the child ended — and waited for, so nothing is left running
-// and no finished process is left unreaped. Every one of those endings comes back as
-// the same kinds of failure the service always told scripts apart by.
+// indicatorScriptCompartment runs one request in a child process so a script's crash or memory blow-up ends only the child, which is always killed and reaped.
 type indicatorScriptCompartment[Input any] struct {
 	isolation IndicatorScriptIsolation
 	input     indicatorScriptInput
 }
 
-// execute runs the script once over the whole input.
 func (indicatorScriptCompartment indicatorScriptCompartment[Input]) execute(
 	executionContext context.Context,
 	script string,
@@ -59,9 +46,7 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) execute(
 	return response.values(), nil
 }
 
-// executeForEachElement replays the script once per element, the whole replay in one
-// compartment: the script is read once there and fed a growing stretch, exactly as
-// it always was.
+// executeForEachElement runs the whole replay in one compartment so the script is read only once.
 func (indicatorScriptCompartment indicatorScriptCompartment[Input]) executeForEachElement(
 	executionContext context.Context,
 	script string,
@@ -83,30 +68,23 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) executeForEa
 	return response.perElementValues(), nil
 }
 
-// compartmentOutcome is what reading a compartment's answer came to.
 type compartmentOutcome struct {
 	response  indicatorScriptResponse
 	readError error
 }
 
-// run starts one compartment, sends it the request, and waits for its answer. runCount
-// is how many runs of the script the request asks for, which is what the outermost
-// time limit is measured in.
+// run starts one compartment; runCount scales the outermost time limit.
 func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 	executionContext context.Context, request indicatorScriptRequest[Input], runCount int,
 ) (indicatorScriptResponse, error) {
 	isolation := indicatorScriptCompartment.isolation
 
 	command := exec.Command(isolation.WorkerCommand[0], isolation.WorkerCommand[1:]...)
-	// An empty environment rather than none: leaving it unset would hand the child
-	// everything the service itself was started with.
+	// An explicit empty environment, since a nil Env would inherit the service's.
 	command.Env = append([]string{}, isolation.WorkerEnvironment...)
 	var deathNotice bytes.Buffer
 	command.Stderr = &deathNotice
-	// Once the child has been told to end, the service waits this long and no longer
-	// for its output to close. Anything the child left behind still holding those
-	// streams would otherwise keep the wait — and whoever is waiting on this run —
-	// hanging for as long as it lived.
+	// Bounds how long to wait for output to close after the child ends, in case a leftover descendant holds the pipes.
 	command.WaitDelay = time.Second
 
 	requestPipe, requestPipeError := command.StdinPipe()
@@ -115,15 +93,12 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 	if startError == nil {
 		startError = command.Start()
 	}
-	// A compartment that never came up ran nothing of the script, but to its author
-	// it is still a run that did not happen, so it is told the same way.
 	if startError != nil {
 		return indicatorScriptResponse{}, fmt.Errorf(
 			"%w: 算式執行失敗：算式隔間無法啟動：%v", domains.ErrIndicatorScriptFailed, startError)
 	}
 
-	// A child that dies part way through leaves this write with nowhere to go; the
-	// failure is then read from how the child ended, not from here.
+	// If the child dies mid-write, the failure is read from its exit rather than from this write.
 	go func() {
 		defer requestPipe.Close()
 		encoder := gob.NewEncoder(requestPipe)

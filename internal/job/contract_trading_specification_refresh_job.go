@@ -8,10 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
-// ContractTradingSpecificationRefreshJob keeps every known perpetual contract's
-// trading specification current: once on start, so a contract registered before
-// specifications were recorded gets one without waiting a day, and then every
-// interval.
+// ContractTradingSpecificationRefreshJob refreshes trading specifications on start and every interval.
 type ContractTradingSpecificationRefreshJob struct {
 	*repeatingRound
 }

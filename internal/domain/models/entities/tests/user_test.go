@@ -30,8 +30,6 @@ func TestUserToDtoCarriesStillWaitingToBeLetIn(t *testing.T) {
 	userDto := user.ToDto()
 
 	assert.False(t, userDto.IsEnabled)
-	// The row knows it is waiting; it does not know what to do about it, because
-	// that needs an address nobody stores on a user.
 	assert.Nil(t, userDto.ActivationInstruction)
 }
 
@@ -42,9 +40,7 @@ func TestUserDtoCarriesNoTraceOfThePasswordProof(t *testing.T) {
 		PasswordProof: "$2a$12$XnhfeGHwjLbM/cah350NkOeZnpiIZUnm8UF4w3HoxjbuZbxdkrzl6",
 	}
 
-	// Serialised is how the answer actually leaves the system, so it is the honest
-	// place to check that the proof is not in it — a field nobody reads is still a
-	// field the JSON carries.
+	// Check the serialised JSON, since that is what actually leaves the system.
 	encodedUserDto, err := json.Marshal(user.ToDto())
 
 	require.NoError(t, err)

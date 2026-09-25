@@ -10,20 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// kCandleFollowFeed keeps a live line followed against one live source: it dials the
-// line, hands every candle that arrives to whoever owns the line, notices when the line
-// has gone quiet, tells the line's viewers it has stalled, and tries again after a
-// growing wait — until the line is ended on purpose.
-//
-// None of that depends on which market the line is in, so the spot follow and the
-// contract follow each hold one of these rather than each keeping a copy of the loop.
-// What a candle arriving amounts to — passed on, stored, or only passed on — is the
-// owner's decision, handed in as report; how long silence and retries may last is
-// LiveChannelHealthDomain's.
-//
-// It carries execution, not domain data — a source, a clock, three timing figures and
-// the callback it reports to — so it is not a domain model and lives beside the
-// services that run it, with no suffix.
+// kCandleFollowFeed keeps one live line followed against a source, reconnecting with growing back-off; it is market-agnostic, so spot and contract follows share it and decide via report what a candle amounts to.
 type kCandleFollowFeed struct {
 	liveMarketDataProxy _interface.ILiveMarketDataProxy
 	clockProxy          _interface.IClockProxy
@@ -48,9 +35,7 @@ func newKCandleFollowFeed(
 	}
 }
 
-// keep keeps one line followed for as long as anyone is watching it. Every time the
-// feed ends — refused, dropped, or gone silent — the viewers are told, the wait
-// grows, and it tries again. It never gives up; only the last viewer leaving ends it.
+// keep retries the line forever, telling viewers each time it stalls, until its context is ended on purpose.
 func (kCandleFollowFeed *kCandleFollowFeed) keep(
 	executionContext context.Context, openChannel *kCandleFollowChannel,
 ) {
@@ -63,12 +48,7 @@ func (kCandleFollowFeed *kCandleFollowFeed) keep(
 	)
 
 	for {
-		// Each attempt gets a context of its own so that abandoning it really closes
-		// the line behind it. A feed that fell silent is still open — its reader is
-		// sitting on a socket nobody is listening to any more — and dialling the next
-		// attempt without letting go of it would leave two lines where the plan
-		// allows one, which is the very thing being followed a channel at a time was
-		// meant to prevent.
+		// A per-attempt context ensures an abandoned (e.g. silent) connection is really closed before the next dial, so there is never more than one line.
 		attemptContext, abandonAttempt := context.WithCancel(executionContext)
 
 		liveKCandles, followError := kCandleFollowFeed.liveMarketDataProxy.
@@ -83,21 +63,14 @@ func (kCandleFollowFeed *kCandleFollowFeed) keep(
 
 		abandonAttempt()
 
-		// A channel whose context is already done was ended on purpose — the system is
-		// shutting down, or these symbols lost their places. Saying "stalled" then
-		// would leave a viewer waiting for a recovery nobody intends, and would
-		// overwrite the reason they were just given.
+		// A done context means the channel was ended on purpose; saying "stalled" would promise a recovery and overwrite the real reason.
 		if executionContext.Err() != nil {
 			return
 		}
 
-		// One line went down, so every symbol on it hears the same news — nobody is
-		// being retired here, the line is simply being tried again.
 		openChannel.publishStalled(nil)
 
-		// Said out loud because the gap is the only evidence the growing back-off is
-		// working: a source that keeps accepting connections and dropping them is
-		// otherwise indistinguishable, in the log, from one being retried every second.
+		// Logged because the gap is the only evidence the back-off is working against a source that accepts then drops connections.
 		retryDelay := healthDomain.NextRetryDelay()
 		log.Printf("live k candle follow: %s is not delivering; trying again in %s",
 			openChannel.channel.Key, retryDelay)
@@ -108,17 +81,8 @@ func (kCandleFollowFeed *kCandleFollowFeed) keep(
 	}
 }
 
-// consume decides when this follow has something to do: a candle arrived, the feed
-// ended, or it has been silent long enough to count as dead.
-//
-// It is a method of its own rather than part of keep because it draws the stretch the
-// quiet-check ticker is held for: one ticker per attempt, stopped the moment that
-// attempt ends. Written inline, the stop would have to be remembered by hand at every
-// way out of the loop, and a ticker left running per retry leaks one per outage.
-//
-// A connection that looks open but has stopped delivering is how this kind of feed
-// usually fails, and a viewer must not be left watching a frozen picture that claims
-// to be live.
+// consume reads candles until the feed ends or goes quiet, since an open-looking but silent connection is this feed's usual failure mode.
+// It is a separate method so the quiet-check ticker's defer Stop scopes it to one attempt instead of leaking one per outage.
 func (kCandleFollowFeed *kCandleFollowFeed) consume(
 	executionContext context.Context,
 	openChannel *kCandleFollowChannel,
@@ -138,20 +102,12 @@ func (kCandleFollowFeed *kCandleFollowFeed) consume(
 				return
 			}
 
-			// Anything arriving proves the line is alive, whichever symbol it was
-			// about — the silence and the retry gap belong to the line, not to a
-			// symbol that happened to trade.
+			// Any candle proves the line is alive; silence belongs to the line, not to a symbol.
 			healthDomain.MarkReceived(kCandleFollowFeed.clockProxy.Now())
 
-			// The candle names the symbol it belongs to, and that is the only thing
-			// that decides whose it is. Two symbols sharing a line are two pictures.
 			follow, isCarried := openChannel.followOf(liveKCandle.Symbol)
 			if !isCarried {
-				// Said out loud because from every other angle this looks healthy:
-				// the line is alive, candles are arriving, and not one of them ever
-				// reaches a viewer. Silence here would make a name that does not
-				// match — a case difference, a suffix — indistinguishable from a
-				// market that simply has nothing to report.
+				// Logged because a mismatched symbol name (case, suffix) otherwise looks exactly like a quiet market.
 				log.Printf("live k candle follow: %s carries no %s, dropping its candle",
 					openChannel.channel.Key, liveKCandle.Symbol)
 
@@ -167,8 +123,7 @@ func (kCandleFollowFeed *kCandleFollowFeed) consume(
 	}
 }
 
-// waitOrDone waits out the retry gap, reporting false if the follow ended first so
-// that a follow nobody is watching stops immediately rather than after the wait.
+// waitOrDone waits out the retry gap, returning false if the follow ended first.
 func (kCandleFollowFeed *kCandleFollowFeed) waitOrDone(
 	executionContext context.Context, delay time.Duration,
 ) bool {

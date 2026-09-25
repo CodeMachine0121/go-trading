@@ -12,35 +12,19 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// contractSourceRow is one row of a source answer together with the open time already
-// read out of it. The open time is what both answers are aligned on and what paging
-// steps forward from, so it is read once, at the boundary, and carried rather than
-// parsed again by everyone who needs it.
+// contractSourceRow carries the open time parsed once, since answers are aligned and paged by it.
 type contractSourceRow struct {
 	openTime time.Time
 	kLine    binanceKLine
 }
 
-// Two names the venue uses for "which contract". Every series takes the symbol except
-// the index price, which belongs to the underlying pair rather than to one contract
-// on it. For a perpetual the two are spelled the same, so the difference is only in
-// which name the question has to use.
+// The index price is queried by pair while every other series uses symbol; for perpetuals they are spelled the same.
 const (
 	symbolParameter = "symbol"
 	pairParameter   = "pair"
 )
 
-// BinanceContractMarketDataProxy fetches perpetual contract K candles from Binance.
-//
-// Everything the rest of the system must not know about this source stops here: the
-// four addresses, the way it spells an interval, its positional wire format, the fact
-// that a wide window has to be asked for in several goes — and the fact that one
-// contract candle takes four questions rather than one.
-//
-// The answers are aligned on open time. The traded half decides which minutes exist
-// at all, because it is the one that says whether the market was there; a mark price,
-// index price or premium index for a minute with no trading half is a reading of
-// nothing and is dropped.
+// BinanceContractMarketDataProxy assembles each contract K candle from four endpoints aligned on open time; the traded klines decide which minutes exist, and other readings without one are dropped.
 type BinanceContractMarketDataProxy struct {
 	baseUrl         string
 	markPriceUrl    string
@@ -68,14 +52,7 @@ func NewBinanceContractMarketDataProxy(
 	}
 }
 
-// FetchKCandles returns every contract K candle the source holds inside the window,
-// oldest first, each carrying its mark price, index price and premium index where the
-// source had them.
-//
-// A window the source has nothing for is an empty result, not a failure — a contract
-// that did not yet exist over the stretch asked about produces exactly that. Any one
-// question failing fails the whole call, because part of a contract candle is not a
-// partial answer, it is a candle nobody can tell from a spot one.
+// FetchKCandles returns candles oldest first with mark, index and premium readings where available; an empty window is not an error, but any failed request fails the whole call.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCandles(
 	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.ContractMarketKCandleVo, error) {
@@ -95,9 +72,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	}
 
 	if len(contractKCandles) == 0 {
-		// Nothing traded over the stretch, so there is nothing the other three lines
-		// could belong to. Asking anyway would spend the venue's allowance on answers
-		// with no home, and long backfills are made of stretches like this one.
+		// Nothing traded, so skip the other three requests to save the rate allowance.
 		return contractKCandles, nil
 	}
 
@@ -119,9 +94,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 		return nil, premiumIndexError
 	}
 
-	// A minute a line did not cover is left with that line absent, not dropped: "a
-	// contract K candle without it is not one" is the domain's rule to apply, and the
-	// record of a skipped candle is supposed to say which line was missing.
+	// A missing line is left absent rather than dropping the candle, so the domain can reject it and record which line was missing.
 	for index, contractKCandle := range contractKCandles {
 		openTime := contractKCandle.OpenTime.UnixMilli()
 
@@ -147,9 +120,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) FetchKCand
 	return contractKCandles, nil
 }
 
-// fetchPriceLine walks one of the three answers that carry only four meaningful prices
-// across the window and keys them by open time, which is the only thing they have in
-// common with the traded half.
+// fetchPriceLine fetches a price-only series and keys it by open time.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPriceLine(
 	executionContext context.Context,
 	address string,
@@ -174,12 +145,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPrice
 	return pricesByOpenTime, nil
 }
 
-// fetchRows walks one address across the whole window, page by page, and hands back
-// the raw rows in the order the source gave them.
-//
-// It keeps asking until the source stops producing rows inside the window, so a
-// window wider than one page still comes back whole while a source that answers with
-// rows outside it cannot keep the asking going.
+// fetchRows pages until the source stops returning rows inside the window, so out-of-window rows cannot loop forever.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
 	executionContext context.Context,
 	address string,
@@ -206,14 +172,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchRows(
 	return rows, nil
 }
 
-// fetchPage asks one address once, keeping only the rows that actually fall inside
-// the stretch it was asked for.
-//
-// **It has one caller and stays a method of its own because of what it encloses: one
-// answer's body, from the moment it arrives to the moment it is let go.** Folded back
-// into the loop above, the deferred close would not run until every page had been
-// fetched — so a stretch of years would hold a thousand answer bodies open at once,
-// and each of the four ways out of here would have to remember to close by hand.
+// fetchPage keeps only in-window rows and is separate so each response body is closed before the next page.
 func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 	executionContext context.Context,
 	address string,
@@ -257,9 +216,7 @@ func (binanceContractMarketDataProxy *BinanceContractMarketDataProxy) fetchPage(
 		return nil, fmt.Errorf("read contract market source answer for %s: %w", symbol, decodeError)
 	}
 
-	// A decoder stops at the end of the first value and would ignore whatever came
-	// after it. Ignored, a valid but empty array followed by junk reads as "the source
-	// has nothing for this window" rather than as a source that cannot be read.
+	// Trailing data after the array means an unreadable response, not an empty one.
 	if answer.More() {
 		return nil, fmt.Errorf(
 			"read contract market source answer for %s: trailing content after the answer", symbol)

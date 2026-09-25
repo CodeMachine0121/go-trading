@@ -19,13 +19,11 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// signInMoment is what the clock reads throughout these tests, so that "expires
-// fifteen minutes from now" is a value the test can name rather than a moving target.
+// signInMoment is the fixed clock reading so expiries are nameable values.
 var signInMoment = time.Date(2026, 9, 5, 8, 0, 0, 0, time.UTC)
 
-// accessTokenExpiry and refreshTokenExpiry are signInMoment plus each lifetime,
-// written out rather than computed so that a test asserting them is asserting the
-// requirement and not repeating the code's arithmetic.
+// Expiries are written out rather than computed so tests assert the requirement, not the code's
+// arithmetic.
 var (
 	accessTokenExpiry  = time.Date(2026, 9, 5, 8, 15, 0, 0, time.UTC)
 	refreshTokenExpiry = time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC)
@@ -36,45 +34,30 @@ var sessionLifetimes = vo.SessionLifetimesVo{
 	RefreshToken: 30 * 24 * time.Hour,
 }
 
-// activationPolicy is where these tests pretend letters asking to be let in are sent.
-// It is a stand-in address on purpose: what the tests are about is that the subject
-// line is assembled from whatever the setting says, not about any particular inbox.
+// activationPolicy uses a stand-in mailbox; the tests only care that the subject follows the
+// setting.
 var activationPolicy = vo.AccountActivationPolicyVo{
 	RequestMailbox: "gatekeeper@example.com",
 	SubjectPrefix:  "console access request",
 }
 
-// lockoutPolicy is how tired the door gets in these tests. The numbers are the
-// shipped defaults rather than convenient small ones, so that a scenario reading
-// "the third wrong password" is the third here too.
+// lockoutPolicy uses the shipped defaults so "the third wrong password" means the same here.
 var lockoutPolicy = vo.SignInLockoutPolicyVo{
 	FailureThreshold: 3,
 	LockoutDuration:  7 * 24 * time.Hour,
 }
 
-// lockoutExpiry is signInMoment plus the lockout duration, written out rather than
-// computed so that asserting it asserts the requirement and not the code's own sum.
 var lockoutExpiry = time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
 
-// signInOutcomeRecorder catches what each sign-in attempt asked the store to
-// remember about the account's standing with the door.
-//
-// Catching it beats setting an expectation per test for two reasons. The tests that
-// existed before this lock are about something else entirely and should not have to
-// grow a line about it; and the tests that are about it can then assert on the value
-// itself rather than on a call having happened, which is the difference between
-// "something was written" and "three, and shut until next Saturday".
+// signInOutcomeRecorder captures the standing each sign-in writes, so tests assert values rather
+// than calls and unrelated tests need no extra expectations.
 type signInOutcomeRecorder struct {
 	states  []vo.SignInLockoutStateVo
 	userIDs []uint
-	// observedCounts is the streak each write guarded on — the value the caller had
-	// read and counted from.
+	// observedCounts is the streak each write was guarded on.
 	observedCounts []int
-	// failure is what the store answers instead of accepting the write, for the
-	// tests about an unwell store.
-	failure error
-	// staleWrites is how many of the next writes are refused as counted from a
-	// streak that has since moved, for the tests about attempts arriving together.
+	failure        error
+	// staleWrites is how many upcoming writes are refused as stale, simulating concurrent attempts.
 	staleWrites int
 }
 
@@ -96,9 +79,8 @@ type userApplicationUnderTest struct {
 	clockProxy         *mocks.MockIClockProxy
 }
 
-// newUserApplicationUnderTest wires the real domain service and the real models,
-// mocking only the outermost boundaries: the two stores, the three cryptographic
-// capabilities, and the clock.
+// newUserApplicationUnderTest uses the real domain service, mocking only stores, cryptographic
+// proxies and the clock.
 func newUserApplicationUnderTest(
 	t *testing.T, lifetimes vo.SessionLifetimesVo,
 ) userApplicationUnderTest {
@@ -150,15 +132,12 @@ func newUserApplicationUnderTest(
 	}
 }
 
-// aMintedRefreshToken is what the minting capability hands back throughout these
-// tests. The digest is deliberately unlike the value: everything that matters here
-// turns on which of the two travels where.
+// The digest deliberately differs from the value, since the tests check which of the two travels
+// where.
 func aMintedRefreshToken() vo.RefreshTokenVo {
 	return vo.RefreshTokenVo{Value: "a-refresh-token", Digest: "a-refresh-token-digest"}
 }
 
-// expectSessionOpened sets up the three calls that opening a session always makes,
-// for the tests that are about something else.
 func (fixture userApplicationUnderTest) expectSessionOpened() {
 	fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 	fixture.accessTokenProxy.EXPECT().
@@ -186,7 +165,6 @@ func aStoredUser(id uint, email string) entities.User {
 	}
 }
 
-// aLetInUser is the same row after somebody let them in.
 func aLetInUser(id uint, email string) entities.User {
 	user := aStoredUser(id, email)
 	user.IsEnabled = true
@@ -221,9 +199,7 @@ func TestUserApplicationRegisterUser(t *testing.T) {
 		fixture.userRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, user entities.User) (entities.User, error) {
-				// The registration has nowhere to put this, so the row can only ever
-				// arrive at storage waiting — which is why nobody can ask to skip
-				// the queue.
+				// Registration cannot set activation, so rows always arrive pending.
 				assert.False(t, user.IsEnabled)
 
 				return aStoredUser(7, user.Email), nil
@@ -244,8 +220,7 @@ func TestUserApplicationRegisterUser(t *testing.T) {
 				return aStoredUser(7, user.Email), nil
 			})
 
-		// Typed with padding and capitals; the subject has to carry the spelling the
-		// account is stored under, because that is what the person reading the inbox
+		// The subject must carry the normalised stored address, since that is what the inbox reader
 		// matches on.
 		userDto, err := fixture.userApplication.RegisterUser(t.Context(), aRegistrationDto())
 
@@ -344,16 +319,13 @@ func TestUserApplicationSignIn(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "a-signed-token", sessionTokensDto.AccessToken)
 		assert.Equal(t, accessTokenExpiry, sessionTokensDto.ExpiresAt)
-		// The value goes to the holder; the digest stays behind. Handing out the
-		// digest would give somebody something that opens nothing, and storing the
-		// value would defeat the point of storing a digest at all.
+		// The value goes to the holder and only the digest is stored.
 		assert.Equal(t, "a-refresh-token", sessionTokensDto.RefreshToken)
 		assert.Equal(t, refreshTokenExpiry, sessionTokensDto.RefreshTokenExpiresAt)
 	})
 
 	t.Run("lets in somebody who has not been let in yet", func(t *testing.T) {
-		// Stopping them here would leave them with no way to see their own standing,
-		// and nothing to do but sign in again — which will never tell them anything.
+		// Pending users still get a session so they can see their own standing.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
@@ -441,8 +413,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 	})
 
 	t.Run("a session that cannot be signed for leaves no session behind", func(t *testing.T) {
-		// Signing before writing is what makes this true. The other order would end
-		// with a stored session nobody was ever handed the proofs to.
+		// Signing before writing avoids storing a session whose proofs were never handed out.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
@@ -498,10 +469,8 @@ func TestUserApplicationSignIn(t *testing.T) {
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
 			Return(entities.User{}, domains.ErrUserNotFound)
-		// There is no account, so there is no proof — and the check still has to
-		// happen. Turning back before it would answer measurably sooner than a wrong
-		// password does, and how long the answer took is the same information as
-		// whether the address is registered.
+		// The comparison still runs with no account, so response timing does not reveal whether the
+		// address is registered.
 		fixture.passwordProofProxy.EXPECT().Matches("correct horse", "").Return(false)
 
 		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
@@ -632,8 +601,8 @@ func TestUserApplicationIdentifyUser(t *testing.T) {
 	})
 
 	t.Run("answers somebody still waiting, and says what to do about it", func(t *testing.T) {
-		// This question is deliberately the one that does not refuse them: it is the
-		// only way somebody waiting can find out that they no longer are.
+		// This check deliberately does not require activation, so a pending user can learn they
+		// were let in.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil)
 		fixture.userRepository.EXPECT().
@@ -706,8 +675,6 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 
 		_, err := fixture.userApplication.IdentifyActivatedUser(t.Context(), "a-signed-token")
 
-		// Told to sign in again, somebody merely waiting would sign in successfully
-		// and land in exactly the same place.
 		assert.NotErrorIs(t, err, domains.ErrAuthenticationRequired)
 	})
 
@@ -733,8 +700,7 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 				_, err := fixture.userApplication.IdentifyActivatedUser(
 					t.Context(), testCase.accessToken)
 
-				// Saying "your account is not activated yet" here would say something
-				// about an account nobody managed to identify.
+				// Activation cannot be reported for an account that was never identified.
 				require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
 				assert.NotErrorIs(t, err, domains.ErrAccountNotActivated)
 			})
@@ -770,8 +736,8 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 	})
 
 	t.Run("the same proof starts working the moment somebody is let in", func(t *testing.T) {
-		// Standing is read afresh every time rather than signed into the proof, so
-		// being let in takes effect without anybody signing in again.
+		// Standing is read fresh each time rather than signed into the token, so activation applies
+		// without re-sign-in.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.accessTokenProxy.EXPECT().
 			UserIdentifiedBy("a-signed-token").Return(uint(7), nil).Times(2)
@@ -795,8 +761,6 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 	})
 }
 
-// aStoredSession is a session as it comes back from storage, good until the refresh
-// token expiry unless a test says otherwise.
 func aStoredSession() entities.Session {
 	return entities.Session{
 		ID:                 11,
@@ -812,7 +776,6 @@ func aRenewal() dto.SessionRenewalDto {
 	return dto.SessionRenewalDto{RefreshToken: "a-refresh-token"}
 }
 
-// expectDigestLookup sets up the derivation every renewal and sign-out starts with.
 func (fixture userApplicationUnderTest) expectDigestLookup() {
 	fixture.refreshTokenProxy.EXPECT().
 		DigestOf("a-refresh-token").
@@ -899,9 +862,8 @@ func TestUserApplicationRenewSession(t *testing.T) {
 	})
 
 	t.Run("a proof that was already used tears down the whole chain", func(t *testing.T) {
-		// A renewal proof works once. A used one turning up again means two copies
-		// of it exist, and there is no way to tell which holder is the real one — so
-		// the only safe answer is to end the sign-in for both.
+		// A reused refresh token means two copies exist, so the whole session is ended for both
+		// holders.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		revokedAt := signInMoment
 		revokedSession := aStoredSession()
@@ -918,8 +880,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 	})
 
 	t.Run("an expired proof is refused without tearing the chain down", func(t *testing.T) {
-		// Expiry is not theft. Tearing the chain down here would sign a second
-		// device out for nothing.
+		// Expiry is not theft, so the session chain is left intact.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		expiredSession := aStoredSession()
 		expiredSession.ExpiresAt = signInMoment.Add(-time.Second)
@@ -1021,8 +982,6 @@ func TestUserApplicationRenewSession(t *testing.T) {
 	})
 
 	t.Run("failing to tear down a stolen chain is reported, not swallowed", func(t *testing.T) {
-		// Answering "sign in again" while the thief's copy quietly keeps working
-		// would be the worst of both outcomes.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		revokeFailure := errors.New("revoke session chain: connection closed")
 		revokedAt := signInMoment
@@ -1043,10 +1002,8 @@ func TestUserApplicationRenewSession(t *testing.T) {
 	})
 
 	t.Run("a rotation the store refuses tears the chain down", func(t *testing.T) {
-		// Reading that the session was good and writing to it are two moments. A
-		// second renewal carrying the same proof, or a sign-out, can land between
-		// them — and the store saying "this had already ended" means exactly what
-		// finding an already-ended session means: the proof was used twice.
+		// A concurrent renewal or sign-out can land between read and write; the store reporting it
+		// already ended counts as reuse.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.expectDigestLookup()
 		fixture.sessionRepository.EXPECT().
@@ -1223,8 +1180,6 @@ func TestUserApplicationRevokeSession(t *testing.T) {
 func TestUserApplicationChangePassword(t *testing.T) {
 	const userID = uint(7)
 
-	// The stored user, read back so that the current password can be checked
-	// against the proof that is actually on file.
 	storedUser := entities.User{
 		ID:            userID,
 		Email:         "james@example.com",
@@ -1260,15 +1215,12 @@ func TestUserApplicationChangePassword(t *testing.T) {
 		err := fixture.userApplication.ChangePassword(context.Background(), userID,
 			dto.PasswordChangeDto{CurrentPassword: "wrong horse", NewPassword: "battery staple"})
 
-		// No Prove and no ChangePasswordProof are set up, so the mock controller
-		// fails the test if either is reached. That is the assertion that nothing
-		// was written, and it is stronger than checking a flag afterwards.
+		// No Prove or ChangePasswordProof expectation is set, so reaching either fails the test.
 		require.ErrorIs(t, err, domains.ErrCurrentPasswordRejected)
 	})
 
-	// The refusal must not be the one signing in gives. They mean different things
-	// and lead to different places: one back to the sign-in screen, one back to the
-	// box that was filled in wrongly.
+	// Must differ from the sign-in refusal, since one leads back to sign-in and the other back to
+	// the form.
 	t.Run("a wrong current password is not the refusal a failed sign-in gives", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.userRepository.EXPECT().FindOne(gomock.Any(), userID).Return(storedUser, nil)
@@ -1293,8 +1245,7 @@ func TestUserApplicationChangePassword(t *testing.T) {
 		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
 	})
 
-	// Storage being broken is not somebody's password being wrong. Dressing it up
-	// as one would have them retyping a password that was right.
+	// A storage failure must not be reported as a wrong password.
 	t.Run("storage failing to answer is reported as itself", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		storageFailure := errors.New("the database is not there")
@@ -1340,9 +1291,8 @@ func TestUserApplicationChangePassword(t *testing.T) {
 		require.ErrorIs(t, err, writeFailure)
 	})
 
-	// A new password that breaks a rule is refused before anything is read, and
-	// long before the expensive comparison. No repository or proxy call is set up,
-	// so reaching one fails the test.
+	// Rule violations are refused before any read or comparison; no mocks are set up, so reaching
+	// one fails.
 	t.Run("an unacceptable new password is refused without touching anything", func(t *testing.T) {
 		testCases := []struct {
 			name            string
@@ -1379,8 +1329,7 @@ func TestUserApplicationChangePassword(t *testing.T) {
 		}
 	})
 
-	// The identifier decides whose password changes, and it comes from the proof of
-	// identity rather than from anything the caller sent.
+	// The user ID comes from the token, not from anything the caller sent.
 	t.Run("the password changed is the one belonging to the identifier given", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		const otherUserID = uint(9)
@@ -1402,8 +1351,6 @@ func TestUserApplicationChangePassword(t *testing.T) {
 	})
 }
 
-// anAccountWithStanding is a stored user carrying what decides a lockout outcome:
-// the streak behind it and the moment it is shut until.
 func anAccountWithStanding(failedSignInCount int, lockedUntil *time.Time) entities.User {
 	user := aStoredUser(7, "james@example.com")
 	user.FailedSignInCount = failedSignInCount
@@ -1441,8 +1388,7 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 
 		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
 
-		// That attempt is itself refused. There is no moment where the count has
-		// reached the threshold and somebody is still being let through.
+		// The attempt that reaches the threshold is itself refused.
 		require.ErrorIs(t, err, domains.ErrCredentialsRejected)
 		state := fixture.signInOutcome.only(t)
 		assert.Equal(t, 3, state.FailedSignInCount)
@@ -1467,11 +1413,8 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 	})
 
 	t.Run("a shut account is refused without its password being looked at", func(t *testing.T) {
-		// The password proxy has no expectation set, so gomock fails the test if it
-		// is called at all. That single absence carries two requirements: the lock
-		// is checked before the deliberately slow comparison, and a shut account
-		// never reaches the counting — so "trying again does not extend the lock" is
-		// a road that is not there rather than a rule somebody has to keep.
+		// No password proxy expectation is set: the lock is checked before the slow comparison, and
+		// a locked account never reaches counting, so retries cannot extend the lock.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
@@ -1487,7 +1430,6 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 	})
 
 	t.Run("the right password during the lock is refused just the same", func(t *testing.T) {
-		// A lock with a way past it is decoration.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
@@ -1516,8 +1458,7 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 	})
 
 	t.Run("the first wrong password after a served lock counts as one again", func(t *testing.T) {
-		// Otherwise somebody who sat out a whole week would get one attempt back
-		// rather than three.
+		// Otherwise a user who waited out the lock would get one attempt back instead of three.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
@@ -1534,9 +1475,7 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 
 	t.Run("an address nobody has registered is never shut and leaves nothing behind",
 		func(t *testing.T) {
-			// It also still pays for the comparison. Refusing sooner than a real one
-			// would answer "no account holds that address" in a timing difference
-			// nobody wrote down.
+			// Still pays for the comparison so timing does not reveal whether the address exists.
 			fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 			fixture.userRepository.EXPECT().
 				FindOneByEmail(gomock.Any(), gomock.Any()).
@@ -1559,7 +1498,6 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 		})
 
 	t.Run("somebody nobody has let in is shut just the same", func(t *testing.T) {
-		// Being let in and being shut out are unrelated questions.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		waiting := anAccountWithStanding(2, nil)
 		waiting.IsEnabled = false
@@ -1577,9 +1515,7 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 	})
 
 	t.Run("a store that cannot remember the failure fails the sign-in", func(t *testing.T) {
-		// Swallowed, the lock would quietly not exist for as long as the store was
-		// unwell, and the one thing nobody would learn is that it had stopped
-		// protecting anything.
+		// Swallowing the error would silently disable the lock while the store is unwell.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.signInOutcome.failure = errors.New("store is unwell")
 		fixture.userRepository.EXPECT().
@@ -1610,13 +1546,8 @@ func TestUserApplicationSignInLockout(t *testing.T) {
 }
 
 func TestUserApplicationLockingAnAccountLeavesWhoeverIsAlreadyInsideAlone(t *testing.T) {
-	// The lock is on getting a fresh proof of identity, not on the people already
-	// holding one. Throwing them out would end nothing a machine guessing passwords
-	// is doing, while interrupting whatever the account holder had running.
-	//
-	// Both paths get there by never reading the lock at all, which is exactly why
-	// these two tests exist: the next person to maintain this will feel that a shut
-	// account ought not to be able to renew, and nothing else would turn red.
+	// The lock only blocks new sign-ins, not existing sessions; these tests guard against someone
+	// later making renewal check the lock.
 	t.Run("a shut account still renews its proof of identity", func(t *testing.T) {
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.expectDigestLookup()
@@ -1647,7 +1578,6 @@ func TestUserApplicationLockingAnAccountLeavesWhoeverIsAlreadyInsideAlone(t *tes
 	})
 
 	t.Run("a shut account can still sign itself out", func(t *testing.T) {
-		// Being unable to leave is a worse position than being unable to get in.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.expectDigestLookup()
 		fixture.sessionRepository.EXPECT().
@@ -1661,17 +1591,14 @@ func TestUserApplicationLockingAnAccountLeavesWhoeverIsAlreadyInsideAlone(t *tes
 
 func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *testing.T) {
 	t.Run("a streak that moved underneath is counted against what it says now", func(t *testing.T) {
-		// Reading the streak, spending a bcrypt comparison and writing the next
-		// number are three moments, and a second attempt on the same address lands
-		// inside that gap on purpose. Writing the stale number over it would throw
-		// the other attempt away — a hundred guesses for the price of one.
+		// A concurrent attempt lands between reading the streak and writing it; overwriting with
+		// the stale count would lose guesses.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.signInOutcome.staleWrites = 1
 		fixture.userRepository.EXPECT().
 			FindOneByEmail(gomock.Any(), gomock.Any()).
 			Return(anAccountWithStanding(0, nil), nil)
 		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(false)
-		// The row as it actually stands now: somebody else already counted one.
 		fixture.userRepository.EXPECT().
 			FindOne(gomock.Any(), uint(7)).
 			Return(anAccountWithStanding(1, nil), nil)
@@ -1707,9 +1634,8 @@ func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *
 	})
 
 	t.Run("an account somebody else just shut is left exactly as they shut it", func(t *testing.T) {
-		// Counting on top would work out a fresh moment and push the end of the lock
-		// further out — the one thing it must never do, because that is how somebody
-		// who knows an address holds its owner out forever.
+		// Counting on top would push the lock's end further out, letting anyone who knows an
+		// address lock its owner out forever.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.signInOutcome.staleWrites = 1
 		fixture.userRepository.EXPECT().
@@ -1728,10 +1654,8 @@ func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *
 	})
 
 	t.Run("a store that cannot be looked at again fails the sign-in", func(t *testing.T) {
-		// Looking again is how the attempt gets counted at all. A store that cannot
-		// answer the second look has left this guess uncounted, and pretending
-		// otherwise would hand back a plain wrong-password refusal while the lock
-		// quietly fell one guess behind what actually happened.
+		// If the re-read fails the guess is uncounted, so an error is returned rather than a plain
+		// wrong-password refusal.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.signInOutcome.staleWrites = 1
 		fixture.userRepository.EXPECT().
@@ -1749,9 +1673,7 @@ func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *
 	})
 
 	t.Run("an attempt nobody could count fails the sign-in rather than vanishing", func(t *testing.T) {
-		// Running out of looks is not silently forgiven: an attempt that was never
-		// counted is an attempt nobody knows about, and the lock would be quietly
-		// short of the guesses that actually happened.
+		// Exhausting retries is an error, since an uncounted attempt would leave the lock short.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.signInOutcome.staleWrites = 99
 		fixture.userRepository.EXPECT().
@@ -1770,10 +1692,8 @@ func TestUserApplicationSignInCountsEveryWrongPasswordWhenTheyArriveTogether(t *
 	})
 
 	t.Run("running out of looks against a shut account is not a failure", func(t *testing.T) {
-		// Every round lost is a round somebody else's number landed in, so a shut
-		// account by the end means this attempt is accounted for — the same answer
-		// the loop gives when it finds one mid-way. Answering "the store broke"
-		// would hand a plain wrong password an error about the system.
+		// Every lost round means another attempt was counted, so a locked account at the end
+		// accounts for this attempt too.
 		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 		fixture.signInOutcome.staleWrites = 99
 		fixture.userRepository.EXPECT().

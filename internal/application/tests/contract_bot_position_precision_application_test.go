@@ -13,8 +13,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The history remembers the stop as the message sent it: on the venue's tick, not the
-// raw distance.
+// The history records the stop as sent: rounded to the venue's tick, not the raw distance.
 func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
@@ -45,8 +44,8 @@ func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) 
 	assert.True(t, recorded.StopLossPrice.Equal(decimal.NewFromInt(98)), "止損價 %s", recorded.StopLossPrice)
 }
 
-// A stake the capital cannot cover has nothing to place, so the round reads nothing about
-// the venue: the three venue readers carry no expectations, and reaching any fails this.
+// A stake the capital cannot cover places nothing, so the venue readers carry no expectations and
+// reaching any fails this.
 func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)

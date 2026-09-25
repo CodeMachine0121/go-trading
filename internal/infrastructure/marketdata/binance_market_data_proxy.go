@@ -13,26 +13,14 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// kCandleInterval is how one K candle's length is spelled for this source: the
-// number of minutes it covers followed by an "m".
-//
-// It is derived rather than written out, so that changing the length the system
-// works in cannot leave this source quietly asking for the old one. The spelling
-// holds for whole minutes under an hour, which is the range this source spells that
-// way — a length outside it is the moment to come back here.
+// kCandleInterval is derived from the domain interval; the "<n>m" spelling only holds for whole minutes under an hour.
 var kCandleInterval = strconv.Itoa(domains.KCandleIntervalMinutes) + "m"
 
-// pageLimit is the most candles this source will hand over at once.
 const pageLimit = 1000
 
-// intervalStep is the same length as a duration, used to step past the last candle
-// a page ended on.
 const intervalStep = domains.KCandleInterval
 
-// BinanceMarketDataProxy fetches K candles from Binance. Everything the rest of the
-// system must not know about this source stops here: the address, the way it spells
-// an interval, its positional wire format, and the fact that a wide window has to be
-// asked for in several goes.
+// BinanceMarketDataProxy fetches spot K candles, hiding the address, interval spelling, positional wire format and paging.
 type BinanceMarketDataProxy struct {
 	baseUrl    string
 	httpClient *http.Client
@@ -49,11 +37,7 @@ func NewBinanceMarketDataProxy(
 	}
 }
 
-// FetchKCandles returns every K candle the source holds inside the window, oldest
-// first. It keeps asking until the source stops producing candles inside the window,
-// so a window wider than one page still comes back whole while a source that answers
-// with candles outside it cannot keep the asking going. A window the source has
-// nothing for is an empty result, not a failure.
+// FetchKCandles pages until the source stops returning candles inside the window, so out-of-window data cannot loop forever; an empty window is not an error.
 func (binanceMarketDataProxy *BinanceMarketDataProxy) FetchKCandles(
 	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.MarketKCandleVo, error) {
@@ -77,8 +61,7 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) FetchKCandles(
 	return marketKCandles, nil
 }
 
-// fetchPage asks the source once and normalizes whatever it answers with, keeping
-// only the candles that actually fall inside the stretch it was asked for.
+// fetchPage keeps only candles inside the requested stretch.
 func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
 	executionContext context.Context,
 	symbol string,
@@ -119,11 +102,7 @@ func (binanceMarketDataProxy *BinanceMarketDataProxy) fetchPage(
 		return nil, fmt.Errorf("read market source answer for %s: %w", symbol, decodeError)
 	}
 
-	// A decoder stops at the end of the first value and would ignore whatever came
-	// after it — an error page a proxy appended to an otherwise good answer, say.
-	// Ignored, a valid but empty array followed by junk reads as "the source has
-	// nothing for this window" rather than as a source that cannot be read, and a
-	// window with candles in it would be quietly recorded as having none.
+	// Trailing data after the array (e.g. an appended error page) means an unreadable response, not an empty window.
 	if answer.More() {
 		return nil, fmt.Errorf(
 			"read market source answer for %s: trailing content after the answer", symbol)

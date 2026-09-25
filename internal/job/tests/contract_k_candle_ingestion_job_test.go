@@ -19,7 +19,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// assertAJobError stands in for the venue refusing, which one round must survive.
 var assertAJobError = errors.New("contract market source unreachable")
 
 type contractJobUnderTest struct {
@@ -28,8 +27,7 @@ type contractJobUnderTest struct {
 	backfillSymbols chan string
 }
 
-// newContractJobUnderTest builds the real contract ingestion path and records which
-// half of the job reached the outside world, in the order it happened.
+// newContractJobUnderTest records, in order, which half of the job reached the outside world.
 func newContractJobUnderTest(t *testing.T, symbols []string) contractJobUnderTest {
 	t.Helper()
 
@@ -146,7 +144,7 @@ func TestAContractJobWhoseContextIsDoneRunsNoFurtherRounds(t *testing.T) {
 }
 
 func TestTheContractJobWritesDownWhatWentWrongWithoutStopping(t *testing.T) {
-	// One contract the venue would not answer for must not take the round down.
+	// One contract failing must not take the round down.
 	mockController := gomock.NewController(t)
 	candleRepository := mocks.NewMockIKCandleContractRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
@@ -182,7 +180,7 @@ func TestTheContractJobWritesDownWhatWentWrongWithoutStopping(t *testing.T) {
 
 	ingestionJob.Start(t.Context())
 
-	// Two rounds arriving is the whole point: the first one failing did not end the job.
+	// A second round proves the first failure did not end the job.
 	for range 2 {
 		select {
 		case <-rounds:
@@ -192,9 +190,6 @@ func TestTheContractJobWritesDownWhatWentWrongWithoutStopping(t *testing.T) {
 	}
 }
 
-// contractJobReaching builds a contract job over whatever the watchlist read and the
-// venue answer are made to do, for the cases that are about what the job writes down
-// rather than about when it runs.
 func contractJobReaching(
 	t *testing.T,
 	watchedSymbols func() ([]entities.ContractTradingSymbol, error),
@@ -239,8 +234,7 @@ func contractJobReaching(
 }
 
 func TestTheContractJobSurvivesARoundItCouldNotEvenStart(t *testing.T) {
-	// A watchlist that cannot be read ends the round before any contract is reached.
-	// The job writes that down and carries on, rather than dying with it.
+	// An unreadable watchlist ends the round early; the job logs it and carries on.
 	readAttempts := make(chan struct{}, 64)
 	ingestionJob := contractJobReaching(t,
 		func() ([]entities.ContractTradingSymbol, error) {
@@ -264,8 +258,7 @@ func TestTheContractJobSurvivesARoundItCouldNotEvenStart(t *testing.T) {
 }
 
 func TestTheContractJobWritesDownEveryCandleItHadToSkip(t *testing.T) {
-	// A minute whose mark price never arrived is skipped, and the job names it — that
-	// is the whole point of the record being kept per candle rather than as a count.
+	// A minute missing its mark price is skipped and named individually in the log.
 	rounds := make(chan struct{}, 64)
 	withoutMarkPrice := vo.ContractMarketKCandleVo{
 		Symbol:              "BTCUSDT",

@@ -487,8 +487,7 @@ func TestGetKCandleSeriesPicksTheIntervalByTheSymbolsOwnMarket(t *testing.T) {
 
 	t.Run("會收盤的市場：一整天只有一個交易時段那麼多根，挑得到一分鐘", func(t *testing.T) {
 		kCandleService, kCandleRepository := buildService(t, vo.MarketTaiwanStock)
-		// 這一整天涵蓋一個交易時段，兩端都算是 271 格；加上多留的一格，
-		// 一分鐘刻度下一格就是一根。
+		// 一整天涵蓋一個交易時段共 271 格，加上多留的一格；一分鐘刻度下一格就是一根。
 		kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), 272).
 			Return([]entities.KCandle{}, nil)
 

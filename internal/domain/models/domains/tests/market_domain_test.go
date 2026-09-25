@@ -10,13 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// taipeiLocation is fixed rather than loaded so that these rules are checked against
-// the offset the requirements name, on any machine, whatever time zone database it
-// happens to ship with.
+// taipeiLocation is a fixed offset so tests don't depend on the machine's timezone database.
 var taipeiLocation = time.FixedZone("Asia/Taipei", 8*60*60)
 
-// taiwanStockRules are the rules the requirements name: 09:00 to 13:30 Taipei time,
-// Monday to Friday, followed from a roster, five symbols on one line.
+// taiwanStockRules: 09:00–13:30 Taipei, Monday–Friday, rostered, five symbols per channel.
 func taiwanStockRules() vo.MarketRulesVo {
 	return vo.MarketRulesVo{
 		TradingSession: vo.TradingSessionVo{
@@ -48,8 +45,7 @@ func cryptoMarket() domains.MarketDomain {
 	return marketCatalog().MarketOf(string(vo.MarketCrypto))
 }
 
-// windowBetween builds a fetch window from two Taipei-time moments, so the tables
-// below read in the same clock the requirements are written in.
+// windowBetween takes Taipei-time moments so tables read in the requirements' clock.
 func windowBetween(t *testing.T, market vo.MarketVo, startTime string, endTime string) vo.KCandleFetchWindowVo {
 	t.Helper()
 
@@ -65,9 +61,7 @@ func TestMarketOfReadsWhatWasStored(t *testing.T) {
 	}{
 		{name: "taiwan stock", storedMarket: "taiwanStock", expectedMarket: vo.MarketTaiwanStock},
 		{name: "crypto", storedMarket: "crypto", expectedMarket: vo.MarketCrypto},
-		// A row written before markets were ever recorded names nothing. Reading it as
-		// the market this system had at the time is the only reading that keeps it
-		// behaving as it did.
+		// Rows predating the market column read as crypto, the only market at the time.
 		{name: "a row that names no market", storedMarket: "", expectedMarket: vo.MarketCrypto},
 		{name: "a market nobody offers", storedMarket: "nasdaq", expectedMarket: vo.MarketCrypto},
 	}
@@ -86,8 +80,7 @@ func TestIsRecognisedSeparatesANamedMarketFromAnAbsentOne(t *testing.T) {
 
 	assert.True(t, catalog.IsRecognised("taiwanStock"))
 	assert.True(t, catalog.IsRecognised("crypto"))
-	// Naming a market that does not exist is a request to refuse, even though reading
-	// a row that named nothing is forgiven.
+	// Unknown market names are refused, even though an empty stored market is forgiven.
 	assert.False(t, catalog.IsRecognised("nasdaq"))
 	assert.False(t, catalog.IsRecognised(""))
 	assert.Equal(t, []string{"crypto", "taiwanStock"}, catalog.RecognisedMarkets())
@@ -145,8 +138,6 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 		expectedEndTime   string
 	}{
 		{
-			// A round during the session asks for the last few closed candles and gets
-			// exactly those back.
 			name:              "a round in the middle of the session",
 			windowStart:       "2026-09-08T09:40:00+08:00",
 			windowEnd:         "2026-09-08T10:00:00+08:00",
@@ -154,8 +145,7 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			expectedEndTime:   "2026-09-08T10:00:00+08:00",
 		},
 		{
-			// The round just after the close still has that day's last candle to
-			// collect — 13:29 is the one that finished exactly at 13:30.
+			// 13:29 is the candle that finished exactly at 13:30.
 			name:              "the round just after the close still reaches the day's last candle",
 			windowStart:       "2026-09-08T13:05:00+08:00",
 			windowEnd:         "2026-09-08T13:29:00+08:00",
@@ -163,8 +153,7 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			expectedEndTime:   "2026-09-08T13:29:00+08:00",
 		},
 		{
-			// A window reaching past the close is cut back to the last candle the
-			// session could hold, not to the closing bell itself.
+			// Cut back to the last candle the session can hold, not the closing bell.
 			name:              "a window reaching past the close stops at the last candle",
 			windowStart:       "2026-09-08T13:20:00+08:00",
 			windowEnd:         "2026-09-08T14:00:00+08:00",
@@ -184,8 +173,6 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			expectedIsEmpty: true,
 		},
 		{
-			// Starting up on a Saturday morning: the day before is the only stretch in
-			// reach that could hold anything.
 			name:              "a saturday backfill reaches back into friday's session",
 			windowStart:       "2026-09-11T09:00:00+08:00",
 			windowEnd:         "2026-09-12T08:55:00+08:00",
@@ -193,8 +180,7 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			expectedEndTime:   "2026-09-11T13:29:00+08:00",
 		},
 		{
-			// Starting up on Monday morning with Friday already complete: the gap in
-			// between is not a gap, so only this morning is left to fill.
+			// The closed gap between Friday and Monday isn't a gap, so only this morning is filled.
 			name:              "a monday backfill after a complete friday fills only this morning",
 			windowStart:       "2026-09-11T13:30:00+08:00",
 			windowEnd:         "2026-09-14T09:25:00+08:00",
@@ -202,8 +188,6 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 			expectedEndTime:   "2026-09-14T09:25:00+08:00",
 		},
 		{
-			// Mid-session backfill: the start stays where the stored data ended rather
-			// than jumping back to the opening bell.
 			name:              "a mid-session backfill starts where the stored candles ended",
 			windowStart:       "2026-09-08T09:35:00+08:00",
 			windowEnd:         "2026-09-08T10:55:00+08:00",
@@ -239,8 +223,7 @@ func TestClampToTradingSessionKeepsOnlyWhatCouldHoldCandles(t *testing.T) {
 }
 
 func TestClampToTradingSessionLeavesARoundTheClockMarketAlone(t *testing.T) {
-	// A market that never closes has nothing to narrow: the night and the weekend are
-	// as tradable as any other hour, so a backfill across them stays whole.
+	// A never-closing market has nothing to narrow.
 	window := windowBetween(
 		t, vo.MarketCrypto, "2026-09-11T14:00:00+08:00", "2026-09-13T23:00:00+08:00")
 
@@ -251,18 +234,14 @@ func TestClampToTradingSessionLeavesARoundTheClockMarketAlone(t *testing.T) {
 }
 
 func TestClampToTradingSessionLeavesAnAlreadyEmptyWindowEmpty(t *testing.T) {
-	// A symbol already up to date produces a window that covers nothing. Narrowing it
-	// must not turn it into something.
+	// An empty window must stay empty after narrowing.
 	emptyWindow := windowBetween(
 		t, vo.MarketTaiwanStock, "2026-09-08T10:05:00+08:00", "2026-09-08T10:00:00+08:00")
 
 	assert.True(t, taiwanStockMarket().ClampToTradingSession(emptyWindow).IsEmpty())
 }
 
-// The plans are sold in two numbers — how many lines at once, how many symbols on
-// one — so those two are what is set, and how many symbols may be followed at once
-// is worked out from them. Set beside them it could contradict them, and nothing
-// could tell.
+// The follow ceiling is derived from the two plan numbers (channels × symbols per channel) so it can't contradict them.
 func TestSimultaneousFollowCeilingIsTheTwoPlanNumbersMultiplied(t *testing.T) {
 	testCases := []struct {
 		name            string
@@ -309,22 +288,17 @@ func TestSimultaneousFollowCeilingIsTheTwoPlanNumbersMultiplied(t *testing.T) {
 
 func TestSimultaneousFollowCeilingIsTheMarketsOwn(t *testing.T) {
 	assert.Equal(t, 5, taiwanStockMarket().SimultaneousFollowCeiling())
-	// No ceiling is how a market says its follows are driven by viewers rather than
-	// by a roster.
+	// No ceiling means follows are viewer-driven rather than rostered.
 	assert.Equal(t, 0, cryptoMarket().SimultaneousFollowCeiling())
 }
 
-// A channel carrying nothing is not a channel, so a market whose source follows
-// symbols one at a time needs no setting at all.
 func TestSymbolsPerLiveChannelIsNeverFewerThanOne(t *testing.T) {
 	assert.Equal(t, 5, taiwanStockMarket().SymbolsPerLiveChannel())
 	assert.Equal(t, 1, cryptoMarket().SymbolsPerLiveChannel())
 }
 
 func TestTradingDateOfIsTheMarketsOwnDay(t *testing.T) {
-	// Both of these are the same Taiwan trading day, though they fall on different
-	// days in universal time. Presuming a market closed must last until its own
-	// tomorrow, not until midnight somewhere else.
+	// Both are one Taiwan trading day despite differing UTC dates, so a presumed-closed market lasts until its own tomorrow.
 	morning := taiwanStockMarket().TradingDateOf(mustParseTime(t, "2026-09-08T10:00:00+08:00"))
 	lateEvening := taiwanStockMarket().TradingDateOf(mustParseTime(t, "2026-09-08T23:00:00+08:00"))
 	nextMorning := taiwanStockMarket().TradingDateOf(mustParseTime(t, "2026-09-09T10:00:00+08:00"))
@@ -335,18 +309,14 @@ func TestTradingDateOfIsTheMarketsOwnDay(t *testing.T) {
 }
 
 func TestTradingDateOfARoundTheClockMarketIsItsUniversalDay(t *testing.T) {
-	// A market with no zone to say its hours in has no local calendar either, so its
-	// day is the universal one. It is never presumed closed, so this answer only has
-	// to be consistent — and it is.
+	// A zoneless market uses the UTC day; it is never presumed closed, so this only needs consistency.
 	tradingDate := cryptoMarket().TradingDateOf(mustParseTime(t, "2026-09-08T10:00:00+08:00"))
 
 	assert.Equal(t, mustParseTime(t, "2026-09-08T00:00:00Z"), tradingDate)
 }
 
 func TestACatalogAlwaysRecognisesTheMarketItFallsBackTo(t *testing.T) {
-	// Reading a row that names no market must always land on rules that exist. If the
-	// fallback could be left out, that reading would produce a market nobody could
-	// answer questions about — so the catalog puts it back whatever it was handed.
+	// The catalog always restores the crypto fallback so an unnamed stored market resolves to real rules.
 	catalogWithoutCrypto := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketTaiwanStock: taiwanStockRules(),
 	})
@@ -359,13 +329,7 @@ func TestACatalogAlwaysRecognisesTheMarketItFallsBackTo(t *testing.T) {
 }
 
 func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
-	// A market whose zone observes daylight saving still opens at nine on the morning
-	// the clocks go forward — nine in the morning and nine hours after midnight are
-	// different moments that day. Nothing in Taipei turns on this; the zone is a
-	// setting, and the next market's might.
-	//
-	// London goes forward at 01:00 on 2026-03-29, so that day is twenty-three hours
-	// long: adding nine hours to midnight lands at 10:00, not 09:00.
+	// A DST zone still opens at 09:00 local on the spring-forward day (London, 2026-03-29, 23 hours long), not midnight plus nine hours.
 	london, loadError := time.LoadLocation("Europe/London")
 	require.NoError(t, loadError)
 	marketDomain := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
@@ -382,7 +346,6 @@ func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
 		},
 	}).MarketOf(string(vo.MarketTaiwanStock))
 
-	// A window covering that whole local day, asked about in universal time.
 	clamped := marketDomain.ClampToTradingSession(vo.NewKCandleFetchWindowVo(
 		"2330", vo.MarketTaiwanStock,
 		time.Date(2026, 3, 29, 0, 0, 0, 0, london).UTC(),
@@ -395,11 +358,7 @@ func TestASessionKeepsItsClockReadingOnADayThatLosesAnHour(t *testing.T) {
 		"開盤是「早上九點」，不是「午夜之後九小時」")
 }
 
-// 一段時間裡這個市場實際交易多久——收盤的時間不算，週末不算。
-// 一段裡有幾個這麼長的格子裝得到交易——**數格子，不是把交易時間除以刻度長度**。
-//
-// 起訖兩端都算在內（沿用查詢區間的既有讀法），所以一段整整一小時的盤中會有 61 格
-// 一分鐘的格子：從第一分鐘到第六十一分鐘，兩端各一根。
+// 數格子而非以交易時間除以刻度長度；起訖兩端都算，所以整整一小時的盤中有 61 個一分鐘格子。
 func TestTradingBucketCountCountsOnlyBucketsThatHoldTrading(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -434,7 +393,6 @@ func TestTradingBucketCountCountsOnlyBucketsThatHoldTrading(t *testing.T) {
 			bucketDuration: time.Minute, expectedBucketCount: 151,
 		},
 		{
-			// 這一整段的每一格都是收盤時間，所以一格都沒有。
 			name:      "wholly after the close",
 			startTime: "2026-09-07T14:00:00+08:00", endTime: "2026-09-07T16:00:00+08:00",
 			bucketDuration: time.Minute, expectedBucketCount: 0,
@@ -445,20 +403,19 @@ func TestTradingBucketCountCountsOnlyBucketsThatHoldTrading(t *testing.T) {
 			bucketDuration: time.Minute, expectedBucketCount: 0,
 		},
 		{
-			// 起訖兩端都算，所以開盤那一刻的那一根落在裡面——這一段確實裝得到一根。
+			// 兩端都算，所以開盤那一刻的那一根落在裡面。
 			name:      "the boundary: it ends exactly at the opening bell",
 			startTime: "2026-09-07T08:00:00+08:00", endTime: "2026-09-07T09:00:00+08:00",
 			bucketDuration: time.Minute, expectedBucketCount: 1,
 		},
 		{
-			// 收盤那一刻沒有任何一根開始——當日最後一根開在收盤前一分鐘。
+			// 當日最後一根開在收盤前一分鐘。
 			name:      "the boundary: it begins exactly at the closing bell",
 			startTime: "2026-09-07T13:30:00+08:00", endTime: "2026-09-07T15:00:00+08:00",
 			bucketDuration: time.Minute, expectedBucketCount: 0,
 		},
 		{
-			// 這幾個是這個算法存在的理由：四個半小時**除以**一小時是四，
-			// 但那四個半小時碰到了世界標準時間 01、02、03、04、05 這五個整點格子。
+			// 四個半小時除以一小時是四，但它碰到 UTC 01–05 五個整點格子。
 			name:      "a whole session at one hour is five buckets, not four",
 			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T13:30:00+08:00",
 			bucketDuration: time.Hour, expectedBucketCount: 5,
@@ -474,8 +431,7 @@ func TestTradingBucketCountCountsOnlyBucketsThatHoldTrading(t *testing.T) {
 			bucketDuration: 24 * time.Hour, expectedBucketCount: 1,
 		},
 		{
-			// 五個交易日在一天刻度是五格。除法會說「22.5 小時 ÷ 24 小時」不到一格,
-			// 而那正是讓「一次最多答一千根」變成一句假話的地方。
+			// 除法會說 22.5 小時 ÷ 24 小時不到一格，使「一次最多一千根」失真。
 			name:      "five sessions at one day are five buckets, not a fifth of one",
 			startTime: "2026-09-07T00:00:00+08:00", endTime: "2026-09-12T00:00:00+08:00",
 			bucketDuration: 24 * time.Hour, expectedBucketCount: 5,
@@ -494,7 +450,6 @@ func TestTradingBucketCountCountsOnlyBucketsThatHoldTrading(t *testing.T) {
 	}
 }
 
-// 永不收盤的市場整段都在交易，所以數格子與除時間的答案相同——它沒有「收盤後」這回事。
 func TestTradingBucketCountIsTheWholeStretchForAMarketThatNeverCloses(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -542,11 +497,7 @@ func TestTradingBucketCountIsTheWholeStretchForAMarketThatNeverCloses(t *testing
 	}
 }
 
-// 一段裡有沒有交易——**問它本身，不要拿格數當答案**。
-//
-// 格數會取整：全天候市場的三十秒整段都在交易，卻裝不滿一個一分鐘的格子。
-// 把格數讀成答案，就會說一個永不收盤的市場「沒有交易」，
-// 而這份文件自己寫著那是不可能發生的事。
+// 有沒有交易要直接問，不能拿格數當答案：全天候市場的三十秒裝不滿一個一分鐘格子，格數會取整為零。
 func TestHoldsTradingAnswersTheQuestionItself(t *testing.T) {
 	testCases := []struct {
 		name                 string
@@ -609,10 +560,7 @@ func TestHoldsTradingAnswersTheQuestionItself(t *testing.T) {
 	}
 }
 
-// 沒有東西限制呼叫端可以問多長的一段，所以數格子不能為每一格花掉一份記憶體。
-// 一個世紀在一分鐘刻度上是九百萬格；照著走訪會在「區間過大」那句拒絕說出口之前
-// 先吃掉將近一 GB。這裡不量記憶體——量了會是一個看機器心情的測試——
-// 而是釘住它**答得出來**：算術數得完，走訪會死在半路。
+// 數一個世紀（一分鐘刻度九百萬格）必須用算術而非逐格走訪，否則會在拒絕之前吃掉近 1 GB；這裡只釘住答得出來，不量記憶體。
 func TestCountingACenturyIsStillAnswered(t *testing.T) {
 	bucketCount := taiwanStockMarket().TradingBucketCountBetween(
 		mustParseTime(t, "1926-01-01T00:00:00Z"),
@@ -622,9 +570,7 @@ func TestCountingACenturyIsStillAnswered(t *testing.T) {
 	assert.Positive(t, bucketCount)
 }
 
-// A market says for itself whether the system follows it from a roster or waits for
-// somebody to look. Reading that off the subscription cap held only while the one
-// capped market was also the one rostered, and this is the pair coming apart.
+// Whether a market is rostered is its own setting, no longer inferred from its subscription cap.
 func TestAMarketSaysWhetherItIsFollowedFromARoster(t *testing.T) {
 	testCases := []struct {
 		name               string

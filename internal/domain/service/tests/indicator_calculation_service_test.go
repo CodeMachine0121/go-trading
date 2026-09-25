@@ -20,9 +20,7 @@ import (
 
 const maxCandleCount = 1000
 
-// calculationNow is the moment every calculation below is asked at. It sits on a
-// five-minute edge, so the candle at :15 belongs to a bucket that has finished and
-// is read like any other — what is left out is the bucket still running.
+// calculationNow sits on a five-minute edge, so only the bucket still running is left out.
 var calculationNow = time.Date(2026, 8, 29, 9, 20, 0, 0, time.UTC)
 
 func storedCandleAt(minute int) entities.KCandle {
@@ -42,9 +40,7 @@ func newestFirst(minutes ...int) []entities.KCandle {
 	return kCandles
 }
 
-// calculationRequest asks about a stretch holding exactly that many one-minute
-// slots. Every symbol here trades round the clock, so a minute of the clock is a
-// minute of market and the stretch says "this many" faithfully.
+// calculationRequest asks about exactly candleCount one-minute slots; every symbol here trades round the clock.
 func calculationRequest(symbol string, candleCount int) dto.IndicatorCalculationRequestDto {
 	return dto.IndicatorCalculationRequestDto{
 		Symbol:    symbol,
@@ -62,8 +58,7 @@ func calculationRequestOf(
 	return requestDto
 }
 
-// oneMinuteCutoff is where a read stops when nothing coarser was declared: the
-// start of the minute still running, which at 09:20 is 09:20 itself.
+// oneMinuteCutoff is the start of the minute still running, where a read stops when nothing coarser is declared.
 var oneMinuteCutoff = calculationNow
 
 type calculationUnderTest struct {
@@ -77,8 +72,7 @@ func newCalculationUnderTest(t *testing.T) calculationUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
-	// Unless a test says otherwise, the symbol is registered to the round-the-clock
-	// market — which is what every stretch in this file is measured against.
+	// Symbols default to the round-the-clock market, which every stretch in this file assumes.
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
@@ -95,8 +89,7 @@ func newCalculationUnderTest(t *testing.T) calculationUnderTest {
 	}
 }
 
-// marketCatalog is the two markets this system recognises, with Taiwan's hours as
-// the requirements name them: 09:00 to 13:30 Taipei time, Monday to Friday.
+// marketCatalog holds the round-the-clock market and Taiwan's 09:00–13:30 Taipei, Monday–Friday session.
 func marketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
@@ -206,9 +199,7 @@ func TestCalculateIndicator(t *testing.T) {
 	})
 
 	t.Run("answers over a short stretch, reporting both counts", func(t *testing.T) {
-		// Thirty were asked for and one is stored. The run is not refused: it answers
-		// over the one, and says so by putting the two counts side by side. Without
-		// the pair, a caller cannot tell a short answer from a full one.
+		// Thirty asked, one stored: it answers over the one and reports both counts so a short answer is distinguishable from a full one.
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
@@ -244,8 +235,7 @@ func TestCalculateIndicator(t *testing.T) {
 	})
 
 	t.Run("never runs the script over a stretch too thin to yield one value", func(t *testing.T) {
-		// Nothing stored at all. There is no value to be had, so this stays a refusal
-		// — and the script is never reached, because there is nothing to run it over.
+		// Nothing stored means no value is possible, so it is refused without reaching the script.
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
@@ -263,11 +253,7 @@ func TestCalculateIndicator(t *testing.T) {
 	})
 
 	t.Run("an algorithm needing more than it declared fails as an algorithm", func(t *testing.T) {
-		// Nothing is declared, so the floor is one candle and three is answerable —
-		// but the algorithm actually reaches back over twenty and blows up on three.
-		// That has to come back as the algorithm's problem: reported as a shortfall it
-		// would send somebody to fetch more history for a script that will fail on any
-		// amount, and the system has no way to know what a script reaches for.
+		// The script reaches back further than declared and fails on three candles; that must surface as an algorithm error, not a shortfall inviting more history.
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 31).
@@ -484,9 +470,7 @@ func TestCalculateIndicatorKeepsEveryOtherRuleWhateverTheKindIs(t *testing.T) {
 
 func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 	t.Run("a coarser interval stops before the bucket still running", func(t *testing.T) {
-		// At 09:20 the hour that began at 09:00 is twenty minutes old. Reading stops
-		// at 09:00, so it is not read at all — its twenty candles would otherwise be
-		// merged into an hour that keeps changing.
+		// At 09:20 the 09:00 hour is still running, so the read stops at 09:00 rather than merging a changing hour.
 		fixture := newCalculationUnderTest(t)
 		hourCutoff := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
 		fixture.kCandleRepository.EXPECT().
@@ -495,14 +479,12 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 
 		requestDto := calculationRequest("BTCUSDT", 2)
 		requestDto.AggregationInterval = "1h"
-		// Two hours of market, so two hourly slots — the stretch says how many, and
-		// at this coarseness a slot is an hour.
+		// Two hours of market is two hourly slots.
 		requestDto.StartTime = calculationNow.Add(-2 * time.Hour)
 
 		_, err := fixture.indicatorCalculationService.CalculateIndicator(t.Context(), requestDto)
 
-		// The read is what this test is about; coming back empty then refuses, which
-		// is the rule the case above already covers.
+		// Only the read matters here; the refusal on an empty result is covered above.
 		assert.ErrorIs(t, err, domains.ErrIndicatorCalculationValidation)
 	})
 
@@ -542,9 +524,7 @@ func TestCalculateIndicatorReadsAtTheCoarsenessItWasAsked(t *testing.T) {
 }
 
 func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
-	// A caller putting a list of values back onto a chart has to know which candle
-	// each one belongs to. Answering it here is what stops the caller cutting the
-	// same grid a second time and landing one bucket out.
+	// Callers plotting values need each candle's start, so the service answers it rather than letting them recut the grid and land one bucket out.
 	t.Run("names where each candle the script saw begins, earliest first", func(t *testing.T) {
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
@@ -568,8 +548,7 @@ func TestCalculateIndicatorSaysWhichStretchOfMarketItRead(t *testing.T) {
 	})
 
 	t.Run("names them even when the kind is a single number", func(t *testing.T) {
-		// They describe what was read, not what came out, so how many values there
-		// are has nothing to do with it.
+		// Open times describe what was read, not how many values came out.
 		fixture := newCalculationUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", oneMinuteCutoff, 4).

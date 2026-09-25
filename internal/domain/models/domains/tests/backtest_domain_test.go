@@ -15,8 +15,7 @@ import (
 
 const backtestMaxCandleCount = 1000
 
-// backtestNow sits well after every stretch replayed below, so nothing here is refused
-// merely for reaching into a bucket that has not finished.
+// backtestNow is after every replayed stretch so no bucket is refused as unfinished.
 var backtestNow = time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 
 var backtestStart = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
@@ -33,8 +32,7 @@ func backtestRequest() dto.BacktestRequestDto {
 	}
 }
 
-// storedBacktestCandleAt builds a stored five-minute candle that many hours after the
-// start of the stretch.
+// storedBacktestCandleAt builds a stored five-minute candle hours after the stretch start.
 func storedBacktestCandleAt(hour int, closePrice int64) entities.KCandle {
 	return entities.KCandle{
 		Symbol:   "BTCUSDT",
@@ -46,8 +44,6 @@ func storedBacktestCandleAt(hour int, closePrice int64) entities.KCandle {
 	}
 }
 
-// tradingStrategyBacktestRequest is the same stretch replayed for a whole trading
-// strategy: one source reading one coarseness, and a condition on each side.
 func tradingStrategyBacktestRequest() dto.TradingStrategyBacktestRequestDto {
 	return dto.TradingStrategyBacktestRequestDto{
 		Symbol:    "BTCUSDT",
@@ -196,8 +192,7 @@ func TestBacktestDomainReadPlan(t *testing.T) {
 			backtestRequest(), backtestMaxCandleCount, backtestNow)
 		require.NoError(t, err)
 
-		// Six one-hour buckets from 00:00 to 05:00 inclusive, plus one spare, each
-		// holding sixty one-minute candles.
+		// Six one-hour buckets from 00:00 to 05:00 inclusive plus one spare, sixty one-minute candles each.
 		assert.Equal(t, 7*60, backtestDomain.SourceCandleLimit())
 	})
 
@@ -319,9 +314,7 @@ func TestBacktestDomainSimulation(t *testing.T) {
 	})
 }
 
-// This system replays one thing. Saying so is free, asking for anything else is
-// refused outright — the alternative is a report card of a run nobody asked for, with
-// nothing on the page to say which run it was.
+// Declaring spot is accepted; anything else is refused rather than silently replaying a different run.
 func TestBacktestDomainRefusesAnythingOtherThanSpot(t *testing.T) {
 	t.Run("a request that names no trading mode is accepted", func(t *testing.T) {
 		requestDto := backtestRequest()
@@ -379,13 +372,7 @@ func TestBacktestDomainRefusesAnythingOtherThanSpot(t *testing.T) {
 		}
 	})
 
-	// A replay run for a whole trading strategy answers this in the same words as one
-	// run for a single script — because it asks the very same gate, rather than
-	// repeating the rule and drifting from it.
-	//
-	// Both halves are checked, and the mode half is the one that can rot silently: a
-	// body that does not declare the field drops it without a word, and the caller
-	// gets two hundred and a report card of a run they did not ask for.
+	// Checks both halves through the shared gate; the mode half matters because an undeclared request field would be silently dropped.
 	t.Run("a trading strategy replay refuses another set of rules in the same words", func(t *testing.T) {
 		scriptRequestDto := backtestRequest()
 		scriptRequestDto.TradingMode = "longShort"
@@ -425,13 +412,7 @@ func TestBacktestDomainRefusesAnythingOtherThanSpot(t *testing.T) {
 	})
 }
 
-// Replaying a whole trading strategy states its conditions once and hands them on as
-// the conditions every replay shares. A condition that failed to make that journey
-// would not break the build — it would arrive as nothing at all, and the replay would
-// run on a default nobody asked for.
-//
-// So each condition is pinned by the refusal it is supposed to earn: a refusal only
-// happens if the value actually reached the gate.
+// Each replay condition is pinned by the refusal it earns, proving the value actually reached the gate instead of silently defaulting.
 func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -474,9 +455,6 @@ func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 			expectedField: domains.BacktestLeverageField,
 		},
 		{
-			// The exits are asked for on this kind of replay too, and refused by it
-			// in the same words — the trading strategy has no opinion about what its
-			// owner can sit through.
 			name: "how far it will let a bet be wrong",
 			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
 				requestDto.StopLossPercentage = decimal.NewFromInt(-2)
@@ -491,9 +469,6 @@ func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 			expectedField: domains.BacktestExitLevelsField,
 		},
 		{
-			// What trading costs is asked for on this kind of replay too, and for
-			// the same reason as the exits: a set of rules has no opinion about what
-			// its owner's broker charges.
 			name: "what it pays to open",
 			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
 				requestDto.EntryCostPercentage = decimal.NewFromInt(-1)
@@ -508,9 +483,7 @@ func TestTradingStrategyBacktestCarriesEveryReplayCondition(t *testing.T) {
 			expectedField: domains.BacktestTransactionCostsField,
 		},
 		{
-			// Neither figure is wrong on its own; together they can never open
-			// anything. The refusal points at the percentage because that is the
-			// knob — the rate is a fact about somebody's broker.
+			// Each figure is valid alone but together nothing can open; the refusal names the percentage because that is the user's knob.
 			name: "a percentage that its own entry charge puts out of reach",
 			breakCondition: func(requestDto *dto.TradingStrategyBacktestRequestDto) {
 				requestDto.PositionSizingMode = "percentage"

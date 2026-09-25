@@ -16,16 +16,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// testDatabaseNameSuffix is what a database must be called before these tests will
-// touch it. They empty the table on every run, so pointing them at the database the
-// application actually uses destroys real data — and a developer who typed the wrong
-// DSN finds that out only afterwards. Refusing anything not named for testing turns
-// that mistake into a failed test instead of lost K candles.
+// testDatabaseNameSuffix is required on the test database name because these tests wipe tables.
 const testDatabaseNameSuffix = "_test"
 
-// newTestDatabase connects to the PostgreSQL instance named by TEST_POSTGRES_DSN and
-// starts each test from an empty table. Without that variable the storage behaviors
-// cannot be exercised, so the tests skip rather than pretend to pass.
+// newTestDatabase connects via TEST_POSTGRES_DSN and empties the tables, skipping when the variable is unset.
 func newTestDatabase(t *testing.T) *gorm.DB {
 	dataSourceName := os.Getenv("TEST_POSTGRES_DSN")
 	if dataSourceName == "" {
@@ -39,13 +33,7 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	database, err := persistence.NewDatabase(dataSourceName)
 	require.NoError(t, err)
 
-	// Every one of these opens a pool of its own, and a pool nobody closes stays
-	// open until the process ends — so a long enough suite runs the server out of
-	// connections and every test after that point fails for a reason that has
-	// nothing to do with what it was checking.
-	//
-	// Closing one that a test already closed itself is not an error worth
-	// reporting: the pool is shut either way, which is all this is asking for.
+	// Close each pool to avoid exhausting server connections; closing an already-closed pool is harmless.
 	t.Cleanup(func() {
 		connection, connectionError := database.DB()
 		if connectionError != nil {
@@ -60,10 +48,9 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.KCandle{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.TradingSymbol{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.StrategyScript{}).Error)
-	// Deleting the conversations takes their exchanges and lookups with them, so the
-	// two child tables need no line of their own here.
+	// Deleting conversations cascades to their turns and lookups.
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.Conversation{}).Error)
-	// 刪掉使用者會連帶帶走他的登入階段，所以那張表不需要自己一行。
+	// 刪掉使用者會連帶刪除其登入階段。
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.User{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).
 		Delete(&entities.KCandleHistorySyncRun{}).Error)
@@ -83,8 +70,7 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	return database
 }
 
-// databaseNameIn reads the dbname out of a key=value DSN, answering with an empty
-// name when the DSN does not carry one — which fails the guard above, as it should.
+// databaseNameIn returns an empty name when the DSN has no dbname, which fails the guard.
 func databaseNameIn(dataSourceName string) string {
 	for _, setting := range strings.Fields(dataSourceName) {
 		name, found := strings.CutPrefix(setting, "dbname=")
@@ -96,9 +82,7 @@ func databaseNameIn(dataSourceName string) string {
 	return ""
 }
 
-// closedDatabase hands back a connection that is already shut, which is the only way
-// to make the storage layer fail on demand. Every read and write must say so rather
-// than quietly answering with nothing.
+// closedDatabase returns an already-closed connection to force storage failures.
 func closedDatabase(t *testing.T) *gorm.DB {
 	database := newTestDatabase(t)
 	connection, connectionError := database.DB()
@@ -494,9 +478,7 @@ func TestFindLatestBefore(t *testing.T) {
 			expectedOpenTimes: []time.Time{at(9, 10), at(9, 5)},
 		},
 		{
-			// This is what makes an end time on a bucket edge take the bucket that
-			// ends there. Were it inclusive, the bucket starting at the cut-off —
-			// the one still running — would be read.
+			// The end time is exclusive, so the still-running bucket starting at the cut-off is excluded.
 			name:   "a candle opening exactly at the cut-off is left out",
 			symbol: "BTCUSDT", cutoffTime: at(9, 10), limit: 10,
 			expectedOpenTimes: []time.Time{at(9, 5), at(9, 0)},
@@ -546,8 +528,6 @@ func TestFindLatestBeforeReportsAStorageFailure(t *testing.T) {
 }
 
 func TestCountInRangeCountsBothEnds(t *testing.T) {
-	// It is asked once per day before that day is fetched: equal to what the market
-	// should hold means the source need not be troubled for it at all.
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
 	for _, openTime := range []time.Time{at(9, 0), at(9, 1), at(9, 2)} {
 		_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", openTime, "100"))
@@ -588,9 +568,7 @@ func TestCountInRangeKeepsSymbolsApart(t *testing.T) {
 }
 
 func TestSaveAllIfAbsentWritesOnlyTheOnesNothingIsHeldFor(t *testing.T) {
-	// One statement per day instead of one per candle. Four years is two million
-	// candles, and two million round trips to the database is most of the time this
-	// would take.
+	// One statement per day instead of per candle, since four years is two million candles.
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
 	_, saveError := kCandleRepository.Save(t.Context(), kCandleAt("BTCUSDT", at(9, 1), "100"))
 	require.NoError(t, saveError)
@@ -613,8 +591,7 @@ func TestSaveAllIfAbsentWritesOnlyTheOnesNothingIsHeldFor(t *testing.T) {
 }
 
 func TestSaveAllIfAbsentWithNothingToWriteTouchesNothing(t *testing.T) {
-	// A day the market was shut on produces an empty batch, and that is an ordinary
-	// outcome rather than something to guard against at every call site.
+	// A closed-market day yields an empty batch, which must be a no-op.
 	kCandleRepository := persistence.NewKCandleRepository(newTestDatabase(t))
 
 	storedCount, saveAllError := kCandleRepository.SaveAllIfAbsent(

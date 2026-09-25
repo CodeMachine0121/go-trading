@@ -16,20 +16,14 @@ import (
 )
 
 const (
-	// archiveDayLayout is how the archive spells a day in a file name.
 	archiveDayLayout = "2006-01-02"
-	// archiveStatisticTimeLayout is how the archive spells a statistic time. It is
-	// UTC, though the file never says so.
+	// archiveStatisticTimeLayout is UTC, though the file does not say so.
 	archiveStatisticTimeLayout = "2006-01-02 15:04:05"
-	// archiveDayFileSizeCeiling is the most of one answer this reads. A day's file is
-	// a few dozen kilobytes; this is hundreds of times that.
+	// archiveDayFileSizeCeiling guards against reading a non-archive response into memory; real files are tens of kilobytes.
 	archiveDayFileSizeCeiling = 16 << 20
 )
 
-// The columns of one archive day that this system reads, by the name the archive's
-// header gives them. The archive keeps two more — the largest accounts' ratio counted
-// by accounts rather than positions, and the taker buy-sell ratio — which this system
-// does not store.
+// Archive columns read by header name; the account-count ratio and taker buy-sell ratio columns are not stored.
 const (
 	archiveStatisticTimeColumn          = "create_time"
 	archiveOpenInterestColumn           = "sum_open_interest"
@@ -38,18 +32,7 @@ const (
 	archiveTopTraderPositionRatioColumn = "sum_toptrader_long_short_ratio"
 )
 
-// BinanceContractPositionStatisticArchiveProxy reads position statistics out of
-// Binance's public history archive, where every perpetual contract has one zipped
-// CSV file per UTC day of five-minute statistics going back years — unlike the live
-// statistics, which the venue only keeps thirty days of.
-//
-// **Columns are found by the header, never by position.** The archive is a file
-// format, not an API, and a file format that gains a column tends to gain it in the
-// middle. A column this proxy needs that is not in the header is a file it cannot
-// read, which it says rather than guessing.
-//
-// It spends an allowance of its own: the archive is a different host from every
-// other address the venue serves.
+// BinanceContractPositionStatisticArchiveProxy reads the public archive's daily zipped CSVs of five-minute statistics, which go back years unlike the live endpoint's thirty days; columns are located by header, and it has its own pacer because the archive is a separate host.
 type BinanceContractPositionStatisticArchiveProxy struct {
 	archiveBaseUrl string
 	httpClient     *http.Client
@@ -66,10 +49,7 @@ func NewBinanceContractPositionStatisticArchiveProxy(
 	}
 }
 
-// FetchDailyPositionStatistics returns every statistic the archive holds for the
-// contract on that UTC day, in the order the file keeps them — the order they were
-// taken. A day the archive has no file for — not yet published, or before the
-// contract existed — answers found = false. A day's file is a zip holding one CSV.
+// FetchDailyPositionStatistics returns one UTC day's statistics in file order; a day with no file yet (or before listing) returns found = false.
 func (archiveProxy *BinanceContractPositionStatisticArchiveProxy) FetchDailyPositionStatistics(
 	executionContext context.Context, symbol string, day time.Time,
 ) ([]vo.ContractPositionStatisticArchiveVo, bool, error) {
@@ -99,8 +79,6 @@ func (archiveProxy *BinanceContractPositionStatisticArchiveProxy) FetchDailyPosi
 			response.StatusCode, symbol, dayName)
 	}
 
-	// A day's file is a few dozen kilobytes; the ceiling only keeps an answer that is
-	// not a day's file from being read into memory whole.
 	unreadableDay := fmt.Sprintf("read position statistic archive for %s on %s", symbol, dayName)
 	zippedDay, readError := io.ReadAll(io.LimitReader(response.Body, archiveDayFileSizeCeiling))
 	if readError != nil {
@@ -151,8 +129,7 @@ func (archiveProxy *BinanceContractPositionStatisticArchiveProxy) FetchDailyPosi
 		}
 
 		statistic := vo.ContractPositionStatisticArchiveVo{Symbol: symbol, StatisticTime: statisticTime}
-		// In the order the file names them, so a row wrong in two cells is always told
-		// about the same one.
+		// Checked in column order so a row with two bad cells always reports the same one.
 		for _, figureColumn := range []struct {
 			name        string
 			destination *decimal.NullDecimal
@@ -162,8 +139,7 @@ func (archiveProxy *BinanceContractPositionStatisticArchiveProxy) FetchDailyPosi
 			{archiveTopTraderPositionRatioColumn, &statistic.TopTraderPositionLongShortRatio},
 			{archiveAccountLongShortRatioColumn, &statistic.AccountLongShortRatio},
 		} {
-			// A blank cell is a figure the archive does not have. It stays absent, and
-			// the domain decides what a reading without it is worth.
+			// A blank cell stays absent for the domain to judge.
 			cell := strings.TrimSpace(row[columnIndexes[figureColumn.name]])
 			if cell == "" {
 				continue

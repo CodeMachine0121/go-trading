@@ -46,8 +46,7 @@ func storedFigure(value string) decimal.NullDecimal {
 	return decimal.NewNullDecimal(decimal.RequireFromString(value))
 }
 
-// candleStoredBeforeTheLaterLines is a contract K candle as it was stored before the
-// index price and premium index existed: every other figure, and neither of those.
+// candleStoredBeforeTheLaterLines is a contract K candle stored before index price and premium index existed.
 func candleStoredBeforeTheLaterLines(symbol string, openTime time.Time, closePrice string) entities.KCandleContract {
 	return withoutPremiumIndex(withoutIndexPrice(contractCandleAt(symbol, openTime, closePrice)))
 }
@@ -407,8 +406,7 @@ func TestKCandleContractRepositoryHandsAnOldCandleOutWithoutTheLaterLines(t *tes
 }
 
 func TestKCandleContractRepositoryReplacesAnOldCandleInsideTheRecentMinutesWithTheCompleteOne(t *testing.T) {
-	// The every-minute round re-fetches its recent minutes and replaces what it
-	// finds; an old candle among them becomes the complete one it was fetched as.
+	// Re-fetching recent minutes replaces an old candle with the complete one.
 	database := newTestDatabase(t)
 	contractRepository := persistence.NewKCandleContractRepository(database)
 	_, heldError := contractRepository.Save(

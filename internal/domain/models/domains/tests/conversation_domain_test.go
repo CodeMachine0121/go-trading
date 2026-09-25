@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// conversationOf is a conversation holding this many exchanges, numbered so that a
-// test can say which one it expected to survive the trim.
+// conversationOf numbers its exchanges so a test can say which ones survive the trim.
 func conversationOf(exchangeCount int) entities.Conversation {
 	turns := make([]entities.AssistantTurn, 0, exchangeCount)
 	for exchangeNumber := 1; exchangeNumber <= exchangeCount; exchangeNumber++ {
@@ -50,8 +49,7 @@ func TestConversationDomainShowsTheAssistantAtMostTheRecentLimit(t *testing.T) {
 			expectedMessageCount: 20, expectedFirstContent: "問題 1", expectedLastContent: "回答 10",
 		},
 		{
-			// Thirteen exchanges are twenty-six messages, so the six oldest fall
-			// away and the fourth exchange's question is the first thing still shown.
+			// 13 exchanges are 26 messages, so the six oldest drop and the fourth exchange's question comes first.
 			name: "past the limit shows only the most recent", exchangeCount: 13, limit: 20,
 			expectedMessageCount: 20, expectedFirstContent: "問題 4", expectedLastContent: "回答 13",
 		},
@@ -82,8 +80,7 @@ func TestConversationDomainShowsTheAssistantAtMostTheRecentLimit(t *testing.T) {
 }
 
 func TestConversationDomainShowsTheAssistantOnlyQuestionsAndAnswers(t *testing.T) {
-	// What an earlier exchange looked up was worth its cost once, when the answer
-	// that needed it was being written. Sending it again buys nothing.
+	// Earlier lookups are not resent; they were only needed while that answer was written.
 	conversation := conversationOf(1)
 	conversation.Turns[0].Queries = []entities.AssistantQueryRecord{
 		{Sequence: 1, QueryName: "get_k_candle_series", Outcome: "一大包 K 線"},
@@ -100,8 +97,7 @@ func TestConversationDomainShowsTheAssistantOnlyQuestionsAndAnswers(t *testing.T
 }
 
 func TestConversationDomainToDtoKeepsEveryMessageEverSaid(t *testing.T) {
-	// What the assistant may remember and what a person may read are different
-	// questions. Trimming both by one number would erase the record as well.
+	// The assistant's memory is trimmed but the reader's record is not.
 	conversationDto := domains.NewConversationDomain(conversationOf(13)).ToDto()
 
 	assert.Equal(t, uint(7), conversationDto.ID)
@@ -138,9 +134,7 @@ func TestConversationDomainToSummaryDtoCountsNothingAsNothing(t *testing.T) {
 	assert.Equal(t, 0, summaryDto.MessageCount)
 }
 
-// conversationEndingWith is one answered exchange followed by one in whatever state
-// a case is about, so that "the finished ones are untouched" is checked alongside
-// whatever the unfinished one does.
+// conversationEndingWith precedes the case's turn with one answered exchange, so tests also check finished ones are untouched.
 func conversationEndingWith(turn entities.AssistantTurn) entities.Conversation {
 	conversation := conversationOf(1)
 	conversation.Turns[0].Status = string(vo.AssistantTurnAnswered)
@@ -150,9 +144,7 @@ func conversationEndingWith(turn entities.AssistantTurn) entities.Conversation {
 }
 
 func TestConversationDomainToDtoSaysWhatStateEachExchangeIsIn(t *testing.T) {
-	// A reader coming back to a conversation has to tell "still going" from "it
-	// broke" from "here is your answer". Leaving the unfinished ones out is exactly
-	// the blank screen that makes somebody ask the same question twice.
+	// Unfinished exchanges must be shown with their state, or the reader sees a blank and asks again.
 	testCases := []struct {
 		name                  string
 		turn                  entities.AssistantTurn
@@ -207,7 +199,6 @@ func TestConversationDomainToDtoSaysWhatStateEachExchangeIsIn(t *testing.T) {
 			assert.Equal(t, testCase.expectedLastStatus, lastMessage.Status)
 			assert.Equal(t, testCase.expectedFailureReason, lastMessage.FailureReason)
 
-			// The exchange that had already finished is untouched by any of this.
 			assert.Equal(t, "問題 1", conversationDto.Messages[0].Content)
 			assert.Equal(t, "answered", conversationDto.Messages[0].Status)
 		})
@@ -215,9 +206,7 @@ func TestConversationDomainToDtoSaysWhatStateEachExchangeIsIn(t *testing.T) {
 }
 
 func TestConversationDomainDoesNotShowTheAssistantAQuestionThatWasNeverAnswered(t *testing.T) {
-	// A question with nothing under it reads to the assistant as one it declined to
-	// answer, and it will go on to explain why it declined — which is not what
-	// happened.
+	// An unanswered question would read to the assistant as one it declined.
 	conversation := conversationEndingWith(entities.AssistantTurn{
 		Ask: "壞掉的那句", Status: string(vo.AssistantTurnFailed),
 		FailureReason: "助手沒有回應",
@@ -232,10 +221,7 @@ func TestConversationDomainDoesNotShowTheAssistantAQuestionThatWasNeverAnswered(
 }
 
 func TestConversationDomainKnowsWhetherAnAnswerIsStillBeingWritten(t *testing.T) {
-	// A yes refuses the next question: two answers written into one conversation at
-	// once leaves nobody able to say which of them the record belongs to. A failed
-	// one is not in flight — nothing is still being written, so there is nothing a
-	// second question could collide with.
+	// Only an in-flight exchange blocks the next question; a failed one has nothing still being written.
 	testCases := []struct {
 		name             string
 		status           string
@@ -260,9 +246,7 @@ func TestConversationDomainKnowsWhetherAnAnswerIsStillBeingWritten(t *testing.T)
 }
 
 func TestConversationDomainReadsAnExchangeStoredBeforeStatesExistedAsAnswered(t *testing.T) {
-	// Those rows have no status and an answer in full, so answered is the only
-	// reading that is true of them. Calling them failed would bury answers people
-	// already have behind a sentence telling them to ask again.
+	// Legacy rows with no status and a full answer read as answered.
 	conversationDto := domains.NewConversationDomain(conversationOf(1)).ToDto()
 
 	require.Len(t, conversationDto.Messages, 2)
@@ -271,9 +255,7 @@ func TestConversationDomainReadsAnExchangeStoredBeforeStatesExistedAsAnswered(t 
 }
 
 func TestConversationDomainToDtoCarriesWhatAnAnswerCost(t *testing.T) {
-	// The reply that produced it no longer carries anything — a question is answered
-	// with a place to look — so this record is the only place those numbers survive.
-	// An answer that ran out of queries is a different thing from a poor one.
+	// This record is the only place the query counts survive.
 	conversation := conversationEndingWith(entities.AssistantTurn{
 		Ask: "查到底", Answer: "只查到這些", Status: string(vo.AssistantTurnAnswered),
 		QueryCount: 40, StoppedAtQueryLimit: true, Usage: 12000,
@@ -289,16 +271,13 @@ func TestConversationDomainToDtoCarriesWhatAnAnswerCost(t *testing.T) {
 	assert.True(t, answerMessage.StoppedAtQueryLimit)
 	assert.Equal(t, 12000, answerMessage.Usage)
 
-	// The question carries none of it: what an answer cost is the answer's own fact.
+	// Cost belongs to the answer, not the question.
 	assert.Equal(t, 0, conversationDto.Messages[2].QueryCount)
 	assert.Equal(t, 0, conversationDto.Messages[2].Usage)
 }
 
 func TestConversationDomainToDtoKeepsFinishedAndUnfinishedExchangesInOrder(t *testing.T) {
-	// A conversation read back is a run of exchanges in the order they happened, and
-	// the one still being written is simply the last of them. Reading it as anything
-	// else — the unfinished one hoisted out, or left out — is the blank screen that
-	// makes somebody ask the same question twice.
+	// The unfinished exchange is read back in order as the last one, not hoisted or dropped.
 	conversation := conversationOf(3)
 	for index := range conversation.Turns {
 		conversation.Turns[index].Status = string(vo.AssistantTurnAnswered)
@@ -310,8 +289,7 @@ func TestConversationDomainToDtoKeepsFinishedAndUnfinishedExchangesInOrder(t *te
 
 	conversationDto := domains.NewConversationDomain(conversation).ToDto()
 
-	// Three finished exchanges are two messages each; the unfinished one is its
-	// question alone.
+	// Three finished exchanges of two messages, plus the unfinished question alone.
 	require.Len(t, conversationDto.Messages, 7)
 	assert.Equal(t, []string{
 		"問題 1", "回答 1", "問題 2", "回答 2", "問題 3", "回答 3", "還在跑的",
@@ -319,7 +297,6 @@ func TestConversationDomainToDtoKeepsFinishedAndUnfinishedExchangesInOrder(t *te
 	assert.Equal(t, "running", conversationDto.Messages[6].Status)
 }
 
-// contentsOf is what each message said, in order.
 func contentsOf(messages []dto.ConversationMessageDto) []string {
 	contents := make([]string, 0, len(messages))
 	for _, message := range messages {

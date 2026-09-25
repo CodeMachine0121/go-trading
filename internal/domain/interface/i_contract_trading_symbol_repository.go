@@ -8,28 +8,17 @@ import (
 
 //go:generate go tool mockgen -source=i_contract_trading_symbol_repository.go -destination=mocks/mock_i_contract_trading_symbol_repository.go -package=mocks
 
-// IContractTradingSymbolRepository stores and retrieves the perpetual contracts the
-// system knows about.
-//
-// It is kept apart from ITradingSymbolRepository because the two lists have to be
-// able to hold the same name at once: BTCUSDT exists on both venues and is a
-// different instrument on each.
+// IContractTradingSymbolRepository is separate from ITradingSymbolRepository because the same name (e.g. BTCUSDT) is a different instrument on each venue.
 type IContractTradingSymbolRepository interface {
 	FindAll(executionContext context.Context) ([]entities.ContractTradingSymbol, error)
-	// FindWatched returns only the contracts the automatic round has to keep up to
-	// date. It is read afresh at the start of every round, which is what lets a change
-	// take effect within one round rather than at the next restart.
+	// FindWatched is re-read every round so watch changes take effect without a restart.
 	FindWatched(executionContext context.Context) ([]entities.ContractTradingSymbol, error)
 	FindBySymbol(
 		executionContext context.Context, symbol string,
 	) (entities.ContractTradingSymbol, bool, error)
-	// Save registers the contract, or updates whether it is watched. A contract
-	// carrying a trading specification has it written too; one carrying none leaves
-	// the specification already held as it was.
+	// Save leaves the stored trading specification unchanged when the contract carries none.
 	Save(executionContext context.Context, contractTradingSymbol entities.ContractTradingSymbol) error
-	// SaveTradingSpecifications writes the trading specification of each contract
-	// given, and nothing else about it — whether it is watched stays as it is. A
-	// contract not registered is not created by this.
+	// SaveTradingSpecifications writes only specifications, leaving watch state alone, and never creates unregistered contracts.
 	SaveTradingSpecifications(
 		executionContext context.Context, contractTradingSymbols []entities.ContractTradingSymbol,
 	) error

@@ -7,10 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// YaegiIndicatorScriptProxy runs spot indicator scripts — scripts fed K candles —
-// with an embedded Go interpreter, each run in a compartment of its own. How a script
-// is run is the runner's and where it runs is the compartment's; this proxy only says
-// that a spot script is fed K candles.
+// YaegiIndicatorScriptProxy runs spot indicator scripts, fed K candles, each in its own compartment.
 type YaegiIndicatorScriptProxy struct {
 	compartment indicatorScriptCompartment[vo.KCandleVo]
 }
@@ -24,8 +21,6 @@ func NewYaegiIndicatorScriptProxy(isolation IndicatorScriptIsolation) *YaegiIndi
 	}
 }
 
-// Execute runs the script over the K candles and collects its values in the declared
-// kind, with no partial result on any failure.
 func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	executionContext context.Context,
 	script string,
@@ -36,9 +31,7 @@ func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) Execute(
 	return yaegiIndicatorScriptProxy.compartment.execute(executionContext, script, resultType, kCandles, parameters)
 }
 
-// ExecuteForEachCandle runs the same script once per K candle: the nth run sees the
-// candles from the first up to and including the nth, and the results come back in
-// that same order, one set per candle. The script is read once for the whole replay.
+// ExecuteForEachCandle replays the script once per K candle over a growing prefix, reading it once.
 func (yaegiIndicatorScriptProxy *YaegiIndicatorScriptProxy) ExecuteForEachCandle(
 	executionContext context.Context,
 	script string,

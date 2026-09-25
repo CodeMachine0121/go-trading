@@ -10,35 +10,15 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// strategyBotNameMaxLength is how long a bot's name may be, counted after the blanks
-// around it are dropped. It matches a strategy script's limit rather than picking a second
-// number, because there is no reason the two would ever want to differ and two
-// numbers are two things to keep in step.
+// strategyBotNameMaxLength matches the strategy script name limit.
 const strategyBotNameMaxLength = 128
 
-// strategyBotTriggerIntervalMinimumMinutes is the shortest a bot may wait between
-// rounds. One minute, because the finest stored candle covers one minute — asking
-// more often only fetches the same candle again and reaches the same conclusion.
+// strategyBotTriggerIntervalMinimumMinutes is one minute because that is the finest stored candle.
 const strategyBotTriggerIntervalMinimumMinutes = 1
 
-// strategyBotTriggerIntervalMaximumMinutes is the longest. A day: past that, a bot
-// is not watching a market, and whoever wants a weekly look is better served by
-// opening the screen.
 const strategyBotTriggerIntervalMaximumMinutes = 1440
 
-// StrategyBotDomain holds one strategy bot as it is being saved and guarantees its
-// own invariants. An instance only exists when every rule passed, so there is no
-// half-valid bot.
-//
-// It says nothing about the rules the bot follows — it only checks that exactly one
-// set of them was named. Whether those rules are this person's, and whether they
-// hold together, is TradingStrategyDomain's question, asked once where the rules
-// live rather than again in every machine that follows them.
-//
-// It knows nothing about whether the bot is running. Starting, stopping and being
-// halted happen to a bot that already exists and has already passed all of this, so
-// they live in StrategyBotRunStateDomain instead — which also means nothing on this
-// path can change a run state by accident.
+// StrategyBotDomain is a validated bot being saved; it only checks that one trading strategy is named (ownership is the application's job) and knows nothing about run state (see StrategyBotRunStateDomain).
 type StrategyBotDomain struct {
 	id                     uint
 	ownerID                uint
@@ -48,18 +28,11 @@ type StrategyBotDomain struct {
 	tradingStrategyID      uint
 	triggerIntervalMinutes int
 	positionPlan           PositionPlanDomain
-	// leverage is how many times its margin a contract bot's suggestion carries — one
-	// or more. A spot bot's is zero: it never borrows, and zero is what is stored.
+	// leverage is one or more for contract bots and zero for spot bots.
 	leverage decimal.Decimal
 }
 
-// NewStrategyBotDomain validates the bot against every rule that applies to it. The
-// rules are identical whether it is being created or rewritten, because both arrive
-// here as the same shape.
 func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, error) {
-	// A bot with nobody behind it is refused here rather than at the store, because
-	// "every bot has an owner" is a rule about bots, not a constraint that happens
-	// to exist on a column.
 	if writeDto.OwnerID == 0 {
 		return StrategyBotDomain{}, fmt.Errorf(
 			"%w: 策略機器人必須屬於一位使用者", ErrStrategyBotValidation)
@@ -81,20 +54,13 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			"%w: 機器人名稱長度上限為 %d 個字", ErrStrategyBotValidation, strategyBotNameMaxLength)
 	}
 
-	// Asked of the model every other path already asks, rather than trimmed here.
-	// What a bot stores is what its rounds later query with, so a symbol accepted
-	// under one set of rules and queried under another finds no candles at all —
-	// and a round that finds no candles is recorded as a hold, which reads exactly
-	// like a round that concluded hold. The mistake is therefore invisible in the
-	// history, which is why it is worth having only one rule about it.
+	// Validated by the shared symbol model because a mismatched symbol finds no candles and silently records every round as hold.
 	tradingSymbol, symbolError := NewTradingSymbolDomain(strings.TrimSpace(writeDto.Symbol))
 	if symbolError != nil {
 		return StrategyBotDomain{}, fmt.Errorf(
 			"%w: 必須指定這台機器人要盯哪一個交易標的", ErrStrategyBotValidation)
 	}
 
-	// Which market it eats is settled before anything that depends on it: whether it
-	// may borrow, and later which trading strategies it may follow.
 	marketDataKind, kindError := NewMarketDataKindDomain(writeDto.MarketDataKind)
 	if kindError != nil {
 		return StrategyBotDomain{}, fmt.Errorf("%w: %w", ErrStrategyBotValidation, kindError)
@@ -112,21 +78,14 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 			ErrStrategyBotValidation, strategyBotTriggerIntervalMaximumMinutes)
 	}
 
-	// Settled beside the interval, because both are about how this machine runs
-	// rather than about whose rules it follows. Its own model owns every figure:
-	// leaving the group empty is not a failure, and how much one opening stakes is
-	// read by the very model a replay reads — in the same words, so a bot and a
-	// replay cannot end up disagreeing about what a percentage of a hundred and
-	// fifty means.
+	// Shares PositionPlanDomain with replays so bots and replays size positions identically.
 	positionPlan, positionPlanError := NewPositionPlanDomain(writeDto.PositionPlan)
 	if positionPlanError != nil {
 		return StrategyBotDomain{}, fmt.Errorf(
 			"%w: %s", ErrStrategyBotValidation, positionPlanError)
 	}
 
-	// Exactly one set of rules, named rather than given. Nothing is refused here
-	// for being somebody else's — that answer has to come from reading it, and
-	// reading it is the application's job.
+	// Ownership of the named strategy is checked by the application.
 	if writeDto.TradingStrategyID == 0 {
 		return StrategyBotDomain{}, fmt.Errorf(
 			"%w: 必須指名這台機器人要用哪一份交易策略", ErrStrategyBotValidation)
@@ -150,9 +109,7 @@ func NewStrategyBotDomain(writeDto dto.StrategyBotWriteDto) (StrategyBotDomain, 
 	}, nil
 }
 
-// RequireFollowing refuses rules written for the other kind of market than this bot
-// eats. The rules are named by their kind alone: whether they are this person's to
-// follow was answered where they were read.
+// RequireFollowing refuses a trading strategy written for a different market data kind than this bot's.
 func (strategyBotDomain StrategyBotDomain) RequireFollowing(tradingStrategyMarketDataKind string) error {
 	tradingStrategyKind, kindError := NewMarketDataKindDomain(tradingStrategyMarketDataKind)
 	if kindError != nil {
@@ -162,8 +119,7 @@ func (strategyBotDomain StrategyBotDomain) RequireFollowing(tradingStrategyMarke
 	return tradingStrategyKind.RequireFollowableByStrategyBotOf(strategyBotDomain.marketDataKind)
 }
 
-// WatchesContracts is whether this bot eats perpetual contract bars, and so has to
-// watch a contract the system is following.
+// WatchesContracts reports whether this bot trades perpetual contract bars.
 func (strategyBotDomain StrategyBotDomain) WatchesContracts() bool {
 	return strategyBotDomain.marketDataKind.IsContract()
 }
@@ -176,12 +132,7 @@ func (strategyBotDomain StrategyBotDomain) Leverage() decimal.Decimal {
 	return strategyBotDomain.leverage
 }
 
-// ToEntity is this bot as the rows it is stored as, run state and all left at the
-// values a newly created bot has.
-//
-// A rewrite carries the same defaults, and that is correct rather than careless: a
-// bot can only be rewritten while it is stopped, so stopped with nothing sent and
-// nothing halted is exactly what it already was.
+// ToEntity uses a new bot's default run state; rewrites share it since a bot can only be rewritten while stopped.
 func (strategyBotDomain StrategyBotDomain) ToEntity() entities.StrategyBot {
 	positionPlanSettings := strategyBotDomain.positionPlan.ToSettingsDto()
 

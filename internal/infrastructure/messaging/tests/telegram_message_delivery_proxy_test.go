@@ -16,14 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aCredential is the pair every one of these sends with, so that a test about an
-// outcome is not also a test about what was in the token.
 var aCredential = vo.MessageDeliveryCredentialVo{
 	BotToken: "123456:AAHqwertyuiop1234",
 	ChatID:   "987654",
 }
 
-// telegramAnswering stands in for Telegram, answering with one status and one body.
 func telegramAnswering(
 	t *testing.T, statusCode int, body string,
 ) *messaging.TelegramMessageDeliveryProxy {
@@ -46,8 +43,6 @@ func TestTelegramMessageDeliveryProxyReportsAMessageThatWentThrough(t *testing.T
 	assert.Equal(t, vo.DeliveryFailureNone, reason)
 }
 
-// The token travels in the path, which is why the address never appears in a log
-// line or an error — and why this test checks it is where Telegram expects it.
 func TestTelegramMessageDeliveryProxySendsAsTheBotIntoTheChat(t *testing.T) {
 	sentPath := ""
 	sentBody := ""
@@ -89,8 +84,6 @@ func TestTelegramMessageDeliveryProxySortsEveryRefusalIntoOneOfTheFourReasons(t 
 			expectedReason: vo.DeliveryFailureCredentialRejected,
 		},
 		{
-			// The token is in the path, so a token nothing recognises makes the
-			// path itself not exist.
 			name:           "a path that does not exist because the token does not",
 			statusCode:     http.StatusNotFound,
 			body:           `{"ok":false,"error_code":404,"description":"Not Found"}`,
@@ -109,10 +102,7 @@ func TestTelegramMessageDeliveryProxySortsEveryRefusalIntoOneOfTheFourReasons(t 
 			expectedReason: vo.DeliveryFailureDestinationNotFound,
 		},
 		{
-			// The likeliest first-run failure of all: a correct token, a correct
-			// chat, and nobody has said hello to the bot yet. Reported as the
-			// service being unreachable, somebody retries forever; reported as the
-			// chat, they are pointed at the one thing that fixes it.
+			// Correct token and chat, but nobody has started the bot yet; this must blame the chat so the person knows the fix.
 			name:           "a person who has never started the bot",
 			statusCode:     http.StatusForbidden,
 			body:           `{"ok":false,"error_code":403,"description":"Forbidden: bot can't initiate conversation with a user"}`,
@@ -125,8 +115,6 @@ func TestTelegramMessageDeliveryProxySortsEveryRefusalIntoOneOfTheFourReasons(t 
 			expectedReason: vo.DeliveryFailureDestinationNotFound,
 		},
 		{
-			// Not guessed at. Sending somebody off to regenerate a working token
-			// costs more than telling them to try again in a moment.
 			name:           "a refusal worded in a way nothing here recognises",
 			statusCode:     http.StatusBadRequest,
 			body:           `{"ok":false,"error_code":400,"description":"Bad Request: something new"}`,
@@ -165,13 +153,8 @@ func TestTelegramMessageDeliveryProxySortsEveryRefusalIntoOneOfTheFourReasons(t 
 	}
 }
 
-// "It is slow today" and "it is not there" lead somebody to wait different lengths
-// of time before deciding something is wrong.
 func TestTelegramMessageDeliveryProxyTellsRunningOutOfTimeApartFromNotBeingThere(t *testing.T) {
-	// slowTelegram answers, but later than anybody is willing to wait. It sleeps
-	// rather than blocking on the request being cancelled, because a handler
-	// waiting for that never learns the client gave up — and the test server
-	// refuses to shut down while a handler is still running.
+	// slowTelegram sleeps rather than waiting on cancellation, since the test server will not shut down while a handler blocks.
 	slowTelegram := func(t *testing.T) *httptest.Server {
 		server := httptest.NewServer(http.HandlerFunc(
 			func(writer http.ResponseWriter, request *http.Request) {
@@ -224,8 +207,6 @@ func TestTelegramMessageDeliveryProxyTellsRunningOutOfTimeApartFromNotBeingThere
 	})
 }
 
-// Telegram puts the bot token in the path, so an address written into an error is a
-// token written into a log file — the likeliest way a secret ever escapes.
 func TestTelegramMessageDeliveryProxyNeverPutsTheAddressInWhatItReturns(t *testing.T) {
 	proxy := messaging.NewTelegramMessageDeliveryProxy(
 		"http://127.0.0.1:1/never-listening", &http.Client{Timeout: 200 * time.Millisecond})
@@ -237,8 +218,6 @@ func TestTelegramMessageDeliveryProxyNeverPutsTheAddressInWhatItReturns(t *testi
 	assert.False(t, strings.Contains(string(reason), "AAHqwertyuiop"))
 }
 
-// An address nothing can build a request out of is this side failing, not the
-// destination refusing — and the refusal it reports must still not carry the token.
 func TestTelegramMessageDeliveryProxyReportsItsOwnFailureWithoutTheToken(t *testing.T) {
 	proxy := messaging.NewTelegramMessageDeliveryProxy("://not-an-address", http.DefaultClient)
 

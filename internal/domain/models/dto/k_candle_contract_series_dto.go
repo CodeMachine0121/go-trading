@@ -1,7 +1,6 @@
 package dto
 
-// KCandleContractSeriesDto is one aggregated contract K candle series: the contract,
-// the interval actually used, and the merged candles earliest first. It is not stored.
+// KCandleContractSeriesDto is not stored; candles are earliest first.
 type KCandleContractSeriesDto struct {
 	Symbol   string               `json:"symbol"`
 	Interval string               `json:"interval"`

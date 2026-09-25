@@ -7,12 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractBacktestRequest is the body a caller sends to replay a contract strategy
-// script on a contract account: everything a spot replay takes, plus the leverage, the
-// contract trading mode and the slippage.
-//
-// It names a strategy script or carries a script of its own, never both — settled by
-// the same model a calculation uses.
+// ContractBacktestRequest is a spot replay request plus leverage, contract trading mode and slippage; it names a strategy script or carries one, never both.
 type ContractBacktestRequest struct {
 	StrategyScriptID     uint                                  `json:"strategyScriptId"`
 	Script               string                                `json:"script"`
@@ -29,11 +24,9 @@ type ContractBacktestRequest struct {
 	TakeProfitPercentage decimal.Decimal                       `json:"takeProfitPercentage"`
 	EntryCostPercentage  decimal.Decimal                       `json:"entryCostPercentage"`
 	ExitCostPercentage   decimal.Decimal                       `json:"exitCostPercentage"`
-	// FillTiming is close (the default: fill at the signalling bar's close) or
-	// nextOpen (fill at the next bar's open).
+	// FillTiming is close (default, the signalling bar's close) or nextOpen (the next bar's open).
 	FillTiming string `json:"fillTiming"`
-	// ValidationStartTime, when given, splits the replay into an in-sample part and a
-	// validation part, each replayed on its own from the initial capital.
+	// ValidationStartTime, when given, splits the replay into in-sample and validation parts, each starting from the initial capital.
 	ValidationStartTime time.Time `json:"validationStartTime"`
 	// Leverage blank or zero is one.
 	Leverage decimal.Decimal `json:"leverage"`

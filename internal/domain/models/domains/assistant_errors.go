@@ -6,104 +6,62 @@ import (
 	"time"
 )
 
-// ErrAssistantAskEmpty marks a question with nothing in it. Blanks only is the same
-// thing as nothing: whoever sent it did not ask anything, and answering it would mean
-// paying an assistant to guess what was meant.
+// ErrAssistantAskEmpty marks a question that is empty or blanks only.
 var ErrAssistantAskEmpty = errors.New("assistant ask is empty")
 
-// ErrConversationNotFound marks a conversation named by an identifier that does not
-// exist.
 var ErrConversationNotFound = errors.New("conversation not found")
 
-// ErrDailyUsageAllowanceExhausted marks a question refused because today's allowance
-// is spent. It is deliberately its own refusal rather than a validation failure: the
-// question was fine, and what the reader has to do about it is wait, not rewrite.
+// ErrDailyUsageAllowanceExhausted is distinct from validation failures because the question was fine; the reader must wait, not rewrite.
 var ErrDailyUsageAllowanceExhausted = errors.New("daily usage allowance exhausted")
 
-// ErrAssistantUnavailable marks an assistant that did not answer — unreachable,
-// too slow, or silent. All three leave the same nothing behind, and all three are
-// answered by trying again later.
+// ErrAssistantUnavailable covers an unreachable, too slow or silent assistant, all answered by retrying later.
 var ErrAssistantUnavailable = errors.New("assistant unavailable")
 
-// ErrAssistantAnswerInProgress marks a question sent to a conversation whose previous
-// answer is still being written.
-//
-// It is its own refusal rather than one of the others because what the reader has to
-// do about it is unlike all of them: not rewrite, not wait until tomorrow, not try a
-// different assistant — just wait a moment for the one already running.
+// ErrAssistantAnswerInProgress marks a question sent while the conversation's previous answer is still being written.
 var ErrAssistantAnswerInProgress = errors.New("assistant answer in progress")
 
-// ErrAssistantQueryArgument marks an assistant query whose arguments broke a rule.
-// It travels back to the assistant as the reason, not up to the caller as a failure:
-// the assistant asked for something it may not have, and asking differently is
-// within its power.
+// ErrAssistantQueryArgument is returned to the assistant as a refusal reason, not to the caller as a failure.
 var ErrAssistantQueryArgument = errors.New("assistant query argument rejected")
 
-// ConversationNotFound is the refusal a reader gets when no conversation carries this
-// identifier. Both the store and the service arrive at it, and both owe the reader
-// the same sentence.
+// ConversationNotFound is shared by the store and the service so both give the same message.
 func ConversationNotFound(id uint) error {
 	return fmt.Errorf("%w: 找不到識別碼為 %d 的對話", ErrConversationNotFound, id)
 }
 
-// DailyUsageAllowanceExhausted is the refusal a reader gets once today's allowance is
-// spent. It names when the allowance comes back, because a refusal that does not say
-// how long to wait leaves nothing to do but keep trying.
+// DailyUsageAllowanceExhausted names when the allowance resets.
 func DailyUsageAllowanceExhausted(allowance int, resetsAt time.Time) error {
 	return fmt.Errorf(
 		"%w: 今日助手用量額度 %d 已用盡，於 %s 重置",
 		ErrDailyUsageAllowanceExhausted, allowance, resetsAt.Format(time.RFC3339))
 }
 
-// AssistantUnavailable is the refusal a reader gets when the assistant did not
-// answer. The underlying cause is wrapped rather than described, so that a timeout
-// and an unreachable service stay distinguishable to whoever is debugging while
-// reading the same way to whoever is asking.
+// AssistantUnavailable wraps the cause so timeouts and outages stay distinguishable in logs.
 func AssistantUnavailable(cause error) error {
 	return fmt.Errorf("%w: 助手目前沒有回應，請稍後再試: %w", ErrAssistantUnavailable, cause)
 }
 
-// AssistantAnsweredNothing is the refusal a reader gets when the assistant came back
-// with a blank answer. It is the same refusal as an assistant that never answered,
-// because a blank answer is not an answer.
+// AssistantAnsweredNothing treats a blank answer as an unavailable assistant.
 func AssistantAnsweredNothing() error {
 	return fmt.Errorf("%w: 助手回了空白的答案，請稍後再試", ErrAssistantUnavailable)
 }
 
-// AssistantTurnNotFound is the refusal a writer gets when the exchange it was filling
-// in is no longer there — the conversation holding it was deleted while the answer
-// was being written.
-//
-// It is the conversation's own refusal because that is what actually went missing;
-// an exchange never outlives the conversation it belongs to.
+// AssistantTurnNotFound means the conversation was deleted while the answer was being written, so it reuses ErrConversationNotFound.
 func AssistantTurnNotFound(turnID uint) error {
 	return fmt.Errorf("%w: 找不到識別碼為 %d 的問答", ErrConversationNotFound, turnID)
 }
 
-// AssistantBrokeDown is what an answer is closed with when writing it broke in a way
-// nobody planned for.
-//
-// It reads as the same "try again shortly" every other breakage does, because that is
-// the same single thing the person waiting can do about it. What actually happened
-// goes to the log, where somebody can fix it.
+// AssistantBrokeDown closes an answer after an unexpected failure; details go to the log.
 func AssistantBrokeDown() error {
 	return fmt.Errorf("%w: 這則回答在產生的過程中出錯了，請再問一次", ErrAssistantUnavailable)
 }
 
-// AssistantAnswerInProgress is the refusal a reader gets for asking again while the
-// previous answer on that conversation is still being written.
 func AssistantAnswerInProgress() error {
 	return fmt.Errorf(
 		"%w: 這段對話上還有一則回答正在進行中，請等它結束再問下一句",
 		ErrAssistantAnswerInProgress)
 }
 
-// AssistantAnswerInterruptedByRestart is what is left on an answer the system was
-// still writing when it was shut down.
-//
-// It is written on the way up rather than on the way down, because a shutdown is not
-// always given the chance to tidy up — and an answer stuck at running forever is a
-// wait nobody can end and a conversation nobody can ask anything else.
+// AssistantAnswerInterruptedByRestart is written at startup, since shutdown cannot be relied on to clean up running answers.
 func AssistantAnswerInterruptedByRestart() string {
 	return "系統重新啟動時中斷了這則回答，請再問一次"
 }

@@ -7,8 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// recordedRounds is a count that has already spent this many queries, so that a test
-// about the boundary is not also a test about how the count is advanced.
+// recordedRounds starts from an already-spent count so boundary tests don't depend on how the count advances.
 func recordedRounds(limit int, spent int) domains.AssistantQueryRoundsDomain {
 	rounds := domains.NewAssistantQueryRoundsDomain(limit)
 	if spent > 0 {
@@ -55,8 +54,7 @@ func TestAssistantQueryRoundsAllowsUpToTheLimitAndNoFurther(t *testing.T) {
 }
 
 func TestAssistantQueryRoundsLeavesTheCountItWasAskedFromAlone(t *testing.T) {
-	// Whether a query may run is asked several times within one answer, so recording
-	// must not change the value the asker is holding.
+	// Recording must not mutate the value the caller holds, since it is checked several times per answer.
 	rounds := domains.NewAssistantQueryRoundsDomain(1)
 
 	recorded := rounds.Record(1)
@@ -68,8 +66,7 @@ func TestAssistantQueryRoundsLeavesTheCountItWasAskedFromAlone(t *testing.T) {
 }
 
 func TestAssistantQueryRoundsRemainingNeverGoesBelowNone(t *testing.T) {
-	// 助手一口氣要五次而只剩兩次時，誠實的答案是「前兩次」——
-	// 負數會讓那個「前幾次」的切法變成一段恐慌。
+	// 剩兩次卻要五次時放行前兩次；負數會讓切片 panic。
 	rounds := domains.NewAssistantQueryRoundsDomain(2).Record(5)
 
 	assert.Equal(t, 0, rounds.Remaining())
@@ -77,7 +74,7 @@ func TestAssistantQueryRoundsRemainingNeverGoesBelowNone(t *testing.T) {
 }
 
 func TestAssistantQueryRoundsRecordsAWholeRoundAtOnce(t *testing.T) {
-	// 一輪裡的三次查詢是三次，不是一次——不然一個回答可以在八輪裡查上幾十次。
+	// 查詢次數按次計，不按輪計。
 	rounds := domains.NewAssistantQueryRoundsDomain(8).Record(3)
 
 	assert.Equal(t, 3, rounds.Used())

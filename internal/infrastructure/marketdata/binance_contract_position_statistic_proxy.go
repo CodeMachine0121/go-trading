@@ -15,32 +15,24 @@ import (
 )
 
 const (
-	// positionStatisticPeriod is how the venue spells the five-minute statistic.
-	positionStatisticPeriod = "5m"
-	// positionStatisticPageLimit is the most statistics the venue hands back at once.
+	positionStatisticPeriod    = "5m"
 	positionStatisticPageLimit = 500
-	// positionStatisticStep is the grid the venue takes statistics on.
-	positionStatisticStep = 5 * time.Minute
+	positionStatisticStep      = 5 * time.Minute
 )
 
-// The three answers one position statistic is assembled from, relative to the
-// statistics address.
 const (
 	openInterestPath           = "/openInterestHist"
 	accountLongShortPath       = "/globalLongShortAccountRatio"
 	topTraderPositionRatioPath = "/topLongShortPositionRatio"
 )
 
-// binanceOpenInterest is one open interest reading as the venue spells it.
 type binanceOpenInterest struct {
 	SumOpenInterest      string `json:"sumOpenInterest"`
 	SumOpenInterestValue string `json:"sumOpenInterestValue"`
 	Timestamp            int64  `json:"timestamp"`
 }
 
-// binanceLongShortSplit is one long-short split as the venue spells it. Both splits
-// share the spelling, though the largest accounts' one counts positions rather than
-// accounts.
+// binanceLongShortSplit is shared by both ratio endpoints, though the top-trader one counts positions rather than accounts.
 type binanceLongShortSplit struct {
 	LongAccount    string `json:"longAccount"`
 	ShortAccount   string `json:"shortAccount"`
@@ -48,24 +40,13 @@ type binanceLongShortSplit struct {
 	Timestamp      int64  `json:"timestamp"`
 }
 
-// longShortSplitFigures is one split, read.
 type longShortSplitFigures struct {
 	longShare      decimal.Decimal
 	shortShare     decimal.Decimal
 	longShortRatio decimal.Decimal
 }
 
-// BinanceContractPositionStatisticProxy fetches five-minute position statistics from
-// Binance's perpetual contract venue.
-//
-// **Every question names both ends, and no question covers more than one page.** The
-// venue ignores a start given on its own and answers with the latest statistics
-// instead; and asked about a stretch longer than a page, it answers with the latest
-// page of that stretch rather than the first. Both would pass for an answer. So the
-// window is walked a page-sized stretch at a time, each with its own start and end.
-//
-// It spends an allowance of its own: the venue counts these statistics apart from
-// the K candles.
+// BinanceContractPositionStatisticProxy fetches five-minute position statistics, querying one page-sized window at a time with both ends set, because the venue ignores a lone start and returns the latest page of an over-long window; it has its own pacer.
 type BinanceContractPositionStatisticProxy struct {
 	statisticsBaseUrl string
 	httpClient        *http.Client
@@ -82,17 +63,12 @@ func NewBinanceContractPositionStatisticProxy(
 	}
 }
 
-// FetchPositionStatistics returns every statistic in the window, oldest first.
-//
-// The open interest decides which moments exist; a split for a moment with no open
-// interest is a reading of nothing and is dropped. Any one question failing fails the
-// whole call.
+// FetchPositionStatistics returns statistics oldest first; open interest decides which moments exist, and any failed request fails the whole call.
 func (positionStatisticProxy *BinanceContractPositionStatisticProxy) FetchPositionStatistics(
 	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
 ) ([]vo.ContractPositionStatisticVo, error) {
 	statistics := make([]vo.ContractPositionStatisticVo, 0)
 
-	// One page-sized stretch at a time, three questions each, aligned on the moment.
 	for chunkStart := startTime.UTC(); !chunkStart.After(endTime); {
 		chunkEnd := chunkStart.Add((positionStatisticPageLimit - 1) * positionStatisticStep)
 		if chunkEnd.After(endTime) {
@@ -112,8 +88,7 @@ func (positionStatisticProxy *BinanceContractPositionStatisticProxy) FetchPositi
 		}
 
 		if len(openInterests) == 0 {
-			// Nothing was open to split. Asking anyway would spend the allowance on two
-			// answers with no home.
+			// No open interest, so skip the two ratio requests.
 			chunkStart = nextChunkStart
 			continue
 		}
@@ -150,9 +125,7 @@ func (positionStatisticProxy *BinanceContractPositionStatisticProxy) FetchPositi
 	return statistics, nil
 }
 
-// toContractPositionStatisticVo turns one open interest reading into a statistic,
-// joined with whichever of the two splits describe the same moment. A split that does
-// not is left absent for the domain to judge.
+// toContractPositionStatisticVo joins the ratios for the same moment, leaving a missing one absent for the domain to judge.
 func (openInterest binanceOpenInterest) toContractPositionStatisticVo(
 	symbol string, accountSplits map[int64]longShortSplitFigures, topTraderSplits map[int64]longShortSplitFigures,
 ) (vo.ContractPositionStatisticVo, error) {
@@ -185,8 +158,6 @@ func (openInterest binanceOpenInterest) toContractPositionStatisticVo(
 	return statistic, nil
 }
 
-// askForSplits asks one of the two split questions and keys the answers by the
-// moment they describe.
 func (positionStatisticProxy *BinanceContractPositionStatisticProxy) askForSplits(
 	executionContext context.Context, path string, symbol string, startTime time.Time, endTime time.Time,
 ) (map[int64]longShortSplitFigures, error) {
@@ -221,12 +192,7 @@ func (positionStatisticProxy *BinanceContractPositionStatisticProxy) askForSplit
 	return splitsByTimestamp, nil
 }
 
-// ask puts one question to the venue and hands back the answer as it arrived. The
-// three answers are spelled differently, so reading one is left to whoever asked it.
-//
-// **It stays a method of its own because of what it encloses: one answer's body, from
-// the moment it arrives to the moment it is let go.** Every page-sized stretch asks
-// three of these, and a thirty-day catch-up walks eighteen stretches.
+// ask returns the raw body for the caller to decode, and is separate so each response body is closed promptly.
 func (positionStatisticProxy *BinanceContractPositionStatisticProxy) ask(
 	executionContext context.Context,
 	path string,
