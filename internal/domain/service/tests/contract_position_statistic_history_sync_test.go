@@ -497,3 +497,55 @@ func TestContractHistorySyncRunCannotBeReadWhenStorageBreaks(t *testing.T) {
 
 	assert.ErrorIs(t, readError, statisticsBroken)
 }
+
+func TestContractHistorySyncStoresNothingWhenEveryDayIsAlreadyWhole(t *testing.T) {
+	underTest := newContractHistorySyncUnderTest(t, statisticSyncAt)
+	underTest.registered("BTCUSDT")
+	underTest.candlesAlreadyWhole()
+	runWrites := underTest.keepsEveryContractSyncRunWrite()
+	underTest.holdingStatistics(statisticDayOne, 288)
+	underTest.holdingStatistics(statisticDayTwo, 288)
+	underTest.archiveProxy.EXPECT().
+		FetchDailyPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).Times(0)
+
+	underTest.startSyncing(t, 1)
+
+	endedRun := runWrites.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 0, endedRun.PositionStatisticStoredCount)
+	assert.Equal(t, 2, endedRun.PositionStatisticCompletedDays)
+}
+
+func TestContractHistorySyncStoresEachDayOnItsOwnBeforeReadingTheNext(t *testing.T) {
+	underTest := newContractHistorySyncUnderTest(t, statisticSyncAt)
+	underTest.registered("BTCUSDT")
+	underTest.candlesAlreadyWhole()
+	runWrites := underTest.keepsEveryContractSyncRunWrite()
+	underTest.holdingStatistics(statisticDayOne, 0)
+	underTest.holdingStatistics(statisticDayTwo, 0)
+	events := make([]string, 0, 4)
+	for _, day := range []time.Time{statisticDayOne, statisticDayTwo} {
+		underTest.archiveAnswers(day, nil, false, nil).DoAndReturn(
+			func(_ context.Context, _ string, askedDay time.Time) ([]vo.ContractPositionStatisticArchiveVo, bool, error) {
+				events = append(events, "read "+askedDay.Format("01-02"))
+
+				return archivedWholeDay(askedDay), true, nil
+			})
+	}
+	underTest.statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, statistics []entities.ContractPositionStatistic) (int, error) {
+			events = append(events, "store "+statistics[0].StatisticTime.Format("01-02"))
+
+			return len(statistics), nil
+		}).Times(2)
+
+	underTest.startSyncing(t, 1)
+
+	endedRun := runWrites.awaitEnding(t)
+	assert.Equal(t, []string{"read 09-24", "store 09-24", "read 09-25", "store 09-25"}, events)
+	// Yesterday whole, and today up to the sync's own 10:00 — the rest of today is
+	// still in the future and refused by the live rules.
+	assert.Equal(t, 288+121, endedRun.PositionStatisticStoredCount)
+	assert.Equal(t, 288-121, endedRun.PositionStatisticSkippedCount)
+}

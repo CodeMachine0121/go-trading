@@ -61,15 +61,17 @@ type archiveHost struct {
 	baseUrl string
 	lock    *sync.Mutex
 	paths   *[]string
+	headers *[]http.Header
 }
 
 func servedByArchive(t *testing.T, status int, body []byte) archiveHost {
 	t.Helper()
 
-	host := archiveHost{lock: &sync.Mutex{}, paths: &[]string{}}
+	host := archiveHost{lock: &sync.Mutex{}, paths: &[]string{}, headers: &[]http.Header{}}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		host.lock.Lock()
 		*host.paths = append(*host.paths, request.URL.Path)
+		*host.headers = append(*host.headers, request.Header.Clone())
 		host.lock.Unlock()
 
 		writer.WriteHeader(status)
@@ -115,6 +117,19 @@ func TestArchiveProxyAsksForTheContractsFileOfThatDay(t *testing.T) {
 
 	require.NoError(t, fetchError)
 	assert.Equal(t, []string{"/data/futures/um/daily/metrics/ETHUSDT/ETHUSDT-metrics-2026-03-01.zip"}, *host.paths)
+}
+
+func TestArchiveProxyAsksWithoutAnyAccount(t *testing.T) {
+	host := servedByArchive(t, http.StatusOK, zippedArchiveDay(t, archiveHeader))
+
+	_, _, fetchError := host.proxy().FetchDailyPositionStatistics(t.Context(), "ETHUSDT", archivedDayAsked)
+
+	require.NoError(t, fetchError)
+	require.Len(t, *host.headers, 1)
+	asked := (*host.headers)[0]
+	for _, credentialHeader := range []string{"Authorization", "X-Mbx-Apikey", "Cookie"} {
+		assert.Empty(t, asked.Get(credentialHeader), "歷史資料庫是公開的，不帶 %s", credentialHeader)
+	}
 }
 
 func TestArchiveProxyAnswersADayWithNoFileAsNotFound(t *testing.T) {
