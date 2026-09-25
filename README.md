@@ -115,6 +115,8 @@ curl localhost:8080/health
 | `CONTRACT_MARKET_DATA_FUNDING_INFO_URL` | 幣安結算間隔網址 | 列出**有自己結算間隔**的合約；沒列出的就是八小時。交易規格的一部分 |
 | `CONTRACT_MARKET_DATA_STATISTICS_BASE_URL` | 幣安統計資料網址 | **持倉統計**三份答案（持倉量、多空人數比、大戶多空持倉比）的共同位址 |
 | `CONTRACT_MARKET_DATA_STATISTICS_REQUESTS_PER_MINUTE` | `180` | 持倉統計的請求額度。**來源把這類統計另外計算**，所以它自己一份，不與合約 K 線共用 |
+| `CONTRACT_MARKET_DATA_POSITION_STATISTIC_ARCHIVE_BASE_URL` | `https://data.binance.vision/data/futures/um/daily/metrics` | **持倉統計歷史資料庫**：幣安公開的每日檔案，一個合約一天一份、可回溯好幾年。**只有合約歷史同步讀它**；每五分鐘那一輪與三十天補齊照舊用上面的即時來源 |
+| `CONTRACT_MARKET_DATA_POSITION_STATISTIC_ARCHIVE_REQUESTS_PER_MINUTE` | `120` | 持倉統計歷史資料庫的請求節奏。它是另一台主機，自己一份，不與合約 K 線或即時持倉統計共用 |
 | `CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES` | `60` | 資金費率那一輪的間隔；`0` 或負值停用 |
 | `CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES` | `5` | 持倉統計那一輪的間隔；`0` 或負值停用。**停用多久就少多久**——來源只留三十天 |
 | `CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS` | `24` | 交易規格刷新的間隔；`0` 或負值停用 |
@@ -188,8 +190,8 @@ curl localhost:8080/health
 | `GET` | `/contract-k-candles/series?symbol=&startTime=&endTime=&interval=` 或 `&displayableCandleCount=` | 依刻度彙總的合約 K 線序列，說法與 `/k-candles/series` 一字不差。三條價格線各自合併；一格裡有一根缺指數價格或溢價指數，那一格那條線就是 `null` |
 | `GET` `PUT` `DELETE` | `/contract-k-candles/{symbol}/{openTime}` | 讀取／修改／刪除單一合約 K 線。**刪掉合約那根，現貨同代號同時間那根完全不受影響** |
 | `POST` | `/contract-k-candles/backfill` | 手動補齊一個合約標的的歷史（body 給 `symbol`），補到合約自己的回補上限為止 |
-| `POST` | `/contract-k-candles/history` | 同步一段合約歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。輪次編號**自己一串**，與現貨那串互不相干 |
-| `GET` | `/contract-k-candles/history/{id}` | 那一趟合約歷史同步走到哪 |
+| `POST` | `/contract-k-candles/history` | 同步一段合約歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。輪次編號**自己一串**，與現貨那串互不相干。**合約 K 線補完後，同一趟接著以同一個回溯天數從持倉統計歷史資料庫一天一天補持倉統計**，只存沒有的；那一天沒有檔案不算失敗，歷史資料庫不答話只停下持倉統計這一份、輪次照樣成功 |
+| `GET` | `/contract-k-candles/history/{id}` | 那一趟合約歷史同步走到哪：合約 K 線那組照舊在最外層，**持倉統計那組在 `positionStatistic`**（`totalDays`、`completedDays`、`storedCount`、`skippedCount`、`fetchFailureReason`），兩組不加總 |
 | `GET` | `/contract-trading-symbols` | 列出系統認得的每一個**合約**標的：已登錄的加上實際有合約 K 線的，去重、依名稱排序。每一個帶著它的**交易規格**（還沒記下時為 `null`） |
 | `GET` | `/contract-funding-rate-settlements?symbol=&startTime=&endTime=` | 一個合約標的在一段時間內的**資金費率結算**，依結算時間由早到晚 |
 | `GET` | `/contract-position-statistics?symbol=&startTime=&endTime=` | 一個合約標的在一段時間內的**持倉統計**（五分鐘一筆），依統計時間由早到晚 |
