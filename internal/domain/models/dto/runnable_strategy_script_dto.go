@@ -8,4 +8,6 @@ type RunnableStrategyScriptDto struct {
 	MarketDataKind string
 	// Parameters are as declared; per-run values are never written back.
 	Parameters []StrategyScriptParameterWriteDto
+	// OwnedByViewer is false for someone else's published script, whose failure wording its author controls.
+	OwnedByViewer bool
 }

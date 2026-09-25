@@ -236,7 +236,7 @@ func (assistantConversationService *AssistantConversationService) runAssistantQu
 
 		outcome, runError := assistantQuery.Run(executionContext, viewerID, call.Arguments)
 		if runError != nil {
-			return runError.Error(), true
+			return domains.AssistantReadableReason(runError), true
 		}
 
 		return outcome, false

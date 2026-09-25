@@ -35,14 +35,16 @@ func (indicatorCalculationApplication *IndicatorCalculationApplication) Calculat
 	runSubjectDomain domains.RunSubjectDomain,
 	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	runnableRequestDto, resolveError := indicatorCalculationApplication.resolveRunnable(
+	runnableRequestDto, authorship, resolveError := indicatorCalculationApplication.resolveRunnable(
 		executionContext, viewerID, runSubjectDomain, vo.MarketDataKindKCandle, requestDto)
 	if resolveError != nil {
 		return dto.IndicatorCalculationResultDto{}, resolveError
 	}
 
-	return indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(
+	resultDto, calculateError := indicatorCalculationApplication.indicatorCalculationService.CalculateIndicator(
 		executionContext, runnableRequestDto)
+
+	return resultDto, authorship.AttributeFailure(calculateError)
 }
 
 // CalculateContractIndicator is CalculateIndicator over perpetual contract bars.
@@ -52,39 +54,42 @@ func (indicatorCalculationApplication *IndicatorCalculationApplication) Calculat
 	runSubjectDomain domains.RunSubjectDomain,
 	requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
-	runnableRequestDto, resolveError := indicatorCalculationApplication.resolveRunnable(
+	runnableRequestDto, authorship, resolveError := indicatorCalculationApplication.resolveRunnable(
 		executionContext, viewerID, runSubjectDomain, vo.MarketDataKindContractKCandle, requestDto)
 	if resolveError != nil {
 		return dto.IndicatorCalculationResultDto{}, resolveError
 	}
 
-	return indicatorCalculationApplication.contractIndicatorCalculationService.CalculateContractIndicator(
-		executionContext, runnableRequestDto)
+	resultDto, calculateError := indicatorCalculationApplication.contractIndicatorCalculationService.
+		CalculateContractIndicator(executionContext, runnableRequestDto)
+
+	return resultDto, authorship.AttributeFailure(calculateError)
 }
 
 // resolveRunnable refuses a named script built for the other market kind so it isn't misreported as broken; the caller's own algorithm is assumed to target this market.
+// It also says whose words a failure of this run can carry.
 func (indicatorCalculationApplication *IndicatorCalculationApplication) resolveRunnable(
 	executionContext context.Context,
 	viewerID uint,
 	runSubjectDomain domains.RunSubjectDomain,
 	fedMarketDataKind vo.MarketDataKindVo,
 	requestDto dto.IndicatorCalculationRequestDto,
-) (dto.IndicatorCalculationRequestDto, error) {
+) (dto.IndicatorCalculationRequestDto, domains.StrategyScriptAuthorshipDomain, error) {
 	runnableStrategyScriptDto := runSubjectDomain.ToRunnableDto()
 
 	if strategyScriptID, namesAStrategyScript := runSubjectDomain.NamedStrategyScriptID(); namesAStrategyScript {
 		resolved, resolveError := indicatorCalculationApplication.strategyScriptService.ResolveRunnableStrategyScript(
 			executionContext, viewerID, strategyScriptID)
 		if resolveError != nil {
-			return dto.IndicatorCalculationRequestDto{}, resolveError
+			return dto.IndicatorCalculationRequestDto{}, domains.StrategyScriptAuthorshipDomain{}, resolveError
 		}
 
 		marketDataKind, kindError := domains.NewMarketDataKindDomain(resolved.MarketDataKind)
 		if kindError != nil {
-			return dto.IndicatorCalculationRequestDto{}, kindError
+			return dto.IndicatorCalculationRequestDto{}, domains.StrategyScriptAuthorshipDomain{}, kindError
 		}
 		if mismatchError := marketDataKind.RequireRunnableAs(fedMarketDataKind); mismatchError != nil {
-			return dto.IndicatorCalculationRequestDto{}, mismatchError
+			return dto.IndicatorCalculationRequestDto{}, domains.StrategyScriptAuthorshipDomain{}, mismatchError
 		}
 
 		runnableStrategyScriptDto = resolved
@@ -94,5 +99,7 @@ func (indicatorCalculationApplication *IndicatorCalculationApplication) resolveR
 	requestDto.ResultType = runnableStrategyScriptDto.ResultType
 	requestDto.Parameters = runnableStrategyScriptDto.Parameters
 
-	return requestDto, nil
+	return requestDto,
+		domains.NewStrategyScriptAuthorshipDomain([]dto.RunnableStrategyScriptDto{runnableStrategyScriptDto}),
+		nil
 }
