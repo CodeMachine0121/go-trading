@@ -99,27 +99,43 @@ func (positionDomain ContractBacktestPositionDomain) ValueAt(price decimal.Decim
 	return decimal.Max(decimal.Zero, positionDomain.margin.Add(positionDomain.ProfitAt(price)))
 }
 
-// ExitOn checks the adverse side first, taking whichever of the stop (traded high/low) or liquidation (mark price) is nearer the entry, then the take profit, so ambiguous bars never flatter the strategy.
+// ExitOn settles the open first (a mark open past liquidation liquidates, a traded open past the stop fills there), then the nearer of stop and liquidation within the bar, then the take profit.
 func (positionDomain ContractBacktestPositionDomain) ExitOn(
 	bucket dto.KCandleContractDto, exitTime time.Time,
 ) (vo.ContractClosedTradeVo, bool) {
 	isShort := positionDomain.direction == vo.PositionDirectionShort
 	liquidationPrice := positionDomain.LiquidationPrice()
+	hasStopLoss := positionDomain.exitPrices.HasStopLoss
+	stopLossPrice := positionDomain.exitPrices.StopLossPrice
 
-	stopReached := positionDomain.exitPrices.HasStopLoss &&
-		((!isShort && bucket.Low.LessThanOrEqual(positionDomain.exitPrices.StopLossPrice)) ||
-			(isShort && bucket.High.GreaterThanOrEqual(positionDomain.exitPrices.StopLossPrice)))
+	liquidatedAtOpen := (!isShort && liquidationPrice.IsPositive() &&
+		bucket.MarkOpen.LessThanOrEqual(liquidationPrice)) ||
+		(isShort && bucket.MarkOpen.GreaterThanOrEqual(liquidationPrice))
+	if liquidatedAtOpen {
+		return positionDomain.ClosedAt(exitTime, liquidationPrice, vo.TradeExitReasonLiquidation), true
+	}
+
+	stoppedAtOpen := hasStopLoss &&
+		((!isShort && bucket.Open.LessThanOrEqual(stopLossPrice)) ||
+			(isShort && bucket.Open.GreaterThanOrEqual(stopLossPrice)))
+	if stoppedAtOpen {
+		return positionDomain.ClosedAt(exitTime,
+			positionDomain.exitFillFor(bucket.Open), vo.TradeExitReasonStopLoss), true
+	}
+
+	stopReached := hasStopLoss &&
+		((!isShort && bucket.Low.LessThanOrEqual(stopLossPrice)) ||
+			(isShort && bucket.High.GreaterThanOrEqual(stopLossPrice)))
 	liquidationReached := (!isShort && liquidationPrice.IsPositive() &&
 		bucket.MarkLow.LessThanOrEqual(liquidationPrice)) ||
 		(isShort && bucket.MarkHigh.GreaterThanOrEqual(liquidationPrice))
-	stopIsNearer := positionDomain.exitPrices.HasStopLoss &&
-		((!isShort && positionDomain.exitPrices.StopLossPrice.GreaterThanOrEqual(liquidationPrice)) ||
-			(isShort && positionDomain.exitPrices.StopLossPrice.LessThanOrEqual(liquidationPrice)))
+	stopIsNearer := hasStopLoss &&
+		((!isShort && stopLossPrice.GreaterThanOrEqual(liquidationPrice)) ||
+			(isShort && stopLossPrice.LessThanOrEqual(liquidationPrice)))
 
 	if stopReached && (stopIsNearer || !liquidationReached) {
 		return positionDomain.ClosedAt(exitTime,
-			positionDomain.exitFillFor(positionDomain.exitPrices.StopLossPrice),
-			vo.TradeExitReasonStopLoss), true
+			positionDomain.exitFillFor(stopLossPrice), vo.TradeExitReasonStopLoss), true
 	}
 
 	if liquidationReached {
