@@ -19,8 +19,7 @@ import (
 
 const contractHistoryCeilingDays = 3650
 
-// reportedContractCandle is one contract candle as the proxy hands it over, with its
-// mark price present.
+// reportedContractCandle is a proxy-reported contract candle with its mark price present.
 func reportedContractCandle(openTime time.Time) vo.ContractMarketKCandleVo {
 	return vo.ContractMarketKCandleVo{
 		Symbol:              "BTCUSDT",
@@ -49,8 +48,7 @@ func reportedContractCandle(openTime time.Time) vo.ContractMarketKCandleVo {
 	}
 }
 
-// reportedContractCandleWithoutMarkPrice is the same minute as it arrives when the
-// venue answered the traded question but not the mark price one.
+// reportedContractCandleWithoutMarkPrice is the same minute when the venue answered the traded read but not the mark price read.
 func reportedContractCandleWithoutMarkPrice(openTime time.Time) vo.ContractMarketKCandleVo {
 	contractCandle := reportedContractCandle(openTime)
 	contractCandle.MarkOpen = decimal.NullDecimal{}
@@ -72,10 +70,7 @@ type contractIngestionUnderTest struct {
 	archiveProxy              *mocks.MockIContractPositionStatisticArchiveProxy
 }
 
-// newContractIngestionUnderTest is for every case about the candles. A history sync
-// fills in the position statistics after them, so the archive here holds no day at
-// all and no statistic is held — the statistics half walks its days and stores
-// nothing, and says nothing about the candles.
+// newContractIngestionUnderTest is for candle cases: the archive and statistics store hold nothing, so the statistics half stores nothing.
 func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contractIngestionUnderTest {
 	t.Helper()
 
@@ -89,9 +84,7 @@ func newContractIngestionUnderTest(t *testing.T, currentTime time.Time) contract
 	return underTest
 }
 
-// newContractHistorySyncUnderTest is for the cases about the position statistics half
-// of a history sync: nothing is expected of the archive or the statistics store, so
-// each case says exactly what they answer.
+// newContractHistorySyncUnderTest is for the position statistics half: nothing is pre-expected, so each case states what the archive and store answer.
 func newContractHistorySyncUnderTest(t *testing.T, currentTime time.Time) contractIngestionUnderTest {
 	t.Helper()
 
@@ -169,8 +162,7 @@ func TestContractRoundStoresTheCandlesTheVenueAnsweredWith(t *testing.T) {
 }
 
 func TestContractRoundSkipsTheMinuteWhoseMarkPriceNeverArrived(t *testing.T) {
-	// A contract candle without its mark price is not one, so it goes down the same
-	// path a candle breaking any other rule does: skipped, named, and the rest stored.
+	// A contract candle without its mark price breaks a rule like any other: skipped, named, and the rest stored.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.watching("BTCUSDT")
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return(
@@ -256,8 +248,7 @@ func TestContractRoundDoesNotStoreTheMinuteStillRunning(t *testing.T) {
 }
 
 func TestContractRoundKeepsFetchingThroughTheNightAndNeverPresumesAHoliday(t *testing.T) {
-	// A perpetual contract has no session and therefore no day off. An hour the venue
-	// had nothing for is a quiet hour, and the next round asks again all the same.
+	// A perpetual contract has no day off, so an empty hour is just quiet and the next round asks again.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(3, 7, 30))
 	underTest.watching("BTCUSDT")
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
@@ -343,8 +334,7 @@ func TestContractBackfillForOneContractRefusesABlankName(t *testing.T) {
 	assert.ErrorIs(t, catchUpError, domains.ErrTradingSymbolNamed)
 }
 
-// contractHistorySyncRuns collects every write the background walk makes, so a case
-// can wait for the run to be closed off rather than guessing how long it takes.
+// contractHistorySyncRuns collects every run write so a case can wait for the run to close rather than guess how long it takes.
 type contractHistorySyncRuns struct {
 	ended chan entities.KCandleContractHistorySyncRun
 }
@@ -391,8 +381,7 @@ func (underTest contractIngestionUnderTest) recordsEveryContractSyncRun() *contr
 }
 
 func TestContractHistorySyncAnswersBeforeItHasFetchedAnything(t *testing.T) {
-	// Every minute of this stretch takes two questions to the venue, so a long one is
-	// twice the round trips the spot side makes. The run is the answer.
+	// Each minute costs two venue requests, so the run is returned before fetching.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -423,8 +412,7 @@ func TestContractHistorySyncAnswersBeforeItHasFetchedAnything(t *testing.T) {
 }
 
 func TestContractHistorySyncDoesNotAskAboutADayItAlreadyHoldsWhole(t *testing.T) {
-	// A stored contract candle is a complete one, so counting candles is enough to
-	// know both halves of every minute are there.
+	// Stored contract candles are always complete, so a count proves both halves of every minute are held.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -465,8 +453,7 @@ func TestContractHistorySyncAsksAgainAboutADayItOnlyHoldsHalfOf(t *testing.T) {
 }
 
 func TestContractHistorySyncSucceedsWhenTheContractDidNotYetExist(t *testing.T) {
-	// The venue answering with nothing for a stretch is something this run found out,
-	// not something it did wrong.
+	// An empty venue answer is something the run found out, not a failure.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -587,8 +574,7 @@ func TestContractHistorySyncSweepsTheRunsARestartCutOff(t *testing.T) {
 }
 
 func TestContractRoundRefusesRulesItCannotSettle(t *testing.T) {
-	// A run that cannot work whatever it is pointed at says so before it has read a
-	// watchlist or touched a source.
+	// Unworkable rules are refused before any watchlist read or source call.
 	mockController := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(ingestionAt(9, 7, 30)).AnyTimes()
@@ -667,8 +653,7 @@ func TestContractRoundNotesACandleStorageWouldNotTake(t *testing.T) {
 }
 
 func TestContractRoundStopsNamingSkippedCandlesOnceThereAreTooMany(t *testing.T) {
-	// The count still answers "how bad is it" after the list stops growing, so a venue
-	// answering with rubbish cannot turn the report into something nobody can open.
+	// The count keeps growing after the list is capped, so a rubbish-answering venue cannot bloat the report.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.watching("BTCUSDT")
 
@@ -722,8 +707,7 @@ func TestContractHistorySyncReportsAContractItCannotLookUp(t *testing.T) {
 }
 
 func TestContractHistorySyncKeepsTryingToCloseOffARunStorageKeepsRefusing(t *testing.T) {
-	// Losing the closing write leaves the row saying running for as long as this
-	// process lives, so it is worth waiting on where a progress figure is not.
+	// A lost closing write leaves the row running for the process's lifetime, so it is retried where progress writes are not.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	underTest.kCandleContractRepository.EXPECT().
@@ -765,9 +749,7 @@ func TestContractHistorySyncKeepsTryingToCloseOffARunStorageKeepsRefusing(t *tes
 }
 
 func TestContractHistorySyncClosesTheRunOffWhenTheWalkBreaksDown(t *testing.T) {
-	// A panic out here has nothing above it to contain it, so it would take the API
-	// and every other fetch in flight with it. The run is closed as failed on the way
-	// out rather than left sitting at running until the next restart.
+	// An unrecovered panic here would crash the process, so the run is closed as failed rather than left running until restart.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -788,10 +770,7 @@ func TestContractHistorySyncClosesTheRunOffWhenTheWalkBreaksDown(t *testing.T) {
 }
 
 func TestContractHistorySyncAsksForTheWholeStretchTheCallerNamedOneDayAtATime(t *testing.T) {
-	// Cutting it up is what makes the length stop mattering, so what has to hold is
-	// that the pieces together span exactly what was asked for and leave no minute
-	// between them. The start comes from the lookback and nothing else — that is the
-	// whole difference from a backfill, which starts wherever the stored data left off.
+	// The day-sized pieces must exactly span the requested stretch with no gap, starting from the lookback rather than the stored data like a backfill.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -830,10 +809,7 @@ func TestContractHistorySyncAsksForTheWholeStretchTheCallerNamedOneDayAtATime(t 
 }
 
 func TestContractHistorySyncStoresNothingForAStretchWithNoMarkPriceAtAll(t *testing.T) {
-	// The venue's mark price history begins later than its candle history, so a long
-	// sync's oldest months answer with traded figures and no mark price at all. Every
-	// minute of them is unstorable, and the run says so through its skipped count
-	// rather than by failing — nothing went wrong, that stretch simply cannot be held.
+	// Mark price history starts later than candle history, so the oldest months are unstorable and reported as skipped, not as a failure.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -861,10 +837,7 @@ func TestContractHistorySyncStoresNothingForAStretchWithNoMarkPriceAtAll(t *test
 }
 
 func TestContractHistorySyncLeavesOldCandlesAsTheyWereWhenTheVenueNoLongerHasTheirIndexPrice(t *testing.T) {
-	// The day is held only as candles stored before the index price existed, so it is
-	// not complete and is asked about again. The venue can no longer give that day's
-	// index price: nothing can complete those candles, so nothing is handed to
-	// storage that could change them, and the run says what it could not store.
+	// A day held only as pre-index-price candles is re-asked, but the venue lacks that index price, so nothing that could change them is stored and the run reports the skips.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.registered("BTCUSDT")
 	runs := underTest.recordsEveryContractSyncRun()
@@ -892,9 +865,7 @@ func TestContractHistorySyncLeavesOldCandlesAsTheyWereWhenTheVenueNoLongerHasThe
 }
 
 func TestContractRoundDoesNotReachBackToAnOldCandleBeforeItsRecentMinutes(t *testing.T) {
-	// A candle stored before the index price existed, earlier than the minutes the
-	// round re-fetches, is outside every question the round asks — so nothing the
-	// round stores can be it, and it keeps having neither new line.
+	// A pre-index-price candle older than the round's re-fetched minutes is outside every round query, so it keeps lacking the new lines.
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.watching("BTCUSDT")
 	oldCandleOpenTime := ingestionAt(8, 0, 0)

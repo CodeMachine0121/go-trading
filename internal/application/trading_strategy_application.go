@@ -8,14 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// TradingStrategyApplication orchestrates everything a person does to a trading
-// strategy.
-//
-// It joins two domain services, which is this layer's job and not theirs. A trading
-// strategy names strategy scripts, so saving one has to ask the strategy script
-// rules whether those may be seen and what knobs they declare; changing or deleting
-// one has to ask the bots whether anything is following it. Neither question belongs
-// to the trading strategies, and neither service knows the other exists.
+// TradingStrategyApplication joins the trading strategy, strategy script and bot services, which do
+// not know about each other.
 type TradingStrategyApplication struct {
 	tradingStrategyService *service.TradingStrategyService
 	strategyScriptService  *service.StrategyScriptService
@@ -34,7 +28,6 @@ func NewTradingStrategyApplication(
 	}
 }
 
-// CreateTradingStrategy saves a new set of rules for whoever is signed in.
 func (tradingStrategyApplication *TradingStrategyApplication) CreateTradingStrategy(
 	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
 ) (dto.TradingStrategyDto, error) {
@@ -50,7 +43,6 @@ func (tradingStrategyApplication *TradingStrategyApplication) CreateTradingStrat
 		executionContext, resolvedWriteDto)
 }
 
-// ListTradingStrategies returns this person's trading strategies.
 func (tradingStrategyApplication *TradingStrategyApplication) ListTradingStrategies(
 	executionContext context.Context, viewerID uint,
 ) ([]dto.TradingStrategyDto, error) {
@@ -58,7 +50,6 @@ func (tradingStrategyApplication *TradingStrategyApplication) ListTradingStrateg
 		executionContext, viewerID)
 }
 
-// GetTradingStrategy returns one of this person's trading strategies.
 func (tradingStrategyApplication *TradingStrategyApplication) GetTradingStrategy(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.TradingStrategyDto, error) {
@@ -66,25 +57,14 @@ func (tradingStrategyApplication *TradingStrategyApplication) GetTradingStrategy
 		executionContext, viewerID, id)
 }
 
-// UpdateTradingStrategy rewrites one of this person's trading strategies, and
-// refuses while any bot following it is running.
-//
-// The refusal names those bots. A round that began under one version of the rules
-// and ended under another leaves nobody able to say which version it used, and the
-// only way out is to stop those bots — which somebody can only do if they are told
-// which ones they are.
-//
-// Bots that are merely stopped are no reason to refuse. They pick the new rules up
-// the next time they are started, and that is the whole point of several bots
-// sharing one set.
+// UpdateTradingStrategy refuses while any bot following the strategy is running, naming those bots,
+// since a round must not straddle two versions of the rules; stopped bots simply pick up the new
+// rules on next start.
 func (tradingStrategyApplication *TradingStrategyApplication) UpdateTradingStrategy(
 	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
 ) (dto.TradingStrategyDto, error) {
-	// Asked before anything else, so that somebody whose bot is running is told to
-	// stop it rather than told about a typo they would then fix for nothing.
-	//
-	// Reading it first also settles that this trading strategy is theirs: a
-	// stranger's is refused here with the same sentence every other path uses.
+	// Checked first so a running bot is reported before validation errors, and so a stranger's
+	// strategy is refused with the usual not-found sentence.
 	if _, findError := tradingStrategyApplication.tradingStrategyService.GetTradingStrategy(
 		executionContext, viewerID, writeDto.ID); findError != nil {
 		return dto.TradingStrategyDto{}, findError
@@ -110,12 +90,8 @@ func (tradingStrategyApplication *TradingStrategyApplication) UpdateTradingStrat
 		executionContext, viewerID, resolvedWriteDto)
 }
 
-// DeleteTradingStrategy removes one of this person's trading strategies, and refuses
-// while any bot still follows it — running or not.
-//
-// Running is not the question here, as it is for a rewrite. Deleting would leave
-// those bots pointing at something that is gone, and a bot that cannot reach its
-// rules is indistinguishable from a broken one whether it is switched on or not.
+// DeleteTradingStrategy refuses while any bot, running or not, still follows the strategy, since it
+// would be left pointing at nothing.
 func (tradingStrategyApplication *TradingStrategyApplication) DeleteTradingStrategy(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -138,16 +114,9 @@ func (tradingStrategyApplication *TradingStrategyApplication) DeleteTradingStrat
 		executionContext, viewerID, id)
 }
 
-// withResolvedStrategyScripts fills in, for every source, the one thing only the
-// strategy script itself can say: the knobs it declares.
-//
-// Resolving is also the gate. Naming a strategy script that is not this person's and
-// not on the marketplace fails here with the same sentence as naming one that does
-// not exist, which is what stops a trading strategy's sources becoming a way to
-// probe for strategy scripts.
-//
-// Both creating and rewriting need every step of this, which is what earns it a name
-// of its own.
+// withResolvedStrategyScripts copies each script's declared knobs into its source and doubles as
+// the access gate: an unreadable script fails like a missing one, so sources cannot probe for
+// scripts.
 func (tradingStrategyApplication *TradingStrategyApplication) withResolvedStrategyScripts(
 	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
 ) (dto.TradingStrategyWriteDto, error) {
@@ -161,11 +130,8 @@ func (tradingStrategyApplication *TradingStrategyApplication) withResolvedStrate
 			return dto.TradingStrategyWriteDto{}, resolveError
 		}
 
-		// Only the declared knobs and the kind of value it produces are taken. The
-		// script is deliberately left behind: what a trading strategy stores about a
-		// source is which strategy script it names, so that a script adopted from the
-		// marketplace is run without ever being copied somewhere its adopter could
-		// read it.
+		// Only the declarations are copied, never the script body, so an adopted marketplace script
+		// stays unreadable to its adopter.
 		signalSource.DeclaredParameters = runnableStrategyScript.Parameters
 		signalSource.DeclaredResultType = runnableStrategyScript.ResultType
 		signalSource.DeclaredMarketDataKind = runnableStrategyScript.MarketDataKind

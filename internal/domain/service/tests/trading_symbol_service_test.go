@@ -16,9 +16,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// registrationTime is the moment every registration in these tests is stamped with,
-// so that "when was this registered" is a value the tests state rather than whatever
-// the wall clock said while they ran.
+// registrationTime is a fixed stamp so registration times are stated rather than read from the wall clock.
 var registrationTime = time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
 
 type tradingSymbolServiceUnderTest struct {
@@ -28,8 +26,7 @@ type tradingSymbolServiceUnderTest struct {
 	symbolLookupProxy       *mocks.MockISymbolLookupProxy
 }
 
-// closedMarketTime is an evening in Taipei — the Taiwan market is shut, and the
-// round-the-clock one is not.
+// closedMarketTime is a Taipei evening: Taiwan is shut, the round-the-clock market is not.
 var closedMarketTime = time.Date(2026, 9, 7, 13, 0, 0, 0, time.UTC)
 
 func newTradingSymbolServiceUnderTest(t *testing.T) tradingSymbolServiceUnderTest {
@@ -55,8 +52,7 @@ func newTradingSymbolServiceUnderTestAt(
 	}
 }
 
-// testMarketCatalog is the two markets these tests are written against: the
-// round-the-clock one this system started with, and a Taiwan session that closes.
+// testMarketCatalog holds the round-the-clock market and a Taiwan session that closes.
 func testMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
@@ -85,9 +81,7 @@ func registered(symbols ...string) []entities.TradingSymbol {
 	return tradingSymbols
 }
 
-// newlyRegistered is the shape a market the system ships knowing about is written in:
-// the market this system started with, and already watched — otherwise a fresh
-// install would sit there fetching nothing.
+// newlyRegistered is how default symbols are written: the crypto market, already watched.
 func newlyRegistered(symbols ...string) []entities.TradingSymbol {
 	tradingSymbols := make([]entities.TradingSymbol, 0, len(symbols))
 	for _, symbol := range symbols {
@@ -130,8 +124,7 @@ func TestListTradingSymbols(t *testing.T) {
 			expectedSymbols: []string{"BTCUSDT", "SOLUSDT"},
 		},
 		{
-			// ETHUSDT is registered but holds nothing, while BTCUSDT still holds candles:
-			// only a list that keeps registered-but-empty markets answers with both.
+			// ETHUSDT is registered but empty while BTCUSDT holds candles; only keeping registered-but-empty markets lists both.
 			name:              "a registered market stays listed after its candles are deleted",
 			registeredSymbols: []string{"ETHUSDT"}, heldSymbols: []string{"BTCUSDT"},
 			expectedSymbols: []string{"BTCUSDT", "ETHUSDT"},
@@ -150,16 +143,14 @@ func TestListTradingSymbols(t *testing.T) {
 				FindAll(gomock.Any()).Return(registered(testCase.registeredSymbols...), nil)
 			fixture.kCandleRepository.EXPECT().
 				FindDistinctSymbols(gomock.Any()).Return(testCase.heldSymbols, nil)
-			// Nothing is watched in these cases, so no market's live places are held.
+			// Nothing is watched, so no live places are held.
 			fixture.tradingSymbolRepository.EXPECT().
 				FindWatched(gomock.Any()).Return([]entities.TradingSymbol{}, nil)
 
 			tradingSymbolDtos, err := fixture.tradingSymbolService.ListTradingSymbols(t.Context())
 
 			assert.NoError(t, err)
-			// These cases are about which markets appear and in what order. What each
-			// one says about itself is pinned separately, so that a change to those
-			// fields does not have to be re-stated six times here.
+			// These cases pin only which markets appear and their order; per-symbol fields are pinned separately.
 			assert.Equal(t, testCase.expectedSymbols, namesOfListed(tradingSymbolDtos))
 			assert.NotNil(t, tradingSymbolDtos)
 		})
@@ -278,7 +269,7 @@ func TestAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("stores what the venue calls it, alongside the code", func(t *testing.T) {
-		// A watchlist of four-digit codes is a watchlist nobody can read at a glance.
+		// Bare four-digit codes are unreadable at a glance.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
 			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
@@ -300,8 +291,7 @@ func TestAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("writes the venue's name every time, so adding back is how a rename lands", func(t *testing.T) {
-		// Nobody should have to know that. Adding a symbol back is the one moment the
-		// venue is asked again, so it is the moment its current name wins.
+		// Adding back is the one moment the venue is asked again, so its current name wins.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
 			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
@@ -325,8 +315,7 @@ func TestAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("a market that names nothing leaves the name empty rather than repeating the code", func(t *testing.T) {
-		// A crypto pair is already its own name. Copying the code in would put a
-		// second copy of it on screen next to the first.
+		// A crypto pair is already its own name, so copying the code would show it twice.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
 			LookUpSymbol(gomock.Any(), vo.MarketCrypto, "BTCUSDT").
@@ -358,8 +347,7 @@ func TestAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("refuses when the market cannot be asked, and writes nothing", func(t *testing.T) {
-		// Told apart from the case above on purpose: nothing is wrong with this
-		// request, so the advice is to try again rather than to fix what was typed.
+		// Distinct from the case above: the request is fine, so the advice is to retry rather than fix the input.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
 			LookUpSymbol(gomock.Any(), vo.MarketTaiwanStock, "2330").
@@ -373,8 +361,7 @@ func TestAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("refuses a blank code without asking any market", func(t *testing.T) {
-		// No expectation is set on the lookup, so reaching it would fail the test.
-		// Paying a round trip to discover that nothing was typed is wasted either way.
+		// No lookup expectation is set, so reaching it would fail the test.
 		fixture := newTradingSymbolServiceUnderTest(t)
 
 		addError := fixture.tradingSymbolService.AddToWatchlist(
@@ -418,9 +405,7 @@ func TestAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("adding back one that was removed keeps its place in the queue", func(t *testing.T) {
-		// Registration order decides who gets a market's live-follow places. Sending
-		// somebody to the back of that queue for having briefly stopped watching them
-		// would make removing a symbol quietly expensive.
+		// Registration order decides live-follow places, so briefly unwatching must not send a symbol to the back of the queue.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		originallyRegisteredAt := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
 		fixture.symbolLookupProxy.EXPECT().
@@ -469,8 +454,7 @@ func TestRemoveFromWatchlist(t *testing.T) {
 				Symbol: "2330", Market: "taiwanStock",
 				IsWatched: true, RegisteredAt: registeredAt,
 			}, true, nil)
-		// Still registered, still in the same place in the queue — only the watching
-		// stops. Candles are not this method's to touch and it touches none.
+		// Still registered with the same queue place; only watching stops and no candles are touched.
 		fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), entities.TradingSymbol{
 			Symbol:       "2330",
 			Market:       "taiwanStock",
@@ -484,7 +468,6 @@ func TestRemoveFromWatchlist(t *testing.T) {
 	})
 
 	t.Run("removing one nobody registered is not a failure", func(t *testing.T) {
-		// What the caller asked for is already true.
 		fixture := newTradingSymbolServiceUnderTest(t)
 		fixture.tradingSymbolRepository.EXPECT().
 			FindBySymbol(gomock.Any(), "2330").Return(entities.TradingSymbol{}, false, nil)
@@ -552,14 +535,12 @@ func TestEveryListedSymbolSaysWhichMarketItBelongsTo(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "taiwanStock", listed(t, tradingSymbolDtos, "2330").Market)
 	assert.Equal(t, "crypto", listed(t, tradingSymbolDtos, "BTCUSDT").Market)
-	// Reading an old row as the market this system had when it was written is the
-	// only reading that keeps it behaving as it did.
+	// Reading an old row as the original market keeps it behaving as before.
 	assert.Equal(t, "crypto", listed(t, tradingSymbolDtos, "XRPUSDT").Market)
 }
 
 func TestEveryListedSymbolSaysWhetherItsMarketIsTradingRightNow(t *testing.T) {
-	// The console cannot work this out from the clock — it does not know which days a
-	// market takes off, and would call a public holiday an outage.
+	// The console cannot tell a holiday from an outage, so the service says whether the market is trading.
 	fixture := newTradingSymbolServiceUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
 		{Symbol: "2330", Market: "taiwanStock"},
@@ -578,8 +559,7 @@ func TestEveryListedSymbolSaysWhetherItsMarketIsTradingRightNow(t *testing.T) {
 }
 
 func TestAListingCarriesWhatEachVenueCallsItsSymbols(t *testing.T) {
-	// The code is what everything else is keyed by, so both travel: a console shows
-	// the pair and only ever sends the code back.
+	// The code keys everything, so both travel: the console shows the pair and sends back only the code.
 	fixture := newTradingSymbolServiceUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
 		{Symbol: "2330", Market: string(vo.MarketTaiwanStock), DisplayName: "台積電"},
@@ -598,10 +578,7 @@ func TestAListingCarriesWhatEachVenueCallsItsSymbols(t *testing.T) {
 }
 
 func TestAListingSaysWhichMarketsKeepHoursAndThereforeShut(t *testing.T) {
-	// "Trading right now" and "keeps hours at all" are different facts that happen to
-	// agree during a session. Only the second one says whether waiting will ever
-	// collect anything — a console told just the first cannot tell a market that
-	// closed from one that is merely quiet.
+	// "Trading now" and "keeps hours" coincide during a session, but only the latter tells a closed market from a quiet one.
 	fixture := newTradingSymbolServiceUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
 		{Symbol: "2330", Market: string(vo.MarketTaiwanStock)},
@@ -619,8 +596,7 @@ func TestAListingSaysWhichMarketsKeepHoursAndThereforeShut(t *testing.T) {
 }
 
 func TestALimitedMarketOnlyPromisesLiveUpdatesToSymbolsHoldingAPlace(t *testing.T) {
-	// Five places, six watched symbols. Promising the sixth one live updates would
-	// hand somebody a chart that never moves and never says why.
+	// Five places, six watched symbols: promising the sixth live updates would give it a chart that never moves.
 	fixture := newTradingSymbolServiceUnderTest(t)
 	watchlist := make([]entities.TradingSymbol, 0, 6)
 	for index, symbol := range []string{"2330", "2454", "2603", "2317", "2412", "1301"} {
@@ -645,8 +621,7 @@ func TestALimitedMarketOnlyPromisesLiveUpdatesToSymbolsHoldingAPlace(t *testing.
 }
 
 func TestAMarketWithNoCeilingAlwaysPromisesLiveUpdates(t *testing.T) {
-	// Nothing is following it until somebody looks, but looking is all it takes — so
-	// there is nothing to warn anybody about.
+	// Looking is all it takes to start a follow, so there is nothing to warn about.
 	fixture := newTradingSymbolServiceUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
 		{Symbol: "BTCUSDT", Market: "crypto"},
@@ -662,8 +637,7 @@ func TestAMarketWithNoCeilingAlwaysPromisesLiveUpdates(t *testing.T) {
 }
 
 func TestASymbolTakenOffTheWatchlistIsStillListed(t *testing.T) {
-	// Not watching it any more is not forgetting it. Its candles are still there to
-	// query and replay, so it has to stay pickable.
+	// Its candles remain queryable, so it must stay pickable.
 	fixture := newTradingSymbolServiceUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
 		{Symbol: "2330", Market: "taiwanStock", IsWatched: false, RegisteredAt: registrationTime},
@@ -693,8 +667,7 @@ func TestListingReportsAFailureReadingTheWatchlist(t *testing.T) {
 	assert.ErrorIs(t, err, storageFailure)
 }
 
-// listed picks one market out of a listing, failing rather than panicking when it is
-// not there at all.
+// listed picks one symbol from a listing, failing rather than panicking when it is absent.
 func listed(
 	t *testing.T, tradingSymbolDtos []dto.TradingSymbolDto, symbol string,
 ) dto.TradingSymbolDto {
@@ -712,9 +685,7 @@ func listed(
 }
 
 func TestAClosedMarketSaysSoOnEveryOneOfItsSymbols(t *testing.T) {
-	// The console cannot work this out: it does not know which days a market takes
-	// off, so it would call a public holiday an outage. Saying it here is the only
-	// place it can be said truthfully.
+	// Only the service knows the market's days off; the console would call a holiday an outage.
 	fixture := newTradingSymbolServiceUnderTestAt(t, closedMarketTime)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).Return([]entities.TradingSymbol{
 		{Symbol: "2330", Market: "taiwanStock", IsWatched: true, RegisteredAt: registrationTime},

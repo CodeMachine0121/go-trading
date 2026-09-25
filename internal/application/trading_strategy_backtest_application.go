@@ -7,14 +7,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// TradingStrategyBacktestApplication orchestrates replaying one of this person's
-// trading strategies over a stretch of market that has already happened.
-//
-// It joins three domain services, which is this layer's job and not theirs. A replay
-// needs the rules (whose they are is the trading strategy's question), the scripts
-// those rules name (whether they may be read is the strategy script rules' question),
-// and the candles and the account (the replay's). None of the three knows the others
-// exist.
+// TradingStrategyBacktestApplication joins the trading strategy, strategy script and backtest
+// services to replay a strategy over past market data.
 type TradingStrategyBacktestApplication struct {
 	tradingStrategyService  *service.TradingStrategyService
 	strategyScriptService   *service.StrategyScriptService
@@ -36,12 +30,8 @@ func NewTradingStrategyBacktestApplication(
 	}
 }
 
-// RunTradingStrategyBacktest replays the named trading strategy and hands back the
-// report card, the finished round trips and the equity curve. Nothing is stored.
-//
-// Naming one that is not this person's fails with the same sentence as naming one
-// that does not exist, which is what stops the field becoming a way to probe for
-// other people's trading strategies.
+// RunTradingStrategyBacktest replays the strategy without storing anything; a strategy that is not
+// this person's fails like a missing one.
 func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) RunTradingStrategyBacktest(
 	executionContext context.Context,
 	viewerID uint,
@@ -69,10 +59,8 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 		executionContext, requestDto)
 }
 
-// RunContractTradingStrategyBacktest replays the named contract trading strategy on a
-// contract account, by its own trading mode, and hands back the contract report card,
-// the finished round trips and the equity curve. Nothing is stored. The gates are the
-// spot replay's, word for word.
+// RunContractTradingStrategyBacktest is the contract-account counterpart of
+// RunTradingStrategyBacktest, with the same gates.
 func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) RunContractTradingStrategyBacktest(
 	executionContext context.Context,
 	viewerID uint,
@@ -101,13 +89,8 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 		executionContext, requestDto)
 }
 
-// resolveSignalSources fetches the script behind every source, the one thing a replay
-// cannot get for itself.
-//
-// It is also the gate. A source naming a strategy script that is not this person's
-// and not on the marketplace fails here with the same sentence as naming one that
-// does not exist — the same rule that applies when the trading strategy was saved,
-// asked again now because a script can be deleted in between.
+// resolveSignalSources fetches each source's script and re-checks access, since a script can be
+// deleted or withdrawn after the strategy was saved.
 func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) resolveSignalSources(
 	executionContext context.Context, viewerID uint, tradingStrategyDto dto.TradingStrategyDto,
 ) ([]dto.ResolvedSignalSourceDto, error) {

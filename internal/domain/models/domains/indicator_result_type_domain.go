@@ -7,10 +7,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// declarableIndicatorResultTypes is the entire set a caller may declare, in the order
-// it is offered back when a declaration is not recognised. Supporting one more kind
-// means adding it here and answering the two predicates below for it — the script
-// runner never learns a new branch.
+// declarableIndicatorResultTypes is in the order offered back on an unrecognised declaration; adding a kind only requires answering the predicates below.
 var declarableIndicatorResultTypes = []vo.IndicatorResultTypeVo{
 	vo.IndicatorResultTypeFloat,
 	vo.IndicatorResultTypeFloatList,
@@ -19,24 +16,12 @@ var declarableIndicatorResultTypes = []vo.IndicatorResultTypeVo{
 	vo.IndicatorResultTypeSignal,
 }
 
-// IndicatorResultTypeDomain is a declared indicator value kind and everything the
-// rest of the system needs to know about it. It answers two questions — is the value
-// a series, and does it hold numbers — and those two answers are enough to describe
-// every kind, which is why nothing downstream branches per kind.
-//
-// Its zero value is not a usable kind; it is only ever returned alongside an error.
+// IndicatorResultTypeDomain describes every kind via IsList, HoldsNumbers and IsSignal, so nothing downstream branches per kind; its zero value is unusable.
 type IndicatorResultTypeDomain struct {
 	value vo.IndicatorResultTypeVo
 }
 
-// NewIndicatorResultTypeDomain reads what the caller declared. Declaring nothing means
-// one number per indicator, which is what every caller got before kinds existed, so
-// requests written against the older behavior keep working untouched. Spelling is
-// forgiving about surrounding blanks and letter case; anything else is refused, naming
-// what could have been declared instead.
-//
-// The refusal carries the reason alone, with no sentinel of its own — which kind of
-// validation an unrecognised kind counts as belongs to whoever asked, not to the kind.
+// NewIndicatorResultTypeDomain defaults a blank declaration to float for backward compatibility and matches case-insensitively; the refusal carries no sentinel because the caller decides its category.
 func NewIndicatorResultTypeDomain(declared string) (IndicatorResultTypeDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {
@@ -62,27 +47,24 @@ func (indicatorResultTypeDomain IndicatorResultTypeDomain) Value() vo.IndicatorR
 	return indicatorResultTypeDomain.value
 }
 
-// IsList says whether each indicator carries a series rather than a lone value.
+// IsList reports whether each indicator carries a series rather than a single value.
 func (indicatorResultTypeDomain IndicatorResultTypeDomain) IsList() bool {
 	return indicatorResultTypeDomain.value == vo.IndicatorResultTypeFloatList ||
 		indicatorResultTypeDomain.value == vo.IndicatorResultTypeBoolList
 }
 
-// HoldsNumbers says whether the content is numbers rather than true/false answers.
+// HoldsNumbers reports whether values are numbers rather than booleans.
 func (indicatorResultTypeDomain IndicatorResultTypeDomain) HoldsNumbers() bool {
 	return indicatorResultTypeDomain.value == vo.IndicatorResultTypeFloat ||
 		indicatorResultTypeDomain.value == vo.IndicatorResultTypeFloatList
 }
 
-// IsSignal says whether the whole result is one trading signal rather than a set of
-// named numbers or answers. It is the third content shape a kind can have, alongside
-// the two the predicates above describe, and the only one with no indicator name.
+// IsSignal reports whether the whole result is one unnamed trading signal.
 func (indicatorResultTypeDomain IndicatorResultTypeDomain) IsSignal() bool {
 	return indicatorResultTypeDomain.value == vo.IndicatorResultTypeSignal
 }
 
-// ScriptResultShape spells out what a script must hand back under this kind, so that a
-// script whose shape does not match can be told what was expected of it.
+// ScriptResultShape describes the expected Go result type, for mismatch error messages.
 func (indicatorResultTypeDomain IndicatorResultTypeDomain) ScriptResultShape() string {
 	if indicatorResultTypeDomain.IsSignal() {
 		return "indicator.Signal"

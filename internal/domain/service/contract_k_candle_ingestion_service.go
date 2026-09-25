@@ -14,36 +14,18 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// ContractKCandleIngestionService keeps the stored perpetual contract K candles
-// current without anyone asking. Its public use cases never call one another.
-//
-// **Every decision about which stretch to ask for is reused, not rewritten.** When to
-// start, where a backfill resumes, how a long stretch is cut into days, which candles
-// have actually closed — all of it comes from KCandleIngestionDomain, which knows
-// nothing about the kind of candle being fetched. What is written here is only what is
-// genuinely different: where the candles come from, where they go, and which rules
-// judge them.
-//
-// It is simpler than the spot service by exactly one thing: perpetual contracts never
-// close, so there is no holiday to presume, no session to clamp a window to, and no
-// ledger of markets decided shut. A quiet stretch here is a quiet stretch and nothing
-// more.
+// ContractKCandleIngestionService keeps stored contract K candles current, reusing KCandleIngestionDomain's window logic; contracts never close, so there are no holidays or sessions.
 type ContractKCandleIngestionService struct {
 	kCandleContractRepository               domaininterface.IKCandleContractRepository
 	kCandleContractHistorySyncRunRepository domaininterface.IKCandleContractHistorySyncRunRepository
 	contractTradingSymbolRepository         domaininterface.IContractTradingSymbolRepository
 	contractMarketDataProxy                 domaininterface.IContractMarketDataProxy
 	clockProxy                              domaininterface.IClockProxy
-	// roundTheClockMarket is the calendar perpetual contracts keep. It is borrowed
-	// from the catalogue rather than written out again because "how many one-minute
-	// candles should this stretch hold" is already answered there, and a second copy
-	// of that arithmetic is a second chance to get it wrong.
+	// roundTheClockMarket is borrowed from the catalogue to reuse its expected-candle-count arithmetic.
 	roundTheClockMarket domains.MarketDomain
 	roundCandleCount    int
 	backfillLookback    time.Duration
-	// positionStatisticService fills in the second half of every history sync: the
-	// same stretch of position statistics, out of the venue's archive. It is the one
-	// that knows their rules; this service only runs it inside the same run.
+	// positionStatisticService fills the position statistics half of each history sync.
 	positionStatisticService *ContractPositionStatisticService
 }
 
@@ -71,10 +53,7 @@ func NewContractKCandleIngestionService(
 	}
 }
 
-// RunScheduledRound fetches the newest closed contract candles for every watched
-// contract and stores them, replacing whatever was held for the same open time. It
-// reports what happened rather than failing: one contract the source would not answer
-// for must not take the others down with it.
+// RunScheduledRound fetches and upserts the newest closed candles for every watched contract, reporting per-contract failures instead of returning an error.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) RunScheduledRound(
 	executionContext context.Context,
 ) (dto.KCandleIngestionReportDto, error) {
@@ -90,9 +69,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) RunSched
 		}), nil
 }
 
-// RunBackfill closes each watched contract's gap, reaching no further back than the
-// lookback allows. A contract already up to date is left alone and its source is
-// never called.
+// RunBackfill closes each watched contract's gap within the lookback; up-to-date contracts are not fetched.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) RunBackfill(
 	executionContext context.Context,
 ) (dto.KCandleIngestionReportDto, error) {
@@ -106,12 +83,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) RunBackf
 		contractKCandleIngestionService.backfillWindowOf(executionContext, ingestionDomain)), nil
 }
 
-// RunBackfillFor closes one contract's gap on demand, reaching no further back than
-// the lookback allows.
-//
-// It reaches the contract by name rather than through the watchlist, because a chart
-// can be opened for a contract nobody is watching, and catching that one up is exactly
-// what somebody looking at it is asking for.
+// RunBackfillFor closes one contract's gap on demand; it looks the contract up by name because charts can open unwatched contracts.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) RunBackfillFor(
 	executionContext context.Context, symbol string,
 ) (dto.KCandleIngestionReportDto, error) {
@@ -129,18 +101,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) RunBackf
 	), nil
 }
 
-// StartHistorySyncFor accepts a request to fill in the minutes missing from a stretch
-// of one contract's history — and, once the candles are done, the position statistics
-// missing from the same stretch — and answers with where to watch it happen.
-//
-// **It answers before the fetching starts.** A stretch of years is thousands of paced
-// requests — and twice as many here as on the spot side, because every minute takes
-// two questions — so there is no connection worth holding open for it. The run is
-// written down first, the work is driven by something that outlives the request, and
-// the caller is handed the run to come back and look at.
-//
-// Everything that can refuse the request still refuses it here, before anything is
-// recorded.
+// StartHistorySyncFor validates and records a history sync (candles, then position statistics) and returns the run before fetching starts, since years of paced requests cannot hold a connection.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHistorySyncFor(
 	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, ceilingDays int,
 ) (dto.KCandleContractHistorySyncRunDto, error) {
@@ -158,8 +119,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 
 	chunks := ingestionDomain.HistoryChunks(
 		registeredSymbol.Symbol, vo.MarketCrypto, lookback.Duration())
-	// The statistics are cut against the same reading of the clock and the same
-	// lookback, so the two histories one run fills in cover the same stretch.
+	// Statistics use the same clock reading and lookback so both histories cover the same stretch.
 	positionStatisticHistory := domains.NewContractPositionStatisticHistoryDomain(
 		ingestionDomain.CurrentTime(), lookback.Duration())
 
@@ -173,8 +133,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 			PositionStatisticTotalDays: len(positionStatisticHistory.Days()),
 		})
 	if saveError != nil {
-		// Nothing is started. A run nobody can find is work nobody can ask about and
-		// a restart cannot sweep up, which is worse than not having begun.
+		// Do not start work that no one could find or a restart could sweep.
 		return dto.KCandleContractHistorySyncRunDto{}, saveError
 	}
 
@@ -193,7 +152,6 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 	return syncRun.ToDto(), nil
 }
 
-// GetHistorySyncRun answers with where one contract history sync has got to.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) GetHistorySyncRun(
 	executionContext context.Context, id uint,
 ) (dto.KCandleContractHistorySyncRunDto, error) {
@@ -209,8 +167,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) GetHisto
 	return syncRun.ToDto(), nil
 }
 
-// FailInterruptedHistorySyncs clears out the contract runs the last shutdown cut off,
-// and says how many there were.
+// FailInterruptedHistorySyncs fails the contract runs cut off by the last shutdown and returns how many.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) FailInterruptedHistorySyncs(
 	executionContext context.Context,
 ) (int, error) {
@@ -219,24 +176,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) FailInte
 		contractKCandleIngestionService.clockProxy.Now())
 }
 
-// syncSymbolHistory walks one contract's stretch a chunk at a time, asking the source
-// for a chunk and storing it before moving to the next.
-//
-// **A chunk already complete is not asked about**, counted against the round-the-clock
-// calendar — which for a perpetual contract is every minute there is.
-//
-// **A stretch the venue has no mark price for is never complete by that measure**, so
-// it is re-fetched by every sync that covers it. This is not hypothetical: a
-// contract's mark price history begins later than its candle history, so the oldest
-// months of any long sync are exactly the ones that keep being asked about. What it
-// costs is requests, not correctness — those minutes are unstorable either way, and
-// the run's skipped count says so out loud. Making the shortcut cover them means
-// remembering which minutes are unfillable, which is a record this system does not
-// keep yet.
-//
-// It looks at what is stored only to decide whether to ask, never to decide where to
-// start. Starting from what is stored is what leaves a hole in the middle unreachable,
-// which is the whole reason this use case exists.
+// syncSymbolHistory walks the stretch chunk by chunk, skipping chunks already complete; stretches without mark prices are never complete and so are always refetched (costing requests, not correctness).
 func (contractKCandleIngestionService *ContractKCandleIngestionService) syncSymbolHistory(
 	executionContext context.Context,
 	registeredSymbol entities.ContractTradingSymbol,
@@ -246,9 +186,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) syncSymb
 ) error {
 	symbolReport := contractKCandleIngestionService.newReportFor(registeredSymbol.Symbol)
 
-	// Everything this walk has to say travels back through recordProgress rather than
-	// through the return, so that whatever it managed before it stopped is already
-	// written down.
+	// Progress is reported through recordProgress so partial work is already recorded if the walk stops.
 	for chunkIndex, chunk := range chunks {
 		recordProgress(chunkIndex, symbolReport.ToDto())
 
@@ -268,9 +206,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) syncSymb
 		reportedCandles, fetchError := contractKCandleIngestionService.contractMarketDataProxy.
 			FetchKCandles(executionContext, chunk)
 		if fetchError != nil {
-			// The rest of the stretch is abandoned rather than attempted. A source
-			// that just refused one chunk will refuse the next two thousand the same
-			// way, and hammering it is how a rate limit becomes a ban.
+			// Abandon the rest: a refusing source will keep refusing, and hammering it risks a ban.
 			symbolReport.NoteFetchFailure(fetchError.Error())
 			recordProgress(chunkIndex, symbolReport.ToDto())
 
@@ -299,8 +235,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) syncSymb
 	return nil
 }
 
-// reachSymbolOnDemand is everything the two hand-driven fetches do before they differ:
-// judge the name, settle the rules, and find the registration.
+// reachSymbolOnDemand validates the name, settles the rules and finds the registration for the on-demand fetches.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) reachSymbolOnDemand(
 	executionContext context.Context, symbol string,
 ) (entities.ContractTradingSymbol, domains.KCandleIngestionDomain, error) {
@@ -329,8 +264,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) reachSym
 	return registeredSymbol, ingestionDomain, nil
 }
 
-// backfillWindowOf is how far back one contract has to be asked about: from wherever
-// its own history left off, and no further back than the lookback allows.
+// backfillWindowOf starts where the contract's history left off, capped by the lookback.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) backfillWindowOf(
 	executionContext context.Context, ingestionDomain domains.KCandleIngestionDomain,
 ) func(entities.ContractTradingSymbol) (vo.KCandleFetchWindowVo, error) {
@@ -351,8 +285,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) backfill
 	}
 }
 
-// prepareRun reads the clock and the watchlist once each, so that every window in one
-// run and every candle judged during it share one list and one idea of "now".
+// prepareRun reads the clock and watchlist once so the whole run shares them.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) prepareRun(
 	executionContext context.Context,
 ) ([]entities.ContractTradingSymbol, domains.KCandleIngestionDomain, error) {
@@ -370,7 +303,6 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) prepareR
 	return watchedSymbols, ingestionDomain, nil
 }
 
-// buildIngestionDomain settles the rules against one reading of the clock.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) buildIngestionDomain() (
 	domains.KCandleIngestionDomain, error,
 ) {
@@ -381,9 +313,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) buildIng
 	)
 }
 
-// ingestSymbols runs every watched contract at once. A plain wait group is deliberate:
-// an error group would cancel the remaining contracts the moment one failed, which is
-// the opposite of what independence per symbol means here.
+// ingestSymbols uses a plain WaitGroup, not errgroup, so one failing contract does not cancel the rest.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) ingestSymbols(
 	executionContext context.Context,
 	watchedSymbols []entities.ContractTradingSymbol,
@@ -404,9 +334,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) ingestSy
 	return dto.KCandleIngestionReportDto{SymbolReports: symbolReports}
 }
 
-// ingestSymbol carries one contract from its window to what was stored. A source that
-// will not answer ends this contract; a single candle that breaks a rule only ends
-// itself — and a candle whose mark price did not arrive breaks a rule.
+// ingestSymbol ends on a source error, while a rule-breaking candle (including a missing mark price) only skips itself.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) ingestSymbol(
 	executionContext context.Context,
 	watchedSymbol entities.ContractTradingSymbol,
@@ -422,8 +350,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) ingestSy
 		return symbolReport.ToDto()
 	}
 
-	// The window is not narrowed to a trading session, because a perpetual contract
-	// has none: every minute of it is market.
+	// No session clamping: a perpetual contract trades every minute.
 	if window.IsEmpty() {
 		return symbolReport.ToDto()
 	}
@@ -458,11 +385,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) ingestSy
 	return symbolReport.ToDto()
 }
 
-// newReportFor starts one contract's report.
-//
-// The market is named as the round-the-clock one because that is the calendar these
-// contracts keep, and a report with the field left blank would read as a market
-// nobody recognised.
+// newReportFor names the round-the-clock market so the report never shows a blank market.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) newReportFor(
 	symbol string,
 ) *domains.KCandleSymbolIngestionReportDomain {
@@ -470,13 +393,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) newRepor
 		symbol, contractKCandleIngestionService.roundTheClockMarket.Value())
 }
 
-// judge puts everything the source answered with through the contract K candle rules,
-// handing back the ones that may be stored and naming the ones that may not.
-//
-// **A missing mark price is judged here and nowhere else.** It arrives as an absent
-// figure and leaves as a skipped candle with the reason attached, which is the same
-// path a candle whose high sat below its low takes. It needed no branch of its own,
-// and that is the point of letting the absence survive the trip from the source.
+// judge applies the contract K candle rules, which is the only place a missing mark price turns into a skipped candle.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) judge(
 	reportedCandles []vo.ContractMarketKCandleVo, ingestionDomain domains.KCandleIngestionDomain,
 ) ([]entities.KCandleContract, []dto.SkippedKCandleDto) {
@@ -486,8 +403,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) judge(
 	skippedCandles := make([]dto.SkippedKCandleDto, 0)
 
 	for _, reportedCandle := range reportedCandles {
-		// The minute still running is not stored, by either half. Its figures are
-		// still moving, and a mark price for it would be just as provisional.
+		// The still-running minute is not stored; its figures, mark price included, are provisional.
 		if reportedCandle.OpenTime.After(latestClosedOpenTime) {
 			continue
 		}

@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// contractSourceNamed is a signal source naming a strategy script that eats contract
-// bars.
 func contractSourceNamed(label string, strategyScriptID uint) dto.TradingStrategySignalSourceWriteDto {
 	source := sourceNamed(label, strategyScriptID)
 	source.DeclaredMarketDataKind = string(vo.MarketDataKindContractKCandle)
@@ -209,8 +207,7 @@ func TestSpotTradingStrategyReplayRefusesContractRules(t *testing.T) {
 	})
 }
 
-// contractTradingStrategyReplayRequest replays a one-source contract trading strategy
-// whose conditions are exactly that source's own opinion.
+// contractTradingStrategyReplayRequest replays a one-source strategy whose conditions are that source's own signal.
 func contractTradingStrategyReplayRequest() dto.ContractTradingStrategyBacktestRequestDto {
 	return dto.ContractTradingStrategyBacktestRequestDto{
 		Symbol:    "BTCUSDT",

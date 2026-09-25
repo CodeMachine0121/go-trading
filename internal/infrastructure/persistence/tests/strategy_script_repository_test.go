@@ -14,18 +14,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// rewrittenScript stands in for "the algorithm was changed" wherever a test needs to
-// prove a rewrite reached the row. It is deliberately different from the script
-// strategyScriptNamed carries.
+// rewrittenScript differs from strategyScriptNamed's script so a test can prove a rewrite reached the row.
 const rewrittenScript = "func Calculate(candles []vo.KCandleVo) map[string]float64 { return map[string]float64{\"x\": 1} }"
 
-// strategyScriptRowOwnerID is whoever owns every strategy script in this file unless a test says
-// otherwise. A strategy script cannot exist without an owner any more, so one is planted
-// before each of these runs.
 const strategyScriptRowOwnerID = uint(1)
 
-// strategyScriptNamed is a strategy script that differs from its siblings only by name, so that a
-// test about names is not also a test about anything else.
 func strategyScriptNamed(name string) entities.StrategyScript {
 	return entities.StrategyScript{
 		OwnerID:    strategyScriptRowOwnerID,
@@ -35,9 +28,7 @@ func strategyScriptNamed(name string) entities.StrategyScript {
 	}
 }
 
-// newStrategyScriptTestDatabase is a cleared database with the owner these strategy scripts
-// belong to already in it. Planting the person first is not scaffolding: the column
-// carries a foreign key, so a strategy script owned by nobody is a row the schema refuses.
+// newStrategyScriptTestDatabase seeds the owner that the strategy script foreign key requires.
 func newStrategyScriptTestDatabase(t *testing.T) *gorm.DB {
 	database := newTestDatabase(t)
 	require.NoError(t, database.WithContext(t.Context()).Create(&entities.User{
@@ -47,15 +38,7 @@ func newStrategyScriptTestDatabase(t *testing.T) *gorm.DB {
 	return database
 }
 
-// aSecondOwner plants another person and answers with their identifier, for the
-// cases about two people's strategy scripts not colliding.
-//
-// Their identifier is pinned, exactly like the first one's, and it has to be: a
-// pinned row leaves the table's own counter behind it, so a row that lets the
-// database choose is handed an identifier the pinned row already holds. Whether
-// that clashes depends on how far the counter happens to have climbed — which is
-// why it passes on a well-used database and fails on a fresh one, the one kind of
-// failure that reaches a pull request instead of a laptop.
+// aSecondOwner pins the identifier like the first owner, since a database-assigned one could collide with the pinned row depending on the sequence.
 func aSecondOwner(t *testing.T, database *gorm.DB) uint {
 	secondOwner := entities.User{
 		ID: strategyScriptRowOwnerID + 1, Email: "other@example.com", PasswordProof: "a-proof",
@@ -93,8 +76,7 @@ func TestStrategyScriptRepositorySaveRefusesANameAlreadyHeld(t *testing.T) {
 }
 
 func TestStrategyScriptRepositorySaveTellsNamesApartByCase(t *testing.T) {
-	// A person may well use case to tell two versions apart, and deciding for them
-	// which spellings count as the same name gets in the way more often than it helps.
+	// Names are case-sensitive.
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
 
 	_, upperCaseError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed("MA20"))
@@ -116,9 +98,7 @@ func TestStrategyScriptRepositorySaveFreesANameThatWasDeleted(t *testing.T) {
 }
 
 func TestStrategyScriptRepositorySaveDoesNotBlameTheNameForOtherClashes(t *testing.T) {
-	// A restored dump can leave the identifier sequence behind the rows it restored,
-	// so the next save collides on the primary key. Answering "that name is taken"
-	// there would send whoever reads it hunting for a strategy script that does not exist.
+	// A primary-key clash (e.g. a stale sequence after a restore) must not be reported as a name conflict.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	occupying := strategyScriptNamed("二十根均線")
@@ -138,8 +118,6 @@ func TestStrategyScriptRepositorySaveDoesNotBlameTheNameForOtherClashes(t *testi
 }
 
 func TestStrategyScriptRepositoryUpdateHandsBackWhatThisCallStored(t *testing.T) {
-	// The rewrite and the read-back share one transaction, so the values coming back
-	// are this call's own rather than whatever the row happened to hold afterwards.
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
 	savedStrategyScript, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed("二十根均線"))
 	require.NoError(t, saveError)
@@ -178,20 +156,15 @@ func TestStrategyScriptRepositoryFindOne(t *testing.T) {
 		_, findError := strategyScriptRepository.FindOne(t.Context(), missingID)
 
 		require.ErrorIs(t, findError, domains.ErrStrategyScriptNotFound)
-		// Worded the way every other refusal is worded, and naming the identifier
-		// nobody has. A reader meeting one refusal in their own language and the
-		// next in the system's internal wording has to work out both came from here.
+		// The refusal uses the same user-facing wording as others and names the missing identifier.
 		assert.Contains(t, findError.Error(), fmt.Sprintf("找不到識別碼為 %d 的策略腳本", missingID))
 	})
 }
 
 func TestStrategyScriptRepositoryFindAllOwnedByOrdersByName(t *testing.T) {
-	// Named in plain letters on purpose: the point being made is that the order is
-	// the collection's and not the order they went in, and letters sort the same way
-	// under every collation the database might be running.
+	// ASCII names sort the same under every collation.
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
-	// The insertion order is neither the expected order nor its reverse, so an
-	// ordering taken from when a strategy script was saved cannot pass by coincidence.
+	// Insertion order is neither expected nor reversed, so ordering by save time cannot pass.
 	for _, name := range []string{"MA60", "RSI14", "MA20"} {
 		_, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed(name))
 		require.NoError(t, saveError)
@@ -241,8 +214,7 @@ func TestStrategyScriptRepositoryUpdateLeavesTheIdentifierAndTheFirstSavedTimeAl
 	savedStrategyScript, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed("二十根均線"))
 	require.NoError(t, saveError)
 
-	// A rewrite that tries to move both of them, to prove they are out of reach
-	// rather than merely left unset by a well-behaved caller.
+	// The rewrite tries to change both, proving they are out of reach.
 	rewritten := strategyScriptNamed("六十根均線")
 	rewritten.ID = savedStrategyScript.ID
 	rewritten.CreatedAt = savedStrategyScript.CreatedAt.Add(-48 * time.Hour)
@@ -366,11 +338,7 @@ func TestStrategyScriptRepositorySaysSoWhenItCannotReachTheDatabase(t *testing.T
 	require.Error(t, deleteError)
 }
 
-// The repository names the index it blames in Go; the entity spells it in a struct
-// tag, which cannot hold a constant. Nothing but this stops the two drifting, and if
-// they drift a duplicate name stops being answered as a conflict and starts being
-// answered as a storage failure. This test needs no database, so unlike the conflict
-// tests above it cannot skip.
+// The index name is repeated because struct tags cannot hold constants; this test needs no database, so it never skips.
 func TestTheNameIndexTheRepositoryBlamesIsTheOneTheEntityDeclares(t *testing.T) {
 	nameField, found := reflect.TypeFor[entities.StrategyScript]().FieldByName("Name")
 	require.True(t, found, "the entity has no Name field to carry the index")
@@ -378,8 +346,7 @@ func TestTheNameIndexTheRepositoryBlamesIsTheOneTheEntityDeclares(t *testing.T) 
 	assert.Contains(t, nameField.Tag.Get("gorm"), "uniqueIndex:"+persistence.StrategyScriptNameIndex)
 }
 
-// withParameters is a strategy script carrying knobs. A knob has no identity anybody names
-// — it is its name inside its strategy script — so these tests read them back by name.
+// withParameters adds parameters, which are identified only by name within their script.
 func withParameters(
 	strategyScript entities.StrategyScript, parameters ...entities.StrategyScriptParameter,
 ) entities.StrategyScript {
@@ -405,8 +372,6 @@ func knobsByName(strategyScript entities.StrategyScript) map[string]entities.Str
 	return byName
 }
 
-// A strategy script read back without its knobs looks like a strategy script that has none, and
-// every knob it declared would silently stop existing.
 func TestStrategyScriptRepositoryKeepsTheKnobsAStrategyScriptCarries(t *testing.T) {
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
 
@@ -441,9 +406,7 @@ func TestStrategyScriptRepositoryListsEveryStrategyScriptWithItsKnobs(t *testing
 	assert.Equal(t, "期數", strategyScripts[0].Parameters[0].Name)
 }
 
-// Rewriting replaces the whole set. Leaving the old rows behind would give a
-// strategy script knobs it no longer declares, and the largest look-back — which decides
-// how many candles get read — would be computed from a knob nobody can see.
+// A rewrite replaces all parameters; leftovers would skew the largest look-back and the candle count read.
 func TestStrategyScriptRepositoryReplacesTheWholeSetOfKnobsOnRewrite(t *testing.T) {
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
 	savedStrategyScript, saveError := strategyScriptRepository.Save(t.Context(), withParameters(
@@ -478,8 +441,7 @@ func TestStrategyScriptRepositoryLetsAStrategyScriptDropEveryKnobItHad(t *testin
 }
 
 func TestStrategyScriptRepositoryReadsAScriptWrittenWithoutAKindOfMarketAsASpotOne(t *testing.T) {
-	// A row written without the kind is what every strategy script saved before there
-	// was a kind looks like: the column's default is what they read back as.
+	// A row without a kind reads back as the column default, as scripts saved before the kind existed.
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(newStrategyScriptTestDatabase(t))
 	withoutKind := strategyScriptNamed("舊的均線")
 	withoutKind.MarketDataKind = ""

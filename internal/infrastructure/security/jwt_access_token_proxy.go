@@ -10,32 +10,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// accessTokenSigningMethod is how a proof of identity is signed: one shared key,
-// used both to sign and to check.
-//
-// A shared key is the right shape while the only thing that ever reads a proof is
-// the same program that wrote it. The day something else has to read one — a second
-// service, or anything running where the key cannot go — this becomes a key pair
-// instead, and the way to do that is a second implementation of the interface, not
-// an edit here.
+// accessTokenSigningMethod uses a shared HMAC key because only this service reads its tokens; switch to a key pair via a new implementation if that changes.
 var accessTokenSigningMethod = jwt.SigningMethodHS256
 
-// acceptedSigningMethods is the one signing method a proof may claim to have been
-// made with.
-//
-// Naming it is not belt-and-braces. A token says, in its own header, how it was
-// signed — so a checker that believes the header can be handed a token claiming it
-// needs no signature at all, and will agree. Pinning the method means the header is
-// checked against what this system actually does rather than consulted about it.
+// acceptedSigningMethods pins the algorithm so a token's header cannot claim a weaker one, such as none.
 var acceptedSigningMethods = []string{accessTokenSigningMethod.Alg()}
 
-// JwtAccessTokenProxy issues proofs of identity and reads them back, as signed
-// tokens carrying who they are for and when they stop counting.
-//
-// Nothing about an issued proof is kept. That is what makes signing in cost one
-// write of nothing at all, and it is also why a proof cannot be taken back before it
-// expires — the system has no list to strike it from. How long they last is the
-// bound on that, and it is decided where the rules are, not here.
+// JwtAccessTokenProxy issues stateless signed tokens, so they cannot be revoked before expiry.
 type JwtAccessTokenProxy struct {
 	signingKey []byte
 }
@@ -44,12 +25,7 @@ func NewJwtAccessTokenProxy(signingKey string) *JwtAccessTokenProxy {
 	return &JwtAccessTokenProxy{signingKey: []byte(signingKey)}
 }
 
-// Issue signs a proof that this user is who they are, good until this moment.
-//
-// With no key, nothing is signed and nothing is handed back. The tempting
-// alternative — sign with an empty key so that development is easier — produces
-// proofs anybody can write for themselves, and a system that cannot tell a forged
-// identity from a real one is worse than one that will not let anybody in at all.
+// Issue refuses to sign without a key rather than producing forgeable tokens.
 func (jwtAccessTokenProxy *JwtAccessTokenProxy) Issue(
 	userID uint, expiresAt time.Time,
 ) (vo.AccessTokenVo, error) {
@@ -73,13 +49,7 @@ func (jwtAccessTokenProxy *JwtAccessTokenProxy) Issue(
 	return vo.AccessTokenVo{AccessToken: signedToken, ExpiresAt: expiresAt.UTC()}, nil
 }
 
-// UserIdentifiedBy reads a proof back and says whose it is.
-//
-// Every way of not being a valid proof arrives here as the same refusal: unreadable,
-// signed with another key, altered after signing, expired, or carrying something
-// where the identifier should be. They are one answer because they lead the holder
-// to one action, and because telling them apart would describe the token to somebody
-// who did not have a real one to begin with.
+// UserIdentifiedBy returns one refusal for every invalid token so nothing about the token is revealed.
 func (jwtAccessTokenProxy *JwtAccessTokenProxy) UserIdentifiedBy(accessToken string) (uint, error) {
 	if len(jwtAccessTokenProxy.signingKey) == 0 {
 		return 0, domains.ErrAuthenticationRequired
@@ -87,9 +57,6 @@ func (jwtAccessTokenProxy *JwtAccessTokenProxy) UserIdentifiedBy(accessToken str
 
 	claims := jwt.RegisteredClaims{}
 
-	// Expiry is checked here as part of reading the token, so a proof that is
-	// perfectly signed but past its moment is refused by the same call that would
-	// have accepted it an hour earlier.
 	_, parseError := jwt.ParseWithClaims(
 		accessToken,
 		&claims,

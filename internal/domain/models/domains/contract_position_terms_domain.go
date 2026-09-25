@@ -7,15 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractPositionTermsDomain is the terms one contract replay opens a position on:
-// what a spot replay's terms already say — how much of the cash it stakes, what the
-// venue charges, where it gets out — plus the leverage, the slippage and the venue's
-// trading rules.
-//
-// Like its spot counterpart it answers a single question: *given this much cash, open a
-// position facing this way here.* How much margin that is, whether it is affordable,
-// how many units it buys once stepped down, whether the venue would take it, what it
-// costs and where it stops are one answer, not steps a caller strings together.
+// ContractPositionTermsDomain is the spot position terms plus leverage, slippage and the venue's trading rules, answering in one call how a contract position opens.
 type ContractPositionTermsDomain struct {
 	sizing           PositionSizingDomain
 	exitLevels       BacktestExitLevelsDomain
@@ -25,8 +17,7 @@ type ContractPositionTermsDomain struct {
 	tradingRules     ContractTradingRulesDomain
 }
 
-// NewContractPositionTermsDomain builds on the spot terms, which have already refused
-// what they had to refuse. The leverage arrives read, one or more.
+// NewContractPositionTermsDomain builds on already-validated spot terms; leverage is at least one.
 func NewContractPositionTermsDomain(
 	positionTerms BacktestPositionTermsDomain,
 	leverage decimal.Decimal,
@@ -43,15 +34,12 @@ func NewContractPositionTermsDomain(
 	}
 }
 
-// NeverOpensAnything says whether these terms could never put a position down whatever
-// the account holds: a percentage that, with its entry charge taken on the notional,
-// asks for more than all of the cash.
+// NeverOpensAnything reports whether the percentage plus its entry charge on the notional would ask for more than all of the cash.
 func (termsDomain ContractPositionTermsDomain) NeverOpensAnything() bool {
 	return termsDomain.sizing.NeverStakesUnder(termsDomain.transactionCosts.ForMarginAt(termsDomain.leverage))
 }
 
-// OpenFor is the position these terms open facing that way at that bar's close with
-// that much cash on hand, and what became of the attempt.
+// OpenFor opens a position facing direction at the bar's close with the available cash and reports the outcome.
 func (termsDomain ContractPositionTermsDomain) OpenFor(
 	direction vo.PositionDirectionVo,
 	entryTime time.Time,
@@ -74,8 +62,7 @@ func (termsDomain ContractPositionTermsDomain) OpenFor(
 		return ContractBacktestPositionDomain{}, vo.ContractOpeningBlockedByTradingRules
 	}
 
-	// The margin actually put down is what the stepped-down quantity needs; whatever
-	// the rounding left over stays in the account.
+	// Margin is recomputed from the stepped-down quantity; the rounding remainder stays in the account.
 	notional := quantity.Mul(entryPrice)
 	actualMargin := notional.Div(termsDomain.leverage)
 

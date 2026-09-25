@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// turnAt is one exchange, stamped so that a test about order is not also a test about
-// anything else.
 func turnAt(moment time.Time, ask string, usage int) entities.AssistantTurn {
 	return entities.AssistantTurn{
 		Ask:       ask,
@@ -42,8 +40,7 @@ func TestConversationRepositorySaveStoresTheConversationWithItsFirstExchange(t *
 }
 
 func TestConversationRepositoryStoresWhatEachExchangeLookedAt(t *testing.T) {
-	// The lookups are never sent back to the assistant, so this record is the only
-	// place that knowledge survives at all.
+	// Lookups are never resent to the assistant, so this record is their only copy.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
 	turn := turnAt(momentAt(10, 0), "問 1", 100)
@@ -67,7 +64,6 @@ func TestConversationRepositoryStoresWhatEachExchangeLookedAt(t *testing.T) {
 	assert.Equal(t, 2, readBackConversation.Turns[0].QueryCount)
 	assert.True(t, readBackConversation.Turns[0].StoppedAtQueryLimit)
 	require.Len(t, readBackConversation.Turns[0].Queries, 2)
-	// A chain of reasoning read out of order looks like a set of unrelated lookups.
 	assert.Equal(t, 1, readBackConversation.Turns[0].Queries[0].Sequence)
 	assert.Equal(t, "list_trading_symbols", readBackConversation.Turns[0].Queries[0].QueryName)
 	assert.Equal(t, 2, readBackConversation.Turns[0].Queries[1].Sequence)
@@ -86,8 +82,7 @@ func TestConversationRepositoryAppendTurnAddsToWhatIsAlreadyThere(t *testing.T) 
 		t.Context(), savedConversation.ID, turnAt(momentAt(11, 0), "問 2", 200))
 
 	require.NoError(t, appendError)
-	// The exchange names itself, so an answer written later lands on this row and no
-	// other — even if a second question arrived at the same moment.
+	// The appended turn identifies its own row, so a later answer lands on it even if another question arrived at the same moment.
 	assert.Equal(t, "問 2", appendedTurn.Ask)
 	assert.Positive(t, appendedTurn.ID)
 	assert.NotEqual(t, savedConversation.Turns[0].ID, appendedTurn.ID)
@@ -98,8 +93,6 @@ func TestConversationRepositoryAppendTurnAddsToWhatIsAlreadyThere(t *testing.T) 
 	require.Len(t, readBackConversation.Turns, 2)
 	assert.Equal(t, "問 1", readBackConversation.Turns[0].Ask)
 	assert.Equal(t, "問 2", readBackConversation.Turns[1].Ask)
-	// When it was last active is the moment of the exchange that moved it — the same
-	// fact, not a second one to keep in step.
 	assert.Equal(t, momentAt(11, 0), readBackConversation.LastActiveAt.UTC())
 }
 
@@ -140,7 +133,7 @@ func TestConversationRepositoryFindAllOwnedByPutsTheMostRecentlyActiveFirst(t *t
 	require.NoError(t, findError)
 	require.Len(t, conversations, 2)
 	assert.Equal(t, momentAt(12, 0), conversations[0].LastActiveAt.UTC())
-	// The exchanges come along, because the list says how many messages each holds.
+	// Turns are preloaded because the list shows each conversation's message count.
 	require.Len(t, conversations[0].Turns, 1)
 	assert.Equal(t, "新的", conversations[0].Turns[0].Ask)
 	assert.Equal(t, momentAt(9, 0), conversations[1].LastActiveAt.UTC())
@@ -156,8 +149,7 @@ func TestConversationRepositoryFindAllOwnedByAnswersHoldingNoneWithAnEmptyList(t
 }
 
 func TestConversationRepositoryFindAllOwnedByLeavesOutSomebodyElses(t *testing.T) {
-	// The assistant acts as whoever asked it, so a transcript can hold that person's
-	// own algorithms. Whose conversation it is has to be a condition on the read.
+	// Transcripts can hold the owner's private algorithms, so ownership must be a read condition.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 	_, mineError := conversationRepository.Save(t.Context(), entities.Conversation{
 		OwnerID:      7,
@@ -180,8 +172,7 @@ func TestConversationRepositoryFindAllOwnedByLeavesOutSomebodyElses(t *testing.T
 }
 
 func TestConversationRepositorySumUsageBetweenTotalsTheStretchAcrossEveryConversation(t *testing.T) {
-	// The allowance is a ceiling on the day, not on one conversation, so the total has
-	// to reach across all of them.
+	// The allowance is per day across all conversations.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 	firstConversation, firstError := conversationRepository.Save(t.Context(), entities.Conversation{
 		LastActiveAt: momentAt(10, 0),
@@ -243,10 +234,7 @@ func TestConversationRepositorySumUsageBetweenIncludesTheStartAndExcludesTheEnd(
 }
 
 func TestConversationRepositoryReportsStorageThatIsNotThere(t *testing.T) {
-	// Every read and write wraps its own failure, because "the store is down" and
-	// "there is no such conversation" lead a reader to do different things, and a
-	// storage failure reported as a missing conversation sends them looking for one
-	// that exists.
+	// A storage failure must not be reported as a missing conversation.
 	database := newTestDatabase(t)
 	connection, connectionError := database.DB()
 	require.NoError(t, connectionError)
@@ -277,9 +265,7 @@ func TestConversationRepositoryReportsStorageThatIsNotThere(t *testing.T) {
 }
 
 func TestConversationRepositoryReportsAnExchangeTheStoreWillNotAccept(t *testing.T) {
-	// Postgres refuses text carrying a null character. What matters is that the
-	// refusal reaches the caller as a storage failure rather than as "no such
-	// conversation" — the conversation is right there.
+	// PostgreSQL refuses NUL in text; the refusal must surface as a storage failure, not as not found.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
 		LastActiveAt: momentAt(10, 0),
@@ -296,8 +282,6 @@ func TestConversationRepositoryReportsAnExchangeTheStoreWillNotAccept(t *testing
 }
 
 func TestConversationRepositoryCompleteTurnWritesTheAnswerOverTheReservedRow(t *testing.T) {
-	// The place was reserved when the question arrived; this is the second half of
-	// that, and what a screen finds when it comes back to look.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
 	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
@@ -327,8 +311,7 @@ func TestConversationRepositoryCompleteTurnWritesTheAnswerOverTheReservedRow(t *
 	assert.Equal(t, "最近在盤整", readBackConversation.Turns[0].Answer)
 	assert.Equal(t, "answered", readBackConversation.Turns[0].Status)
 	assert.Equal(t, 500, readBackConversation.Turns[0].Usage)
-	// The question and the moment it was asked were settled when the place was
-	// reserved, and completing it must not be a second chance to get them wrong.
+	// Completion must not overwrite the question or its time.
 	assert.Equal(t, "BTCUSDT 最近走勢如何", readBackConversation.Turns[0].Ask)
 	assert.Equal(t, momentAt(10, 0).UTC(), readBackConversation.Turns[0].CreatedAt.UTC())
 	require.Len(t, readBackConversation.Turns[0].Queries, 1)
@@ -358,7 +341,6 @@ func TestConversationRepositoryCompleteTurnRecordsAFailureWithItsReason(t *testi
 	assert.Equal(t, "failed", readBackConversation.Turns[0].Status)
 	assert.Equal(t, "助手目前沒有回應，請稍後再試", readBackConversation.Turns[0].FailureReason)
 	assert.Empty(t, readBackConversation.Turns[0].Answer)
-	// Nobody is charged for an answer they never got.
 	assert.Equal(t, 0, readBackConversation.Turns[0].Usage)
 }
 
@@ -373,8 +355,7 @@ func TestConversationRepositoryCompleteTurnReportsAnExchangeThatIsNotThere(t *te
 }
 
 func TestConversationRepositoryFailAllRunningTurnsSweepsWhatAShutdownCutOff(t *testing.T) {
-	// An answer being written lives in one process and nowhere else, so a row left
-	// at running after a restart is a wait nobody can end.
+	// Answers are written in-process only, so a row left running after a restart must be swept.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
 	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
@@ -395,7 +376,6 @@ func TestConversationRepositoryFailAllRunningTurnsSweepsWhatAShutdownCutOff(t *t
 	readBackConversation, findError := conversationRepository.FindOne(t.Context(), savedConversation.ID)
 	require.NoError(t, findError)
 	require.Len(t, readBackConversation.Turns, 2)
-	// The one that had already finished is left exactly as it was.
 	assert.Equal(t, "answered", readBackConversation.Turns[0].Status)
 	assert.Equal(t, "答案", readBackConversation.Turns[0].Answer)
 	assert.Equal(t, "failed", readBackConversation.Turns[1].Status)
@@ -412,10 +392,7 @@ func TestConversationRepositoryFailAllRunningTurnsFindsNothingToSweepOnACleanSta
 }
 
 func TestConversationRepositoryRefusesASecondRunningTurnOnOneConversation(t *testing.T) {
-	// The rule is asked before a question is accepted, but asking and appending are
-	// two statements: two requests arriving together both read a conversation with
-	// nothing in flight, both pass, and both start writing into it. The store is what
-	// makes the second one impossible rather than merely unlikely.
+	// Check-then-append races, so the database index must reject a second in-flight turn.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
 	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
@@ -430,14 +407,11 @@ func TestConversationRepositoryRefusesASecondRunningTurnOnOneConversation(t *tes
 		t.Context(), savedConversation.ID,
 		entities.AssistantTurn{Ask: "趁它還在寫再問一句", Status: "running", CreatedAt: momentAt(10, 1)})
 
-	// The person who was a moment slower gets the same sentence as the one who was
-	// merely told to wait.
 	require.ErrorIs(t, appendError, domains.ErrAssistantAnswerInProgress)
 }
 
 func TestConversationRepositoryAcceptsTheNextQuestionOnceTheOneBeforeItHasEnded(t *testing.T) {
-	// The index covers only the exchanges still being written. A conversation with a
-	// hundred finished ones is still free to take another question.
+	// The index covers only in-flight turns, so finished turns never block a new question.
 	testCases := []struct {
 		name          string
 		previousState string
@@ -470,8 +444,7 @@ func TestConversationRepositoryAcceptsTheNextQuestionOnceTheOneBeforeItHasEnded(
 }
 
 func TestConversationRepositoryLetsTwoConversationsBeWrittenAtOnce(t *testing.T) {
-	// The rule is about one conversation, not one person: two exchanges in two
-	// different conversations have nothing to interleave.
+	// The rule is per conversation, not per person.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
 	for range 2 {

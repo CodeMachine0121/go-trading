@@ -15,11 +15,7 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 	}{
 		{name: "switched off leaves nothing to start", switchValue: "false", expectedJobCount: 0},
 		{
-			// Keeping the stored candles current, and handing out the live places of
-			// markets that limit them. They are separate jobs so that a slow round
-			// cannot hold up a market that has just opened.
-			name: "switched on assembles the work the system does on its own",
-			// The three contract series beside the candles each run on their own.
+			name:        "switched on assembles the work the system does on its own",
 			switchValue: "true", expectedJobCount: 7,
 		},
 	}

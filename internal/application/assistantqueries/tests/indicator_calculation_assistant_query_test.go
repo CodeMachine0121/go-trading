@@ -22,8 +22,7 @@ type indicatorCalculationAssistantQueryUnderTest struct {
 	strategyScriptRepository *mocks.MockIStrategyScriptRepository
 }
 
-// newIndicatorCalculationAssistantQueryUnderTest wires the real domain services and
-// real domain models, mocking only storage, the clock and script execution.
+// newIndicatorCalculationAssistantQueryUnderTest mocks only storage, the clock and script execution.
 func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalculationAssistantQueryUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -56,9 +55,7 @@ func newIndicatorCalculationAssistantQueryUnderTest(t *testing.T) indicatorCalcu
 	}
 }
 
-// expectMarketRead answers with this many candles, newest first, which is the order a
-// read as of a moment comes back in. It is generous by default because a strategy script that
-// declares a lookback needs that many more candles than the count asked for.
+// expectMarketRead returns candles newest first, as an as-of read does; the default is generous to cover a script's declared lookback.
 func (fixture indicatorCalculationAssistantQueryUnderTest) expectMarketRead(candleCount int) {
 	kCandles := make([]entities.KCandle, 0, candleCount)
 	for candleNumber := range candleCount {
@@ -86,9 +83,7 @@ func TestIndicatorCalculationAssistantQueryRunsAnAlgorithmTheAssistantBrought(t 
 }
 
 func TestIndicatorCalculationAssistantQueryRunsTheStrategyScriptItNames(t *testing.T) {
-	// Naming a strategy script is how the question is actually asked. Making the assistant
-	// read it and send the algorithm back would cost a round trip and put the whole
-	// script through the conversation twice for nothing.
+	// Naming a script spares the assistant reading it and sending the algorithm back through the conversation.
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
 		Return(aStoredStrategyScriptWithKnobs(1, "二十根均線"), nil)
@@ -108,12 +103,7 @@ func TestIndicatorCalculationAssistantQueryRunsTheStrategyScriptItNames(t *testi
 }
 
 func TestIndicatorCalculationAssistantQueryRefusesNamingAStrategyScriptAndSendingAnAlgorithm(t *testing.T) {
-	// The two used to have a winner: the named strategy script quietly beat the algorithm
-	// sent with it. Picking a winner is a decision nobody asked for, and the loser
-	// disappears without a word — so both together is now refused outright, the
-	// same way the K candle series refuses two ways of saying how coarse to look.
-	//
-	// Nothing is stubbed: the refusal lands before anything is read.
+	// Sending both a named script and an algorithm is refused rather than silently picking one; the refusal lands before anything is read.
 	fixture := newIndicatorCalculationAssistantQueryUnderTest(t)
 
 	_, runError := fixture.assistantQuery.Run(t.Context(), assistantViewerID,

@@ -15,8 +15,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// listeningOnAnyFreePort is the server serve is given when the test does not care
-// which port it lands on, which is every test here: nothing connects to it.
 func listeningOnAnyFreePort() *http.Server {
 	return &http.Server{
 		Addr:              "127.0.0.1:0",
@@ -31,9 +29,7 @@ func TestServeStopsTheJobsAndReturnsWhenShutdownIsSignalled(t *testing.T) {
 	backgroundJob.EXPECT().Start(gomock.Any()).Times(1)
 	backgroundJob.EXPECT().Stop().Times(1)
 
-	// A viewer following a market holds its request open for as long as it is fed,
-	// so the follows have to end before the requests are drained. Were it the other
-	// way round, every shutdown would sit out the whole grace period.
+	// Follows hold requests open, so they must end before draining or shutdown waits out the grace period.
 	liveFollowsStopped := make(chan struct{}, 1)
 
 	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
@@ -58,9 +54,6 @@ func TestServeStopsTheJobsAndReturnsWhenShutdownIsSignalled(t *testing.T) {
 	}
 }
 
-// A port already in use is the ordinary way starting up fails, and it must be
-// reported rather than sat on: a server that never listened has to say so, because
-// nothing else will notice that nobody is being served.
 func TestServeReportsAnAddressItCannotListenOn(t *testing.T) {
 	mockController := gomock.NewController(t)
 	backgroundJob := mocks.NewMockIBackgroundJob(mockController)
@@ -81,8 +74,6 @@ func TestServeReportsAnAddressItCannotListenOn(t *testing.T) {
 	assert.Contains(t, serveError.Error(), takenListener.Addr().String())
 }
 
-// Holding no jobs is how background work is switched off, and shutting down must
-// still work when there is nothing to stop.
 func TestServeWithNoBackgroundJobsStillShutsDown(t *testing.T) {
 	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
 	serveFinished := make(chan error, 1)

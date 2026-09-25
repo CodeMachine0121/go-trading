@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// recordedCurveOf lays a curve down point by point, one hour apart.
+// recordedCurveOf records one point per hour.
 func recordedCurveOf(initialCapital int64, equities ...int64) *domains.BacktestEquityCurveDomain {
 	equityCurve := domains.NewBacktestEquityCurveDomain(decimal.NewFromInt(initialCapital))
 	for pointIndex, equity := range equities {
@@ -43,8 +43,7 @@ func TestBacktestEquityCurveDomainMaximumDrawdown(t *testing.T) {
 		{
 			name:           "the starting capital is the first peak",
 			initialCapital: 10000,
-			// Every point is already below where the money started, so a curve that
-			// took its peak from its own first point would report no fall at all.
+			// Every point is below the starting capital, so a peak taken from the first point would report no drawdown.
 			equities:         []int64{9500, 9000, 9200},
 			expectedDrawdown: 0.10,
 		},
@@ -97,8 +96,7 @@ func TestBacktestEquityCurveDomainReadings(t *testing.T) {
 	})
 
 	t.Run("an account wiped out has no peak left to fall from", func(t *testing.T) {
-		// Starting from nothing there is no fall to measure, and nothing is divided by
-		// zero to find that out.
+		// No drawdown from zero capital, and no division by zero.
 		equityCurve := recordedCurveOf(0, 0, 0)
 
 		assert.InDelta(t, 0.0, equityCurve.MaximumDrawdown(), 1e-9)

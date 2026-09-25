@@ -27,8 +27,7 @@ const (
 	testAccountSecret = "test-account-secret"
 )
 
-// leverageBracketAnswer is the venue's answer as it spells it: bare JSON numbers,
-// including a rate with more digits than a floating point value keeps exactly.
+// leverageBracketAnswer uses bare JSON numbers, including a rate with more digits than float64 keeps exactly.
 const leverageBracketAnswer = `[
  {"symbol":"BTCUSDT","notionalCoef":1.0,"brackets":[
    {"bracket":1,"initialLeverage":125,"notionalCap":50000,"notionalFloor":0,"maintMarginRatio":0.004,"cum":0.0},

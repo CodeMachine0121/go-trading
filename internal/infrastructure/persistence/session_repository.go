@@ -11,13 +11,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// SessionRefreshTokenDigestIndex is the unique index on what a session stores in
-// place of its renewal proof. It is repeated from the entity's tag because a struct
-// tag cannot hold a constant, and it is exported so a test needing no database holds
-// the two spellings together.
+// SessionRefreshTokenDigestIndex duplicates the entity's struct tag, which cannot reference a constant.
 const SessionRefreshTokenDigestIndex = "idx_sessions_refresh_token_digest"
 
-// SessionRepository stores the sign-ins this system is currently honouring.
 type SessionRepository struct {
 	database *gorm.DB
 }
@@ -26,7 +22,6 @@ func NewSessionRepository(database *gorm.DB) *SessionRepository {
 	return &SessionRepository{database: database}
 }
 
-// Save stores a newly opened session.
 func (sessionRepository *SessionRepository) Save(
 	executionContext context.Context, session entities.Session,
 ) (entities.Session, error) {
@@ -38,20 +33,13 @@ func (sessionRepository *SessionRepository) Save(
 	return session, nil
 }
 
-// FindOneByDigest returns the session a renewal proof belongs to.
-//
-// It deliberately does not filter out revoked or expired sessions. A revoked one has
-// to come back, because a revoked proof being presented is the single signal this
-// system has that a proof was copied — filtering it out here would turn theft into
-// an ordinary "not found" and lose the whole defence.
+// FindOneByDigest does not filter revoked or expired sessions, because presenting a revoked token is the only signal of theft.
 func (sessionRepository *SessionRepository) FindOneByDigest(
 	executionContext context.Context, refreshTokenDigest string,
 ) (entities.Session, error) {
 	session := entities.Session{}
 
-	// Spelled out rather than given as a struct for the same reason as the user
-	// lookup: GORM drops zero-valued struct fields, and an empty digest would
-	// become no condition at all.
+	// A string condition, because GORM drops zero-valued struct fields and an empty digest would match everything.
 	result := sessionRepository.database.WithContext(executionContext).
 		Where(clause.Eq{Column: "refresh_token_digest", Value: refreshTokenDigest}).
 		First(&session)
@@ -65,11 +53,7 @@ func (sessionRepository *SessionRepository) FindOneByDigest(
 	return session, nil
 }
 
-// Rotate ends one session and opens its successor inside one transaction.
-//
-// One transaction is the entire reason this is a method rather than two. Apart, a
-// failure between them leaves the old proof dead and the new one unwritten, and the
-// person holding both has two proofs that do nothing and no way to find out why.
+// Rotate revokes one session and creates its successor in one transaction, so a failure cannot leave both tokens dead.
 func (sessionRepository *SessionRepository) Rotate(
 	executionContext context.Context, previousSessionID uint, next entities.Session,
 ) (entities.Session, error) {
@@ -77,21 +61,7 @@ func (sessionRepository *SessionRepository) Rotate(
 
 	transactionError := sessionRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
-			// The revocation time comes from the database rather than from a clock
-			// this code holds, because it has to sit on the same timeline as the
-			// row's own timestamps — and because two clocks is one more than the
-			// question "when was this ended" can have.
-			//
-			// Only a session that has not already ended may be rotated, and that
-			// condition is on the write rather than checked beforehand. Checking
-			// beforehand cannot work: two renewals carrying the same proof both read
-			// a session that is still good, and both would then write. Here the
-			// second one updates no rows, because the first one's row no longer
-			// matches — which is how "a proof works once" becomes a fact the database
-			// enforces instead of a fact two readers each believe separately.
-			//
-			// It is also what stops a rotation from quietly undoing a sign-out: a
-			// chain that was revoked a moment ago has no row left for this to match.
+			// The revocation time comes from the database clock, and the not-yet-revoked condition sits on the update itself, so a concurrent renewal or sign-out makes this update zero rows.
 			revoked := transaction.
 				Model(&entities.Session{}).
 				Where(clause.Eq{Column: "id", Value: previousSessionID}).
@@ -120,14 +90,7 @@ func (sessionRepository *SessionRepository) Rotate(
 	return rotatedSession, nil
 }
 
-// RevokeChain ends every session of one sign-in.
-//
-// Sessions already ended are left with the moment they were ended: it is the first
-// time that answers "when did this stop", and overwriting it would erase exactly the
-// trail somebody would follow to find out what happened.
-//
-// Ending a chain that is not there, or is already ended, is not a failure — what was
-// asked for is already true.
+// RevokeChain ends every session of one sign-in, keeping existing revocation times; revoking a missing or already-revoked chain is not an error.
 func (sessionRepository *SessionRepository) RevokeChain(
 	executionContext context.Context, chainID string,
 ) error {

@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// shortTermBar is one hourly spot bar of a replay as a table row: a flat bar at its
-// close unless the open, high or low are given.
+// shortTermBar is an hourly spot bar, flat at its close unless open, high or low are given.
 type shortTermBar struct {
 	open   float64
 	high   float64
@@ -56,7 +55,6 @@ func shortTermCandles(bars []shortTermBar) ([]vo.KCandleVo, []domains.SignalDoma
 	return candles, signals
 }
 
-// replaySpotBars replays hourly bars from the start of the stretch.
 func replaySpotBars(
 	t *testing.T, requestDto dto.BacktestRequestDto, bars []shortTermBar,
 ) dto.BacktestResultDto {
@@ -160,8 +158,7 @@ func TestContractReplayFillTiming(t *testing.T) {
 		requestDto.EndTime = contractReplayStart.Add(5 * 24 * time.Hour)
 		secondDay := contractReplayStart.Add(24 * time.Hour)
 
-		// Opened at the second day's open with 500 units: the midnight settlement came
-		// before the fill, the one at 08:00 after it.
+		// Opened at the second day's open with 500 units: the midnight settlement precedes the fill, the 08:00 one follows it.
 		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
 			[]contractReplayBar{{close: 100, signal: vo.SignalBuy}, {close: 100}},
 			contractSettlementAt(secondDay, "0.0001", "100"),
@@ -349,8 +346,7 @@ func TestSpotReplayValidationSplit(t *testing.T) {
 	t.Run("the validation part starts flat from the initial capital", func(t *testing.T) {
 		resultDto := replaySpotBars(t, splitRequest(3), sixBars)
 
-		// The in-sample long bought at 100 never reaches the validation part: there the
-		// only trade is the one bought at 120 and sold at 130.
+		// The in-sample long at 100 never reaches validation, where the only trade is 120 → 130.
 		require.NotNil(t, resultDto.Validation)
 		require.Len(t, resultDto.Validation.ClosedTrades, 1)
 		assertDecimalEqual(t, "120", resultDto.Validation.ClosedTrades[0].EntryPrice)
@@ -414,7 +410,6 @@ func TestSpotReplayValidationSplit(t *testing.T) {
 	})
 }
 
-// storedBacktestCandlesForHours are stored candles, one at each of those hours.
 func storedBacktestCandlesForHours(hours ...int) []entities.KCandle {
 	kCandles := make([]entities.KCandle, 0, len(hours))
 	for _, hour := range hours {
@@ -534,8 +529,7 @@ func TestContractNextOpenFillBarReachesItsOwnExitLevels(t *testing.T) {
 	requestDto.FillTiming = "nextOpen"
 	requestDto.StopLossPercentage = decimal.NewFromInt(2)
 
-	// Filled at the second bar's open of 100; that bar's low of 97 then reaches the 98 stop,
-	// and the curve records the account at the bar's close.
+	// Filled at the second bar's open of 100; its low of 97 hits the 98 stop and the curve records the bar's close.
 	resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
 		[]contractReplayBar{{close: 99, signal: vo.SignalBuy}, {open: 100, low: 97, close: 99}})
 

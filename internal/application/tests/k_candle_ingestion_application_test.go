@@ -67,14 +67,12 @@ func newIngestionApplicationUnderTest(t *testing.T) ingestionApplicationUnderTes
 	}
 }
 
-// ingestionMarketCatalog is the markets these tests are written against.
 func ingestionMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
 	})
 }
 
-// watchingCrypto is the watchlist a run reads at its top.
 func watchingCrypto(
 	tradingSymbolRepository *mocks.MockITradingSymbolRepository, symbols ...string,
 ) {

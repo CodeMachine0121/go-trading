@@ -7,37 +7,20 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// strategyBotContractSymbolSuffix is what follows a contract bot's symbol wherever the
-// symbol is written for its owner, so that a message about a perpetual contract can
-// never be read as one about the spot market of the same name.
+// strategyBotContractSymbolSuffix keeps a contract message from being mistaken for the same-named spot market.
 const strategyBotContractSymbolSuffix = " 永續合約"
 
-// contractMarketStalenessAllowance is how old a contract's newest one-minute candle may
-// be before its candles count as no longer arriving. Candles are taken in every minute
-// and written a little after the minute they cover, so a few minutes of slack separates
-// an ordinary late write from a contract nobody is following any more.
+// contractMarketStalenessAllowance is the slack for late one-minute candle writes before a contract counts as no longer ingesting.
 const contractMarketStalenessAllowance = 5 * time.Minute
 
-// StrategyBotMarketDomain is which kind of account a bot speaks about, and everything
-// that follows from it: what a conclusion asks that account to be holding, which word
-// the headline uses for it, which colour marks it, and how the symbol is labelled.
-//
-// It is the one place a bot's words depend on its kind. A spot bot speaks of buying
-// and getting out, which is all cash for goods can do; a contract bot speaks of going
-// long, going short and closing either — and which of those a sell means depends on the
-// trading mode of the rules it follows. Scattered across the message, the plan and the
-// lifecycle lines, that choice would be three switches that have to agree forever.
+// StrategyBotMarketDomain is the single place a bot's wording (target, headline verb, colour mark, symbol label) depends on spot vs contract and the contract trading mode.
 type StrategyBotMarketDomain struct {
 	isContract bool
-	// tradingMode is only read on a contract bot. hasTradingMode is false when the
-	// stored mode could not be read, which the save gate makes unreachable; such a
-	// bot names no act rather than guessing which way somebody should trade.
+	// hasTradingMode is false when the stored mode is unreadable (the save gate prevents this); such a bot then names no act.
 	tradingMode    ContractTradingModeDomain
 	hasTradingMode bool
 }
 
-// NewStrategyBotMarketDomain reads the bot's kind and, for a contract bot, the trading
-// mode of the contract trading strategy it follows.
 func NewStrategyBotMarketDomain(
 	marketDataKind string, contractTradingMode string,
 ) StrategyBotMarketDomain {
@@ -58,8 +41,7 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) IsContract() bool {
 	return strategyBotMarketDomain.isContract
 }
 
-// TargetFor is what this conclusion asks the account to be holding. A spot account
-// asks the signal itself; a contract account asks its trading mode.
+// TargetFor defers to the signal for spot and to the trading mode for contracts.
 func (strategyBotMarketDomain StrategyBotMarketDomain) TargetFor(signal SignalDomain) vo.TargetPositionVo {
 	if !strategyBotMarketDomain.isContract {
 		return signal.TargetPosition()
@@ -72,11 +54,7 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) TargetFor(signal SignalDo
 	return strategyBotMarketDomain.tradingMode.TargetFor(signal)
 }
 
-// HeadlineVerb is what a message about this conclusion asks its reader to go and do.
-//
-// On a contract account a conclusion is an act on a position: go long, go short, or
-// close the one side these rules can hold. The word says which side is closed, because
-// a reader holding the other side must not read "close" as being about theirs.
+// HeadlineVerb names which side a contract close applies to so a holder of the other side doesn't act on it.
 func (strategyBotMarketDomain StrategyBotMarketDomain) HeadlineVerb(signal SignalDomain) string {
 	if !strategyBotMarketDomain.isContract {
 		return signal.HeadlineVerb()
@@ -98,10 +76,7 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) HeadlineVerb(signal Signa
 	return signal.InWords()
 }
 
-// HeadlineMark is the coloured mark that opens the headline, so that the direction
-// survives being skimmed. Anything the system did not recognise gets the neutral one,
-// because a guess here is a guess about which way somebody should trade — and so does
-// closing a position, which faces neither way.
+// HeadlineMark uses the neutral mark for closes and unrecognised values rather than guessing a direction.
 func (strategyBotMarketDomain StrategyBotMarketDomain) HeadlineMark(signal SignalDomain) string {
 	if !strategyBotMarketDomain.isContract {
 		switch signal.Value() {
@@ -124,8 +99,6 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) HeadlineMark(signal Signa
 	return "⚪"
 }
 
-// SymbolLabel is the symbol as its owner reads it: a contract bot's carries the words
-// that say it is a perpetual contract.
 func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolLabel(symbol string) string {
 	if !strategyBotMarketDomain.isContract {
 		return symbol
@@ -134,20 +107,7 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) SymbolLabel(symbol string
 	return symbol + strategyBotContractSymbolSuffix
 }
 
-// RequireCurrentMarket refuses a round when the market it would be reading has stopped
-// arriving, judged by the newest one-minute candle stored for it and whether there was
-// one at all.
-//
-// Only a contract account asks it. A contract trades round the clock and its candles
-// are taken in every minute, so a newest candle more than a few minutes old means they
-// are no longer coming in — typically a contract taken off the watchlist — and every
-// source would be judging by bars from the past, however coarse its own buckets are.
-// Asked of the one-minute candle rather than of each source's bars, because a day-wide
-// source's newest bar is a day old by design and says nothing about whether candles
-// still arrive.
-//
-// A spot account is not asked: spot markets close, and a newest candle from before the
-// weekend is exactly what an honest reading of a closed market looks like.
+// RequireCurrentMarket refuses a contract round whose newest one-minute candle is stale (sources' own bars can be legitimately old); spot is exempt because spot markets close.
 func (strategyBotMarketDomain StrategyBotMarketDomain) RequireCurrentMarket(
 	newestCandleOpenTime time.Time, hasNewestCandle bool, now time.Time,
 ) error {
@@ -167,9 +127,7 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) RequireCurrentMarket(
 	return nil
 }
 
-// ReferenceCandleWords is what the candle a reference price is read from is called: a
-// spot bot quotes a K candle, a contract bot a contract K candle. The leading blank is
-// the spacing the sentence needs before a Latin letter.
+// ReferenceCandleWords names the candle kind a reference price comes from; the spot variant's leading blank is intentional spacing.
 func (strategyBotMarketDomain StrategyBotMarketDomain) ReferenceCandleWords() string {
 	if !strategyBotMarketDomain.isContract {
 		return " K 線"
@@ -178,8 +136,7 @@ func (strategyBotMarketDomain StrategyBotMarketDomain) ReferenceCandleWords() st
 	return "合約 K 線"
 }
 
-// TradingModeInWords is the contract trading mode as a person reads it. A spot bot, or
-// a mode that could not be read, has nothing to say here.
+// TradingModeInWords is empty for spot bots and unreadable modes.
 func (strategyBotMarketDomain StrategyBotMarketDomain) TradingModeInWords() string {
 	if !strategyBotMarketDomain.isContract || !strategyBotMarketDomain.hasTradingMode {
 		return ""

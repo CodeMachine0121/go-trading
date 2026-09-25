@@ -2,29 +2,13 @@ package domains
 
 import "fmt"
 
-// AssistantCandleLimitDomain settles how many K candles one assistant query may hand
-// over, and whether the assistant is being shown less than it asked for.
-//
-// The limit is deliberately far stricter than the one a person's own query obeys.
-// The two exist for different reasons: a person's limit is about what a response can
-// carry, this one is about what an answer costs. It narrows the person's limit and
-// never replaces it.
-//
-// Being told about the truncation matters as much as the truncation. An assistant
-// shown the most recent two hundred of five hundred candles, and not told, will read
-// them as the whole stretch and describe a trend that does not exist.
+// AssistantCandleLimitDomain caps how many K candles an assistant query may return (far stricter than a person's limit, to bound cost) and flags truncation so the assistant does not mistake a partial stretch for the whole.
 type AssistantCandleLimitDomain struct {
 	count     int
 	truncated bool
 }
 
-// NewAssistantCandleLimitDomain reads how many candles the assistant asked for against
-// the limit in force.
-//
-// Asking for none is not asking for everything — it is not saying, so the limit
-// itself is used and nothing is truncated. There is deliberately no way to ask for
-// everything: the whole point of the limit is that no single question can decide how
-// much an answer costs.
+// NewAssistantCandleLimitDomain treats zero as "use the limit"; there is deliberately no way to ask for everything.
 func NewAssistantCandleLimitDomain(limit int, requestedCount int) (AssistantCandleLimitDomain, error) {
 	if requestedCount < 0 {
 		return AssistantCandleLimitDomain{}, fmt.Errorf(
@@ -42,13 +26,11 @@ func NewAssistantCandleLimitDomain(limit int, requestedCount int) (AssistantCand
 	return AssistantCandleLimitDomain{count: requestedCount, truncated: false}, nil
 }
 
-// Count is how many candles may actually be handed over.
 func (assistantCandleLimitDomain AssistantCandleLimitDomain) Count() int {
 	return assistantCandleLimitDomain.count
 }
 
-// Truncated says the assistant is being shown less than it asked for, and must be
-// told so.
+// Truncated means the assistant must be told it was shown less than it asked for.
 func (assistantCandleLimitDomain AssistantCandleLimitDomain) Truncated() bool {
 	return assistantCandleLimitDomain.truncated
 }

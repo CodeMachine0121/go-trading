@@ -26,9 +26,8 @@ func TestNewTelegramDeliveryDomainKeepsWhatWasMeantAndDropsWhatWasNot(t *testing
 			expectedChatID: "987654",
 		},
 		{
-			// A token pasted out of another window drags its surroundings along,
-			// and nobody ever meant those to be part of it. This is the opposite
-			// of a password, where the blanks are characters somebody chose.
+			// Pasted values drag surrounding blanks along, unlike passwords where blanks are
+			// chosen.
 			name:           "the blanks around a pasted value are not part of it",
 			botToken:       "  123456:AAHqwertyuiop1234\n",
 			chatID:         "\t987654 ",
@@ -91,8 +90,7 @@ func TestNewTelegramDeliveryDomainRefusesAHalfGivenSetting(t *testing.T) {
 			expectedMessage: "必須給一個聊天室代號",
 		},
 		{
-			// Both blank reports the token, because that is the harder half to get
-			// right and they will have to go and find it either way.
+			// When both are blank the token is reported, as the harder half to get right.
 			name:            "neither half given reports the token",
 			botToken:        "",
 			chatID:          "",
@@ -113,9 +111,7 @@ func TestNewTelegramDeliveryDomainRefusesAHalfGivenSetting(t *testing.T) {
 	}
 }
 
-// The tail is the only part of a token anybody sees again. Four characters answers
-// the one question people ask of a stored token — is that the one I pasted? — and
-// reconstructs nothing.
+// Only the last four characters are shown, enough to recognise a token without reconstructing it.
 func TestTelegramDeliveryDomainShowsOnlyTheTailOfTheToken(t *testing.T) {
 	testCases := []struct {
 		name         string
@@ -133,9 +129,8 @@ func TestTelegramDeliveryDomainShowsOnlyTheTailOfTheToken(t *testing.T) {
 			expectedTail: "bcde",
 		},
 		{
-			// The edge where "show the last four" quietly becomes "show all of
-			// it". A real token is never this short; a rule that leaks on its own
-			// edge is not a rule.
+			// At or below four characters nothing is shown, so the tail rule cannot leak a
+			// whole token.
 			name:         "a token no longer than the tail shows nothing at all",
 			botToken:     "abcd",
 			expectedTail: "",
@@ -159,8 +154,7 @@ func TestTelegramDeliveryDomainShowsOnlyTheTailOfTheToken(t *testing.T) {
 	}
 }
 
-// The row this model builds has nowhere to put a usable token: what goes in is the
-// sealed form, handed in by whoever knows how to make one.
+// The entity only ever receives the sealed token.
 func TestTelegramDeliveryDomainToEntityStoresOnlyTheSealedToken(t *testing.T) {
 	deliverySetting, err := domains.NewTelegramDeliveryDomain(dto.TelegramDeliveryWriteDto{
 		BotToken: "123456:AAHqwertyuiop1234",

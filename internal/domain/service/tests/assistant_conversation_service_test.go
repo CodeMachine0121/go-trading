@@ -18,8 +18,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// askedAt is the moment every test asks at, so that the day it falls in — and
-// therefore the stretch usage is summed over — is the same in all of them.
+// askedAt is fixed so every test sums usage over the same day.
 var askedAt = time.Date(2026, 9, 4, 13, 45, 10, 0, time.UTC)
 
 var (
@@ -27,14 +26,9 @@ var (
 	dayEnd   = time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 )
 
-// theQueryName is the one capability the service under test is given. Which
-// capabilities exist is the composition root's decision, so a test only needs one to
-// prove that the offered set is what gets reached.
+// theQueryName is the only capability offered, enough to prove the offered set is what gets reached.
 const theQueryName = "list_trading_symbols"
 
-// startedTurnID is the exchange every accepted question reserves. Which row it is
-// does not matter to any case here — only that the answer is written back over that
-// one.
 const startedTurnID = uint(77)
 
 type assistantConversationServiceUnderTest struct {
@@ -42,15 +36,11 @@ type assistantConversationServiceUnderTest struct {
 	conversationRepository       *mocks.MockIConversationRepository
 	assistantProxy               *mocks.MockIAssistantProxy
 	assistantQuery               *mocks.MockIAssistantQuery
-	// completedTurns carries whatever was written back over the reserved row. The
-	// answer is written from a goroutine the ask does not wait on, so a case has to
-	// wait for it rather than read straight after asking.
+	// completedTurns receives the answer, which is written from a goroutine the ask does not wait on.
 	completedTurns chan entities.AssistantTurn
 }
 
-// newAssistantConversationServiceUnderTest wires the service with every ceiling it
-// obeys. The two that tests vary are arguments; the rest are the defaults, so that a
-// test about one ceiling is not also a test about another.
+// newAssistantConversationServiceUnderTest takes the two ceilings tests vary and defaults the rest, so each test isolates one ceiling.
 func newAssistantConversationServiceUnderTest(
 	t *testing.T, queryLimit int, dailyUsageAllowance int,
 ) assistantConversationServiceUnderTest {
@@ -65,8 +55,7 @@ func newAssistantConversationServiceUnderTest(
 	assistantQuery.EXPECT().ArgumentSchema().Return(`{"type":"object"}`).AnyTimes()
 	clockProxy.EXPECT().Now().Return(askedAt).AnyTimes()
 
-	// Every ending is captured, whichever it is. Cases that expect one wait for it;
-	// cases refused before anything started never produce one.
+	// Cases refused before anything started never produce an ending.
 	completedTurns := make(chan entities.AssistantTurn, 1)
 	conversationRepository.EXPECT().CompleteTurn(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, turn entities.AssistantTurn) error {
@@ -93,8 +82,6 @@ func newAssistantConversationServiceUnderTest(
 	}
 }
 
-// expectNewConversation accepts a question that named no conversation, storing it as
-// the first exchange of a new one, and hands back what was stored for a case to read.
 func (fixture assistantConversationServiceUnderTest) expectNewConversation(
 	conversationID uint,
 ) *entities.Conversation {
@@ -114,8 +101,6 @@ func (fixture assistantConversationServiceUnderTest) expectNewConversation(
 	return startedConversation
 }
 
-// expectAppendedTurn accepts a question aimed at a conversation that already exists,
-// and hands back the exchange that was reserved for its answer.
 func (fixture assistantConversationServiceUnderTest) expectAppendedTurn(
 	conversationID uint,
 ) *entities.AssistantTurn {
@@ -134,12 +119,7 @@ func (fixture assistantConversationServiceUnderTest) expectAppendedTurn(
 	return startedTurn
 }
 
-// awaitCompletedTurn waits for the answer to be written back over the reserved row.
-//
-// The wait is real rather than a peek at some flag: the answer is written from a
-// goroutine the ask deliberately does not wait on, so a case reading straight after
-// asking would be reading a row nothing has touched yet. Two seconds is far longer
-// than any of these need and short enough to fail rather than hang.
+// awaitCompletedTurn waits up to two seconds for the answer written by the background goroutine, failing rather than hanging.
 func (fixture assistantConversationServiceUnderTest) awaitCompletedTurn(
 	t *testing.T,
 ) entities.AssistantTurn {
@@ -155,20 +135,17 @@ func (fixture assistantConversationServiceUnderTest) awaitCompletedTurn(
 	}
 }
 
-// expectUsageToday says what has been spent today. Every ask reads it before doing
-// anything that costs money.
+// expectUsageToday stubs today's spend, which every ask reads before spending anything.
 func (fixture assistantConversationServiceUnderTest) expectUsageToday(usageToday int) {
 	fixture.conversationRepository.EXPECT().
 		SumUsageBetween(gomock.Any(), dayStart, dayEnd).
 		Return(usageToday, nil)
 }
 
-// answeredReply is the assistant answering outright.
 func answeredReply(answer string, usage int) vo.AssistantReplyVo {
 	return vo.AssistantReplyVo{Answer: answer, Usage: usage}
 }
 
-// queryingReply is the assistant asking for a capability to be run first.
 func queryingReply(name string, usage int) vo.AssistantReplyVo {
 	return vo.AssistantReplyVo{
 		QueryCalls: []vo.AssistantQueryCallVo{{CallID: "call_1", Name: name, Arguments: `{}`}},
@@ -192,15 +169,13 @@ func TestAskStartsAConversationWhenTheQuestionNamesNone(t *testing.T) {
 	assert.Equal(t, startedTurnID, startedDto.TurnID)
 	assert.Equal(t, string(vo.AssistantTurnRunning), startedDto.Status)
 
-	// It belongs to whoever asked from the moment it is written. A conversation
-	// stored without an owner would be readable by everybody.
+	// A conversation stored without an owner would be readable by everybody.
 	assert.Equal(t, uint(3), savedConversation.OwnerID)
 	require.Len(t, savedConversation.Turns, 1)
 	assert.Equal(t, "BTCUSDT 最近走勢如何", savedConversation.Turns[0].Ask)
 	assert.Equal(t, askedAt, savedConversation.LastActiveAt)
 
-	// The question is stored before the assistant has said anything, which is what
-	// makes it findable while the answer is still being written.
+	// The question is stored before the answer so it is findable while the answer is written.
 	assert.Equal(t, string(vo.AssistantTurnRunning), savedConversation.Turns[0].Status)
 	assert.Empty(t, savedConversation.Turns[0].Answer)
 
@@ -289,8 +264,7 @@ func TestAskTellsTheAssistantEverythingItMayDoAndNothingMore(t *testing.T) {
 }
 
 func TestAskRefusesAQuestionThatSaidNothingBeforeSpendingAnything(t *testing.T) {
-	// Nothing is read and nothing is asked: the cheapest refusal must not pay for the
-	// more expensive one's lookup.
+	// Nothing is read or asked: the cheapest refusal must not pay for the lookup.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 
 	_, askError := fixture.assistantConversationService.Ask(
@@ -335,9 +309,7 @@ func TestAskRefusesOnceTodaysAllowanceIsSpent(t *testing.T) {
 }
 
 func TestAskAnswersInFullWhenTheAllowanceIsOnlySpentAfterwards(t *testing.T) {
-	// The allowance is settled before the answer, because what an answer costs is
-	// only known once it exists. Overshooting by one exchange is the accepted price of
-	// never refusing an answer that was within the ceiling when it started.
+	// Usage is only known after the answer, so overshooting by one exchange is the accepted price.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(299999)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -361,8 +333,7 @@ func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 			Return(queryingReply(theQueryName, 100), nil),
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
-				// What it looked at comes back to it on the next round trip, which is
-				// how it knows what it has already learned.
+				// Earlier lookups come back on the next round trip so the assistant knows what it has learned.
 				require.Len(t, request.Rounds, 1)
 				require.Len(t, request.Rounds[0].Exchanges, 1)
 				assert.Equal(t, `{"symbols":["BTCUSDT"]}`, request.Rounds[0].Exchanges[0].Outcome)
@@ -381,19 +352,14 @@ func TestAskRunsTheCapabilityTheAssistantAskedFor(t *testing.T) {
 	completedTurn := fixture.awaitCompletedTurn(t)
 	assert.Equal(t, "有 BTCUSDT", completedTurn.Answer)
 	assert.Equal(t, 1, completedTurn.QueryCount)
-	// Every round trip is paid for, not just the one that answered.
+	// Every round trip is billed, not just the one that answered.
 	assert.Equal(t, 300, completedTurn.Usage)
 	require.Len(t, completedTurn.Queries, 1)
 	assert.Equal(t, theQueryName, completedTurn.Queries[0].QueryName)
 }
 
 func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) {
-	// 這是回報進來的症狀：問「給我一份布林通道的腳本」，回來的是
-	// 「我先看一下系統裡既有策略腳本的算式寫法」然後就結束了，工具一次都沒跑，
-	// 使用者只好自己再問一次「好了沒」。
-	//
-	// 助手很常在**同一則回覆裡**同時說一句話與要求一次查詢。那句話是旁白不是答案，
-	// 所以要先問「有沒有要查」再問「有沒有說話」。
+	// 助手常在同一則回覆裡同時說話又要求查詢；那句話是旁白不是答案，所以要先判斷有沒有要查。
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -408,8 +374,7 @@ func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) 
 			}, nil),
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
-				// 那句旁白要跟著它的查詢請求一起回去，否則助手是從一個它看不到的
-				// 想法往下接，答案會從半句話開始。
+				// 旁白要跟著查詢請求一起回去，否則助手會從它看不到的半句話往下接。
 				require.Len(t, request.Rounds, 1)
 				assert.Equal(t, "我先看一下系統裡既有策略腳本的算式寫法。", request.Rounds[0].Narration)
 
@@ -431,9 +396,7 @@ func TestAskDoesNotMistakeWhatTheAssistantSaysOnTheWayForAnAnswer(t *testing.T) 
 }
 
 func TestAskAnswersWithWhatItSaidWhenItsQueriesAreSpent(t *testing.T) {
-	// 查詢次數用完之後，助手又只給了一句話與一個要不到的查詢請求。
-	// 那句話就是它手上僅有的東西——連同「已達上限」的標記一起留下，
-	// 比回一句「助手沒有回應」誠實。
+	// 查詢次數用完後，把助手僅有的那句話連同「已達上限」標記留下，比回「助手沒有回應」誠實。
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil)
@@ -498,8 +461,7 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 			name:          "a capability that refused the arguments",
 			requestedName: theQueryName,
 			runError:      errors.New("彙總刻度只接受 5m、15m、1h、4h、1d"),
-			// The assistant reads the reason and may ask differently; ending the
-			// answer here would throw away every lookup that already worked.
+			// The assistant may ask differently; ending here would discard lookups that already worked.
 			expectedOutcome: "彙總刻度只接受 5m、15m、1h、4h、1d",
 			expectsRun:      true,
 		},
@@ -560,7 +522,7 @@ func TestAskStopsRunningCapabilitiesOnceTheirLimitIsSpent(t *testing.T) {
 			Return(queryingReply(theQueryName, 100), nil),
 		fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, request vo.AssistantTurnRequestVo) (vo.AssistantReplyVo, error) {
-				// Being told is what turns a half answer into an honest one.
+				// Being told lets it give an honest partial answer.
 				assert.True(t, request.QueryLimitReached)
 
 				return answeredReply("只查到這些", 100), nil
@@ -580,8 +542,7 @@ func TestAskStopsRunningCapabilitiesOnceTheirLimitIsSpent(t *testing.T) {
 }
 
 func TestAskStopsPartWayThroughARoundThatWouldOverspend(t *testing.T) {
-	// Asking for three lookups at once does not buy three when only one is left. The
-	// count is spent per lookup, so the round is cut short rather than let through.
+	// Lookups are counted individually, so a round asking for three with one left is cut short.
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil).Times(1)
@@ -611,9 +572,7 @@ func TestAskStopsPartWayThroughARoundThatWouldOverspend(t *testing.T) {
 }
 
 func TestAskRecordsAFailureWhenTheAssistantAsksForMoreItCannotHave(t *testing.T) {
-	// Its queries are spent and it was told so, and it still asked instead of
-	// speaking. There is no answer to write, so the exchange is closed as failed —
-	// which is what the asker sees when they come back to it.
+	// Its queries are spent and it still asked instead of answering, so the exchange closes as failed.
 	fixture := newAssistantConversationServiceUnderTest(t, 1, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantQuery.EXPECT().Run(gomock.Any(), gomock.Any(), gomock.Any()).Return("{}", nil)
@@ -648,11 +607,7 @@ func TestAskRecordsAFailureWhenTheAssistantDoesNotAnswer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			// It used to leave nothing behind, and that was right while somebody was
-			// watching the screen: send, fail, see the error, retype, all within
-			// seconds. An answer that takes minutes breaks that — the asker is not
-			// there — so a row saying it failed is the only way they can tell it
-			// apart from one still running and one they never sent.
+			// Answers can take minutes with nobody watching, so a failed row is the only way to tell this apart from one still running or never sent.
 			fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 			fixture.expectUsageToday(0)
 			fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
@@ -664,8 +619,7 @@ func TestAskRecordsAFailureWhenTheAssistantDoesNotAnswer(t *testing.T) {
 			_, askError := fixture.assistantConversationService.Ask(
 				t.Context(), dto.AssistantAskDto{ViewerID: 3, ConversationID: 7, Question: "BTCUSDT 最近走勢如何"})
 
-			// Accepting the question succeeded; it is the answer that failed, and
-			// that is a fact about the exchange rather than about the ask.
+			// Accepting succeeded; the failure belongs to the exchange, not the ask.
 			require.NoError(t, askError)
 
 			completedTurn := fixture.awaitCompletedTurn(t)
@@ -679,9 +633,7 @@ func TestAskRecordsAFailureWhenTheAssistantDoesNotAnswer(t *testing.T) {
 }
 
 func TestAskRefusesASecondQuestionWhileTheFirstAnswerIsStillBeingWritten(t *testing.T) {
-	// Two answers written into one conversation at once leaves nobody able to say
-	// which of them the record belongs to. The moment somebody would do it is almost
-	// always the one this whole design removes: believing the first never sent.
+	// Two concurrent answers in one conversation would leave the record ambiguous.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
@@ -701,9 +653,7 @@ func TestAskAcceptsTheNextQuestionOnceTheExchangeBeforeItHasEnded(t *testing.T) 
 		previousState string
 	}{
 		{name: "the one before it was answered", previousState: string(vo.AssistantTurnAnswered)},
-		// A failed exchange is not in flight. Nothing is still being written, so
-		// there is nothing a second question could collide with — and making somebody
-		// wait on a failure would leave the conversation permanently unusable.
+		// A failed exchange is not in flight, and blocking on it would make the conversation permanently unusable.
 		{name: "the one before it failed", previousState: string(vo.AssistantTurnFailed)},
 	}
 
@@ -730,9 +680,7 @@ func TestAskAcceptsTheNextQuestionOnceTheExchangeBeforeItHasEnded(t *testing.T) 
 }
 
 func TestAskDoesNotShowTheAssistantAQuestionThatWasNeverAnswered(t *testing.T) {
-	// A question with nothing under it reads to the assistant as one it declined to
-	// answer, and it will go on to explain why it declined — which is not what
-	// happened.
+	// An unanswered question would read to the assistant as one it declined, and it would explain a refusal that never happened.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
@@ -765,9 +713,7 @@ func TestAskDoesNotShowTheAssistantAQuestionThatWasNeverAnswered(t *testing.T) {
 }
 
 func TestFailInterruptedAnswersClearsWhatTheLastShutdownCutOff(t *testing.T) {
-	// An answer being written lives in this process and nowhere else, so every one
-	// left at running is stale the moment this one starts. Left alone each is a wait
-	// nobody can end, on a conversation nobody can add to.
+	// In-flight answers live only in this process, so any turn left running at startup is stale.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 
 	sweptReason := ""
@@ -797,8 +743,7 @@ func TestFailInterruptedAnswersReportsAFailureToSweep(t *testing.T) {
 }
 
 func TestAskReportsAFailureToReadTodaysUsage(t *testing.T) {
-	// The allowance cannot be honoured without it, and answering anyway would make the
-	// one ceiling that makes the bill impossible optional.
+	// Answering without the usage figure would make the spending ceiling optional.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.conversationRepository.EXPECT().SumUsageBetween(gomock.Any(), dayStart, dayEnd).
 		Return(0, errors.New("storage unavailable"))
@@ -811,8 +756,7 @@ func TestAskReportsAFailureToReadTodaysUsage(t *testing.T) {
 }
 
 func TestAskReportsAFailureToReserveThePlaceTheAnswerWouldGo(t *testing.T) {
-	// The assistant is never asked. Reserving the place is what the asker is waiting
-	// on, so failing it is a failure of the ask itself rather than of an answer.
+	// The assistant is never asked; failing to reserve the row fails the ask itself.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).Times(0)
@@ -827,8 +771,7 @@ func TestAskReportsAFailureToReserveThePlaceTheAnswerWouldGo(t *testing.T) {
 }
 
 func TestListConversationsPutsTheMostRecentlyActiveFirst(t *testing.T) {
-	// The store is what orders them; this proves the order survives being turned into
-	// what a reader sees, and that the message count comes along.
+	// Storage does the ordering; this checks it survives conversion and that the message count comes along.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.conversationRepository.EXPECT().FindAllOwnedBy(gomock.Any(), uint(3)).
 		Return([]entities.Conversation{
@@ -870,8 +813,7 @@ func TestListConversationsReportsAFailureToRead(t *testing.T) {
 }
 
 func TestGetConversationHandsBackEveryMessageEverSaid(t *testing.T) {
-	// Neither today's allowance nor the assistant is consulted: the brake is on new
-	// answers, and an assistant that is down must not take the record with it.
+	// Neither the allowance nor the assistant is consulted, so an assistant outage cannot hide the record.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
 		Return(entities.Conversation{ID: 7, OwnerID: 3, LastActiveAt: askedAt, Turns: []entities.AssistantTurn{
@@ -888,9 +830,7 @@ func TestGetConversationHandsBackEveryMessageEverSaid(t *testing.T) {
 }
 
 func TestGetConversationRefusesSomebodyElsesAsOneThatIsNotThere(t *testing.T) {
-	// A transcript is not only what was said: the assistant acts as whoever asked
-	// it, so an exchange can hold that person's own algorithms in full. Told apart
-	// from one that does not exist, this refusal would also say whose it is.
+	// Transcripts can hold the owner's algorithms, and a distinct refusal would reveal whose conversation it is.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
 		Return(entities.Conversation{ID: 7, OwnerID: 9, LastActiveAt: askedAt}, nil)
@@ -901,8 +841,7 @@ func TestGetConversationRefusesSomebodyElsesAsOneThatIsNotThere(t *testing.T) {
 }
 
 func TestAskRefusesSomebodyElsesConversationBeforeAskingTheAssistant(t *testing.T) {
-	// Refused at the first read of that conversation, so the assistant is never
-	// shown a word of it — nor paid for.
+	// Refused at the first read, so the assistant never sees or bills for it.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
@@ -927,13 +866,7 @@ func TestGetConversationReportsOneThatIsNotThere(t *testing.T) {
 }
 
 func TestAskRecordsAFailureWhenWritingTheAnswerBreaksDown(t *testing.T) {
-	// Until this loop moved off the request, the HTTP layer's own recovery contained
-	// a panic to one failed answer. Out here nothing is above it: a panic anywhere in
-	// up to forty rounds of tool calls would stop the API, the background jobs, and
-	// every other answer being written at that moment.
-	//
-	// It is closed as failed rather than left at running, so the row does not sit
-	// there until the next restart sweeps it up.
+	// Off the request path nothing contains a panic, so the loop must recover and close the turn as failed rather than leave it running.
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 	fixture.expectUsageToday(0)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).

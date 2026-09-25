@@ -91,11 +91,7 @@ func TestNewPositionSizingDomain(t *testing.T) {
 				testCase.declaredMode, testCase.declaredValue)
 
 			if testCase.expectsError {
-				// The refusal carries the sentence alone, with no sentinel of its
-				// own. Two worlds ask this question now — a replay being set up and a
-				// bot being saved — and each wraps the sentence in the sentinel its
-				// own controller already maps. That a replay's refusal names the
-				// figure is asserted where a replay is: backtest_domain_test.go.
+				// The sentence carries no sentinel; replay and bot callers wrap it in their own (see backtest_domain_test.go).
 				require.Error(t, err)
 				assert.NotEmpty(t, err.Error())
 

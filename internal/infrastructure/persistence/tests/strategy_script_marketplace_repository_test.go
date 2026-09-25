@@ -12,17 +12,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// publishedAtNoon and publishedAtDusk are two moments far enough apart that an
-// ordering by them cannot be a coincidence.
 var (
 	publishedAtNoon = time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	publishedAtDusk = time.Date(2026, 9, 10, 18, 0, 0, 0, time.UTC)
 )
 
 func TestStrategyScriptsOfTwoPeopleMayShareAName(t *testing.T) {
-	// A name is what its owner recognises a strategy script by, and nobody recognises a
-	// stranger's. One shared pool would mean the first person here takes the good
-	// names away from everybody else for good.
+	// Script names are unique per owner, not globally.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	secondOwnerID := aSecondOwner(t, database)
@@ -55,9 +51,7 @@ func TestFindAllOwnedByAnswersOnlyThatPersonsStrategyScripts(t *testing.T) {
 }
 
 func TestPublishStrategyScriptTwiceKeepsOneRowAndTheFirstMoment(t *testing.T) {
-	// Publishing states the state to end in, not an event. Saying it twice says the
-	// same thing as saying it once, and the strategy script has been out there since the
-	// first time — pressing the button again does not change when that started.
+	// Publishing twice is idempotent and keeps the original publication time.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
@@ -129,8 +123,6 @@ func TestFindAllPublishedOrdersByTheNewestPublicationFirst(t *testing.T) {
 }
 
 func TestFindAllPublishedCarriesTheStrategyScriptItsKnobsAndItsOwner(t *testing.T) {
-	// A listing of identifiers would send the reader round again per row, and the
-	// marketplace is the one page where every row needs all of it.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	withKnob := strategyScriptNamed("布林通道")
@@ -168,9 +160,7 @@ func TestAdoptStrategyScriptTwiceKeepsOneRow(t *testing.T) {
 }
 
 func TestAdoptSomethingNotOnTheMarketplaceIsRefusedAsNotFound(t *testing.T) {
-	// There is no publication for the shelf entry to hang from, and the schema is
-	// what finds out — asking first and writing afterwards would let a withdrawal
-	// land in between and leave a shelf pointing at nothing.
+	// The foreign key, not a prior read, rejects adopting an unpublished script, avoiding a race with withdrawal.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	adopterID := aSecondOwner(t, database)
@@ -195,8 +185,7 @@ func TestAbandonSomethingNeverAdoptedIsNotAFailure(t *testing.T) {
 }
 
 func TestWithdrawingAStrategyScriptClearsEverybodysAdoptionOfIt(t *testing.T) {
-	// This is the whole implementation of that rule: the adoptions hang off the
-	// publication with a cascade, so no line of Go performs it and none can forget.
+	// Withdrawal removes adoptions through a schema cascade, not Go code.
 	database := newStrategyScriptTestDatabase(t)
 	adopterID := aSecondOwner(t, database)
 	strategyScriptID := aPublishedStrategyScript(t, database)
@@ -237,9 +226,7 @@ func TestFindAllAdoptedByOrdersByTheStrategyScriptsName(t *testing.T) {
 	strategyScriptAdoptionRepository := persistence.NewStrategyScriptAdoptionRepository(database)
 	adopterID := aSecondOwner(t, database)
 
-	// The names are plain letters on purpose: how a database orders Chinese
-	// characters depends on its collation, and this case is about the column the
-	// ordering names, not about anybody's collation.
+	// ASCII names avoid depending on the database's collation for Chinese.
 	for _, name := range []string{"beta", "alpha"} {
 		savedStrategyScript, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed(name))
 		require.NoError(t, saveError)
@@ -270,8 +257,6 @@ func TestFindAllAdoptedBySeesOnlyThatPersonsShelf(t *testing.T) {
 	assert.Empty(t, adopted, "one person adopting something puts nothing on anybody else's shelf")
 }
 
-// aPublishedStrategyScript saves a strategy script for the usual owner, puts it on the
-// marketplace, and answers with its identifier.
 func aPublishedStrategyScript(t *testing.T, database *gorm.DB) uint {
 	t.Helper()
 
@@ -285,10 +270,7 @@ func aPublishedStrategyScript(t *testing.T, database *gorm.DB) uint {
 }
 
 func TestEveryMarketplaceOperationReportsAnUnusableStore(t *testing.T) {
-	// A store that will not answer must never come back as a business answer. Read
-	// as "not published" or "not on anybody's shelf", an outage would refuse people
-	// in words they cannot tell from a real refusal, and they would go looking for
-	// a strategy script that is sitting right there.
+	// A storage failure must never be reported as a business answer like "not published".
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
@@ -346,9 +328,7 @@ func TestEveryMarketplaceOperationReportsAnUnusableStore(t *testing.T) {
 }
 
 func TestRewritingAStrategyScriptDoesNotChangeWhoItBelongsTo(t *testing.T) {
-	// A strategy script never changes hands, and the write path is where that could
-	// quietly stop being true: the owner is not on the list of columns a rewrite
-	// may touch, so a rewrite carrying somebody else's identifier reaches nothing.
+	// The owner is not a writable column, so a rewrite carrying another owner changes nothing.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	secondOwnerID := aSecondOwner(t, database)
@@ -371,8 +351,7 @@ func TestRewritingAStrategyScriptDoesNotChangeWhoItBelongsTo(t *testing.T) {
 }
 
 func TestRepublishingDoesNotBringBackAnybodysAdoption(t *testing.T) {
-	// The owner took it back, and taking it back is not an agreement that everyone
-	// gets it again the moment they change their mind. Each person decides afresh.
+	// Republishing after withdrawal does not restore earlier adoptions.
 	database := newStrategyScriptTestDatabase(t)
 	adopterID := aSecondOwner(t, database)
 	strategyScriptID := aPublishedStrategyScript(t, database)
@@ -390,9 +369,7 @@ func TestRepublishingDoesNotBringBackAnybodysAdoption(t *testing.T) {
 }
 
 func TestRewritingAPublishedStrategyScriptLeavesItPublishedAndAdopted(t *testing.T) {
-	// Publishing hands out the use of an algorithm, not a frozen copy. An owner who
-	// fixes a mistake should not also have to remember to publish again, and
-	// whoever is using it should get the fix.
+	// Adopters see the owner's latest version, not a frozen copy.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	adopterID := aSecondOwner(t, database)
@@ -422,8 +399,7 @@ func TestRewritingAPublishedStrategyScriptLeavesItPublishedAndAdopted(t *testing
 }
 
 func TestAnOwnersOwnStrategyScriptsSayWhetherTheyAreOnTheMarketplace(t *testing.T) {
-	// It is what decides whether the button in front of the owner publishes or
-	// withdraws, so getting it wrong shows them the opposite of what they can do.
+	// This decides whether the owner sees publish or withdraw.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	published := aPublishedStrategyScript(t, database)

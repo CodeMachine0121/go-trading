@@ -15,19 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The two paths a Taiwan candle can reach the system by are read side by side here,
-// from one answer, on purpose.
-//
-// This feature has now been wrong twice about how the live figures relate to the
-// stored ones — once about the unit, once about which field carried a price — and
-// both times every test stayed green, because every test asked one path in isolation
-// about data I had written myself. A live update only means anything next to the
-// history it lands beside, so that relationship is what this pins.
-//
-// Both paths now ask the same venue for the same shape, so a difference between them
-// could only be something this system did on the way in. There is deliberately no
-// arithmetic anywhere in the expected values below: the answer states 344, and both
-// paths must say 344.
+// Both paths read the same answer, so any difference is something this system introduced; expected values are the raw reported figures with no arithmetic.
 func TestTheLiveFollowAndTheStoredHistoryReportAMinuteIdentically(t *testing.T) {
 	const reportedVolume = "344"
 	const reportedClose = "112.95"
@@ -54,13 +42,11 @@ func TestTheLiveFollowAndTheStoredHistoryReportAMinuteIdentically(t *testing.T) 
 	assert.True(t, historyKCandle.OpenTime.Equal(liveKCandle.OpenTime),
 		"the same minute must be filed under the same moment either way")
 
-	// Said against the answer rather than against each other, so that both paths
-	// agreeing on something invented would still fail.
+	// Asserted against the answer, not each other, so both agreeing on an invented figure still fails.
 	assert.Equal(t, reportedVolume, liveKCandle.Volume.String())
 	assert.Equal(t, reportedClose, liveKCandle.Close.String())
 }
 
-// fetchStoredMinute takes the path the scheduled round takes.
 func fetchStoredMinute(t *testing.T, sourceUrl string) vo.MarketKCandleVo {
 	t.Helper()
 
@@ -81,7 +67,6 @@ func fetchStoredMinute(t *testing.T, sourceUrl string) vo.MarketKCandleVo {
 	return marketKCandles[0]
 }
 
-// followLiveMinute takes the path a viewer's chart takes.
 func followLiveMinute(t *testing.T, sourceUrl string) vo.LiveKCandleVo {
 	t.Helper()
 

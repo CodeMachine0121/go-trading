@@ -8,12 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
-// TradingStrategyListAssistantQuery lets the assistant see which sets of rules the
-// person already has.
-//
-// It exists for the conversation that picks up where one left off — "carry on with
-// the one we built yesterday" names nothing the assistant can act on until it can
-// find out what that was.
+// TradingStrategyListAssistantQuery lets the assistant find the person's existing trading
+// strategies, e.g. to resume "the one we built yesterday".
 type TradingStrategyListAssistantQuery struct {
 	tradingStrategyApplication *application.TradingStrategyApplication
 }
@@ -39,20 +35,17 @@ func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Argu
 	return `{"type":"object","properties":{},"additionalProperties":false}`
 }
 
-// tradingStrategyDigest is a trading strategy as it appears in a list: enough to pick
-// one by, and enough to see which ones cannot be replayed, without the trees.
+// tradingStrategyDigest lists a trading strategy without its trees.
 type tradingStrategyDigest struct {
 	ID           uint     `json:"id"`
 	Name         string   `json:"name"`
 	SourceLabels []string `json:"sourceLabels"`
-	// AggregationIntervals is every coarseness this one's sources read, in source
-	// order. More than one distinct value means it cannot be replayed — saying so
-	// here saves reading the whole thing only to be refused later.
+	// AggregationIntervals lists each source's interval in order; more than one distinct value means
+	// the strategy cannot be replayed.
 	AggregationIntervals []string `json:"aggregationIntervals"`
 }
 
-// Run hands over, in brief, every trading strategy the person who asked owns.
-// Holding none is an answer, not a refusal.
+// Run lists every trading strategy the asker owns; holding none is an answer, not a refusal.
 func (tradingStrategyListAssistantQuery *TradingStrategyListAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, _ string,
 ) (string, error) {

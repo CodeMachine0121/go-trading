@@ -9,13 +9,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// BacktestApplication orchestrates the strategy script backtest use cases: resolve the
-// strategy script the caller named, then replay it — on a spot account, or on a
-// contract account.
-//
-// It joins the same two kinds of domain service an indicator calculation does, and for
-// the same reason — a script that arrives from outside is a script the caller already
-// holds.
 type BacktestApplication struct {
 	strategyScriptService   *service.StrategyScriptService
 	backtestService         *service.BacktestService
@@ -34,13 +27,7 @@ func NewBacktestApplication(
 	}
 }
 
-// RunBacktest replays whatever this caller is asking to replay on a spot account: the
-// strategy script they named, or the algorithm they wrote themselves. The choice is
-// settled by the same model a calculation uses, so the two use cases cannot drift on
-// what "one or the other" means.
-//
-// The kind of value is not taken from either, because a replay always reads
-// signals — there is nothing for anybody to declare that the replay would honour.
+// RunBacktest replays the named strategy script or the caller's own algorithm on a spot account; the value kind is ignored because a replay always reads signals.
 func (backtestApplication *BacktestApplication) RunBacktest(
 	executionContext context.Context,
 	viewerID uint,
@@ -59,8 +46,6 @@ func (backtestApplication *BacktestApplication) RunBacktest(
 	return backtestApplication.backtestService.RunBacktest(executionContext, requestDto)
 }
 
-// RunContractBacktest replays a contract strategy script, named or written, on a
-// contract account.
 func (backtestApplication *BacktestApplication) RunContractBacktest(
 	executionContext context.Context,
 	viewerID uint,
@@ -79,11 +64,7 @@ func (backtestApplication *BacktestApplication) RunContractBacktest(
 	return backtestApplication.contractBacktestService.RunContractBacktest(executionContext, requestDto)
 }
 
-// resolveReplayable is the script a replay over that kind of market will run: the one
-// written in the request, or the named one — which has to be visible to this person and
-// has to eat that kind of market. A script eating the other kind is refused for what it
-// is, rather than being fed a shape its entry point does not take and reported as
-// written wrong.
+// resolveReplayable returns the written script or the visible named one, refusing a named script built for the other market kind rather than reporting it as malformed.
 func (backtestApplication *BacktestApplication) resolveReplayable(
 	executionContext context.Context,
 	viewerID uint,

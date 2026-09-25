@@ -15,9 +15,7 @@ import (
 
 const maxCandleCount = 1000
 
-// calculationNow is the moment every test below is asked at, so that "up to when"
-// is decided by the arguments rather than by whenever the suite happens to run.
-// It sits 37 minutes into an hour, which is what makes the running bucket visible.
+// calculationNow is 37 minutes into an hour so the still-running bucket is visible.
 var calculationNow = time.Date(2026, 9, 3, 8, 37, 0, 0, time.UTC)
 
 func momentAt(clockReading string) time.Time {
@@ -29,9 +27,7 @@ func momentAt(clockReading string) time.Time {
 	return moment.UTC()
 }
 
-// storedCandlesNewestFirst builds candles in the order storage hands them back. Only
-// the open time matters to grouping, so nothing else is filled in beyond what a
-// merge needs to have something to say.
+// storedCandlesNewestFirst mirrors storage order; only open times matter to grouping.
 func storedCandlesNewestFirst(openTimes ...string) []entities.KCandle {
 	kCandles := make([]entities.KCandle, 0, len(openTimes))
 	for _, openTime := range openTimes {
@@ -45,9 +41,7 @@ func storedCandlesNewestFirst(openTimes ...string) []entities.KCandle {
 	return kCandles
 }
 
-// fullBucketsNewestFirst fills whole hours with all twelve of their five-minute
-// candles, newest first, so that a read reaches its limit exactly on a bucket's
-// worth — which is what tells the truncation rule apart from the ordinary one.
+// fullBucketsNewestFirst fills whole hours with twelve five-minute candles so a read's limit lands exactly on a bucket boundary.
 func fullBucketsNewestFirst(hours ...string) []entities.KCandle {
 	kCandles := make([]entities.KCandle, 0, len(hours)*12)
 	for _, hour := range hours {
@@ -64,11 +58,7 @@ func fullBucketsNewestFirst(hours ...string) []entities.KCandle {
 	return kCandles
 }
 
-// calculationRequest asks about a stretch long enough to hold exactly that many
-// slots. The tests below are written in slots because that is what the rules they
-// check are about; a round-the-clock market trades every minute of the stretch, so
-// the two are the same number there — which is what makes the stretch a faithful way
-// to say "this many".
+// calculationRequest spans exactly that many slots; for a round-the-clock market slots and stretch length agree.
 func calculationRequest(
 	declaredInterval string, candleCount int, endTime time.Time,
 ) dto.IndicatorCalculationRequestDto {
@@ -86,9 +76,7 @@ func calculationRequest(
 	}
 }
 
-// slotSpan is how long that many slots of that coarseness cover. A coarseness the
-// system does not recognise is measured in minutes, which is never read: the
-// calculation refuses the coarseness before it ever looks at the stretch.
+// slotSpan measures unknown intervals in minutes, which is never read because the interval is refused first.
 func slotSpan(declaredInterval string, slotCount int) time.Duration {
 	interval, intervalError := domains.NewAggregationIntervalDomain(declaredInterval)
 	if intervalError != nil {
@@ -111,13 +99,7 @@ func calculationFor(
 	return calculationDomain
 }
 
-// hourlyOpenTimesEndingBefore lists whole hours reaching back that far, newest first,
-// all of them finished by the moment the tests ask at — leaving out the hours named,
-// counted the same way, so that a stretch can be spanned with holes in it.
-//
-// Reaching back N hours and skipping none gives N buckets; skipping one gives N−1
-// from the same span, which is the only way to tell "no market in that hour" apart
-// from "the stretch is one hour shorter".
+// hourlyOpenTimesEndingBefore lists finished hours newest first, skipping the named ones so a span can have holes (distinguishing "no market that hour" from a shorter stretch).
 func hourlyOpenTimesEndingBefore(hoursBackLimit int, untradedHoursBack ...int) []string {
 	skipped := make(map[int]bool, len(untradedHoursBack))
 	for _, hoursBack := range untradedHoursBack {
@@ -138,9 +120,7 @@ func hourlyOpenTimesEndingBefore(hoursBackLimit int, untradedHoursBack ...int) [
 	return openTimes
 }
 
-// calculationWithLookback builds a calculation over the given span whose strategy script
-// declares one look-back knob, which is the only thing that moves the floor. A
-// look-back of zero declares no knob at all.
+// calculationWithLookback declares one look-back parameter (none when zero), the only thing that moves the floor.
 func calculationWithLookback(
 	t *testing.T, requestedSpan int, lookbackCount float64,
 ) domains.IndicatorCalculationDomain {
@@ -219,19 +199,14 @@ func TestNewIndicatorCalculationDomainRejectsBrokenRequests(t *testing.T) {
 }
 
 func TestTheCeilingAcceptsExactlyItsOwnLimit(t *testing.T) {
-	// The rejected side is covered above; this is the accepted side of the same line.
-	// An off-by-one here would turn away the widest stretch the system does allow,
-	// and nothing else would notice — the message would read perfectly sensibly.
+	// The accepted side of the ceiling; an off-by-one would refuse the widest allowed stretch unnoticed.
 	calculationDomain := calculationFor(t, "1m", maxCandleCount)
 
 	assert.Equal(t, maxCandleCount, calculationDomain.CandleCount())
 }
 
 func TestNewIndicatorCalculationDomainCountsAggregatedCandlesNotStoredOnes(t *testing.T) {
-	// A thousand daily candles is nearly three years of market and 288,000 stored
-	// candles behind them; a thousand five-minute candles is three and a half days.
-	// The ceiling is about how many the script is handed, so both are equally allowed
-	// and neither buys nor costs room for being coarse.
+	// The ceiling limits candles handed to the script, so coarse and fine intervals are equally allowed.
 	testCases := []struct {
 		declaredInterval string
 		candleCount      int
@@ -279,9 +254,7 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredInterval(t *testing.T) {
 }
 
 func TestReadCutoffStopsBeforeTheBucketStillRunning(t *testing.T) {
-	// The cut-off is where reading stops, and everything read is therefore from a
-	// bucket that has finished. A value computed from a bucket half way through
-	// would change on its own as the minutes passed.
+	// Only finished buckets are read, since a running bucket's value would change on its own.
 	testCases := []struct {
 		name             string
 		declaredInterval string
@@ -335,9 +308,7 @@ func TestReadCutoffStopsBeforeTheBucketStillRunning(t *testing.T) {
 }
 
 func TestReadCutoffTreatsAnEndTimeThatHasNotArrivedAsNow(t *testing.T) {
-	// A chart scrolled a little past its right edge asks about the future as a
-	// matter of course. Refusing would break that; the market simply cannot be read
-	// past the present, so the answer is the same as asking about now.
+	// Asking about the future (e.g. a chart scrolled past its edge) is answered as asking about now, not refused.
 	testCases := []struct {
 		name    string
 		endTime time.Time
@@ -359,9 +330,7 @@ func TestReadCutoffTreatsAnEndTimeThatHasNotArrivedAsNow(t *testing.T) {
 }
 
 func TestSourceCandleLimitCoversTheBucketsAskedForPlusOneSpare(t *testing.T) {
-	// The spare bucket is what a read has to give back when it stops part way
-	// through the earliest one. Without it, a truncated bucket would either be
-	// merged short or leave the answer one candle light.
+	// The spare bucket covers a read that stops partway through the earliest bucket.
 	testCases := []struct {
 		declaredInterval string
 		candleCount      int
@@ -409,9 +378,7 @@ func TestSelectInputCandlesTakesTheOnesNearestTheEndTime(t *testing.T) {
 }
 
 func TestSelectInputCandlesSkipsTheStretchesWithNoMarketInThem(t *testing.T) {
-	// The hour in between is missing altogether. Reading a number of candles rather
-	// than a stretch of time is what makes this free: the same number simply reaches
-	// further back, and nothing is invented for the gap.
+	// Reading a count of candles simply reaches further back over a missing hour; nothing is invented.
 	calculationDomain := calculationFor(t, "1h", 2)
 
 	kCandleVos, selectionError := calculationDomain.SelectInputCandles(storedCandlesNewestFirst(
@@ -423,8 +390,7 @@ func TestSelectInputCandlesSkipsTheStretchesWithNoMarketInThem(t *testing.T) {
 }
 
 func TestSelectInputCandlesCountsABucketHoldingOneCandle(t *testing.T) {
-	// A bucket is not required to be full. An hour in which the market traded once
-	// is an hour in which the market traded.
+	// A bucket need not be full.
 	calculationDomain := calculationFor(t, "1h", 1)
 
 	kCandleVos, selectionError := calculationDomain.SelectInputCandles(
@@ -437,13 +403,7 @@ func TestSelectInputCandlesCountsABucketHoldingOneCandle(t *testing.T) {
 }
 
 func TestSelectInputCandlesNeverHandsOverABucketTheReadCutInHalf(t *testing.T) {
-	// A read stops at a fixed number of stored candles, which does not land on a
-	// bucket edge: here it reaches 06:00 but only picks up half of it. Merging that
-	// half would understate the hour's opening price and its volumes, and the value
-	// computed from it would look no different from a right one.
-	//
-	// Nothing has to detect that. Reading one bucket more than was asked for, and
-	// handing over the latest ones, together put the half-read bucket out of reach.
+	// A read limit stopping mid-bucket (here half of 06:00) would understate that bucket; reading one spare bucket and keeping the latest ones leaves it out.
 	calculationDomain := calculationFor(t, "1h", 2)
 	require.Equal(t, 180, calculationDomain.SourceCandleLimit())
 
@@ -472,9 +432,7 @@ func TestSelectInputCandlesNeverHandsOverABucketTheReadCutInHalf(t *testing.T) {
 }
 
 func TestSelectInputCandlesKeepsEveryBucketAReadThatCameUpShortFound(t *testing.T) {
-	// Three buckets holding one candle each is nowhere near the limit, so the read
-	// reached the end of what is stored and the earliest bucket is whole. Asking for
-	// all three of them therefore succeeds.
+	// Far below the limit, the read reached the end of storage, so the earliest bucket is whole.
 	calculationDomain := calculationFor(t, "1h", 3)
 
 	kCandleVos, selectionError := calculationDomain.SelectInputCandles(storedCandlesNewestFirst(
@@ -485,11 +443,7 @@ func TestSelectInputCandlesKeepsEveryBucketAReadThatCameUpShortFound(t *testing.
 }
 
 func TestSelectInputCandlesAnswersOverWhateverIsThere(t *testing.T) {
-	// Coming up short is not the caller's mistake. How many buckets are asked for is
-	// worked out from how wide a stretch is being looked at, so a chart reaching
-	// further back than storage does has asked about a stretch that is only partly
-	// there — and a shorter answer is the honest one. Refusing hands back nothing and
-	// leaves the reader zooming around to find a coarseness that happens to fit.
+	// Coming up short of storage returns a shorter answer rather than a refusal, since the count derives from the viewed stretch.
 	testCases := []struct {
 		name                    string
 		candleCount             int
@@ -552,9 +506,7 @@ func TestSelectInputCandlesAnswersOverWhateverIsThere(t *testing.T) {
 }
 
 func TestSelectInputCandlesRefusesAStretchTooThinToYieldOneValue(t *testing.T) {
-	// The floor is not "as many as were asked for" — it is "enough for a single
-	// value". Below it there is nothing to hand over at all, so this stays a refusal,
-	// and it names both counts because the way out depends on them.
+	// Below the floor (enough for one value) it is still refused, naming both counts.
 	testCases := []struct {
 		name              string
 		lookbackCount     float64
@@ -601,9 +553,7 @@ func TestSelectInputCandlesRefusesAStretchTooThinToYieldOneValue(t *testing.T) {
 }
 
 func TestSelectInputCandlesAnswersAtExactlyTheFloor(t *testing.T) {
-	// The boundary is inclusive, and it has to be: a look-back of twenty produces its
-	// first value on the twentieth candle, so twenty is enough for one value. Getting
-	// this off by one would refuse the very stretch that just became answerable.
+	// Inclusive: a twenty look-back yields its first value on the twentieth candle.
 	calculationDomain := calculationWithLookback(t, 100, 3)
 
 	kCandleVos, selectionError := calculationDomain.SelectInputCandles(
@@ -615,9 +565,7 @@ func TestSelectInputCandlesAnswersAtExactlyTheFloor(t *testing.T) {
 }
 
 func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
-	// The floor moves with what the strategy script declares, and these cases pin it through
-	// the refusal rather than by asking for the number: what matters is which stretch
-	// gets turned away, and the count it names is how a caller says why.
+	// The floor follows the declared look-back and is pinned through the refusal and the count it names.
 	testCases := []struct {
 		name            string
 		parameters      []dto.StrategyScriptParameterWriteDto
@@ -661,14 +609,7 @@ func TestTheFloorIsTheHungriestDeclaredLookback(t *testing.T) {
 }
 
 func TestTheFloorCountsOnlyBucketsThatHoldSomething(t *testing.T) {
-	// Sixty hours of history, but the market never traded in one of them. That hour
-	// is not a bucket, so a look-back of sixty still has nothing to say — and the
-	// refusal names 59, not 60.
-	//
-	// The gap has to be in the middle for this to mean anything. Sixty contiguous
-	// hours minus the oldest is just a shorter stretch, and that case is already
-	// covered above; only a hole inside the span tells "no market in that hour" apart
-	// from it, and only it would break if empty buckets were ever filled in.
+	// One untraded hour mid-span isn't a bucket, so 60 hours give 59; only a hole inside the span would break if empty buckets were filled in.
 	requestDto := calculationRequest("1h", 100, time.Time{})
 	requestDto.Parameters = []dto.StrategyScriptParameterWriteDto{
 		{Name: "期數", Kind: "lookbackCount", DefaultValue: 60}}
@@ -704,8 +645,7 @@ func TestCandleCountIsWhatAFullAnswerWouldHaveTaken(t *testing.T) {
 }
 
 func TestSelectInputCandlesMergesEachBucketBeforeHandingItOver(t *testing.T) {
-	// What the script sees is the bucket, not the candles in it: one hour's worth of
-	// five-minute candles arrives as a single candle covering that hour.
+	// The script sees one merged candle per bucket.
 	calculationDomain := calculationFor(t, "1h", 1)
 
 	kCandleVos, selectionError := calculationDomain.SelectInputCandles([]entities.KCandle{
@@ -775,11 +715,7 @@ func TestNewIndicatorCalculationDomainReadsTheDeclaredResultType(t *testing.T) {
 }
 
 func TestSelectInputCandlesHandsOverExactlyWhatWasAskedForAndNeverGuessesAMinimum(t *testing.T) {
-	// A strategy script no longer records how many candles its algorithm needs, and nothing
-	// took that job over: an algorithm that needs fifty to be worth anything is
-	// handed ten if ten is what was asked for. The calculation never sees the script,
-	// so it has nothing to work a minimum out from — this test pins that absence,
-	// because the tempting "helpful" fix is to invent one here.
+	// No minimum candle count is invented: the calculation never sees the script, so it can't derive one.
 	for _, candleCount := range []int{1, 3, 10} {
 		calculationDomain := calculationFor(t, "1h", candleCount)
 		storedOpenTimes := make([]string, 0, 20)
@@ -797,8 +733,7 @@ func TestSelectInputCandlesHandsOverExactlyWhatWasAskedForAndNeverGuessesAMinimu
 	}
 }
 
-// 這條式子就是使用者不必再回答「要幾根」的原因，而它錯過一次：
-// `N + L − 1` 只在真的有東西要回看時才成立，沒有回看根數時它會少拿一根。
+// `N + L − 1` 只在有回看根數時成立，沒有回看時會少拿一根。
 func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -858,23 +793,19 @@ func TestInputCandleCountIsDerivedFromTheLookbackCounts(t *testing.T) {
 					Symbol: "BTCUSDT",
 					StartTime: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC).
 						Add(-time.Duration(testCase.requestedSpan) * time.Minute),
-					// One minute is the length a stored candle already covers, so one
-					// bucket is one candle and the read limit reads back as the input
-					// count plus the spare bucket — which is what this asserts.
+					// At one minute a bucket is one candle, so the read limit is the input count plus the spare bucket.
 					AggregationInterval: "1m",
 					ResultType:          "float",
 					Parameters:          testCase.parameters,
 				}, cryptoMarket(), 1000, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
 
 			require.NoError(t, buildError)
-			// 讀取上限是「要餵給算式的根數」加上多讀的那一格，所以反推得回來。
 			assert.Equal(t, testCase.expectedInput+1, calculationDomain.SourceCandleLimit())
 		})
 	}
 }
 
-// 上限判斷的對象是**真的要餵進去的根數**，不是呼叫端問的那個數字：
-// 一段不長的區間配上很長的回看，加起來一樣會超過。
+// 上限以實際要餵入的根數判斷，短區間配長回看一樣會超過。
 func TestTheCeilingIsJudgedAgainstWhatWillActuallyBeFed(t *testing.T) {
 	_, buildError := domains.NewIndicatorCalculationDomain(
 		dto.IndicatorCalculationRequestDto{
@@ -891,9 +822,7 @@ func TestTheCeilingIsJudgedAgainstWhatWillActuallyBeFed(t *testing.T) {
 	assert.Contains(t, buildError.Error(), "109")
 }
 
-// taiwanCalculationRequest asks about a stretch of Taipei-time market. It is written
-// in clock readings rather than in slots, because for a market that shuts the two
-// are exactly the thing that no longer agree.
+// taiwanCalculationRequest uses Taipei clock times because slots and clock time diverge for a market that closes.
 func taiwanCalculationRequest(
 	t *testing.T, declaredInterval string, startTime string, endTime string,
 	parameters []dto.StrategyScriptParameterWriteDto,
@@ -910,15 +839,9 @@ func taiwanCalculationRequest(
 	}
 }
 
-// 一段時間裡要看幾格，照市場自己的交易時段數——夜裡與週末不產生格子。
-// 讀取上限反推得回計算根數：一分鐘刻度下一格就是一根，上限是計算根數加多讀的那一格。
-// 2026-09-07 是週一，09-11 是週五。
+// 格數照市場自己的交易時段計算，夜裡與週末不產生格子；2026-09-07 週一、09-11 週五。
 func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
-	// 一分鐘刻度讓「幾格」與「幾根」是同一個數字，斷言因此讀得出格數本身。
-	//
-	// **起訖兩端都算在內**，所以一段整整一小時的盤中是 61 格而不是 60——
-	// 從第一分鐘到第六十一分鐘，兩端各一根。以前把交易時間除以刻度長度，
-	// 那個除法把右端那一根丟掉了。
+	// 一分鐘刻度下格數即根數；起訖兩端都算，所以整整一小時的盤中是 61 格。
 	testCases := []struct {
 		name              string
 		startTime         string
@@ -969,10 +892,9 @@ func TestTheSlotsAskedForFollowTheMarketsOwnHours(t *testing.T) {
 	}
 }
 
-// 同樣一段二十四小時，永不收盤的市場一格都不少——這一半本來就是對的，不能被改壞。
+// 永不收盤的市場一格都不少。
 func TestAMarketThatNeverClosesStillHoldsEverySlotOfTheStretch(t *testing.T) {
-	// 五分鐘刻度：整整一天是 288 格。一分鐘刻度下同一段是 1440 格，本來就超過單次上限——
-	// 那是既有規則，不是這次要驗的事。
+	// 五分鐘刻度下一天是 288 格（一分鐘刻度 1440 格會超過單次上限）。
 	requestDto := dto.IndicatorCalculationRequestDto{
 		Symbol:              "BTCUSDT",
 		AggregationInterval: "5m",
@@ -988,7 +910,7 @@ func TestAMarketThatNeverClosesStillHoldsEverySlotOfTheStretch(t *testing.T) {
 	assert.Equal(t, (288+1)*5, calculationDomain.SourceCandleLimit())
 }
 
-// 回看要的那一段歷史仍然往更早的行情取，跨過收盤是對的：計算根數是格數加回看減一。
+// 回看跨過收盤往更早的行情取：計算根數是格數加回看減一。
 func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -1005,7 +927,7 @@ func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 			expectedCandleCount: 54 + 19,
 		},
 		{
-			// 09:00 到 10:00 在五分鐘刻度上是 13 格（兩端都算），不是 12 格。
+			// 09:00 到 10:00 在五分鐘刻度上是 13 格（兩端都算）。
 			name:      "the first hour of a session with a twenty-bar look-back",
 			startTime: "2026-09-07T09:00:00+08:00", endTime: "2026-09-07T10:00:00+08:00",
 			parameters: []dto.StrategyScriptParameterWriteDto{
@@ -1028,13 +950,13 @@ func TestLookBackStillReachesBackPastTheClose(t *testing.T) {
 				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
 
 			require.NoError(t, buildError)
-			// 五分鐘刻度下一格是五根，讀取上限是（計算根數 + 多讀的那一格）× 五。
+			// 五分鐘刻度下一格五根：讀取上限是（計算根數 + 備用一格）× 五。
 			assert.Equal(t, (testCase.expectedCandleCount+1)*5, calculationDomain.SourceCandleLimit())
 		})
 	}
 }
 
-// 要看的那一段裡市場根本沒開，換什麼刻度都一樣——這是一種認得出來的拒絕。
+// 區間內市場完全沒開是一種可辨識的拒絕。
 func TestAStretchHoldingNoMarketIsRefusedAsItsOwnKind(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -1058,7 +980,7 @@ func TestAStretchHoldingNoMarketIsRefusedAsItsOwnKind(t *testing.T) {
 				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
 
 			require.ErrorIs(t, buildError, domains.ErrObservationWindowHoldsNoTrading)
-			// 與「湊不出最少可算根數」是兩種不同的拒絕：出路不一樣。
+			// 與「湊不出最少可算根數」是不同的拒絕，出路不同。
 			assert.NotErrorIs(t, buildError, domains.ErrIndicatorCalculationCandleCoverageTooThin)
 			assert.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
 			assert.Contains(t, buildError.Error(), "沒有交易")
@@ -1066,9 +988,7 @@ func TestAStretchHoldingNoMarketIsRefusedAsItsOwnKind(t *testing.T) {
 	}
 }
 
-// 休市日不預先扣除：推算格數只看「哪幾天交易、幾點到幾點」，不查假日名單。
-// 少掉的那一天由「計算根數」與「實際採用根數」的落差說出來，不是在這裡先扣掉。
-// 2026-09-07 是週一，09-09 是週三：三個平日、三段交易時段。
+// 推算格數不查假日名單，只看交易時段；2026-09-07 週一至 09-09 週三共三段。
 func TestHolidaysAreNotDeductedFromTheSlotsAskedFor(t *testing.T) {
 	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
 		taiwanCalculationRequest(
@@ -1076,16 +996,11 @@ func TestHolidaysAreNotDeductedFromTheSlotsAskedFor(t *testing.T) {
 		taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
 
 	require.NoError(t, buildError)
-	// 三個交易日 × 54 格 = 162 格，即使其中一天其實整天沒有交易。
+	// 三個交易日 × 54 格 = 162 格，即使其中一天整天沒交易。
 	assert.Equal(t, (162+1)*5, calculationDomain.SourceCandleLimit())
 }
 
-// 指標計算在較粗的刻度上，要看的格數與圖表問同一段時得到的是同一個數字。
-//
-// 上面那一組用一分鐘刻度，因為那時「幾格」與「幾根」是同一個數字、斷言讀得出格數本身；
-// 但一分鐘刻度**恰好是舊的除法也算得對的那幾種**。這一組刻意用較粗的刻度，
-// 從指標計算自己的出口斷言那個數字——否則「兩條路說出同一個數字」這件事
-// 只在細刻度上被證明過。
+// 較粗刻度下指標計算與圖表問同一段得到相同格數；一分鐘刻度恰好是舊除法也算對的情況，所以另外驗證。
 func TestTheSlotsAskedForAtACoarserInterval(t *testing.T) {
 	testCases := []struct {
 		name              string
@@ -1112,8 +1027,7 @@ func TestTheSlotsAskedForAtACoarserInterval(t *testing.T) {
 			expectedSlotCount: 1,
 		},
 		{
-			// 五個交易日在一天刻度是五格。除法會說不到一格,
-			// 於是這次計算會只為一個位置拿值,而使用者要的是五個。
+			// 除法會說不到一格，使用者要的卻是五個位置。
 			name: "five sessions at one day are five slots", declaredInterval: "1d",
 			startTime: "2026-09-07T00:00:00+08:00", endTime: "2026-09-12T00:00:00+08:00",
 			expectedSlotCount: 5,
@@ -1128,16 +1042,13 @@ func TestTheSlotsAskedForAtACoarserInterval(t *testing.T) {
 				taiwanStockMarket(), maxCandleCount, mustParseTime(t, "2026-09-14T23:00:00+08:00"))
 
 			require.NoError(t, buildError)
-			// 沒宣告回看根數，所以要看幾格就是要餵幾根——計算根數因此就是格數本身。
-			// 這裡刻意不看讀取上限：它的單位是**原始 K 線**，在較粗的刻度上會把格數
-			// 乘上一格裝得下幾根，於是斷言就再也讀不出格數。
+			// 沒有回看，計算根數即格數；不看讀取上限，因為它以原始 K 線計。
 			assert.Equal(t, testCase.expectedSlotCount, calculationDomain.CandleCount())
 		})
 	}
 }
 
-// 台股在較粗的刻度上看較長的觀察區間，照新的算法會超過上限——那正是這次讓它
-// 從答得出來變成被拒絕的組合，而舊的除法會說它只有兩百多格。
+// 台股較粗刻度的長區間照格數算會超過上限，舊除法卻只算兩百多格。
 func TestACoarseTaiwanWindowIsRefusedNowThatTheSlotsAreCounted(t *testing.T) {
 	_, buildError := domains.NewIndicatorCalculationDomain(
 		taiwanCalculationRequest(
@@ -1148,11 +1059,7 @@ func TestACoarseTaiwanWindowIsRefusedNowThatTheSlotsAreCounted(t *testing.T) {
 	assert.ErrorIs(t, buildError, domains.ErrIndicatorCalculationValidation)
 }
 
-// 全天候市場的一段短到裝不滿一格，仍然是「有交易」。
-//
-// 這一條是為了擋住一個很容易長回來的寫法：拿「格數等於零」當「沒有交易」。
-// 格數會取整，所以三十秒會被讀成零格——於是一個永不收盤的市場被回報成沒有交易，
-// 而通用語地圖與市場那份文件都寫著「全天候市場不可能遇到這一種」。
+// 全天候市場短於一格仍算有交易；格數取整為零不能當成沒有交易。
 func TestAStretchShorterThanOneSlotStillHoldsTradingOnAMarketThatNeverCloses(t *testing.T) {
 	calculationDomain, buildError := domains.NewIndicatorCalculationDomain(
 		dto.IndicatorCalculationRequestDto{
@@ -1165,6 +1072,6 @@ func TestAStretchShorterThanOneSlotStillHoldsTradingOnAMarketThatNeverCloses(t *
 		cryptoMarket(), maxCandleCount, calculationNow)
 
 	require.NoError(t, buildError)
-	// 不滿一格仍然要為一個位置拿值——那是下限一格在做的事。
+	// 下限一格：不滿一格仍為一個位置取值。
 	assert.Equal(t, 1, calculationDomain.CandleCount())
 }

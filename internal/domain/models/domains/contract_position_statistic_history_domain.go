@@ -6,28 +6,15 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// contractPositionStatisticDay is how long one day of position statistics is, and so
-// how long one file of the venue's archive covers.
+// contractPositionStatisticDay is also the span of one venue archive file.
 const contractPositionStatisticDay = 24 * time.Hour
 
-// ContractPositionStatisticHistoryDomain is the stretch of position statistics one
-// contract history sync walks, cut into the days it walks it in.
-//
-// **A day is a calendar day in UTC**, because that is how the venue's archive files
-// them: one file, one day, and asking about part of one is not a question it
-// answers. The stretch runs from the day the lookback reaches back into, through
-// today — the same lookback the candles are synced over, so the two histories cover
-// the same stretch.
-//
-// Today, and usually yesterday, have no file yet. They are still walked: finding that
-// out costs one question, and deciding in advance which days the venue has published
-// would be guessing at its schedule.
+// ContractPositionStatisticHistoryDomain cuts a history sync's lookback into UTC calendar days, matching how the venue files its archive.
+// Today and yesterday are walked even though they usually have no file yet, rather than guessing the venue's publishing schedule.
 type ContractPositionStatisticHistoryDomain struct {
 	days []vo.ContractPositionStatisticSyncDayVo
 }
 
-// NewContractPositionStatisticHistoryDomain settles the days against one reading of
-// the clock.
 func NewContractPositionStatisticHistoryDomain(
 	currentTime time.Time, lookback time.Duration,
 ) ContractPositionStatisticHistoryDomain {
@@ -46,14 +33,12 @@ func NewContractPositionStatisticHistoryDomain(
 	return ContractPositionStatisticHistoryDomain{days: days}
 }
 
-// Days are the days to walk, oldest first.
+// Days are oldest first.
 func (historyDomain ContractPositionStatisticHistoryDomain) Days() []vo.ContractPositionStatisticSyncDayVo {
 	return historyDomain.days
 }
 
-// IsDayComplete says whether a day already holding this many statistics is whole, and
-// so is not worth asking the archive about. A whole day is one statistic every five
-// minutes, from midnight to the last five minutes before the next.
+// IsDayComplete reports whether a day already holds one statistic per five minutes, so the archive need not be asked.
 func (historyDomain ContractPositionStatisticHistoryDomain) IsDayComplete(heldCount int) bool {
 	return heldCount >= int(contractPositionStatisticDay/ContractPositionStatisticInterval)
 }

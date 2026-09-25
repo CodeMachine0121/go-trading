@@ -1,17 +1,9 @@
 //go:build livecheck
 
-// This file is not part of the suite. It reaches the real venue, so it runs only when
-// somebody asks for it, during a session:
+// This file reaches the real venue to check what hand-written fixtures cannot, so it runs only on demand during a trading session:
 //
 //	TAIWAN_STOCK_API_KEY=... go test ./internal/infrastructure/marketdata/tests/ \
 //	  -tags livecheck -run TestAgainstTheRealVenue -v -timeout 10m
-//
-// It exists because of what the suite next door cannot do. Every fixture there is one
-// somebody wrote, so it can only prove the code matches what that person believed the
-// venue sends. This feature was wrong about that three times — the volume unit, which
-// field carried a price, and whether the public quote feed was fresh enough to build
-// candles from at all — and every time the suite stayed green while a live session
-// would not have. Only the venue settles those, and only while it is trading.
 package marketdata_test
 
 import (
@@ -35,13 +27,7 @@ var liveCheckSymbols = []string{"0050", "2303", "2454", "00631L"}
 
 var liveCheckTaipei = time.FixedZone("Asia/Taipei", 8*60*60)
 
-// TestAgainstTheRealVenue follows the real venue for a couple of minutes and then
-// asks it, separately, what those same minutes held.
-//
-// A minute the follow called finished must match the venue's own statement of it
-// exactly. Not approximately: both come from the same place, so any difference is
-// something this system did on the way in — which is precisely the class of mistake
-// that cost this feature a morning.
+// TestAgainstTheRealVenue checks that every minute the follow called finished matches the venue's own history exactly, since both come from the same source.
 func TestAgainstTheRealVenue(t *testing.T) {
 	apiKey := os.Getenv("TAIWAN_STOCK_API_KEY")
 	require.NotEmpty(t, apiKey, "the venue needs its key")
@@ -119,8 +105,6 @@ type venueKCandle struct {
 	close  decimal.Decimal
 }
 
-// venueCandles asks the venue directly what today held, so the follow can be checked
-// against it rather than against itself.
 func venueCandles(t *testing.T, apiKey string, symbol string) map[time.Time]venueKCandle {
 	t.Helper()
 

@@ -9,13 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// IndicatorCalculationApplication orchestrates the indicator calculation use case:
-// resolve the strategy script the caller named, then run it.
-//
-// The two steps are two domain services, and joining them is this layer's job — a
-// domain service does not call another. It is also what makes running somebody
-// else's strategy script possible without reading it: the script is fetched here and
-// handed straight to the calculation, and nothing on the way back out carries it.
+// IndicatorCalculationApplication joins script resolution and calculation, so another person's published script can run without its source leaving the server.
 type IndicatorCalculationApplication struct {
 	strategyScriptService               *service.StrategyScriptService
 	indicatorCalculationService         *service.IndicatorCalculationService
@@ -34,14 +28,7 @@ func NewIndicatorCalculationApplication(
 	}
 }
 
-// CalculateIndicator runs whatever this caller is asking to run over spot K candles:
-// the strategy script they named, or the algorithm they wrote themselves.
-//
-// Which of the two it is, is settled before anything else happens — by a model, so
-// that "one or the other, never both" is answered in one place for every use case
-// that runs something. A named strategy script then goes through the three gates, which is
-// what lets somebody run another person's published algorithm without being handed
-// it; an unsaved one is the caller's own text and needs no gate at all.
+// CalculateIndicator runs either the named strategy script (through the visibility gates) or the caller's own algorithm over spot K candles.
 func (indicatorCalculationApplication *IndicatorCalculationApplication) CalculateIndicator(
 	executionContext context.Context,
 	viewerID uint,
@@ -58,9 +45,7 @@ func (indicatorCalculationApplication *IndicatorCalculationApplication) Calculat
 		executionContext, runnableRequestDto)
 }
 
-// CalculateContractIndicator is CalculateIndicator over perpetual contract bars: the
-// same choice between a named strategy script and the caller's own algorithm, the
-// same three gates, and a calculation that feeds the script contract bars instead.
+// CalculateContractIndicator is CalculateIndicator over perpetual contract bars.
 func (indicatorCalculationApplication *IndicatorCalculationApplication) CalculateContractIndicator(
 	executionContext context.Context,
 	viewerID uint,
@@ -77,15 +62,7 @@ func (indicatorCalculationApplication *IndicatorCalculationApplication) Calculat
 		executionContext, runnableRequestDto)
 }
 
-// resolveRunnable fills the request in with the algorithm that is actually going to
-// run, for a calculation that feeds the given kind of market.
-//
-// A named strategy script is resolved through the three gates, and is then refused if
-// it eats the other kind of market: handed over anyway, its entry point would not
-// take what it is fed, and the caller would read "the script is written wrong" about
-// a script written exactly right for somewhere else. The caller's own algorithm is not
-// asked — carried to this calculation, it is by that act a script for this kind of
-// market, and an entry point that says otherwise is reported as the script's mistake.
+// resolveRunnable refuses a named script built for the other market kind so it isn't misreported as broken; the caller's own algorithm is assumed to target this market.
 func (indicatorCalculationApplication *IndicatorCalculationApplication) resolveRunnable(
 	executionContext context.Context,
 	viewerID uint,

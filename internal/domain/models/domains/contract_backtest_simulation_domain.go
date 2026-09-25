@@ -8,11 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractBacktestSimulationDomain replays a contract account bar by bar. Like its spot
-// counterpart it is pure arithmetic — bars, opinions and settlements in, a report card
-// out — and it is a model of its own rather than a mode of the spot one, because the
-// two change for different reasons: the spot one when spot trading rules change, this
-// one when the venue's do.
+// ContractBacktestSimulationDomain replays a contract account bar by bar as pure arithmetic, kept separate from the spot simulation because it follows venue rules.
 type ContractBacktestSimulationDomain struct {
 	initialCapital decimal.Decimal
 	positionTerms  ContractPositionTermsDomain
@@ -21,7 +17,7 @@ type ContractBacktestSimulationDomain struct {
 	tradingRules   ContractTradingRulesDomain
 	interval       AggregationIntervalDomain
 	buckets        []dto.KCandleContractDto
-	// signals holds exactly one opinion per bar: the nth belongs to the nth bar.
+	// signals holds exactly one opinion per bar.
 	signals     []SignalDomain
 	settlements []entities.ContractFundingRateSettlement
 }
@@ -50,10 +46,7 @@ func NewContractBacktestSimulationDomain(
 	}
 }
 
-// ToDto walks the bars once. Within a bar the order is the rule, and it is chosen so
-// that nothing the high and low cannot tell apart is ever read in the strategy's
-// favour: the bar's funding first, then the exit levels, then the bar's own signal,
-// filled at its close.
+// ToDto walks each bar as funding, then exit levels, then the bar's signal at its close, so ambiguous intrabar moves never favour the strategy.
 func (simulationDomain ContractBacktestSimulationDomain) ToDto() dto.ContractBacktestResultDto {
 	account := NewContractBacktestAccountDomain(simulationDomain.initialCapital, simulationDomain.positionTerms)
 	equityCurve := NewBacktestEquityCurveDomain(simulationDomain.initialCapital)
@@ -81,12 +74,7 @@ func (simulationDomain ContractBacktestSimulationDomain) ToDto() dto.ContractBac
 		settlementsOfBucket := earliestFirstSettlements[nextSettlement:settlementsInBucket]
 		nextSettlement = settlementsInBucket
 
-		// Filling at the next open, the previous bar's opinion is carried out at this
-		// bar's open. A settlement stamped exactly at that open happened before the
-		// fill, so only the position carried into the bar pays it; the bar's later
-		// settlements are paid by whatever is held after the fill. The exit levels are
-		// asked last, the position just opened included — its bar's high and low
-		// happen after it was filled. The last bar's opinion is never filled.
+		// Next-open fills: settlements at or before the open are paid by the carried position, then the previous bar's signal fills at the open, then later settlements and exit levels apply; the last bar's signal is never filled.
 		if simulationDomain.fillTiming.FillsAtNextOpen() {
 			settledAtOpen := 0
 			for settledAtOpen < len(settlementsOfBucket) &&

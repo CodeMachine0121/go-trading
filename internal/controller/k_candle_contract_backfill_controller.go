@@ -10,11 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleContractBackfillController catches one perpetual contract up on demand.
-//
-// It is its own controller rather than another handler on the contract candle one,
-// because what it exposes is not a candle: it is the ingestion, aimed at a single
-// contract.
+// KCandleContractBackfillController runs the ingestion for a single perpetual contract on demand.
 type KCandleContractBackfillController struct {
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication
 }
@@ -41,9 +37,7 @@ func (kCandleContractBackfillController *KCandleContractBackfillController) Catc
 	report, catchUpError := kCandleContractBackfillController.kCandleContractIngestionApplication.
 		CatchUpSymbol(ginContext.Request.Context(), backfillRequest.Symbol)
 	if catchUpError != nil {
-		// Naming a contract the system has never been told about is the caller's to
-		// fix, and it must not be answered the same way as a source that would not
-		// answer — one says "check what you asked for", the other "come back later".
+		// An unregistered contract is the caller's to fix and must not read like an unavailable source.
 		if errors.Is(catchUpError, domains.ErrTradingSymbolNotRegistered) {
 			ginContext.JSON(http.StatusNotFound, gin.H{"message": catchUpError.Error()})
 

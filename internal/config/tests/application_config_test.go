@@ -70,9 +70,6 @@ func TestLoadReadsTheIndicatorScriptAllowance(t *testing.T) {
 	}
 }
 
-// The three live follow rules are settings rather than constants because each is a
-// number the requirements name: a source that behaves differently is a value
-// change, not a code change.
 func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *testing.T) {
 	t.Run("未設定時採用規則所寫的值", func(t *testing.T) {
 		applicationConfig := config.Load()
@@ -113,9 +110,7 @@ func TestLiveFollowRulesComeFromTheEnvironmentAndFallBackToTheStatedDefaults(t *
 	})
 }
 
-// The sealing key has no default and must not grow one. A default key is a key
-// everybody running this code knows, and a secret locked with it is a secret in the
-// open that looks locked.
+// A default sealing key would be known to everyone running this code, so none must exist.
 func TestLoadLeavesTheSealingKeyEmptyWhenNothingIsSet(t *testing.T) {
 	applicationConfig := config.Load()
 
@@ -145,8 +140,7 @@ func TestLoadReadsHowLongItWillWaitForTelegram(t *testing.T) {
 	}{
 		{name: "a usable wait is taken as given", waitSeconds: "3", expectedTimeout: 3 * time.Second},
 		{name: "an unreadable wait falls back", waitSeconds: "soon", expectedTimeout: 10 * time.Second},
-		// A wait of nothing is not a wait, it is a system that never reaches
-		// Telegram at all — so it falls back rather than being honoured.
+		// A zero timeout would never reach Telegram, so it falls back to the default.
 		{name: "zero falls back", waitSeconds: "0", expectedTimeout: 10 * time.Second},
 		{name: "a negative wait falls back", waitSeconds: "-1", expectedTimeout: 10 * time.Second},
 	}
@@ -165,12 +159,7 @@ func TestLoadReadsHowLongItWillWaitForTelegram(t *testing.T) {
 }
 
 func TestLoadGivesTheAssistantEnoughQueriesToFinishWhatItStarted(t *testing.T) {
-	// The ceiling exists to stop one question costing without limit, but it also
-	// decides whether the assistant can finish a thought. It now builds a trading
-	// strategy, replays it, reads the report card, adjusts and replays again — about
-	// five queries a turn — so a ceiling in single figures cuts it off right after it
-	// has discovered the return is not good enough and before it can do anything
-	// about it, which is the least useful place to stop.
+	// The ceiling must allow build-replay-adjust loops of about five queries per turn.
 	testCases := []struct {
 		name          string
 		queryLimit    string
@@ -178,8 +167,6 @@ func TestLoadGivesTheAssistantEnoughQueriesToFinishWhatItStarted(t *testing.T) {
 	}{
 		{name: "nothing set leaves room for several turns", queryLimit: "", expectedLimit: 40},
 		{name: "a usable ceiling is taken as given", queryLimit: "12", expectedLimit: 12},
-		// A ceiling of nothing is not a ceiling, it is an assistant that may look at
-		// nothing at all — so it falls back rather than being honoured.
 		{name: "zero falls back", queryLimit: "0", expectedLimit: 40},
 		{name: "a negative ceiling falls back", queryLimit: "-1", expectedLimit: 40},
 		{name: "an unreadable ceiling falls back", queryLimit: "lots", expectedLimit: 40},
@@ -199,9 +186,7 @@ func TestLoadGivesTheAssistantEnoughQueriesToFinishWhatItStarted(t *testing.T) {
 func TestLoadAppliesAccountActivationDefaultsWhenNothingIsSet(t *testing.T) {
 	applicationConfig := config.Load()
 
-	// Both have a default, unlike the two keys, and the difference is that neither
-	// is a key. A mailbox anybody can guess gives nothing away; refusing to start
-	// for want of one would take the console down over a setting that guards nothing.
+	// Unlike the keys these have defaults, since neither value is a secret.
 	assert.Equal(t,
 		"james.afternoon.dev@gmail.com", applicationConfig.AccountActivation.RequestMailbox)
 	assert.Equal(t, "go-trading 開通申請", applicationConfig.AccountActivation.SubjectPrefix)
@@ -237,10 +222,8 @@ func TestLoadReadsHowTiredTheSignInDoorGets(t *testing.T) {
 }
 
 func TestLoadRefusesToLetAnybodySwitchTheSignInLockOff(t *testing.T) {
-	// A threshold of zero would shut every account on sight; a negative one, or a
-	// duration of zero, would open the door to unlimited guessing. Both fall back,
-	// so this lock has no "off" — which is the point, on an endpoint the whole
-	// internet can reach.
+	// Zero or negative values fall back, so the lockout can never be switched off on an
+	// internet-facing endpoint.
 	testCases := []struct {
 		name      string
 		threshold string

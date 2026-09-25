@@ -29,8 +29,7 @@ type strategyBotRouterUnderTest struct {
 	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
 	tradingStrategyRepository  *mocks.MockITradingStrategyRepository
 	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
-	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository are
-	// what a contract bot being saved is checked against.
+	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository validate contract bots on save.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 }
@@ -69,8 +68,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	marketCatalog := domains.NewMarketCatalogDomain(
 		map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 
-	// 兩邊共用同一組 service：一台機器人只有一份狀態，兩份會讓這幾個測試
-	// 在「按了按鈕之後那台變成什麼樣」上對不起來。
+	// 兩邊共用同一組 service，因為一台機器人只有一份狀態。
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(mockController)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)
@@ -81,8 +79,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)
-	// 啟動與停止會讓機器人說一句它自己的動靜；這幾個測試問的是路由與狀態碼，
-	// 所以整條投遞路徑一律放行。
+	// 啟停會發送通知；這些測試只關心路由與狀態碼，故投遞一律放行。
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
 
@@ -150,8 +147,7 @@ func (fixture strategyBotRouterUnderTest) send(
 	return recorder
 }
 
-// aStrategyBotBody is one bot: a name, a market, how often, and the rules it names.
-// The rules are not in the body — a bot names a set, it does not carry one.
+// aStrategyBotBody names a trading strategy rather than carrying its rules.
 const aStrategyBotBody = `{
 	"name": "早盤突破",
 	"symbol": "BTCUSDT",
@@ -159,8 +155,7 @@ const aStrategyBotBody = `{
 	"triggerIntervalMinutes": 5
 }`
 
-// expectResolvableTradingStrategy is the one question saving a bot asks of anything
-// outside itself: may this person use the rules they named?
+// expectResolvableTradingStrategy lets the viewer use the named trading strategy, the only outside check saving a bot makes.
 func (fixture strategyBotRouterUnderTest) expectResolvableTradingStrategy() {
 	fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
 		Return(entities.TradingStrategy{
@@ -184,7 +179,7 @@ func TestStrategyBotRouterCreatesABotAndAnswersWithIt(t *testing.T) {
 
 	fixture.strategyBotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) (entities.StrategyBot, error) {
-			// The rules a person named arrived as a name and nothing else.
+			// The trading strategy arrived as an identifier only.
 			assert.Equal(t, uint(9), bot.TradingStrategyID)
 			// The owner comes from the proof of identity, never from the body.
 			assert.Equal(t, signedInViewerID, bot.OwnerID)
@@ -199,10 +194,8 @@ func TestStrategyBotRouterCreatesABotAndAnswersWithIt(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
 	assert.Equal(t, "早盤突破", answer["name"])
 	assert.Equal(t, string(vo.StrategyBotStopped), answer["runState"])
-	// The rules' current name comes back beside their identifier, so a list says
-	// what each bot is doing without a second call per bot.
+	// The strategy's name comes back beside its identifier so lists need no extra call per bot.
 	assert.Equal(t, "黃金交叉", answer["tradingStrategyName"])
-	// A bot's owner is nothing a person reading their own bots learns from.
 	assert.NotContains(t, answer, "ownerId")
 }
 
@@ -527,8 +520,7 @@ func TestStrategyBotRouterReportsStorageThatCouldNotAnswerOnEveryRoute(t *testin
 	}
 }
 
-// aPositionPlannedStrategyBotBody is the same bot, saying what it should suggest
-// putting down each round.
+// aPositionPlannedStrategyBotBody is the same bot with a position plan.
 const aPositionPlannedStrategyBotBody = `{
 	"name": "早盤突破",
 	"symbol": "BTCUSDT",
@@ -570,8 +562,7 @@ func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, response.Code)
 
-	// It leaves in the answer too: a screen offering to edit this bot has to show the
-	// figures it is currently suggesting from.
+	// It is echoed back so an edit screen can show the current plan.
 	answer := struct {
 		PositionPlan struct {
 			Capital            string `json:"capital"`
@@ -584,31 +575,22 @@ func TestStrategyBotRouterCarriesThePositionPlanInAndBackOut(t *testing.T) {
 	assert.Equal(t, "percentage", answer.PositionPlan.SizingMode)
 	assert.Equal(t, "3", answer.PositionPlan.StopLossPercentage)
 
-	// And a multiplier does not leave with it. A plan that carried one nothing ever
-	// filled in would answer "0" on every bot forever — a figure on the wire saying
-	// this bot suggests no position at all, about a bot that suggests a tenth of
-	// fifty thousand. The word itself is what is checked: a shape nobody declares
-	// cannot be read by a name.
+	// No leverage field either: an unfilled multiplier would read "0" forever, so the word itself is checked.
 	assert.NotContains(t, response.Body.String(), "everage")
 }
 
-// Somebody still asking to borrow is told, rather than quietly saved a bot that means
-// something else.
-//
-// It is refused where the bot is settled and nowhere else: a round rebuilds the plan
-// from settings saved long ago, and a rule that refused there would stop a bot that
-// predates it — every round, silently, where nobody is reading.
+// A bot asking to borrow is refused on save only, since refusing during a round would silently stop bots saved before the rule.
 func TestStrategyBotRouterRefusesABotThatAsksToBorrow(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
 	fixture.expectResolvableTradingStrategy()
 
-	// Nothing is stored: gomock enforces it by having no expectation for Save.
+	// Nothing is stored: gomock has no expectation for Save.
 	response := fixture.send(http.MethodPost, "/strategy-bots", strings.Replace(
 		aPositionPlannedStrategyBotBody,
 		`"capital": "50000",`, `"capital": "50000", "leverage": "3",`, 1))
 
 	require.Equal(t, http.StatusBadRequest, response.Code)
-	// The replay's own sentence, because there is one of it.
+	// Reuses the replay's own message.
 	assert.Contains(t, response.Body.String(), "沒有人借錢給你")
 }
 
@@ -616,21 +598,18 @@ func TestStrategyBotRouterRefusesAPositionPlanItCannotUse(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
 	fixture.expectResolvableTradingStrategy()
 
-	// Nothing is stored: gomock enforces it by having no expectation for Save.
+	// Nothing is stored: gomock has no expectation for Save.
 	response := fixture.send(http.MethodPost, "/strategy-bots", strings.Replace(
 		aPositionPlannedStrategyBotBody, `"sizingValue": "10"`, `"sizingValue": "150"`, 1))
 
-	// The same status every other refused bot gets, because it carries the same
-	// sentinel — no controller learned a second one.
+	// Same status as any refused bot, because it carries the same sentinel.
 	require.Equal(t, http.StatusBadRequest, response.Code)
-	// The replay's own sentence, carried through — and no mention of a backtest,
-	// which is not what this person was doing.
+	// The replay's message is passed through, with no mention of a backtest.
 	assert.Contains(t, response.Body.String(), "百分比必須大於零且不超過一百")
 	assert.NotContains(t, response.Body.String(), "backtest")
 }
 
-// Leaving the whole group out is an ordinary thing to do: such a bot suggests nothing
-// and sends the message it sent before position plans existed.
+// Such a bot suggests no position and sends the plain message.
 func TestStrategyBotRouterAcceptsABotWithNoPositionPlan(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
 	fixture.expectResolvableTradingStrategy()

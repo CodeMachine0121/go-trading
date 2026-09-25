@@ -21,9 +21,7 @@ func TestSharedAggregationIntervalDomainAnswers(t *testing.T) {
 			expectedShared:       "1h",
 		},
 		{
-			name: "one on its own cannot disagree with anybody",
-			// The rule is about a set. A set of one has nothing to compare against,
-			// so whichever coarseness it reads is the shared one.
+			name:                 "one on its own cannot disagree with anybody",
 			aggregationIntervals: []string{"5m"},
 			expectedShared:       "5m",
 		},
@@ -34,7 +32,7 @@ func TestSharedAggregationIntervalDomainAnswers(t *testing.T) {
 		},
 		{
 			name: "every one it found is named, each once",
-			// Naming "1h" twice would read as four sources with four opinions.
+			// Duplicates collapse rather than counting as separate sources.
 			aggregationIntervals: []string{"1h", "1d", "1h", "5m"},
 			expectedNamed:        []string{"1h", "1d", "5m"},
 		},
@@ -65,8 +63,7 @@ func TestSharedAggregationIntervalDomainAnswers(t *testing.T) {
 	}
 }
 
-// Nothing at all is not a shared anything. It is refused rather than answered with
-// an empty coarseness, which would travel on as a query nobody could serve.
+// An empty set is refused rather than yielding an empty interval no query could serve.
 func TestSharedAggregationIntervalDomainRefusesAnEmptySet(t *testing.T) {
 	_, sharedError := domains.NewSharedAggregationIntervalDomain(nil).Shared()
 

@@ -10,25 +10,15 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// WatchlistEntryDomain is a request to start watching a market, checked as far as it
-// can be checked without asking the market itself.
-//
-// The two things it checks are the two nobody else can answer: a code has to be
-// something, and it has to be said to belong to a market this system recognises.
-// Whether that market has actually heard of the code is a question only the market
-// can answer, and asking it costs a round trip — so it happens after this, and only
-// for requests worth the trip.
+// WatchlistEntryDomain checks only what needs no round trip to the market; whether the
+// market knows the code is checked afterwards.
 type WatchlistEntryDomain struct {
 	symbol string
 	market vo.MarketVo
 }
 
-// NewWatchlistEntryDomain reads what was asked for, refusing a blank code and a
-// market the catalog does not recognise.
-//
-// Naming a market that does not exist is refused, even though reading a stored row
-// that names nothing is forgiven. The difference is that one is a request being made
-// now, which can be corrected, and the other is history, which cannot.
+// NewWatchlistEntryDomain refuses unknown markets on new requests, even though stored rows
+// naming none are tolerated.
 func NewWatchlistEntryDomain(
 	entryDto dto.WatchlistEntryDto, marketCatalogDomain MarketCatalogDomain,
 ) (WatchlistEntryDomain, error) {
@@ -50,26 +40,17 @@ func NewWatchlistEntryDomain(
 	}, nil
 }
 
-// Symbol is the code, with the blanks around it dropped.
+// Symbol is the trimmed code.
 func (watchlistEntryDomain WatchlistEntryDomain) Symbol() string {
 	return watchlistEntryDomain.symbol
 }
 
-// Market is the market this code belongs to.
 func (watchlistEntryDomain WatchlistEntryDomain) Market() vo.MarketVo {
 	return watchlistEntryDomain.market
 }
 
-// ToEntity is this entry as a registered, watched market, named as the venue named it.
-//
-// It keeps the registration time it was first given, so that adding back a market
-// somebody removed does not send it to the back of the queue for a market's follow
-// places. A symbol nobody registered before is stamped with now.
-//
-// The name comes in from the listing rather than out of the entry, because it is not
-// something the person asking gets to decide: they name a code, and the venue names
-// the company. A venue that gave no name leaves it empty rather than falling back to
-// the code — the code is already on screen next to it.
+// ToEntity keeps any earlier registration time so a re-added market keeps its place in the
+// follow queue; the display name comes from the venue and stays empty if it gave none.
 func (watchlistEntryDomain WatchlistEntryDomain) ToEntity(
 	listing vo.SymbolListingVo, previouslyRegisteredAt time.Time, currentTime time.Time,
 ) entities.TradingSymbol {

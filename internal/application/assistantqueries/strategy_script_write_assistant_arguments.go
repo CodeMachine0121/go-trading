@@ -2,20 +2,14 @@ package assistantqueries
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 
-// strategyScriptParameterAssistantArgument is one knob as the assistant declares it.
 type strategyScriptParameterAssistantArgument struct {
 	Name         string  `json:"name"`
 	Kind         string  `json:"kind"`
 	DefaultValue float64 `json:"defaultValue"`
 }
 
-// strategyScriptWriteAssistantArguments is what the assistant sends to save or rewrite a
-// strategy script.
-//
-// One shape serves both, exactly as it does for a person: a rewrite replaces
-// everything a strategy script remembers, so there is no field the assistant may set on one
-// path and not the other. Which strategy script is meant is the identifier, and a zero one
-// means none yet.
+// strategyScriptWriteAssistantArguments serves both save and rewrite, since a rewrite replaces
+// every field; a zero identifier means the script is new.
 type strategyScriptWriteAssistantArguments struct {
 	StrategyScriptID uint                                       `json:"strategyScriptId"`
 	Name             string                                     `json:"name"`
@@ -25,10 +19,8 @@ type strategyScriptWriteAssistantArguments struct {
 	Parameters       []strategyScriptParameterAssistantArgument `json:"parameters"`
 }
 
-// ToWriteDto turns what the assistant declared into the shape the domain judges,
-// taking the identity and the owner from the arguments so that the capability
-// calling this decides whether a strategy script is being saved or rewritten, and on whose
-// behalf. The assistant never names an owner itself — it acts for whoever asked it.
+// ToWriteDto takes the identity and owner from the calling capability, never from the assistant,
+// which always acts for whoever asked it.
 func (strategyScriptWriteAssistantArguments strategyScriptWriteAssistantArguments) ToWriteDto(id uint, ownerID uint) dto.StrategyScriptWriteDto {
 	parameterWriteDtos := make([]dto.StrategyScriptParameterWriteDto, 0, len(strategyScriptWriteAssistantArguments.Parameters))
 	for _, parameter := range strategyScriptWriteAssistantArguments.Parameters {
@@ -50,9 +42,8 @@ func (strategyScriptWriteAssistantArguments strategyScriptWriteAssistantArgument
 	}
 }
 
-// strategyScriptWriteArgumentSchema is the arguments both writing capabilities take. It is
-// written once because they take the same ones — the only difference is whether the
-// identifier is required, and each says that for itself.
+// strategyScriptWriteArgumentSchema is shared by both writing capabilities, which differ only in
+// whether the identifier is required.
 const strategyScriptWriteArgumentSchema = `` +
 	`"description":{"type":"string","description":"這支策略腳本在做什麼，發佈到市集時別人只看得到這一段"},` +
 	`"name":{"type":"string","description":"策略腳本名稱，不得空白、不得與既有策略腳本重複，上限 128 字"},` +

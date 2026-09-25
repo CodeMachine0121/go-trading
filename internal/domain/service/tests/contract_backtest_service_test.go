@@ -22,8 +22,7 @@ var contractBacktestServiceStart = time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
 
 var errStorageUnavailable = errors.New("storage unavailable")
 
-// contractBacktestServiceMocks are the boundaries of a contract replay. Each one
-// answers normally unless a case below makes it fail.
+// contractBacktestServiceMocks answer normally unless a case makes one fail.
 type contractBacktestServiceMocks struct {
 	kCandleContractRepository    *mocks.MockIKCandleContractRepository
 	settlementRepository         *mocks.MockIContractFundingRateSettlementRepository
@@ -44,7 +43,6 @@ func newContractBacktestServiceUnderTest(
 	return newContractBacktestServiceWithin(t, time.Minute, failure)
 }
 
-// newContractBacktestServiceWithin is the same replay given that whole-run allowance.
 func newContractBacktestServiceWithin(
 	t *testing.T, replayTimeAllowance time.Duration, failure func(contractBacktestServiceMocks),
 ) *service.ContractBacktestService {
@@ -137,9 +135,7 @@ func contractTradingStrategyBacktestServiceRequest() dto.ContractTradingStrategy
 	}
 }
 
-// contractBacktestServiceFailures is every boundary a replay reads, failing on its own.
-// Whatever it said is what the caller hears: a replay built on a read that failed is
-// not a shorter replay, it is a wrong one.
+// contractBacktestServiceFailures fails each boundary alone; its error must reach the caller, since a replay built on a failed read is wrong, not shorter.
 func contractBacktestServiceFailures() []contractBacktestServiceFailure {
 	return []contractBacktestServiceFailure{
 		{name: "the symbol cannot be read", failWith: func(boundaries contractBacktestServiceMocks) {

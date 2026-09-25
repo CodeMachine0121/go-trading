@@ -8,19 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// TradingStrategyReplaySourcesDomain is the signal half of replaying a trading
-// strategy: its sources, each with its script and knobs settled, the coarseness they
-// all share, and the two condition trees that turn one bar's several opinions into
-// one.
-//
-// It is one model shared by the spot and the contract replay of a trading strategy,
-// because the two must reach the same signal on the same bar from the same opinions —
-// a contract trading strategy with a single source must replay exactly as that one
-// script does. What they do with the signal afterwards is each replay's own business.
-//
-// The judgement itself goes through StrategyBotVerdictDomain, the model a live round
-// uses, for the reason it always has: a rehearsal and the thing it rehearses must not
-// be two separately written judgements.
+// TradingStrategyReplaySourcesDomain is shared by spot and contract replays and judges
+// through StrategyBotVerdictDomain, so replays and live rounds reach the same signal.
 type TradingStrategyReplaySourcesDomain struct {
 	sharedInterval string
 	sources        []resolvedSignalSource
@@ -28,19 +17,15 @@ type TradingStrategyReplaySourcesDomain struct {
 	sellCondition  TradingStrategyConditionDomain
 }
 
-// resolvedSignalSource is one source as a replay will run it: what to call it in the
-// conditions, the script, and its knobs already settled.
 type resolvedSignalSource struct {
 	label      string
 	script     string
 	parameters StrategyScriptParametersDomain
 }
 
-// NewTradingStrategyReplaySourcesDomain settles the sources for a replay that walks
-// over bars of that kind of market. The shared coarseness is asked first, because it
-// is the one rule that decides which bars every other rule is about; a source eating
-// the other kind of market is refused by name, because a source saved before that
-// rule existed can still be one.
+// NewTradingStrategyReplaySourcesDomain checks the shared interval first, then refuses
+// sources of the wrong market data kind by name, since sources saved before that rule may
+// still be one.
 func NewTradingStrategyReplaySourcesDomain(
 	signalSources []dto.ResolvedSignalSourceDto,
 	buyConditionDto dto.TradingStrategyConditionDto,
@@ -113,8 +98,6 @@ func NewTradingStrategyReplaySourcesDomain(
 	}, nil
 }
 
-// SharedInterval is the coarseness every source reads, which is the one the replay
-// walks at.
 func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SharedInterval() string {
 	return replaySourcesDomain.sharedInterval
 }
@@ -133,11 +116,8 @@ func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SourceParameters(
 	return replaySourcesDomain.sources[index].parameters
 }
 
-// Combine turns every source's opinion about each bar into that bar's one signal, and
-// says bar by bar whether both trees held. Such a bar is a hold — choosing a side for
-// the strategy would be trading on an opinion it never had — and it is said bar by bar
-// rather than only counted, so that each part of a split replay counts its own:
-// a strategy conflicting on most bars barely trades and reads as steady.
+// Combine returns each bar's signal and whether both trees held; conflicted bars are holds,
+// reported per bar so each part of a split replay counts its own.
 func (replaySourcesDomain TradingStrategyReplaySourcesDomain) Combine(
 	candleCount int, signalsBySource [][]SignalDomain,
 ) ([]SignalDomain, []bool) {

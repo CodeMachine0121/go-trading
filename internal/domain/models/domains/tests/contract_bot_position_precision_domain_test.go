@@ -14,12 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// precisionReferenceTime is the moment every suggestion below is measured at.
 var precisionReferenceTime = time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC)
 
-// aSpecifiedContract is a contract whose trading specification is recorded: prices step
-// by that tick, quantities by 0.001, the smallest order is 0.001 units and 5 of
-// notional, the smallest tier keeps 0.5% and funding settles every eight hours.
+// aSpecifiedContract steps quantities by 0.001, has minimums of 0.001 units and 5 notional, a 0.5% smallest tier and eight-hour funding.
 func aSpecifiedContract(tickSize string) entities.ContractTradingSymbol {
 	specifiedAt := precisionReferenceTime.Add(-time.Hour)
 	fundingIntervalHours := 8
@@ -37,8 +34,6 @@ func aSpecifiedContract(tickSize string) entities.ContractTradingSymbol {
 	}
 }
 
-// aVenue is that contract with its ladder and, when a rate is given, the rate last
-// settled.
 func aVenue(
 	contract entities.ContractTradingSymbol, tiers []entities.ContractMaintenanceMarginTier, fundingRate string,
 ) domains.ContractStrategyBotVenueDomain {
@@ -51,7 +46,7 @@ func aVenue(
 		entities.ContractFundingRateSettlement{FundingRate: decimal.RequireFromString(fundingRate)}, true)
 }
 
-// aPrecisionPlan is a thousand, staked whole, at that leverage, with these distances.
+// aPrecisionPlan is 1,000 staked whole at that leverage.
 func aPrecisionPlan(leverage int64, stopLoss string, takeProfit string) dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              decimal.NewFromInt(1000),
@@ -145,8 +140,7 @@ func TestPositionPlanDomainSaysWhyTheVenueWouldRefuseASuggestion(t *testing.T) {
 					MaintenanceMarginRate: decimal.RequireFromString("0.01"), MaximumLeverage: 10},
 			}, ""),
 			expectedReason: "aboveTierLeverage", expectedWords: "交易所不收這一筆：名目 20000 那一級最高只能開 10 倍"},
-		// Both minimums broken at once: the quantity is the rule named, because it is
-		// the one checked first.
+		// Both minimums broken: quantity is reported because it is checked first.
 		{name: "too few units and too little notional", settings: fixedThree,
 			venue: aVenue(largeMinimum, nil, ""), expectedReason: "belowMinimumQuantity",
 			expectedWords: "交易所不收這一筆：數量 0.03 低於最小下單量 100"},
@@ -200,8 +194,7 @@ func TestPositionPlanDomainEstimatesWhereAContractSuggestionWouldBeClosedOut(t *
 	}
 }
 
-// With the full ladder the estimate uses the tier the notional falls in, and says nothing
-// about the smallest one.
+// With the full ladder the estimate uses the notional's own tier.
 func TestPositionPlanDomainEstimatesFromTheNotionalsOwnTier(t *testing.T) {
 	positionPlanDto := planOnVenue(t, aPrecisionPlan(5, "0", "0"), vo.TargetPositionLong, "100",
 		aVenue(aSpecifiedContract("0.01"), []entities.ContractMaintenanceMarginTier{
@@ -242,7 +235,6 @@ func TestPositionPlanDomainWarnsOfAStopBeyondTheEstimatedLiquidation(t *testing.
 	}
 }
 
-// A short's stop above where it would be closed out is never reached either.
 func TestPositionPlanDomainWarnsOfAShortStopBeyondTheEstimatedLiquidation(t *testing.T) {
 	positionPlanDto := planOnVenue(t, aPrecisionPlan(10, "15", "0"), vo.TargetPositionShort, "100",
 		aVenue(aSpecifiedContract("0.01"), nil, ""))
@@ -250,7 +242,6 @@ func TestPositionPlanDomainWarnsOfAShortStopBeyondTheEstimatedLiquidation(t *tes
 	assert.True(t, positionPlanDto.LiquidatesBeforeStop)
 }
 
-// At one times a long can fall all the way to nothing without being closed out.
 func TestPositionPlanDomainSaysALowLeverageLongCannotBeClosedOut(t *testing.T) {
 	positionPlanDto := planOnVenue(t, aPrecisionPlan(1, "50", "0"), vo.TargetPositionLong, "100",
 		aVenue(aSpecifiedContract("0.01"), nil, ""))
@@ -296,9 +287,7 @@ func TestPositionPlanDomainEstimatesWhatFundingCosts(t *testing.T) {
 	}
 }
 
-// A contract whose specification is not recorded yet is still suggested, unrounded and
-// without a liquidation price, and says why; its stop falls back to the rough rule, and
-// its funding is estimated without an interval.
+// Without a recorded specification the plan is unrounded, has no liquidation price, uses the rough stop rule and estimates funding without an interval.
 func TestPositionPlanDomainSuggestsOnAContractWithNoSpecificationYet(t *testing.T) {
 	unspecified := domains.NewContractStrategyBotVenueDomain(
 		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil,
@@ -331,8 +320,7 @@ func TestPositionPlanDomainSuggestsOnAContractWithNoSpecificationYet(t *testing.
 	})
 }
 
-// Asking PlanOnContractVenue about a round with nothing to suggest, or one whose stake
-// cannot be put down, answers exactly as PlanFor does.
+// PlanOnContractVenue answers like PlanFor when there is nothing to suggest or the stake is unaffordable.
 func TestPositionPlanDomainOnAContractVenueSuggestsNothingPlanForWouldNot(t *testing.T) {
 	positionPlan, _ := domains.NewPositionPlanDomain(aPrecisionPlan(5, "2", "4"))
 	venue := aVenue(aSpecifiedContract("0.01"), nil, "")
@@ -349,14 +337,11 @@ func TestPositionPlanDomainOnAContractVenueSuggestsNothingPlanForWouldNot(t *tes
 	fixedTwoThousand.SizingValue = decimal.NewFromInt(2000)
 	unaffordable := planOnVenue(t, fixedTwoThousand, vo.TargetPositionLong, "100", venue)
 	assert.False(t, unaffordable.Affordable)
-	// A stake the capital cannot cover has nothing to place, so nothing about the venue
-	// needs reading for it.
 	unaffordablePlan, _ := domains.NewPositionPlanDomain(fixedTwoThousand)
 	assert.False(t, unaffordablePlan.NeedsVenue(vo.TargetPositionLong, true))
 }
 
-// aPrecisionRound is a contract bot's round that concluded buy under long and short with
-// this suggestion.
+// aPrecisionRound is a long-and-short contract bot round that concluded buy.
 func aPrecisionRound(positionPlanDto dto.PositionPlanDto) dto.StrategyBotRoundDto {
 	return dto.StrategyBotRoundDto{
 		BotName: "合約突破", Symbol: "BTCUSDT",
@@ -367,8 +352,6 @@ func aPrecisionRound(positionPlanDto dto.PositionPlanDto) dto.StrategyBotRoundDt
 	}
 }
 
-// A spot bot's suggestion is the message it has always been: no quantity, no
-// liquidation price, no funding.
 func TestStrategyBotMessageKeepsASpotSuggestionAsItWas(t *testing.T) {
 	positionPlan, _ := domains.NewPositionPlanDomain(dto.PositionPlanSettingsDto{
 		Capital: decimal.NewFromInt(1000), StopLossPercentage: decimal.NewFromInt(2),

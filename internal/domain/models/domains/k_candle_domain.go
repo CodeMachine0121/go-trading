@@ -9,32 +9,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleInterval is how long one K candle covers, and it is the only place the
-// system writes that length down. Changing the granularity is changing this line:
-// the market sources spell their own requests from it, the ingestion round takes its
-// interval from it, aggregation counts source candles with it, and a market's last
-// candle of the session is its closing time less this.
-//
-// It is exported for exactly that reason. Left unexported, every one of those places
-// had to write the length out again and merely happen to agree — and a place that
-// forgot would store candles of a length nothing in the system could detect.
+// KCandleInterval is the single definition of a stored K candle's length; sources, ingestion, aggregation and session closes all derive from it.
 const KCandleInterval = time.Minute
 
-// KCandleIntervalMinutes is that same length as a whole number of minutes, which is
-// the unit every market source spells it in.
-//
-// It is worked out here, once, and refuses to be zero: a length under a minute would
-// truncate to nothing and have each source politely ask for a "0m" candle, which
-// they answer with silence rather than an error. Anyone shortening the length below
-// a minute meets this line first, which is the point.
+// KCandleIntervalMinutes is the interval in whole minutes, the unit every market source uses.
 const KCandleIntervalMinutes = int(KCandleInterval / time.Minute)
 
-// Deliberately unusable rather than merely wrong: a K candle length that does not
-// spell as whole minutes stops this package compiling.
+// Fails to compile if KCandleInterval is shorter than a minute, which would make sources ask for "0m" candles and silently get nothing.
 const _ = uint(KCandleIntervalMinutes - 1)
 
-// KCandleDomain holds one K candle and guarantees its own invariants. An instance
-// only exists when every rule passed, so there is no half-valid K candle.
+// KCandleDomain only exists when every rule passed.
 type KCandleDomain struct {
 	symbol              string
 	openTime            time.Time
@@ -48,17 +32,13 @@ type KCandleDomain struct {
 	takerBuyQuoteVolume decimal.NullDecimal
 }
 
-// NewKCandleDomain validates the figures against every K candle rule, judging
-// "in the future" against currentTime.
+// NewKCandleDomain validates every K candle rule, judging "in the future" against currentTime.
 func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCandleDomain, error) {
 	tradingSymbol, symbolError := NewTradingSymbolDomain(writeDto.Symbol)
 	if symbolError != nil {
 		return KCandleDomain{}, fmt.Errorf("%w: %w", ErrKCandleValidation, symbolError)
 	}
 
-	// Truncating says the whole rule in one line — the minutes, the seconds and
-	// everything finer at once — and it says it for whatever length the system runs
-	// on rather than only for lengths that divide an hour into whole minutes.
 	openTime := writeDto.OpenTime.UTC()
 	if !openTime.Truncate(KCandleInterval).Equal(openTime) {
 		return KCandleDomain{}, fmt.Errorf(
@@ -73,9 +53,7 @@ func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCan
 		return KCandleDomain{}, fmt.Errorf("%w: 最高價不得低於最低價", ErrKCandleValidation)
 	}
 
-	// Every figure is judged the same way whether or not the market reports it: a
-	// figure that was never reported breaks no rule, which is the one difference and
-	// it is stated once, in the figure itself.
+	// Unreported optional figures break no rule.
 	figures := []OptionalFigureDomain{
 		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.Open)),
 		NewOptionalFigureDomain(decimal.NewNullDecimal(writeDto.High)),
@@ -106,7 +84,6 @@ func NewKCandleDomain(writeDto dto.KCandleWriteDto, currentTime time.Time) (KCan
 	}, nil
 }
 
-// ToEntity converts this validated K candle into the record shape that is stored.
 func (kCandleDomain KCandleDomain) ToEntity() entities.KCandle {
 	return entities.KCandle{
 		Symbol:              kCandleDomain.symbol,

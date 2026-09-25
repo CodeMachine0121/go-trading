@@ -15,8 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// Shutting the contract live follow down closes every contract viewer's updates and
-// turns later ones away — the one thing the entry point asks of it on the way down.
+// Shutting down closes every contract viewer's updates and turns later ones away.
 func TestStoppingTheContractLiveFollowEndsEveryViewer(t *testing.T) {
 	mockController := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(mockController)

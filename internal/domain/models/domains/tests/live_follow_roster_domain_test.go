@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rosterAt is a Taipei moment inside the Taiwan session, which is when a roster
-// holds any places at all.
+// rosterAt parses a Taipei moment; rosters only hold places during the Taiwan session.
 func rosterAt(t *testing.T, moment string) time.Time {
 	t.Helper()
 
@@ -41,8 +40,7 @@ func channelsOf(t *testing.T, watchedSymbols []entities.TradingSymbol) []vo.Live
 		Channels()
 }
 
-// The whole point: the plan allows one line carrying five, so four place holders are
-// four symbols on one line — not four lines.
+// The plan allows one channel carrying five, so four holders share one channel.
 func TestALimitedMarketPutsItsWholeRosterOnOneChannel(t *testing.T) {
 	channels := channelsOf(t, watchedIn(vo.MarketTaiwanStock, "2330", "2454", "2603", "2609"))
 
@@ -51,8 +49,7 @@ func TestALimitedMarketPutsItsWholeRosterOnOneChannel(t *testing.T) {
 	assert.Equal(t, []string{"2330", "2454", "2603", "2609"}, channels[0].Symbols)
 }
 
-// One symbol is not a different case. It goes down a line of its own kind, so
-// nothing anywhere has to ask how many there are before deciding what to do.
+// A single symbol goes down the same channel path so nothing branches on count.
 func TestASingleHolderStillTravelsOnAChannel(t *testing.T) {
 	channels := channelsOf(t, watchedIn(vo.MarketTaiwanStock, "2330"))
 
@@ -60,8 +57,6 @@ func TestASingleHolderStillTravelsOnAChannel(t *testing.T) {
 	assert.Equal(t, []string{"2330"}, channels[0].Symbols)
 }
 
-// Out of hours a market holds no places, and a line with nothing on it is a line
-// nobody should be paying for.
 func TestAnEmptyRosterAsksForNoChannels(t *testing.T) {
 	rosterDomain := domains.NewLiveFollowRosterDomain(
 		watchedIn(vo.MarketTaiwanStock, "2330"), marketCatalog(),
@@ -70,17 +65,11 @@ func TestAnEmptyRosterAsksForNoChannels(t *testing.T) {
 	assert.Empty(t, rosterDomain.Channels())
 }
 
-// A market followed by whoever looks holds no places, so the roster asks for no
-// channels of it at all — its lines are opened when somebody opens a chart, one
-// symbol each. That is the difference between "no place for you" and "nobody has
-// asked yet".
+// On-demand markets hold no roster places; their channels open per chart, one symbol each.
 func TestAMarketFollowedByWhoeverLooksIsNotRosteredIntoChannels(t *testing.T) {
 	assert.Empty(t, channelsOf(t, watchedIn(vo.MarketCrypto, "BTCUSDT", "ETHUSDT")))
 }
 
-// More holders than one line carries is what the second number is for. Six symbols
-// at three to a line is two lines, and the plan is respected without anybody
-// counting.
 func TestMoreHoldersThanOneChannelCarriesAreCutIntoSeveral(t *testing.T) {
 	marketCatalogDomain := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {
@@ -100,9 +89,7 @@ func TestMoreHoldersThanOneChannelCarriesAreCutIntoSeveral(t *testing.T) {
 	assert.Equal(t, []string{"DDD", "EEE", "FFF"}, channels[1].Symbols)
 }
 
-// rosteredUncappedCatalog is a market followed from a roster whose source puts no
-// limit on how many may be followed at once — the shape a venue takes when its
-// quotes are asked for rather than subscribed to.
+// rosteredUncappedCatalog is a rostered market with no concurrent-follow limit, as for a polled rather than subscribed venue.
 func rosteredUncappedCatalog(symbolsPerChannel int) domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketTaiwanStock: {
@@ -113,9 +100,7 @@ func rosteredUncappedCatalog(symbolsPerChannel int) domains.MarketCatalogDomain 
 	})
 }
 
-// The point of the whole slice: with nothing capping it, every watched symbol is on
-// the roster. An uncapped rostered market is not an empty roster — reading it that
-// way would stop following a market at the moment its source stopped limiting it.
+// An uncapped rostered market follows every watched symbol rather than reading as an empty roster.
 func TestAnUncappedRosteredMarketHoldsEveryWatchedSymbol(t *testing.T) {
 	watchedSymbols := watchedIn(vo.MarketTaiwanStock,
 		"1101", "1301", "2317", "2330", "2454", "2603", "2609", "2881")
@@ -130,7 +115,6 @@ func TestAnUncappedRosteredMarketHoldsEveryWatchedSymbol(t *testing.T) {
 	}
 }
 
-// One is not a different case, and neither is none.
 func TestAnUncappedRosteredMarketHandlesOneAndNone(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -153,9 +137,7 @@ func TestAnUncappedRosteredMarketHandlesOneAndNone(t *testing.T) {
 	}
 }
 
-// More watched symbols than one round of questions covers is cut into several, and
-// every one of them is still followed. Nobody looking at a chart can tell which
-// round theirs travelled in.
+// Symbols beyond one polling round are split across channels without dropping any.
 func TestAnUncappedRosterIsCutIntoChannelsWithoutDroppingAnySymbol(t *testing.T) {
 	channels := domains.NewLiveFollowRosterDomain(
 		watchedIn(vo.MarketTaiwanStock,
@@ -176,8 +158,6 @@ func TestAnUncappedRosterIsCutIntoChannelsWithoutDroppingAnySymbol(t *testing.T)
 	}, followedSymbols)
 }
 
-// Out of hours an uncapped roster is as empty as a capped one. Nothing to follow is
-// nothing to follow, whatever the source would have allowed.
 func TestAnUncappedRosteredMarketHoldsNothingOutOfHours(t *testing.T) {
 	channels := domains.NewLiveFollowRosterDomain(
 		watchedIn(vo.MarketTaiwanStock, "2330", "2454"),
@@ -187,9 +167,7 @@ func TestAnUncappedRosteredMarketHoldsNothingOutOfHours(t *testing.T) {
 	assert.Empty(t, channels)
 }
 
-// What a console is told before somebody picks a symbol. An uncapped rostered market
-// still follows only what is watched, so saying otherwise would hand somebody a
-// chart that looks live and never moves.
+// Live updates depend on being rostered, not capped; an uncapped rostered market still only follows watched symbols.
 func TestHasLiveUpdatesAsksWhetherTheMarketIsRosteredNotWhetherItIsCapped(t *testing.T) {
 	uncappedCatalog := rosteredUncappedCatalog(50)
 	rosterDomain := domains.NewLiveFollowRosterDomain(

@@ -7,15 +7,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// EquityPointVo is what everything on hand was worth once one candle had closed.
-// One candle produces exactly one of these, so the curve and the candles it was
-// replayed over are always the same length.
+// EquityPointVo is the total value after one candle closed; there is exactly one per candle.
 type EquityPointVo struct {
 	OpenTime time.Time
 	Equity   decimal.Decimal
 }
 
-// ToDto hands the point on in the shape it leaves the domain in.
 func (equityPointVo EquityPointVo) ToDto() dto.EquityPointDto {
 	return dto.EquityPointDto{
 		OpenTime: equityPointVo.OpenTime.UTC(),

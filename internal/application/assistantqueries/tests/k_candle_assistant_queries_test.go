@@ -17,8 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// assistantCandleLimit is the ceiling the two K candle capabilities run under in these
-// tests. It is small so that a test can cross it without building two hundred candles.
+// assistantCandleLimit is small so a test can cross it cheaply.
 const assistantCandleLimit = 3
 
 type kCandleAssistantQueriesUnderTest struct {
@@ -27,9 +26,7 @@ type kCandleAssistantQueriesUnderTest struct {
 	kCandleRepository    *mocks.MockIKCandleRepository
 }
 
-// newKCandleAssistantQueriesUnderTest wires the real domain service and real domain
-// models, mocking only storage and the clock — so the assistant's request goes
-// through every rule a person's own request goes through.
+// newKCandleAssistantQueriesUnderTest mocks only storage and the clock, so the assistant's requests go through every normal rule.
 func newKCandleAssistantQueriesUnderTest(t *testing.T) kCandleAssistantQueriesUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -53,8 +50,7 @@ func newKCandleAssistantQueriesUnderTest(t *testing.T) kCandleAssistantQueriesUn
 	}
 }
 
-// storedCandles are candles five minutes apart, so that each one falls in its own
-// five-minute bucket and the count the assistant sees is the count stored.
+// storedCandles are five minutes apart, so each lands in its own five-minute bucket.
 func storedCandles(count int) []entities.KCandle {
 	kCandles := make([]entities.KCandle, 0, count)
 	for candleNumber := range count {
@@ -65,8 +61,6 @@ func storedCandles(count int) []entities.KCandle {
 	return kCandles
 }
 
-// assistantCandlePayload is what the assistant reads back, only as far as these tests
-// look into it.
 type assistantCandlePayload struct {
 	Symbol   string `json:"symbol"`
 	Interval string `json:"interval"`
@@ -104,8 +98,7 @@ func TestKCandleSeriesAssistantQueryReadsTheStretchAtTheCoarsenessAsked(t *testi
 }
 
 func TestKCandleSeriesAssistantQueryTellsTheAssistantWhenItIsSeeingLessThanTheStretchHolds(t *testing.T) {
-	// Silence here is the one failure a cost ceiling could cause on its own: an
-	// assistant shown a slice as the whole will describe a trend that is not there.
+	// A truncated slice must be reported, or the assistant will describe a trend that isn't there.
 	fixture := newKCandleAssistantQueriesUnderTest(t)
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(5), nil)
@@ -118,13 +111,12 @@ func TestKCandleSeriesAssistantQueryTellsTheAssistantWhenItIsSeeingLessThanTheSt
 	assert.Equal(t, assistantCandleLimit, payload.Count)
 	assert.Contains(t, payload.Note, "已截斷")
 	assert.Contains(t, payload.Note, "共有 5 根")
-	// The newest are what every question about a market is about.
+	// Truncation keeps the newest candles.
 	assert.Equal(t, "104", payload.KCandles[len(payload.KCandles)-1].Close)
 }
 
 func TestKCandleSeriesAssistantQueryTreatsNamingNoCountAsTheCeiling(t *testing.T) {
-	// There is deliberately no way to ask for everything, and not saying how many is
-	// not asking for everything — so nothing was withheld and nothing is reported.
+	// Omitting the count is not asking for everything, so nothing is reported as withheld.
 	fixture := newKCandleAssistantQueriesUnderTest(t)
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(storedCandles(3), nil)
@@ -139,7 +131,7 @@ func TestKCandleSeriesAssistantQueryTreatsNamingNoCountAsTheCeiling(t *testing.T
 }
 
 func TestKCandleSeriesAssistantQuerySaysWhenTheStretchHeldNothing(t *testing.T) {
-	// Nothing there is an answer the assistant relays, not a refusal it works around.
+	// An empty result is an answer, not a refusal.
 	fixture := newKCandleAssistantQueriesUnderTest(t)
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]entities.KCandle{}, nil)
@@ -159,8 +151,7 @@ func TestKCandleSeriesAssistantQueryObeysTheRulesTheUnderlyingQueryAlreadyHas(t 
 		expectedMessage string
 	}{
 		{
-			// Not one rule is relaxed for the assistant, and the reason it was
-			// refused is what it reads — so it can ask again correctly.
+			// No rule is relaxed for the assistant, and it reads the refusal reason so it can retry correctly.
 			name: "a coarseness the system does not recognise",
 			arguments: `{"symbol":"BTCUSDT","startTime":"2026-08-29T09:00:00Z",` +
 				`"endTime":"2026-08-29T23:00:00Z","interval":"7m"}`,
@@ -307,9 +298,7 @@ func TestKCandleRangeAssistantQueryObeysTheRulesTheUnderlyingQueryAlreadyHas(t *
 	assert.Contains(t, runError.Error(), "交易標的")
 }
 
-// cryptoOnlyCatalog is the market this file's symbols trade on: the round-the-clock
-// one, whose every minute holds market. A venue that shuts is what the market-hours
-// tests are for; here it would only add a second reason for a number to change.
+// cryptoOnlyCatalog trades round the clock, keeping market-hours effects out of these tests.
 func cryptoOnlyCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
 }

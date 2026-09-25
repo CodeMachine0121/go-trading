@@ -11,19 +11,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// strategyBotRememberedRunCount is how many rounds one bot remembers.
-//
-// A bot waking every five minutes runs 288 rounds a day, so a history that kept
-// everything would be a table that only ever grows — and the question people ask a
-// history is "what has it been doing lately", which fifty rounds answers for every
-// interval anybody sets.
-//
-// Trimming happens on write rather than on a schedule, so there is no second moving
-// part that could stop running and let the table grow anyway.
+// strategyBotRememberedRunCount caps each bot's run history, trimmed on write so no separate cleanup job is needed.
 const strategyBotRememberedRunCount = 50
 
-// StrategyBotRunRecordRepository stores what each bot's rounds came to, in
-// PostgreSQL.
 type StrategyBotRunRecordRepository struct {
 	database *gorm.DB
 }
@@ -32,11 +22,7 @@ func NewStrategyBotRunRecordRepository(database *gorm.DB) *StrategyBotRunRecordR
 	return &StrategyBotRunRecordRepository{database: database}
 }
 
-// Append records one round and drops whatever fell out of the window.
-//
-// Both happen in one transaction, because they are two halves of one fact: this bot
-// remembers its last fifty rounds. Apart, a failed trim would leave a history that
-// grows for ever while every other bot's stays bounded — and nothing would say so.
+// Append inserts the run and trims the history in one transaction, so a failed trim cannot let one bot's history grow unbounded.
 func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 	executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto,
 ) error {
@@ -46,13 +32,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 		Transaction(func(transaction *gorm.DB) error {
 			latestNumber := 0
 
-			// The number is read rather than counted, so trimming never renumbers
-			// anything: Run 51 stays Run 51 once Run 1 is gone. A round that
-			// answered to two different names depending on when somebody looked
-			// would make a history impossible to talk about.
-			//
-			// Reading it and writing it are safe together because one bot only ever
-			// runs one round at a time.
+			// The next run number is read from the latest rather than counted, so trimming never renumbers runs; safe because a bot runs one round at a time.
 			if selectError := transaction.
 				Model(&entities.StrategyBotRunRecord{}).
 				Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
@@ -68,19 +48,12 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 				Result:        writeDto.Result,
 			}
 
-			// Written only when this round actually suggested something. A round that
-			// suggested nothing leaves all three empty, which is a different thing
-			// from suggesting zero — and a stop price of zero is a figure somebody
-			// really can ask for.
-			//
-			// An order the venue would have refused is not a suggestion either: the
-			// message said so, and there is nothing to place.
+			// Plan figures are stored only for an affordable suggestion, leaving them null otherwise, since zero is a valid stop price.
 			if writeDto.HasPositionPlan && writeDto.PositionPlan.Affordable &&
 				!writeDto.PositionPlan.HasVenueRefusal {
 				runRecord.SuggestedStake = storedFigure(writeDto.PositionPlan.Stake)
 
-				// A contract round also remembers which way and how far it leaned, so
-				// the row reads back the way its message did.
+				// Contract runs also store direction and leverage.
 				if writeDto.PositionPlan.ForContract {
 					runRecord.SuggestedDirection = writeDto.PositionPlan.Direction
 					runRecord.SuggestedLeverage = storedFigure(writeDto.PositionPlan.Leverage)
@@ -117,13 +90,12 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 	return nil
 }
 
-// storedFigure is one figure this round did suggest, ready to be stored as present
-// rather than as a number that happens not to be zero.
+// storedFigure marks a suggested figure as present, even if zero.
 func storedFigure(figure decimal.Decimal) decimal.NullDecimal {
 	return decimal.NullDecimal{Decimal: figure, Valid: true}
 }
 
-// FindLatestByBot returns this bot's remembered rounds, newest first.
+// FindLatestByBot returns the bot's remembered runs, newest first.
 func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) FindLatestByBot(
 	executionContext context.Context, strategyBotID uint,
 ) ([]entities.StrategyBotRunRecord, error) {

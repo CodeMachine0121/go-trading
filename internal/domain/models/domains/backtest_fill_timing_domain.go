@@ -7,22 +7,15 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// declarableFillTimings is the entire set a replay may fill by, in the order offered
-// back when a declaration is not recognised.
+// declarableFillTimings is also the order offered in the error message.
 var declarableFillTimings = []vo.FillTimingVo{vo.FillTimingClose, vo.FillTimingNextOpen}
 
-// BacktestFillTimingDomain is at what price a replay fills its signals: the close of
-// the bar that spoke, or the open of the next one.
-//
-// It travels with one replay, like the capital and the costs, and is never written
-// back to a strategy script or a trading strategy — the same rules replayed two ways
-// is exactly the comparison it exists for.
+// BacktestFillTimingDomain is whether a replay fills signals at the signalling bar's close or the next bar's open; it is per replay, never saved on a strategy.
 type BacktestFillTimingDomain struct {
 	value vo.FillTimingVo
 }
 
-// NewBacktestFillTimingDomain reads what was declared. Declaring nothing is the close,
-// which is what every replay was before there was a choice.
+// NewBacktestFillTimingDomain defaults an empty declaration to the close.
 func NewBacktestFillTimingDomain(declared string) (BacktestFillTimingDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {
@@ -48,7 +41,6 @@ func (fillTimingDomain BacktestFillTimingDomain) Value() vo.FillTimingVo {
 	return fillTimingDomain.value
 }
 
-// FillsAtNextOpen is whether a signal waits for the next bar's open.
 func (fillTimingDomain BacktestFillTimingDomain) FillsAtNextOpen() bool {
 	return fillTimingDomain.value == vo.FillTimingNextOpen
 }

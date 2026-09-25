@@ -40,10 +40,7 @@ func newTelegramDeliveryRouterUnderTest(t *testing.T) telegramDeliveryRouterUnde
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)))
 
-	// The real door goes in front of every one of these, exactly as it does in the
-	// server: whose setting this is comes from the proof of identity, never from
-	// the body, and a route wired without the door would pass while touching
-	// nobody's setting.
+	// The real auth middleware is mounted as in production, since whose setting it is comes from the proof, not the body.
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
 
 	engine := gin.New()
@@ -112,9 +109,7 @@ func TestTelegramDeliveryRouterGetDeliverySetting(t *testing.T) {
 		assert.NotContains(t, response.Body.String(), "the-sealed-token")
 	})
 
-	// Not 404. It is not a missing resource, it is the ordinary state of the
-	// resource — and a caller handed 404 would have to decide which 404s mean
-	// nothing is wrong.
+	// Not 404: having no setting is the resource's ordinary state, not a missing resource.
 	t.Run("having never set one up answers with a setting that says so", func(t *testing.T) {
 		fixture := newTelegramDeliveryRouterUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().
@@ -127,8 +122,7 @@ func TestTelegramDeliveryRouterGetDeliverySetting(t *testing.T) {
 		assert.Contains(t, response.Body.String(), `"configured":false`)
 	})
 
-	// Storage being unreachable is not "you have not set this up". Answering the
-	// latter would have somebody pasting a token that is sitting right there.
+	// Storage being unreachable must not read as "not set up", or someone would re-paste a token that is already stored.
 	t.Run("storage failing is reported as the system's problem", func(t *testing.T) {
 		fixture := newTelegramDeliveryRouterUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().
@@ -178,8 +172,7 @@ func TestTelegramDeliveryRouterSaveDeliverySetting(t *testing.T) {
 		assert.Contains(t, response.Body.String(), "必須給一組機器人金鑰")
 	})
 
-	// The person's token was fine. Telling them it was not would have them
-	// generating a second one, and a third.
+	// The token was fine; saying otherwise would have them generating new ones.
 	t.Run("nothing to lock the token with is the system being unavailable", func(t *testing.T) {
 		fixture := newTelegramDeliveryRouterUnderTest(t)
 		fixture.secretSealProxy.EXPECT().
@@ -216,8 +209,7 @@ func TestTelegramDeliveryRouterSaveDeliverySetting(t *testing.T) {
 }
 
 func TestTelegramDeliveryRouterRemoveDeliverySetting(t *testing.T) {
-	// 204 whether or not there was anything to remove: "this system can no longer
-	// reach you" is true either way.
+	// 204 either way: the system can no longer reach them regardless.
 	t.Run("removing answers with no content, with or without a setting", func(t *testing.T) {
 		fixture := newTelegramDeliveryRouterUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().
@@ -243,8 +235,7 @@ func TestTelegramDeliveryRouterRemoveDeliverySetting(t *testing.T) {
 }
 
 func TestTelegramDeliveryRouterSendTestMessage(t *testing.T) {
-	// expectStoredSettingOpened sets up everything sending touches, for the tests
-	// that are about the answer rather than about how it got there.
+	// expectStoredSettingOpened stubs everything sending touches, for tests about the answer.
 	expectStoredSettingOpened := func(fixture telegramDeliveryRouterUnderTest) {
 		fixture.telegramDeliveryRepository.EXPECT().
 			FindOneByUser(gomock.Any(), signedInViewerID).
@@ -269,10 +260,7 @@ func TestTelegramDeliveryRouterSendTestMessage(t *testing.T) {
 		assert.NotContains(t, response.Body.String(), "failureReason")
 	})
 
-	// A refusal still answers 200: the request asked this system to try and report
-	// back, and it did. The reason travels as a named value because four reasons
-	// have no four status codes, and a caller has to tell them apart to say which
-	// box the person should fix.
+	// A refusal still answers 200 since the attempt was made; the reason is a named value because four reasons have no four status codes.
 	t.Run("a refusal answers with which of the four it was", func(t *testing.T) {
 		testCases := []struct {
 			name           string
@@ -304,9 +292,7 @@ func TestTelegramDeliveryRouterSendTestMessage(t *testing.T) {
 		}
 	})
 
-	// Nothing they typed is wrong; a step is missing. 409 rather than 400 so that
-	// "fix this box" and "go and do that first" are told apart without reading the
-	// sentence.
+	// 409 rather than 400: nothing typed is wrong, a setup step is missing.
 	t.Run("without a setting the send is a conflict", func(t *testing.T) {
 		fixture := newTelegramDeliveryRouterUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().

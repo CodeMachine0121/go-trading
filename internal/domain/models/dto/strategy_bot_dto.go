@@ -2,59 +2,33 @@ package dto
 
 import "time"
 
-// StrategyBotDto is one strategy bot as it is handed back: what it is made of, and
-// what it has been doing.
-//
-// The second half — run state, last sent signal, halt reason, conflicting — is
-// carried with the first rather than fetched separately, because a list of bots is
-// read to answer one question: which of these needs looking at? Answering it with a
-// second round trip per bot would mean the screen either asks N more times or shows
-// a list with the interesting column missing.
+// StrategyBotDto includes run state so a bot list can show which bots need attention without
+// extra requests.
 type StrategyBotDto struct {
 	ID uint `json:"id"`
-	// OwnerID is who this bot belongs to, and never leaves in a response — a
-	// person reading their own bots learns nothing from being told they are theirs.
-	// It is here because a round has no signed-in caller to ask: the clock started
-	// it, and resolving this bot's strategy scripts and sending its message both have to
-	// be done as the person who owns it.
+	// OwnerID is never serialized; rounds use it to act as the owner since no user is signed in.
 	OwnerID uint   `json:"-"`
 	Name    string `json:"name"`
 	Symbol  string `json:"symbol"`
-	// MarketDataKind is which kind of market this bot eats — kCandle for a spot bot,
-	// contractKCandle for a contract bot. It never changes after the bot is created.
-	MarketDataKind string `json:"marketDataKind"`
-	// TriggerIntervalMinutes is how often a running bot wakes up.
-	TriggerIntervalMinutes int `json:"triggerIntervalMinutes"`
-	// PositionPlan is what this bot suggests putting down each round. A capital of
-	// zero means it suggests nothing, which is what every bot stored before position
-	// plans existed reads as.
+	// MarketDataKind is kCandle or contractKCandle and never changes after creation.
+	MarketDataKind         string `json:"marketDataKind"`
+	TriggerIntervalMinutes int    `json:"triggerIntervalMinutes"`
+	// PositionPlan with zero capital suggests nothing, which is how bots stored before
+	// position plans read.
 	PositionPlan PositionPlanSettingsDto `json:"positionPlan"`
-	// NextRunAt is when this bot was next due, and it never leaves in a response —
-	// nobody reading their own bots has any use for it.
-	//
-	// A round carries it so that booking the round in can check the bot is still
-	// waiting for *this* round. Between a round starting and finishing, its owner
-	// may have stopped and started it again, and starting rewrites exactly the
-	// columns the round is about to write; without this check the finishing round
-	// would put the old values back and quietly undo the restart.
+	// NextRunAt is never serialized; a finishing round checks it so it does not overwrite a
+	// restart that happened mid-round.
 	NextRunAt time.Time `json:"-"`
-	// TradingStrategyID names the rules this bot follows, and TradingStrategyName
-	// is that trading strategy's current name — read through the association every
-	// time rather than copied, so renaming it cannot leave a bot saying the old one.
+	// TradingStrategyName is read through the association so renames are reflected.
 	TradingStrategyID   uint   `json:"tradingStrategyId"`
 	TradingStrategyName string `json:"tradingStrategyName"`
 	RunState            string `json:"runState"`
-	// LastSentSignal is the last signal that actually reached Telegram, and it is
-	// what the next round is compared against. Empty means nothing has been sent
-	// since this bot was last started, which is why the first conclusion after
-	// pressing play always goes out.
+	// LastSentSignal is empty since the last start, so the first conclusion after starting
+	// is always sent.
 	LastSentSignal string `json:"lastSentSignal,omitempty"`
-	// HaltReason is why the system stopped this bot. Empty when its owner stopped
-	// it, or when it is running.
+	// HaltReason is empty when running or stopped by the owner.
 	HaltReason string `json:"haltReason,omitempty"`
-	// Conflicting says the last round found both conditions holding at once. It is
-	// not a halt — the bot keeps running, and the mark clears itself the moment a
-	// round stops conflicting — but it is the only way its owner ever finds out.
+	// Conflicting is not a halt and clears once a round stops conflicting.
 	Conflicting bool      `json:"conflicting"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`

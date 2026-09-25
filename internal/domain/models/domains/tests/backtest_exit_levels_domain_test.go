@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// anEntryPrice is the price every level below is measured from. A hundred, so that a
-// percentage and a price are the same arithmetic read twice — which side each exit
-// lands on is what these cases are about, and a rounder number would hide a sign error.
+// anEntryPrice is 100 so a percentage distance and a price offset are the same number.
 func anEntryPrice() decimal.Decimal {
 	return decimal.NewFromInt(100)
 }
@@ -29,20 +27,17 @@ func exitPricesUnderTest(
 	return exitLevels.PricesFrom(anEntryPrice())
 }
 
-// Both sides, written out with real figures. A stop on the wrong side of the entry is
-// still a perfectly plausible price, so nothing but the numbers catches it.
+// A stop on the wrong side is still a plausible price, so only concrete figures catch it.
 func TestBacktestExitLevelsPlacesTheTwoExitsOnOppositeSides(t *testing.T) {
 	exitPrices := exitPricesUnderTest(t, 2, 5)
 
-	// A spot position loses as the price falls, so its stop is the one below.
 	assert.True(t, exitPrices.HasStopLoss)
 	assert.Equal(t, "98", exitPrices.StopLossPrice.String())
 	assert.True(t, exitPrices.HasTakeProfit)
 	assert.Equal(t, "105", exitPrices.TakeProfitPrice.String())
 }
 
-// The zero value is a replay that simulates nothing, which is what every call made
-// before this model existed is.
+// The zero value simulates no exits.
 func TestBacktestExitLevelsZeroValueHasNoExitsAtAll(t *testing.T) {
 	exitPrices := domains.BacktestExitLevelsDomain{}.PricesFrom(anEntryPrice())
 
@@ -60,9 +55,7 @@ func TestBacktestExitLevelsTakesOneDistanceWithoutTheOther(t *testing.T) {
 	assert.True(t, targetOnly.HasTakeProfit)
 }
 
-// A stop the whole price away is priced at exactly zero. It is absurd and it is also
-// arithmetic, and the bot's own plan already answers it this way — two forms asking
-// the same question have to get the same answer.
+// A 100% stop prices at exactly zero, matching the bot's position plan.
 func TestBacktestExitLevelsAllowsTheWholePriceAsADistance(t *testing.T) {
 	exitPrices := exitPricesUnderTest(t, 100, 100)
 

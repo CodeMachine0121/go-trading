@@ -18,16 +18,13 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// contractCalculationNow is when every contract calculation below is asked.
 var contractCalculationNow = time.Date(2026, 8, 29, 23, 0, 0, 0, time.UTC)
 
-// onTheDay is a moment on the day every stretch below sits on.
 func onTheDay(hour int, minute int) time.Time {
 	return time.Date(2026, 8, 29, hour, minute, 0, 0, time.UTC)
 }
 
-// aStoredContractCandle is a complete contract K candle whose figures are all
-// ordinary; each test changes only what its outcome depends on.
+// aStoredContractCandle has ordinary figures; each test changes only what its outcome depends on.
 func aStoredContractCandle(openTime time.Time) entities.KCandleContract {
 	figure := decimal.RequireFromString("100")
 	return entities.KCandleContract{
@@ -46,8 +43,7 @@ func aStoredContractCandle(openTime time.Time) entities.KCandleContract {
 	}
 }
 
-// oneCandleAtEachHour is one stored contract K candle at the top of each hour, so
-// that at one-hour buckets every hour is a bar of its own.
+// oneCandleAtEachHour stores one candle per listed hour, so each hour is its own one-hour bar.
 func oneCandleAtEachHour(hours ...int) []entities.KCandleContract {
 	kCandleContracts := make([]entities.KCandleContract, 0, len(hours))
 	for _, hour := range hours {
@@ -69,7 +65,6 @@ func aStatistic(statisticTime time.Time, openInterest string) entities.ContractP
 	}
 }
 
-// hourlyRequest asks about the one-hour bars from the start hour up to the end hour.
 func hourlyRequest(startHour int, endHour int) dto.IndicatorCalculationRequestDto {
 	return dto.IndicatorCalculationRequestDto{
 		Symbol: "BTCUSDT", AggregationInterval: "1h",
@@ -106,8 +101,7 @@ func newContractCalculationUnderTest(t *testing.T) contractCalculationUnderTest 
 	}
 }
 
-// barsHandedToTheScript runs the calculation over what storage holds and answers with
-// the bars the script was handed — the one place every alignment rule becomes visible.
+// barsHandedToTheScript returns the bars the script received, where every alignment rule becomes visible.
 func (fixture contractCalculationUnderTest) barsHandedToTheScript(
 	t *testing.T,
 	requestDto dto.IndicatorCalculationRequestDto,
@@ -138,9 +132,7 @@ func (fixture contractCalculationUnderTest) barsHandedToTheScript(
 	return handedBars
 }
 
-// holdSettlements answers both settlement reads the way storage would: the range read
-// with the settlements inside the stretch asked about, and the lead-in read with the
-// latest one strictly before the cut-off.
+// holdSettlements stubs the range read with the settlements inside the stretch and the lead-in read with the latest one before the cut-off.
 func (fixture contractCalculationUnderTest) holdSettlements(settlements []entities.ContractFundingRateSettlement) {
 	fixture.contractFundingRateSettlementRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -166,7 +158,6 @@ func (fixture contractCalculationUnderTest) holdSettlements(settlements []entiti
 		})
 }
 
-// barOpeningAt is the bar the script saw opening at that moment.
 func barOpeningAt(t *testing.T, bars []vo.ContractKCandleVo, openTime time.Time) vo.ContractKCandleVo {
 	t.Helper()
 	for _, bar := range bars {
@@ -471,8 +462,7 @@ func TestContractCalculationReadsFundingAndPositioningOverTheStretchTheBarsCover
 	fixture.contractFundingRateSettlementRepository.EXPECT().
 		FindInRange(gomock.Any(), gomock.Any(), 3).
 		DoAndReturn(func(_ context.Context, query domains.KCandleQueryDomain, _ int) ([]entities.ContractFundingRateSettlement, error) {
-			// From where the first bar opens up to where the last one closes; the rate
-			// already in force before that is asked for on its own.
+			// From the first bar's open to the last bar's close; the rate already in force is read separately.
 			assert.Equal(t, onTheDay(10, 0), query.StartTime())
 			assert.Equal(t, onTheDay(12, 0), query.EndTime())
 			assert.Equal(t, "BTCUSDT", query.Symbol())
@@ -498,8 +488,7 @@ func TestContractCalculationReadsFundingAndPositioningOverTheStretchTheBarsCover
 }
 
 func TestContractCalculationNeverReadsTheBucketStillRunning(t *testing.T) {
-	// At an end time of 09:30 the hour that began at 09:00 has not finished, so the
-	// read stops at its start and the last bar the script sees is the 08:00 one.
+	// At 09:30 the 09:00 hour is unfinished, so the read stops there and the last bar is 08:00.
 	fixture := newContractCalculationUnderTest(t)
 	fixture.kCandleContractRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", onTheDay(9, 0), gomock.Any()).
@@ -696,9 +685,7 @@ func TestContractCalculationPassesOnWhatWentWrong(t *testing.T) {
 }
 
 func TestContractCalculationCarriesTheRateInForceHoweverLongAgoItWasSettled(t *testing.T) {
-	// Fetching settlements stopped for two days: the last one stored before the
-	// window is far older than any settlement interval, and it is still the rate in
-	// force until the next one arrives.
+	// Settlement fetching stopped for two days; the last stored one is still the rate in force until the next arrives.
 	twoDaysEarlier := onTheDay(8, 0).Add(-48 * time.Hour)
 
 	bars := newContractCalculationUnderTest(t).barsHandedToTheScript(
@@ -739,8 +726,7 @@ func TestContractCalculationLeavesASettlementAtTheCloseToTheNextBar(t *testing.T
 	assert.True(t, eightOClock.FundingSettledInBar)
 }
 
-// everyStatisticFigure is a position statistic whose eight figures are all non-zero,
-// so that a bar carrying zeros can only have been handed none of them.
+// everyStatisticFigure has all eight figures non-zero, so a bar carrying zeros was handed none of them.
 func everyStatisticFigure(statisticTime time.Time) entities.ContractPositionStatistic {
 	return entities.ContractPositionStatistic{
 		Symbol: "BTCUSDT", StatisticTime: statisticTime,

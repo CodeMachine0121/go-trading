@@ -2,17 +2,7 @@ package domains
 
 import "github.com/shopspring/decimal"
 
-// OptionalFigureDomain is a trading figure a market may simply not report.
-//
-// It exists because "absent" and "zero" are different facts that look identical the
-// moment either is written as a number. A minute in which nothing traded
-// has a volume of zero; a market that does not publish turnover at all has no
-// turnover figure — and an indicator built on the second one, told it was the first,
-// produces a whole column of plausible wrong answers with nothing anywhere to
-// complain about.
-//
-// Keeping the distinction costs one rule in three places — adding, judging, and
-// handing to a script — so all three live here rather than being re-decided at each.
+// OptionalFigureDomain keeps "not reported" distinct from zero for figures a market may not publish, with the add, judge and script-handoff rules in one place.
 type OptionalFigureDomain struct {
 	value decimal.NullDecimal
 }
@@ -21,18 +11,12 @@ func NewOptionalFigureDomain(value decimal.NullDecimal) OptionalFigureDomain {
 	return OptionalFigureDomain{value: value}
 }
 
-// Value is the figure as it is stored and handed out — absent stays absent.
+// Value keeps absent as absent.
 func (optionalFigureDomain OptionalFigureDomain) Value() decimal.NullDecimal {
 	return optionalFigureDomain.value
 }
 
-// Plus adds another reading of the same figure, which is what merging several
-// candles into a coarser one does.
-//
-// Absent plus absent is absent: merging a market's non-existent turnover figures
-// must not invent one. Absent plus a number is that number, because a market that
-// reports the figure sometimes did trade that much — treating the missing readings
-// as zero is the only reading that does not throw away what was reported.
+// Plus merges readings: absent plus absent stays absent, and absent plus a number is that number.
 func (optionalFigureDomain OptionalFigureDomain) Plus(added decimal.NullDecimal) OptionalFigureDomain {
 	if !added.Valid {
 		return optionalFigureDomain
@@ -48,20 +32,12 @@ func (optionalFigureDomain OptionalFigureDomain) Plus(added decimal.NullDecimal)
 	}}
 }
 
-// IsNegative reports a figure that breaks the rule that trading figures are never
-// below zero. A figure that was never reported breaks no rule — there is nothing to
-// judge.
+// IsNegative is false for an unreported figure.
 func (optionalFigureDomain OptionalFigureDomain) IsNegative() bool {
 	return optionalFigureDomain.value.Valid && optionalFigureDomain.value.Decimal.IsNegative()
 }
 
-// AsScriptFigure is this figure as an indicator script sees it. A script is handed
-// plain numbers and has no way to say "not reported", so an absent figure arrives as
-// zero.
-//
-// This is the one place the distinction is knowingly given up, and it is given up
-// because the alternative — changing the shape every existing strategy script reads — breaks
-// them all to fix a market none of them are written against yet.
+// AsScriptFigure hands absent figures to scripts as zero, the one place the distinction is knowingly lost to avoid changing every script's input shape.
 func (optionalFigureDomain OptionalFigureDomain) AsScriptFigure() float64 {
 	if !optionalFigureDomain.value.Valid {
 		return 0

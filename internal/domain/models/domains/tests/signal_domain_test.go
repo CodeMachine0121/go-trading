@@ -8,14 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// signalResultOf packs one signal into a script result the way the runner does under
-// the signal kind: one value, filed under the well-known key.
+// signalResultOf packs a signal under the well-known key, as the runner does.
 func signalResultOf(signal vo.SignalVo) map[string]vo.IndicatorValueVo {
 	return map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: signal}}
 }
 
-// signalDomainsSaying builds one opinion per signal, in order — the shape a replay
-// works in once the script runner has read each candle's signal.
 func signalDomainsSaying(signals ...vo.SignalVo) []domains.SignalDomain {
 	signalDomains := make([]domains.SignalDomain, 0, len(signals))
 	for _, signal := range signals {
@@ -33,11 +30,6 @@ func TestNewSignalDomainCarriesTheSignalItWasGiven(t *testing.T) {
 	}
 }
 
-// The three words a signal answers to, and what an unrecognised one comes out as.
-//
-// They live on the signal rather than on the message that prints them because two
-// readers need them now: the message's source lines, and the headline working out what
-// act to name in a conclusion. A copy in each is a copy that can drift.
 func TestSignalDomainInWords(t *testing.T) {
 	testCases := []struct {
 		signal       vo.SignalVo
@@ -46,9 +38,7 @@ func TestSignalDomainInWords(t *testing.T) {
 		{signal: vo.SignalBuy, expectedWord: "買入"},
 		{signal: vo.SignalSell, expectedWord: "賣出"},
 		{signal: vo.SignalHold, expectedWord: "持有"},
-		// Written out as it stands rather than replaced with a guess: this is the
-		// last place to quietly turn something the system did not understand into
-		// one of the three things it did.
+		// Unrecognised values are shown verbatim, not guessed.
 		{signal: vo.SignalVo("shrug"), expectedWord: "shrug"},
 	}
 
@@ -60,11 +50,7 @@ func TestSignalDomainInWords(t *testing.T) {
 	}
 }
 
-// What each opinion asks the account to be holding once the candle is over.
-//
-// Cash and no opinion are two different answers. Reading a sell as "leave it alone"
-// would carry a position through the candle that asked to be out of it, and nothing
-// on the report card would say so.
+// Cash and no opinion are distinct targets; reading a sell as "leave it" would carry a position the signal asked to exit.
 func TestSignalDomainTargetPosition(t *testing.T) {
 	testCases := []struct {
 		signal         vo.SignalVo
@@ -73,9 +59,7 @@ func TestSignalDomainTargetPosition(t *testing.T) {
 		{signal: vo.SignalBuy, expectedTarget: vo.TargetPositionLong},
 		{signal: vo.SignalSell, expectedTarget: vo.TargetPositionFlat},
 		{signal: vo.SignalHold, expectedTarget: vo.TargetPositionUnchanged},
-		// An opinion nothing recognises asks for nothing at all — the loudest of the
-		// safe answers. Read as cash it would quietly close positions nobody meant to
-		// close, and the page it produced would look entirely plausible.
+		// Unrecognised signals leave the position unchanged rather than quietly closing it.
 		{signal: vo.SignalVo("shrug"), expectedTarget: vo.TargetPositionUnchanged},
 	}
 
@@ -87,11 +71,7 @@ func TestSignalDomainTargetPosition(t *testing.T) {
 	}
 }
 
-// What a message about this opinion asks its reader to go and do.
-//
-// Only the sell side is translated, and only because 賣出 is a thing its reader
-// usually cannot do: they are flat, which is most of the time, because a sell reaches
-// them on the strength of the signal alone.
+// Only sell is translated, because the reader is usually flat and can't act on 賣出.
 func TestSignalDomainHeadlineVerb(t *testing.T) {
 	testCases := []struct {
 		signal       vo.SignalVo

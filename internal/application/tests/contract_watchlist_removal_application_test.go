@@ -16,10 +16,8 @@ import (
 )
 
 func TestRemovingAContractOnlyStopsFollowingIt(t *testing.T) {
-	// After it leaves the watchlist, neither the funding rate round nor the position
-	// statistic round asks about it — and everything already held for it is still
-	// there to be read. The two proxies below carry no expectation at all: any
-	// question put to the venue fails the test.
+	// Once off the watchlist neither round asks about it, yet its stored data stays readable; the
+	// proxies carry no expectations, so any venue call fails.
 	mockController := gomock.NewController(t)
 	symbolRepository := mocks.NewMockIContractTradingSymbolRepository(mockController)
 	settlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(mockController)

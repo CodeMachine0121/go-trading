@@ -7,7 +7,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// UserApplication orchestrates the use cases about who this system recognises.
 type UserApplication struct {
 	userService *service.UserService
 }
@@ -46,9 +45,8 @@ func (userApplication *UserApplication) IdentifyUser(
 	return userApplication.userService.IdentifyUser(executionContext, accessToken)
 }
 
-// IdentifyActivatedUser is the question every door asks: who is this, and have they
-// been let in? It is separate from IdentifyUser because one place deliberately asks
-// the other question — somebody still waiting has to be able to look at themselves.
+// IdentifyActivatedUser also requires activation; IdentifyUser stays separate because a pending
+// user must still be able to view themselves.
 func (userApplication *UserApplication) IdentifyActivatedUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {

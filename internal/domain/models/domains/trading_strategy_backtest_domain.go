@@ -9,23 +9,14 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// TradingStrategyBacktestDomain is one spot replay of a trading strategy.
-//
-// Everything about the replay itself — which stretch, how much capital, how much each
-// opening stakes, which candles count as finished, how the account is walked — is
-// delegated to BacktestDomain untouched. Everything about where each candle's signal
-// comes from — the sources, their shared coarseness, the two condition trees — is
-// TradingStrategyReplaySourcesDomain's, shared with the contract replay so the two
-// reach the same signal on the same candle. What is left here is only what makes it a
-// spot replay: the trading strategy and every one of its sources eat K candles.
+// TradingStrategyBacktestDomain delegates the replay to BacktestDomain and signal
+// combination to TradingStrategyReplaySourcesDomain, adding only the spot-only checks.
 type TradingStrategyBacktestDomain struct {
 	backtest BacktestDomain
 	sources  TradingStrategyReplaySourcesDomain
 }
 
-// NewTradingStrategyBacktestDomain validates the request against every replay rule. A
-// trading strategy written for contracts is refused before anything else: every other
-// rule would be answered about candles it was never written to read.
+// NewTradingStrategyBacktestDomain refuses contract trading strategies before any other rule.
 func NewTradingStrategyBacktestDomain(
 	requestDto dto.TradingStrategyBacktestRequestDto, maxCandleCount int, now time.Time,
 ) (TradingStrategyBacktestDomain, error) {
@@ -45,9 +36,7 @@ func NewTradingStrategyBacktestDomain(
 		return TradingStrategyBacktestDomain{}, sourcesError
 	}
 
-	// The coarseness is the trading strategy's answer, not the caller's, which is the
-	// only thing this has to supply — every other condition of the replay travels
-	// with the request itself.
+	// The interval comes from the trading strategy's sources, not the caller.
 	backtest, backtestError := NewBacktestDomain(
 		requestDto.ToBacktestRequestDto(sources.SharedInterval()), maxCandleCount, now)
 	if backtestError != nil {
@@ -93,9 +82,8 @@ func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) SourceParamet
 	return tradingStrategyBacktestDomain.sources.SourceParameters(index)
 }
 
-// ReplayOver turns each candle's several opinions into one and hands the result to the
-// ordinary replay. The one figure only a trading strategy produces — how many candles
-// its trees conflicted on — is added to the report card afterwards.
+// ReplayOver combines each candle's source signals, replays them, then adds the
+// conflicted-candle count to the summary.
 func (tradingStrategyBacktestDomain TradingStrategyBacktestDomain) ReplayOver(
 	inputKCandles []vo.KCandleVo, signalsBySource [][]SignalDomain,
 ) dto.BacktestResultDto {

@@ -8,19 +8,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// tradeCountIndex is where the number of trades sits in the source's positional
-// array. The spot side does not read it — a spot K candle does not record it — so it
-// is named here rather than beside the shared indexes.
+// tradeCountIndex is contract-only because spot K candles do not record the trade count.
 const tradeCountIndex = 8
 
-// priceLineFigures are the four prices a mark price, index price or premium index
-// answer actually carries. The same answer also carries volume, turnover and taker
-// volumes, and every one of them is the string "0".
-//
-// **Those zeros are placeholders, not readings.** A minute in which nothing traded
-// genuinely has a volume of zero, so copying them across would put candles into
-// storage that nobody could later tell apart from real ones. They are dropped here,
-// at the only place that knows they are not numbers.
+// priceLineFigures keeps only the four prices of a mark, index or premium answer; its volume fields are placeholder "0"s that would be indistinguishable from real zero volume.
 type priceLineFigures struct {
 	open  decimal.Decimal
 	high  decimal.Decimal
@@ -28,8 +19,6 @@ type priceLineFigures struct {
 	close decimal.Decimal
 }
 
-// toNullDecimals hands the four prices over as present figures, in the order a
-// candle lists them.
 func (figures priceLineFigures) toNullDecimals() (
 	decimal.NullDecimal, decimal.NullDecimal, decimal.NullDecimal, decimal.NullDecimal,
 ) {
@@ -37,13 +26,7 @@ func (figures priceLineFigures) toNullDecimals() (
 		decimal.NewNullDecimal(figures.low), decimal.NewNullDecimal(figures.close)
 }
 
-// toContractMarketKCandleVo turns the traded half of a contract candle into the shape
-// the domain accepts, leaving the mark, index and premium index figures absent
-// for the merge to fill in.
-// Nothing is judged here — the contract K candle rules are applied further in.
-// The three optional figures are read without checking whether they arrived: the
-// shared conversion above fills all of them from the same answer, so on this venue
-// they are present whenever it succeeded.
+// toContractMarketKCandleVo converts the traded klines, leaving mark, index and premium figures absent for the merge to fill; the optional volumes are always present on this venue.
 func (kLine binanceKLine) toContractMarketKCandleVo(symbol string) (vo.ContractMarketKCandleVo, error) {
 	marketKCandle, convertError := kLine.toMarketKCandleVo(symbol)
 	if convertError != nil {
@@ -70,8 +53,6 @@ func (kLine binanceKLine) toContractMarketKCandleVo(symbol string) (vo.ContractM
 	}, nil
 }
 
-// toPriceLineFigures reads only the four prices out of a mark price, index price or
-// premium index answer.
 func (kLine binanceKLine) toPriceLineFigures() (priceLineFigures, error) {
 	if len(kLine) < kLineFieldCount {
 		return priceLineFigures{}, fmt.Errorf(
@@ -92,12 +73,7 @@ func (kLine binanceKLine) toPriceLineFigures() (priceLineFigures, error) {
 	}, nil
 }
 
-// tradeCount reads how many trades the minute held, which the source states as a
-// bare number rather than as a quoted decimal like every figure beside it.
-//
-// The position is not bounds-checked here because it cannot be out of bounds: this is
-// only reached once the shared conversion has vouched for the row's length, and that
-// length is larger than this position.
+// tradeCount reads a bare JSON number; the index needs no bounds check because the shared conversion already validated the row length.
 func (kLine binanceKLine) tradeCount() (int64, error) {
 	var tradeCount int64
 	if decodeError := json.Unmarshal(kLine[tradeCountIndex], &tradeCount); decodeError != nil {

@@ -93,8 +93,8 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	clockProxy.EXPECT().Now().Return(contractAt(9, 7)).AnyTimes()
 	clockProxy.EXPECT().Sleep(gomock.Any()).AnyTimes()
 
-	// A history sync fills in the position statistics after the candles; these tests
-	// are about the candles, so the archive has no day at all.
+	// A history sync also fills position statistics; the archive is empty because these tests are
+	// about candles.
 	archiveProxy := mocks.NewMockIContractPositionStatisticArchiveProxy(mockController)
 	archiveProxy.EXPECT().FetchDailyPositionStatistics(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, false, nil).AnyTimes()
@@ -134,8 +134,8 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	}
 }
 
-// withoutAnAccount is the ordinary case: no account key configured, so the
-// maintenance margin ladder is never asked about.
+// withoutAnAccount configures no account key, so the maintenance margin ladder is never asked
+// about.
 func (underTest contractApplicationsUnderTest) withoutAnAccount() contractApplicationsUnderTest {
 	underTest.tierProxy.EXPECT().FetchMaintenanceMarginLadders(gomock.Any()).
 		Return(nil, domains.ErrContractAccountCredentialsMissing).AnyTimes()
@@ -188,8 +188,8 @@ func TestContractApplicationReadsUpdatesAndDeletesOneCandle(t *testing.T) {
 }
 
 func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
-	// Without this, a contract added now would hold nothing until the next start-up:
-	// the scheduled round only collects what has closed since it last ran.
+	// Without this, a new contract holds nothing until next start-up, since the scheduled round
+	// only collects what closed since it last ran.
 	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
 		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
@@ -222,8 +222,7 @@ func TestContractApplicationCatchesAContractUpTheMomentItIsAdded(t *testing.T) {
 }
 
 func TestContractApplicationKeepsTheContractOnTheWatchlistWhenTheCatchUpFails(t *testing.T) {
-	// The contract is on the watchlist, which is what was asked for and is true; the
-	// ordinary rounds will reach it anyway.
+	// The contract is still on the watchlist; the ordinary rounds will reach it anyway.
 	underTest := newContractApplicationsUnderTest(t).withoutAnAccount()
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
 		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)
@@ -343,8 +342,8 @@ func (records catchUpRecords) Write(line []byte) (int, error) {
 }
 
 func TestContractApplicationSaysWhichSeriesCouldNotBeCaughtUpWhenAContractIsAdded(t *testing.T) {
-	// The venue refusing comes back inside a report, not as an error. Left unsaid, it
-	// would look exactly like a catch-up that found nothing.
+	// A venue refusal comes back inside the report, not as an error, so it is distinguishable from
+	// a catch-up that found nothing.
 	records := catchUpRecords{lines: make(chan string, 64)}
 	previousOutput := log.Writer()
 	log.SetOutput(records)
@@ -379,8 +378,8 @@ func TestContractApplicationSaysWhichSeriesCouldNotBeCaughtUpWhenAContractIsAdde
 	assert.Contains(t, written, "BTCUSDT was added but its position statistics could not be caught up: statistics venue unreachable")
 }
 
-// addingBitcoinCatchesTheOtherSeriesUp arranges everything joining the watchlist asks
-// for apart from the maintenance margin ladder, each with nothing to bring back.
+// addingBitcoinCatchesTheOtherSeriesUp stubs every catch-up joining the watchlist triggers except
+// the maintenance margin ladder, each returning nothing.
 func (underTest contractApplicationsUnderTest) addingBitcoinCatchesTheOtherSeriesUp() {
 	underTest.lookupProxy.EXPECT().LookUpSymbol(gomock.Any(), "BTCUSDT").
 		Return(vo.ContractSymbolListingVo{IsListed: true}, nil)

@@ -23,16 +23,13 @@ type tradingSymbolListAssistantQueryUnderTest struct {
 	kCandleRepository       *mocks.MockIKCandleRepository
 }
 
-// newTradingSymbolListAssistantQueryUnderTest wires the real domain service and real
-// domain models, mocking only storage — so what the assistant is handed goes through
-// every rule a person's own request goes through.
+// newTradingSymbolListAssistantQueryUnderTest mocks only storage, so the assistant gets what a person's own request would.
 func newTradingSymbolListAssistantQueryUnderTest(t *testing.T) tradingSymbolListAssistantQueryUnderTest {
 	controller := gomock.NewController(t)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 
-	// Nothing is watched unless a test says so, so a listing that also asks what
-	// holds a market's live places finds none held.
+	// Nothing is watched unless a test says so, so no market's live places are held.
 	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
 		Return([]entities.TradingSymbol{}, nil).AnyTimes()
 
@@ -64,8 +61,7 @@ func TestTradingSymbolListAssistantQueryHandsOverEveryMarketTheSystemKnows(t *te
 }
 
 func TestTradingSymbolListAssistantQueryAnswersKnowingNoneAsAnEmptyList(t *testing.T) {
-	// A freshly built system genuinely knows of none. That is an answer the assistant
-	// can relay, not a refusal it has to work around.
+	// An empty system is an answer to relay, not a refusal.
 	fixture := newTradingSymbolListAssistantQueryUnderTest(t)
 	fixture.tradingSymbolRepository.EXPECT().FindAll(gomock.Any()).
 		Return([]entities.TradingSymbol{}, nil)
@@ -87,8 +83,7 @@ func TestTradingSymbolListAssistantQueryReportsAFailureToRead(t *testing.T) {
 	require.Error(t, runError)
 }
 
-// tradingSymbolClockProxy stamps registrations with a moment the test states, rather
-// than with whatever the wall clock said while it ran.
+// tradingSymbolClockProxy stamps registrations with a fixed moment instead of the wall clock.
 func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockProxy {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
@@ -96,7 +91,6 @@ func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockPro
 	return clockProxy
 }
 
-// tradingSymbolMarketCatalog is the markets these tests are written against.
 func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},

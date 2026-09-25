@@ -12,8 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// StrategyScriptMarketplaceController exposes the shared shelf over HTTP: what is on it,
-// putting one's own strategy script there or taking it back, and keeping a selection.
 type StrategyScriptMarketplaceController struct {
 	strategyScriptMarketplaceApplication *application.StrategyScriptMarketplaceApplication
 }
@@ -37,9 +35,7 @@ func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) 
 }
 
 // PublishStrategyScript handles POST /strategy-scripts/:id/publication.
-//
-// Publishing is stated as the state to end in rather than as an event, so pressing
-// it twice says the same thing as pressing it once and answers the same way.
+// Publishing sets a state, so repeating it is idempotent.
 func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) PublishStrategyScript(ginContext *gin.Context) {
 	id, idIsReadable := strategyScriptMarketplaceController.readID(ginContext)
 	if !idIsReadable {
@@ -103,9 +99,7 @@ func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) 
 	ginContext.Status(http.StatusNoContent)
 }
 
-// readID reads the strategy script identifier out of the path, answering the caller with a
-// bad request when it is not one. The second return value says whether the handler
-// may carry on.
+// readID answers a bad request itself when the path ID is invalid; false means the response was already sent.
 func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) readID(ginContext *gin.Context) (uint, bool) {
 	id, parseError := strconv.ParseUint(ginContext.Param("id"), 10, strconv.IntSize)
 	if parseError != nil || id == 0 || id > math.MaxInt64 {
@@ -117,12 +111,7 @@ func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) 
 }
 
 // respondWithError maps a domain error onto the status code that reports it.
-//
-// There is one refusal to recognise, and that is the whole design: a strategy script that
-// is not there, one that belongs to somebody else, and one that is not on the
-// marketplace all arrive here as the same error and leave as the same 404. Adding a
-// 403 for "yours it is not" would hand a stranger a way to ask which identifiers
-// exist.
+// Missing, foreign and unpublished scripts all arrive as one error and answer 404, so strangers cannot probe which identifiers exist.
 func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {

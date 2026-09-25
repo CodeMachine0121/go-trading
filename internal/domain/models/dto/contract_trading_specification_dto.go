@@ -6,11 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractTradingSpecificationDto is how trading one perpetual contract looks, as the
-// venue last said it, and when that was.
-//
-// The two rates are proportions: a maintenance margin rate of 0.025 is two and a half
-// percent of the position.
+// ContractTradingSpecificationDto rates are proportions (0.025 is 2.5%).
 type ContractTradingSpecificationDto struct {
 	TickSize               decimal.Decimal `json:"tickSize"`
 	QuantityStep           decimal.Decimal `json:"quantityStep"`

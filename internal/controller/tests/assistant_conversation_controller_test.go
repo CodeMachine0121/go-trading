@@ -30,15 +30,11 @@ type chatRouterUnderTest struct {
 	engine                 *gin.Engine
 	conversationRepository *mocks.MockIConversationRepository
 	assistantProxy         *mocks.MockIAssistantProxy
-	// completedTurns carries whatever was written back over the reserved exchange.
-	// A case that lets the answer start has to wait for it, or the mock controller
-	// will still be receiving calls while the test is being torn down.
+	// completedTurns receives the turn written back asynchronously; cases that let the answer start must wait for it before teardown.
 	completedTurns chan entities.AssistantTurn
 }
 
-// newChatRouterUnderTest wires the real service and real domain models, mocking only
-// the outermost boundaries: storage, the assistant and the clock. What is under test
-// here is which status code each refusal comes out as.
+// newChatRouterUnderTest wires real services, mocking only storage, the assistant and the clock.
 func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
@@ -65,11 +61,7 @@ func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 				20, 8, 300000, 2000,
 			)))
 
-	// The door is mounted here because it is mounted in front of these three routes
-	// in the running system: the assistant acts as whoever asked it, so what it
-	// reads, writes and remembers is that person's. A test router without the door
-	// would have every conversation belong to nobody, and nobody is the one owner
-	// these routes must never serve.
+	// The auth middleware is mounted as in production, since a conversation belongs to whoever asked.
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
 
 	engine := gin.New()
@@ -85,8 +77,7 @@ func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 	}
 }
 
-// awaitCompletedTurn waits for the answer to be written back, which happens off the
-// request that asked for it.
+// awaitCompletedTurn waits for the answer, which is written back off the request.
 func (fixture chatRouterUnderTest) awaitCompletedTurn(t *testing.T) entities.AssistantTurn {
 	t.Helper()
 
@@ -112,7 +103,6 @@ func (fixture chatRouterUnderTest) send(
 	return recorder
 }
 
-// expectUsageToday says what has been spent today, which every ask reads first.
 func (fixture chatRouterUnderTest) expectUsageToday(usageToday int) {
 	fixture.conversationRepository.EXPECT().
 		SumUsageBetween(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -120,9 +110,7 @@ func (fixture chatRouterUnderTest) expectUsageToday(usageToday int) {
 }
 
 func TestChatAskAcceptsTheQuestionAndSaysWhereTheAnswerWillAppear(t *testing.T) {
-	// 202 rather than 200, because nothing has been answered yet. A 200 with no
-	// answer in it is the one reading a client could not recover from — it would
-	// render an empty reply and move on.
+	// 202 rather than 200: nothing is answered yet, and a 200 without an answer would render as an empty reply.
 	fixture := newChatRouterUnderTest(t)
 	fixture.expectUsageToday(0)
 	fixture.assistantProxy.EXPECT().Reply(gomock.Any(), gomock.Any()).
@@ -185,9 +173,7 @@ func TestChatAskMapsEachRefusalOntoWhatTheReaderMustDoAboutIt(t *testing.T) {
 			},
 		},
 		{
-			// Waiting is what this reader has to do, and it is a different thing from
-			// trying again shortly — collapsing the two would leave somebody retrying
-			// a refusal that will still be there in an hour.
+			// Distinct from "try again shortly": this refusal lasts until tomorrow.
 			name:               "today's allowance is spent",
 			body:               `{"question":"BTCUSDT 最近走勢如何"}`,
 			expectedStatusCode: http.StatusTooManyRequests,
@@ -196,9 +182,7 @@ func TestChatAskMapsEachRefusalOntoWhatTheReaderMustDoAboutIt(t *testing.T) {
 			},
 		},
 		{
-			// Waiting a moment is what this reader has to do, and it is unlike all the
-			// others: not rewrite, not wait until tomorrow — just let the answer
-			// already being written finish.
+			// Unlike the others, this only needs the answer already being written to finish.
 			name:               "an answer on that conversation is still being written",
 			body:               `{"conversationId":7,"question":"再問一句"}`,
 			expectedStatusCode: http.StatusConflict,
@@ -317,8 +301,7 @@ func TestChatGetConversationRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 }
 
 func TestChatGetConversationAnswersSomebodyElsesAsNotFound(t *testing.T) {
-	// The same status code as one that does not exist. A different one would tell a
-	// reader holding a list of identifiers which conversations are somebody's.
+	// Same status as a nonexistent conversation, so identifiers don't reveal which ones exist.
 	fixture := newChatRouterUnderTest(t)
 	fixture.conversationRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
 		Return(entities.Conversation{
@@ -333,8 +316,7 @@ func TestChatGetConversationAnswersSomebodyElsesAsNotFound(t *testing.T) {
 }
 
 func TestChatRefusesEveryRouteWithoutAProof(t *testing.T) {
-	// The assistant acts as whoever asked it. Without a proof there is nobody to act
-	// as, and every one of these routes has to say so rather than act as nobody.
+	// The assistant acts as the caller, so every route must refuse a request without proof.
 	testCases := []struct {
 		name   string
 		method string

@@ -1,25 +1,14 @@
 package dto
 
-// TradingStrategyWriteDto is a trading strategy as it arrives to be saved, before
-// anything about it has been settled: the name still carries whatever blanks were
-// typed around it, and the operators and signals are still just the spellings that
-// came in.
-//
-// Creating and rewriting hand over the same shape, because every rule that applies
-// to one applies word for word to the other. ID is zero on a create and names the
-// trading strategy on a rewrite; OwnerID is settled by whoever is signed in and is
-// never read from the request.
+// TradingStrategyWriteDto is unvalidated input shared by create and rewrite; ID is zero on
+// create and OwnerID comes from the signed-in user.
 type TradingStrategyWriteDto struct {
 	ID      uint
 	OwnerID uint
 	Name    string
-	// TradingMode is what the caller declared about which rules these are written
-	// for, exactly as they typed it. There is one set of rules left, so nothing is
-	// chosen by it — it is carried only so that a caller asking for a different one
-	// is told, rather than quietly handed spot.
+	// TradingMode is carried only so a request for an unsupported mode can be refused.
 	TradingMode string
-	// MarketDataKind is which kind of market this trading strategy's rules are
-	// written for. Blank is the K candle on creation, and the stored kind on a rewrite.
+	// MarketDataKind blank means kCandle on create and unchanged on rewrite.
 	MarketDataKind string
 
 	SignalSources []TradingStrategySignalSourceWriteDto
@@ -27,28 +16,15 @@ type TradingStrategyWriteDto struct {
 	SellCondition TradingStrategyConditionDto
 }
 
-// TradingStrategySignalSourceWriteDto is one signal source as it arrives, plus the
-// two things only the strategy script itself can say: which knobs it declares, and
-// what kind of value it produces.
-//
-// DeclaredParameters and DeclaredResultType are filled in by the application from the
-// resolved strategy script, not by the caller. They are here so that "this source
-// sets a knob that strategy script never declared" and "this source listens to a
-// strategy script that never speaks in signals" are both caught by the same model
-// that checks everything else about a source, rather than surfacing much later as a
-// script failure in the middle of the night.
+// TradingStrategySignalSourceWriteDto Declared fields are filled by the application from the
+// resolved script so the domain can validate knobs and result type up front.
 type TradingStrategySignalSourceWriteDto struct {
 	Label               string
 	StrategyScriptID    uint
 	AggregationInterval string
 	ParameterValues     []StrategyScriptParameterValueDto
 	DeclaredParameters  []StrategyScriptParameterWriteDto
-	// DeclaredResultType is the kind of value the named strategy script declares.
-	// A condition compares a source against buy, sell or hold, and only one kind of
-	// strategy script ever produces those — so this is the only field that decides
-	// whether a source can mean anything at all.
-	DeclaredResultType string
-	// DeclaredMarketDataKind is the kind of market the named strategy script eats, read
-	// off it by the caller so that a source eating the other kind can be refused.
+	// DeclaredResultType must be the signal kind for a source to be usable in conditions.
+	DeclaredResultType     string
 	DeclaredMarketDataKind string
 }

@@ -7,18 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractMarketKCandleVo is one contract K candle as a market source reported it,
-// already normalized and already merged: the wire format and the fact that it took
-// two questions to assemble both stop at the proxy and never reach the domain.
-//
-// The mark, index and premium index figures are the only optional ones, and they are
-// optional because they are the only ones that can genuinely be missing — each comes
-// from an answer of its own that may not cover the same minute. The rest arrive
-// together or not at all.
-//
-// Nothing is judged here. "A contract K candle without a mark price is not one" is a
-// rule, and rules live in the domain; this type's whole job is to make that rule
-// possible to state by letting the absence survive the trip.
+// ContractMarketKCandleVo is one normalized, merged contract K candle; only mark/index/premium are optional because they come from separate answers, and their absence is preserved for the domain to judge.
 type ContractMarketKCandleVo struct {
 	Symbol              string
 	OpenTime            time.Time
@@ -45,8 +34,7 @@ type ContractMarketKCandleVo struct {
 	PremiumIndexClose   decimal.NullDecimal
 }
 
-// ToWriteDto converts this reported candle into the shape the domain validates and
-// stores. Nothing is judged here — every contract K candle rule is applied downstream.
+// ToWriteDto converts the candle for validation and storage; all rules are applied downstream.
 func (contractMarketKCandleVo ContractMarketKCandleVo) ToWriteDto() dto.KCandleContractWriteDto {
 	tradeCount := contractMarketKCandleVo.TradeCount
 

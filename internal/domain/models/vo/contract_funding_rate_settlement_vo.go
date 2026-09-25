@@ -6,10 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractFundingRateSettlementVo is one funding rate settlement as the venue reported
-// it, already normalized. Nothing is judged here: the mark price arrives absent when
-// the venue gave none, so that the domain is the one place that decides what an
-// absent one means.
+// ContractFundingRateSettlementVo is one normalized funding settlement; a missing mark price stays absent so the domain decides what that means.
 type ContractFundingRateSettlementVo struct {
 	Symbol         string
 	SettlementTime time.Time

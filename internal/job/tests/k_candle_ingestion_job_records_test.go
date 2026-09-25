@@ -20,7 +20,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// recordedLines carries whatever the job wrote down out of its goroutine.
 type recordedLines struct {
 	lines chan string
 }
@@ -74,9 +73,7 @@ func brokenKCandle(openTime time.Time) vo.MarketKCandleVo {
 	}
 }
 
-// startJobWith wires the real ingestion path around the given source behaviour and
-// starts the job, which begins with its backfill. The interval is long enough that
-// only the backfill happens unless a test asks for a shorter one.
+// startJobWith uses an interval long enough that only the backfill runs.
 func startJobWith(
 	t *testing.T,
 	roundCandleCount int,
@@ -87,7 +84,6 @@ func startJobWith(
 	startJobEvery(t, time.Hour, roundCandleCount, fetch)
 }
 
-// startJobEvery is the same, with the interval between rounds under the test's control.
 func startJobEvery(
 	t *testing.T,
 	interval time.Duration,
@@ -167,8 +163,7 @@ func TestRoundsKeepComingAfterAWholeRoundFails(t *testing.T) {
 			return nil, errors.New("market source unreachable")
 		})
 
-	// The backfill fails, then a round fails, and the round after that still happens:
-	// nothing about a failed round stops the next one.
+	// A failed backfill and a failed round must not stop the next round.
 	recorded.waitFor(t, "startup backfill got no answer")
 	recorded.waitFor(t, "scheduled round got no answer")
 	assert.Contains(t, recorded.waitFor(t, "scheduled round got no answer"), "BTCUSDT")
@@ -192,7 +187,6 @@ func TestARoundWithNothingWrongRecordsNothing(t *testing.T) {
 			return []vo.MarketKCandleVo{soundKCandle(scheduledWindowStart)}, nil
 		})
 
-	// Two trips to the source: the backfill, then a round. Both went cleanly.
 	waitForFetch(t, fetched)
 	waitForFetch(t, fetched)
 

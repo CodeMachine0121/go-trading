@@ -6,27 +6,14 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// StrategyBotLifecycleMessageDomain writes the two messages a bot sends about
-// itself: it has started watching, or it has stopped.
-//
-// They exist because pressing play and then walking away is the whole point of a
-// bot, and until now the first thing that ever confirmed the walking-away worked was
-// a trading signal that might be hours off. A line saying "I am watching" turns a
-// button press into something that happened.
-//
-// It is a model of its own rather than another method on the round message, because
-// the two say different kinds of thing: one is about the market, the other is about
-// the bot. A reader glancing at their phone has to be able to tell them apart in the
-// first three characters, which is why these open with a different bracket.
+// StrategyBotLifecycleMessageDomain writes a bot's started/stopped messages, using a different opening bracket than round messages so they are distinguishable at a glance.
 type StrategyBotLifecycleMessageDomain struct {
 	botName    string
 	symbol     string
 	haltReason vo.StrategyBotHaltReasonVo
 }
 
-// NewStrategyBotLifecycleMessageDomain takes the bot the message is about — its symbol
-// as its owner reads it, so a contract bot's already says it is a perpetual contract —
-// and why it stopped if the system stopped it.
+// NewStrategyBotLifecycleMessageDomain expects the owner-facing symbol label (a contract bot's already says perpetual contract).
 func NewStrategyBotLifecycleMessageDomain(
 	botName string, symbol string, haltReason vo.StrategyBotHaltReasonVo,
 ) StrategyBotLifecycleMessageDomain {
@@ -34,21 +21,13 @@ func NewStrategyBotLifecycleMessageDomain(
 		botName: botName, symbol: symbol, haltReason: haltReason}
 }
 
-// StartedText is what a bot says when it begins watching.
-//
-// It says what it is watching and not what it will do, because what it will do is
-// the condition its owner just wrote — repeating it back would be long, and wrong
-// the moment they edit it.
+// StartedText deliberately omits the bot's condition, which would be long and stale after the next edit.
 func (messageDomain StrategyBotLifecycleMessageDomain) StartedText() string {
 	return fmt.Sprintf("【已啟動】%s · %s\n它開始盯這一檔了。訊號變了才會再傳訊息給你。",
 		messageDomain.botName, messageDomain.symbol)
 }
 
-// StoppedText is what a bot says when it stops.
-//
-// A halt says why. That is the whole reason this message is worth sending at all:
-// until now the only place a halted bot could be noticed was the list, and nobody
-// opens a list to check on something they believe is running.
+// StoppedText includes the halt reason so a system-halted bot is noticed without opening the list.
 func (messageDomain StrategyBotLifecycleMessageDomain) StoppedText() string {
 	if messageDomain.haltReason == vo.StrategyBotHaltNone {
 		return fmt.Sprintf("【已停止】%s · %s\n它不再盯這一檔了。",
@@ -59,9 +38,7 @@ func (messageDomain StrategyBotLifecycleMessageDomain) StoppedText() string {
 		messageDomain.botName, messageDomain.symbol, messageDomain.haltReasonInWords())
 }
 
-// haltReasonInWords is the reason as a person reads it. It says what happened, not
-// what to do: what to do depends on which of their strategy scripts or settings it was,
-// and only they know that.
+// haltReasonInWords says what happened, not what to do, since only the owner knows which script or setting to fix.
 func (messageDomain StrategyBotLifecycleMessageDomain) haltReasonInWords() string {
 	switch messageDomain.haltReason {
 	case vo.StrategyBotHaltStrategyScriptUnavailable:

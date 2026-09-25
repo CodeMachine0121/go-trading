@@ -10,8 +10,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// kCandleRangeAssistantArguments is what the assistant sends to ask for the raw
-// candles of a stretch.
 type kCandleRangeAssistantArguments struct {
 	Symbol      string `json:"symbol"`
 	StartTime   string `json:"startTime"`
@@ -19,13 +17,8 @@ type kCandleRangeAssistantArguments struct {
 	CandleCount int    `json:"candleCount"`
 }
 
-// KCandleRangeAssistantQuery lets the assistant read the raw one-minute candles of a
-// stretch.
-//
-// It is offered alongside the aggregated series, not instead of it, because some
-// questions really are about the minute-by-minute detail. It obeys the same ceiling, and
-// the description points the assistant at the series first: raw candles are the
-// expensive way to look at anything longer than a few hours.
+// KCandleRangeAssistantQuery lets the assistant read raw one-minute candles for questions that
+// need minute detail; it obeys the same ceiling and the aggregated series is the cheaper default.
 type KCandleRangeAssistantQuery struct {
 	kCandleApplication *application.KCandleApplication
 	candleLimit        int
@@ -59,8 +52,7 @@ func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) ArgumentSchema() s
 		`},"required":["symbol","startTime","endTime"],"additionalProperties":false}`
 }
 
-// Run reads the stretch and hands over at most the ceiling's worth of it, most recent
-// last. Every rule the underlying query obeys is obeyed here unrelaxed.
+// Run hands over at most the ceiling's worth of the stretch, most recent last.
 func (kCandleRangeAssistantQuery *KCandleRangeAssistantQuery) Run(
 	executionContext context.Context, _ uint, arguments string,
 ) (string, error) {

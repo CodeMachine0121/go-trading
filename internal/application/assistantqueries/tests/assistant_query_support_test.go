@@ -7,19 +7,14 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// queryMaxResults is the ceiling the underlying K candle service is built with in
-// these tests — large enough that it never gets in the way of what a case is
-// actually checking.
+// queryMaxResults is large enough never to interfere with what a case checks.
 const queryMaxResults = 1000
 
-// at is a moment on 2026-08-29, given only as an hour and a minute because that is
-// all any case here cares about.
+// at is a moment on 2026-08-29.
 func at(hour int, minute int) time.Time {
 	return time.Date(2026, 8, 29, hour, minute, 0, 0, time.UTC)
 }
 
-// kCandleAt is one finished candle at a moment, with only its close price varying —
-// every other field is filled with a plausible fixed value.
 func kCandleAt(openTime time.Time, closePrice string) entities.KCandle {
 	return entities.KCandle{
 		Symbol:              "BTCUSDT",
@@ -35,12 +30,8 @@ func kCandleAt(openTime time.Time, closePrice string) entities.KCandle {
 	}
 }
 
-// indicatorNow is the moment every calculation below is asked at. It sits on a
-// five-minute edge, so the candle at 09:10 belongs to a bucket that has finished.
+// indicatorNow sits on a five-minute edge, so the 09:10 candle's bucket has finished.
 var indicatorNow = at(9, 15)
 
-// assistantViewerID is whoever the assistant is acting for throughout these tests.
-// Every strategy script it saves belongs to them, and every strategy script it reads is theirs —
-// which is what makes these tests about the capabilities rather than about who may
-// see what.
+// assistantViewerID owns every strategy script these tests save or read, so they test capabilities rather than visibility.
 const assistantViewerID = uint(1)

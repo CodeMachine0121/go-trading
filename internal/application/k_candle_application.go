@@ -8,8 +8,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// KCandleApplication orchestrates the K candle use cases. Each method is one call
-// into the domain; no rule, ordering or limit decision lives here.
 type KCandleApplication struct {
 	kCandleService *service.KCandleService
 }

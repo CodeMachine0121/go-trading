@@ -2,34 +2,18 @@ package models
 
 import "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 
-// TradingStrategyRequest is the body a caller sends to build or rewrite a trading
-// strategy.
-//
-// One shape serves both, because a rewrite replaces everything it is made of. Which
-// one is meant comes from the path, never from the body, and neither does who owns
-// it — a body that could name its own owner is a body that could claim somebody
-// else's.
-//
-// Nothing about a machine is here: no market to watch, no interval, no run state.
-// A request with nowhere to put them is how "these are rules, not a bot" is made
-// true of the shape rather than of the code reading it.
+// TradingStrategyRequest serves create and full rewrite; the ID and owner never come from the body, and it holds rules only, no bot settings.
 type TradingStrategyRequest struct {
 	Name string `json:"name"`
-	// MarketDataKind is which kind of market these rules are written for: kCandle
-	// (the default, and every trading strategy saved before there was a choice) or
-	// contractKCandle. It is settled on creation and never changes.
+	// MarketDataKind is kCandle (default) or contractKCandle, fixed at creation.
 	MarketDataKind string `json:"marketDataKind"`
-	// TradingMode is the contract trading mode — longShort, longOnly or shortOnly —
-	// a contract trading strategy reads its buys and sells by; blank is longShort. A
-	// K candle trading strategy has none, and naming one is refused.
+	// TradingMode is longShort (default when blank), longOnly or shortOnly for contract strategies; naming one on a K candle strategy is refused.
 	TradingMode   string                               `json:"tradingMode"`
 	SignalSources []TradingStrategySignalSourceRequest `json:"signalSources"`
 	BuyCondition  TradingStrategyConditionRequest      `json:"buyCondition"`
 	SellCondition TradingStrategyConditionRequest      `json:"sellCondition"`
 }
 
-// TradingStrategySignalSourceRequest is one strategy script as it is to run inside
-// this trading strategy.
 type TradingStrategySignalSourceRequest struct {
 	Label               string                             `json:"label"`
 	StrategyScriptID    uint                               `json:"strategyScriptId"`
@@ -37,19 +21,12 @@ type TradingStrategySignalSourceRequest struct {
 	ParameterValues     []StrategyBotParameterValueRequest `json:"parameterValues"`
 }
 
-// StrategyBotParameterValueRequest is what one knob is worth in one source.
 type StrategyBotParameterValueRequest struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
 }
 
-// TradingStrategyConditionRequest is one condition, nested exactly as a person builds
-// it: a comparison, or a group of conditions joined by an operator.
-//
-// It arrives nested rather than flat because that is the shape it is thought in.
-// Asking a caller to send a list of nodes with parent references would mean the
-// screen flattens a tree that this system immediately rebuilds — two chances to
-// disagree about one condition.
+// TradingStrategyConditionRequest arrives nested (a comparison or an operator-joined group), matching how conditions are built.
 type TradingStrategyConditionRequest struct {
 	Operator    string                            `json:"operator"`
 	Conditions  []TradingStrategyConditionRequest `json:"conditions"`
@@ -57,12 +34,7 @@ type TradingStrategyConditionRequest struct {
 	Signal      string                            `json:"signal"`
 }
 
-// ToWriteDto turns the request into the shape the domain accepts, taking which
-// trading strategy is meant from the argument. A zero identifier means one that does
-// not exist yet.
-//
-// The owner is not taken here at all: it is settled by the application from whoever
-// is signed in, and on a rewrite from what is already stored.
+// ToWriteDto takes the strategy ID from the argument (zero means new); the owner is set by the application.
 func (tradingStrategyRequest TradingStrategyRequest) ToWriteDto(id uint) dto.TradingStrategyWriteDto {
 	return dto.TradingStrategyWriteDto{
 		ID:             id,
@@ -75,7 +47,6 @@ func (tradingStrategyRequest TradingStrategyRequest) ToWriteDto(id uint) dto.Tra
 	}
 }
 
-// signalSourceWriteDtos hands the sources on untouched, always as a list.
 func (tradingStrategyRequest TradingStrategyRequest) signalSourceWriteDtos() []dto.TradingStrategySignalSourceWriteDto {
 	signalSourceWriteDtos := make(
 		[]dto.TradingStrategySignalSourceWriteDto, 0, len(tradingStrategyRequest.SignalSources))
@@ -101,9 +72,6 @@ func (tradingStrategyRequest TradingStrategyRequest) signalSourceWriteDtos() []d
 	return signalSourceWriteDtos
 }
 
-// ToDto turns this condition and everything under it into the domain's shape. It
-// recurses through itself, so a condition nested five deep needs no more code than
-// one nested once.
 func (tradingStrategyConditionRequest TradingStrategyConditionRequest) ToDto() dto.TradingStrategyConditionDto {
 	conditionDtos := make(
 		[]dto.TradingStrategyConditionDto, 0, len(tradingStrategyConditionRequest.Conditions))

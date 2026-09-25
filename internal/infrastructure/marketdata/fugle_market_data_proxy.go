@@ -13,36 +13,12 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// fugleTimeframe is how this source spells the length one K candle covers: plainly
-// the number of minutes. Deriving it rather than writing it out keeps this source
-// from quietly asking for a length the system no longer works in.
+// fugleTimeframe is derived from the domain interval.
 var fugleTimeframe = strconv.Itoa(domains.KCandleIntervalMinutes)
 
-// fugleApiKeyHeader is where this source expects to be told who is asking.
 const fugleApiKeyHeader = "X-API-KEY"
 
-// FugleMarketDataProxy fetches Taiwan stock K candles from Fugle.
-//
-// Everything the rest of the system must not know about this source stops here: two
-// addresses rather than one, dates said in Taipei rather than universal time, and
-// the fact that "today" and "any earlier day" are asked for in different places.
-//
-// That split is the source's, not ours. Its intraday address only ever answers about
-// today, and its historical address takes whole dates — so a window is asked for one
-// local day at a time and trimmed back to what was actually wanted.
-//
-// **Each of those days costs a sequential, keyed request**, which is why this is
-// handed the market itself rather than just its zone. Narrowing a window to the
-// session only moves its two outer edges; the days in the middle it cannot trade on
-// stay inside it. That cost nothing while the only lookback-driven window was a day
-// or two, but a history sync hands over as many as ninety — a quarter of them
-// weekends that can only ever answer empty, on a plan that starts answering 429 when
-// pushed.
-//
-// **Which days those are is asked of the market, never decided here.** This is
-// infrastructure; a copy of that rule living next to the requests would be a second
-// answer to a question the domain already answers, and the two would drift on
-// exactly the market nobody tested.
+// FugleMarketDataProxy fetches Taiwan stock K candles one Taipei-local day at a time (intraday address for today, historical for earlier days); it asks the market domain which days trade so non-trading days cost no request.
 type FugleMarketDataProxy struct {
 	intradayBaseUrl   string
 	historicalBaseUrl string
@@ -73,8 +49,7 @@ func NewFugleMarketDataProxy(
 	}
 }
 
-// FetchKCandles returns every K candle this source holds inside the window, oldest
-// first. A window the source has nothing for is an empty result, not a failure.
+// FetchKCandles returns candles oldest first; an empty window is not an error.
 func (fugleMarketDataProxy *FugleMarketDataProxy) FetchKCandles(
 	executionContext context.Context, window vo.KCandleFetchWindowVo,
 ) ([]vo.MarketKCandleVo, error) {
@@ -84,9 +59,7 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) FetchKCandles(
 	lastLocalDay := fugleMarketDataProxy.localDayOf(window.EndTime)
 
 	for localDay := fugleMarketDataProxy.localDayOf(window.StartTime); !localDay.After(lastLocalDay); localDay = localDay.AddDate(0, 0, 1) {
-		// Asked of the market, one whole local day at a time. A day it holds no
-		// trading on can only ever answer empty, and this source charges a request
-		// for finding that out.
+		// Skip days with no trading, since each empty answer still costs a request.
 		if !fugleMarketDataProxy.marketDomain.HoldsTrading(localDay, localDay.AddDate(0, 0, 1)) {
 			continue
 		}
@@ -108,8 +81,6 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) FetchKCandles(
 	return marketKCandles, nil
 }
 
-// fetchDay asks for one local day, from whichever of the two addresses answers about
-// that day.
 func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 	executionContext context.Context,
 	symbol string,
@@ -122,16 +93,12 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 
 	queryValues := url.Values{}
 	queryValues.Set("timeframe", fugleTimeframe)
-	// Oldest first, said out loud: the historical address answers newest first unless
-	// told otherwise, and a caller downstream that assumed order would be reading the
-	// day backwards without anything looking wrong.
+	// The historical address defaults to newest first.
 	queryValues.Set("sort", "asc")
 
 	baseUrl := fugleMarketDataProxy.historicalBaseUrl
 	if fugleMarketDataProxy.isSameLocalDay(localDay, today) {
-		// Today is only answered about at the intraday address. Asking the historical
-		// one for today can come back empty long after the market has traded, which
-		// would read as a quiet day and, for a whole market, as a holiday.
+		// Today must use the intraday address; the historical one can return empty for today long after trading.
 		baseUrl = fugleMarketDataProxy.intradayBaseUrl
 	} else {
 		requestedDate := localDay.Format(time.DateOnly)
@@ -143,7 +110,6 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 		executionContext, baseUrl+"/"+url.PathEscape(symbol), queryValues, symbol)
 }
 
-// ask makes one request and normalizes whatever it answers with.
 func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
 	executionContext context.Context,
 	requestUrl string,
@@ -184,8 +150,6 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
 	return marketKCandles, nil
 }
 
-// localDayOf is the start of the local day a moment falls on, which is the unit this
-// source answers in.
 func (fugleMarketDataProxy *FugleMarketDataProxy) localDayOf(moment time.Time) time.Time {
 	localMoment := moment.In(fugleMarketDataProxy.marketDomain.Zone())
 

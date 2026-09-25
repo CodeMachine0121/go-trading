@@ -9,25 +9,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
-// TradingStrategyCreateAssistantQuery lets the assistant put the scripts it writes
-// together into one set of rules.
-//
-// Until it had this, the assistant could hand over an algorithm and nothing more: the
-// thing a person actually runs is several scripts plus a buy tree and a sell tree,
-// and assembling that was work it could describe but not do. Every conversation ended
-// at "now go to the workbench and build it yourself".
-//
-// Saving is offered and deleting is not, for a sharper version of the reason that
-// applies to a strategy script: a set of rules is several scripts and two trees that
-// took a few rounds to get right, and rebuilding it costs far more than renaming one
-// saved by mistake.
-//
-// Every rule a person's own save obeys is obeyed here — the name must be free, the
-// labels must be declared before a condition names one, a source may only set knobs
-// its script declared — because they arrive at the same model. A refusal is handed
-// back to the assistant as the reason, and refusals here are expected rather than
-// exceptional: the assistant is the only party that can read "label C was never
-// declared" and declare C in the same breath.
+// TradingStrategyCreateAssistantQuery lets the assistant assemble scripts and buy/sell trees into
+// a saved trading strategy; deleting is not offered, and domain refusals go back for it to fix.
 type TradingStrategyCreateAssistantQuery struct {
 	tradingStrategyApplication *application.TradingStrategyApplication
 }
@@ -54,7 +37,6 @@ func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) 
 		`},"required":["name","signalSources","buyCondition","sellCondition"],"additionalProperties":false}`
 }
 
-// Run saves the trading strategy and hands it back as stored.
 func (tradingStrategyCreateAssistantQuery *TradingStrategyCreateAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {

@@ -11,21 +11,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// BacktestService is the application layer's only entry point for replaying a
-// strategy script over a stretch of market that has already happened.
-//
-// It orchestrates and nothing more: the rules about what may be replayed live in
-// BacktestDomain, the rules about trading live in BacktestSimulationDomain, and how a
-// script is read and run lives behind the script proxy. What is here is the order the
-// four steps happen in, which is the one thing none of them can own.
+// BacktestService is the application layer's only entry point for replaying strategy scripts over past market data; it only sequences the domain steps.
 type BacktestService struct {
 	kCandleRepository    domaininterface.IKCandleRepository
 	indicatorScriptProxy domaininterface.IIndicatorScriptProxy
 	clockProxy           domaininterface.IClockProxy
 	maxCandleCount       int
-	// replayTimeAllowance is how long one whole replay may take — reading the market
-	// and running every source's script together. Each script run has its own allowance besides; this one is what
-	// stops a long replay from outlasting whoever is waiting for it.
+	// replayTimeAllowance bounds one whole replay, reading plus all script runs, on top of each run's own allowance.
 	replayTimeAllowance time.Duration
 }
 
@@ -45,19 +37,11 @@ func NewBacktestService(
 	}
 }
 
-// RunBacktest replays the script over every finished candle of the requested stretch,
-// oldest first, and hands back the report card, the finished round trips and the
-// equity curve. Nothing is stored: asking the same question twice replays it twice.
-//
-// The script is run once per candle and sees everything from the first candle up to
-// the one it stands on — so a strategy script that looks back further than it has candles
-// simply produces nothing to act on early in the replay, exactly as it would have at
-// the time.
+// RunBacktest replays the script over every finished candle, oldest first, each run seeing all candles up to its own; nothing is stored.
 func (backtestService *BacktestService) RunBacktest(
 	executionContext context.Context, requestDto dto.BacktestRequestDto,
 ) (dto.BacktestResultDto, error) {
-	// The allowance covers the whole replay — reading the market as well as running
-	// the scripts — because whoever is waiting waits for all of it.
+	// The allowance covers reading the market as well as running the scripts.
 	replayContext, stopReplaying := context.WithTimeoutCause(
 		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
 	defer stopReplaying()
@@ -89,29 +73,15 @@ func (backtestService *BacktestService) RunBacktest(
 		return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, executionError)
 	}
 
-	// The script ran under the signal kind, so each candle's result carries one
-	// opinion. Reading them into signals here keeps the simulation working in
-	// opinions rather than in raw script output.
 	return backtestDomain.ReplayOver(
 		inputKCandles, signalsOf(perCandleIndicatorValues), nil), nil
 }
 
-// RunTradingStrategyBacktest replays a whole trading strategy over the same stretch:
-// every signal source runs its own script over the same candles, and the two
-// condition trees turn each candle's several opinions into one.
-//
-// The candles are read once and every source runs over that one batch. Reading per
-// source would be the same query repeated up to ten times, and — worse — ten chances
-// for two sources to end up replaying slightly different stretches.
-//
-// It shares no step with RunBacktest beyond the private reading of a script result
-// into signals. What replays a single script must keep working exactly as it does,
-// and the surest way to keep it that way is for this not to touch it.
+// RunTradingStrategyBacktest replays a whole trading strategy; candles are read once so every source sees the identical stretch.
 func (backtestService *BacktestService) RunTradingStrategyBacktest(
 	executionContext context.Context, requestDto dto.TradingStrategyBacktestRequestDto,
 ) (dto.BacktestResultDto, error) {
-	// The allowance covers the whole replay — reading the market as well as running
-	// the scripts — because whoever is waiting waits for all of it.
+	// The allowance covers reading the market as well as running the scripts.
 	replayContext, stopReplaying := context.WithTimeoutCause(
 		executionContext, backtestService.replayTimeAllowance, errReplayTimeAllowanceSpent)
 	defer stopReplaying()
@@ -143,9 +113,7 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 			tradingStrategyBacktestDomain.ResultType(),
 			inputKCandles,
 			tradingStrategyBacktestDomain.SourceParameters(sourceIndex))
-		// One source failing ends the whole replay. Half a replay is not a shorter
-		// replay: the conditions would be answered against signals that are simply
-		// absent, and would quietly come out false.
+		// One failing source ends the replay; missing signals would silently make conditions false.
 		if executionError != nil {
 			return dto.BacktestResultDto{}, backtestService.refusalFor(replayContext, executionError)
 		}
@@ -156,14 +124,10 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 	return tradingStrategyBacktestDomain.ReplayOver(inputKCandles, signalsBySource), nil
 }
 
-// errReplayTimeAllowanceSpent is why a replay's scripts were stopped when it was their
-// whole-run allowance that ran out, rather than whoever asked giving up. Both replay
-// services stop on it and tell the two apart by it.
+// errReplayTimeAllowanceSpent distinguishes the replay's own allowance running out from the caller giving up.
 var errReplayTimeAllowanceSpent = errors.New("replay time allowance spent")
 
-// refusalFor is what a replay says when it could not finish: the allowance, in words a
-// person can act on, when that is what ran out; otherwise whatever went wrong.
-// Both replays ask it, so both say the same sentence.
+// refusalFor explains an unfinished replay, with an actionable message when the allowance ran out.
 func (backtestService *BacktestService) refusalFor(replayContext context.Context, executionError error) error {
 	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
 		return domains.BacktestTimeAllowanceSpent(backtestService.replayTimeAllowance)
@@ -172,8 +136,6 @@ func (backtestService *BacktestService) refusalFor(replayContext context.Context
 	return executionError
 }
 
-// signalsOf reads a script's per-candle results as per-candle opinions, which is the
-// one step both kinds of replay do identically.
 func signalsOf(perCandleIndicatorValues []map[string]vo.IndicatorValueVo) []domains.SignalDomain {
 	signals := make([]domains.SignalDomain, 0, len(perCandleIndicatorValues))
 	for _, indicatorValues := range perCandleIndicatorValues {

@@ -21,8 +21,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// historySyncCeilingDays is the ceiling this router is built with. The refusal has to
-// carry it, so a case can only check that by knowing what it is.
+// historySyncCeilingDays is the router's ceiling, which the refusal must carry.
 const historySyncCeilingDays = 90
 
 type historySyncRouterUnderTest struct {
@@ -33,8 +32,7 @@ type historySyncRouterUnderTest struct {
 	historySyncRunRepository *mocks.MockIKCandleHistorySyncRunRepository
 }
 
-// newHistorySyncRouterUnderTest wires the real application and domain service,
-// mocking only the outermost boundaries: storage and the market source.
+// newHistorySyncRouterUnderTest wires real application and domain services, mocking only storage and the market source.
 func newHistorySyncRouterUnderTest(t *testing.T) historySyncRouterUnderTest {
 	gin.SetMode(gin.TestMode)
 	mockController := gomock.NewController(t)
@@ -83,8 +81,7 @@ func (underTest historySyncRouterUnderTest) post(body string) *httptest.Response
 	return recorder
 }
 
-// acceptsAndFinishesEveryRun lets a sync be recorded and watched to its end, which is
-// what the route hands back instead of candles.
+// acceptsAndFinishesEveryRun lets a sync be recorded and watched to its end.
 func (underTest historySyncRouterUnderTest) acceptsAndFinishesEveryRun() chan struct{} {
 	ended := make(chan struct{}, 1)
 	underTest.historySyncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
@@ -107,9 +104,7 @@ func (underTest historySyncRouterUnderTest) acceptsAndFinishesEveryRun() chan st
 	return ended
 }
 
-// awaitRunEnding keeps a case from reading what the fetching did before it has done
-// it. The fetching outlives the request, so the response arriving proves nothing
-// about it.
+// awaitRunEnding is needed because the fetching outlives the request.
 func awaitRunEnding(t *testing.T, ended chan struct{}) {
 	t.Helper()
 
@@ -120,9 +115,7 @@ func awaitRunEnding(t *testing.T, ended chan struct{}) {
 	}
 }
 
-// registersCrypto is a symbol the system knows about, which is what makes a market —
-// and therefore a source — available for it. Nothing is stored for it yet, so every
-// chunk of the stretch is one this run has to go and ask about.
+// registersCrypto makes a market available for the symbol with nothing stored, so every chunk must be fetched.
 func (underTest historySyncRouterUnderTest) registersCrypto(symbol string) {
 	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), symbol).
 		Return(entities.TradingSymbol{
@@ -135,8 +128,7 @@ func (underTest historySyncRouterUnderTest) registersCrypto(symbol string) {
 		SaveAllIfAbsent(gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
 }
 
-// answersNothingForEveryChunk is a source that is reachable and simply has nothing to
-// give. The stretch is walked a chunk at a time, so it is asked once per chunk.
+// answersNothingForEveryChunk is a reachable source with no data, asked once per chunk.
 func (underTest historySyncRouterUnderTest) answersNothingForEveryChunk() *vo.KCandleFetchWindowVo {
 	firstAskedWindow := &vo.KCandleFetchWindowVo{}
 	asked := false
@@ -161,8 +153,7 @@ func TestSyncingHistoryReportsWhatItCollected(t *testing.T) {
 
 	recorder := underTest.post(`{"symbol":"BTCUSDT","lookbackDays":30}`)
 
-	// Accepted, not done. Years of candles is thousands of paced requests, so what
-	// comes back is the run to watch rather than the work finished.
+	// Accepted, not done: years of candles take thousands of paced requests.
 	assert.Equal(t, http.StatusAccepted, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"status":"running"`)
 	assert.Contains(t, recorder.Body.String(), `"totalChunks"`)
@@ -170,8 +161,7 @@ func TestSyncingHistoryReportsWhatItCollected(t *testing.T) {
 }
 
 func TestLookingUpAHistorySyncAnswersWithWhereItGotTo(t *testing.T) {
-	// The identifier the route hands back has to be worth something, or it is a
-	// receipt for work nobody can see.
+	// The returned identifier must lead to an observable run.
 	underTest := newHistorySyncRouterUnderTest(t)
 	finishedAt := time.Date(2026, 9, 7, 2, 0, 0, 0, time.UTC)
 	underTest.historySyncRunRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(
@@ -212,8 +202,7 @@ func TestLookingUpAHistorySyncSaysWhenThereIsNoSuchRun(t *testing.T) {
 			arrange:            func(historySyncRouterUnderTest) {},
 		},
 		{
-			// This system failing to read its own storage is worth trying again for,
-			// and must not read as "there is no such run".
+			// A storage read failure is retryable and must not read as "no such run".
 			name:               "this system cannot read its own storage",
 			path:               "/k-candles/history/7",
 			expectedStatusCode: http.StatusBadGateway,
@@ -237,8 +226,7 @@ func TestLookingUpAHistorySyncSaysWhenThereIsNoSuchRun(t *testing.T) {
 }
 
 func TestSyncingHistoryReachesBackAsFarAsAsked(t *testing.T) {
-	// The figure in the body is the whole point of this route, so it has to arrive at
-	// the window rather than being read as anything else.
+	// The figure in the body is the point of this route, so it must reach the window.
 	underTest := newHistorySyncRouterUnderTest(t)
 	underTest.registersCrypto("BTCUSDT")
 	firstAskedWindow := underTest.answersNothingForEveryChunk()
@@ -259,8 +247,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 		arrange            func(underTest historySyncRouterUnderTest)
 	}{
 		{
-			// Too far is the caller's to fix, and the answer has to say what to ask
-			// for instead.
+			// Too far is the caller's to fix, and the answer must say what to ask for instead.
 			name:               "reaching further back than allowed",
 			body:               `{"symbol":"BTCUSDT","lookbackDays":91}`,
 			expectedStatusCode: http.StatusBadRequest,
@@ -275,8 +262,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 			arrange:            func(historySyncRouterUnderTest) {},
 		},
 		{
-			// Leaving it out reads as zero, and zero is refused — there is no default
-			// standing in for the one figure this route exists to be told.
+			// Omitting it reads as zero, which is refused; there is no default.
 			name:               "not saying how far back",
 			body:               `{"symbol":"BTCUSDT"}`,
 			expectedStatusCode: http.StatusBadRequest,
@@ -291,8 +277,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 			arrange:            func(historySyncRouterUnderTest) {},
 		},
 		{
-			// Registering it and retyping it are opposite instructions, so they must
-			// not arrive as the same answer.
+			// Registering and retyping are different remedies, so the answers must differ.
 			name:               "a symbol nobody registered",
 			body:               `{"symbol":"FOOBAR","lookbackDays":30}`,
 			expectedStatusCode: http.StatusNotFound,
@@ -304,10 +289,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 			},
 		},
 		{
-			// Anything this system broke on says "come back later", which is not the
-			// same thing as "check what you asked for". A source that merely would not
-			// answer is not among them: that lands in the report, because one symbol's
-			// silence is a fact about the market rather than a failed request.
+			// Internal failures say "come back later"; a source not answering is not one, since that lands in the report.
 			name:               "this system could not read its own store",
 			body:               `{"symbol":"BTCUSDT","lookbackDays":30}`,
 			expectedStatusCode: http.StatusBadGateway,
@@ -319,8 +301,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 			},
 		},
 		{
-			// A source that would not answer is not this request's problem: the
-			// request was fine, and what the source said lands on the run.
+			// A source not answering is recorded on the run, not treated as a failed request.
 			name:               "a source that would not answer is still accepted",
 			body:               `{"symbol":"BTCUSDT","lookbackDays":30}`,
 			expectedStatusCode: http.StatusAccepted,
@@ -334,8 +315,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 			},
 		},
 		{
-			// Asking twice is not a fault: the run already going is doing exactly
-			// what the second one would, so it is refused rather than queued.
+			// A second request is refused rather than queued, since the running one already does the same work.
 			name:               "a symbol that is already being fetched",
 			body:               `{"symbol":"BTCUSDT","lookbackDays":30}`,
 			expectedStatusCode: http.StatusConflict,
@@ -378,8 +358,7 @@ func TestSyncingHistoryMapsEachRefusalOntoWhatTheCallerMustDoAboutIt(t *testing.
 }
 
 func TestSyncingHistoryOffersNoWayToChooseTheCoarseness(t *testing.T) {
-	// The system stores one kind of candle and computes every coarser one from it.
-	// A field for it would suggest there is another answer.
+	// Only one candle kind is stored and coarser ones are computed, so no field for it exists.
 	underTest := newHistorySyncRouterUnderTest(t)
 	underTest.registersCrypto("BTCUSDT")
 	firstAskedWindow := underTest.answersNothingForEveryChunk()

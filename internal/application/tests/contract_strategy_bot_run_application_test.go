@@ -33,9 +33,8 @@ func (underTest strategyBotRunUnderTest) makeTheRulesContract(tradingMode vo.Con
 	underTest.tradingStrategy.TradingMode = string(tradingMode)
 }
 
-// expectContractSources makes both strategy scripts resolvable as contract scripts and
-// has each one's script say its own signal over contract bars — and only over contract
-// bars: the spot runner has no expectation, so reaching it fails the test.
+// expectContractSources makes both scripts resolvable as contract scripts signalling over contract
+// bars; the spot runner has no expectation, so reaching it fails the test.
 func (underTest strategyBotRunUnderTest) expectContractSources(
 	firstSourceSignal vo.SignalVo, secondSourceSignal vo.SignalVo,
 ) {
@@ -344,10 +343,8 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 	assert.False(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
 }
 
-// A contract taken off the watchlist leaves its old candles behind. A round that finds
-// the newest one hours old is skipped — it says nothing, keeps what it last sent, and
-// keeps running — rather than concluding about the past as though it were now. No
-// source is even asked.
+// A round finding the newest candle hours old (e.g. after leaving the watchlist) is skipped: it
+// sends nothing, asks no source, and the bot keeps running.
 func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)

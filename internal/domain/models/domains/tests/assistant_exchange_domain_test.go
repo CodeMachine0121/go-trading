@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// anExchange is an exchange that has just started, so that each test advances exactly
-// one thing about it.
-// theTurnID is the exchange every completion below writes back over. Which row it is
-// does not matter to these cases — only that the completion carries it.
 const theTurnID = uint(7)
 
 func anExchange(queryLimit int) domains.AssistantExchangeDomain {
@@ -33,7 +29,6 @@ func aCall(name string) vo.AssistantQueryCallVo {
 	return vo.AssistantQueryCallVo{CallID: "call_" + name, Name: name, Arguments: `{}`}
 }
 
-// aRound is one round trip's worth of lookups, each with what came back.
 func aRound(outcomes ...vo.AssistantQueryExchangeVo) []vo.AssistantQueryExchangeVo {
 	return outcomes
 }
@@ -69,8 +64,7 @@ func TestAssistantExchangeShowsTheAssistantWhatItHasAlreadyLookedAt(t *testing.T
 }
 
 func TestAssistantExchangeKeepsWhatTheAssistantSaidOnTheWay(t *testing.T) {
-	// 「我先看一下既有的算式寫法」那句話要跟著它的查詢請求一起回去，
-	// 否則助手下一輪是從一個它已經看不到的想法往下接——答案會從半句話開始。
+	// 思考文字要跟查詢請求一起送回，否則助手下一輪會從看不到的想法接續。
 	exchange := anExchange(8).RecordRound(
 		"我先看一下系統裡既有策略腳本的算式寫法。",
 		aRound(anOutcome("list_strategy_scripts", `{"strategyScripts":[]}`, false)))
@@ -82,8 +76,7 @@ func TestAssistantExchangeKeepsWhatTheAssistantSaidOnTheWay(t *testing.T) {
 }
 
 func TestAssistantExchangeKeepsOneRoundsLookupsTogether(t *testing.T) {
-	// 一輪裡問了三件事就是一輪。拆成三輪送回去，助手會學到「一次問幾件事沒有用」，
-	// 從此每件事都多花一次往返。
+	// 一輪問三件事仍是一輪，拆開送回會教助手不要一次多問。
 	exchange := anExchange(8).RecordRound("一次查三件", aRound(
 		anOutcome("list_trading_symbols", "{}", false),
 		anOutcome("list_strategy_scripts", "{}", false),
@@ -96,7 +89,7 @@ func TestAssistantExchangeKeepsOneRoundsLookupsTogether(t *testing.T) {
 }
 
 func TestAssistantExchangeCountsEveryLookupInARound(t *testing.T) {
-	// 一輪三次就是三次，不是一次——不然一個回答可以在八輪裡查上幾十次。
+	// 查詢次數按次計，不按輪計。
 	exchange := anExchange(8).RecordRound("", aRound(
 		anOutcome("a", "{}", false),
 		anOutcome("b", "{}", false),
@@ -109,7 +102,7 @@ func TestAssistantExchangeCountsEveryLookupInARound(t *testing.T) {
 }
 
 func TestAssistantExchangeRecordsNothingForARoundThatLookedAtNothing(t *testing.T) {
-	// 一輪沒有任何查詢，就不是一輪。留一個空的下來只會讓紀錄多一筆什麼都沒做的東西。
+	// 沒有查詢的一輪不留紀錄。
 	exchange := anExchange(8).RecordRound("只是說說話", aRound())
 
 	assert.Empty(t, exchange.Request().Rounds)
@@ -117,8 +110,7 @@ func TestAssistantExchangeRecordsNothingForARoundThatLookedAtNothing(t *testing.
 }
 
 func TestAssistantExchangeTellsTheAssistantWhenItsQueriesAreSpent(t *testing.T) {
-	// Being told is what turns a half answer into an honest one: the assistant knows
-	// to speak with what it has instead of asking for more and getting nothing.
+	// Telling the assistant lets it answer with what it has instead of asking again.
 	exchange := anExchange(1).RecordRound("", aRound(
 		anOutcome("list_trading_symbols", "{}", false)))
 
@@ -127,8 +119,7 @@ func TestAssistantExchangeTellsTheAssistantWhenItsQueriesAreSpent(t *testing.T) 
 }
 
 func TestAssistantExchangeAllowsOnlyAsManyLookupsAsItHasLeft(t *testing.T) {
-	// 助手一口氣要五次而只剩兩次時：全部拒掉是丟掉它有權做的事，
-	// 全部放行則是讓上限不成為上限。誠實的答案是「前兩次」。
+	// 剩兩次卻要五次時，放行前兩次。
 	exchange := anExchange(3).RecordRound("", aRound(anOutcome("a", "{}", false)))
 
 	allowed := exchange.AllowedCalls([]vo.AssistantQueryCallVo{
@@ -147,8 +138,7 @@ func TestAssistantExchangeAllowsEveryLookupWhenThereIsRoom(t *testing.T) {
 }
 
 func TestAssistantExchangeAddsUpWhatEveryRoundTripCost(t *testing.T) {
-	// A round trip that only asked for a lookup was still paid for. An allowance that
-	// could not see those trips would be one a long exchange walks straight through.
+	// Lookup-only round trips still count toward usage.
 	exchange := anExchange(8).RecordUsage(100).RecordUsage(150).RecordUsage(50)
 
 	turn := exchange.ToAnsweredTurn(theTurnID, "答完了")
@@ -157,9 +147,7 @@ func TestAssistantExchangeAddsUpWhatEveryRoundTripCost(t *testing.T) {
 }
 
 func TestAssistantExchangeToStartedTurnReservesThePlaceTheAnswerWillGo(t *testing.T) {
-	// It is written before the assistant has been asked anything, which is what makes
-	// an answer visible while it is still being written — and what a restart can
-	// sweep up after.
+	// Written before the assistant is asked, so an in-progress answer is visible and a restart can sweep it up.
 	exchange := anExchange(8)
 
 	turn := exchange.ToStartedTurn(time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC))
@@ -172,9 +160,7 @@ func TestAssistantExchangeToStartedTurnReservesThePlaceTheAnswerWillGo(t *testin
 }
 
 func TestAssistantExchangeToFailedTurnChargesNobodyForAnAnswerTheyNeverGot(t *testing.T) {
-	// Round trips were paid for, and the usage is still zero. The day's allowance is
-	// settled off that column, so recording what a failure really cost would let a
-	// run of them spend somebody's whole day without ever telling them anything.
+	// A failed exchange records zero usage so repeated failures can't spend someone's daily allowance without an answer.
 	exchange := anExchange(8).RecordUsage(120).RecordRound("", aRound(
 		anOutcome("list_trading_symbols", "{}", false)))
 
@@ -204,8 +190,7 @@ func TestAssistantExchangeToAnsweredTurnIsWhatWillBeStored(t *testing.T) {
 	assert.Equal(t, 120, turn.Usage)
 	assert.Equal(t, 2, turn.QueryCount)
 	assert.False(t, turn.StoppedAtQueryLimit)
-	// The question is not written again. It was settled when the exchange began, and
-	// rewriting it would only be a second chance to get it wrong.
+	// The question was settled when the exchange began and isn't rewritten.
 	assert.Empty(t, turn.Ask)
 
 	require.Len(t, turn.Queries, 2)
@@ -218,8 +203,7 @@ func TestAssistantExchangeToAnsweredTurnIsWhatWillBeStored(t *testing.T) {
 }
 
 func TestAssistantExchangeToAnsweredTurnMarksAnAnswerThatRanOutOfQueries(t *testing.T) {
-	// An answer that stopped early is a different thing from a poor one, and the
-	// record is the only place that difference survives.
+	// Recorded so an answer that stopped early is distinguishable from a poor one.
 	exchange := anExchange(2).
 		RecordRound("", aRound(anOutcome("list_trading_symbols", "{}", false))).
 		RecordRound("", aRound(anOutcome("get_k_candles", "{}", false)))

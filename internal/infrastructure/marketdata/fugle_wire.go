@@ -10,16 +10,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// fugleCandlesAnswer is the shape this source answers a candle request with. Only
-// the parts the domain needs are read; whatever else it sends stops here.
 type fugleCandlesAnswer struct {
 	Symbol string        `json:"symbol"`
 	Data   []fugleCandle `json:"data"`
 }
 
-// fugleCandle is one candle as this source states it. The figures arrive as JSON
-// numbers, and they are read as text so that the exact decimal survives — a price
-// that has been through a float is no longer the price that was quoted.
+// fugleCandle reads numbers as json.Number text so exact decimals survive.
 type fugleCandle struct {
 	Date   string          `json:"date"`
 	Open   decimal.Decimal `json:"open"`
@@ -29,13 +25,7 @@ type fugleCandle struct {
 	Volume decimal.Decimal `json:"volume"`
 }
 
-// toMarketKCandleVo normalizes one reported candle. The three figures this venue
-// does not publish on minute candles stay absent rather than becoming zeros — see
-// the optional figure rules in the domain for why that difference is worth keeping.
-//
-// Volume is carried across exactly as reported: this venue counts in shares, and
-// converting to the lots a person reads on a screen would be this system inventing a
-// number nobody sent it.
+// toMarketKCandleVo leaves the three figures this venue does not publish absent rather than zero, and keeps volume in shares as reported.
 func (fugleCandle fugleCandle) toMarketKCandleVo(symbol string) (vo.MarketKCandleVo, error) {
 	openTime, parseError := time.Parse(time.RFC3339, fugleCandle.Date)
 	if parseError != nil {
@@ -54,16 +44,7 @@ func (fugleCandle fugleCandle) toMarketKCandleVo(symbol string) (vo.MarketKCandl
 	}, nil
 }
 
-// toLiveKCandleVo normalizes one candle this source is reporting during the session.
-//
-// Whether it is this candle's last word is not stated by the source and is not
-// claimed here — deciding that is the live proxy's job, and it decides it by watching
-// which minute the source calls its latest.
-//
-// Nothing is converted. This is the same shape, from the same venue, as the candles
-// the scheduled round stores: a live update and the history it lands next to are the
-// same source describing the same minute, so a figure that differed between them
-// could only be one this system invented.
+// toLiveKCandleVo does not decide finality (the live proxy does) and converts nothing, so live and stored candles match exactly.
 func (fugleCandle fugleCandle) toLiveKCandleVo(symbol string) (vo.LiveKCandleVo, error) {
 	openTime, parseError := time.Parse(time.RFC3339, fugleCandle.Date)
 	if parseError != nil {
@@ -82,11 +63,7 @@ func (fugleCandle fugleCandle) toLiveKCandleVo(symbol string) (vo.LiveKCandleVo,
 	}, nil
 }
 
-// decodeFugleCandles reads one candle answer from this venue.
-//
-// It is shared by the two proxies that ask for candles — the scheduled round and the
-// live follow — because the answer is the same answer, and a second reading of it
-// would be a second chance to disagree about what counts as unreadable.
+// decodeFugleCandles is shared by the scheduled and live proxies so both agree on what is unreadable.
 func decodeFugleCandles(body io.Reader, symbol string) (fugleCandlesAnswer, error) {
 	var candlesAnswer fugleCandlesAnswer
 
@@ -96,9 +73,7 @@ func decodeFugleCandles(body io.Reader, symbol string) (fugleCandlesAnswer, erro
 			"read market source answer for %s: %w", symbol, decodeError)
 	}
 
-	// A decoder stops at the end of the first value and would ignore whatever came
-	// after it. Ignored, a good answer followed by junk reads as a market with
-	// nothing to report rather than as a source that cannot be read.
+	// Trailing data after the value means an unreadable response, not an empty one.
 	if answer.More() {
 		return fugleCandlesAnswer{}, fmt.Errorf(
 			"read market source answer for %s: trailing content after the answer", symbol)

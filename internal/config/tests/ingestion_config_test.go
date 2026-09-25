@@ -127,8 +127,6 @@ func TestLoadReadsTheTaiwanStockSessionAsATimeOfDay(t *testing.T) {
 }
 
 func TestLoadFallsBackWhenTheSessionIsNotATimeOfDay(t *testing.T) {
-	// A market left with no hours at all would read as one that never closes, which
-	// is the opposite of what a typo here was trying to say.
 	t.Setenv("TAIWAN_STOCK_SESSION_START", "quarter to nine")
 
 	applicationConfig := config.Load()
@@ -137,9 +135,8 @@ func TestLoadFallsBackWhenTheSessionIsNotATimeOfDay(t *testing.T) {
 }
 
 func TestLoadFallsBackWhenTheTimeZoneIsOneNobodyHasHeardOf(t *testing.T) {
-	// A zone that cannot be loaded must not leave the market with none: no zone is how
-	// a market says it never closes, so a typo would quietly turn a market that shuts
-	// every evening into one that never does.
+	// A nil zone means the market never closes, so an unloadable zone must fall back rather than be
+	// nil.
 	t.Setenv("TAIWAN_STOCK_TIME_ZONE", "Asia/Taipeh")
 
 	applicationConfig := config.Load()
@@ -151,18 +148,13 @@ func TestLoadFallsBackWhenTheTimeZoneIsOneNobodyHasHeardOf(t *testing.T) {
 func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 	applicationConfig := config.Load()
 
-	// The round-the-clock market says it never closes by having no zone to state hours
-	// in, no ceiling on how many channels may be open, and no need to say how many
-	// symbols one carries — every unfilled number is the zero value. It is also
-	// followed by whoever looks rather than from a roster, which is the same zero.
+	// The round-the-clock market is entirely the zero value: no zone, no ceiling, no roster.
 	assert.Nil(t, applicationConfig.MarketRules[vo.MarketCrypto].TradingSession.Location)
 	assert.False(t, applicationConfig.MarketRules[vo.MarketCrypto].FollowsFixedRoster)
 	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SimultaneousChannelCeiling)
 	assert.Equal(t, 0, applicationConfig.MarketRules[vo.MarketCrypto].SymbolsPerLiveChannel)
 
-	// Taiwan is followed from a roster with nothing capping it: the exchange it is
-	// asked of does not sell subscriptions, so every watched stock is followed and
-	// the ceiling stays at the value that means there is none.
+	// Taiwan follows an uncapped roster because the exchange sells no subscriptions.
 	taiwanStockRules := applicationConfig.MarketRules[vo.MarketTaiwanStock]
 	assert.True(t, taiwanStockRules.FollowsFixedRoster)
 	assert.Equal(t, 0, taiwanStockRules.SimultaneousChannelCeiling)
@@ -172,9 +164,7 @@ func TestTheRecognisedMarketsCarryTheirOwnRules(t *testing.T) {
 }
 
 func TestLoadBoundsHowFarBackOneHistorySyncMayReach(t *testing.T) {
-	// The ceiling is a typo guard rather than a cost bound. The fetch walks a chunk at
-	// a time and answers straight away with a run to watch, so a long stretch no
-	// longer holds anything open; what is left to catch is a slipped digit.
+	// The ceiling is a typo guard, not a cost bound.
 	const defaultCeilingDays = 3650
 
 	testCases := []struct {
@@ -187,8 +177,6 @@ func TestLoadBoundsHowFarBackOneHistorySyncMayReach(t *testing.T) {
 			expectedDays: defaultCeilingDays,
 		},
 		{name: "a usable ceiling is taken as given", lookbackDays: "30", expectedDays: 30},
-		// A ceiling of nothing is not a ceiling, it is a route that can never be
-		// called — so it falls back rather than being honoured.
 		{name: "zero falls back", lookbackDays: "0", expectedDays: defaultCeilingDays},
 		{
 			name: "a negative ceiling falls back", lookbackDays: "-1",

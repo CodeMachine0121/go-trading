@@ -19,9 +19,7 @@ func skippedAt(minute int) dto.SkippedKCandleDto {
 }
 
 func TestIngestionReportStartsWithAListRatherThanNothing(t *testing.T) {
-	// Every way out of a fetch answers with a list. Left to appear only on the path
-	// that reaches the source, it would be absent on exactly the paths a reader
-	// inspects it on — a shut market, a source that would not answer.
+	// Every exit path, including shut markets and unresponsive sources, answers with a list.
 	reportDomain := domains.NewKCandleSymbolIngestionReportDomain("BTCUSDT", vo.MarketCrypto)
 
 	report := reportDomain.ToDto()
@@ -55,8 +53,7 @@ func TestIngestionReportCollectsWhatOneFetchDid(t *testing.T) {
 }
 
 func TestIngestionReportStopsNamingSkippedCandlesButKeepsCounting(t *testing.T) {
-	// The count answers "how bad is it" without the list having to, so a source
-	// answering with rubbish for four years cannot make the report unopenable.
+	// The count bounds how bad it is so a source returning years of rubbish can't make the report unopenable.
 	reportDomain := domains.NewKCandleSymbolIngestionReportDomain("BTCUSDT", vo.MarketCrypto)
 
 	for minute := range 250 {

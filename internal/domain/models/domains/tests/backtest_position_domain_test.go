@@ -14,10 +14,7 @@ import (
 var positionEntryTime = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 var positionExitTime = time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
 
-// positionTakenOn is one position opened under those terms, which is the only way a
-// position comes into being. The sizing is chosen so that the stake a case names is
-// the stake it gets: a fixed amount against cash it comfortably clears, or — when a
-// case is about a stake of nothing — everything of nothing.
+// positionTakenOn sizes so each case's named stake is exactly the stake it gets (a fixed amount, or all-in when the stake is zero).
 func positionTakenOn(
 	t *testing.T,
 	entryPrice decimal.Decimal,

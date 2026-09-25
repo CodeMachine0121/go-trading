@@ -8,9 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CorsMiddleware lets a browser front end on another origin talk to this API. Only
-// the origins it was built with are answered; anything else is served without the
-// permission headers, which is how the browser refuses the response on our behalf.
+// CorsMiddleware adds permission headers only for the configured origins, so browsers refuse responses to any other origin.
 type CorsMiddleware struct {
 	allowedOrigins []string
 }
@@ -19,8 +17,7 @@ func NewCorsMiddleware(allowedOrigins []string) *CorsMiddleware {
 	return &CorsMiddleware{allowedOrigins: allowedOrigins}
 }
 
-// Handle answers the browser's permission questions. A preflight OPTIONS is a
-// question only, never a use case, so it ends here instead of reaching a route.
+// Handle ends preflight OPTIONS requests here instead of routing them.
 func (corsMiddleware *CorsMiddleware) Handle(ginContext *gin.Context) {
 	ginContext.Header("Vary", "Origin")
 
@@ -48,9 +45,7 @@ var (
 		http.MethodDelete,
 		http.MethodOptions,
 	}
-	// Authorization is on the list because a browser will not send a proof of
-	// identity it was not given permission to send — and a front end that cannot
-	// send one can only ever reach the two endpoints that need none.
+	// Browsers will not send a bearer token unless Authorization is allowed.
 	allowedCorsHeaders = []string{"Content-Type", "Authorization"}
 )
 

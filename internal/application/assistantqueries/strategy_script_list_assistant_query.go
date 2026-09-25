@@ -8,13 +8,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
-// StrategyScriptListAssistantQuery lets the assistant see which algorithms are already
-// saved.
-//
-// It hands over each strategy script's identifier, name and the shape of value it produces,
-// but not the algorithm itself. A list is for choosing from, and a script is the
-// longest thing a strategy script holds — sending every script every time the assistant
-// wants to know what exists would be the single most expensive habit it could form.
+// StrategyScriptListAssistantQuery lists saved strategy scripts without their algorithms, since
+// sending every script on each listing would be the assistant's most expensive habit.
 type StrategyScriptListAssistantQuery struct {
 	strategyScriptApplication *application.StrategyScriptApplication
 }
@@ -36,26 +31,17 @@ func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Argume
 	return `{"type":"object","properties":{},"additionalProperties":false}`
 }
 
-// strategyScriptDigest is a strategy script as it appears in a list: enough to pick one by,
-// without the algorithm itself.
 type strategyScriptDigest struct {
 	ID             uint     `json:"id"`
 	Name           string   `json:"name"`
 	ResultType     string   `json:"resultType"`
 	ParameterNames []string `json:"parameterNames"`
-	// Mine says whether the asker owns this one. Only their own can be rewritten,
-	// and saying so here is what keeps the assistant from offering to.
+	// Mine keeps the assistant from offering to rewrite a script the asker does not own.
 	Mine bool `json:"mine"`
 }
 
-// Run hands over, in brief, everything the person who asked can pick from: their
-// own strategy scripts and the ones they took off the marketplace. Holding none is an
-// answer, not a refusal.
-//
-// The two arrive as one list here, unlike over HTTP, and that costs nothing: a
-// digest never carried an algorithm to begin with, so there is no shape difference
-// left to preserve. What it does carry is who each one belongs to, so the assistant
-// does not offer to rewrite one that is not the asker's.
+// Run lists the asker's own strategy scripts and those adopted from the marketplace as one list;
+// holding none is an answer, not a refusal.
 func (strategyScriptListAssistantQuery *StrategyScriptListAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, _ string,
 ) (string, error) {

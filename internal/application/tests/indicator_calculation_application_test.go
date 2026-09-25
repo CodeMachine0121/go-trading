@@ -17,8 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// indicatorNow is the moment every calculation below is asked at. It sits on a
-// five-minute edge, so the candle at 09:10 belongs to a bucket that has finished.
+// indicatorNow sits on a five-minute edge, so the 09:10 candle belongs to a finished bucket.
 var indicatorNow = at(9, 15)
 
 // indicatorCutoff is where a read stops at five-minute coarseness: the start of the
@@ -31,16 +30,13 @@ type indicatorUnderTest struct {
 	indicatorScriptProxy            *mocks.MockIIndicatorScriptProxy
 }
 
-// The algorithm now arrives by name, so every calculation below names one. These
-// two say whose strategy script is being run and which; the calculation itself is
-// indifferent to both, which is what these tests are about.
 const (
 	indicatorViewerID         = uint(1)
 	indicatorStrategyScriptID = uint(9)
 )
 
-// newIndicatorUnderTest wires the real domain service and real domain models,
-// mocking only the outermost boundaries: storage and script execution.
+// newIndicatorUnderTest wires the real domain service and models, mocking only storage and script
+// execution.
 func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -51,9 +47,8 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(indicatorNow).AnyTimes()
 
-	// The strategy script behind the identifier is the caller's own and holds the script
-	// these tests execute. Resolving it is a different feature's rules, covered in
-	// its own tests; here it only has to happen.
+	// The identifier resolves to the caller's own script; resolution rules are covered in their own
+	// tests.
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	strategyScriptRepository.EXPECT().FindOne(gomock.Any(), indicatorStrategyScriptID).
 		Return(entities.StrategyScript{
@@ -77,8 +72,8 @@ func newIndicatorUnderTest(t *testing.T) indicatorUnderTest {
 	}
 }
 
-// indicatorRequest asks about a stretch holding that many one-minute slots. BTCUSDT
-// trades round the clock, so a minute of the clock is a minute of market.
+// indicatorRequest asks about a stretch of that many one-minute slots; BTCUSDT trades round the
+// clock, so every minute is market.
 func indicatorRequest(candleCount int) dto.IndicatorCalculationRequestDto {
 	return dto.IndicatorCalculationRequestDto{
 		Symbol:    "BTCUSDT",
@@ -107,9 +102,8 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	})
 
 	t.Run("reads at the coarseness asked for, up to the stretch that has finished", func(t *testing.T) {
-		// One hour is sixty one-minute candles, so two buckets plus the spare is a
-		// read of 180; and at 09:15 the hour that began at 09:00 has not finished, so
-		// reading stops there rather than at the one-minute edge.
+		// Two hourly buckets plus the spare read 180 candles, stopping at 09:00 because that hour
+		// has not finished at 09:15.
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", at(9, 0), 180).
@@ -123,8 +117,7 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 
 		requestDto := indicatorRequest(2)
 		requestDto.AggregationInterval = "1h"
-		// Two hours of market, so two hourly slots: the stretch says how many, and a
-		// slot is an hour at this coarseness.
+		// Two hours of market is two hourly slots.
 		requestDto.StartTime = indicatorNow.Add(-2 * time.Hour)
 
 		resultDto, err := fixture.indicatorCalculationApplication.CalculateIndicator(t.Context(), indicatorViewerID, namingStrategyScript(t, indicatorStrategyScriptID), requestDto)
@@ -146,8 +139,8 @@ func TestIndicatorCalculationApplication(t *testing.T) {
 	})
 
 	t.Run("answers over a short stretch instead of refusing it", func(t *testing.T) {
-		// Three buckets asked for, one stored. The line comes back shorter rather than
-		// not at all, and the pair of counts is what says so.
+		// Three buckets asked, one stored: the line comes back shorter and the pair of counts says
+		// so.
 		fixture := newIndicatorUnderTest(t)
 		fixture.kCandleRepository.EXPECT().
 			FindLatestBefore(gomock.Any(), "BTCUSDT", indicatorCutoff, 4).

@@ -23,7 +23,7 @@ func TestStrategyBotRepositoryKeepsAContractBotsKindAndLeverage(t *testing.T) {
 	assert.Equal(t, string(vo.MarketDataKindContractKCandle), savedBot.MarketDataKind)
 	assert.Equal(t, "5", savedBot.PositionPlanLeverage.String())
 
-	// A rewrite reaches the leverage but never the kind: the kind is settled once.
+	// A rewrite may change the leverage but never the market data kind.
 	rewrite := savedBot
 	rewrite.MarketDataKind = string(vo.MarketDataKindKCandle)
 	rewrite.PositionPlanLeverage = decimal.NewFromInt(3)
@@ -34,8 +34,7 @@ func TestStrategyBotRepositoryKeepsAContractBotsKindAndLeverage(t *testing.T) {
 	assert.Equal(t, "3", rewrittenBot.PositionPlanLeverage.String())
 }
 
-// A bot saved without saying what it eats is stored as the K candle — the kind of
-// every bot stored before there was a choice.
+// A bot saved without a market data kind defaults to K candles, as bots stored before the choice existed.
 func TestStrategyBotRepositoryStoresABotThatSaidNothingAsASpotBot(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)

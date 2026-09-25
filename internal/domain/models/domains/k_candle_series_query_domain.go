@@ -8,40 +8,15 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// KCandleSeriesQueryDomain holds one aggregated query and guarantees its own
-// invariants. It is a plain time-range query plus a coarseness, so the rules about
-// naming a trading symbol and not ending before it starts are answered once, by the
-// range query it contains, rather than written down a second time here.
-//
-// The rules that are its own:
-//
-//   - **How long one candle covers is asked in one of two ways, never both.** A caller
-//     either names a coarseness or says how many candles it can display and lets the
-//     market decide. Both at once is refused: they contradict each other as easily as
-//     they agree, and honouring either would let the other fail silently.
-//   - **The range must not be cut into more buckets than one query may answer with.**
-//     Decided from the range and the coarseness alone — before a single candle is read
-//     — so an over-large ask costs nothing to refuse.
-//
-// **Buckets are counted, not divided out of a duration.** A day of a market that
-// shuts holds four and a half hours of trading, and dividing that by the bucket length
-// undercounts every bucket long enough to reach past a session's edges — badly enough
-// at a day a candle that the ceiling below stopped bounding anything. The market counts
-// them by walking its sessions, and the ceiling and the choosing ask it the same way.
+// KCandleSeriesQueryDomain is a range query plus a coarseness, given either as an interval or a displayable count but never both, with the bucket count capped per query.
+// Buckets are counted by walking market sessions rather than dividing a duration, which would undercount for markets that close.
 type KCandleSeriesQueryDomain struct {
 	rangeQuery  KCandleQueryDomain
 	interval    AggregationIntervalDomain
 	bucketCount int
 }
 
-// NewKCandleSeriesQueryDomain validates the query against every rule that applies to
-// it, settling how long one candle covers on the way. The over-large refusal names
-// both ways out, because narrowing the range and coarsening the interval are equally
-// good answers and only the caller knows which it wanted.
-//
-// The market is handed in rather than looked up: how long a venue trades is a fact
-// about the venue, and this object is not the place that knows which venue a symbol
-// belongs to.
+// NewKCandleSeriesQueryDomain validates and settles the interval; the over-large refusal names both narrowing the range and coarsening the interval.
 func NewKCandleSeriesQueryDomain(
 	seriesQueryDto dto.KCandleSeriesQueryDto, marketDomain MarketDomain, maxBucketCount int,
 ) (KCandleSeriesQueryDomain, error) {
@@ -71,21 +46,8 @@ func NewKCandleSeriesQueryDomain(
 	}, nil
 }
 
-// intervalFor settles how long one candle covers, from whichever of the three things
-// the caller said — a coarseness, a number of places to put candles in, or nothing at
-// all — and refuses an ask that names the first two at once.
-//
-// Naming nothing is the caller that only knows which stretch its user is looking at.
-// It gets a coarseness chosen the same way as one that named a display budget, against
-// the only budget there is left: what one query may answer with. Before, it got one
-// minute, which meant a stretch of any real length was answered by refusing it — the
-// system turning down a chart nobody had asked to be dense.
-//
-// The choosing is capped by what one query may answer with as well as by what the
-// caller can display, so that a coarseness this system picked can never come back
-// refused by this system's own ceiling. Asking for more places than the ceiling allows
-// is not an error: it means the ceiling is the tighter of the two, which is exactly
-// what taking the smaller of them says.
+// intervalFor settles the interval from an explicit interval, a displayable count, or nothing, refusing the first two together.
+// A chosen interval is capped by the per-query ceiling so the system never picks one its own ceiling would refuse.
 func intervalFor(
 	seriesQueryDto dto.KCandleSeriesQueryDto,
 	marketDomain MarketDomain,
@@ -120,27 +82,16 @@ func intervalFor(
 			min(displayableCandleCount, maxBucketCount)), nil
 	}
 
-	// Saying neither is a caller with no opinion about how coarse a candle is, and the
-	// only budget left to choose against is what one query may answer with at all.
-	//
-	// It is deliberately not written as "the same as asking for the ceiling's worth of
-	// places". Those two agree on today's numbers and mean different things: a caller
-	// that named a number said something about **its own display**, and one that named
-	// nothing said only that it wants an answer. The day the ceiling moves, this branch
-	// should follow it and the one above should not — folded together, that change would
-	// silently redefine one of them.
+	// Kept separate from the displayable-count branch on purpose: if the ceiling changes, this branch should follow it and that one should not.
 	return NewFittingAggregationIntervalDomain(
 		marketDomain, startTime, endTime, maxBucketCount), nil
 }
 
-// RangeQuery is the plain time-range query to read the source candles with.
 func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) RangeQuery() KCandleQueryDomain {
 	return kCandleSeriesQueryDomain.rangeQuery
 }
 
-// SeriesOf is the series those source candles make under this query. Asking the query
-// for it keeps what a series is made of — which symbol, which interval — in one place;
-// the caller only has to read the candles and hand them back.
+// SeriesOf keeps the series' symbol and interval with the query; callers only supply the candles.
 func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SeriesOf(
 	kCandles []entities.KCandle,
 ) KCandleSeriesDomain {
@@ -148,8 +99,7 @@ func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SeriesOf(
 		kCandleSeriesQueryDomain.rangeQuery.Symbol(), kCandleSeriesQueryDomain.interval, kCandles)
 }
 
-// ContractSeriesOf merges contract K candles read for this query into the series it
-// asks for — the same buckets SeriesOf cuts, merged the contract way.
+// ContractSeriesOf cuts the same buckets as SeriesOf, merged the contract way.
 func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) ContractSeriesOf(
 	kCandleContracts []entities.KCandleContract,
 ) KCandleContractSeriesDomain {
@@ -157,16 +107,7 @@ func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) ContractSeriesOf(
 		kCandleSeriesQueryDomain.rangeQuery.Symbol(), kCandleSeriesQueryDomain.interval, kCandleContracts)
 }
 
-// SourceCandleLimit is the most source candles this query's buckets can hold, plus
-// one bucket's worth of spare. It is the right limit to read with: it can never cut
-// the answer short, and it stops an over-wide read before it starts.
-//
-// The spare is what makes "never cut short" true. A read hands back the *earliest*
-// candles up to its limit, so a limit that is even one candle tight loses the newest
-// bar — the end of the chart nobody can afford to lose, and the end nobody looks at
-// twice. The buckets are counted over trading time while the range's own two ends fall
-// wherever the user dragged them, so the stretch can hold a little more than the
-// buckets do; one spare bucket covers it.
+// SourceCandleLimit is the source-candle capacity of the buckets plus one spare bucket, because a read returns the earliest candles and a tight limit would drop the newest bar.
 func (kCandleSeriesQueryDomain KCandleSeriesQueryDomain) SourceCandleLimit() int {
 	return kCandleSeriesQueryDomain.interval.SourceCandleCount(
 		kCandleSeriesQueryDomain.bucketCount + 1)

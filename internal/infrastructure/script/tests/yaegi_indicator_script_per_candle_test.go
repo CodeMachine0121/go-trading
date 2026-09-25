@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// candleCountScript reports how many candles it was shown, which is the one thing that
-// tells a growing window apart from the same window run over and over.
+// candleCountScript distinguishes a growing window from the same window repeated.
 const candleCountScript = `
 package main
 
@@ -23,7 +22,6 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-// lastClosePriceScript reports the close of the candle it is standing on.
 const lastClosePriceScript = `
 package main
 
@@ -71,9 +69,7 @@ func TestExecuteForEachCandle(t *testing.T) {
 	})
 
 	t.Run("a run cannot reach past the candle it stands on", func(t *testing.T) {
-		// A slice still carries the array behind it, so re-slicing up to its
-		// capacity is how a script would peek at candles that have not happened yet.
-		// Whatever it reaches for, the furthest candle it can see must be its own.
+		// Re-slicing up to capacity would expose future candles; the furthest visible candle must be the current one.
 		const reachesForTheFutureScript = `
 package main
 
@@ -133,9 +129,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	})
 
 	t.Run("the script is read once and then run, not read again per candle", func(t *testing.T) {
-		// A count kept beside the algorithm survives from one run to the next only
-		// while the same reading of the script is still standing. Were the script read
-		// afresh for every candle, every run would report one.
+		// The counter survives between runs only if the script is read once for the whole replay.
 		const countsItsOwnRunsScript = `
 package main
 
@@ -181,8 +175,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	})
 
 	t.Run("a script failing on one candle brings the whole run down", func(t *testing.T) {
-		// It divides by a count that is only zero on the very first candle, so the run
-		// fails part way through rather than before it starts.
+		// Fails mid-replay, since the count is zero only on the first candle.
 		const failsOnFirstCandleScript = `
 package main
 
@@ -258,7 +251,6 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 
 func TestExecuteForEachCandleUnderTheSignalKind(t *testing.T) {
-	// One buy on the candle standing above the first price, hold everywhere else.
 	const signalPerCandleScript = `
 package main
 

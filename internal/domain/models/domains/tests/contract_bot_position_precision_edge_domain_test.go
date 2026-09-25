@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A reference price of nothing is a price nothing can be opened at: the suggestion reads
-// as it does without the venue, with no quantity and no liquidation price — and the round
-// goes on rather than dividing by nothing.
+// A zero reference price yields a plan without quantity or liquidation price rather than dividing by zero.
 func TestPositionPlanDomainSuggestsWithoutTheVenueAtAReferencePriceOfNothing(t *testing.T) {
 	require.NotPanics(t, func() {
 		positionPlanDto := planOnVenue(t, aPrecisionPlan(5, "2", "4"), vo.TargetPositionLong, "0",
@@ -26,12 +24,7 @@ func TestPositionPlanDomainSuggestsWithoutTheVenueAtAReferencePriceOfNothing(t *
 	})
 }
 
-// The close-out warning follows the replay's rule: judged against the unrounded
-// liquidation price, and a stop exactly there fires first.
-//
-// A five-times short from 100 is closed out at 119.40298…, printed on the tick as 119.4.
-// A stop at 119.4 sits below that raw figure, so the replay stops out first — and the bot
-// must not warn of a close-out, even though the stop equals the printed estimate.
+// The close-out warning uses the unrounded liquidation price like the replay: a 5x short from 100 liquidates at 119.40298…, so a stop at the printed 119.4 fires first and must not warn.
 func TestPositionPlanDomainWarnsOfACloseOutOnlyWhereTheReplayWouldCloseOut(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -61,8 +54,7 @@ func TestPositionPlanDomainWarnsOfACloseOutOnlyWhereTheReplayWouldCloseOut(t *te
 	}
 }
 
-// A liquidation price the venue cannot quote above nothing — here a hair over one times,
-// on a tick of one — is said to be no close-out at all, never printed as a price of zero.
+// A liquidation price that rounds to zero on the tick is reported as no close-out, never as a price of zero.
 func TestPositionPlanDomainNeverPrintsALiquidationPriceOfNothing(t *testing.T) {
 	settings := aPrecisionPlan(1, "50", "0")
 	settings.Leverage = decimal.RequireFromString("1.001")

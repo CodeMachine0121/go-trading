@@ -17,9 +17,7 @@ import (
 )
 
 func main() {
-	// Started as a script compartment, this binary serves that one request and ends.
-	// It is decided before anything else happens: a compartment reads no settings,
-	// opens no database and knows nothing of the service that started it.
+	// Checked first: a script compartment serves one request and reads no settings or database.
 	if len(os.Args) > 1 && os.Args[1] == script.IndicatorScriptWorkerCommand {
 		os.Exit(script.NewIndicatorScriptWorker().Serve(os.Stdin, os.Stdout))
 	}
@@ -40,15 +38,8 @@ func main() {
 		strategyBotRunApplication, assistantConversationApplication,
 		contractSeries := registerRoutes(engine, database, applicationConfig)
 
-	// An answer being written lives in this process and nowhere else, so every one
-	// the last shutdown cut off is stale the moment this one starts. Left alone each
-	// is a wait nobody can end, on a conversation nobody can add to.
-	//
-	// It runs here rather than in the shutdown path because a shutdown is not always
-	// given the chance to tidy up: a crash and a power cut leave the same rows behind
-	// as a clean stop, and only the next start is guaranteed to happen. Failing to
-	// sweep is logged rather than fatal — it leaves some conversations stuck, which
-	// is worse than a working system and far better than no system.
+	// In-flight answers live only in this process, so any left by the last run are stale; swept at
+	// startup because a crash never reaches a shutdown hook, and a failed sweep is logged, not fatal.
 	interruptedAnswerCount, sweepError := assistantConversationApplication.FailInterruptedAnswers(
 		context.Background())
 	if sweepError != nil {
@@ -59,8 +50,7 @@ func main() {
 			interruptedAnswerCount)
 	}
 
-	// Same reasoning, same moment: a history sync is driven from this process too, so
-	// every run still recorded as fetching is one nothing is fetching for.
+	// History syncs are driven by this process too, so any still marked fetching are orphaned.
 	interruptedSyncCount, syncSweepError := kCandleIngestionApplication.FailInterruptedHistorySyncs(
 		context.Background())
 	if syncSweepError != nil {
@@ -72,9 +62,7 @@ func main() {
 			interruptedSyncCount)
 	}
 
-	// The contract runs are their own numbering in their own table, so they need
-	// their own sweep: the one above cannot see them, and a row left saying running
-	// is a progress figure that never moves again.
+	// Contract syncs live in their own table, so the sweep above cannot see them.
 	interruptedContractSyncCount, contractSyncSweepError := kCandleContractIngestionApplication.
 		FailInterruptedHistorySyncs(context.Background())
 	if contractSyncSweepError != nil {
@@ -86,12 +74,8 @@ func main() {
 			interruptedContractSyncCount)
 	}
 
-	// The signals are listened for before anything is started, so an interrupt
-	// arriving during the startup backfill runs the shutdown path instead of falling
-	// back on killing the process. The backfill itself is still cut short — it has
-	// not begun watching for a stop that early — but it is cut short through its
-	// context, so the calls it has out to the database and the market source end
-	// rather than being abandoned mid-flight.
+	// Listened for before anything starts, so an interrupt during the startup backfill takes the
+	// shutdown path and cancels in-flight calls through context instead of killing the process.
 	shutdownSignalled, stopListeningForSignals := signal.NotifyContext(
 		context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopListeningForSignals()

@@ -10,37 +10,17 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// ErrStrategyScriptParameterValidation is what every refusal about a strategy script's knobs
-// carries, so a caller can tell "you described these wrongly" apart from anything
-// else that can go wrong while saving or running.
 var ErrStrategyScriptParameterValidation = errors.New("strategy script parameter validation failed")
 
-// maximumStrategyScriptParameterNameLength bounds a name so it stays something a person
-// reads on a screen. There is no count limit on the parameters themselves: names
-// being unique and each value having a range is already enough to stop nonsense,
-// and a limit on how many knobs an algorithm may have has no right answer.
+// maximumStrategyScriptParameterNameLength keeps names screen-readable; the number of parameters is deliberately unbounded.
 const maximumStrategyScriptParameterNameLength = 64
 
-// StrategyScriptParametersDomain is one strategy script's whole set of knobs, and every rule
-// about them.
-//
-// It is a set rather than a parameter at a time because the rules that matter are
-// rules about the set: names not repeating, and the largest look-back. Ask a single
-// parameter either question and it cannot answer; leave the set to the caller and
-// the caller ends up collecting and comparing by hand.
-//
-// Building one validates the whole set, so an instance existing means the set is
-// usable and nobody downstream checks again.
+// StrategyScriptParametersDomain is a validated whole set of parameters, since uniqueness and the maximum look-back are set-level rules.
 type StrategyScriptParametersDomain struct {
 	parameters []entities.StrategyScriptParameter
 }
 
-// NewStrategyScriptParametersDomain settles a whole set at once: names are trimmed and
-// must be present and distinct, kinds must be one of the two, and a look-back count
-// must be a whole number greater than zero.
-//
-// An empty set is valid and means an algorithm with no knobs, which is every
-// algorithm written before knobs existed.
+// NewStrategyScriptParametersDomain validates the set; an empty set is valid.
 func NewStrategyScriptParametersDomain(
 	declaredParameters []dto.StrategyScriptParameterWriteDto,
 ) (StrategyScriptParametersDomain, error) {
@@ -66,12 +46,7 @@ func NewStrategyScriptParametersDomain(
 	return StrategyScriptParametersDomain{parameters: settledParameters}, nil
 }
 
-// Applying settles what this run's knobs are worth: every supplied name must have
-// been declared, whatever was not supplied keeps its declared default, and every
-// resulting value must still be within its kind's range.
-//
-// It is the only way to apply values, and it answers all four of those at once, so
-// no caller has to sequence them and none can be skipped.
+// Applying rejects undeclared names, keeps defaults for unsupplied values and re-validates every resulting value.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) Applying(
 	suppliedValues []dto.StrategyScriptParameterValueDto,
 ) (StrategyScriptParametersDomain, error) {
@@ -103,9 +78,7 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) Applying(
 	return StrategyScriptParametersDomain{parameters: appliedParameters}, nil
 }
 
-// MaximumLookbackCount is how far back the hungriest of these knobs reaches. Zero
-// means nothing reaches back, which is what an algorithm with no look-back knobs
-// wants — and it makes the count derivation one expression rather than two branches.
+// MaximumLookbackCount is zero when no parameter is a look-back count.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) MaximumLookbackCount() int {
 	maximumLookbackCount := 0
 	for _, parameter := range strategyScriptParametersDomain.parameters {
@@ -118,9 +91,7 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) MaximumLook
 	return maximumLookbackCount
 }
 
-// LookbackCountOf hands a script the whole number behind a name, saying whether the
-// name was declared at all — that second answer is what keeps a mistyped name from
-// being reported as a broken algorithm.
+// LookbackCountOf's second result distinguishes an undeclared name from a broken algorithm.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) LookbackCountOf(name string) (int, bool) {
 	parameter, isDeclared := strategyScriptParametersDomain.find(name)
 	if !isDeclared {
@@ -130,9 +101,7 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) LookbackCou
 	return int(parameter.DefaultValue), true
 }
 
-// BooleanOf hands a script the yes-or-no behind a name, saying whether the name was
-// declared at all. Zero is no and anything else is yes — but a declared boolean has
-// already been settled to exactly zero or one, so this reads what was settled.
+// BooleanOf reads the value already settled to exactly zero or one.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) BooleanOf(name string) (bool, bool) {
 	parameter, isDeclared := strategyScriptParametersDomain.find(name)
 	if !isDeclared {
@@ -142,8 +111,6 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) BooleanOf(n
 	return parameter.IsTrue(), true
 }
 
-// NumberOf hands a script the number behind a name, saying whether the name was
-// declared at all.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) NumberOf(name string) (float64, bool) {
 	parameter, isDeclared := strategyScriptParametersDomain.find(name)
 	if !isDeclared {
@@ -153,7 +120,6 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) NumberOf(na
 	return parameter.DefaultValue, true
 }
 
-// ToEntities hands the settled set back for storing.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) ToEntities() []entities.StrategyScriptParameter {
 	storedParameters := make([]entities.StrategyScriptParameter, len(strategyScriptParametersDomain.parameters))
 	copy(storedParameters, strategyScriptParametersDomain.parameters)
@@ -161,7 +127,6 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) ToEntities(
 	return storedParameters
 }
 
-// ToDtos hands the settled set outwards.
 func (strategyScriptParametersDomain StrategyScriptParametersDomain) ToDtos() []dto.StrategyScriptParameterDto {
 	parameterDtos := make([]dto.StrategyScriptParameterDto, 0, len(strategyScriptParametersDomain.parameters))
 	for _, parameter := range strategyScriptParametersDomain.parameters {
@@ -189,7 +154,6 @@ func (strategyScriptParametersDomain StrategyScriptParametersDomain) declares(na
 	return isDeclared
 }
 
-// settleStrategyScriptParameter normalizes one declaration and refuses what cannot be one.
 func settleStrategyScriptParameter(
 	declaredParameter dto.StrategyScriptParameterWriteDto,
 ) (entities.StrategyScriptParameter, error) {
@@ -224,10 +188,7 @@ func settleStrategyScriptParameter(
 	return settledParameter, nil
 }
 
-// validateStrategyScriptParameterValue judges one value against its own kind. A look-back
-// count has to be a whole number greater than zero — it is going to be used to count
-// candles, and half a candle is not a thing. A number is not judged at all: the
-// system reads no meaning into it, so it has no grounds to refuse one.
+// validateStrategyScriptParameterValue requires look-back counts to be positive integers; plain numbers are never judged.
 func validateStrategyScriptParameterValue(parameter entities.StrategyScriptParameter) error {
 	if !parameter.IsLookbackCount() {
 		return nil
@@ -242,12 +203,7 @@ func validateStrategyScriptParameterValue(parameter entities.StrategyScriptParam
 	return nil
 }
 
-// settleStrategyScriptParameterValue pins a yes-or-no to exactly zero or one.
-//
-// It is settled rather than refused because there is nothing to refuse: every number
-// is either zero or not. Settling it means what is stored says plainly which of the
-// two it is, instead of leaving a 0.7 for whoever reads it next to interpret — and
-// it makes a value that went in as 2 come back out as 1, rather than as 2.
+// settleStrategyScriptParameterValue normalises booleans to exactly zero or one instead of refusing them.
 func settleStrategyScriptParameterValue(
 	parameter entities.StrategyScriptParameter,
 ) entities.StrategyScriptParameter {

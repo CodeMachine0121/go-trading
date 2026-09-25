@@ -2,8 +2,7 @@ package dto
 
 import "github.com/shopspring/decimal"
 
-// ContractOrderRefusalDto is why the venue would not take a suggested order, with the
-// figures that say so. Reason is one of belowMinimumQuantity, belowMinimumNotional or
+// ContractOrderRefusalDto Reason is belowMinimumQuantity, belowMinimumNotional or
 // aboveTierLeverage.
 type ContractOrderRefusalDto struct {
 	Reason              string

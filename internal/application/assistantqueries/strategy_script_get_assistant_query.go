@@ -10,17 +10,12 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// strategyScriptGetAssistantArguments is what the assistant sends to read one strategy script.
 type strategyScriptGetAssistantArguments struct {
 	StrategyScriptID uint `json:"strategyScriptId"`
 }
 
-// StrategyScriptGetAssistantQuery lets the assistant read one saved strategy script in full,
-// algorithm included.
-//
-// Reading it in full is what makes changing it possible: a rewrite replaces
-// everything a strategy script remembers, so an assistant asked to change one knob has to
-// know the rest before it can send them back unchanged.
+// StrategyScriptGetAssistantQuery hands the assistant a saved strategy script in full, because a
+// rewrite replaces everything and the assistant must send the unchanged parts back.
 type StrategyScriptGetAssistantQuery struct {
 	strategyScriptApplication *application.StrategyScriptApplication
 }
@@ -44,8 +39,6 @@ func (strategyScriptGetAssistantQuery *StrategyScriptGetAssistantQuery) Argument
 		`},"required":["strategyScriptId"],"additionalProperties":false}`
 }
 
-// Run hands over the strategy script in full. A strategy script that is not there comes back as the
-// system's own words for that, which the assistant relays rather than reinvents.
 func (strategyScriptGetAssistantQuery *StrategyScriptGetAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {
@@ -63,9 +56,7 @@ func (strategyScriptGetAssistantQuery *StrategyScriptGetAssistantQuery) Run(
 	return renderedStrategyScript(strategyScriptDto)
 }
 
-// renderedStrategyScript is one strategy script as the assistant reads it. Reading one, saving one
-// and rewriting one all hand back the same shape, so the assistant never has to learn
-// two ways of looking at the same thing.
+// renderedStrategyScript is the one shape reading, saving and rewriting all hand back.
 func renderedStrategyScript(strategyScriptDto dto.StrategyScriptDto) (string, error) {
 	payload, marshalError := json.Marshal(strategyScriptDto)
 	if marshalError != nil {

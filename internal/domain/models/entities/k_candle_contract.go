@@ -7,27 +7,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleContract is a single perpetual contract K candle row. It is a plain data
-// model: fields, persistence mapping and shape conversion only, no business rules.
-//
-// It is a separate record from KCandle rather than the same one with extra columns,
-// because the mark price is not a figure the spot market declines to publish — it is
-// a figure the spot market has no concept of. Nothing is borrowed and nothing is
-// lent: the same symbol at the same open time exists on both sides, each in its own
-// table, and neither can overwrite the other.
-//
-// Every column but eight is NOT NULL, which KCandle's cannot be. KCandle leaves
-// turnover and taker volumes nullable to accommodate a market that does not report
-// them; this record has exactly one source and that source reports all of them, so
-// "a stored candle is a complete candle" is a guarantee of the schema rather than
-// something each reader has to remember to check.
-//
-// The eight exceptions are the index price and premium index lines, and they are
-// nullable for one reason only: candles stored before either line existed. Those
-// rows are kept rather than thrown away, and "not recorded when it was stored" has
-// to be sayable without inventing a zero. Every candle written from then on carries
-// both lines — that is the domain's guarantee, not the schema's — and a history sync
-// covering an old row fills the two lines in.
+// KCandleContract is separate from KCandle and fully NOT NULL because its single source
+// reports every figure; only the index price and premium index lines are nullable, for rows
+// stored before those lines existed.
 type KCandleContract struct {
 	ID       uint      `gorm:"primaryKey"`
 	Symbol   string    `gorm:"size:64;not null;uniqueIndex:idx_k_candle_contracts_symbol_open_time,priority:1"`
@@ -59,13 +41,11 @@ type KCandleContract struct {
 	PremiumIndexClose decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 }
 
-// TableName pins the table to KCandleContracts instead of GORM's default.
 func (kCandleContract KCandleContract) TableName() string {
 	return "KCandleContracts"
 }
 
-// ToDto converts this record into the shape the domain hands outwards. The open time
-// is always handed out in universal time, whatever zone it was read back in.
+// ToDto returns the open time in UTC regardless of the zone it was read back in.
 func (kCandleContract KCandleContract) ToDto() dto.KCandleContractDto {
 	return dto.KCandleContractDto{
 		Symbol:              kCandleContract.Symbol,

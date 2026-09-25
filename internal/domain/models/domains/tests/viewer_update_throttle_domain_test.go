@@ -8,9 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// The ceiling exists so a market trading many times a second does not make the
-// screen busy without making it clearer. What it must never swallow is a candle's
-// last word.
+// Forming candles are throttled, but a closed candle is never swallowed.
 func TestAdmitLetsAFormingCandleThroughOncePerCeiling(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -65,8 +63,7 @@ func TestAdmitLetsAFormingCandleThroughOncePerCeiling(t *testing.T) {
 	}
 }
 
-// Two symbols travelling on one channel are two pictures. Holding one back because
-// the other just moved would make a busy neighbour into a slow chart.
+// Symbols sharing a channel are throttled independently.
 func TestEachSymbolIsThrottledOnItsOwn(t *testing.T) {
 	firstThrottle := domains.NewViewerUpdateThrottleDomain(10*time.Second, followStartedAt)
 	secondThrottle := domains.NewViewerUpdateThrottleDomain(10*time.Second, followStartedAt)
@@ -78,7 +75,7 @@ func TestEachSymbolIsThrottledOnItsOwn(t *testing.T) {
 		"另一檔剛剛送過，不該讓這一檔的第一次被擋下")
 }
 
-// A setting left unfilled means "use the stated rule", never "no rule at all".
+// An unset ceiling falls back to the default, never to no limit.
 func TestAnUnusableCeilingFallsBackToTheStatedRule(t *testing.T) {
 	throttleDomain := domains.NewViewerUpdateThrottleDomain(0, followStartedAt)
 

@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aPositionPlanSettings is a fully filled plan: fifty thousand, staking a tenth of it,
-// out at three percent against and five percent in favour.
+// aPositionPlanSettings is 50,000 staking a tenth, stop 3% and target 5%.
 func aPositionPlanSettings() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              decimal.NewFromInt(50000),
@@ -23,14 +22,11 @@ func aPositionPlanSettings() dto.PositionPlanSettingsDto {
 	}
 }
 
-// aReferencePrice is the price every figure below is measured from.
 func aReferencePrice() decimal.Decimal {
 	return decimal.RequireFromString("64180.5")
 }
 
-// planUnderTest builds the plan and asks it about one round, failing the test if the
-// settings themselves were refused — every case below that expects a refusal asks for
-// one on its own.
+// planUnderTest fails the test if the settings are refused; cases expecting a refusal build the plan themselves.
 func planUnderTest(
 	t *testing.T, settings dto.PositionPlanSettingsDto, target vo.TargetPositionVo,
 ) (dto.PositionPlanDto, bool) {
@@ -42,9 +38,7 @@ func planUnderTest(
 	return positionPlan.PlanFor(target, aReferencePrice(), true)
 }
 
-// The multiplications, written out. They are here with real figures rather than
-// described in prose because the arithmetic is the whole of what this model does, and
-// a formula restated in a test is a formula that agrees with itself.
+// Real figures rather than restated formulas, so the test can't agree with itself.
 func TestPositionPlanDomainSizesAPosition(t *testing.T) {
 	positionPlanDto, suggests := planUnderTest(
 		t, aPositionPlanSettings(), vo.TargetPositionLong)
@@ -53,12 +47,12 @@ func TestPositionPlanDomainSizesAPosition(t *testing.T) {
 	assert.True(t, positionPlanDto.Affordable)
 	// A tenth of fifty thousand.
 	assert.Equal(t, "5000", positionPlanDto.Stake.String())
-	// The price falling is the loss — so the stop sits below, and the target above.
+	// A long's stop sits below and its target above.
 	assert.Equal(t, "62255.085", positionPlanDto.StopLossPrice.String())
 	assert.Equal(t, "67389.525", positionPlanDto.TakeProfitPrice.String())
 	assert.True(t, positionPlanDto.StopLossPrice.LessThan(aReferencePrice()))
 	assert.True(t, positionPlanDto.TakeProfitPrice.GreaterThan(aReferencePrice()))
-	// Measured against the stake, which is the whole of what is in the market.
+	// Measured against the stake.
 	assert.Equal(t, "150", positionPlanDto.LossAtStop.String())
 	assert.Equal(t, "250", positionPlanDto.GainAtTarget.String())
 }
@@ -136,9 +130,7 @@ func TestPositionPlanDomainReadsEachSettingItWasGiven(t *testing.T) {
 	}
 }
 
-// A fixed amount the capital cannot cover is the same ordinary situation a replay
-// skips an opening for. Printing a stake nobody can put down would be worse than
-// printing none, so the plan says so instead.
+// An unaffordable fixed stake is reported as such rather than printing a stake nobody can place.
 func TestPositionPlanDomainSaysSoWhenTheCapitalCannotCoverTheStake(t *testing.T) {
 	settings := aPositionPlanSettings()
 	settings.Capital = decimal.NewFromInt(5000)
@@ -149,14 +141,11 @@ func TestPositionPlanDomainSaysSoWhenTheCapitalCannotCoverTheStake(t *testing.T)
 
 	require.True(t, suggests, "有設定就有建議，只是那個建議是「押不下去」")
 	assert.False(t, positionPlanDto.Affordable)
-	// Nothing computed on top of a stake that cannot be put down.
 	assert.False(t, positionPlanDto.HasStopLoss)
 	assert.False(t, positionPlanDto.HasTakeProfit)
 }
 
-// Four ways to have nothing to suggest, deliberately one answer. To whoever reads the
-// message, "this round has nothing to put down" is a single fact — four sentences
-// about it would grow four ways of writing the same paragraph.
+// Every reason for having nothing to suggest yields the same single answer.
 func TestPositionPlanDomainSuggestsNothingWhenThereIsNothingToSuggest(t *testing.T) {
 	testCases := []struct {
 		name         string
@@ -171,8 +160,7 @@ func TestPositionPlanDomainSuggestsNothingWhenThereIsNothingToSuggest(t *testing
 			hasReference: true,
 		},
 		{
-			// A sell clears out. There is nothing to size, and a suggestion here would
-			// have somebody putting money down to close a position.
+			// A sell moves to cash, so there is nothing to size.
 			name:         "the round is asking to stand aside",
 			settings:     aPositionPlanSettings(),
 			target:       vo.TargetPositionFlat,
@@ -185,8 +173,7 @@ func TestPositionPlanDomainSuggestsNothingWhenThereIsNothingToSuggest(t *testing
 			hasReference: true,
 		},
 		{
-			// Every exit is measured from the price. Without one there is nothing to
-			// measure from, and a figure off some other price would look just as real.
+			// Every exit is measured from the price, so without one nothing is computed.
 			name:         "there is no price to measure from",
 			settings:     aPositionPlanSettings(),
 			target:       vo.TargetPositionLong,
@@ -208,8 +195,6 @@ func TestPositionPlanDomainSuggestsNothingWhenThereIsNothingToSuggest(t *testing
 	}
 }
 
-// A plan that never went through the constructor suggests nothing: a model that
-// cannot read itself is the last place to size somebody's position.
 func TestPositionPlanDomainZeroValueSuggestsNothing(t *testing.T) {
 	_, suggests := domains.PositionPlanDomain{}.PlanFor(
 		vo.TargetPositionLong, aReferencePrice(), true)
@@ -228,7 +213,7 @@ func TestNewPositionPlanDomainRefusesSettingsItCannotUse(t *testing.T) {
 			adjust: func(settings *dto.PositionPlanSettingsDto) {
 				settings.SizingValue = decimal.NewFromInt(150)
 			},
-			// The replay's own sentence, carried through rather than reworded.
+			// The replay's own wording, carried through.
 			expectedWords: "百分比必須大於零且不超過一百",
 		},
 		{
@@ -289,9 +274,7 @@ func TestNewPositionPlanDomainRefusesSettingsItCannotUse(t *testing.T) {
 	}
 }
 
-// Not filling something in is not the same as filling it in wrongly. A bot with no
-// capital has no plan, and the four settings beside it are not judged at all — they
-// have nothing to apply to.
+// No capital means no plan, and the other settings aren't judged.
 func TestNewPositionPlanDomainAcceptsNoCapitalAsNoPlan(t *testing.T) {
 	settings := aPositionPlanSettings()
 	settings.Capital = decimal.Zero
@@ -305,9 +288,7 @@ func TestNewPositionPlanDomainAcceptsNoCapitalAsNoPlan(t *testing.T) {
 	assert.False(t, suggests)
 }
 
-// A distance of the entire price puts a long's stop at exactly zero. Absurd, but it is
-// arithmetic — and drawing a line between ninety-nine and a hundred would need a
-// reason nobody has given.
+// A 100% distance puts a long's stop at exactly zero; absurd but arithmetic, with no principled cutoff below it.
 func TestPositionPlanDomainAllowsADistanceOfTheWholePrice(t *testing.T) {
 	settings := aPositionPlanSettings()
 	settings.StopLossPercentage = decimal.NewFromInt(100)
@@ -318,7 +299,6 @@ func TestPositionPlanDomainAllowsADistanceOfTheWholePrice(t *testing.T) {
 	assert.True(t, positionPlanDto.StopLossPrice.IsZero())
 }
 
-// The settings go back out the way they came in, because something has to store them.
 func TestPositionPlanDomainHandsItsSettingsBack(t *testing.T) {
 	positionPlan, buildError := domains.NewPositionPlanDomain(aPositionPlanSettings())
 	require.NoError(t, buildError)
@@ -332,7 +312,6 @@ func TestPositionPlanDomainHandsItsSettingsBack(t *testing.T) {
 	assert.Equal(t, "5", settingsDto.TakeProfitPercentage.String())
 }
 
-// A bot with no position plan stores nothing at all.
 func TestPositionPlanDomainStoresNothingForABotWithNoPlan(t *testing.T) {
 	plan, buildError := domains.NewPositionPlanDomain(dto.PositionPlanSettingsDto{})
 	require.NoError(t, buildError)

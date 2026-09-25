@@ -6,15 +6,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TradeOutcomeVo is one finished round trip as the trade statistics read it — the
-// one shape a spot trade and a contract trade both turn into, so the statistics are
-// worked out once for both. Immutable, no behavior.
+// TradeOutcomeVo is the common shape spot and contract trades turn into so statistics are computed once.
 type TradeOutcomeVo struct {
-	// NetProfit is what the round trip made after everything it paid.
 	NetProfit decimal.Decimal
-	// GrossProfit is what it made before the charges for trading were taken off.
+	// GrossProfit is before trading charges.
 	GrossProfit decimal.Decimal
-	// TransactionCost is both charges for trading together. Funding is not among them.
+	// TransactionCost is both trading charges; funding is not included.
 	TransactionCost decimal.Decimal
 	EntryTime       time.Time
 	ExitTime        time.Time

@@ -8,13 +8,10 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 )
 
-// workerRoleVariable is set on a compartment started from these tests. The test binary
-// then plays the part the server binary plays in production: it serves one request
-// and ends, instead of running the tests again.
+// workerRoleVariable makes the test binary act as a compartment worker, as the server binary does in production.
 const workerRoleVariable = "GO_TRADING_TEST_INDICATOR_SCRIPT_WORKER"
 
-// testMemoryLimitBytes is the cap the service ships with, so what passes here is what
-// passes there.
+// testMemoryLimitBytes matches the shipped cap.
 const testMemoryLimitBytes = 512 << 20
 
 func TestMain(m *testing.M) {
@@ -25,13 +22,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// isolationWith is the compartment every test runs its scripts in: this very test
-// binary, capped exactly as the service is.
-//
-// Under the race detector the compartment is left uncapped. The detector's shadow
-// memory counts against the cap several times over, so an ordinary replay can run
-// into it and go down for a reason the shipped binary never meets. The cap itself is
-// proved in the pipeline's race-free run, where it is the real one.
+// isolationWith runs compartments as this test binary with the shipped cap, left uncapped under the race detector whose shadow memory would trip it.
 func isolationWith(executionTimeout time.Duration) script.IndicatorScriptIsolation {
 	memoryLimitBytes := int64(testMemoryLimitBytes)
 	if raceDetectorOn {

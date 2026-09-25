@@ -12,18 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// KCandleHistorySyncController fetches a named stretch of one trading symbol's
-// history on demand.
-//
-// It is its own controller rather than another handler on the catch-up next door,
-// because the two differ on the one rule that gives the catch-up its identity: there,
-// how far back to reach is the system's own setting and deliberately not the
-// caller's. Adding an optional field to that request would make the sentence written
-// on it half true, and a half-true rule is harder to keep than none.
-//
-// The ceiling is held here rather than by the domain service, because how far this
-// system is willing to reach in one request is an operator's decision — the same
-// reason every other ceiling arrives from the composition root.
+// KCandleHistorySyncController fetches a caller-named stretch of one symbol's history, unlike the catch-up whose reach is system-set; the ceiling is an operator setting.
 type KCandleHistorySyncController struct {
 	kCandleIngestionApplication *application.KCandleIngestionApplication
 	lookbackCeilingDays         int
@@ -40,12 +29,7 @@ func NewKCandleHistorySyncController(
 }
 
 // StartSymbolHistorySync handles POST /k-candles/history.
-//
-// **It answers before the fetching is done**, with the run to come back and look at.
-// Years of one-minute candles is thousands of paced round trips to the source — tens
-// of minutes, and longer on a market that answers one day at a time — and no
-// connection is worth holding open that long. The work is driven by something that
-// outlives this request, so the run is the answer.
+// StartSymbolHistorySync handles POST /k-candles/history and answers 202 with the run, since the fetch can take tens of minutes.
 func (kCandleHistorySyncController *KCandleHistorySyncController) StartSymbolHistorySync(
 	ginContext *gin.Context,
 ) {
@@ -61,11 +45,7 @@ func (kCandleHistorySyncController *KCandleHistorySyncController) StartSymbolHis
 		ginContext.Request.Context(),
 		historySyncRequest.ToSyncDto(),
 		kCandleHistorySyncController.lookbackCeilingDays)
-	// The four are deliberately four, because what the caller has to do about them
-	// differs: ask for a shorter stretch, register the symbol or retype it, wait for
-	// the run already going, or come back later. A symbol nobody registered in
-	// particular must not read the same as storage being down — one says "check what
-	// you asked for", the other says "that was fine, try again".
+	// Each case calls for a different caller action: shorten, register or retype, wait for the running sync, or retry later.
 	switch {
 	case errors.Is(syncError, domains.ErrKCandleHistoryLookback),
 		errors.Is(syncError, domains.ErrTradingSymbolNamed):
@@ -86,15 +66,10 @@ func (kCandleHistorySyncController *KCandleHistorySyncController) StartSymbolHis
 		return
 	}
 
-	// Accepted rather than done: the run is recorded and the fetching has started,
-	// and the body says where to watch it.
 	ginContext.JSON(http.StatusAccepted, syncRun)
 }
 
 // GetSymbolHistorySync handles GET /k-candles/history/:id.
-//
-// It is what makes the accepted answer above usable: a run identifier with nowhere to
-// take it would be a receipt for work nobody can see.
 func (kCandleHistorySyncController *KCandleHistorySyncController) GetSymbolHistorySync(
 	ginContext *gin.Context,
 ) {

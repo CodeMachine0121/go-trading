@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aContractBotWrite is a contract bot as it arrives to be saved: a name, a contract,
-// the rules it names and how often it wakes.
 func aContractBotWrite() dto.StrategyBotWriteDto {
 	return dto.StrategyBotWriteDto{
 		OwnerID:                1,
@@ -92,7 +90,6 @@ func TestStrategyBotDomainReadsAContractBotsLeverage(t *testing.T) {
 	}
 }
 
-// A spot bot still borrows nothing, in the words it has always been refused in.
 func TestStrategyBotDomainStillRefusesASpotBotLeverage(t *testing.T) {
 	writeDto := aContractBotWrite()
 	writeDto.MarketDataKind = ""
@@ -157,8 +154,7 @@ func TestMarketDataKindDomainKeepsABotsKindOnARewrite(t *testing.T) {
 	})
 }
 
-// aLadderTopping at is a maintenance margin ladder whose smallest tier allows that
-// much leverage and whose bigger one allows less.
+// aLadderToppingAt is a ladder whose smallest tier allows that leverage and whose next tier allows less.
 func aLadderToppingAt(maximumLeverage int) []entities.ContractMaintenanceMarginTier {
 	return []entities.ContractMaintenanceMarginTier{
 		{Symbol: "BTCUSDT", Tier: 1, MaximumLeverage: maximumLeverage},
@@ -208,7 +204,6 @@ func TestContractStrategyBotMarketDomainAdmitsOnlyAFollowedContract(t *testing.T
 	}
 }
 
-// What a contract conclusion asks its reader to go and do, under each trading mode.
 func TestStrategyBotMarketDomainNamesTheActOnAContractAccount(t *testing.T) {
 	testCases := []struct {
 		tradingMode    vo.ContractTradingModeVo
@@ -270,8 +265,6 @@ func TestStrategyBotMarketDomainLabelsAContract(t *testing.T) {
 	}
 }
 
-// A stored mode that cannot be read names no act and suggests nothing, rather than
-// guessing which way somebody should trade.
 func TestStrategyBotMarketDomainGuessesNothingForAModeItCannotRead(t *testing.T) {
 	market := domains.NewStrategyBotMarketDomain("contractKCandle", "spot")
 	signal := domains.NewSignalDomainOf(vo.SignalSell)
@@ -282,8 +275,7 @@ func TestStrategyBotMarketDomainGuessesNothingForAModeItCannotRead(t *testing.T)
 	assert.Empty(t, market.TradingModeInWords())
 }
 
-// aContractPositionPlanSettings is a thousand, staked whole, at five times, out at two
-// percent against and four in favour.
+// aContractPositionPlanSettings is 1,000 staked whole at 5x, stop 2% and target 4%.
 func aContractPositionPlanSettings() dto.PositionPlanSettingsDto {
 	return dto.PositionPlanSettingsDto{
 		Capital:              decimal.NewFromInt(1000),
@@ -356,7 +348,7 @@ func TestPositionPlanDomainWarnsOfAStopTheMarginCannotReach(t *testing.T) {
 	}
 }
 
-// A spot plan borrows nothing, so even a stop a whole price away is not a close-out.
+// A spot plan borrows nothing, so even a 100% stop is never a close-out.
 func TestPositionPlanDomainNeverWarnsASpotPlanOfAClose(t *testing.T) {
 	settings := aContractPositionPlanSettings()
 	settings.Leverage = decimal.Zero
@@ -387,8 +379,7 @@ func TestPositionPlanDomainSaysAContractMarginCannotBePutDown(t *testing.T) {
 	assert.Equal(t, "2000", positionPlanDto.Stake.String())
 }
 
-// aContractRound is one contract bot's round that concluded sell under long and short,
-// with a five-times plan behind it.
+// aContractRound is a long-and-short contract bot round that concluded sell with a 5x plan.
 func aContractRound() dto.StrategyBotRoundDto {
 	round := dto.StrategyBotRoundDto{
 		BotName:             "合約突破",
@@ -423,7 +414,6 @@ func TestStrategyBotMessageSpeaksOfAContractAccount(t *testing.T) {
 	assert.Contains(t, message, "　・止損 102（往上，虧 100）")
 	assert.Contains(t, message, "　・止盈 96（往下，賺 200）")
 	assert.NotContains(t, message, "強制平倉")
-	// The sources still speak in their own words.
 	assert.Contains(t, message, "　・A（1h）：賣出")
 }
 
@@ -500,7 +490,7 @@ func TestStrategyBotMarketDomainRefusesAContractRoundWhoseCandlesStoppedArriving
 	}
 }
 
-// Spot markets close, so an old newest candle is an honest reading there and is not refused.
+// Spot markets close, so an old newest candle is not refused.
 func TestStrategyBotMarketDomainDoesNotAskASpotRoundHowOldItsCandlesAre(t *testing.T) {
 	now := time.Date(2026, 9, 24, 10, 0, 30, 0, time.UTC)
 	spot := domains.NewStrategyBotMarketDomain("kCandle", "")
@@ -509,7 +499,6 @@ func TestStrategyBotMarketDomainDoesNotAskASpotRoundHowOldItsCandlesAre(t *testi
 	assert.NoError(t, spot.RequireCurrentMarket(time.Time{}, false, now))
 }
 
-// A contract bot saved with its leverage left blank suggests a one-times position.
 func TestStrategyBotMessageSuggestsOneTimesForAContractBotSavedWithoutLeverage(t *testing.T) {
 	writeDto := aContractBotWrite()
 	writeDto.PositionPlan = dto.PositionPlanSettingsDto{Capital: decimal.NewFromInt(1000)}

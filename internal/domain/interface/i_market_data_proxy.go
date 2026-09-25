@@ -8,13 +8,7 @@ import (
 
 //go:generate go tool mockgen -source=i_market_data_proxy.go -destination=mocks/mock_i_market_data_proxy.go -package=mocks
 
-// IMarketDataProxy fetches K candles from a market source. It is named for the
-// capability, not the provider, so a different exchange is a new implementation
-// rather than a new contract.
-//
-// One window is the only way to ask. Both the periodic round and the startup
-// backfill are windows, so everything a source needs to hide — the address, the
-// symbol spelling, the wire format, paging, timeouts — stays behind this method.
+// IMarketDataProxy fetches K candles for one window, hiding the source's address, symbol spelling, wire format, paging and timeouts.
 type IMarketDataProxy interface {
 	FetchKCandles(
 		executionContext context.Context, window vo.KCandleFetchWindowVo,

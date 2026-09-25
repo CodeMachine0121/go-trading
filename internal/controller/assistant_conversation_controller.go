@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AssistantConversationController exposes the conversation use cases over HTTP.
 type AssistantConversationController struct {
 	assistantConversationApplication *application.AssistantConversationApplication
 }
@@ -26,12 +25,7 @@ func NewAssistantConversationController(
 	}
 }
 
-// Ask handles POST /chat.
-//
-// It answers 202 rather than 200 because nothing has been answered yet: the question
-// was accepted and a place for its answer reserved, and the body says where to look
-// for it. Answering 200 with no answer in it would be the one reading a client could
-// not recover from — it would render an empty reply and move on.
+// Ask handles POST /chat, answering 202 because the answer is only reserved, not yet written.
 func (assistantConversationController *AssistantConversationController) Ask(ginContext *gin.Context) {
 	var assistantAskRequest models.AssistantAskRequest
 
@@ -79,12 +73,7 @@ func (assistantConversationController *AssistantConversationController) GetConve
 	ginContext.JSON(http.StatusOK, conversationDto)
 }
 
-// readID reads the conversation identifier out of the path, answering the caller with
-// a bad request when it is not one. The second return value says whether the handler
-// may carry on — a handler that gets false has already had its answer sent.
-//
-// Zero is refused along with anything unreadable: no conversation carries it, and it
-// is the very value that means "no conversation yet" further in.
+// readID answers a bad request itself when the path ID is unreadable or zero (zero means "no conversation yet"); false means the response was already sent.
 func (assistantConversationController *AssistantConversationController) readID(
 	ginContext *gin.Context,
 ) (uint, bool) {
@@ -97,17 +86,7 @@ func (assistantConversationController *AssistantConversationController) readID(
 	return uint(id), true
 }
 
-// respondWithError maps a domain error onto the status code that reports it.
-//
-// The four are deliberately four different codes, because what the reader has to do
-// about them differs: fix the question, name a conversation that exists, wait for
-// tomorrow, or wait a moment for the answer already being written. Collapsing any two
-// would leave somebody retrying a refusal that will still be there in an hour, or
-// giving up on one that will clear itself in seconds.
-//
-// **An assistant that did not answer is no longer among them.** It cannot be: by the
-// time that is known, this request is long finished and answered 202. A reader learns
-// it from the exchange itself, which comes back marked failed with the reason on it.
+// respondWithError maps each domain error to a distinct status because the caller's remedy differs; assistant failures surface on the exchange itself, not here.
 func (assistantConversationController *AssistantConversationController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {

@@ -9,9 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Binance reports a K candle as a positional array rather than named fields, so
-// these indexes are the whole schema. They are the one place the wire layout is
-// written down; a source that reorders its array is only visible here.
+// Binance K candles are positional arrays, so these indexes are the entire wire schema.
 const (
 	openTimeIndex            = 0
 	openIndex                = 1
@@ -25,13 +23,10 @@ const (
 	kLineFieldCount          = 11
 )
 
-// binanceKLine is one K candle exactly as it arrives: a mixed array of a number and
-// quoted decimals. Raw messages keep every element typed at the point it is read,
-// so no loosely typed value ever exists.
+// binanceKLine keeps elements as raw messages so each is decoded to a concrete type where read.
 type binanceKLine []json.RawMessage
 
-// toMarketKCandleVo turns the positional array into the shape the domain accepts.
-// Nothing is judged here — the K candle rules are applied further in.
+// toMarketKCandleVo converts without validation; K candle rules are applied later.
 func (kLine binanceKLine) toMarketKCandleVo(symbol string) (vo.MarketKCandleVo, error) {
 	if len(kLine) < kLineFieldCount {
 		return vo.MarketKCandleVo{}, fmt.Errorf(
@@ -49,22 +44,20 @@ func (kLine binanceKLine) toMarketKCandleVo(symbol string) (vo.MarketKCandleVo, 
 	}
 
 	return vo.MarketKCandleVo{
-		Symbol:   symbol,
-		OpenTime: openTime,
-		Open:     figures[openIndex],
-		High:     figures[highIndex],
-		Low:      figures[lowIndex],
-		Close:    figures[closeIndex],
-		Volume:   figures[volumeIndex],
-		// This source reports all three, so they are present rather than absent.
-		// A source that reports none of them leaves them as they are.
+		Symbol:              symbol,
+		OpenTime:            openTime,
+		Open:                figures[openIndex],
+		High:                figures[highIndex],
+		Low:                 figures[lowIndex],
+		Close:               figures[closeIndex],
+		Volume:              figures[volumeIndex],
 		QuoteVolume:         decimal.NewNullDecimal(figures[quoteVolumeIndex]),
 		TakerBuyBaseVolume:  decimal.NewNullDecimal(figures[takerBuyBaseVolumeIndex]),
 		TakerBuyQuoteVolume: decimal.NewNullDecimal(figures[takerBuyQuoteVolumeIndex]),
 	}, nil
 }
 
-// openTime reads the open time, which the source states in milliseconds.
+// openTime reads the open time, given in milliseconds.
 func (kLine binanceKLine) openTime() (time.Time, error) {
 	var openTimeMilliseconds int64
 	if decodeError := json.Unmarshal(kLine[openTimeIndex], &openTimeMilliseconds); decodeError != nil {
@@ -74,8 +67,6 @@ func (kLine binanceKLine) openTime() (time.Time, error) {
 	return time.UnixMilli(openTimeMilliseconds).UTC(), nil
 }
 
-// figures reads every quoted decimal the domain needs, keyed by its own index so
-// that a caller reads them under the same names the wire layout uses.
 func (kLine binanceKLine) figures() (map[int]decimal.Decimal, error) {
 	figures := make(map[int]decimal.Decimal, 8)
 	for _, index := range []int{

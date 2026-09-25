@@ -14,11 +14,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The aggregated series is the one place where the query range and the bucket grid
-// disagree on purpose: a bucket is a whole hour, a range can start in the middle of
-// one. Which candles end up in that half-covered bucket is decided by the range
-// filter in storage, so proving it needs the real database — a test that hands
-// candles straight to the domain cannot see the filter at all.
+// Which candles fall in a half-covered bucket is decided by the storage range filter, so this needs the real database.
 func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 	newSeriesService := func(t *testing.T) *service.KCandleService {
 		t.Helper()
@@ -33,7 +29,7 @@ func TestGetKCandleSeriesAgainstStorage(t *testing.T) {
 		clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
 		clockProxy.EXPECT().Now().Return(at(12, 0)).AnyTimes()
 
-		// 沒登錄的交易標的落到永不收盤的市場（既有規則），所以這裡的每一分鐘都算數。
+		// 未登錄的交易標的視為永不收盤的市場，所以每一分鐘都算數。
 		return service.NewKCandleService(
 			kCandleRepository, persistence.NewTradingSymbolRepository(database), clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),

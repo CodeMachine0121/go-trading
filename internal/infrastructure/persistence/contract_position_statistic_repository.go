@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ContractPositionStatisticRepository stores perpetual contract position statistics
-// in PostgreSQL.
 type ContractPositionStatisticRepository struct {
 	database *gorm.DB
 }
@@ -22,14 +20,10 @@ func NewContractPositionStatisticRepository(database *gorm.DB) *ContractPosition
 	return &ContractPositionStatisticRepository{database: database}
 }
 
-// saveBatchSize is how many statistics go into one statement. A thirty-day catch-up
-// is over eight thousand of them, and at ten figures each that is more than the
-// sixty-five thousand values PostgreSQL takes in a single statement.
+// positionStatisticSaveBatchSize keeps each insert under PostgreSQL's 65,535-parameter limit.
 const positionStatisticSaveBatchSize = 1000
 
-// SaveAllIfAbsent stores every statistic nothing is held for yet, a batch at a time,
-// and says how many it stored. An empty batch never reaches the store: the driver
-// refuses a statement with no rows, and "nothing new in five minutes" is ordinary.
+// SaveAllIfAbsent inserts new statistics in batches and returns the count stored; an empty input skips the store because the driver rejects empty inserts.
 func (statisticRepository *ContractPositionStatisticRepository) SaveAllIfAbsent(
 	executionContext context.Context, statistics []entities.ContractPositionStatistic,
 ) (int, error) {
@@ -50,7 +44,6 @@ func (statisticRepository *ContractPositionStatisticRepository) SaveAllIfAbsent(
 	return int(result.RowsAffected), nil
 }
 
-// FindLatest is the most recent statistic held for the contract.
 func (statisticRepository *ContractPositionStatisticRepository) FindLatest(
 	executionContext context.Context, symbol string,
 ) (entities.ContractPositionStatistic, bool, error) {
@@ -71,8 +64,7 @@ func (statisticRepository *ContractPositionStatisticRepository) FindLatest(
 	return latestStatistic, true, nil
 }
 
-// CountInRange is how many statistics are held for the contract between the two
-// times, both ends included.
+// CountInRange counts statistics between the two times, both ends inclusive.
 func (statisticRepository *ContractPositionStatisticRepository) CountInRange(
 	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
 ) (int, error) {
@@ -91,7 +83,6 @@ func (statisticRepository *ContractPositionStatisticRepository) CountInRange(
 	return int(heldCount), nil
 }
 
-// FindInRange returns the statistics inside the query's range, earliest first.
 func (statisticRepository *ContractPositionStatisticRepository) FindInRange(
 	executionContext context.Context, query domains.KCandleQueryDomain, limit int,
 ) ([]entities.ContractPositionStatistic, error) {

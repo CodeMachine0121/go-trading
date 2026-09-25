@@ -28,10 +28,8 @@ type tradingStrategyBacktestUnderTest struct {
 	strategyScriptRepository  *mocks.MockIStrategyScriptRepository
 }
 
-// newTradingStrategyBacktestUnderTest wires the real domain services and real domain
-// models, mocking only the outermost boundaries: storage and script execution. Every
-// rule about coarseness, conditions and conflicts is therefore exercised through
-// this, not stubbed out behind it.
+// newTradingStrategyBacktestUnderTest mocks only storage and script execution, so coarseness,
+// condition and conflict rules run for real.
 func newTradingStrategyBacktestUnderTest(t *testing.T) tradingStrategyBacktestUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -81,9 +79,8 @@ func aReplayedTradingStrategy(
 		})
 	}
 
-	// A condition may only name sources that were declared, so the buy tree is built
-	// to match however many there are: one source buys on its own word, two buy only
-	// when both agree.
+	// Conditions may only name declared sources, so one source buys alone and two buy only when
+	// both agree.
 	parentID := uint(10)
 	conditionNodes := []entities.TradingStrategyConditionNode{
 		{ID: 13, TradingStrategyID: replayedTradingStrategyID, Side: "sell",
@@ -193,9 +190,7 @@ func TestTradingStrategyBacktestTakesItsCoarsenessFromTheSources(t *testing.T) {
 }
 
 func TestTradingStrategyBacktestRefusesSourcesThatDisagreeAboutCoarseness(t *testing.T) {
-	// Replaying walks one candle at a time, and an hour's candle and a five-minute
-	// candle are not the same one. The refusal names both, because what the person
-	// has to go and do is make them the same.
+	// Replay walks one candle at a time, so mismatched coarsenesses are refused, naming both.
 	fixture := newTradingStrategyBacktestUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), replayedTradingStrategyID).
@@ -209,9 +204,8 @@ func TestTradingStrategyBacktestRefusesSourcesThatDisagreeAboutCoarseness(t *tes
 }
 
 func TestTradingStrategyBacktestCountsNoConflictWhenTheTwoTreesCannotBothHold(t *testing.T) {
-	// This trading strategy buys only when both sources say buy and sells when A says
-	// sell, so no candle can satisfy both. The count has to be zero — a count that
-	// drifts upward on its own would make every replay look like a broken strategy.
+	// Buy needs both sources and sell needs A, so no candle satisfies both and the conflict count
+	// must be zero.
 	fixture := newTradingStrategyBacktestUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), replayedTradingStrategyID).
@@ -248,9 +242,8 @@ func aConflictingTradingStrategy() entities.TradingStrategy {
 }
 
 func TestTradingStrategyBacktestTreatsAConflictAsDoingNothingAndSaysHowOften(t *testing.T) {
-	// Picking a side would hand somebody an opinion the system invented, and they
-	// would act on it without ever tracing it back. The count is the only way they
-	// find out — and a replay that barely traded reads as a very steady strategy.
+	// Conflicting candles do nothing rather than picking a side; the count is how the person finds
+	// out.
 	fixture := newTradingStrategyBacktestUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
 		FindOne(gomock.Any(), replayedTradingStrategyID).
@@ -288,9 +281,7 @@ func TestTradingStrategyBacktestRefusesOneThatIsNotThisPersons(t *testing.T) {
 	require.ErrorIs(t, err, domains.ErrTradingStrategyNotFound)
 }
 
-// A trading strategy whose only source is A, buying on A's buy and selling on A's
-// sell, is the same question as replaying that script on its own. The two must give
-// the same report card — otherwise "rehearse what you will run" is not true.
+// A single-source trading strategy must give the same report as replaying that script alone.
 func TestTradingStrategyBacktestOfOneSourceMatchesReplayingThatScript(t *testing.T) {
 	signals := []vo.SignalVo{vo.SignalBuy, vo.SignalHold, vo.SignalSell}
 	candles := []entities.KCandle{
@@ -334,9 +325,8 @@ func TestTradingStrategyBacktestOfOneSourceMatchesReplayingThatScript(t *testing
 	assert.Equal(t, scriptResult.EquityCurve, tradingStrategyResult.EquityCurve)
 }
 
-// Naming one that does not exist and naming somebody else's are answered with the
-// same sentence. Two different answers would turn this field into a way to find out
-// which trading strategies other people have.
+// A nonexistent and somebody else's trading strategy get the same sentence, so the field cannot
+// probe what others have.
 func TestTradingStrategyBacktestAnswersTheSameForOneThatIsNotThere(t *testing.T) {
 	fixture := newTradingStrategyBacktestUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().
@@ -349,9 +339,8 @@ func TestTradingStrategyBacktestAnswersTheSameForOneThatIsNotThere(t *testing.T)
 	require.ErrorIs(t, err, domains.ErrTradingStrategyNotFound)
 }
 
-// A source may name a script its owner has since deleted. Half a replay — the other
-// sources' opinions with this one silently missing — would be a report card for a
-// strategy nobody wrote, so the whole run is refused.
+// A source naming a deleted script refuses the whole run rather than replaying the remaining
+// sources.
 func TestTradingStrategyBacktestRefusesWhenASourcesScriptCannotBeRead(t *testing.T) {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -384,8 +373,7 @@ func TestTradingStrategyBacktestRefusesWhenASourcesScriptCannotBeRead(t *testing
 	require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
 }
 
-// The rules a replay is refused under do not change because several scripts read the
-// candles instead of one. One candle is not a stretch either way.
+// Refusal rules do not change with several scripts: one candle is not a stretch either way.
 func TestTradingStrategyBacktestRefusesAStretchWithTooFewCandles(t *testing.T) {
 	fixture := newTradingStrategyBacktestUnderTest(t)
 	fixture.tradingStrategyRepository.EXPECT().

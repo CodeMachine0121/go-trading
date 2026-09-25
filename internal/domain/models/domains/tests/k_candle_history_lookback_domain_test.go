@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// historyLookbackCeiling is the ceiling these cases are written against. It is a
-// setting rather than domain knowledge, so it comes in from outside.
 const historyLookbackCeiling = 90
 
 func TestKCandleHistoryLookbackIsAStretchOfWholeDays(t *testing.T) {
@@ -37,8 +35,7 @@ func TestKCandleHistoryLookbackIsAStretchOfWholeDays(t *testing.T) {
 }
 
 func TestKCandleHistoryLookbackRefusesAStretchThatIsNotOne(t *testing.T) {
-	// Zero days is not a small request, it is a request that does not hold together:
-	// there is no stretch to fetch. Negative is the same thing said backwards.
+	// Zero or negative days describe no stretch at all.
 	testCases := []struct {
 		name string
 		days int
@@ -58,8 +55,7 @@ func TestKCandleHistoryLookbackRefusesAStretchThatIsNotOne(t *testing.T) {
 }
 
 func TestKCandleHistoryLookbackRefusalNamesTheCeiling(t *testing.T) {
-	// Somebody turned away has to know what to ask for instead. A refusal that only
-	// says "too far" leaves them halving the number until something works.
+	// The refusal must say what may be asked for instead.
 	_, lookbackError := domains.NewKCandleHistoryLookbackDomain(
 		historyLookbackCeiling+1, historyLookbackCeiling)
 

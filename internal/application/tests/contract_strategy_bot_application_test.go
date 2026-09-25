@@ -57,7 +57,6 @@ func aLadderAllowing(maximumLeverage int) []entities.ContractMaintenanceMarginTi
 	}
 }
 
-// storedContractBot is a contract bot as it comes back out of storage.
 func storedContractBot(runState vo.StrategyBotRunStateVo) entities.StrategyBot {
 	bot := storedBot(runState)
 	bot.Name = "合約突破"
@@ -372,9 +371,7 @@ func TestStrategyBotApplicationRefusesToRewriteABotOfAnUnreadableKind(t *testing
 	assert.ErrorIs(t, updateError, domains.ErrStrategyBotValidation)
 }
 
-// Every rule a contract bot is created under holds again when it is rewritten — the
-// rules may have changed since, and a rewrite cannot make it something it could never
-// have been created as.
+// Every creation rule is checked again on rewrite, since the rules may have changed.
 func TestStrategyBotApplicationChecksARewrittenContractBotLikeANewOne(t *testing.T) {
 	testCases := []struct {
 		name            string

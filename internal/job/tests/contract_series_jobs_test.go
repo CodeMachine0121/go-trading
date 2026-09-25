@@ -19,14 +19,12 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// startableJob is what every job offers the job manager.
 type startableJob interface {
 	Start(executionContext context.Context)
 	Stop()
 }
 
-// seriesJobUnderTest is one of the three new jobs over the real application and
-// service, with the watchlist read signalling every round that reached it.
+// seriesJobUnderTest runs a job over the real application and service, signalling each round that reads the watchlist.
 type seriesJobUnderTest struct {
 	job    startableJob
 	rounds chan string
@@ -70,7 +68,7 @@ func newFundingRateJobUnderTest(t *testing.T, venueError error, watchlistError e
 	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
 	settlementRepository.EXPECT().FindLatest(gomock.Any(), gomock.Any()).
 		Return(entities.ContractFundingRateSettlement{}, false, nil).AnyTimes()
-	// One settlement the rules refuse, so there is always something to write down.
+	// One refused settlement guarantees something to log.
 	fundingRateProxy.EXPECT().FetchFundingRateSettlements(gomock.Any(), gomock.Any(), gomock.Any()).Return(
 		[]vo.ContractFundingRateSettlementVo{{
 			Symbol: "BTCUSDT", SettlementTime: currentTime.Add(-time.Hour),
@@ -235,16 +233,14 @@ func TestTheSeriesJobsWriteDownWhatWentWrongWithoutStopping(t *testing.T) {
 			underTest.job.Start(t.Context())
 
 			recorded.waitFor(t, testCase.recorded)
-			// A second round arriving is the point: the first going wrong did not end
-			// the job.
+			// A second round proves the first failure did not end the job.
 			require.Equal(t, "round", nextFrom(t, underTest.rounds))
 			require.Equal(t, "round", nextFrom(t, underTest.rounds))
 		})
 	}
 }
 
-// fundingRateJobWithASlowRound is the funding rate job over a watchlist read that holds
-// every round until it is let go, so a stop can land while a round is running.
+// fundingRateJobWithASlowRound holds each round until released, so a stop can land mid-round.
 func fundingRateJobWithASlowRound(t *testing.T) (startableJob, chan string, chan struct{}) {
 	t.Helper()
 
@@ -272,10 +268,7 @@ func fundingRateJobWithASlowRound(t *testing.T) (startableJob, chan string, chan
 }
 
 func TestASeriesJobStoppedDuringALongRoundRunsNoRoundAfterIt(t *testing.T) {
-	// While the round runs, a tick piles up behind it. When the round ends, the tick
-	// and the stop are both ready and the choice between them is random — which is
-	// exactly the moment a job must still not start one more round. Repeating it
-	// makes landing on each side of that choice a certainty in practice.
+	// A tick piles up behind the running round, so on release the tick and stop race in select; repetition covers both outcomes.
 	stoppings := []struct {
 		name string
 		stop func(job startableJob, abandon context.CancelFunc)

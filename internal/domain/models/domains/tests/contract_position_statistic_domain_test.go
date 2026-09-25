@@ -159,21 +159,17 @@ func TestContractPositionStatisticWindowReachesAnHourBehindTheLastHeldStatistic(
 }
 
 func TestContractPositionStatisticWindowNeverReachesTheVenuesEdgeExactly(t *testing.T) {
-	// Thirty days before a moment off the grid: the first grid moment after it.
 	now := time.Date(2026, 9, 23, 10, 2, 0, 0, time.UTC)
 
 	window := domains.NewContractPositionStatisticWindowDomain(now, time.Time{}, false)
 
-	// Thirty days before 10:02 is 08-24 10:02; two full steps past its grid moment is
-	// 10:10 — at least five minutes inside the edge wherever the clock falls.
+	// 30 days before 10:02 is 08-24 10:02; two grid steps past it is 10:10, at least five minutes inside the edge.
 	assert.Equal(t, time.Date(2026, 8, 24, 10, 10, 0, 0, time.UTC), window.StartTime())
 	assert.Equal(t, time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC), window.EndTime())
 }
 
 func TestContractPositionStatisticWindowStaysMinutesInsideTheVenuesEdgeWhereverTheClockFalls(t *testing.T) {
-	// The edge moves on while a round waits its turn and asks its first stretch, and
-	// the venue refuses a start past it. However the clock sits against the grid, the
-	// start leaves at least a full step of room.
+	// The venue refuses a start past its moving edge, so the start must leave a full step of room wherever the clock sits.
 	for _, currentTime := range []time.Time{
 		time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC),
 		time.Date(2026, 9, 23, 10, 2, 30, 0, time.UTC),

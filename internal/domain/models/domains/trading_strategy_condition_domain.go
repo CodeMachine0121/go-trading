@@ -10,56 +10,35 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// strategyBotConditionMaxDepth is how deeply conditions may nest, counting the
-// outermost one as the first level. Five is where a condition somebody wrote stops
-// being a condition they can still read; anything that genuinely needs more belongs
-// inside an indicator script, which is an actual programming language.
+// strategyBotConditionMaxDepth counts the outermost condition as level one; deeper logic
+// belongs in an indicator script.
 const strategyBotConditionMaxDepth = 5
 
-// strategyBotConditionMaxNodeCount is how many conditions one tree may hold in
-// total. A tree without a ceiling is a computation without a ceiling, and this one
-// runs itself every few minutes with nobody watching.
+// strategyBotConditionMaxNodeCount bounds evaluation cost, since trees are evaluated
+// unattended every few minutes.
 const strategyBotConditionMaxNodeCount = 32
 
-// strategyBotConditionGroupMinimumSize is how many conditions a group must join. A
-// group of one holds exactly when the condition inside it holds, so allowing it
-// would give the same tree unboundedly many spellings — and a person opening theirs
-// again would find brackets they never typed.
+// strategyBotConditionGroupMinimumSize forbids single-child groups, which would allow
+// endless equivalent spellings of one tree.
 const strategyBotConditionGroupMinimumSize = 2
 
-// TradingStrategyConditionDomain is one of a bot's two conditions: either a comparison
-// against one signal source, or a group of conditions joined by and or or.
-//
-// An instance only exists when the whole tree passed every rule, so there is no
-// half-valid condition anywhere downstream.
-//
-// Evaluating it touches nothing but the signals it is handed — no clock, no
-// database, no network. That is what makes replaying a bot over history a matter of
-// feeding it one round's signals at a time, with not a line of this changed.
+// TradingStrategyConditionDomain is a comparison or an and/or group; evaluation is pure so
+// replays can feed it one round of signals at a time.
 type TradingStrategyConditionDomain struct {
-	// operator is empty on a comparison. It is the one field that says which kind
-	// of condition this is.
+	// operator is empty on a comparison.
 	operator       vo.ConditionOperatorVo
 	children       []TradingStrategyConditionDomain
 	sourceLabel    string
 	expectedSignal vo.SignalVo
 }
 
-// NewTradingStrategyConditionDomain validates one condition and everything under it
-// against every rule that applies, and refuses the whole tree if any part fails.
-//
-// It recurses through itself rather than through a private helper, so the rules are
-// written once and hold at every level. Checking depth and size inside a subtree as
-// well as at the top costs nothing and is never wrong: a subtree is never deeper or
-// larger than the tree containing it.
+// NewTradingStrategyConditionDomain validates the whole tree recursively and refuses it if
+// any part fails.
 func NewTradingStrategyConditionDomain(
 	conditionDto dto.TradingStrategyConditionDto, declaredLabels []string,
 ) (TradingStrategyConditionDomain, error) {
 	operator := vo.ConditionOperatorVo(strings.TrimSpace(conditionDto.Operator))
 
-	// A condition with no operator is the smallest kind there is: one signal source
-	// being equal to one signal. It is settled here and returns, so that none of
-	// the group rules below have to keep saying "not for this kind".
 	if operator == "" {
 		sourceLabel := strings.TrimSpace(conditionDto.SourceLabel)
 		if sourceLabel == "" {
@@ -68,9 +47,7 @@ func NewTradingStrategyConditionDomain(
 				ErrTradingStrategyValidation)
 		}
 
-		// A condition may only name a source this bot declared. Left unchecked, it
-		// would silently never hold, and its owner would spend the week wondering
-		// why a bot that looks right says nothing.
+		// An undeclared source label would silently never hold.
 		if !slices.Contains(declaredLabels, sourceLabel) {
 			return TradingStrategyConditionDomain{}, fmt.Errorf(
 				"%w: 條件指到了一個沒有宣告的信號來源 %q", ErrTradingStrategyValidation, sourceLabel)
@@ -129,13 +106,8 @@ func NewTradingStrategyConditionDomain(
 	return condition, nil
 }
 
-// Holds says whether this condition is true given what each signal source said this
-// round.
-//
-// A comparison against a source that said nothing is false rather than an error: by
-// the time a round evaluates, every declared source has already produced a signal or
-// the round has already been abandoned, so there is no reachable way to arrive here
-// missing one.
+// Holds treats a missing source signal as false, which is unreachable in practice because
+// rounds abandon before evaluating without every signal.
 func (tradingStrategyConditionDomain TradingStrategyConditionDomain) Holds(
 	signalsByLabel map[string]vo.SignalVo,
 ) bool {
@@ -163,7 +135,6 @@ func (tradingStrategyConditionDomain TradingStrategyConditionDomain) Holds(
 	return false
 }
 
-// Depth is how many levels this condition nests, counting itself as one.
 func (tradingStrategyConditionDomain TradingStrategyConditionDomain) Depth() int {
 	deepestChild := 0
 	for _, child := range tradingStrategyConditionDomain.children {
@@ -176,7 +147,6 @@ func (tradingStrategyConditionDomain TradingStrategyConditionDomain) Depth() int
 	return deepestChild + 1
 }
 
-// NodeCount is how many conditions this one holds in total, counting itself.
 func (tradingStrategyConditionDomain TradingStrategyConditionDomain) NodeCount() int {
 	nodeCount := 1
 	for _, child := range tradingStrategyConditionDomain.children {
@@ -186,11 +156,8 @@ func (tradingStrategyConditionDomain TradingStrategyConditionDomain) NodeCount()
 	return nodeCount
 }
 
-// ToEntity flattens this condition into the rows it is stored as, nested through
-// each node's children so that whoever writes them can walk down assigning parents.
-//
-// The identifiers are left unset: they belong to the store, and a model that guessed
-// at them would be wrong the first time two bots were saved at once.
+// ToEntity nests rows through their children so the writer can assign parent IDs; IDs are
+// left to the store.
 func (tradingStrategyConditionDomain TradingStrategyConditionDomain) ToEntity(
 	side vo.TradingStrategyConditionSideVo, position int,
 ) entities.TradingStrategyConditionNode {

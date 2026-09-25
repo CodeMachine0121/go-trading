@@ -18,14 +18,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// signedRequestWindow is how long after it was signed the venue still accepts a
-// question. It is the venue's default, written down so a clock slightly off does not
-// have to be guessed at from a refusal.
+// signedRequestWindow is the venue's default recvWindow, stated explicitly.
 const signedRequestWindow = 5 * time.Second
 
-// binanceLeverageBracket is one contract's ladder as the venue spells it. The venue
-// writes these figures as bare JSON numbers, so they are read as numbers' text and
-// never pass through a floating point value on the way to a decimal.
+// binanceLeverageBracket keeps numbers as json.Number text so they never pass through float64.
 type binanceLeverageBracket struct {
 	Symbol   string `json:"symbol"`
 	Brackets []struct {
@@ -38,12 +34,7 @@ type binanceLeverageBracket struct {
 	} `json:"brackets"`
 }
 
-// BinanceContractMaintenanceMarginTierProxy fetches every perpetual contract's
-// maintenance margin ladder from Binance, as the account the key belongs to.
-//
-// **The key and the secret never leave here** except as the venue asks for them: the
-// key in one header, the secret only as the signature it produces. Neither is written
-// into an error, so neither can reach a record or an answer.
+// BinanceContractMaintenanceMarginTierProxy fetches every contract's maintenance margin ladder with a signed request; the key and secret are never written into errors.
 type BinanceContractMaintenanceMarginTierProxy struct {
 	leverageBracketUrl string
 	apiKey             string
@@ -71,7 +62,6 @@ func NewBinanceContractMaintenanceMarginTierProxy(
 	}
 }
 
-// FetchMaintenanceMarginLadders asks, once, for every contract's ladder.
 func (tierProxy *BinanceContractMaintenanceMarginTierProxy) FetchMaintenanceMarginLadders(
 	executionContext context.Context,
 ) ([]vo.ContractMaintenanceMarginLadderVo, error) {
@@ -129,9 +119,7 @@ func (tierProxy *BinanceContractMaintenanceMarginTierProxy) FetchMaintenanceMarg
 	return ladders, nil
 }
 
-// toContractMaintenanceMarginLadderVo reads one contract's ladder. The venue's word
-// for the fixed amount a tier takes off is "cum", and for the most leverage a tier
-// allows "initialLeverage".
+// toContractMaintenanceMarginLadderVo maps the venue's "cum" to the tier's fixed deduction and "initialLeverage" to its maximum leverage.
 func (reportedBracket binanceLeverageBracket) toContractMaintenanceMarginLadderVo() (
 	vo.ContractMaintenanceMarginLadderVo, error,
 ) {

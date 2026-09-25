@@ -1,25 +1,14 @@
 package vo
 
-// AssistantTurnRequestVo is everything one round trip to the assistant is given:
-// immutable plain data, no behavior.
-//
-// It is the whole of what the assistant may see. Nothing else reaches it — not the
-// conversation's older messages, not what earlier exchanges looked at — so the cost
-// of one round trip is bounded by what is assembled here.
+// AssistantTurnRequestVo is everything the assistant sees in one round trip, which bounds its cost.
 type AssistantTurnRequestVo struct {
-	// Messages are the recent messages of this conversation, earliest first, with
-	// the question being answered last.
+	// Messages are the recent messages, earliest first, with the current question last.
 	Messages []AssistantMessageVo
-	// Declarations are the capabilities the assistant may use. What it can do is
-	// this list and nothing more, which is why a capability that is not offered
-	// cannot be reached by mistake.
+	// Declarations are the only capabilities the assistant can reach.
 	Declarations []AssistantQueryDeclarationVo
-	// Rounds are the round trips this exchange has already spent looking things up,
-	// in the order they happened — each with what the assistant said on the way.
+	// Rounds are this exchange's earlier lookup rounds, in order.
 	Rounds []AssistantQueryRoundVo
-	// QueryLimitReached says no further query will be run, so the assistant is being
-	// asked to answer with what it already has.
+	// QueryLimitReached asks the assistant to answer with what it already has.
 	QueryLimitReached bool
-	// AnswerLengthLimit is how long an answer may be.
 	AnswerLengthLimit int
 }

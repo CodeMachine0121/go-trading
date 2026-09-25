@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// oneMessageFeed stands in for the market source: it says one thing and hangs up.
+// oneMessageFeed sends one message and hangs up.
 func oneMessageFeed(t *testing.T, message string) *httptest.Server {
 	t.Helper()
 
@@ -40,13 +40,7 @@ func streamUrlOf(server *httptest.Server) string {
 	return "ws" + server.URL[len("http"):]
 }
 
-// Following asks the source for five-minute candles, spelled the way it wants them.
-// Asking for the wrong length would quietly deliver candles of another size, and
-// nothing downstream could tell.
-// This source is followed one symbol to a line. Quietly following the first of
-// several would leave the rest looking followed and never moving, which is the
-// failure the whole shared-channel feature exists to end — so it is refused out loud
-// instead. The crypto market's rules put one symbol on a channel, so nothing asks.
+// Quietly following only the first of several symbols would leave the rest looking followed but never moving.
 func TestThisSourceRefusesAChannelCarryingMoreThanOneSymbol(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -89,14 +83,7 @@ func TestTheFeedIsOpenedForOneMinuteCandlesOfThatSymbol(t *testing.T) {
 	assert.Equal(t, "/btcusdt@kline_1m", <-askedFor)
 }
 
-// aLiveMessage is the message **as this source actually sends it** — every field it
-// puts on the wire, not only the ones this layer reads.
-//
-// The fields nothing reads are the point. This source names two pairs of different
-// things with the same letter in different cases: "t" opens the candle while "T"
-// closes it, "l" is the low while "L" is the last trade's number. A message written
-// from the same understanding as the code can only ever agree with it, which is
-// exactly how those two got through.
+// aLiveMessage includes every field the venue sends, including unread lookalikes ("t"/"T", "l"/"L"), so the test cannot share the code's blind spots.
 func aLiveMessage(closed bool, low string) string {
 	return fmt.Sprintf(`{"e":"kline","E":1788404712345,"s":"BTCUSDT","k":{
 		"t":1788404700000,"T":1788404999999,"s":"BTCUSDT","i":"1m",
@@ -104,8 +91,6 @@ func aLiveMessage(closed bool, low string) string {
 		"v":"12.5","n":100,"x":%t,"q":"1400.75","V":"7.25","Q":"800.5","B":"0"}}`, low, closed)
 }
 
-// The live message names its fields in one or two letters. Translating them is this
-// layer's whole job, and getting one wrong would put a price in a volume.
 func TestALiveMessageIsNormalizedIntoOneCandle(t *testing.T) {
 	server := oneMessageFeed(t, aLiveMessage(true, "90"))
 
@@ -128,13 +113,7 @@ func TestALiveMessageIsNormalizedIntoOneCandle(t *testing.T) {
 	assert.True(t, liveKCandle.Closed, "來源說這一根走完了")
 }
 
-// This source names two pairs of different things with the same letter in different
-// cases. Decoding matches a key case-insensitively once no field claims it exactly,
-// so a field left undeclared does not get ignored — it lands in its lookalike.
-//
-// One of the two says so loudly and one says nothing at all, and the quiet one is
-// the dangerous one: a candle stamped one interval late merges into the wrong
-// candle, and the chart looks entirely normal while it does it.
+// Undeclared keys match their lookalike case-insensitively; the "T" into "t" case is silent and stamps candles one interval late.
 func TestTheLookalikeFieldsDoNotLandInEachOther(t *testing.T) {
 	server := oneMessageFeed(t, aLiveMessage(false, "90"))
 
@@ -151,8 +130,7 @@ func TestTheLookalikeFieldsDoNotLandInEachOther(t *testing.T) {
 		"最低價必須是最低價，不是最後那一筆成交的編號")
 }
 
-// A candle still running is the ordinary case, and it must be reported as such —
-// everything downstream decides what may be stored from this one flag.
+// Downstream storage decisions depend on this flag.
 func TestACandleStillRunningIsReportedAsNotClosed(t *testing.T) {
 	server := oneMessageFeed(t, aLiveMessage(false, "90"))
 
@@ -163,8 +141,6 @@ func TestACandleStillRunningIsReportedAsNotClosed(t *testing.T) {
 	assert.False(t, (<-liveKCandles).Closed)
 }
 
-// The feed ending is the only way this layer reports that it has ended, so a source
-// saying something unreadable must end it rather than pass a half-read candle on.
 func TestAnUnreadableMessageEndsTheFeed(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -188,8 +164,6 @@ func TestAnUnreadableMessageEndsTheFeed(t *testing.T) {
 	}
 }
 
-// A source that will not have us must say so at once, so the caller can decide when
-// to try again rather than waiting on a channel that will never speak.
 func TestASourceThatCannotBeReachedIsReportedImmediately(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -215,10 +189,7 @@ func TestASourceThatCannotBeReachedIsReportedImmediately(t *testing.T) {
 	}
 }
 
-// The perpetual contract venue's live candle arrives in the same message this source
-// already reads, which is why the contract live follow reads it with this proxy from a
-// different address rather than with a copy of it. Pinned against the contract venue's
-// own spelling, trade count and all, so a difference between the two would show here.
+// The contract venue's live candle uses the same message, so the contract follow reuses this proxy; pinned against the contract venue's spelling.
 func TestAContractVenueLiveCandleIsReadTheSameWay(t *testing.T) {
 	server := oneMessageFeed(t, `{"e":"kline","E":1788404760000,"s":"BTCUSDT","k":{`+
 		`"t":1788404700000,"T":1788404759999,"s":"BTCUSDT","i":"1m","f":100,"L":200,`+

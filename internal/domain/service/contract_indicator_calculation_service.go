@@ -10,15 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// ContractIndicatorCalculationService is the application layer's only entry point for
-// running a user-written indicator script over perpetual contract bars.
-//
-// Every rule about what is asked — the observation window, the coarseness, how many
-// buckets, which of them have finished, the knobs, the kind of value — is the spot
-// calculation's, word for word, and lives in the same model. Perpetual contracts never
-// close, so the one thing this takes from the market catalogue is the round-the-clock
-// calendar. What is its own is the reading: contract K candles instead of spot ones,
-// and the funding settlements and position statistics lined up beside them.
+// ContractIndicatorCalculationService is the application layer's only entry point for running indicator scripts over contract bars; request rules are the spot calculation's, with a round-the-clock calendar.
 type ContractIndicatorCalculationService struct {
 	kCandleContractRepository               domaininterface.IKCandleContractRepository
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
@@ -49,16 +41,7 @@ func NewContractIndicatorCalculationService(
 	}
 }
 
-// CalculateContractIndicator runs the script over the requested number of perpetual
-// contract bars for the trading symbol, taking only buckets that have finished, and
-// reports one value per indicator name in the kind the request declared.
-//
-// It reads what is stored and nothing more: four reads — the contract K candles, then
-// the funding settlements over the stretch those candles turned out to cover, the one
-// settlement in force before it, and the position statistics — however many bars
-// there are. Nothing is fetched from the venue
-// to fill a gap; a stretch only partly stored is answered over what is there, exactly
-// as a spot one is.
+// CalculateContractIndicator runs the script over the requested number of finished contract bars using four stored reads; nothing is fetched to fill gaps.
 func (contractIndicatorCalculationService *ContractIndicatorCalculationService) CalculateContractIndicator(
 	executionContext context.Context, requestDto dto.IndicatorCalculationRequestDto,
 ) (dto.IndicatorCalculationResultDto, error) {
@@ -119,8 +102,7 @@ func (contractIndicatorCalculationService *ContractIndicatorCalculationService) 
 		return dto.IndicatorCalculationResultDto{}, executionError
 	}
 
-	// Where each bar the script saw begins, in the same order the script saw them, so
-	// that a caller can put a list of values back where they belong.
+	// Bar open times in script order, so callers can align list values.
 	openTimes := make([]time.Time, 0, len(contractKCandleVos))
 	for _, contractKCandleVo := range contractKCandleVos {
 		openTimes = append(openTimes, time.Unix(contractKCandleVo.OpenTimeUnixSeconds, 0).UTC())

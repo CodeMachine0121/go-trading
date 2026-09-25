@@ -122,13 +122,10 @@ func TestNewKCandleSeriesQueryDomainDeclaringNoIntervalMeansOneMinute(t *testing
 
 	require.NoError(t, validationError)
 	assert.Equal(t, "1m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
-	// Fifty-five one-minute buckets of market, each holding the single candle that
-	// already covers a minute, plus the one spare bucket every read keeps so that the
-	// newest bar can never be the one a tight limit drops.
+	// 55 one-minute buckets plus the spare bucket every read keeps so a tight limit never drops the newest bar.
 	assert.Equal(t, 55+1, seriesQueryDomain.SourceCandleLimit())
 }
 
-// displayableCandleCountOf is「說了這個數字」，與「沒說」分得開——後者是 nil。
 func displayableCandleCountOf(displayableCandleCount int) *int {
 	return &displayableCandleCount
 }
@@ -194,7 +191,6 @@ func TestSeriesQueryPicksTheFinestIntervalTheCallerCanDisplay(t *testing.T) {
 	}
 }
 
-// 兩種問法只能挑一種——兩者矛盾時沒有一個正確的取捨。
 func TestSeriesQueryRefusesBothWaysOfAskingAtOnce(t *testing.T) {
 	_, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
 		Symbol:                 "BTCUSDT",
@@ -208,7 +204,7 @@ func TestSeriesQueryRefusesBothWaysOfAskingAtOnce(t *testing.T) {
 	assert.Contains(t, validationError.Error(), "只能挑一種")
 }
 
-// 擺得下的根數必須大於零。**零與「沒說」是兩件事**：沒說走另一條路（由系統挑一種答得出來的）。
+// 零與「沒說」是兩件事：沒說時由系統挑刻度。
 func TestSeriesQueryRefusesADisplayThatHoldsNothing(t *testing.T) {
 	testCases := []struct {
 		name                   string
@@ -249,8 +245,7 @@ func TestAChosenIntervalIsNeverRefusedByTheSystemsOwnCeiling(t *testing.T) {
 	assert.Equal(t, "15m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
 }
 
-// 一段裡有幾根照交易時段數——連「一次要太多」也用同一種數法，
-// 否則系統會拒絕它自己剛挑出來的那一種刻度。
+// 上限也以交易格子數計算，否則系統會拒絕自己挑出的刻度。
 func TestTheCeilingCountsTheBucketsThatHoldTrading(t *testing.T) {
 	t.Run("台股明確指定一分鐘看一整天：271 格，答得出來", func(t *testing.T) {
 		seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
@@ -262,9 +257,7 @@ func TestTheCeilingCountsTheBucketsThatHoldTrading(t *testing.T) {
 			}, taiwanStockMarket(), seriesQueryMaxBucketCount)
 
 		require.NoError(t, validationError)
-		// 這一段二十四小時從盤中切到隔天盤中，因此碰到兩個交易時段的一部分：
-		// 週一 03:00 到收盤前 150 格，加上週二開盤到 03:00 的 121 格，共 271 格。
-		// 再加上多留的一格——一分鐘刻度下一格就是一根。
+		// 週一 03:00 到收盤 150 格加上週二開盤到 03:00 的 121 格共 271 格，再加一格備用。
 		assert.Equal(t, 272, seriesQueryDomain.SourceCandleLimit())
 	})
 
@@ -282,7 +275,7 @@ func TestTheCeilingCountsTheBucketsThatHoldTrading(t *testing.T) {
 	})
 }
 
-// 那一段裡完全沒有交易不是錯誤：看週末與半夜本來就做得到，答案是沒有東西可畫。
+// 完全沒有交易的一段不是錯誤，答案是沒有東西可畫。
 func TestAStretchWithNoTradingIsNotRefused(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -309,9 +302,7 @@ func TestAStretchWithNoTradingIsNotRefused(t *testing.T) {
 	}
 }
 
-// 休市日不預先扣除：挑刻度只看「哪幾天交易、幾點到幾點」，不查假日名單。
-// 少掉的那一天由手上有多少 K 線決定，不是在挑刻度時先扣掉。
-// 2026-09-07 是週一、09-09 是週三：三個平日、三段交易時段。
+// 挑刻度不查假日名單，只看交易時段；2026-09-07 週一至 09-09 週三共三段交易時段。
 func TestSeriesQueryDoesNotDeductHolidaysWhenPickingTheInterval(t *testing.T) {
 	displayableCandleCount := 200
 
@@ -324,15 +315,13 @@ func TestSeriesQueryDoesNotDeductHolidaysWhenPickingTheInterval(t *testing.T) {
 		}, taiwanStockMarket(), seriesQueryMaxBucketCount)
 
 	require.NoError(t, validationError)
-	// 三個交易日 × 54 格 = 162 格擺得下 200 個位置，即使其中一天其實整天沒有交易。
+	// 三個交易日 × 54 格 = 162 格擺得下 200 個位置，即使其中一天整天沒交易。
 	assert.Equal(t, "5m", seriesQueryDomain.SeriesOf(nil).ToDto().Interval)
 	assert.Equal(t, (162+1)*5, seriesQueryDomain.SourceCandleLimit())
 }
 
 func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t *testing.T) {
-	// A caller that names neither a coarseness nor a display budget is one that only
-	// knows which stretch its user is looking at. Before, it got one minute, and any
-	// stretch of real length was answered by refusing it.
+	// Callers naming neither interval nor display budget get the finest interval that fits instead of a refusal.
 	testCases := []struct {
 		name             string
 		market           domains.MarketDomain
@@ -363,12 +352,7 @@ func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t
 			expectedInterval: "1m",
 		},
 		{
-			// A thousand minutes of trading is a thousand slots, so the finest one is
-			// what fits. The stretch itself holds one candle more than that — both its
-			// ends are included — and the ceiling has always been compared against
-			// slots rather than candles, so the answer here comes back one over it.
-			// That predates letting the system choose, and it is why the case pins the
-			// coarseness rather than the count.
+			// 1,000 trading minutes fit the ceiling by slot count though the inclusive stretch holds one more candle, so the case pins the interval rather than the count.
 			name:      "a stretch holding exactly as many minutes of trading as the ceiling allows",
 			market:    cryptoMarket(),
 			startTime: "2026-09-01T00:00:00Z", endTime: "2026-09-01T16:40:00Z",
@@ -387,9 +371,7 @@ func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t
 			expectedInterval: "1d",
 		},
 		{
-			// A stretch holding no trading at all still has to settle on something to
-			// answer an empty series at. It is not refused: looking at a Saturday is a
-			// thing a user can do, and the answer is that there is nothing to draw.
+			// A no-trading stretch settles on the finest interval and answers empty rather than being refused.
 			name:      "a Saturday of a market that shuts settles on the finest and answers empty",
 			market:    taiwanStockMarket(),
 			startTime: "2026-09-05T00:00:00Z", endTime: "2026-09-05T23:59:00Z",
@@ -413,12 +395,7 @@ func TestNewKCandleSeriesQueryDomainChoosesACoarsenessWhenTheCallerSaysNothing(t
 }
 
 func TestNewKCandleSeriesQueryDomainStillRefusesWhatNoCoarsenessCanHold(t *testing.T) {
-	// The ceiling that refuses an over-wide ask does not go away; it only stops
-	// catching the coarsenesses this system picked. Ten years still needs 3650 places
-	// at a day a candle, and there is nothing coarser to step to.
-	//
-	// Without this case, "stop refusing altogether" would read as the next step in the
-	// same direction as the change above.
+	// The ceiling still refuses what no interval can fit: ten years needs 3650 daily candles.
 	_, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
 		Symbol:    "BTCUSDT",
 		StartTime: mustParseTime(t, "2016-01-01T00:00:00Z"),
@@ -431,8 +408,7 @@ func TestNewKCandleSeriesQueryDomainStillRefusesWhatNoCoarsenessCanHold(t *testi
 }
 
 func TestNewKCandleSeriesQueryDomainKeepsRefusingACoarsenessTheCallerNamedItself(t *testing.T) {
-	// Naming a minute for a year is the caller asking for half a million candles, and
-	// it is still told so. Only the caller who named nothing is choosing to be flexible.
+	// An explicitly named interval is still refused when too wide; only unspecified callers get flexibility.
 	_, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
 		Symbol:    "BTCUSDT",
 		StartTime: mustParseTime(t, "2026-01-01T00:00:00Z"),
@@ -446,10 +422,7 @@ func TestNewKCandleSeriesQueryDomainKeepsRefusingACoarsenessTheCallerNamedItself
 }
 
 func TestNewKCandleSeriesQueryDomainStillHonoursADisplayBudgetWhenOneIsNamed(t *testing.T) {
-	// A named budget is the tighter of the two, so it wins: the caller saying "my
-	// screen holds four hundred" must not be handed the thousand the ceiling allows.
-	// The same week the ceiling answers at fifteen minutes — 672 buckets fit 1000 but
-	// not 400 — so a named budget steps one coarser.
+	// A named display budget wins over the ceiling when tighter: 672 buckets fit 1000 but not 400, so it steps one coarser.
 	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(dto.KCandleSeriesQueryDto{
 		Symbol:                 "BTCUSDT",
 		StartTime:              mustParseTime(t, "2026-09-01T00:00:00Z"),
@@ -462,9 +435,7 @@ func TestNewKCandleSeriesQueryDomainStillHonoursADisplayBudgetWhenOneIsNamed(t *
 }
 
 func TestTaiwanYearsAreRefusedNowThatTheBucketsAreCounted(t *testing.T) {
-	// 這是這次改動的理由本身。台股五年在一天一根切出 1304 格，
-	// 而把交易時間除以一天只會說 244 格——於是它通過了檢查、然後交出 1304 根，
-	// 「單次最多一千根」因此是一句假話。
+	// 台股五年以一天一根是 1304 格，舊的除法只算 244 格而放行，使「單次最多一千根」失真。
 	testCases := []struct {
 		name     string
 		queryDto dto.KCandleSeriesQueryDto
@@ -501,11 +472,7 @@ func TestTaiwanYearsAreRefusedNowThatTheBucketsAreCounted(t *testing.T) {
 }
 
 func TestTaiwanAYearAnswersAtAFinerCoarsenessThanBefore(t *testing.T) {
-	// 數格子不只讓一些請求被拒絕，也讓一些請求拿到**更細**的 K 線。
-	// 台股一年約 250 個交易日：四小時一根是 500 格，擺得進一千——所以挑到四小時。
-	// 舊的除法把那一年算成 1467 格（5868 小時 ÷ 4 小時）而以為擺不下，於是退到一天。
-	//
-	// 少了這一條，「乾脆把台股的長區間全部拒絕」會看起來像同一個方向的下一步。
+	// 數格子也讓部分請求拿到更細的刻度：台股一年四小時一根是 500 格擺得下，舊除法算成 1467 格而退到一天。
 	seriesQueryDomain, validationError := domains.NewKCandleSeriesQueryDomain(
 		dto.KCandleSeriesQueryDto{
 			Symbol:    "2330",

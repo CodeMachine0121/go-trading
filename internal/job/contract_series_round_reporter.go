@@ -7,15 +7,11 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// contractSeriesRoundReporter writes down what a round of one contract series did —
-// only what went wrong, because a round that stored what it found is the ordinary
-// case and a log line for every one of those would bury the ones that matter.
+// contractSeriesRoundReporter logs only a round's failures.
 type contractSeriesRoundReporter struct {
 	seriesName string
 }
 
-// report writes down a round's failures: the whole round not running, a contract the
-// venue would not answer for, and every record that was refused.
 func (roundReporter contractSeriesRoundReporter) report(
 	roundReport dto.ContractSeriesIngestionReportDto, roundError error,
 ) {

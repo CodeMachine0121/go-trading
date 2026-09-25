@@ -13,17 +13,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// fundingRatePageLimit is the most settlements the venue hands back in one answer.
 const fundingRatePageLimit = 1000
 
-// earliestFundingRateSettlement is where "from the very first settlement" is asked
-// from. The venue does not take a start of zero — it reads it as no start at all and
-// answers with the most recent page instead — so the question has to name a moment,
-// and this one is earlier than any perpetual contract the venue has ever listed.
+// earliestFundingRateSettlement stands in for "from the start" because the venue treats a zero start time as absent and returns the latest page.
 var earliestFundingRateSettlement = time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// binanceFundingRateSettlement is one settlement as the venue spells it. The mark
-// price is a quoted decimal, or an empty string on the oldest settlements.
+// binanceFundingRateSettlement's mark price is empty on the oldest settlements.
 type binanceFundingRateSettlement struct {
 	Symbol      string `json:"symbol"`
 	FundingTime int64  `json:"fundingTime"`
@@ -31,11 +26,7 @@ type binanceFundingRateSettlement struct {
 	MarkPrice   string `json:"markPrice"`
 }
 
-// BinanceContractFundingRateProxy fetches funding rate settlements from Binance's
-// perpetual contract venue.
-//
-// It spends the same allowance as the contract K candles, because the venue counts
-// both against one budget.
+// BinanceContractFundingRateProxy fetches funding rate settlements; it shares the contract K candles' pacer because the venue counts both against one budget.
 type BinanceContractFundingRateProxy struct {
 	fundingRateUrl string
 	httpClient     *http.Client
@@ -52,15 +43,13 @@ func NewBinanceContractFundingRateProxy(
 	}
 }
 
-// FetchFundingRateSettlements returns every settlement strictly after the given
-// moment, oldest first, walking as many pages as that takes.
+// FetchFundingRateSettlements returns every settlement strictly after the given moment, oldest first, across as many pages as needed.
 func (binanceContractFundingRateProxy *BinanceContractFundingRateProxy) FetchFundingRateSettlements(
 	executionContext context.Context, symbol string, after time.Time,
 ) ([]vo.ContractFundingRateSettlementVo, error) {
 	nextStartTime := earliestFundingRateSettlement
 	if !after.IsZero() {
-		// The venue's start is inclusive, and the settlement at `after` is one this
-		// caller already has.
+		// The venue's start is inclusive and the caller already has the settlement at `after`.
 		nextStartTime = after.Add(time.Millisecond)
 	}
 
@@ -80,9 +69,7 @@ func (binanceContractFundingRateProxy *BinanceContractFundingRateProxy) FetchFun
 			settlements = append(settlements, settlement)
 		}
 
-		// A short page is the last one. Stepping past the last settlement read is
-		// what moves the asking forward, so a page whose last settlement does not lie
-		// past the start cannot keep it going either.
+		// A short page is the last; a page that does not advance past the start also stops the loop.
 		if len(page) < fundingRatePageLimit {
 			return settlements, nil
 		}
@@ -95,12 +82,7 @@ func (binanceContractFundingRateProxy *BinanceContractFundingRateProxy) FetchFun
 	}
 }
 
-// fetchPage asks the venue once.
-//
-// **It has one caller and stays a method of its own because of what it encloses: one
-// answer's body, from the moment it arrives to the moment it is let go.** Folded back
-// into the loop above, the deferred close would not run until every page had been
-// read, and the history of a contract listed years ago is several pages long.
+// fetchPage is separate so each page's response body is closed before the next is fetched.
 func (binanceContractFundingRateProxy *BinanceContractFundingRateProxy) fetchPage(
 	executionContext context.Context, symbol string, startTime time.Time,
 ) ([]binanceFundingRateSettlement, error) {
@@ -138,8 +120,6 @@ func (binanceContractFundingRateProxy *BinanceContractFundingRateProxy) fetchPag
 	return page, nil
 }
 
-// toContractFundingRateSettlementVo turns one reported settlement into the shape the
-// domain accepts. The settlement time is kept to the millisecond the venue named.
 func (reportedSettlement binanceFundingRateSettlement) toContractFundingRateSettlementVo(
 	symbol string,
 ) (vo.ContractFundingRateSettlementVo, error) {

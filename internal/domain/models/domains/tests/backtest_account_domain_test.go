@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// accountStakingEverything opens an account that puts all its cash on every bet.
 func accountStakingEverything(t *testing.T, initialCapital int64) *domains.BacktestAccountDomain {
 	t.Helper()
 
@@ -24,7 +23,6 @@ func accountStakingEverything(t *testing.T, initialCapital int64) *domains.Backt
 			domains.BacktestTransactionCostsDomain{}))
 }
 
-// signalOf is one candle's opinion.
 func signalOf(signal vo.SignalVo) domains.SignalDomain {
 	return domains.NewSignalDomain(signalResultOf(signal))
 }
@@ -55,7 +53,7 @@ func TestBacktestAccountDomainApply(t *testing.T) {
 
 		assert.Equal(t, 1, account.PositionOpenCount())
 		assert.Empty(t, account.ClosedTradeDtos())
-		// Still the 100 units bought at 100, now worth 20,000.
+		// Still the 100 units bought at 100.
 		assert.True(t, decimal.NewFromInt(20000).Equal(account.EquityAt(decimal.NewFromInt(200))))
 	})
 
@@ -97,8 +95,6 @@ func TestBacktestAccountDomainWinRate(t *testing.T) {
 
 	t.Run("the rate counts only the round trips that made money", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
-		// Bought at 100 and sold at 110 makes money; bought back at 110 and sold at
-		// 100 gives it all back.
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
 		account.Apply(signalOf(vo.SignalBuy), positionExitTime, decimal.NewFromInt(110))
@@ -112,8 +108,7 @@ func TestBacktestAccountDomainWinRate(t *testing.T) {
 	})
 }
 
-// A replay only ever goes long: a sell gets it out into cash, and there is no such
-// thing as a sell while it is already there.
+// A replay only goes long: a sell moves to cash, and a sell while already in cash does nothing.
 func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 	t.Run("buying while flat opens a long", func(t *testing.T) {
 		account := accountStakingEverything(t, 10000)
@@ -133,7 +128,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 
 		assert.Equal(t, 1, account.PositionOpenCount())
 		assert.Empty(t, account.ClosedTradeDtos())
-		// Still the 100 units bought at 100, now worth 20,000.
+		// Still the 100 units bought at 100.
 		assert.True(t, decimal.NewFromInt(20000).Equal(account.EquityAt(decimal.NewFromInt(200))))
 	})
 
@@ -149,7 +144,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 		assert.True(t, decimal.NewFromInt(100).Equal(closedTrade.EntryPrice))
 		assert.True(t, decimal.NewFromInt(110).Equal(closedTrade.ExitPrice))
 		assert.True(t, decimal.NewFromInt(1000).Equal(closedTrade.Profit))
-		// Nothing was opened in its place, so the sell cost one opening, not two.
+		// The sell opened nothing in its place.
 		assert.Equal(t, 1, account.PositionOpenCount())
 	})
 
@@ -159,8 +154,7 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 		account.Apply(signalOf(vo.SignalBuy), positionEntryTime, decimal.NewFromInt(100))
 		account.Apply(signalOf(vo.SignalSell), positionExitTime, decimal.NewFromInt(110))
 
-		// 11,000 in cash, whatever the market does next. This is the whole point of
-		// the mode: standing aside is a state the account can actually be in.
+		// Sitting in cash is immune to further price moves.
 		assert.True(t, decimal.NewFromInt(11000).Equal(account.EquityAt(decimal.NewFromInt(90))))
 		assert.True(t, decimal.NewFromInt(11000).Equal(account.EquityAt(decimal.NewFromInt(500))))
 	})
@@ -197,7 +191,6 @@ func TestBacktestAccountDomainTradingSpot(t *testing.T) {
 		assert.Equal(t, 2, account.PositionOpenCount())
 		require.Len(t, account.ClosedTradeDtos(), 1)
 		assert.True(t, decimal.NewFromInt(2000).Equal(account.ClosedTradeDtos()[0].Profit))
-		// Every round trip a spot account ever finishes faces the same way.
 		for _, closedTrade := range account.ClosedTradeDtos() {
 			assert.Equal(t, string(vo.PositionDirectionLong), closedTrade.Direction)
 		}

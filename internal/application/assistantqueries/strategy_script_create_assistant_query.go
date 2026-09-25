@@ -9,15 +9,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
-// StrategyScriptCreateAssistantQuery lets the assistant save a new algorithm.
-//
-// Saving is offered and deleting is not, and the asymmetry is the point: a strategy script
-// saved by mistake costs a name, while one deleted by mistake costs an algorithm that
-// took several sittings to get right and cannot be recovered.
-//
-// Every rule a person's own save obeys is obeyed here — the name must be there, be
-// short enough and be free — because they arrive at the same model. A refusal is
-// handed back to the assistant as the reason, which it relays.
+// StrategyScriptCreateAssistantQuery lets the assistant save a new algorithm; deleting is
+// deliberately not offered, since a mistaken delete loses work that cannot be recovered.
 type StrategyScriptCreateAssistantQuery struct {
 	strategyScriptApplication *application.StrategyScriptApplication
 }
@@ -40,7 +33,6 @@ func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Ar
 		`},"required":["name","script"],"additionalProperties":false}`
 }
 
-// Run saves the strategy script and hands it back as stored.
 func (strategyScriptCreateAssistantQuery *StrategyScriptCreateAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {

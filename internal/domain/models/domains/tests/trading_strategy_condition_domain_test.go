@@ -10,20 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// comparing is the smallest condition there is: one source equal to one signal.
 func comparing(sourceLabel string, signal vo.SignalVo) dto.TradingStrategyConditionDto {
 	return dto.TradingStrategyConditionDto{SourceLabel: sourceLabel, Signal: string(signal)}
 }
 
-// joining is a group of conditions under one operator.
 func joining(
 	operator vo.ConditionOperatorVo, conditions ...dto.TradingStrategyConditionDto,
 ) dto.TradingStrategyConditionDto {
 	return dto.TradingStrategyConditionDto{Operator: string(operator), Conditions: conditions}
 }
 
-// nestedToDepth builds a condition nested exactly this many levels, so that a test
-// about a depth limit says the depth it means instead of drawing it.
+// nestedToDepth builds a condition nested exactly depth levels deep.
 func nestedToDepth(depth int) dto.TradingStrategyConditionDto {
 	condition := comparing("A", vo.SignalBuy)
 	for level := 1; level < depth; level++ {
@@ -53,8 +50,7 @@ func TestTradingStrategyConditionHolds(t *testing.T) {
 			expectedToHold: false,
 		},
 		{
-			// Hold is one of the three values a signal has, so comparing against it
-			// is an ordinary condition — not a way of saying "nothing happened".
+			// Hold is an ordinary signal value, not "nothing happened".
 			name:           "hold is a value a condition may compare against",
 			condition:      comparing("A", vo.SignalHold),
 			signalsByLabel: map[string]vo.SignalVo{"A": vo.SignalHold},
@@ -93,8 +89,7 @@ func TestTradingStrategyConditionHolds(t *testing.T) {
 			expectedToHold: false,
 		},
 		{
-			// The whole point of nesting: the bracketed half fails and the bot still
-			// concludes, because the other side of the or carries it.
+			// The bracketed half fails but the other side of the or still carries it.
 			name: "a nested group is read as the brackets say",
 			condition: joining(vo.ConditionOperatorOr,
 				joining(vo.ConditionOperatorAnd, comparing("A", vo.SignalBuy), comparing("B", vo.SignalBuy)),
@@ -144,8 +139,7 @@ func TestNewTradingStrategyConditionDomainRefusals(t *testing.T) {
 			expectedMessage: "只能是「且」或「或」",
 		},
 		{
-			// A group of one holds exactly when its single condition holds, so
-			// allowing it would give one condition unboundedly many spellings.
+			// A single-child group would allow endless spellings of one condition.
 			name:            "a group joining only one condition",
 			condition:       joining(vo.ConditionOperatorAnd, comparing("A", vo.SignalBuy)),
 			expectedMessage: "至少要 2 個子條件",
@@ -182,8 +176,7 @@ func TestNewTradingStrategyConditionDomainAcceptsTheDeepestAllowedNesting(t *tes
 }
 
 func TestNewTradingStrategyConditionDomainRefusesATreeWithTooManyNodes(t *testing.T) {
-	// Thirty-two comparisons under one group is thirty-three nodes: one over the
-	// ceiling, and only two levels deep, so nothing but the size can refuse it.
+	// 32 comparisons in one group is 33 nodes: one over the ceiling at only two levels deep.
 	comparisons := make([]dto.TradingStrategyConditionDto, 0, 32)
 	for range 32 {
 		comparisons = append(comparisons, comparing("A", vo.SignalBuy))

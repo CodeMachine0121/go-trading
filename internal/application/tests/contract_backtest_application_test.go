@@ -33,9 +33,8 @@ type contractBacktestUnderTest struct {
 	tradingStrategyRepository          *mocks.MockITradingStrategyRepository
 }
 
-// newContractBacktestUnderTest wires the real domain services and models, mocking only
-// storage, the script runner and the clock. The symbol's funding, positioning and
-// ladder are empty unless a test says otherwise.
+// newContractBacktestUnderTest mocks only storage, the script runner and the clock; funding,
+// positioning and ladder are empty unless a test says otherwise.
 func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 	controller := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(controller)

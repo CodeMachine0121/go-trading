@@ -10,16 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// StrategyScriptService is the application layer's only entry point for saved strategy scripts.
-// Its public use-case methods never call one another.
-//
-// It is given no way to reach a K candle, and that is the point: saving a strategy script
-// must not read the market or work anything out, and a dependency that is not there
-// cannot be used by accident later.
-//
-// It does know about the marketplace, but only to ask it one question: is this
-// strategy script published? That is the third of the three gates, and every method here
-// that hands a strategy script to somebody has to walk them.
+// It deliberately cannot reach K candles, and consults the marketplace only for the third access gate: is the script published.
 type StrategyScriptService struct {
 	strategyScriptRepository          domaininterface.IStrategyScriptRepository
 	publishedStrategyScriptRepository domaininterface.IPublishedStrategyScriptRepository
@@ -35,9 +26,7 @@ func NewStrategyScriptService(
 	}
 }
 
-// CreateStrategyScript saves a new strategy script for its owner and hands it back as stored. A
-// strategy script that breaks a rule — including having no owner — is refused before
-// anything is written.
+// CreateStrategyScript saves a new script, refusing one that breaks a rule (including having no owner) before anything is written.
 func (strategyScriptService *StrategyScriptService) CreateStrategyScript(
 	executionContext context.Context, writeDto dto.StrategyScriptWriteDto,
 ) (dto.StrategyScriptDto, error) {
@@ -54,14 +43,7 @@ func (strategyScriptService *StrategyScriptService) CreateStrategyScript(
 	return savedStrategyScript.ToDto(), nil
 }
 
-// GetStrategyScript returns the viewer's own strategy script carrying this identifier, script
-// and all.
-//
-// It serves owners only. Somebody else's published strategy script is read from the
-// marketplace instead, and that is not an inconvenience worth smoothing over: the
-// two hand back different shapes, so they are two questions, and a method that
-// answered both would need a shape with a script that is sometimes there — the one
-// thing this feature must not have.
+// GetStrategyScript returns the viewer's own script with its source; others' published scripts are read from the marketplace, which returns a shape without the source.
 func (strategyScriptService *StrategyScriptService) GetStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyScriptDto, error) {
@@ -70,17 +52,10 @@ func (strategyScriptService *StrategyScriptService) GetStrategyScript(
 		return dto.StrategyScriptDto{}, findError
 	}
 
-	// Whether it is published is not asked, because it cannot change the answer:
-	// this door only opens for the owner.
 	return domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false).ToOwnerDto()
 }
 
-// ListAvailableStrategyScripts returns what this person picks from day to day: their own
-// strategy scripts, and the ones they took off the marketplace.
-//
-// The two arrive as two lists rather than one. Adopted strategy scripts come back without
-// their scripts, and there is no single type that could hold both — which is
-// exactly why they are not merged.
+// ListAvailableStrategyScripts returns the viewer's own scripts and adopted ones as two lists, since adopted scripts come back without their source.
 func (strategyScriptService *StrategyScriptService) ListAvailableStrategyScripts(
 	executionContext context.Context, viewerID uint,
 ) (dto.AvailableStrategyScriptsDto, error) {
@@ -108,40 +83,23 @@ func (strategyScriptService *StrategyScriptService) ListAvailableStrategyScripts
 	return dto.AvailableStrategyScriptsDto{Mine: mine, Adopted: adopted}, nil
 }
 
-// UpdateStrategyScript rewrites the strategy script this write names and hands it back as it now
-// stands. Every rule that governs a new strategy script governs a rewritten one, because
-// both arrive here as the same shape and are judged by the same model.
-//
-// A strategy script that is out on the marketplace is rewritten like any other. Publishing
-// hands out the use of an algorithm, not a frozen copy of it: an owner who fixes a
-// mistake should not also have to remember to publish again, and whoever is using
-// it should get the fix.
+// UpdateStrategyScript rewrites a script under the create rules; a published script is rewritten too, since publishing shares the algorithm rather than a frozen copy.
 func (strategyScriptService *StrategyScriptService) UpdateStrategyScript(
 	executionContext context.Context, writeDto dto.StrategyScriptWriteDto,
 ) (dto.StrategyScriptDto, error) {
-	// No strategy script carries no identifier, so there is nothing here to rewrite. Saying
-	// so here rather than letting the write go out is the difference between a
-	// guarantee this code makes and one it borrows: a rewrite with no identifier
-	// names no row, and what an ORM does with a write that names no row is its own
-	// decision to change.
+	// Refuse an ID-less rewrite here instead of relying on what the ORM does with a write that names no row.
 	if writeDto.ID == 0 {
 		return dto.StrategyScriptDto{}, domains.StrategyScriptNotFound(writeDto.ID)
 	}
 
-	// Whether the strategy script is there, and whether it is this caller's, are both
-	// settled before its content is judged. The other way round, rewriting somebody
-	// else's strategy script with content that is also wrong answers "a strategy script must carry
-	// a name" — which tells a stranger their target exists and what is wrong with
-	// what they sent.
+	// Ownership is checked before content so a stranger learns nothing about the target from validation errors.
 	existingStrategyScript, ownershipError := strategyScriptService.requireOwnership(
 		executionContext, writeDto.OwnerID, writeDto.ID)
 	if ownershipError != nil {
 		return dto.StrategyScriptDto{}, ownershipError
 	}
 
-	// The kind of market the algorithm eats is the one thing a rewrite is judged
-	// against what is already there rather than on its own: leaving it out keeps it,
-	// and naming the other one is refused. The rest of the rules are the create's.
+	// The market data kind is judged against the stored one: omitting it keeps it, changing it is refused.
 	existingMarketDataKind, existingKindError := domains.NewMarketDataKindDomain(
 		existingStrategyScript.MarketDataKind)
 	if existingKindError != nil {
@@ -168,8 +126,7 @@ func (strategyScriptService *StrategyScriptService) UpdateStrategyScript(
 	return updatedStrategyScript.ToDto(), nil
 }
 
-// DeleteStrategyScript removes the viewer's own strategy script for good, taking its place on
-// the marketplace and everybody's adoption of it along with it.
+// DeleteStrategyScript removes the viewer's script along with its marketplace listing and every adoption.
 func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -181,15 +138,7 @@ func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	return strategyScriptService.strategyScriptRepository.Delete(executionContext, id)
 }
 
-// ResolveRunnableStrategyScript turns an identifier into the algorithm, the knobs and the
-// kind of value behind it, for whoever is allowed to run it.
-//
-// This is where the three gates are walked in full, and the only way a script
-// leaves storage for a run. What comes back goes to the application layer and stops
-// there, so running somebody else's strategy script never becomes a way to read it.
-//
-// Whether the caller has adopted it is not asked. Adoption fills a picker; it does
-// not grant anything, or choosing from the marketplace would mean choosing blind.
+// ResolveRunnableStrategyScript is the only way a script leaves storage for a run, walking all three gates; adoption grants nothing, it only fills a picker.
 func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.RunnableStrategyScriptDto, error) {
@@ -198,16 +147,7 @@ func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScrip
 		return dto.RunnableStrategyScriptDto{}, findError
 	}
 
-	// The third gate is only asked when the second one did not already open. The
-	// model says so itself — being runnable is "mine, or published" — so for the
-	// owner's own strategy script the marketplace cannot change the answer, and reading it
-	// is a query that buys nothing. Reading a strategy script already works this way
-	// (see GetStrategyScript); running it now does too.
-	//
-	// It is not a micro-optimisation. A standing bot resolves every one of its
-	// signal sources on every round, for ever, and those are almost always its
-	// owner's own strategy scripts — so this is one wasted query per source per round,
-	// each of which also logged a "record not found" that meant nothing.
+	// Owners skip the publication read: bots resolve their own scripts every round, so it would be a wasted query (and a spurious "record not found" log) per source per round.
 	access := domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false)
 	if access.IsOwnedByViewer() {
 		return access.ToRunnableDto()
@@ -221,16 +161,8 @@ func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScrip
 	return domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, isPublished).ToRunnableDto()
 }
 
-// requireOwnership is the two steps that stand in front of changing a strategy script:
-// find it, then ask whether it is this caller's. Rewriting and deleting both need
-// them, and both owe a stranger the same sentence as a strategy script that is not there.
-//
-// It stops at the second gate on purpose. Publishing hands out the use of an
-// algorithm, never the right to alter it, so whether the strategy script is on the
-// marketplace cannot change this answer — and not asking saves a read.
-//
-// It hands back the strategy script it found, because a rewrite has to know the kind
-// of market it already eats; deleting has no use for it and ignores it.
+// requireOwnership answers a stranger exactly as for a missing script and skips the publication gate, since publishing never grants the right to alter.
+// It returns the script so a rewrite can check the stored market data kind.
 func (strategyScriptService *StrategyScriptService) requireOwnership(
 	executionContext context.Context, viewerID uint, id uint,
 ) (entities.StrategyScript, error) {
@@ -242,9 +174,7 @@ func (strategyScriptService *StrategyScriptService) requireOwnership(
 	return strategyScript, domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false).RequireOwnership()
 }
 
-// isPublished answers the third gate. "There is no publication" is not a failure to
-// report upwards — it is one of the two answers — so it is read here and turned
-// into a plain no.
+// isPublished turns the not-published sentinel into a plain false.
 func (strategyScriptService *StrategyScriptService) isPublished(
 	executionContext context.Context, strategyScriptID uint,
 ) (bool, error) {

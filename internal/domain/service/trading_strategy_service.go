@@ -10,14 +10,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// TradingStrategyService is the application layer's only entry point for trading
-// strategies. Its public use-case methods never call one another.
-//
-// It is given no way to reach a strategy script and no way to reach a bot, and that
-// is the point. Whether a source may name a strategy script is the strategy script
-// rules' question; whether anything is currently following these rules is the bot's;
-// and joining those to this is the application layer's job. A dependency that is not
-// here cannot be reached for by accident later.
+// It deliberately cannot reach scripts or bots; the application layer joins those checks in.
 type TradingStrategyService struct {
 	tradingStrategyRepository domaininterface.ITradingStrategyRepository
 }
@@ -28,14 +21,11 @@ func NewTradingStrategyService(
 	return &TradingStrategyService{tradingStrategyRepository: tradingStrategyRepository}
 }
 
-// CreateTradingStrategy saves a new set of rules for its owner and hands it back as
-// stored. One that breaks a rule is refused before anything is written.
+// CreateTradingStrategy saves a new trading strategy, refusing one that breaks a rule before anything is written.
 func (tradingStrategyService *TradingStrategyService) CreateTradingStrategy(
 	executionContext context.Context, writeDto dto.TradingStrategyWriteDto,
 ) (dto.TradingStrategyDto, error) {
-	// An identifier arriving on a create would rewrite whichever trading strategy
-	// it named, including somebody else's. Clearing it makes creating unable to
-	// mean that.
+	// Clearing the ID stops a create from overwriting an existing (possibly foreign) strategy.
 	writeDto.ID = 0
 
 	tradingStrategyDomain, validationError := domains.NewTradingStrategyDomain(writeDto)
@@ -52,10 +42,7 @@ func (tradingStrategyService *TradingStrategyService) CreateTradingStrategy(
 	return savedTradingStrategy.ToDto(), nil
 }
 
-// ListTradingStrategies returns this person's trading strategies, by name.
-//
-// Having none is an empty list rather than a refusal: it is the ordinary state of
-// somebody who has not built one yet.
+// ListTradingStrategies returns the owner's trading strategies by name; having none is an empty list.
 func (tradingStrategyService *TradingStrategyService) ListTradingStrategies(
 	executionContext context.Context, ownerID uint,
 ) ([]dto.TradingStrategyDto, error) {
@@ -73,13 +60,7 @@ func (tradingStrategyService *TradingStrategyService) ListTradingStrategies(
 	return tradingStrategyDtos, nil
 }
 
-// GetTradingStrategy returns the viewer's own trading strategy carrying this
-// identifier, sources and both trees included.
-//
-// This is also the read a round uses. A round has no signed-in caller — the clock
-// started it — so it asks as the person who owns the bot, and gets exactly the same
-// answer under exactly the same rule. One read rather than two is what keeps "what a
-// round runs" and "what its owner sees" from ever drifting apart.
+// GetTradingStrategy returns the viewer's own trading strategy; bot rounds read it as the bot's owner, so a round runs exactly what the owner sees.
 func (tradingStrategyService *TradingStrategyService) GetTradingStrategy(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.TradingStrategyDto, error) {
@@ -92,12 +73,7 @@ func (tradingStrategyService *TradingStrategyService) GetTradingStrategy(
 	return tradingStrategy.ToDto(), nil
 }
 
-// UpdateTradingStrategy rewrites the viewer's own trading strategy.
-//
-// Whether any bot following it is running is asked by the caller, because a bot is
-// not this service's to read. Every rule that applied to creating it applies here
-// word for word, because both arrive as the same shape and are checked by the same
-// model.
+// UpdateTradingStrategy rewrites the viewer's strategy under the create rules; the caller checks for running bots.
 func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	executionContext context.Context, viewerID uint, writeDto dto.TradingStrategyWriteDto,
 ) (dto.TradingStrategyDto, error) {
@@ -107,13 +83,10 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 		return dto.TradingStrategyDto{}, findError
 	}
 
-	// The owner comes from what is stored, never from what arrived. A trading
-	// strategy cannot change hands, and the write path not being able to say so is
-	// stronger than remembering not to.
+	// The owner always comes from storage, so a strategy cannot change hands.
 	writeDto.OwnerID = storedTradingStrategy.OwnerID
 
-	// The kind is kept the same way: a rewrite that says nothing about it keeps what is
-	// stored, and one that names the other kind is refused.
+	// Omitting the market data kind keeps the stored one; naming the other kind is refused.
 	storedMarketDataKind, storedKindError := domains.NewMarketDataKindDomain(
 		storedTradingStrategy.MarketDataKind)
 	if storedKindError != nil {
@@ -127,10 +100,7 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	}
 	writeDto.MarketDataKind = string(retainedMarketDataKind.Value())
 
-	// A contract trading strategy's trading mode is kept the same way: a rewrite that
-	// says nothing about it — a rename, a changed condition — leaves the mode it was
-	// saved with, rather than quietly turning a short-only strategy into one that
-	// also buys.
+	// Omitting the trading mode keeps the stored one, so a rename cannot turn a short-only strategy into one that also buys.
 	if strings.TrimSpace(writeDto.TradingMode) == "" {
 		writeDto.TradingMode = storedTradingStrategy.TradingMode
 	}
@@ -149,10 +119,7 @@ func (tradingStrategyService *TradingStrategyService) UpdateTradingStrategy(
 	return savedTradingStrategy.ToDto(), nil
 }
 
-// DeleteTradingStrategy removes the viewer's own trading strategy.
-//
-// Whether anything still follows it is asked by the caller, for the reason a rewrite
-// is: a bot is not this service's to read.
+// DeleteTradingStrategy removes the viewer's strategy; the caller checks whether anything still follows it.
 func (tradingStrategyService *TradingStrategyService) DeleteTradingStrategy(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -164,9 +131,7 @@ func (tradingStrategyService *TradingStrategyService) DeleteTradingStrategy(
 	return tradingStrategyService.tradingStrategyRepository.Delete(executionContext, id)
 }
 
-// findOwnedTradingStrategy is the one place "is this theirs" is answered, so that
-// somebody else's and a missing one give the same refusal in every use case. Told
-// apart anywhere, anybody could walk the identifiers and learn what exists.
+// findOwnedTradingStrategy answers a stranger exactly as for a missing strategy, so identifiers cannot be probed for existence.
 func (tradingStrategyService *TradingStrategyService) findOwnedTradingStrategy(
 	executionContext context.Context, viewerID uint, id uint,
 ) (entities.TradingStrategy, error) {

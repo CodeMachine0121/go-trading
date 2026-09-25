@@ -7,9 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleRequest is the body a caller sends to create or update a K candle.
-// On update the candle is named by the path, so a symbol or open time in the body
-// is only accepted when it matches.
+// KCandleRequest's body symbol and open time must match the path on update.
 type KCandleRequest struct {
 	Symbol              string              `json:"symbol"`
 	OpenTime            time.Time           `json:"openTime"`
@@ -23,8 +21,7 @@ type KCandleRequest struct {
 	TakerBuyQuoteVolume decimal.NullDecimal `json:"takerBuyQuoteVolume"`
 }
 
-// ToWriteDto turns the request into the shape the domain accepts, taking the
-// identity from the arguments so the caller of this method decides what is named.
+// ToWriteDto takes the candle identity from the arguments rather than the body.
 func (kCandleRequest KCandleRequest) ToWriteDto(symbol string, openTime time.Time) dto.KCandleWriteDto {
 	return dto.KCandleWriteDto{
 		Symbol:              symbol,

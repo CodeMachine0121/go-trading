@@ -11,18 +11,12 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// FugleSymbolLookupProxy answers whether Fugle lists a Taiwan stock.
-//
-// It asks for the symbol's own details rather than for its candles. A stock that
-// exists but has not traded today answers with no candles, which is indistinguishable
-// from a stock that does not exist — and refusing to watch a real company because it
-// was quiet is worse than the typo this check exists to catch.
+// FugleSymbolLookupProxy checks the symbol's ticker details rather than its candles, since a real stock that has not traded today returns no candles.
 type FugleSymbolLookupProxy struct {
 	tickerBaseUrl string
 	apiKey        string
 	httpClient    *http.Client
-	// pacer is the venue's, shared with every other proxy that reaches it. The
-	// allowance is counted per venue rather than per kind of question.
+	// The pacer is shared with every proxy on the venue, since the allowance is per venue.
 	pacer RequestPacer
 }
 
@@ -37,27 +31,12 @@ func NewFugleSymbolLookupProxy(
 	}
 }
 
-// fugleTicker is the part of this source's answer worth keeping: the company's own
-// name. Everything else it reports about a stock — reference prices, day-trade
-// eligibility, what industry it is in — belongs to a different feature than "is this
-// code real and what is it called".
+// fugleTicker keeps only the company name.
 type fugleTicker struct {
 	Name string `json:"name"`
 }
 
-// LookUpSymbol reports whether this source lists the symbol, and what it calls it.
-//
-// The name is read from the same answer that proves the code real, because it is in
-// there. Asking again later would be a second round trip for something already on
-// the desk — and would leave a window in which the two answers could disagree.
-//
-// A body this source will not let us read is not a reason to refuse the symbol: it
-// said the code exists, and that is the question that decides whether somebody may
-// watch it. The name is worth having and worth going without.
-//
-// The market is accepted and ignored: this proxy is only ever reached for the one
-// market it serves, and taking the argument is what lets it satisfy the same contract
-// every other source does.
+// LookUpSymbol takes the display name from the same answer that proves the symbol exists; an unreadable body still counts as found, just without a name, and the market argument is ignored.
 func (fugleSymbolLookupProxy *FugleSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
 ) (vo.SymbolListingVo, error) {
@@ -80,8 +59,7 @@ func (fugleSymbolLookupProxy *FugleSymbolLookupProxy) LookUpSymbol(
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	// This source says "no such symbol" by not finding it, which is an answer about
-	// the symbol rather than a failure to answer.
+	// 404 means "no such symbol", not a failure.
 	if response.StatusCode == http.StatusNotFound {
 		return vo.SymbolListingVo{}, nil
 	}

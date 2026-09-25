@@ -24,9 +24,8 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
 		{
-			// Withdrawn from the marketplace reads as exactly the same halt as
-			// deleted. Told apart, a halt reason would say whether somebody else's
-			// strategy script still exists.
+			// Withdrawn and deleted scripts halt identically so the halt reason does not
+			// reveal whether another user's script exists.
 			name:               "a strategy script withdrawn from the marketplace stops it the same way",
 			roundError:         fmt.Errorf("%w", domains.ErrStrategyScriptNotPublished),
 			expectedToHalt:     true,
@@ -45,8 +44,7 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 			expectedHaltReason: vo.StrategyBotHaltScriptFailed,
 		},
 		{
-			// A closed market opens again. Halting for it would switch off every
-			// bot in the system each weekend.
+			// Closed markets reopen, so halting would switch off every bot each weekend.
 			name:           "a market that is not trading only skips the round",
 			roundError:     domains.ObservationWindowHoldsNoTrading(vo.MarketVo("taiwanStock")),
 			expectedToHalt: false,
@@ -57,9 +55,7 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 			expectedToHalt: false,
 		},
 		{
-			// Halting is the destructive answer, so an unfamiliar failure gets the
-			// benign reading. The worst case is a bot retrying something hopeless,
-			// not one switched off by a database hiccup.
+			// Unknown failures only skip the round, since halting is the destructive answer.
 			name:           "a failure nobody recognises only skips the round",
 			roundError:     errors.New("the database went away"),
 			expectedToHalt: false,
@@ -123,7 +119,7 @@ func TestNewStrategyBotDeliveryFailureDomainSeparatesRetypingFromWaiting(t *test
 }
 
 func TestNewStrategyBotRoundFailureDomainHaltsWhenThereIsNowhereToSpeak(t *testing.T) {
-	// 它與另外三種「等一等就好」的失敗不同：沒有設定不會自己出現。
+	// 與其他三種等一等就好的失敗不同：沒有設定不會自己出現。
 	failure := domains.NewStrategyBotRoundFailureDomain(domains.ErrTelegramDeliveryNotConfigured)
 
 	assert.True(t, failure.HaltsTheBot())

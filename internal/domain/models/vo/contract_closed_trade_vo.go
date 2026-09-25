@@ -7,8 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractClosedTradeVo is one finished round trip of a contract replay, settled once
-// at its exit and never changed. Profit is net of both charges and of the funding.
+// ContractClosedTradeVo is one finished contract round trip; Profit is net of both charges and funding.
 type ContractClosedTradeVo struct {
 	Direction  PositionDirectionVo
 	EntryTime  time.Time
@@ -25,7 +24,6 @@ type ContractClosedTradeVo struct {
 	ExitReason TradeExitReasonVo
 }
 
-// IsWin is whether the round trip made money once everything it paid is counted.
 func (contractClosedTradeVo ContractClosedTradeVo) IsWin() bool {
 	return contractClosedTradeVo.Profit.IsPositive()
 }
@@ -48,9 +46,7 @@ func (contractClosedTradeVo ContractClosedTradeVo) ToDto() dto.ContractClosedTra
 	}
 }
 
-// ToOutcomeVo is this round trip as the trade statistics read it. Funding is not a
-// charge for trading — it has its own figure on the report card — so what the trade
-// made before its charges puts back the funding it paid as well as both charges.
+// ToOutcomeVo adds back both charges and the funding, since funding is reported separately from trading charges.
 func (contractClosedTradeVo ContractClosedTradeVo) ToOutcomeVo() TradeOutcomeVo {
 	transactionCost := contractClosedTradeVo.EntryCost.Add(contractClosedTradeVo.ExitCost)
 

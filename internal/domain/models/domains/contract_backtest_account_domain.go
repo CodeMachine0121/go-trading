@@ -9,9 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractBacktestAccountDomain is what a contract replay is holding at any moment: the
-// cash not put down as margin, the one isolated position that may be open, the round
-// trips already finished, and how many openings the venue refused.
+// ContractBacktestAccountDomain holds a contract replay's free cash, at most one isolated position, finished round trips and the count of openings the venue's rules blocked.
 type ContractBacktestAccountDomain struct {
 	positionTerms       ContractPositionTermsDomain
 	availableCash       decimal.Decimal
@@ -32,12 +30,7 @@ func NewContractBacktestAccountDomain(
 	}
 }
 
-// SettleFundingWithin pays or receives every funding settlement of this bar on the
-// position carried into it. The settlements handed over are the bar's own — from its
-// start up to but not including its close — and a position opened at the previous
-// bar's close was already held when each of them happened.
-//
-// A settlement recorded without its mark price is valued at the bar's mark close.
+// SettleFundingWithin applies the bar's own settlements (from its open up to but excluding its close) to the position carried into it; a settlement without a mark price uses the bar's mark close.
 func (accountDomain *ContractBacktestAccountDomain) SettleFundingWithin(
 	bucket dto.KCandleContractDto, settlements []entities.ContractFundingRateSettlement,
 ) {
@@ -55,8 +48,7 @@ func (accountDomain *ContractBacktestAccountDomain) SettleFundingWithin(
 	}
 }
 
-// ApplyExitLevels closes the open position if this bar reached its stop, its
-// liquidation price or its take profit.
+// ApplyExitLevels closes the open position if the bar reached its stop, liquidation price or take profit.
 func (accountDomain *ContractBacktestAccountDomain) ApplyExitLevels(
 	bucket dto.KCandleContractDto, candleTime time.Time,
 ) {
@@ -72,10 +64,7 @@ func (accountDomain *ContractBacktestAccountDomain) ApplyExitLevels(
 	accountDomain.settleOpenPosition(closedTrade)
 }
 
-// Apply carries out what this bar's signal asks the account to be holding. A position
-// already facing the asked-for way stays; one facing the other way is closed first and
-// its money returned, and only then is the new one opened from what the account then
-// holds — so a reversal the account cannot afford leaves it flat.
+// Apply keeps a position already facing the target way, otherwise closes it first and opens from the resulting cash, so an unaffordable reversal leaves the account flat.
 func (accountDomain *ContractBacktestAccountDomain) Apply(
 	targetPosition vo.TargetPositionVo, candleTime time.Time, closePrice decimal.Decimal,
 ) {
@@ -118,8 +107,7 @@ func (accountDomain *ContractBacktestAccountDomain) Apply(
 	accountDomain.positionOpenCount++
 }
 
-// settleOpenPosition is the whole of letting go of a position, shared by the two ways
-// out — a bar reaching a level and a signal asking for something else.
+// settleOpenPosition is shared by level exits and signal exits.
 func (accountDomain *ContractBacktestAccountDomain) settleOpenPosition(
 	closedTrade vo.ContractClosedTradeVo,
 ) {
@@ -129,7 +117,6 @@ func (accountDomain *ContractBacktestAccountDomain) settleOpenPosition(
 	accountDomain.hasOpenPosition = false
 }
 
-// EquityAt is the cash plus the open position valued at that price.
 func (accountDomain *ContractBacktestAccountDomain) EquityAt(price decimal.Decimal) decimal.Decimal {
 	if !accountDomain.hasOpenPosition {
 		return accountDomain.availableCash
@@ -138,7 +125,7 @@ func (accountDomain *ContractBacktestAccountDomain) EquityAt(price decimal.Decim
 	return accountDomain.availableCash.Add(accountDomain.openPosition.ValueAt(price))
 }
 
-// ClosedTradeDtos are the finished round trips, earliest first.
+// ClosedTradeDtos returns finished round trips earliest first.
 func (accountDomain *ContractBacktestAccountDomain) ClosedTradeDtos() []dto.ContractClosedTradeDto {
 	closedTradeDtos := make([]dto.ContractClosedTradeDto, 0, len(accountDomain.closedTrades))
 	for _, closedTrade := range accountDomain.closedTrades {
@@ -148,13 +135,7 @@ func (accountDomain *ContractBacktestAccountDomain) ClosedTradeDtos() []dto.Cont
 	return closedTradeDtos
 }
 
-// SummaryDto is the account's half of the report card: everything counted off the
-// trades and the one position still open. Equity, return and drawdown come from the
-// equity curve, and the maintenance margin basis from the trading rules.
-//
-// Everything is counted off the trade list rather than tallied as it went, for the
-// reason the spot account does: a running total is a second place the same fact
-// lives, and the day it disagrees with the list nobody can say which to believe.
+// SummaryDto covers trade-derived figures only (equity, return and drawdown come from the curve), all counted from the trade list rather than running totals.
 func (accountDomain *ContractBacktestAccountDomain) SummaryDto() dto.ContractBacktestSummaryDto {
 	summaryDto := dto.ContractBacktestSummaryDto{
 		PositionOpenCount:    accountDomain.positionOpenCount,
@@ -199,8 +180,7 @@ func (accountDomain *ContractBacktestAccountDomain) SummaryDto() dto.ContractBac
 
 	summaryDto.BacktestTradeStatisticsDto = NewBacktestTradeStatisticsDomain(outcomes).ToDto()
 
-	// A side that never finished a trade has no win rate, which is what keeps "no
-	// trades" from reading as "every trade lost".
+	// A side with no finished trades has no win rate, so "no trades" is not read as "every trade lost".
 	shareOf := func(winCount int, tradeCount int) *float64 {
 		if tradeCount == 0 {
 			return nil

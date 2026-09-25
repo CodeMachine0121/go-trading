@@ -9,21 +9,12 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
-// tradingStrategyGetAssistantArguments is what the assistant sends to read one
-// trading strategy.
 type tradingStrategyGetAssistantArguments struct {
 	TradingStrategyID uint `json:"tradingStrategyId"`
 }
 
-// TradingStrategyGetAssistantQuery lets the assistant read one set of rules in full.
-//
-// Reading it in full is what makes changing it possible: a rewrite replaces
-// everything a trading strategy remembers, so an assistant asked to loosen one
-// condition has to know the rest before it can send them back unchanged.
-//
-// Somebody else's comes back as the system's own words for "not found", word for word
-// the same as one that does not exist — which is what stops the identifier becoming a
-// way to discover whose rules are whose.
+// TradingStrategyGetAssistantQuery hands over a trading strategy in full so a rewrite can send the
+// rest back unchanged; someone else's reads exactly like a missing one, so IDs reveal no owners.
 type TradingStrategyGetAssistantQuery struct {
 	tradingStrategyApplication *application.TradingStrategyApplication
 }
@@ -49,7 +40,6 @@ func (tradingStrategyGetAssistantQuery *TradingStrategyGetAssistantQuery) Argume
 		`},"required":["tradingStrategyId"],"additionalProperties":false}`
 }
 
-// Run hands over the trading strategy in full.
 func (tradingStrategyGetAssistantQuery *TradingStrategyGetAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {

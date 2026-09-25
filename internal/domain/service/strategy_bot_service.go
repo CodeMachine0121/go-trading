@@ -13,19 +13,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// StrategyBotService is the application layer's only entry point for strategy bots.
-// Its public use-case methods never call one another.
-//
-// It is given no way to reach a strategy script, a K candle or Telegram, and that is the
-// point. Whether a bot may name a strategy script is the strategy script rules' question; whether
-// its owner can be spoken to is the delivery setting's; and joining those to this is
-// the application layer's job. A dependency that is not here cannot be reached for
-// by accident later.
-//
-// The three contract readers are the exception, and a narrow one: which contract a
-// contract bot may watch and how much leverage it may carry there, read when a bot is
-// saved; and the venue's rules and latest funding a contract suggestion is worked out
-// by, read only in a round that has a suggestion to make.
+// It deliberately cannot reach scripts, K candles or Telegram (the application layer joins those); the contract readers are needed only to validate contract bots and plan contract positions.
 type StrategyBotService struct {
 	strategyBotRepository                   domaininterface.IStrategyBotRepository
 	strategyBotRunRecordRepository          domaininterface.IStrategyBotRunRecordRepository
@@ -53,18 +41,12 @@ func NewStrategyBotService(
 	}
 }
 
-// CreateStrategyBot saves a new bot for its owner, stopped, and hands it back as
-// stored. A bot that breaks a rule is refused before anything is written.
-//
-// The trading strategy it follows arrives already read, as the caller could see it:
-// whether it is theirs to follow was answered there, and what is asked of it here is
-// only whether it eats the same kind of market as the bot.
+// CreateStrategyBot saves a new, stopped bot; the followed trading strategy's ownership is checked by the caller, and here only its market kind must match.
 func (strategyBotService *StrategyBotService) CreateStrategyBot(
 	executionContext context.Context, writeDto dto.StrategyBotWriteDto,
 	followedTradingStrategy dto.TradingStrategyDto,
 ) (dto.StrategyBotDto, error) {
-	// An identifier arriving on a create would rewrite whichever bot it named,
-	// including somebody else's. Clearing it makes creating unable to mean that.
+	// Clearing the ID stops a create from overwriting an existing (possibly foreign) bot.
 	writeDto.ID = 0
 
 	strategyBotDomain, validationError := strategyBotService.settle(
@@ -82,12 +64,7 @@ func (strategyBotService *StrategyBotService) CreateStrategyBot(
 	return savedBot.ToDto(), nil
 }
 
-// ListStrategyBots returns this person's bots, by name — all of them, or only those of
-// one kind of market when one is named.
-//
-// Having none is an empty list rather than a refusal: it is the ordinary state of
-// somebody who has not built one yet. Naming a kind nobody recognises is refused,
-// rather than answered with nothing: an empty list would read as "you have none".
+// ListStrategyBots returns the owner's bots, optionally narrowed to one market kind; an unknown kind is refused so it cannot read as "you have none".
 func (strategyBotService *StrategyBotService) ListStrategyBots(
 	executionContext context.Context, ownerID uint, marketDataKind string,
 ) ([]dto.StrategyBotDto, error) {
@@ -117,7 +94,6 @@ func (strategyBotService *StrategyBotService) ListStrategyBots(
 	return botDtos, nil
 }
 
-// GetStrategyBot returns the viewer's own bot carrying this identifier.
 func (strategyBotService *StrategyBotService) GetStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyBotDto, error) {
@@ -129,11 +105,7 @@ func (strategyBotService *StrategyBotService) GetStrategyBot(
 	return bot.ToDto(), nil
 }
 
-// UpdateStrategyBot rewrites the viewer's own bot, and refuses while it is running.
-//
-// Every rule that applied to creating it applies here word for word, because both
-// arrive as the same shape and are checked by the same model — plus one of its own:
-// the kind of market it eats is the one it was created with.
+// UpdateStrategyBot rewrites a stopped bot under the same rules as creation, keeping the market kind it was created with.
 func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	executionContext context.Context, viewerID uint, writeDto dto.StrategyBotWriteDto,
 	followedTradingStrategy dto.TradingStrategyDto,
@@ -148,13 +120,10 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 		return dto.StrategyBotDto{}, editableError
 	}
 
-	// The owner comes from what is stored, never from what arrived. A bot cannot
-	// change hands, and the write path not being able to say so is stronger than
-	// remembering not to.
+	// The owner always comes from storage, so a bot cannot change hands.
 	writeDto.OwnerID = storedBot.OwnerID
 
-	// The stored kind is read the way every reader reads it, so a bot stored before
-	// there was a choice keeps the K candle it has always eaten.
+	// Read through the kind domain so bots stored before the choice existed keep their original kind.
 	storedKind, storedKindError := domains.NewMarketDataKindDomain(storedBot.MarketDataKind)
 	if storedKindError != nil {
 		return dto.StrategyBotDto{}, fmt.Errorf("%w: %w", domains.ErrStrategyBotValidation, storedKindError)
@@ -181,11 +150,7 @@ func (strategyBotService *StrategyBotService) UpdateStrategyBot(
 	return savedBot.ToDto(), nil
 }
 
-// DeleteStrategyBot removes the viewer's own bot, running or not.
-//
-// A running bot is not refused here. What was asked for is that this bot stop
-// existing, and something that does not exist is never picked up again — making them
-// press stop first would only be a second button between them and the same outcome.
+// DeleteStrategyBot removes the viewer's bot even while running, since a deleted bot is never picked up again.
 func (strategyBotService *StrategyBotService) DeleteStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -196,15 +161,8 @@ func (strategyBotService *StrategyBotService) DeleteStrategyBot(
 	return strategyBotService.strategyBotRepository.Delete(executionContext, id)
 }
 
-// ReadReferencesTo says who is following this set of rules: how many bots in total,
-// and which of them are running.
-//
-// Both halves come from one read, because both refusals that use them are about the
-// same moment — a rewrite blocked by a running bot, a delete blocked by any bot —
-// and two reads can disagree about it.
-//
-// It asks nothing about who wants to know. The caller has already established that
-// the trading strategy is theirs; a bot pointing at it can only be theirs too.
+// ReadReferencesTo counts the bots following a trading strategy and names the running ones, from one read so both refusals see the same moment.
+// The caller has already established ownership of the strategy.
 func (strategyBotService *StrategyBotService) ReadReferencesTo(
 	executionContext context.Context, tradingStrategyID uint,
 ) (dto.TradingStrategyReferencesDto, error) {
@@ -227,16 +185,8 @@ func (strategyBotService *StrategyBotService) ReadReferencesTo(
 	}, nil
 }
 
-// StartStrategyBot puts the viewer's own bot to work, due immediately.
-//
-// Whether they can be spoken to is answered by the caller, because the delivery
-// setting is not this service's to read. Starting an already running bot changes
-// nothing and is not a failure — including not clearing what it has already sent,
-// which a second press must not turn into a repeat message.
-// The second return value says whether **this call** was the one that changed it.
-// Pressing the button twice must not announce twice: the second press asks for a
-// state the bot is already in, and a message saying so would be a message about
-// nothing.
+// StartStrategyBot starts the bot, due immediately, and reports whether this call changed its state so a repeated press does not announce twice.
+// The caller answers whether a delivery setting exists; starting a running bot is a no-op that keeps its sent-signal memory.
 func (strategyBotService *StrategyBotService) StartStrategyBot(
 	executionContext context.Context, viewerID uint, id uint, hasDeliverySetting bool,
 ) (dto.StrategyBotDto, bool, error) {
@@ -270,10 +220,7 @@ func (strategyBotService *StrategyBotService) StartStrategyBot(
 	return startedBot.ToDto(), true, nil
 }
 
-// StopStrategyBot takes the viewer's own bot off duty. Stopping one that is already
-// stopped is not a failure: the state they asked for is the state it is in.
-// The second return value says whether this call was the one that stopped it, for
-// the same reason as starting: a second press asks for a state it is already in.
+// StopStrategyBot stops the bot, reporting whether this call changed its state; stopping a stopped bot is not a failure.
 func (strategyBotService *StrategyBotService) StopStrategyBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.StrategyBotDto, bool, error) {
@@ -294,11 +241,7 @@ func (strategyBotService *StrategyBotService) StopStrategyBot(
 	return stoppedBot.ToDto(), wasRunning, nil
 }
 
-// FindDueStrategyBots returns running bots whose next round has come, oldest first
-// and at most this many.
-//
-// It takes no viewer, and that is not an oversight. Nobody asked for these — the
-// clock did — and there is no person whose permissions could be checked.
+// FindDueStrategyBots returns up to limit running bots whose next round has come, oldest first, with no viewer since the clock asked.
 func (strategyBotService *StrategyBotService) FindDueStrategyBots(
 	executionContext context.Context, limit int,
 ) ([]dto.StrategyBotDto, error) {
@@ -316,13 +259,7 @@ func (strategyBotService *StrategyBotService) FindDueStrategyBots(
 	return botDtos, nil
 }
 
-// DecideRound reads what each source said this round through both conditions, and
-// says what follows: the conclusion, whether it is worth sending, and whether the
-// two conditions contradicted each other.
-//
-// It reads nothing and writes nothing. That is what lets the same rules be replayed
-// over history one round at a time, should a backtest of a whole bot ever be asked
-// for, without a line of this changing.
+// DecideRound evaluates the buy and sell conditions against this round's signals, with no I/O, so it can be replayed over history.
 func (strategyBotService *StrategyBotService) DecideRound(
 	botDto dto.StrategyBotDto, tradingStrategyDto dto.TradingStrategyDto,
 	signalsByLabel map[string]vo.SignalVo,
@@ -356,10 +293,7 @@ func (strategyBotService *StrategyBotService) DecideRound(
 	}, nil
 }
 
-// RequireCurrentMarket refuses a round whose market has stopped arriving, judged by the
-// newest one-minute candle the round read for its reference price — which only a
-// contract bot is asked, see StrategyBotMarketDomain.RequireCurrentMarket. The refusal
-// is one the failure model reads as a skipped round.
+// RequireCurrentMarket refuses a round whose market data has stopped arriving (checked only for contract bots); the failure model reads the refusal as a skipped round.
 func (strategyBotService *StrategyBotService) RequireCurrentMarket(
 	botDto dto.StrategyBotDto, newestCandleOpenTime time.Time, hasNewestCandle bool,
 ) error {
@@ -367,20 +301,14 @@ func (strategyBotService *StrategyBotService) RequireCurrentMarket(
 		newestCandleOpenTime, hasNewestCandle, strategyBotService.clockProxy.Now())
 }
 
-// ReadRoundFailure says what a failure that happened during a round means: stop this
-// bot and say why, or wait for the next one.
-//
-// It is here rather than at the call site because it is a domain question, and
-// because it must have exactly one answer — a second place deciding it is a second
-// list of which failures are hopeless, and the two will disagree the day a new one
-// appears.
+// ReadRoundFailure decides whether a round failure halts the bot or waits for the next round, kept in one place so there is one list of hopeless failures.
 func (strategyBotService *StrategyBotService) ReadRoundFailure(
 	roundError error,
 ) dto.StrategyBotRoundOutcomeDto {
 	return domains.NewStrategyBotRoundFailureDomain(roundError).ToOutcomeDto()
 }
 
-// ReadDeliveryFailure says the same about a failure Telegram reported.
+// ReadDeliveryFailure does the same for a failure Telegram reported.
 func (strategyBotService *StrategyBotService) ReadDeliveryFailure(
 	failureReason string,
 ) dto.StrategyBotRoundOutcomeDto {
@@ -388,23 +316,8 @@ func (strategyBotService *StrategyBotService) ReadDeliveryFailure(
 		vo.DeliveryFailureReasonVo(failureReason)).ToOutcomeDto()
 }
 
-// PlanRoundPosition is this round with what it suggests putting down worked out.
-//
-// It happens here, once, because the figures have two readers — the message its owner
-// reads and the history they read it back in. Working them out in each would be two
-// answers, and they would part company the moment somebody edited a setting between
-// the two reads.
-//
-// Settings it cannot read leave the round exactly as it arrived. That is unreachable
-// through the save gate, which refuses such settings before they are ever stored, and
-// it is written down because the alternative to a rule is an accident: a bot whose
-// figures cannot be read says nothing about them rather than saying something wrong.
-//
-// A contract bot's suggestion is worked out by the venue's rules, so for one — and only
-// when there is something to suggest — the contract's trading rules and latest funding
-// settlement are read first. A read that fails is taken as that half not being known:
-// the suggestion then says what it could not account for, rather than the round going
-// without one.
+// PlanRoundPosition computes the suggested position once so the message and the history show the same figures.
+// Unreadable settings leave the round unchanged; contract venue reads happen only when there is something to suggest, and a failed read is treated as unknown.
 func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	executionContext context.Context, round dto.StrategyBotRoundDto,
 ) dto.StrategyBotRoundDto {
@@ -413,9 +326,7 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 		return round
 	}
 
-	// What this round's conclusion asks the account to hold is the whole of what a
-	// plan needs: whether there is anything to suggest opening at all, and which way.
-	// Which account that is — and on a contract one, which trading mode — decides it.
+	// The target holding depends on the account and, for contracts, the trading mode.
 	market := domains.NewStrategyBotMarketDomain(round.MarketDataKind, round.ContractTradingMode)
 	target := market.TargetFor(domains.NewSignalDomainOf(vo.SignalVo(round.Verdict)))
 
@@ -446,22 +357,14 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	return round
 }
 
-// WriteRoundMessage is this round as the message its owner reads.
 func (strategyBotService *StrategyBotService) WriteRoundMessage(
 	round dto.StrategyBotRoundDto,
 ) string {
 	return domains.NewStrategyBotMessageDomain(round).Text()
 }
 
-// RecordRound books in whatever one round came to, and moves the bot on.
-//
-// One method for all three ways a round ends, rather than one each. A round has
-// several exits, and with a method per exit the one that forgets to call its own
-// leaves a bot due forever — running flat out against the database and Telegram,
-// and looking from the outside exactly like a bot that is working.
-// It hands back the bot as it now stands, and whether this round's outcome was
-// applied at all — a round that arrives to find the bot has moved on writes nothing,
-// and whoever called must not then announce something that did not happen.
+// RecordRound applies any round outcome through one method, so no exit can forget to reschedule the bot and leave it due forever.
+// It reports whether the outcome was applied; a bot that moved on meanwhile is left untouched.
 func (strategyBotService *StrategyBotService) RecordRound(
 	executionContext context.Context, id uint, dueAt time.Time,
 	outcomeDto dto.StrategyBotRoundOutcomeDto,
@@ -473,15 +376,7 @@ func (strategyBotService *StrategyBotService) RecordRound(
 		return dto.StrategyBotDto{}, false, findError
 	}
 
-	// This bot has to still be waiting for *this* round. Between a round starting
-	// and finishing, its owner may have stopped and started it again — and starting
-	// rewrites the very columns this write is about to touch, so putting the round's
-	// values back would quietly undo the restart: the bot would not run immediately
-	// as a start promises, and the signal it was told to forget would come back and
-	// suppress the first conclusion after it.
-	//
-	// The due time is the token. Nothing else moves it, so a different one means
-	// something else has already spoken for this bot.
+	// dueAt is the token: a stop-and-restart during the round moves NextRunAt, and writing the round back would silently undo the restart.
 	if !storedBot.NextRunAt.UTC().Equal(dueAt.UTC()) {
 		return storedBot.ToDto(), false, nil
 	}
@@ -494,18 +389,13 @@ func (strategyBotService *StrategyBotService) RecordRound(
 		return dto.StrategyBotDto{}, false, updateError
 	}
 
-	// The history is written after the bot, and its failure is reported. Writing it
-	// first would leave a round remembered that never happened; not reporting it
-	// would let a bot's history quietly stop growing while the bot carried on, and
-	// somebody would open it next month to find it ends in August.
+	// History is written after the bot state so no phantom round is recorded, and its failure is reported so history cannot silently stop growing.
 	if appendError := strategyBotService.strategyBotRunRecordRepository.Append(
 		executionContext, dto.StrategyBotRunRecordWriteDto{
 			StrategyBotID: id,
 			RanAt:         ranAt,
 			Result:        string(outcome.RecordedResult()),
-			// Carried through from the outcome rather than worked out again here: the
-			// figures belong to the round that sent them, and this bot's settings may
-			// already have changed.
+			// Taken from the outcome because the bot's settings may have changed since the round was sent.
 			PositionPlan:    outcomeDto.PositionPlan,
 			HasPositionPlan: outcomeDto.HasPositionPlan,
 		}); appendError != nil {
@@ -515,12 +405,7 @@ func (strategyBotService *StrategyBotService) RecordRound(
 	return endedBot.ToDto(), true, nil
 }
 
-// WriteStartedMessage and WriteStoppedMessage are the two things a bot says about
-// itself, rather than about the market.
-//
-// They are here because writing them is a domain decision — which words, and whether
-// a halt says why — and because the layer that sends them may not build a model to
-// ask.
+// WriteStartedMessage and WriteStoppedMessage write the bot's lifecycle messages, a domain decision the sending layer cannot make itself.
 func (strategyBotService *StrategyBotService) WriteStartedMessage(
 	botDto dto.StrategyBotDto,
 ) string {
@@ -539,11 +424,7 @@ func (strategyBotService *StrategyBotService) WriteStoppedMessage(
 		vo.StrategyBotHaltReasonVo(botDto.HaltReason)).StoppedText()
 }
 
-// ListRunRecords is what this bot has been doing: its remembered rounds, newest
-// first.
-//
-// It serves owners only, like everything else about a bot. A stranger is owed the
-// same sentence as a bot that is not there.
+// ListRunRecords returns the bot's remembered rounds, newest first, to its owner only.
 func (strategyBotService *StrategyBotService) ListRunRecords(
 	executionContext context.Context, viewerID uint, id uint,
 ) ([]dto.StrategyBotRunRecordDto, error) {
@@ -565,13 +446,7 @@ func (strategyBotService *StrategyBotService) ListRunRecords(
 	return runRecordDtos, nil
 }
 
-// settle is every rule a bot being saved has to pass, creating or rewriting: its own,
-// following rules of the same kind of market, and — for a contract bot — watching a
-// contract the system follows, with no more leverage than that contract allows.
-//
-// Both public writers need all of it in this order, and a rule answered in one and
-// forgotten in the other is a bot that can be rewritten into something it could never
-// have been created as.
+// settle applies every save rule for both create and update, so a bot cannot be rewritten into something that could never have been created.
 func (strategyBotService *StrategyBotService) settle(
 	executionContext context.Context, writeDto dto.StrategyBotWriteDto,
 	followedTradingStrategy dto.TradingStrategyDto,
@@ -611,10 +486,7 @@ func (strategyBotService *StrategyBotService) settle(
 	return strategyBotDomain, nil
 }
 
-// findOwnedBot is the two steps in front of everything a person does to a bot: find
-// it, then ask whether it is theirs. Every public method above needs both, and a
-// stranger is owed the same sentence as a bot that is not there — told apart, anybody
-// could walk the identifiers and learn which bots exist.
+// findOwnedBot answers a stranger exactly as for a missing bot, so identifiers cannot be probed for existence.
 func (strategyBotService *StrategyBotService) findOwnedBot(
 	executionContext context.Context, viewerID uint, id uint,
 ) (entities.StrategyBot, error) {

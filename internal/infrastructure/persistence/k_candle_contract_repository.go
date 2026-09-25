@@ -12,9 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// contractFigureColumns are the columns a write always sets, listed explicitly so
-// that a figure of zero is stored rather than skipped as an empty value. A minute in
-// which nothing traded has a volume and a trade count of zero, and both are facts.
+// contractFigureColumns are named explicitly so zero volume and trade count are written rather than skipped.
 var contractFigureColumns = []string{
 	"open", "high", "low", "close",
 	"volume", "quote_volume", "taker_buy_base_volume", "taker_buy_quote_volume",
@@ -24,20 +22,13 @@ var contractFigureColumns = []string{
 	"premium_index_open", "premium_index_high", "premium_index_low", "premium_index_close",
 }
 
-// laterLineColumns are the two lines a contract K candle gained after candles were
-// already being stored. They are the only columns a candle already held can still be
-// missing, and so the only ones a write is ever allowed to fill in on one.
+// laterLineColumns were added after candles were already stored, so they are the only columns a write may fill on an existing candle.
 var laterLineColumns = []string{
 	"index_open", "index_high", "index_low", "index_close",
 	"premium_index_open", "premium_index_high", "premium_index_low", "premium_index_close",
 }
 
-// KCandleContractRepository stores perpetual contract K candles in PostgreSQL.
-//
-// It writes to its own table, which is what keeps a contract candle and a spot candle
-// for the same symbol and minute from overwriting one another. Both carry the same
-// unique key, so a shared table would have the automatic rounds quietly replacing
-// each other's rows every minute with nothing to complain about.
+// KCandleContractRepository uses its own table so contract and spot candles with the same symbol and minute do not overwrite each other.
 type KCandleContractRepository struct {
 	database *gorm.DB
 }
@@ -46,8 +37,6 @@ func NewKCandleContractRepository(database *gorm.DB) *KCandleContractRepository 
 	return &KCandleContractRepository{database: database}
 }
 
-// Save stores a contract K candle, replacing the figures of any candle already held
-// for the same trading symbol and open time.
 func (kCandleContractRepository *KCandleContractRepository) Save(
 	executionContext context.Context, kCandleContract entities.KCandleContract,
 ) (entities.KCandleContract, error) {
@@ -64,22 +53,7 @@ func (kCandleContractRepository *KCandleContractRepository) Save(
 	return kCandleContract, nil
 }
 
-// SaveAllIfAbsent stores every contract K candle nothing is held for yet, in one
-// statement, and says how many it stored.
-//
-// **A candle held from before the index price and premium index existed counts as
-// absent for those two lines alone.** It is completed in place — the two lines are
-// written, and every figure it already had is left exactly as it was. A candle
-// already holding both lines is not touched at all. That is what lets a history sync
-// bring old stretches up to date without a rule of its own: it asks about the days
-// that are not complete, and this is where "only what is missing" is kept.
-//
-// The count includes the candles completed that way, because each is a candle that
-// was not complete before this call and is now.
-//
-// An empty batch is answered without touching the store at all, because the driver
-// refuses a statement with no rows and a stretch the contract did not yet exist over
-// legitimately produces one.
+// SaveAllIfAbsent inserts new candles in one statement and fills in index and premium lines on old candles that lack them without touching other figures, counting both; an empty input skips the store because the driver rejects empty inserts.
 func (kCandleContractRepository *KCandleContractRepository) SaveAllIfAbsent(
 	executionContext context.Context, kCandleContracts []entities.KCandleContract,
 ) (int, error) {
@@ -106,12 +80,7 @@ func (kCandleContractRepository *KCandleContractRepository) SaveAllIfAbsent(
 	return int(result.RowsAffected), nil
 }
 
-// CountInRange is how many complete contract K candles are held for this symbol
-// across the stretch, both ends included.
-//
-// A candle stored before the index price and premium index existed is not counted.
-// This is what "is this day complete" is decided by, and a day of such candles is
-// not: it still has two lines to fill in.
+// CountInRange counts complete candles in the inclusive range, excluding old ones missing the index and premium lines, since it decides whether a day is complete.
 func (kCandleContractRepository *KCandleContractRepository) CountInRange(
 	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
 ) (int, error) {
@@ -132,8 +101,6 @@ func (kCandleContractRepository *KCandleContractRepository) CountInRange(
 	return int(heldCount), nil
 }
 
-// Update replaces the figures of an existing contract K candle, reporting not found
-// when the trading symbol and open time name no candle.
 func (kCandleContractRepository *KCandleContractRepository) Update(
 	executionContext context.Context, kCandleContract entities.KCandleContract,
 ) (entities.KCandleContract, error) {
@@ -154,7 +121,6 @@ func (kCandleContractRepository *KCandleContractRepository) Update(
 	return kCandleContract, nil
 }
 
-// FindOne returns the contract K candle named by trading symbol and open time.
 func (kCandleContractRepository *KCandleContractRepository) FindOne(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) (entities.KCandleContract, error) {
@@ -173,8 +139,7 @@ func (kCandleContractRepository *KCandleContractRepository) FindOne(
 	return kCandleContract, nil
 }
 
-// FindInRange returns at most limit contract K candles whose open time falls inside
-// the query's range, both ends included, earliest first.
+// FindInRange returns at most limit candles in the inclusive range, earliest first.
 func (kCandleContractRepository *KCandleContractRepository) FindInRange(
 	executionContext context.Context, query domains.KCandleQueryDomain, limit int,
 ) ([]entities.KCandleContract, error) {
@@ -196,8 +161,6 @@ func (kCandleContractRepository *KCandleContractRepository) FindInRange(
 	return kCandleContracts, nil
 }
 
-// FindDistinctSymbols returns every trading symbol that has at least one stored
-// contract K candle, each once, ordered by name.
 func (kCandleContractRepository *KCandleContractRepository) FindDistinctSymbols(
 	executionContext context.Context,
 ) ([]string, error) {
@@ -215,9 +178,7 @@ func (kCandleContractRepository *KCandleContractRepository) FindDistinctSymbols(
 	return symbols, nil
 }
 
-// FindLatest returns at most limit contract K candles for the trading symbol, newest
-// first. The order is deliberately the opposite of FindInRange: reading "the latest
-// few" is a descending query.
+// FindLatest returns at most limit candles, newest first.
 func (kCandleContractRepository *KCandleContractRepository) FindLatest(
 	executionContext context.Context, symbol string, limit int,
 ) ([]entities.KCandleContract, error) {
@@ -235,9 +196,7 @@ func (kCandleContractRepository *KCandleContractRepository) FindLatest(
 	return kCandleContracts, nil
 }
 
-// FindLatestBefore returns at most limit contract K candles for the symbol whose open
-// time is strictly before the cut-off, newest first — the read a contract indicator
-// calculation makes, reaching back from the start of the bucket still running.
+// FindLatestBefore returns at most limit candles strictly before the cut-off, newest first.
 func (kCandleContractRepository *KCandleContractRepository) FindLatestBefore(
 	executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
 ) ([]entities.KCandleContract, error) {
@@ -258,8 +217,6 @@ func (kCandleContractRepository *KCandleContractRepository) FindLatestBefore(
 	return kCandleContracts, nil
 }
 
-// Delete removes the contract K candle named by trading symbol and open time,
-// reporting not found when it names no candle.
 func (kCandleContractRepository *KCandleContractRepository) Delete(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) error {

@@ -7,15 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandleContractRequest is the body a caller sends to create or update a perpetual
-// contract K candle. On update the candle is named by the path, so a symbol or open
-// time in the body is only accepted when it matches.
-//
-// The mark, index and premium index prices and the trade count arrive as optionals so that leaving one out
-// stays distinguishable from sending a zero — zero is a lawful trade count, and a
-// blank mark price is the one thing that makes this not a contract candle at all.
-// Both are refused by the domain rather than here, so that a caller's omission and a
-// market source's gap are answered by the same rule.
+// KCandleContractRequest's body symbol and open time must match the path on update; the optional prices and trade count keep "left out" distinct from zero, and the domain refuses a missing one.
 type KCandleContractRequest struct {
 	Symbol              string              `json:"symbol"`
 	OpenTime            time.Time           `json:"openTime"`
@@ -42,8 +34,7 @@ type KCandleContractRequest struct {
 	PremiumIndexClose   decimal.NullDecimal `json:"premiumIndexClose"`
 }
 
-// ToWriteDto turns the request into the shape the domain accepts, taking the identity
-// from the arguments so the caller of this method decides what is named.
+// ToWriteDto takes the candle identity from the arguments rather than the body.
 func (kCandleContractRequest KCandleContractRequest) ToWriteDto(
 	symbol string, openTime time.Time,
 ) dto.KCandleContractWriteDto {

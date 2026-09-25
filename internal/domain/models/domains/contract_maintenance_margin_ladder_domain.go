@@ -11,20 +11,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractMaintenanceMarginLadderDomain is one contract's whole maintenance margin
-// ladder, checked as a whole. An instance only exists when every tier makes sense on
-// its own and the tiers make sense together: at least one, in order, and none covering
-// a stretch of notional another one already covers.
-//
-// **It is judged whole because it is used whole.** A position is placed on the ladder
-// by its notional; a ladder with a gap or an overlap puts some positions on no tier or
-// on two, and a replay reading it would pick one without saying so.
+// ContractMaintenanceMarginLadderDomain is a validated whole ladder (at least one tier, ordered, no overlaps), since a gap or overlap would silently place positions on no tier or two.
 type ContractMaintenanceMarginLadderDomain struct {
 	symbol string
 	tiers  []vo.ContractMaintenanceMarginTierVo
 }
 
-// NewContractMaintenanceMarginLadderDomain checks one reported ladder.
 func NewContractMaintenanceMarginLadderDomain(
 	ladder vo.ContractMaintenanceMarginLadderVo,
 ) (ContractMaintenanceMarginLadderDomain, error) {
@@ -88,13 +80,11 @@ func NewContractMaintenanceMarginLadderDomain(
 	return ContractMaintenanceMarginLadderDomain{symbol: contractSymbol.Value(), tiers: tiers}, nil
 }
 
-// Symbol is the contract this ladder belongs to.
 func (ladderDomain ContractMaintenanceMarginLadderDomain) Symbol() string {
 	return ladderDomain.symbol
 }
 
-// ToEntities converts this ladder into the tiers that are stored, every one stamped
-// with when the ladder was confirmed.
+// ToEntities stamps every tier with when the ladder was confirmed.
 func (ladderDomain ContractMaintenanceMarginLadderDomain) ToEntities(
 	confirmedAt time.Time,
 ) []entities.ContractMaintenanceMarginTier {

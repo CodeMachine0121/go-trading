@@ -12,23 +12,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// retiredStrategyScriptColumns are the columns a strategy script used to carry. They described one
-// run of an algorithm rather than the algorithm, and moved onto the calculation that
-// runs a strategy script.
 var retiredStrategyScriptColumns = []string{"aggregation_interval", "candle_count"}
 
 func TestSchemaMigratorDropsColumnsNoEntityClaimsAnyMore(t *testing.T) {
-	// Syncing the schema only ever adds and widens, so a column left behind by a
-	// removed field would sit on the table forever — and a reader who finds
-	// aggregation_interval still there has every reason to believe a strategy script still
-	// remembers it.
+	// Schema sync only adds and widens, so removed fields' columns must be dropped explicitly.
 	database := newTestDatabase(t)
 	migrator := database.Migrator()
 
-	// Putting the columns back has to be said in raw SQL: syncing the schema works
-	// from the entity, and the entity no longer has these fields to name. Raw SQL
-	// belongs to the test alone — this is the one place that needs to describe a
-	// database as it was, not as the code says it should be.
+	// Raw SQL restores the old columns because the entity no longer names them.
 	for _, retiredColumn := range retiredStrategyScriptColumns {
 		require.NoError(t, database.Exec(
 			`ALTER TABLE "Strategies" ADD COLUMN IF NOT EXISTS "`+retiredColumn+`" text`).Error,
@@ -45,15 +36,7 @@ func TestSchemaMigratorDropsColumnsNoEntityClaimsAnyMore(t *testing.T) {
 	}
 }
 
-// The two columns this system stopped reading when a replay became spot-only: which
-// kind of account a set of rules was written for, and how much a bot suggested
-// borrowing.
-//
-// They are asserted separately from the strategy script's because the reason they go is
-// different. A strategy script's columns described the wrong thing; these two describe
-// something the system no longer does at all — and a row still saying "longShort"
-// beside rules that are replayed as spot contradicts the system out loud, to whoever
-// next opens the database wondering what it remembers.
+// The contract-replay columns (account kind, suggested borrowing) describe a capability the system no longer has.
 func TestSchemaMigratorDropsTheColumnsThatOutlivedContractReplays(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -87,10 +70,7 @@ func TestSchemaMigratorDropsTheColumnsThatOutlivedContractReplays(t *testing.T) 
 			database := newTestDatabase(t)
 			migrator := database.Migrator()
 
-			// Put back as it was, in raw SQL: syncing the schema works from the
-			// entity, and the entity no longer has this field to name. Raw SQL
-			// belongs to the test alone — this is the one place that has to describe
-			// a database as it was rather than as the code says it should be.
+			// Raw SQL restores the old column because the entity no longer names it.
 			require.NoError(t, database.Exec(
 				`ALTER TABLE "`+testCase.table+`" ADD COLUMN IF NOT EXISTS "`+
 					testCase.column+`" `+testCase.columnType).Error)
@@ -107,9 +87,7 @@ func TestSchemaMigratorDropsTheColumnsThatOutlivedContractReplays(t *testing.T) 
 }
 
 func TestSchemaMigratorRunsTwiceWithTheSameResult(t *testing.T) {
-	// The columns are already gone by the time this runs, so dropping has nothing to
-	// do — and having nothing to do must not be a failure, or the second start of
-	// the server would never get past migration.
+	// Dropping already-dropped columns must succeed so a second startup passes migration.
 	database := newTestDatabase(t)
 
 	firstTables, firstError := persistence.NewSchemaMigrator(database).Migrate()
@@ -123,10 +101,7 @@ func TestSchemaMigratorRunsTwiceWithTheSameResult(t *testing.T) {
 }
 
 func TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan(t *testing.T) {
-	// Dropping is aimed at two named columns and nothing else. What a strategy script
-	// actually is — its name, its script, the kind of value it produces and when it
-	// was first saved — has to come through untouched, or the migration would be
-	// quietly destroying the thing it was meant to leave alone.
+	// Only the two retired columns are dropped; the strategy script's real data must survive.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	savedStrategyScript, saveError := strategyScriptRepository.Save(t.Context(), entities.StrategyScript{
@@ -154,14 +129,7 @@ func TestSchemaMigratorLeavesTheAlgorithmAloneWhileDroppingThePlan(t *testing.T)
 }
 
 func TestSchemaMigratorClearsStrategyScriptsSavedBeforeAnybodyOwnedThem(t *testing.T) {
-	// A strategy script cannot exist without an owner any more, and a table with rows in it
-	// cannot grow a column that may not be null. The rows saved before ownership are
-	// therefore cleared — assigning them to somebody would be a guess, and a guess
-	// here would leave "every strategy script has an owner" true only by accident.
-	//
-	// The condition that clears them is "the table exists and has no owner column",
-	// which stops being true the moment the migration that follows it runs. Putting
-	// the column back is how this test reaches that state again.
+	// Pre-ownership rows are cleared (assigning an owner would be a guess) when the table exists without an owner column; restoring the column recreates that state.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	_, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed("存在既有資料裡的"))
@@ -177,8 +145,7 @@ func TestSchemaMigratorClearsStrategyScriptsSavedBeforeAnybodyOwnedThem(t *testi
 }
 
 func TestSchemaMigratorRunTwiceLeavesOwnedStrategyScriptsAlone(t *testing.T) {
-	// The clearing must not fire again once the column is there, or every restart
-	// would wipe everybody's work.
+	// Once the owner column exists the clearing must not run again, or every restart would wipe data.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	_, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed("留下來的"))
@@ -194,9 +161,7 @@ func TestSchemaMigratorRunTwiceLeavesOwnedStrategyScriptsAlone(t *testing.T) {
 }
 
 func TestSchemaMigratorDropsTheIndexThatMadeANameUniqueEverywhere(t *testing.T) {
-	// AutoMigrate adds indexes and never drops them, and a leftover unique index is
-	// worse than a leftover column: it goes on enforcing a rule the system no longer
-	// holds. This one held the first person to save a name against everybody else.
+	// AutoMigrate never drops indexes, so the obsolete global unique name index must be dropped explicitly.
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	secondOwnerID := aSecondOwner(t, database)
@@ -215,9 +180,7 @@ func TestSchemaMigratorDropsTheIndexThatMadeANameUniqueEverywhere(t *testing.T) 
 }
 
 func TestSchemaMigratorBuildsAStrategyScriptTableThatIsNotThereYet(t *testing.T) {
-	// The very first migration meets a database with no StrategyScripts table at all.
-	// Clearing the rows saved before ownership must not go looking for a table
-	// nobody has built yet.
+	// The first migration must not fail on a missing StrategyScripts table.
 	database := newStrategyScriptTestDatabase(t)
 	require.NoError(t, database.Exec(`DROP TABLE "Strategies" CASCADE`).Error)
 
@@ -231,19 +194,12 @@ func TestSchemaMigratorBuildsAStrategyScriptTableThatIsNotThereYet(t *testing.T)
 	assert.Empty(t, strategyScripts)
 }
 
-// asTheShapeBeforeTheRulesMoved puts the database back the way it was when a bot
-// carried its own signal sources and its own two condition trees.
-//
-// It is raw SQL for the reason the retired columns above are: syncing the schema
-// works from the entities, and the entities no longer describe this shape. Raw SQL
-// belongs to the test alone — this is the one place that has to describe a database
-// as it was rather than as the code says it should be.
+// asTheShapeBeforeTheRulesMoved restores, via raw SQL, the schema where a bot carried its own signal sources and condition trees.
 func asTheShapeBeforeTheRulesMoved(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
 	for _, statement := range []string{
-		// The foreign keys go back to naming the bot too, which is both what the old
-		// shape had and what lets rows carrying bot identifiers be written at all.
+		// The foreign keys point back at the bot, as in the old shape.
 		`ALTER TABLE "TradingStrategySignalSources"
 		   DROP CONSTRAINT IF EXISTS "fk_TradingStrategies_signal_sources"`,
 		`ALTER TABLE "TradingStrategyConditionNodes"
@@ -281,11 +237,7 @@ func asTheShapeBeforeTheRulesMoved(t *testing.T, database *gorm.DB) {
 	}
 }
 
-// asAStranger is the same, plus dropping the table the rules move into — the shape a
-// database that has never seen this feature is actually in.
-//
-// It is separate because one test needs the table to stay: the identifiers it hands
-// out are what that test is about, and dropping it would reset them.
+// asAStranger also drops the trading strategies table; kept separate because one test depends on that table's identifier sequence.
 func asAStranger(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
@@ -293,8 +245,6 @@ func asAStranger(t *testing.T, database *gorm.DB) {
 	require.NoError(t, database.Exec(`DROP TABLE "TradingStrategies" CASCADE`).Error)
 }
 
-// aBotOfTheOldShape plants one bot carrying its own rules, exactly as one was stored
-// before they moved, and hands back its identifier.
 func aBotOfTheOldShape(t *testing.T, database *gorm.DB, ownerID uint, name string) uint {
 	t.Helper()
 
@@ -319,9 +269,7 @@ func aBotOfTheOldShape(t *testing.T, database *gorm.DB, ownerID uint, name strin
 	return botID
 }
 
-// A bot that was already running keeps every set of rules it was running, and keeps
-// running. Somebody who left a bot watching overnight must find it watching the same
-// thing in the morning.
+// Running bots keep their rules and keep running after migration.
 func TestSchemaMigratorGivesEveryExistingBotItsOwnTradingStrategy(t *testing.T) {
 	database := newTestDatabase(t)
 	require.NoError(t, database.Create(&entities.User{
@@ -337,12 +285,10 @@ func TestSchemaMigratorGivesEveryExistingBotItsOwnTradingStrategy(t *testing.T) 
 	movedBot := entities.StrategyBot{}
 	require.NoError(t, database.Preload("TradingStrategy").First(&movedBot, botID).Error)
 
-	// The rules are now a thing of their own, named after the bot that was running
-	// them, and belonging to the same person.
+	// The rules become a trading strategy named after the bot and owned by the same person.
 	require.NotZero(t, movedBot.TradingStrategyID)
 	assert.Equal(t, "我的機器人", movedBot.TradingStrategy.Name)
 	assert.Equal(t, uint(1), movedBot.TradingStrategy.OwnerID)
-	// Still running, still due, still the same bot.
 	assert.Equal(t, "running", movedBot.RunState)
 	assert.Equal(t, "我的機器人", movedBot.Name)
 
@@ -351,17 +297,14 @@ func TestSchemaMigratorGivesEveryExistingBotItsOwnTradingStrategy(t *testing.T) 
 		Preload("SignalSources").Preload("ConditionNodes").
 		First(&movedTradingStrategy, movedBot.TradingStrategyID).Error)
 
-	// Not one of them is lost, and none of them is a copy: these are the very rows
-	// the bot was running.
+	// The original rule rows are moved, not copied.
 	require.Len(t, movedTradingStrategy.SignalSources, 1)
 	assert.Equal(t, "A", movedTradingStrategy.SignalSources[0].Label)
 	assert.Equal(t, uint(9), movedTradingStrategy.SignalSources[0].StrategyScriptID)
 	require.Len(t, movedTradingStrategy.ConditionNodes, 2)
 }
 
-// Two bots must not end up sharing one set of rules, and neither must end up with
-// the other's. The identifiers a fresh sequence hands out overlap with the bot
-// identifiers the rows are still carrying, so this is where that would show.
+// A fresh sequence's identifiers overlap old bot identifiers still on the rule rows, which is where a mix-up would show.
 func TestSchemaMigratorKeepsEachBotsRulesToItself(t *testing.T) {
 	database := newTestDatabase(t)
 	require.NoError(t, database.Create(&entities.User{
@@ -393,9 +336,7 @@ func TestSchemaMigratorKeepsEachBotsRulesToItself(t *testing.T) {
 	}
 }
 
-// Migrating again must not hand out a second set of rules to a bot that already has
-// one — a server restarts, and a migration that is not safe to repeat is a migration
-// that breaks on the second start.
+// The migration must be safe to repeat on restart.
 func TestSchemaMigratorMovesTheRulesOnlyOnce(t *testing.T) {
 	database := newTestDatabase(t)
 	require.NoError(t, database.Create(&entities.User{
@@ -423,11 +364,7 @@ func TestSchemaMigratorMovesTheRulesOnlyOnce(t *testing.T) {
 	assert.Equal(t, int64(1), tradingStrategyCount)
 }
 
-// A first attempt that failed leaves the identifier sequence advanced — Postgres
-// sequences do not roll back — so on the retry an identifier handed out can equal a
-// *later* bot's identifier, which is still what that bot's rule rows are carrying.
-// Gathering those rows one bot at a time would then let the later bot sweep up the
-// earlier one's, and the earlier one would come out of the migration with no rules.
+// A failed attempt advances the sequence (Postgres sequences do not roll back), so a new identifier can equal a later bot's and must not let that bot sweep up an earlier one's rules.
 func TestSchemaMigratorKeepsEachBotsRulesToItselfAfterAFailedAttempt(t *testing.T) {
 	database := newTestDatabase(t)
 	require.NoError(t, database.Create(&entities.User{
@@ -439,8 +376,7 @@ func TestSchemaMigratorKeepsEachBotsRulesToItselfAfterAFailedAttempt(t *testing.
 	secondBotID := aBotOfTheOldShape(t, database, 1, "第二台")
 	require.Less(t, firstBotID, secondBotID)
 
-	// The next identifier is the second bot's — exactly the collision a rolled-back
-	// first attempt can leave behind, and the one the move pushes past.
+	// Simulates the sequence position a rolled-back first attempt can leave.
 	withTheNextIdentifierBeing(t, database, secondBotID)
 
 	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
@@ -461,17 +397,11 @@ func TestSchemaMigratorKeepsEachBotsRulesToItselfAfterAFailedAttempt(t *testing.
 			Where(clause.Eq{Column: "trading_strategy_id", Value: bot.TradingStrategyID}).
 			Count(&nodeCount).Error)
 		assert.Equal(t, int64(2), nodeCount, "%s 的兩棵條件樹應該還在它自己身上", bot.Name)
-		// Every identifier handed out is past every bot, which is what makes the
-		// collision impossible rather than merely unlikely.
 		assert.Greater(t, bot.TradingStrategyID, secondBotID)
 	}
 }
 
-// withTheNextIdentifierBeing puts the identifier this table hands out next exactly
-// where a rolled-back first attempt can leave it: on a bot that has not been moved.
-//
-// Raw SQL, because moving a sequence has no word in the ORM — and this is a test
-// describing a database as it can be, not as the code says it should be.
+// withTheNextIdentifierBeing moves the table's sequence onto an unmoved bot's identifier, via raw SQL since the ORM cannot.
 func withTheNextIdentifierBeing(t *testing.T, database *gorm.DB, nextIdentifier uint) {
 	t.Helper()
 

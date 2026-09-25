@@ -2,36 +2,20 @@ package dto
 
 import "time"
 
-// IndicatorCalculationRequestDto is the shape the application hands the domain to
-// run one indicator calculation.
-//
-// How coarse the K candles are and which stretch of market to read are here rather
-// than on the strategy script being run: they describe one run, so the same algorithm can
-// be run at any coarseness over any stretch of market.
 type IndicatorCalculationRequestDto struct {
 	Symbol string
-	// StartTime is where the stretch of market to compute over begins. How many
-	// values come out of it is not this long divided by the coarseness: it is how
-	// much of it the symbol's market is actually open for, which a venue that shuts
-	// overnight makes very different from the two.
+	// StartTime begins the stretch; the value count depends on the symbol's open trading
+	// hours, not just span divided by interval.
 	StartTime time.Time
 	Script    string
-	// AggregationInterval is the coarseness the caller declared, exactly as it was
-	// written. Reading it — including leaving it out — is the domain's job.
+	// AggregationInterval is raw caller input; the domain parses it, including the empty case.
 	AggregationInterval string
-	// ResultType is the indicator value kind the caller declared, exactly as it was
-	// written. Reading it — including leaving it out — is the domain's job.
+	// ResultType is raw caller input; the domain parses it, including the empty case.
 	ResultType string
-	// EndTime is where that stretch ends, and therefore also the moment to compute up
-	// to — one moment, not two. The zero value means none was named, which the domain
-	// reads as now; a pointer would only add a dereference, since the zero value is
-	// not a moment anybody could have meant.
+	// EndTime is also the moment computed up to; zero means now.
 	EndTime time.Time
-	// Parameters are the algorithm's knobs as the caller declared them. They arrive
-	// with the run rather than being looked up, because what runs here is a script,
-	// not a saved strategy script — the script may never have been saved at all.
+	// Parameters travel with the run because the script may never have been saved.
 	Parameters []StrategyScriptParameterWriteDto
-	// ParameterValues are what those knobs are worth this time. Anything left out
-	// keeps the value it was declared with.
+	// ParameterValues override declared defaults; omitted ones keep their declared value.
 	ParameterValues []StrategyScriptParameterValueDto
 }

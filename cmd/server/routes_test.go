@@ -9,15 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestMountedRoutesAreExactlyTheOnesIntended holds the whole reachable surface in
-// one list, so that widening it is a decision somebody makes rather than a side
-// effect somebody notices later.
-//
-// It used to hold a narrower boundary — that the watchlist could not be changed from
-// outside at all. That boundary was deliberately given up: a watchlist that costs a
-// restart to change is a watchlist nobody changes. What replaced it is narrower than
-// it sounds: exactly two routes touch the watchlist, and neither can start a round,
-// stop one, or reach the ingestion machinery itself.
+// TestMountedRoutesAreExactlyTheOnesIntended pins the whole reachable surface so widening it is a
+// deliberate decision; no route may start or stop an ingestion round.
 func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("BACKGROUND_JOBS_ENABLED", "true")
@@ -32,11 +25,6 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 	slices.Sort(mountedRoutes)
 
 	assert.Equal(t, []string{
-		// Taking a published strategy script off one's own shelf, and taking one's own
-		// strategy script off the shared shelf. Two different withdrawals, so two paths:
-		// one hangs off the marketplace, the other off the strategy script itself.
-		// 永續合約自成一條路徑。同一個代號在兩個場所是兩種商品，所以它有自己的
-		// K 線、自己的追蹤名單、自己的同步輪次，沒有一條會碰到現貨那幾條。
 		"DELETE /contract-k-candles/:symbol/:openTime",
 		"DELETE /contract-watchlist/:symbol",
 		"DELETE /k-candles/:symbol/:openTime",
@@ -45,17 +33,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /strategy-bots/:id/power",
 		"DELETE /strategy-scripts/:id",
 		"DELETE /strategy-scripts/:id/publication",
-		// 一份規則自己是一個東西，所以它有自己的一組路徑，而不是掛在機器人底下。
 		"DELETE /trading-strategies/:id",
-		// Taking away the place this system was told to speak to. It names nobody
-		// but the person asking, so it cannot reach a symbol either.
 		"DELETE /users/me/telegram-delivery",
-		// Stopping and starting the watching of one market. Neither reaches ingestion
-		// itself: a caller can say what to keep up to date, never when to do it.
+		// Callers choose what to keep up to date, never when ingestion runs.
 		"DELETE /watchlist/:symbol",
-		// The assistant reads and writes only through the very use cases a caller
-		// already has; it is given no capability that touches the watchlist, so these
-		// three do not widen what a caller can reach either.
 		"GET /chat/conversations",
 		"GET /chat/conversations/:id",
 		"GET /contract-funding-rate-settlements",
@@ -70,14 +51,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /health",
 		"GET /k-candles",
 		"GET /k-candles/:symbol/:openTime",
-		// Following a market live reads; it names the symbol the viewer is looking at
-		// and cannot touch the watchlist, so the boundary this test holds is intact.
 		"GET /k-candles/history/:id",
 		"GET /k-candles/live",
 		"GET /k-candles/series",
-		// The shared shelf. It hands out names, descriptions and knobs, never an
-		// algorithm — that is a property of the shape it answers with, not of this
-		// route.
+		// Hands out names, descriptions and knobs, never the algorithm itself.
 		"GET /marketplace/strategy-scripts",
 		"GET /strategy-bots",
 		"GET /strategy-bots/:id",
@@ -87,12 +64,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /trading-strategies",
 		"GET /trading-strategies/:id",
 		"GET /trading-symbols",
-		// Recognising a person reads and writes only users. None of these three can
-		// name a symbol, so the boundary this test holds is intact.
 		"GET /users/me",
 		"GET /users/me/telegram-delivery",
-		// Replaying a strategy script reads the market and stores nothing at all, so it
-		// cannot reach the watchlist either.
 		"POST /backtests",
 		"POST /chat",
 		"POST /contract-backtests",
@@ -115,16 +88,10 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /strategy-scripts",
 		"POST /strategy-scripts/:id/publication",
 		"POST /trading-strategies",
-		// 重演掛在那一份底下，因為那是對它做的事。
 		"POST /trading-strategies/:id/backtests",
 		"POST /trading-strategies/:id/contract-backtests",
 		"POST /users",
-		// Replacing one's own password. It names nobody but the person asking —
-		// who that is comes from the proof on the request — so it cannot reach a
-		// symbol or anybody else's account.
 		"POST /users/me/password",
-		// Sending one message to one's own Telegram. It reads the setting already
-		// stored and writes nothing, so it widens nothing.
 		"POST /users/me/telegram-delivery/test-message",
 		"POST /watchlist",
 		"PUT /contract-k-candles/:symbol/:openTime",

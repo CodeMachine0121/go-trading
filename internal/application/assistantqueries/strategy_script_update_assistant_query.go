@@ -9,13 +9,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
-// StrategyScriptUpdateAssistantQuery lets the assistant rewrite a saved algorithm.
-//
-// A rewrite replaces everything the strategy script remembers, so the assistant is told to
-// read the strategy script first: sending only the field it meant to change would blank the
-// rest. That is a property of rewriting, not something this capability chose, and
-// hiding it by merging silently would make "change the lookback to thirty" quietly
-// throw away the algorithm.
+// StrategyScriptUpdateAssistantQuery lets the assistant rewrite a saved algorithm; a rewrite
+// replaces every field, so the assistant is told to read the script first rather than merged silently.
 type StrategyScriptUpdateAssistantQuery struct {
 	strategyScriptApplication *application.StrategyScriptApplication
 }
@@ -41,7 +36,6 @@ func (strategyScriptUpdateAssistantQuery *StrategyScriptUpdateAssistantQuery) Ar
 		`},"required":["strategyScriptId","name","script"],"additionalProperties":false}`
 }
 
-// Run rewrites the strategy script and hands it back as it now stands.
 func (strategyScriptUpdateAssistantQuery *StrategyScriptUpdateAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {

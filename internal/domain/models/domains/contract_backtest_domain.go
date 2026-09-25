@@ -9,14 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ContractBacktestDomain is one replay of a contract strategy script on an isolated
-// contract account, and every rule about what may be replayed.
-//
-// Everything a spot replay is also told — the stretch, the capital, the sizing, the
-// exits, the costs, the knobs — is read by BacktestDomain, word for word, so that the
-// same figure typed into either replay is refused with the same sentence. What is
-// read here is only what a contract account adds: the leverage, the trading mode, the
-// slippage, and the venue's rules for this symbol.
+// ContractBacktestDomain validates a contract replay; everything shared with spot is validated by BacktestDomain so both give identical messages, and only leverage, trading mode, slippage and venue rules are read here.
 type ContractBacktestDomain struct {
 	backtest      BacktestDomain
 	tradingMode   ContractTradingModeDomain
@@ -24,8 +17,6 @@ type ContractBacktestDomain struct {
 	tradingRules  ContractTradingRulesDomain
 }
 
-// NewContractBacktestDomain validates the request against the rules of a contract
-// replay on a symbol traded by those rules.
 func NewContractBacktestDomain(
 	requestDto dto.ContractBacktestRequestDto,
 	tradingRules ContractTradingRulesDomain,
@@ -96,8 +87,7 @@ func (contractBacktestDomain ContractBacktestDomain) ResultType() IndicatorResul
 	return contractBacktestDomain.backtest.ResultType()
 }
 
-// KCandleQuery is the stretch of contract K candles to read, exactly the stretch a spot
-// replay of the same request would read.
+// KCandleQuery is the same stretch a spot replay of the request would read.
 func (contractBacktestDomain ContractBacktestDomain) KCandleQuery() KCandleQueryDomain {
 	return contractBacktestDomain.backtest.KCandleQuery()
 }
@@ -106,9 +96,7 @@ func (contractBacktestDomain ContractBacktestDomain) SourceCandleLimit() int {
 	return contractBacktestDomain.backtest.SourceCandleLimit()
 }
 
-// SelectInput merges the contract K candles into finished bars, earliest first, and
-// hands back the alignment that lines each bar's funding and positioning up for the
-// script. Fewer than two bars is refused for the reason a spot replay refuses it.
+// SelectInput merges contract K candles into finished bars, earliest first, returning the alignment for funding and positioning; fewer than two bars is refused.
 func (contractBacktestDomain ContractBacktestDomain) SelectInput(
 	kCandleContracts []entities.KCandleContract,
 ) (ContractKCandleAlignmentDomain, error) {
@@ -129,8 +117,7 @@ func (contractBacktestDomain ContractBacktestDomain) SelectInput(
 		return ContractKCandleAlignmentDomain{}, notEnoughKCandlesForBacktest(len(finishedBuckets))
 	}
 
-	// A split replay needs a bar on either side of the validation start, refused before
-	// a single script is run.
+	// Refuse a split lacking a bar on either side before any script runs.
 	if _, splitError := contractBacktestDomain.splitIndexOf(finishedBuckets); splitError != nil {
 		return ContractKCandleAlignmentDomain{}, splitError
 	}
@@ -138,9 +125,7 @@ func (contractBacktestDomain ContractBacktestDomain) SelectInput(
 	return newContractKCandleAlignmentDomain(contractBacktestDomain.backtest.interval, finishedBuckets), nil
 }
 
-// splitIndexOf is where these bars divide into the in-sample and the validation part,
-// asked once when they are selected and once when they are replayed. An unsplit
-// replay divides nowhere and answers the whole length.
+// splitIndexOf returns the full length for an unsplit replay.
 func (contractBacktestDomain ContractBacktestDomain) splitIndexOf(buckets []dto.KCandleContractDto) (int, error) {
 	if !contractBacktestDomain.backtest.segments.IsSplit() {
 		return len(buckets), nil
@@ -154,12 +139,8 @@ func (contractBacktestDomain ContractBacktestDomain) splitIndexOf(buckets []dto.
 	return contractBacktestDomain.backtest.segments.SplitIndex(openTimes)
 }
 
-// ReplayOver walks the account over the bars the alignment holds, one opinion per bar,
-// paying and receiving the funding settlements that fall inside them — and for a split
-// replay walks each part again on its own, from the initial capital and flat.
-//
-// conflictedFlags says, bar by bar, whether a trading strategy's two trees both held; a
-// strategy script replay has no such thing and passes nil.
+// ReplayOver replays the bars with funding settlements and, when split, each part again from the initial capital and flat.
+// conflictedFlags marks bars where both of a trading strategy's trees held; strategy script replays pass nil.
 func (contractBacktestDomain ContractBacktestDomain) ReplayOver(
 	alignment ContractKCandleAlignmentDomain,
 	signals []SignalDomain,
@@ -202,8 +183,7 @@ func (contractBacktestDomain ContractBacktestDomain) ReplayOver(
 		return wholeResultDto
 	}
 
-	// The bars were checked for one on either side when they were selected, so the split
-	// cannot fail here; should it, the whole replay still stands on its own.
+	// Already checked in SelectInput; if it fails anyway, the whole replay still stands.
 	splitIndex, splitError := contractBacktestDomain.splitIndexOf(buckets)
 	if splitError != nil {
 		return wholeResultDto

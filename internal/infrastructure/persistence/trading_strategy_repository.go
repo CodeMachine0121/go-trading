@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// TradingStrategyRepository stores trading strategies, their signal sources and
-// their two condition trees, in PostgreSQL.
 type TradingStrategyRepository struct {
 	database *gorm.DB
 }
@@ -22,17 +20,7 @@ func NewTradingStrategyRepository(database *gorm.DB) *TradingStrategyRepository 
 	return &TradingStrategyRepository{database: database}
 }
 
-// Save stores this trading strategy whole, replacing whatever it had before.
-//
-// Everything happens in one transaction, because a set of rules whose conditions
-// were replaced but whose sources were not is a set of rules that can name a label
-// that no longer exists — and every bot following it would then run that way, every
-// few minutes.
-//
-// The children are cleared and written again rather than compared and patched. A
-// condition tree holds at most thirty-two nodes and is only ever read and written
-// whole; the reads a diff would save are worth less than the ways a diff can be
-// wrong.
+// Save replaces the strategy and all its children in one transaction, clearing and rewriting children rather than diffing.
 func (tradingStrategyRepository *TradingStrategyRepository) Save(
 	executionContext context.Context, tradingStrategy entities.TradingStrategy,
 ) (entities.TradingStrategy, error) {
@@ -40,10 +28,7 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 
 	transactionError := tradingStrategyRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
-			// The row goes first and alone: its identifier is what every child row
-			// needs, and on a create nobody knows it until this returns. Omitting
-			// the associations is what stops GORM writing them here in a shape this
-			// code would then have to undo.
+			// The row is written first without associations because children need its identifier.
 			tradingStrategyRow := tradingStrategy
 			tradingStrategyRow.SignalSources = nil
 			tradingStrategyRow.ConditionNodes = nil
@@ -54,10 +39,7 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 					return createError
 				}
 			} else {
-				// Naming the column makes an empty value mean empty rather than
-				// "unchanged", which is how GORM reads a struct otherwise — and it
-				// is what keeps a rewrite away from the owner, the created time and
-				// the market data kind, none of which a rewrite may change.
+				// Named columns make empty values write through and keep owner, creation time and market data kind immutable.
 				updates := transaction.Model(&entities.TradingStrategy{}).
 					Where(clause.Eq{Column: "id", Value: tradingStrategyRow.ID}).
 					Select("name", "contract_trading_mode").
@@ -75,9 +57,7 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 					return deleteError
 				}
 
-				// Deleting the roots takes their descendants with them through the
-				// node table's own cascade, so this does not walk the tree — and
-				// therefore cannot walk it wrong.
+				// Deleting the roots cascades to their descendants.
 				if deleteError := transaction.
 					Where(clause.Eq{Column: "trading_strategy_id", Value: tradingStrategyRow.ID}).
 					Delete(&entities.TradingStrategyConditionNode{}).Error; deleteError != nil {
@@ -119,12 +99,7 @@ func (tradingStrategyRepository *TradingStrategyRepository) Save(
 	return tradingStrategyRepository.FindOne(executionContext, savedTradingStrategy.ID)
 }
 
-// writeConditionSubtree writes one node and everything under it, handing each child
-// the identifier its parent has just been given.
-//
-// It descends explicitly rather than relying on the store to write a nested
-// association for it. One level of nesting is something an ORM will do; five is
-// something to find out about at three in the morning.
+// writeConditionSubtree writes nodes recursively, giving each child its parent's new identifier, rather than trusting ORM nested association writes.
 func (tradingStrategyRepository *TradingStrategyRepository) writeConditionSubtree(
 	transaction *gorm.DB, tradingStrategyID uint, parentID *uint,
 	node entities.TradingStrategyConditionNode,
@@ -152,16 +127,9 @@ func (tradingStrategyRepository *TradingStrategyRepository) writeConditionSubtre
 	return nil
 }
 
-// TradingStrategyNameIndex is the index that makes a name unique within its owner's
-// collection. It is named here because the write path has to recognise this one
-// breaking specifically — any other broken constraint is a fault, not a person
-// reusing a name.
 const TradingStrategyNameIndex = "idx_trading_strategies_owner_name"
 
-// writeFailureOf turns a failed write into the refusal it actually is. A broken name
-// index is a person reusing a name they already have; anything else is a fault, and
-// dressing it up as a name conflict would send them off renaming something that was
-// never the problem.
+// writeFailureOf maps a broken name index to a name conflict; anything else stays a fault.
 func (tradingStrategyRepository *TradingStrategyRepository) writeFailureOf(
 	writeError error, name string,
 ) error {
@@ -176,15 +144,12 @@ func (tradingStrategyRepository *TradingStrategyRepository) writeFailureOf(
 	return fmt.Errorf("save trading strategy: %w", writeError)
 }
 
-// FindOne returns it with its sources and both trees.
 func (tradingStrategyRepository *TradingStrategyRepository) FindOne(
 	executionContext context.Context, id uint,
 ) (entities.TradingStrategy, error) {
 	tradingStrategy := entities.TradingStrategy{}
 
-	// The condition is spelled out rather than given as a struct, because GORM
-	// drops zero-valued struct fields — and an identifier of nothing would become
-	// no condition at all, handing back whichever row happens to be first.
+	// A string condition is used because GORM drops zero-valued struct fields, which would match any row.
 	result := tradingStrategyRepository.database.WithContext(executionContext).
 		Preload("SignalSources.ParameterValues").
 		Preload("SignalSources").
@@ -201,7 +166,6 @@ func (tradingStrategyRepository *TradingStrategyRepository) FindOne(
 	return tradingStrategy, nil
 }
 
-// FindAllByOwner returns this person's trading strategies, by name.
 func (tradingStrategyRepository *TradingStrategyRepository) FindAllByOwner(
 	executionContext context.Context, ownerID uint,
 ) ([]entities.TradingStrategy, error) {
@@ -221,7 +185,7 @@ func (tradingStrategyRepository *TradingStrategyRepository) FindAllByOwner(
 	return tradingStrategies, nil
 }
 
-// Delete removes it. Its sources and condition nodes go with it by cascade.
+// Delete removes the strategy; its sources and condition nodes cascade.
 func (tradingStrategyRepository *TradingStrategyRepository) Delete(
 	executionContext context.Context, id uint,
 ) error {

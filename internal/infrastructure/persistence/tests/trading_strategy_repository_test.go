@@ -12,13 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// tradingStrategyRowOwnerID is whoever owns every trading strategy in this file
-// unless a test says otherwise.
 const tradingStrategyRowOwnerID = uint(1)
 
-// newTradingStrategyTestDatabase is a cleared database with the person these belong
-// to already in it. Planting them first is not scaffolding: the owner column carries
-// a foreign key, so one owned by nobody is a row the schema refuses.
+// newTradingStrategyTestDatabase seeds the owner that the foreign key requires.
 func newTradingStrategyTestDatabase(t *testing.T) *gorm.DB {
 	database := newTestDatabase(t)
 	require.NoError(t, database.WithContext(t.Context()).Create(&entities.User{
@@ -33,8 +29,7 @@ func newTradingStrategyTestDatabase(t *testing.T) *gorm.DB {
 //	buy:  ( A=buy and B=buy )
 //	sell: A=sell
 //
-// The buy tree is nested so that the write path has to descend rather than write one
-// flat level, which is the part of it worth proving.
+// The nested buy tree forces the write path to recurse.
 func aTradingStrategyRow(name string) entities.TradingStrategy {
 	return entities.TradingStrategy{
 		OwnerID: tradingStrategyRowOwnerID, Name: name,
@@ -75,8 +70,6 @@ func TestTradingStrategyRepositorySaveAndReadBackAWholeOne(t *testing.T) {
 	require.Len(t, read.SignalSources, 2)
 	require.Len(t, read.ConditionNodes, 4)
 
-	// The nesting survives the round trip, which is the whole reason the write path
-	// descends instead of handing a tree to the store and hoping.
 	tradingStrategyDto := read.ToDto()
 	assert.Equal(t, string(vo.ConditionOperatorAnd), tradingStrategyDto.BuyCondition.Operator)
 	require.Len(t, tradingStrategyDto.BuyCondition.Conditions, 2)
@@ -85,8 +78,6 @@ func TestTradingStrategyRepositorySaveAndReadBackAWholeOne(t *testing.T) {
 	assert.Equal(t, "A", tradingStrategyDto.SellCondition.SourceLabel)
 	assert.Equal(t, string(vo.SignalSell), tradingStrategyDto.SellCondition.Signal)
 
-	// A source's parameter values come back with it, since nothing ever reads them
-	// on their own.
 	sourceValues := map[string][]float64{}
 	for _, signalSource := range tradingStrategyDto.SignalSources {
 		for _, parameterValue := range signalSource.ParameterValues {
@@ -122,16 +113,12 @@ func TestTradingStrategyRepositorySaveReplacesTheSourcesAndTreesItHadBefore(t *t
 
 	assert.Equal(t, saved.ID, rewrittenRow.ID)
 	assert.Equal(t, "死亡交叉", rewrittenRow.Name)
-	// Nothing of the old shape is left behind: a set of rules half rewritten could
-	// name a label that no longer exists, and every bot following it would then run
-	// that way every few minutes.
+	// Nothing of the old children remains after a rewrite.
 	require.Len(t, rewrittenRow.SignalSources, 1)
 	assert.Equal(t, "C", rewrittenRow.SignalSources[0].Label)
 	require.Len(t, rewrittenRow.ConditionNodes, 2)
 }
 
-// A rewrite must not be able to change hands or to forge a creation time, so the
-// columns it may touch are named one by one and neither of those two is on the list.
 func TestTradingStrategyRepositorySaveLeavesTheOwnerAndCreationAlone(t *testing.T) {
 	database := newTradingStrategyTestDatabase(t)
 	repository := persistence.NewTradingStrategyRepository(database)
@@ -152,8 +139,7 @@ func TestTradingStrategyRepositorySaveLeavesTheOwnerAndCreationAlone(t *testing.
 	assert.Equal(t, saved.CreatedAt.UTC(), rewrittenRow.CreatedAt.UTC())
 }
 
-// A rewrite may change the trading mode but never the kind: the kind is what every
-// source was checked against, and it is settled when the rules are first saved.
+// The market data kind is fixed at creation because every source was validated against it.
 func TestTradingStrategyRepositorySaveRewritesTheTradingModeButNeverTheKind(t *testing.T) {
 	database := newTradingStrategyTestDatabase(t)
 	repository := persistence.NewTradingStrategyRepository(database)
@@ -190,8 +176,6 @@ func TestTradingStrategyRepositorySaveRefusesANameThisPersonAlreadyUses(t *testi
 	assert.ErrorContains(t, secondError, "黃金交叉")
 }
 
-// Two people may each have one by the same name: a name is what its owner recognises
-// it by, and nobody recognises a stranger's.
 func TestTradingStrategyRepositoryLetsTwoPeopleUseOneName(t *testing.T) {
 	database := newTradingStrategyTestDatabase(t)
 	repository := persistence.NewTradingStrategyRepository(database)
@@ -217,8 +201,6 @@ func TestTradingStrategyRepositoryFindOneReportsTheDomainsNotFound(t *testing.T)
 
 	_, findError := repository.FindOne(t.Context(), 4242)
 
-	// Reported as the domain's own sentinel, so nobody outside has to recognise a
-	// storage library's.
 	require.ErrorIs(t, findError, domains.ErrTradingStrategyNotFound)
 }
 
@@ -234,8 +216,7 @@ func TestTradingStrategyRepositoryDeleteTakesTheSourcesAndTreesWithIt(t *testing
 	_, findError := repository.FindOne(t.Context(), saved.ID)
 	require.ErrorIs(t, findError, domains.ErrTradingStrategyNotFound)
 
-	// The cascade is declared rather than performed, so this is what proves no Go
-	// code had to remember it.
+	// The cascade is declared in the schema, not performed in Go.
 	remainingSources := int64(0)
 	require.NoError(t, database.WithContext(t.Context()).
 		Model(&entities.TradingStrategySignalSource{}).Count(&remainingSources).Error)
@@ -262,7 +243,6 @@ func TestTradingStrategyRepositoryListsByName(t *testing.T) {
 	require.Len(t, listed, 2)
 	assert.Equal(t, "死亡交叉", listed[0].Name)
 	assert.Equal(t, "黃金交叉", listed[1].Name)
-	// Everything a reader needs comes with each one, so a list is never N more reads.
 	assert.Len(t, listed[0].SignalSources, 2)
 	assert.Len(t, listed[0].ConditionNodes, 4)
 }
@@ -270,9 +250,7 @@ func TestTradingStrategyRepositoryListsByName(t *testing.T) {
 func TestTradingStrategyRepositorySaysSoWhenStorageCannotAnswer(t *testing.T) {
 	repository := persistence.NewTradingStrategyRepository(closedDatabase(t))
 
-	// Every one of these must report the failure rather than quietly answering with
-	// nothing — a list read as empty from a shut connection would tell somebody
-	// their rules are gone.
+	// A closed connection must fail loudly rather than read as an empty list.
 	_, saveError := repository.Save(t.Context(), aTradingStrategyRow("黃金交叉"))
 	assert.Error(t, saveError)
 	assert.NotErrorIs(t, saveError, domains.ErrTradingStrategyNameConflict)
@@ -294,8 +272,7 @@ func TestTradingStrategyRepositorySaveReportsAFailedRewriteAsItself(t *testing.T
 	saved, saveError := repository.Save(t.Context(), aTradingStrategyRow("黃金交叉"))
 	require.NoError(t, saveError)
 
-	// A second one, so that renaming the first onto the second's name breaks the
-	// index on the rewrite path rather than on the insert one.
+	// A second strategy, so the rename breaks the name index on the rewrite path.
 	_, secondError := repository.Save(t.Context(), aTradingStrategyRow("死亡交叉"))
 	require.NoError(t, secondError)
 

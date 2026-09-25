@@ -87,16 +87,11 @@ func TestBcryptPasswordProofProxyProveRefusesAPasswordItCouldOnlyReadTheFrontOf(
 	require.Error(t, err, "只讀得完前面一段的密碼，存成證明就是在騙它的主人")
 }
 
-// minimumRefusalEffort is well under what one derivation costs and enormously more
-// than returning early costs, so this reads as "it did the work" without pinning the
-// test to any particular machine's speed.
+// minimumRefusalEffort is far below one derivation yet far above an early return, so the test is machine-independent.
 const minimumRefusalEffort = 10 * time.Millisecond
 
 func TestBcryptPasswordProofProxyRefusingNoProofCostsWhatRefusingAWrongOneCosts(t *testing.T) {
-	// This is the whole reason a decoy exists. Somebody signing in with an address
-	// nobody holds has no proof to be checked against, and refusing that instantly
-	// answers "not registered" in the one thing nobody thought to hide: how long it
-	// took.
+	// Without the decoy, an unknown address would be refused instantly, leaking "not registered" through timing.
 	passwordProofProxy := security.NewBcryptPasswordProofProxy()
 
 	startedAt := time.Now()

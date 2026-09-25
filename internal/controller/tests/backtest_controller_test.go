@@ -22,8 +22,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// backtestRouterNow is the moment every request below is answered at, so that "up to
-// when" is decided by the request rather than by whenever the suite runs.
+// backtestRouterNow pins the request time so "up to when" doesn't depend on when the suite runs.
 var backtestRouterNow = time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC)
 
 var backtestRouterStart = time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
@@ -38,8 +37,7 @@ const backtestBody = `{
 	"positionSizingMode":"allIn"
 }`
 
-// backtestRouterStrategyScriptID is the strategy script every replay below names. It belongs to
-// the signed-in viewer and holds "the script".
+// backtestRouterStrategyScriptID belongs to the signed-in viewer.
 const backtestRouterStrategyScriptID = uint(9)
 
 type backtestRouterUnderTest struct {
@@ -91,7 +89,6 @@ func (fixture backtestRouterUnderTest) post(body string) *httptest.ResponseRecor
 	return recorder
 }
 
-// backtestRouterCandle builds a stored candle that many hours into the stretch.
 func backtestRouterCandle(hour int, closePrice string) entities.KCandle {
 	return entities.KCandle{
 		Symbol:   "BTCUSDT",
@@ -183,8 +180,7 @@ func TestRunBacktestEndpoint(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, response.Code)
 		assert.Contains(t, response.Body.String(), "初始資金")
-		// The input at fault travels as a value, so the sentence can be put beside the
-		// box the person has to change rather than at the top of the page.
+		// The faulty input is returned as a field so the message can be shown beside that input.
 		assert.Contains(t, response.Body.String(), `"field":"initialCapital"`)
 	})
 
@@ -263,8 +259,7 @@ func TestRunBacktestEndpoint(t *testing.T) {
 	})
 }
 
-// What a caller may still declare about how this replay trades, and what happens to
-// each of it. The refusal has to name the box the person types it into.
+// Leftover trading-mode fields are refused, naming the input they came from.
 func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
 	t.Run("saying spot out loud replays exactly as saying nothing does", func(t *testing.T) {
 		fixture := newBacktestRouterUnderTest(t)
@@ -354,10 +349,7 @@ func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
 	})
 
 	t.Run("a rate for being closed out is answered, not ignored", func(t *testing.T) {
-		// It only means something to an account that borrowed, so somebody who sent
-		// one was picturing a system this is not. Reading it as "said nothing" would
-		// hand them a spot report card with not a word about the thing they asked
-		// for — the one outcome this whole change exists to prevent.
+		// Only meaningful for margin accounts; ignoring it would return a spot result silent on what was asked.
 		fixture := newBacktestRouterUnderTest(t)
 
 		response := fixture.post(`{
@@ -378,18 +370,13 @@ func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
 			Field   string `json:"field"`
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-		// The same box the multiplier names: the two are filled in as one group, and
-		// the sentence says which of them this is about.
+		// Reported under leverage since the two are entered together; the message says which one is at fault.
 		assert.Equal(t, "leverage", body.Field)
 		assert.Contains(t, body.Message, "沒有維持保證金率")
 	})
 
 	t.Run("the report card has no column for being liquidated", func(t *testing.T) {
-		// Asserted as an absence, because the way this could come back is by nobody
-		// asking. The assertions that read this column were removed along with the
-		// behaviour, and a removed assertion is silence rather than a failure — the
-		// column stayed on the report card through exactly that, answering zero on
-		// every replay.
+		// Asserted as an absence so the removed column cannot silently come back.
 		fixture := newBacktestRouterUnderTest(t)
 		fixture.expectTwoCandles()
 		fixture.indicatorScriptProxy.EXPECT().
@@ -408,8 +395,7 @@ func TestRunBacktestEndpointRefusesAnythingOtherThanSpot(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 		assert.NotContains(t, body.Summary, "liquidationExitCount")
-		// The two that remain are still there, so this is not passing because the
-		// report card lost its exit counts altogether.
+		// The remaining exit counts are checked so this doesn't pass by losing them all.
 		assert.Contains(t, body.Summary, "stopLossExitCount")
 		assert.Contains(t, body.Summary, "takeProfitExitCount")
 	})

@@ -27,9 +27,8 @@ type tradingStrategyApplicationUnderTest struct {
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
 }
 
-// newTradingStrategyApplicationUnderTest wires the real domain services and the real
-// models, mocking only the outermost boundaries. Every rule about names, sources and
-// conditions is therefore exercised through this, not stubbed out behind it.
+// newTradingStrategyApplicationUnderTest wires the real domain services and models, mocking only
+// the outermost boundaries, so every name, source and condition rule runs for real.
 func newTradingStrategyApplicationUnderTest(t *testing.T) tradingStrategyApplicationUnderTest {
 	controller := gomock.NewController(t)
 
@@ -59,15 +58,15 @@ func newTradingStrategyApplicationUnderTest(t *testing.T) tradingStrategyApplica
 	}
 }
 
-// expectNoMarketplaceQuestion pins the other half of resolving a strategy script:
-// when it is the caller's own, the marketplace is never asked.
+// expectNoMarketplaceQuestion pins that resolving the caller's own script never asks the
+// marketplace.
 func (underTest tradingStrategyApplicationUnderTest) expectNoMarketplaceQuestion() {
 	underTest.publishedStrategyScriptRepository.EXPECT().
 		FindOne(gomock.Any(), gomock.Any()).Times(0)
 }
 
-// expectMarketplaceQuestion is the other case: somebody else's strategy script, where
-// the third gate is the only one that can still open.
+// expectMarketplaceQuestion covers somebody else's script, where only the marketplace gate can
+// still open.
 func (underTest tradingStrategyApplicationUnderTest) expectMarketplaceQuestion() {
 	underTest.publishedStrategyScriptRepository.EXPECT().
 		FindOne(gomock.Any(), gomock.Any()).
@@ -102,7 +101,6 @@ func aTradingStrategyWrite() dto.TradingStrategyWriteDto {
 	}
 }
 
-// storedTradingStrategy is one as it comes back out of storage.
 func storedTradingStrategy() entities.TradingStrategy {
 	return entities.TradingStrategy{
 		ID: tradingStrategyID, OwnerID: strategyBotOwnerID, Name: "黃金交叉",
@@ -168,8 +166,7 @@ func TestTradingStrategyApplicationCreateRefusesAScriptThisPersonCannotSee(t *te
 	_, createError := underTest.tradingStrategyApplication.CreateTradingStrategy(
 		context.Background(), strategyBotOwnerID, aTradingStrategyWrite())
 
-	// The same sentence as naming a script that does not exist, which is what stops
-	// a source becoming a way to probe for other people's scripts.
+	// Same sentence as a nonexistent script, so a source cannot probe for other people's scripts.
 	require.ErrorIs(t, createError, domains.ErrStrategyScriptNotFound)
 }
 
@@ -188,8 +185,7 @@ func TestTradingStrategyApplicationCreateRefusesAValueOnAKnobNobodyDeclared(t *t
 	_, createError := underTest.tradingStrategyApplication.CreateTradingStrategy(
 		context.Background(), strategyBotOwnerID, writeDto)
 
-	// Caught now rather than at three in the morning, when the same mistake would
-	// come back as a script failure and stop every bot following these rules.
+	// Caught at save time rather than as a script failure that would stop every following bot.
 	require.ErrorIs(t, createError, domains.ErrTradingStrategyValidation)
 	assert.ErrorContains(t, createError, "沒有宣告這個名字")
 }
@@ -244,16 +240,15 @@ func TestTradingStrategyApplicationUpdateRefusesWhileABotFollowingItIsRunning(t 
 		context.Background(), strategyBotOwnerID, writeDto)
 
 	require.ErrorIs(t, updateError, domains.ErrTradingStrategyBotRunning)
-	// The refusal names the bot to go and stop; a count alone would leave somebody
-	// opening every bot they own to find out which one.
+	// The refusal names the bot to stop, not just a count.
 	assert.ErrorContains(t, updateError, "幣安盯盤")
 }
 
 func TestTradingStrategyApplicationUpdateGoesAheadWhenEveryFollowingBotIsStopped(t *testing.T) {
 	underTest := newTradingStrategyApplicationUnderTest(t)
 
-	// Read twice: once here, to settle that these are this person's before anybody
-	// is told about the bots, and once inside the service that does the writing.
+	// Read twice: here to confirm ownership before revealing bots, and again inside the writing
+	// service.
 	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
 		Return(storedTradingStrategy(), nil).Times(2)
 	underTest.expectFollowingBots(aBotFollowingTheRules("已停止的", vo.StrategyBotStopped))
@@ -269,8 +264,7 @@ func TestTradingStrategyApplicationUpdateGoesAheadWhenEveryFollowingBotIsStopped
 	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
 		context.Background(), strategyBotOwnerID, writeDto)
 
-	// A stopped bot picks the new rules up the next time it is started, and that is
-	// the whole point of several bots sharing one set.
+	// A stopped bot picks up the new rules on its next start.
 	require.NoError(t, updateError)
 }
 
@@ -414,16 +408,15 @@ func TestTradingStrategyApplicationReportsStorageThatCouldNotAnswer(t *testing.T
 			underTest := newTradingStrategyApplicationUnderTest(t)
 			testCase.arrange(underTest)
 
-			// Never quietly answered with nothing: a delete that went ahead because
-			// "no bots came back" would break every bot that was actually there.
+			// A failed bot lookup must not be read as "no bots", or the delete would break the bots
+			// that exist.
 			assert.Error(t, testCase.act(underTest))
 		})
 	}
 }
 
-// aMixedCoarsenessTradingStrategy is one saved before the rule existed: two sources
-// on two different clocks. Nothing goes and fixes it, so it is still exactly this
-// when somebody reads it back.
+// aMixedCoarsenessTradingStrategy predates the coarseness rule: two sources on different clocks,
+// never migrated.
 func aMixedCoarsenessTradingStrategy() entities.TradingStrategy {
 	tradingStrategy := storedTradingStrategy()
 	tradingStrategy.SignalSources = append(tradingStrategy.SignalSources,
@@ -435,9 +428,8 @@ func aMixedCoarsenessTradingStrategy() entities.TradingStrategy {
 	return tradingStrategy
 }
 
-// Nothing rewrites anybody's stored rules. One saved before the rule existed reads
-// back exactly as it was left — changing it quietly would be far more expensive than
-// a refusal, because nobody would find out.
+// Rules saved before the coarseness rule read back unchanged; silently fixing them would go
+// unnoticed.
 func TestTradingStrategyApplicationReadsAMixedOneBackUnchanged(t *testing.T) {
 	underTest := newTradingStrategyApplicationUnderTest(t)
 	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
@@ -452,9 +444,8 @@ func TestTradingStrategyApplicationReadsAMixedOneBackUnchanged(t *testing.T) {
 	assert.Equal(t, "5m", tradingStrategyDto.SignalSources[1].AggregationInterval)
 }
 
-// Rewriting is where a mixed one is asked to be reconciled, and the ask is the same
-// whether the person changed the coarsenesses or only the name — the rule is about
-// what is being saved, not about what was edited.
+// Any rewrite of a mixed one must reconcile it, even a name-only edit, because the rule applies to
+// what is saved.
 func TestTradingStrategyApplicationUpdateRefusesAMixedOneEvenWhenOnlyTheNameChanged(t *testing.T) {
 	underTest := newTradingStrategyApplicationUnderTest(t)
 	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
@@ -480,8 +471,7 @@ func TestTradingStrategyApplicationUpdateRefusesAMixedOneEvenWhenOnlyTheNameChan
 	assert.ErrorContains(t, updateError, "5m")
 }
 
-// Making them the same is all it takes; nothing else about the trading strategy has
-// to be touched.
+// Making the coarsenesses match is all it takes.
 func TestTradingStrategyApplicationUpdateAcceptsAMixedOneOnceItIsReconciled(t *testing.T) {
 	underTest := newTradingStrategyApplicationUnderTest(t)
 	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).

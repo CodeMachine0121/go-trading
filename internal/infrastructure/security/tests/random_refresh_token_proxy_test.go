@@ -8,13 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// digestLength is SHA-256 written in hexadecimal. It is fixed whatever went in,
-// which is what lets the column that stores it be a fixed width.
+// digestLength is hex SHA-256, fixed regardless of input.
 const digestLength = 64
 
-// minimumRefreshTokenLength is what the standard library's token generator produces
-// today, carrying at least 128 bits of randomness. The requirement is "cannot be
-// guessed", not any particular count — so this is a floor, not an equality.
+// minimumRefreshTokenLength is a floor (at least 128 bits of randomness), not an exact length.
 const minimumRefreshTokenLength = 26
 
 func TestRandomRefreshTokenProxyMintNeverHandsBackTheDigestAsTheValue(t *testing.T) {
@@ -43,8 +40,6 @@ func TestRandomRefreshTokenProxyMintNeverRepeatsItself(t *testing.T) {
 }
 
 func TestRandomRefreshTokenProxyDigestOfAgreesWithWhatWasMinted(t *testing.T) {
-	// If minting and looking up ever derived differently, every holder would be
-	// locked out at the exact moment they tried to renew.
 	refreshTokenProxy := security.NewRandomRefreshTokenProxy()
 
 	refreshToken, err := refreshTokenProxy.Mint()
@@ -54,9 +49,7 @@ func TestRandomRefreshTokenProxyDigestOfAgreesWithWhatWasMinted(t *testing.T) {
 }
 
 func TestRandomRefreshTokenProxyDigestOfIsTheSameEveryTime(t *testing.T) {
-	// The opposite of a password proof, and deliberately so: a session has no
-	// address to be looked up by — the proof is the address — so the derivation has
-	// to be repeatable or nothing could be found at all.
+	// Unlike a password proof, the digest must be deterministic so the session can be looked up by it.
 	refreshTokenProxy := security.NewRandomRefreshTokenProxy()
 
 	assert.Equal(t, refreshTokenProxy.DigestOf("a-refresh-token"),

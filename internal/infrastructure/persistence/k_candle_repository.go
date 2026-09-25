@@ -12,22 +12,15 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// preallocationCeiling bounds how much room a read reserves before it has seen a
-// single row. A read limit is an upper bound on what the data *could* hold, and an
-// aggregated query's bound reaches into the hundreds of thousands; reserving that up
-// front would let one request over an empty database claim tens of megabytes. The
-// slice still grows to hold whatever actually arrives — this only stops the guess
-// from being the expensive part.
+// preallocationCeiling caps upfront slice capacity, since aggregated read limits can reach hundreds of thousands even over an empty table.
 const preallocationCeiling = 1000
 
-// figureColumns are the columns a write always sets, listed explicitly so that a
-// figure of zero is stored rather than skipped as an empty value.
+// figureColumns are named explicitly so zero figures are written rather than skipped.
 var figureColumns = []string{
 	"open", "high", "low", "close",
 	"volume", "quote_volume", "taker_buy_base_volume", "taker_buy_quote_volume",
 }
 
-// KCandleRepository stores K candles in PostgreSQL.
 type KCandleRepository struct {
 	database *gorm.DB
 }
@@ -36,8 +29,6 @@ func NewKCandleRepository(database *gorm.DB) *KCandleRepository {
 	return &KCandleRepository{database: database}
 }
 
-// Save stores a K candle, replacing the figures of any candle already held for the
-// same trading symbol and open time.
 func (kCandleRepository *KCandleRepository) Save(
 	executionContext context.Context, kCandle entities.KCandle,
 ) (entities.KCandle, error) {
@@ -54,16 +45,7 @@ func (kCandleRepository *KCandleRepository) Save(
 	return kCandle, nil
 }
 
-// SaveAllIfAbsent stores every K candle nothing is held for yet, in one statement,
-// and says how many it stored.
-//
-// One statement rather than one per candle: a day of a round-the-clock market is over
-// a thousand of them, and four years is two million — at which point the round trips
-// are most of what the run costs.
-//
-// An empty batch is answered without touching the store at all, because the driver
-// refuses a statement with no rows and a day the market was shut on legitimately
-// produces one.
+// SaveAllIfAbsent inserts new candles in one statement (per-row round trips dominate multi-year backfills) and returns the count stored; an empty input skips the store because the driver rejects empty inserts.
 func (kCandleRepository *KCandleRepository) SaveAllIfAbsent(
 	executionContext context.Context, kCandles []entities.KCandle,
 ) (int, error) {
@@ -84,8 +66,7 @@ func (kCandleRepository *KCandleRepository) SaveAllIfAbsent(
 	return int(result.RowsAffected), nil
 }
 
-// CountInRange is how many K candles are held for this symbol across the stretch,
-// both ends included.
+// CountInRange counts candles in the inclusive range.
 func (kCandleRepository *KCandleRepository) CountInRange(
 	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
 ) (int, error) {
@@ -104,8 +85,6 @@ func (kCandleRepository *KCandleRepository) CountInRange(
 	return int(heldCount), nil
 }
 
-// Update replaces the figures of an existing K candle, reporting not found when the
-// trading symbol and open time name no candle.
 func (kCandleRepository *KCandleRepository) Update(
 	executionContext context.Context, kCandle entities.KCandle,
 ) (entities.KCandle, error) {
@@ -124,7 +103,6 @@ func (kCandleRepository *KCandleRepository) Update(
 	return kCandle, nil
 }
 
-// FindOne returns the K candle named by trading symbol and open time.
 func (kCandleRepository *KCandleRepository) FindOne(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) (entities.KCandle, error) {
@@ -143,8 +121,7 @@ func (kCandleRepository *KCandleRepository) FindOne(
 	return kCandle, nil
 }
 
-// FindInRange returns at most limit K candles whose open time falls inside the
-// query's range, both ends included, earliest first.
+// FindInRange returns at most limit candles in the inclusive range, earliest first.
 func (kCandleRepository *KCandleRepository) FindInRange(
 	executionContext context.Context, query domains.KCandleQueryDomain, limit int,
 ) ([]entities.KCandle, error) {
@@ -166,10 +143,7 @@ func (kCandleRepository *KCandleRepository) FindInRange(
 	return kCandles, nil
 }
 
-// FindDistinctSymbols returns every trading symbol that has at least one stored K
-// candle, each once, ordered by name. Both the de-duplication and the ordering are
-// the database's job: doing either of them again in Go would give the two places a
-// chance to disagree.
+// FindDistinctSymbols lets the database both de-duplicate and order.
 func (kCandleRepository *KCandleRepository) FindDistinctSymbols(executionContext context.Context) ([]string, error) {
 	symbols := make([]string, 0)
 
@@ -185,10 +159,7 @@ func (kCandleRepository *KCandleRepository) FindDistinctSymbols(executionContext
 	return symbols, nil
 }
 
-// FindLatest returns at most limit K candles for the trading symbol, newest first.
-// The order is deliberately the opposite of FindInRange: reading "the latest few"
-// is a descending query, and turning the result the right way round is the
-// caller's business rule, not this repository's.
+// FindLatest returns at most limit candles, newest first; reversing is the caller's concern.
 func (kCandleRepository *KCandleRepository) FindLatest(
 	executionContext context.Context, symbol string, limit int,
 ) ([]entities.KCandle, error) {
@@ -206,10 +177,7 @@ func (kCandleRepository *KCandleRepository) FindLatest(
 	return kCandles, nil
 }
 
-// FindLatestBefore returns at most limit K candles for the trading symbol that
-// opened strictly before the cut-off, newest first. Strictly before is what makes a
-// cut-off on a bucket edge read the bucket that ends there and not the one that
-// starts there.
+// FindLatestBefore returns at most limit candles strictly before the cut-off, newest first, so a cut-off on a bucket edge reads the bucket ending there.
 func (kCandleRepository *KCandleRepository) FindLatestBefore(
 	executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
 ) ([]entities.KCandle, error) {
@@ -230,8 +198,6 @@ func (kCandleRepository *KCandleRepository) FindLatestBefore(
 	return kCandles, nil
 }
 
-// Delete removes the K candle named by trading symbol and open time, reporting not
-// found when it names no candle.
 func (kCandleRepository *KCandleRepository) Delete(
 	executionContext context.Context, symbol string, openTime time.Time,
 ) error {

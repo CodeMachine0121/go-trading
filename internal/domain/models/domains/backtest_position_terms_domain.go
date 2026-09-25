@@ -6,32 +6,15 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestPositionTermsDomain is the terms one replay takes a position on: how much of
-// the cash it stakes, what the venue charges, and where it gets out.
-//
-// The three arrived one per slice, and each arrival added a parameter to three
-// constructors and a field to three models — because every one of them is only ever
-// asked the same single question: *given this much cash, open a position here.* Asked
-// together, they answer it once, and the account goes back to holding money rather
-// than to knowing how a position is priced.
-//
-// Its zero value is the terms every replay had before any of them existed: stake
-// everything, pay nothing, simulate no exits. That falls out of the three zero values
-// rather than being stated here, which is why a replay built without terms still
-// walks.
-//
-// **This is where the next term goes.** A per-order minimum fee, a slippage model —
-// each is another thing a position is taken on, and each lands as a field here plus a
-// line in OpenFor. None of them touches the account, the walk, or any signature.
+// BacktestPositionTermsDomain bundles sizing, transaction costs and exit levels to answer one question: open a position here with this much cash.
+// Its zero value stakes everything, pays nothing and simulates no exits; new terms (e.g. minimum fees) belong here and in OpenFor.
 type BacktestPositionTermsDomain struct {
 	sizing           PositionSizingDomain
 	exitLevels       BacktestExitLevelsDomain
 	transactionCosts BacktestTransactionCostsDomain
 }
 
-// NewBacktestPositionTermsDomain gathers the three. It checks nothing, deliberately:
-// each of them refused what it had to refuse when it was built, and a second opinion
-// here would be a second place for the same rule to live.
+// NewBacktestPositionTermsDomain validates nothing; each part validated itself when built.
 func NewBacktestPositionTermsDomain(
 	sizing PositionSizingDomain,
 	exitLevels BacktestExitLevelsDomain,
@@ -44,32 +27,13 @@ func NewBacktestPositionTermsDomain(
 	}
 }
 
-// NeverOpensAnything says whether these terms could never put anything down, whatever
-// the account happens to hold at the time.
-//
-// It takes nothing because the answer depends only on the terms themselves — which is
-// the whole point of them being one thing. Its caller is a replay being validated, and
-// what it does with a yes is refuse at the door: terms that can never open a position
-// produce a report card of a strategy that never traded, and every word on that screen
-// points at the algorithm instead of at the two numbers that caused it.
+// NeverOpensAnything reports terms that could never open a position, so validation can refuse them upfront.
 func (backtestPositionTermsDomain BacktestPositionTermsDomain) NeverOpensAnything() bool {
 	return backtestPositionTermsDomain.sizing.NeverStakesUnder(
 		backtestPositionTermsDomain.transactionCosts)
 }
 
-// OpenFor is the position these terms take on at that price with that much cash on
-// hand — or nothing, when the cash will not stretch to one.
-//
-// Nothing is not an error. A stake the account cannot currently cover means this one
-// opening does not happen; the replay carries on and may well afford the next. A price
-// of zero means the same: there is nothing to buy in a market priced at nothing, and
-// the alternative — dividing anyway — ends a whole replay over one bad candle.
-//
-// It is one call rather than "work out the stake, then open one that big" because the
-// two halves are one decision. Given separately, a caller could take the stake and
-// open something else, or take it and forget to check it was affordable — and the
-// account, which is the caller, has no business knowing that a stake is a thing that
-// gets worked out at all.
+// OpenFor returns false when the cash cannot cover a stake or the price is zero; the replay just carries on.
 func (backtestPositionTermsDomain BacktestPositionTermsDomain) OpenFor(
 	entryTime time.Time,
 	entryPrice decimal.Decimal,

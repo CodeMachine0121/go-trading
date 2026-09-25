@@ -8,11 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestAccountDomain is what a replay is holding at any moment: the cash not
-// staked, the one position that may be open, and the round trips already finished.
-//
-// Holding at most one position is not a check this makes but the shape it has — there
-// is one position field, so there is nowhere for a second one to go.
+// BacktestAccountDomain holds a replay's free cash, at most one open position (by shape, not by check) and the finished round trips.
 type BacktestAccountDomain struct {
 	positionTerms     BacktestPositionTermsDomain
 	availableCash     decimal.Decimal
@@ -33,16 +29,8 @@ func NewBacktestAccountDomain(
 	}
 }
 
-// ApplyExitLevels closes the open position if this candle reached one of the two
-// prices it settled on at entry. A replay given no distances does nothing here at all.
-//
-// It is called before the candle's own signal, and that ordering carries two rules on
-// its own. A position opened on a candle is first examined on the next one, because
-// this ran before it existed — so "the entry candle cannot stop itself out" needs no
-// check anywhere. And a position stopped out here still hears that candle's signal
-// afterwards, which is right: the stop was reached during the bar and the close came
-// after it. Swallowing the signal as well would let one stop eat an entry that had
-// nothing to do with it.
+// ApplyExitLevels closes the open position if this candle reached its stop or target, and is a no-op without distances.
+// It runs before the candle's signal, so an entry candle cannot stop itself out and a stopped-out candle still hears its signal.
 func (backtestAccountDomain *BacktestAccountDomain) ApplyExitLevels(
 	kCandle vo.KCandleVo, candleTime time.Time,
 ) {
@@ -58,26 +46,12 @@ func (backtestAccountDomain *BacktestAccountDomain) ApplyExitLevels(
 	backtestAccountDomain.settleOpenPosition(closedTrade)
 }
 
-// Apply carries out one candle's opinion at that candle's fill price.
-//
-// It is one method rather than "close this, then open that" because what to let go of
-// and what to take on is a single decision, and a caller given the two halves
-// separately could forget the second one.
-//
-// What the opinion asks for is the signal's own answer, not this method's — see
-// SignalDomain.TargetPosition. Reading it as a target rather than as a signal is what
-// keeps the walk below free of any branch about which word arrived.
-//
-// An opinion asking for what is already held does nothing at all: no trade, no
-// counted opening, no cash moved. Hearing "buy" twice is hearing it once, and so is
-// hearing "sell" with nothing to sell.
+// Apply carries out one candle's target position (see SignalDomain.TargetPosition) at the fill price; asking for what is already held does nothing.
 func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	signal SignalDomain, candleTime time.Time, fillPrice decimal.Decimal,
 ) {
 	targetPosition := signal.TargetPosition()
-	// Having no opinion is not the same as asking for cash, and this is the line that
-	// keeps them apart: an unchanged target leaves an open position alone, where a
-	// flat one would go on to close it.
+	// An unchanged target must leave an open position alone, whereas a flat target closes it.
 	if targetPosition == vo.TargetPositionUnchanged {
 		return
 	}
@@ -94,28 +68,18 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 				candleTime, fillPrice, vo.TradeExitReasonSignal))
 	}
 
-	// Cash was what it asked for, and cash is what it now holds. This is where a sell
-	// stops, and the only reason the opening below is not reached by every target.
 	if !wantsPosition {
 		return
 	}
 
-	// An opening the account cannot afford simply does not happen: the replay carries
-	// on flat, nothing is counted and nothing is reported. A strategy script that
-	// outgrows its own account is behaving, not failing.
-	//
-	// How big it would have been, whether that was affordable, what the venue charges
-	// and where it gets out are all one answer from the terms. The account holds money
-	// and a position; it has no business knowing that a stake is a thing that gets
-	// worked out.
+	// An unaffordable opening is silently skipped; sizing, costs and exit levels all come from the position terms.
 	openedPosition, isOpened := backtestAccountDomain.positionTerms.OpenFor(
 		candleTime, fillPrice, backtestAccountDomain.availableCash)
 	if !isOpened {
 		return
 	}
 
-	// The stake and what it cost to put it down leave together. They are one
-	// withdrawal in two parts, and the terms have already guaranteed both fit.
+	// Stake and entry cost are withdrawn together; the terms already guaranteed both fit.
 	backtestAccountDomain.availableCash = backtestAccountDomain.availableCash.
 		Sub(openedPosition.Stake()).Sub(openedPosition.EntryCost())
 	backtestAccountDomain.openPosition = openedPosition
@@ -123,17 +87,7 @@ func (backtestAccountDomain *BacktestAccountDomain) Apply(
 	backtestAccountDomain.positionOpenCount++
 }
 
-// settleOpenPosition is the whole of letting go of a position: the trade joins the
-// list, the cash it is worth comes back, and the account is flat again.
-//
-// It is a method rather than four lines written twice because both ways out — the
-// signal asking for something else, and a candle reaching a level — have to do all
-// four. One of two copies missing the cash line is money appearing or vanishing, and
-// nothing downstream would report it as anything but a very good or very bad strategy.
-//
-// How much comes back is the position's answer rather than this one's, so that "what
-// one position is worth on the way out" lives in one model — the day a way out answers
-// differently, it lands there instead of adding a case to this method.
+// settleOpenPosition is shared by both exit paths so the cash return can never be forgotten in one of them.
 func (backtestAccountDomain *BacktestAccountDomain) settleOpenPosition(
 	closedTrade vo.ClosedTradeVo,
 ) {
@@ -144,8 +98,7 @@ func (backtestAccountDomain *BacktestAccountDomain) settleOpenPosition(
 	backtestAccountDomain.hasOpenPosition = false
 }
 
-// EquityAt is what everything on hand is worth at that price: the cash, plus any open
-// position valued as though it were closed there.
+// EquityAt values any open position as if closed at price.
 func (backtestAccountDomain *BacktestAccountDomain) EquityAt(
 	price decimal.Decimal,
 ) decimal.Decimal {
@@ -157,9 +110,7 @@ func (backtestAccountDomain *BacktestAccountDomain) EquityAt(
 		backtestAccountDomain.openPosition.ValueAt(price))
 }
 
-// ClosedTradeDtos are the round trips that finished, earliest first, in the shape they
-// leave the domain in. A position still open is not among them: it has no exit to
-// report.
+// ClosedTradeDtos returns finished round trips earliest first, excluding any open position.
 func (backtestAccountDomain *BacktestAccountDomain) ClosedTradeDtos() []dto.ClosedTradeDto {
 	closedTradeDtos := make([]dto.ClosedTradeDto, 0, len(backtestAccountDomain.closedTrades))
 	for _, closedTrade := range backtestAccountDomain.closedTrades {
@@ -169,11 +120,7 @@ func (backtestAccountDomain *BacktestAccountDomain) ClosedTradeDtos() []dto.Clos
 	return closedTradeDtos
 }
 
-// ExitCountFor is how many finished round trips ended that way.
-//
-// It is counted off the trade list rather than tallied as it goes, for the reason the
-// win rate is: a counter is a second place the same fact lives, and the day it
-// disagrees with the list nobody can say which one to believe.
+// ExitCountFor is derived from the trade list rather than a separate counter, so it can never disagree with it.
 func (backtestAccountDomain *BacktestAccountDomain) ExitCountFor(
 	exitReason vo.TradeExitReasonVo,
 ) int {
@@ -187,16 +134,7 @@ func (backtestAccountDomain *BacktestAccountDomain) ExitCountFor(
 	return exitCount
 }
 
-// TotalTransactionCost is everything paid for the act of trading so far: both charges
-// on every finished round trip, plus the entry charge on a position still open.
-//
-// A position still open counts because that money is already gone — it left when the
-// position was opened. What it will cost to close is not here, because it has not
-// been paid and this figure only ever reports money that has moved.
-//
-// It is added up off the trade list rather than tallied as it goes, for the reason the
-// win rate is: a running total is a second place the same fact lives, and the day it
-// disagrees with the list nobody can say which one to believe.
+// TotalTransactionCost sums both charges on finished trades plus the already-paid entry charge of an open position, derived from the trade list.
 func (backtestAccountDomain *BacktestAccountDomain) TotalTransactionCost() decimal.Decimal {
 	totalTransactionCost := decimal.Zero
 	for _, closedTrade := range backtestAccountDomain.closedTrades {
@@ -212,19 +150,12 @@ func (backtestAccountDomain *BacktestAccountDomain) TotalTransactionCost() decim
 	return totalTransactionCost
 }
 
-// PositionOpenCount is how many openings actually happened. One that was skipped for
-// want of cash is not one of them, and the position still open at the end is.
+// PositionOpenCount excludes openings skipped for lack of cash.
 func (backtestAccountDomain *BacktestAccountDomain) PositionOpenCount() int {
 	return backtestAccountDomain.positionOpenCount
 }
 
-// WinRate is the share of finished round trips that made money, and whether it means
-// anything at all.
-//
-// Nothing finished and every trade lost are two different statements. Answering the
-// first with a rate of zero would make them look like one, so the second answer here
-// is what tells them apart — and it is answered together with the rate, because a
-// caller that had to ask twice could use the number without ever asking.
+// WinRate returns false when no trade has finished, so "nothing finished" is distinguishable from "every trade lost".
 func (backtestAccountDomain *BacktestAccountDomain) WinRate() (float64, bool) {
 	if len(backtestAccountDomain.closedTrades) == 0 {
 		return 0, false
@@ -240,8 +171,7 @@ func (backtestAccountDomain *BacktestAccountDomain) WinRate() (float64, bool) {
 	return float64(winCount) / float64(len(backtestAccountDomain.closedTrades)), true
 }
 
-// TradeStatisticsDto is what the finished round trips say about a short-term
-// strategy. The position still open is not among them: it has not been closed.
+// TradeStatisticsDto summarises finished round trips only.
 func (backtestAccountDomain *BacktestAccountDomain) TradeStatisticsDto() dto.BacktestTradeStatisticsDto {
 	outcomes := make([]vo.TradeOutcomeVo, 0, len(backtestAccountDomain.closedTrades))
 	for _, closedTrade := range backtestAccountDomain.closedTrades {

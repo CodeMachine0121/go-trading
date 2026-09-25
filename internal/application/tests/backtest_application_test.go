@@ -19,14 +19,12 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// backtestNow sits well after every stretch replayed below, so nothing is refused
-// merely for reaching into an hour that has not finished.
+// backtestNow sits well after every replayed stretch, so no replay is refused for reaching into an
+// unfinished hour.
 var backtestNow = time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC)
 
 var backtestStart = time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
 
-// A replay now names an algorithm rather than carrying one. These two say whose
-// strategy script is being replayed and which; the replay itself is indifferent to both.
 const (
 	backtestViewerID         = uint(1)
 	backtestStrategyScriptID = uint(9)
@@ -38,8 +36,8 @@ type backtestUnderTest struct {
 	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
 }
 
-// newBacktestUnderTest wires the real domain service and real domain models, mocking
-// only the outermost boundaries: storage and script execution.
+// newBacktestUnderTest wires the real domain service and models, mocking only storage and script
+// execution.
 func newBacktestUnderTest(t *testing.T) backtestUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -89,8 +87,8 @@ func storedHourlyCandle(hour int, closePrice string) entities.KCandle {
 	}
 }
 
-// signalsSaying builds the per-candle results a signal-kind script would have
-// produced: one signal per candle, filed under the well-known key.
+// signalsSaying builds one signal per candle, filed under the well-known key, as a signal-kind
+// script would.
 func signalsSaying(signals ...vo.SignalVo) []map[string]vo.IndicatorValueVo {
 	perCandleIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(signals))
 	for _, signal := range signals {
@@ -187,9 +185,8 @@ func TestRunBacktest(t *testing.T) {
 		assert.True(t, decimal.NewFromInt(1000).Equal(result.ClosedTrades[0].Profit),
 			"profit was %s", result.ClosedTrades[0].Profit)
 		assert.Equal(t, 1, result.Summary.PositionOpenCount)
-		// One script cannot disagree with itself, so this is zero for every replay of
-		// a strategy script — the number only ever says something about a trading
-		// strategy whose two condition trees both held.
+		// One script cannot disagree with itself, so conflicts are always zero when replaying a
+		// strategy script.
 		assert.Equal(t, 0, result.Summary.ConflictedCandleCount)
 	})
 
@@ -298,9 +295,7 @@ func TestRunBacktest(t *testing.T) {
 }
 
 func TestRunBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
-	// The gates are shared by construction — both use cases resolve through the
-	// same service — but shared by construction is something a reader works out,
-	// not something the suite has ever seen happen on this path.
+	// Both use cases share the gates through the same service; this proves it on this path.
 	t.Run("somebody else's published strategy script replays", func(t *testing.T) {
 		fixture := newBacktestGateUnderTest(t, true)
 		fixture.kCandleRepository.EXPECT().
@@ -333,8 +328,8 @@ func TestRunBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 // backtestStrangerID is somebody who does not own the strategy script being replayed.
 const backtestStrangerID = uint(2)
 
-// newBacktestGateUnderTest replays a strategy script belonging to somebody else, which is
-// on the marketplace or not as the argument says.
+// newBacktestGateUnderTest replays somebody else's strategy script, published to the marketplace or
+// not per the argument.
 func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest {
 	controller := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -367,9 +362,7 @@ func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest 
 	}
 }
 
-// namingStrategyScript is how these tests say "run the saved strategy script with this
-// identifier". Building the subject model here rather than passing a bare number
-// keeps the tests speaking the same language the callers do.
+// namingStrategyScript runs the saved strategy script with this identifier.
 func namingStrategyScript(t *testing.T, strategyScriptID uint) domains.RunSubjectDomain {
 	t.Helper()
 

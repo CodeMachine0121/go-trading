@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// eatsSixteenGigabytesScript asks for far more memory than any compartment is allowed,
-// all at once — the one thing the allowance cannot stop in time.
+// eatsSixteenGigabytesScript allocates far beyond any cap in one go, which the allowance cannot stop in time.
 const eatsSixteenGigabytesScript = `
 package main
 
@@ -26,12 +25,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 }
 `
 
-// requireMemoryCap skips a case that depends on the operating system enforcing the
-// memory cap faithfully. That is only promised on Linux, which is what the service runs
-// on. It is also skipped under the race detector: the detector keeps shadow memory that
-// counts against the cap several times over, so neither what fits nor how running out
-// is reported would be what the shipped binary sees. The pipeline proves these cases in
-// a run of its own without the detector.
+// requireMemoryCap skips unless on Linux (the only OS the cap is promised on) and without the race detector, whose shadow memory distorts the cap.
 func requireMemoryCap(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS != "linux" {
@@ -104,8 +98,7 @@ func TestCompartmentStopsAScriptThatEatsPastTheMemoryCap(t *testing.T) {
 func TestCompartmentLetsAScriptUseMemoryWithinTheCap(t *testing.T) {
 	requireMemoryCap(t)
 
-	// Fifty megabytes, every page of it actually written, so the memory is really
-	// held rather than merely promised.
+	// Every page is written so the memory is actually held.
 	const usesFiftyMegabytesScript = `
 package main
 
@@ -158,9 +151,7 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 	assert.Contains(t, timeoutError.Error(), "未能算完")
 	require.ErrorIs(t, callerGoneError, domains.ErrIndicatorScriptFailed)
 	assert.Contains(t, callerGoneError.Error(), "發動它的請求已經結束")
-	// Every compartment has been waited for, so none of the watching this process
-	// did on its behalf is still going. Counted from this goroutine, because any
-	// helper that polls from one of its own would be counted along with the rest.
+	// Counted from this goroutine so a polling helper's own goroutine is not included.
 	settleBy := time.Now().Add(2 * time.Second)
 	for runtime.NumGoroutine() > goroutinesBefore && time.Now().Before(settleBy) {
 		time.Sleep(50 * time.Millisecond)
@@ -237,8 +228,6 @@ func TestCompartmentReportsAnyCompartmentThatGoesDownAsTheScriptFailing(t *testi
 			expectedReason: "算式隔間意外結束",
 		},
 		{
-			// How a compartment that ran into the cap goes down, whatever system the
-			// tests happen to run on: the runtime says so on its way out.
 			name:           "a compartment that went down for want of memory",
 			workerCommand:  []string{"/bin/sh", "-c", "echo 'fatal error: runtime: out of memory' >&2; exit 2"},
 			expectedReason: "超出記憶體上限（512MB）",
@@ -249,8 +238,7 @@ func TestCompartmentReportsAnyCompartmentThatGoesDownAsTheScriptFailing(t *testi
 		t.Run(testCase.name, func(t *testing.T) {
 			isolation := isolationWith(2 * time.Second)
 			isolation.WorkerCommand = testCase.workerCommand
-			// Named outright, since the cap is left off under the race detector and
-			// the report is expected to state it.
+			// Set explicitly because the harness leaves the cap off under the race detector.
 			isolation.MemoryLimitBytes = testMemoryLimitBytes
 
 			indicatorValues, err := script.NewYaegiIndicatorScriptProxy(isolation).Execute(
@@ -265,8 +253,7 @@ func TestCompartmentReportsAnyCompartmentThatGoesDownAsTheScriptFailing(t *testi
 }
 
 func TestCompartmentStopsWaitingForACompartmentThatNeverAnswers(t *testing.T) {
-	// A child that never says anything at all — not even that its script ran out of
-	// time — is waited for no longer than the script's allowance plus a grace period.
+	// A silent child is waited for no longer than the allowance plus the grace period.
 	isolation := isolationWith(100 * time.Millisecond)
 	isolation.WorkerCommand = []string{"/bin/sh", "-c", "sleep 60"}
 

@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// buildBucketKCandle names only the figures a merging rule reads; everything else is
-// filled with a value that cannot be mistaken for one under test.
+// buildBucketKCandle fills unread figures with values that can't be mistaken for ones under test.
 func buildBucketKCandle(
 	t *testing.T, openTime string, open string, high string, low string, closePrice string, volume string,
 ) entities.KCandle {
@@ -52,9 +51,7 @@ func TestKCandleBucketDomainMergesTheCandlesItHolds(t *testing.T) {
 }
 
 func TestKCandleBucketDomainKeepsUnreportedFiguresUnreported(t *testing.T) {
-	// A market that publishes no turnover publishes none at any coarseness. Merging
-	// its candles into an hourly one must not hand back a confident zero, because a
-	// zero there would be read as "an hour in which nothing was turned over".
+	// A market without turnover must merge to absent turnover, not a confident zero.
 	unreportingKCandle := func(openTime string, volume string) entities.KCandle {
 		kCandle := buildBucketKCandle(t, openTime, "100", "130", "95", "120", volume)
 		kCandle.QuoteVolume = decimal.NullDecimal{}
@@ -76,7 +73,6 @@ func TestKCandleBucketDomainKeepsUnreportedFiguresUnreported(t *testing.T) {
 	assert.False(t, mergedKCandle.QuoteVolume.Valid)
 	assert.False(t, mergedKCandle.TakerBuyBaseVolume.Valid)
 	assert.False(t, mergedKCandle.TakerBuyQuoteVolume.Valid)
-	// The figures the market does report are merged exactly as before.
 	assert.True(t, decimal.RequireFromString("10").Equal(mergedKCandle.Volume))
 }
 
@@ -131,8 +127,7 @@ func TestKCandleBucketDomainToVoIsTheSameMergeInTheShapeAScriptSees(t *testing.T
 }
 
 func TestKCandleBucketDomainToVoCarriesTheBucketsOpenTimeAsSeconds(t *testing.T) {
-	// A script is handed seconds rather than a time value, so that it cannot reach
-	// the clock through one. The seconds are the bucket's own start, not a candle's.
+	// Scripts get the bucket's start as seconds so they can't reach the clock through a time value.
 	bucketStart := mustParseTime(t, "2026-09-02T10:00:00Z")
 	bucketDomain := domains.NewKCandleBucketDomain(bucketStart, []entities.KCandle{
 		buildBucketKCandle(t, "2026-09-02T10:35:00Z", "100", "110", "90", "105", "1"),

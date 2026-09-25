@@ -15,11 +15,9 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// The two people on the marketplace. strategyScriptOwnerID owns things; marketplaceGuestID
-// only ever looks at them.
+// strategyScriptOwnerID owns things; marketplaceGuestID only looks at them.
 const marketplaceGuestID = uint(2)
 
-// marketplaceNow is when every publication and adoption below happens.
 var marketplaceNow = time.Date(2026, 9, 10, 8, 0, 0, 0, time.UTC)
 
 type marketplaceUnderTest struct {
@@ -29,8 +27,8 @@ type marketplaceUnderTest struct {
 	strategyScriptAdoptionRepository  *mocks.MockIStrategyScriptAdoptionRepository
 }
 
-// newMarketplaceUnderTest wires the real domain service and the real access model,
-// mocking only the outermost boundaries: storage and the clock.
+// newMarketplaceUnderTest wires the real domain service and access model, mocking only storage and
+// the clock.
 func newMarketplaceUnderTest(t *testing.T) marketplaceUnderTest {
 	controller := gomock.NewController(t)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
@@ -156,8 +154,8 @@ func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
 	})
 
 	t.Run("adopting one's own does nothing and is not a failure", func(t *testing.T) {
-		// Nothing is stubbed on the adoption store: their own strategy script is already on
-		// their shelf, so there is nothing here to write.
+		// Nothing is stubbed on the adoption store: the caller's own script is already on their
+		// shelf.
 		fixture := newMarketplaceUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
@@ -177,8 +175,8 @@ func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
 	})
 
 	t.Run("reports one that is not on the marketplace as one that is not there", func(t *testing.T) {
-		// The store is what finds out — there is no publication for the shelf entry
-		// to hang from — and it says so in the same words a missing strategy script gets.
+		// The store detects the missing publication and reports it in the same words as a missing
+		// strategy script.
 		fixture := newMarketplaceUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
@@ -194,10 +192,8 @@ func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
 
 func TestStrategyScriptMarketplaceAbandonStrategyScript(t *testing.T) {
 	t.Run("takes it off this person's shelf without asking anybody", func(t *testing.T) {
-		// The strategy script store is not touched at all: a shelf entry belongs to the
-		// person whose shelf it is, so removing one needs no permission — and a
-		// strategy script since deleted outright would make a lookup fail on a request
-		// that is only tidying up.
+		// The strategy script store is untouched: removing your own shelf entry needs no
+		// permission, and the script may since have been deleted.
 		fixture := newMarketplaceUnderTest(t)
 		fixture.strategyScriptAdoptionRepository.EXPECT().
 			Abandon(gomock.Any(), marketplaceGuestID, uint(7)).Return(nil)

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// aSealKey is thirty-two bytes written as base64, the only shape a usable key has.
+// aSealKey is thirty-two bytes as base64, the only usable key shape.
 var aSealKey = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 
 func TestAesSecretSealProxyGivesBackWhatItWasGiven(t *testing.T) {
@@ -26,8 +26,7 @@ func TestAesSecretSealProxyGivesBackWhatItWasGiven(t *testing.T) {
 	assert.Equal(t, "123456:AAHqwertyuiop1234", opened)
 }
 
-// A bot token is not a password: the system needs it whole, every time it sends. So
-// it is locked rather than hashed — and what is stored must not read as the token.
+// A bot token must be recoverable, so it is encrypted rather than hashed.
 func TestAesSecretSealProxyStoresSomethingThatIsNotTheSecret(t *testing.T) {
 	secretSealProxy := security.NewAesSecretSealProxy(aSealKey)
 
@@ -38,8 +37,6 @@ func TestAesSecretSealProxyStoresSomethingThatIsNotTheSecret(t *testing.T) {
 	assert.NotContains(t, sealed, "123456")
 }
 
-// Without this, the table would show at a glance which people pasted the same
-// token.
 func TestAesSecretSealProxySealsTheSameSecretDifferentlyEveryTime(t *testing.T) {
 	secretSealProxy := security.NewAesSecretSealProxy(aSealKey)
 
@@ -57,9 +54,6 @@ func TestAesSecretSealProxySealsTheSameSecretDifferentlyEveryTime(t *testing.T) 
 	assert.Equal(t, firstOpened, secondOpened)
 }
 
-// Refusing is the whole feature. Storing the token in the open would work
-// perfectly, right up until somebody read the table — and nothing would look
-// different in the meantime.
 func TestAesSecretSealProxyRefusesEverythingWhenItHasNoKey(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -87,10 +81,6 @@ func TestAesSecretSealProxyRefusesEverythingWhenItHasNoKey(t *testing.T) {
 	}
 }
 
-// Anything that does not open is an error rather than an empty string. An empty
-// token would be spent as though it were real, and the destination's refusal would
-// reach the person as "your token is wrong" when the system is the thing that lost
-// it.
 func TestAesSecretSealProxyRefusesStoredContentItCannotOpen(t *testing.T) {
 	secretSealProxy := security.NewAesSecretSealProxy(aSealKey)
 	sealed, sealError := secretSealProxy.Seal("123456:AAHqwertyuiop1234")

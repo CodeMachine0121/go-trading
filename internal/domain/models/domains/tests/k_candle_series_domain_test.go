@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// buildSeriesKCandle names only the open time, because grouping and ordering are the
-// behavior under test; the figures are there so a merged candle has something to say.
 func buildSeriesKCandle(t *testing.T, openTime string, closePrice string) entities.KCandle {
 	t.Helper()
 
@@ -133,9 +131,7 @@ func TestKCandleSeriesDomainNamesTheIntervalItWasCutAt(t *testing.T) {
 }
 
 func TestKCandleSeriesDomainBucketsAreHandedOutEarliestFirst(t *testing.T) {
-	// Whoever computes from a series reads it in time order, and whoever takes the
-	// latest few takes them off the end. Both depend on this order being the
-	// series' own guarantee rather than the order the candles were read in.
+	// Consumers rely on the series guaranteeing time order regardless of read order.
 	seriesDomain := buildSeriesDomain(t, "1h", []entities.KCandle{
 		buildSeriesKCandle(t, "2026-09-02T12:00:00Z", "120"),
 		buildSeriesKCandle(t, "2026-09-02T10:00:00Z", "100"),
@@ -151,9 +147,7 @@ func TestKCandleSeriesDomainBucketsAreHandedOutEarliestFirst(t *testing.T) {
 }
 
 func TestKCandleSeriesDomainBucketsLeaveOutTheStretchesNothingFellInto(t *testing.T) {
-	// Nothing is invented for the hour in between: an invented candle reads exactly
-	// like a real one, and a market that did not trade is not a market that traded
-	// flat. Whoever counts buckets therefore counts the ones that exist.
+	// No candle is invented for a missing hour, since it would look real and imply flat trading.
 	seriesDomain := buildSeriesDomain(t, "1h", []entities.KCandle{
 		buildSeriesKCandle(t, "2026-09-02T10:00:00Z", "100"),
 		buildSeriesKCandle(t, "2026-09-02T12:00:00Z", "120"),

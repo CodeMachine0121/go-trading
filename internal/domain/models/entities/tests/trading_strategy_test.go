@@ -10,19 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// identifierOf is a pointer to a stored identifier, which is how a node names its
-// parent and how a root says it has none.
 func identifierOf(id uint) *uint {
 	return &id
 }
 
-// aStoredTree is the flat rows one trading strategy's two condition trees are kept as:
+// aStoredTree is the flat rows of two condition trees, deliberately out of order:
 //
 //	buy:  ( A=buy or B=buy )
 //	sell: C=sell
-//
-// The rows are deliberately out of order, because a table hands them back in
-// whatever order it likes and the nesting must not depend on that.
 func aStoredTree() []TradingStrategyConditionNode {
 	return []TradingStrategyConditionNode{
 		{ID: 12, TradingStrategyID: 3, Side: string(vo.TradingStrategyConditionSideBuy),
@@ -46,9 +41,7 @@ func TestTradingStrategyToDtoNestsTheTreesBackOutOfTheFlatRows(t *testing.T) {
 
 	assert.Equal(t, string(vo.ConditionOperatorOr), tradingStrategyDto.BuyCondition.Operator)
 	require.Len(t, tradingStrategyDto.BuyCondition.Conditions, 2)
-	// Siblings come back in the order they were written, whatever order the table
-	// handed them over in — a condition that rearranges itself between two reads
-	// looks like it was edited by somebody else.
+	// Siblings come back in written order regardless of the row order.
 	assert.Equal(t, "A", tradingStrategyDto.BuyCondition.Conditions[0].SourceLabel)
 	assert.Equal(t, "B", tradingStrategyDto.BuyCondition.Conditions[1].SourceLabel)
 	assert.Empty(t, tradingStrategyDto.BuyCondition.SourceLabel)
@@ -68,8 +61,6 @@ func TestTradingStrategyToDtoHandsOutTimesInUniversalTime(t *testing.T) {
 
 	tradingStrategyDto := tradingStrategy.ToDto()
 
-	// Both times are handed out in universal time whatever zone they were read back
-	// in, so two people in two places read the same moment.
 	assert.Equal(t, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC), tradingStrategyDto.CreatedAt)
 	assert.Equal(t, time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC), tradingStrategyDto.UpdatedAt)
 	assert.Equal(t, uint(7), tradingStrategyDto.OwnerID)

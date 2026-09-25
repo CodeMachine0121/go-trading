@@ -22,7 +22,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// contractRouterSpotStrategyScriptID names a strategy script that eats spot K candles.
 const contractRouterSpotStrategyScriptID = uint(31)
 
 type contractIndicatorRouterUnderTest struct {
@@ -101,7 +100,6 @@ func (fixture contractIndicatorRouterUnderTest) expectOneStoredContractCandle() 
 		}}, nil)
 }
 
-// aContractAlgorithmBody carries the caller's own algorithm over the last five minutes.
 func aContractAlgorithmBody() string {
 	return `{"symbol":"BTCUSDT","startTime":"` + indicatorRouterNow.Add(-5*time.Minute).Format(time.RFC3339) +
 		`","script":"my own contract script","resultType":"float"}`

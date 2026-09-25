@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestCorsMiddlewareAnswersOnlyTheOriginsItWasGiven holds the boundary that a browser
-// front end we named may read our answers and any other page may not.
 func TestCorsMiddlewareAnswersOnlyTheOriginsItWasGiven(t *testing.T) {
 	testCases := []struct {
 		name                  string
@@ -58,8 +56,6 @@ func TestCorsMiddlewareAnswersOnlyTheOriginsItWasGiven(t *testing.T) {
 	}
 }
 
-// TestCorsMiddlewareAnswersThePreflightWithoutReachingARoute holds that the browser's
-// permission question is answered even where no route of ours would have replied.
 func TestCorsMiddlewareAnswersThePreflightWithoutReachingARoute(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodOptions, "/k-candles", nil)
@@ -71,8 +67,7 @@ func TestCorsMiddlewareAnswersThePreflightWithoutReachingARoute(t *testing.T) {
 	assert.Equal(t, "http://localhost:3000", recorder.Header().Get("Access-Control-Allow-Origin"))
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Methods"), http.MethodPost)
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Content-Type")
-	// Without this, a browser silently drops the proof of identity on every call and
-	// a signed-in front end looks exactly like a signed-out one.
+	// Without this, browsers drop the Authorization header and a signed-in front end looks signed out.
 	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Authorization")
 }
 

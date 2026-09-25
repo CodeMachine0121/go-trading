@@ -14,17 +14,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// conversationTurnsAssociation is how GORM is asked for a conversation's exchanges,
-// and conversationTurnQueriesAssociation for what each of those exchanges looked at.
-// They are written once here so that every read fetches them the same way — a
-// conversation read back without its exchanges looks like a conversation nobody ever
-// used.
+// The association names are shared so every read preloads exchanges and their queries the same way.
 const (
 	conversationTurnsAssociation       = "Turns"
 	conversationTurnQueriesAssociation = "Turns.Queries"
 )
 
-// ConversationRepository stores conversations in PostgreSQL.
 type ConversationRepository struct {
 	database *gorm.DB
 }
@@ -33,7 +28,6 @@ func NewConversationRepository(database *gorm.DB) *ConversationRepository {
 	return &ConversationRepository{database: database}
 }
 
-// Save stores a new conversation together with its first exchange.
 func (conversationRepository *ConversationRepository) Save(
 	executionContext context.Context, conversation entities.Conversation,
 ) (entities.Conversation, error) {
@@ -45,18 +39,7 @@ func (conversationRepository *ConversationRepository) Save(
 	return conversation, nil
 }
 
-// AppendTurn adds one exchange to a conversation and hands that exchange back as
-// stored.
-//
-// Moving the conversation's last-active moment is done first, and it is also how a
-// conversation that is not there is reported: no row moved means no such
-// conversation. Asking whether it exists and then writing would let a deletion land
-// between the two and leave an exchange belonging to nothing.
-//
-// What comes back is the row this call created, named by the identifier the store
-// gave it. It is not found by reading the conversation back and taking the last
-// exchange: two questions arriving at once would both read whichever row committed
-// second, and one answer would be written over the other.
+// AppendTurn bumps the conversation's last-active time first, treating zero affected rows as not found to avoid a race with deletion, and returns the created row by its own ID rather than re-reading the last turn.
 func (conversationRepository *ConversationRepository) AppendTurn(
 	executionContext context.Context, conversationId uint, turn entities.AssistantTurn,
 ) (entities.AssistantTurn, error) {
@@ -84,11 +67,7 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 			return nil
 		})
 
-	// A conversation that is not there is the one refusal this method owes the caller
-	// in its own words; everything else is a storage failure and is said so. The
-	// wrapping happens out here rather than at each statement because the transaction
-	// can also fail before any of them runs — and that failure, left bare, would
-	// reach the caller as a sentence from the database driver.
+	// Wrapped here rather than per statement because the transaction itself can fail before any statement runs.
 	if transactionError != nil {
 		if errors.Is(transactionError, domains.ErrConversationNotFound) ||
 			errors.Is(transactionError, domains.ErrAssistantAnswerInProgress) {
@@ -101,14 +80,7 @@ func (conversationRepository *ConversationRepository) AppendTurn(
 	return appendedTurn, nil
 }
 
-// appendFailureOf turns a failed insert into the refusal it actually is.
-//
-// One broken index means a second answer was starting on a conversation that already
-// had one — two requests that both read "nothing in flight" before either had
-// written. That is a person asking twice, and they get the same sentence as the
-// person who was merely a moment slower. Anything else is a fault, and dressing it up
-// as "wait for the previous one" would leave somebody waiting for an answer that is
-// never coming.
+// appendFailureOf maps a unique-index violation to the "answer already in flight" refusal; any other error stays a storage failure.
 func (conversationRepository *ConversationRepository) appendFailureOf(writeError error) error {
 	postgresError, isPostgresError := errors.AsType[*pgconn.PgError](writeError)
 	if isPostgresError &&
@@ -120,16 +92,7 @@ func (conversationRepository *ConversationRepository) appendFailureOf(writeError
 	return writeError
 }
 
-// CompleteTurn writes an answer, or a failure, over the exchange this turn names.
-//
-// The columns are listed rather than the struct handed over, because an ending
-// settles only some of them: GORM writing the whole struct would blank the question
-// and reset the moment it was asked, both of which were settled when the exchange
-// began.
-//
-// The lookups it made are created alongside, in the same transaction as the update.
-// A record of what an answer read that outlived the answer failing to save would
-// describe reasoning behind an answer nobody has.
+// CompleteTurn updates only the settling columns, so the question and its timestamp are not blanked, and creates the query records in the same transaction.
 func (conversationRepository *ConversationRepository) CompleteTurn(
 	executionContext context.Context, turn entities.AssistantTurn,
 ) error {
@@ -152,10 +115,7 @@ func (conversationRepository *ConversationRepository) CompleteTurn(
 			if completed.Error != nil {
 				return completed.Error
 			}
-			// The lookup was on the exchange, not the conversation, so that is what
-			// the refusal names. A completion carries no conversation identifier —
-			// it was settled when the place was reserved — so reporting one here
-			// would always say "conversation 0".
+			// Name the turn, not the conversation, since a completion carries no conversation ID.
 			if completed.RowsAffected == 0 {
 				return domains.AssistantTurnNotFound(turn.ID)
 			}
@@ -173,8 +133,6 @@ func (conversationRepository *ConversationRepository) CompleteTurn(
 			return transaction.Create(&queries).Error
 		})
 
-	// A conversation that is no longer there is the one refusal this method owes the
-	// caller in its own words; everything else is a storage failure and is said so.
 	if transactionError != nil {
 		if errors.Is(transactionError, domains.ErrConversationNotFound) {
 			return transactionError
@@ -186,11 +144,7 @@ func (conversationRepository *ConversationRepository) CompleteTurn(
 	return nil
 }
 
-// FailAllRunningTurns marks every exchange still recorded as running as failed.
-//
-// It is one statement rather than a read followed by writes, because there is no
-// decision to make per row: every one of them is stale by definition, since the
-// process that was writing it no longer exists.
+// FailAllRunningTurns fails every running turn in one statement, since all are stale after a restart.
 func (conversationRepository *ConversationRepository) FailAllRunningTurns(
 	executionContext context.Context, reason string,
 ) (int, error) {
@@ -209,19 +163,13 @@ func (conversationRepository *ConversationRepository) FailAllRunningTurns(
 	return int(swept.RowsAffected), nil
 }
 
-// FindOne returns the conversation carrying this identifier with every exchange under
-// it, earliest first.
 func (conversationRepository *ConversationRepository) FindOne(
 	executionContext context.Context, id uint,
 ) (entities.Conversation, error) {
 	return readConversation(conversationRepository.database.WithContext(executionContext), id)
 }
 
-// FindAllOwnedBy returns this person's conversations, the most recently active first.
-//
-// The exchanges come along because the list says how many messages each conversation
-// holds, and that number is what tells two of them apart when neither has a name.
-// What each exchange looked at does not: nobody reads a lookup from a list.
+// FindAllOwnedBy returns conversations most recently active first, preloading turns for message counts but not their queries.
 func (conversationRepository *ConversationRepository) FindAllOwnedBy(
 	executionContext context.Context, ownerID uint,
 ) ([]entities.Conversation, error) {
@@ -239,13 +187,7 @@ func (conversationRepository *ConversationRepository) FindAllOwnedBy(
 	return conversations, nil
 }
 
-// SumUsageBetween totals what the assistant was used for over this stretch, start
-// included and end excluded.
-//
-// The exchanges' usage is read and added up here rather than summed by the database.
-// A day of exchanges is bounded by the very allowance this total is compared against,
-// so the row count cannot run away — and adding them up in code keeps data access on
-// the typed API instead of a hand-written aggregate.
+// SumUsageBetween sums usage in [start, end) in code rather than SQL, which keeps to the typed API and is bounded by the daily allowance.
 func (conversationRepository *ConversationRepository) SumUsageBetween(
 	executionContext context.Context, from time.Time, to time.Time,
 ) (int, error) {
@@ -268,9 +210,7 @@ func (conversationRepository *ConversationRepository) SumUsageBetween(
 	return total, nil
 }
 
-// readConversation is one conversation with everything under it, in the order it
-// happened. Both the read-back after a write and the plain read use it, so that a
-// conversation never comes back looking different depending on which asked.
+// readConversation is shared by every read so a conversation always comes back in the same shape.
 func readConversation(database *gorm.DB, id uint) (entities.Conversation, error) {
 	conversation := entities.Conversation{}
 
@@ -288,15 +228,10 @@ func readConversation(database *gorm.DB, id uint) (entities.Conversation, error)
 	return conversation, nil
 }
 
-// orderedTurns reads a conversation's exchanges earliest first. Read shuffled, a
-// conversation stops being a conversation.
 func orderedTurns(database *gorm.DB) *gorm.DB {
 	return database.Order(clause.OrderByColumn{Column: clause.Column{Name: "id"}})
 }
 
-// orderedQueryRecords reads an exchange's lookups in the order they were made,
-// because a chain of reasoning read out of order looks like a set of unrelated
-// lookups.
 func orderedQueryRecords(database *gorm.DB) *gorm.DB {
 	return database.Order(clause.OrderByColumn{Column: clause.Column{Name: "sequence"}})
 }

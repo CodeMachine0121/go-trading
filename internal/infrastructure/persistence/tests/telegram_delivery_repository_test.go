@@ -11,8 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// aDeliveryOwner is somebody to hang a delivery setting off, since a setting with no
-// owner is not a thing this schema allows.
+// aDeliveryOwner stores the user the delivery foreign key requires.
 func aDeliveryOwner(t *testing.T, database *gorm.DB, email string) entities.User {
 	owner, saveError := persistence.NewUserRepository(database).Save(
 		t.Context(), entities.User{Email: email, PasswordProof: "a-password-proof"})
@@ -43,9 +42,7 @@ func TestTelegramDeliveryRepositoryUpsertHandsBackTheSettingAsStored(t *testing.
 	assert.Equal(t, "987654", savedDelivery.ChatID)
 }
 
-// One person has at most one of these. Storing a second is replacing the first, not
-// keeping both — and it is the unique index, not a look-then-write, that makes that
-// true.
+// The unique index, not a read-then-write, keeps one setting per person.
 func TestTelegramDeliveryRepositoryUpsertReplacesRatherThanAdds(t *testing.T) {
 	database := newTestDatabase(t)
 	telegramDeliveryRepository := persistence.NewTelegramDeliveryRepository(database)
@@ -80,8 +77,6 @@ func TestTelegramDeliveryRepositoryFindOneByUserSaysNothingIsThere(t *testing.T)
 	require.ErrorIs(t, findError, domains.ErrTelegramDeliveryNotConfigured)
 }
 
-// Asking for nobody's setting must not hand back the first one in the table, along
-// with somebody else's token.
 func TestTelegramDeliveryRepositoryFindOneByUserRefusesToGuessWhenGivenNobody(t *testing.T) {
 	database := newTestDatabase(t)
 	telegramDeliveryRepository := persistence.NewTelegramDeliveryRepository(database)
@@ -127,8 +122,6 @@ func TestTelegramDeliveryRepositoryDeleteByUser(t *testing.T) {
 	assert.ErrorIs(t, findError, domains.ErrTelegramDeliveryNotConfigured)
 }
 
-// What was asked for is that this system stop being able to reach them, and with no
-// setting it already cannot. An error would only have the caller pressing again.
 func TestTelegramDeliveryRepositoryDeleteByUserSucceedsWithNothingToDelete(t *testing.T) {
 	database := newTestDatabase(t)
 	owner := aDeliveryOwner(t, database, "james@example.com")
@@ -159,7 +152,6 @@ func TestTelegramDeliveryRepositoryDeleteByUserLeavesEverybodyElseAlone(t *testi
 	assert.Equal(t, "222", bystanderDelivery.ChatID)
 }
 
-// A key must never outlive the person it belongs to.
 func TestTelegramDeliveryRepositoryLosesTheSettingWithTheUser(t *testing.T) {
 	database := newTestDatabase(t)
 	telegramDeliveryRepository := persistence.NewTelegramDeliveryRepository(database)
@@ -174,8 +166,6 @@ func TestTelegramDeliveryRepositoryLosesTheSettingWithTheUser(t *testing.T) {
 	assert.ErrorIs(t, findError, domains.ErrTelegramDeliveryNotConfigured)
 }
 
-// Storage being unreachable is not "you have not set this up". Saying so would have
-// somebody re-entering a token that is sitting right there.
 func TestTelegramDeliveryRepositorySaysStorageBrokeRatherThanAnsweringWithNothing(t *testing.T) {
 	telegramDeliveryRepository := persistence.NewTelegramDeliveryRepository(closedDatabase(t))
 

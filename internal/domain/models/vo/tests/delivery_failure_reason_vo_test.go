@@ -7,9 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Whether a message arrived is worked out from the reason rather than carried
-// beside it, so the two can never disagree — and the disagreement that matters is
-// "it failed, and here is no reason why".
 func TestDeliveryFailureReasonVoToDto(t *testing.T) {
 	testCases := []struct {
 		name              string
@@ -59,8 +56,6 @@ func TestDeliveryFailureReasonVoToDto(t *testing.T) {
 	}
 }
 
-// Four reasons that read the same are one reason with four names, and somebody with
-// a mistyped chat identifier would spend the afternoon replacing a working token.
 func TestDeliveryFailureReasonVoKeepsTheFourApart(t *testing.T) {
 	reasons := []vo.DeliveryFailureReasonVo{
 		vo.DeliveryFailureCredentialRejected,

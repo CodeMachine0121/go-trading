@@ -8,35 +8,18 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// declarableMarketDataKinds is the entire set a strategy script may declare, in the
-// order it is offered back when a declaration is not recognised.
+// declarableMarketDataKinds is in the order offered back when a declaration is not recognised.
 var declarableMarketDataKinds = []vo.MarketDataKindVo{
 	vo.MarketDataKindKCandle,
 	vo.MarketDataKindContractKCandle,
 }
 
-// MarketDataKindDomain is which kind of market a strategy script eats, and the two
-// rules that follow from it: a script keeps the kind it was created with, and it runs
-// only where that kind of market is what gets handed over.
-//
-// The kind is part of what the algorithm *is*. Its entry point receives one shape or
-// the other, so a script switched to the other kind is not the same script reading
-// different data — it is a script that no longer fits its own entry point. That is why
-// the kind is settled once and never changed, rather than being a setting of a run.
-//
-// Its zero value is not a usable kind; it is only ever returned alongside an error.
+// MarketDataKindDomain is the market shape a strategy script's entry point takes, fixed at creation because a script switched to the other kind no longer fits its own entry point; its zero value is unusable.
 type MarketDataKindDomain struct {
 	value vo.MarketDataKindVo
 }
 
-// NewMarketDataKindDomain reads what was declared. Declaring nothing is the spot K
-// candle, which is what every strategy script was before there was a choice — so a
-// caller written before the choice existed keeps working untouched. Spelling is
-// forgiving about surrounding blanks and letter case; anything else is refused,
-// naming what could have been declared instead.
-//
-// The refusal carries the reason alone, with no sentinel of its own: which kind of
-// failure an unrecognised kind counts as belongs to whoever asked.
+// NewMarketDataKindDomain defaults a blank declaration to spot K candles for backward compatibility and matches case-insensitively; the refusal carries no sentinel because the caller decides its category.
 func NewMarketDataKindDomain(declared string) (MarketDataKindDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {
@@ -62,22 +45,12 @@ func (marketDataKindDomain MarketDataKindDomain) Value() vo.MarketDataKindVo {
 	return marketDataKindDomain.value
 }
 
-// Retaining is the kind a rewrite ends up with, this being the kind the strategy
-// script already has.
-//
-// A rewrite that says nothing about the kind keeps it — the caller changing a name has
-// no reason to know the kind at all. One that restates the same kind is not changing
-// anything either. One that names the other kind is refused: see the type's comment
-// for why a script never changes the market it eats.
+// Retaining keeps the kind when a rewrite omits or restates it and refuses a switch.
 func (marketDataKindDomain MarketDataKindDomain) Retaining(requested string) (MarketDataKindDomain, error) {
 	return marketDataKindDomain.retaining(requested, ErrStrategyScriptValidation, "這支策略腳本", "一支")
 }
 
-// RequireRunnableAs refuses to run this strategy script where the other kind of market
-// is what gets handed over. Letting it through would only move the failure: the script
-// would be fed a shape its entry point does not take, and the caller would read
-// "the script is written wrong" about a script that is written exactly right for the
-// market it was made for.
+// RequireRunnableAs refuses a mismatched kind up front, rather than letting the script fail as if it were written wrong.
 func (marketDataKindDomain MarketDataKindDomain) RequireRunnableAs(expected vo.MarketDataKindVo) error {
 	if marketDataKindDomain.value == expected {
 		return nil
@@ -87,9 +60,7 @@ func (marketDataKindDomain MarketDataKindDomain) RequireRunnableAs(expected vo.M
 		ErrStrategyScriptMarketDataKindMismatch, marketDataKindDomain.label())
 }
 
-// RequireReplayableAs refuses to replay this strategy script where the other kind of
-// market is what the replay walks over — the same refusal RequireRunnableAs gives a
-// calculation, in the words of a replay.
+// RequireReplayableAs is RequireRunnableAs worded for a replay.
 func (marketDataKindDomain MarketDataKindDomain) RequireReplayableAs(expected vo.MarketDataKindVo) error {
 	if marketDataKindDomain.value == expected {
 		return nil
@@ -99,30 +70,21 @@ func (marketDataKindDomain MarketDataKindDomain) RequireReplayableAs(expected vo
 		ErrStrategyScriptMarketDataKindMismatch, marketDataKindDomain.label())
 }
 
-// RetainingForTradingStrategy is Retaining for a trading strategy: a rewrite that says
-// nothing about the kind keeps it, one that restates it changes nothing, and one that
-// names the other kind is refused — for the reason a strategy script's kind never
-// changes: every one of its signal sources eats the kind it was written for.
+// RetainingForTradingStrategy is Retaining for a trading strategy, whose signal sources all eat its kind.
 func (marketDataKindDomain MarketDataKindDomain) RetainingForTradingStrategy(
 	requested string,
 ) (MarketDataKindDomain, error) {
 	return marketDataKindDomain.retaining(requested, ErrTradingStrategyValidation, "這份交易策略", "一份")
 }
 
-// RetainingForStrategyBot is Retaining for a strategy bot: a rewrite that says nothing
-// about the kind keeps it, one that restates it changes nothing, and one that names the
-// other kind is refused — a bot reads one kind of market every round, and a bot that
-// switched would be following rules written for the other kind.
+// RetainingForStrategyBot is Retaining for a strategy bot, which reads one kind of market every round.
 func (marketDataKindDomain MarketDataKindDomain) RetainingForStrategyBot(
 	requested string,
 ) (MarketDataKindDomain, error) {
 	return marketDataKindDomain.retaining(requested, ErrStrategyBotValidation, "這台機器人", "一台")
 }
 
-// retaining is the one rule the three Retaining methods share, in the words of whoever
-// is asking: saying nothing keeps the kind, restating it changes nothing, and naming the
-// other kind is refused. What differs between them is only the sentinel the refusal
-// counts as and the thing it names — one strategy script, one trading strategy, one bot.
+// retaining is the rule shared by the Retaining methods; only the sentinel and the named subject differ.
 func (marketDataKindDomain MarketDataKindDomain) retaining(
 	requested string, validationSentinel error, subject string, anotherOne string,
 ) (MarketDataKindDomain, error) {
@@ -144,10 +106,7 @@ func (marketDataKindDomain MarketDataKindDomain) retaining(
 	return marketDataKindDomain, nil
 }
 
-// RequireFollowableByStrategyBotOf refuses a trading strategy of this kind to a bot of
-// the other kind. A bot reads its own kind of market every round; handed rules written
-// for the other kind it would feed their scripts the wrong shape of market, round after
-// round, where nobody is reading.
+// RequireFollowableByStrategyBotOf refuses a trading strategy whose kind differs from the bot's, which would otherwise silently feed the wrong market shape every round.
 func (marketDataKindDomain MarketDataKindDomain) RequireFollowableByStrategyBotOf(
 	botMarketDataKind MarketDataKindDomain,
 ) error {
@@ -159,20 +118,8 @@ func (marketDataKindDomain MarketDataKindDomain) RequireFollowableByStrategyBotO
 		ErrStrategyBotValidation, botMarketDataKind.label(), marketDataKindDomain.label())
 }
 
-// LeverageForStrategyBot is the leverage a bot of this kind stores for what its caller
-// declared.
-//
-// A spot bot lends nothing, so it may only ever suggest what a spot replay could have
-// modelled; the sentence comes from the model a replay asks, so the same figure typed
-// into either comes back with the same words. A contract bot borrows by the rules a
-// contract replay reads a leverage by: nothing at all is one times, and under one is
-// refused. Whether the symbol allows that much is answered where the symbol's ladder
-// is read — see ContractStrategyBotMarketDomain.
-//
-// Asked here rather than inside the position plan because the plan is also built
-// every round, from settings already stored. Refusing there would stop bots that were
-// saved before this rule existed — and it would stop them silently, one round at a
-// time, where nobody is reading.
+// LeverageForStrategyBot applies spot-replay rules to a spot bot and contract-replay rules (blank is 1x, below 1x refused) to a contract bot; the symbol ceiling is checked by ContractStrategyBotMarketDomain.
+// It runs at save time rather than in the per-round position plan so bots saved before this rule are not silently stopped.
 func (marketDataKindDomain MarketDataKindDomain) LeverageForStrategyBot(
 	declaredLeverage decimal.Decimal,
 ) (decimal.Decimal, error) {
@@ -197,14 +144,12 @@ func (marketDataKindDomain MarketDataKindDomain) LeverageForStrategyBot(
 	return declaredLeverage, nil
 }
 
-// IsContract is whether this is the perpetual contract bar rather than the spot K
-// candle.
+// IsContract reports whether this is the perpetual contract bar rather than the spot K candle.
 func (marketDataKindDomain MarketDataKindDomain) IsContract() bool {
 	return marketDataKindDomain.value == vo.MarketDataKindContractKCandle
 }
 
-// label is how the kind reads in a sentence meant for a person. Every refusal above
-// names the kind, and they must all name it the same way.
+// label is the kind's user-facing wording, shared by every refusal.
 func (marketDataKindDomain MarketDataKindDomain) label() string {
 	if marketDataKindDomain.value == vo.MarketDataKindContractKCandle {
 		return "合約行情"

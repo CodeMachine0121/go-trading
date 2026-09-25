@@ -7,8 +7,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// KCandle is a single K candle row. It is a plain data model: fields, persistence
-// mapping and shape conversion only, no business rules.
 type KCandle struct {
 	ID                  uint                `gorm:"primaryKey"`
 	Symbol              string              `gorm:"size:64;not null;uniqueIndex:idx_k_candles_symbol_open_time,priority:1"`
@@ -23,13 +21,11 @@ type KCandle struct {
 	TakerBuyQuoteVolume decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 }
 
-// TableName pins the table to KCandles instead of GORM's default k_candles.
 func (kCandle KCandle) TableName() string {
 	return "KCandles"
 }
 
-// ToDto converts this record into the shape the domain hands outwards. The open
-// time is always handed out in universal time, whatever zone it was read back in.
+// ToDto returns the open time in UTC regardless of the zone it was read back in.
 func (kCandle KCandle) ToDto() dto.KCandleDto {
 	return dto.KCandleDto{
 		Symbol:              kCandle.Symbol,

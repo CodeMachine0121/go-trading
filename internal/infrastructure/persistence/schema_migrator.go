@@ -9,9 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// SchemaMigrator syncs the database schema from the entity definitions, code first.
-// The loose element type is required by GORM's AutoMigrate signature and stays
-// confined to this infrastructure file.
+// SchemaMigrator syncs the schema from the entities; the loose element type is required by GORM's AutoMigrate.
 type SchemaMigrator struct {
 	database *gorm.DB
 }
@@ -20,78 +18,49 @@ func NewSchemaMigrator(database *gorm.DB) *SchemaMigrator {
 	return &SchemaMigrator{database: database}
 }
 
-// retiredColumn is a column an entity used to have. AutoMigrate adds and widens but
-// never drops, so a field removed from an entity leaves its column behind forever
-// unless it is said out loud here — and a reader who finds aggregation_interval
-// still sitting on StrategyScripts has every reason to believe a strategy script still
-// remembers it.
+// retiredColumn names a column removed from an entity, since AutoMigrate never drops columns.
 type retiredColumn struct {
 	entity any
 	name   string
 }
 
-// retiredColumns are the columns to drop after the schema is synced. Dropping is
-// idempotent: a column that is already gone is skipped, so this list may be kept
-// long after every database has caught up.
+// retiredColumns are dropped after the sync; already-gone columns are skipped, so entries may stay indefinitely.
 var retiredColumns = []retiredColumn{
-	// How coarse the K candles are and how many of them describe one run of an
-	// algorithm, not the algorithm; they moved onto the calculation request.
+	// Moved onto the calculation request.
 	{entity: &entities.StrategyScript{}, name: "aggregation_interval"},
 	{entity: &entities.StrategyScript{}, name: "candle_count"},
-	// Which kind of account a set of rules was written for, and how much a bot
-	// suggested borrowing, from the spot-only era. Nothing reads either — a contract
-	// trading strategy's mode and a contract bot's leverage each live in a column of
-	// their own — and a column still holding 'longShort' beside rules that are
-	// replayed as spot is a row that contradicts the system out loud.
+	// Spot-only-era leftovers superseded by contract strategy mode and contract bot leverage columns.
 	{entity: &entities.TradingStrategy{}, name: "trading_mode"},
 	{entity: &entities.StrategyBot{}, name: "position_plan_leverage"},
 }
 
-// retiredIndex is an index an entity used to carry. AutoMigrate adds indexes but
-// never drops them, so an index that has been replaced stays behind and keeps
-// enforcing a rule nobody asked for — which is worse than a leftover column: a
-// column just sits there, whereas a leftover unique index refuses writes the system
-// now considers perfectly fine.
+// retiredIndex names a replaced index, since AutoMigrate never drops indexes and a leftover unique index would refuse valid writes.
 type retiredIndex struct {
 	entity any
 	name   string
 }
 
-// retiredIndexes are the indexes to drop after the schema is synced. Dropping is
-// idempotent, so this list may be kept long after every database has caught up.
+// retiredIndexes are dropped after the sync; dropping is idempotent.
 var retiredIndexes = []retiredIndex{
-	// A strategy script's name used to be unique across the whole system. It is now unique
-	// within one owner's collection, and the old index would keep the first person
-	// here holding "二十根均線" against everybody else forever.
+	// Script names are now unique per owner, not system-wide.
 	{entity: &entities.StrategyScript{}, name: "idx_strategies_name"},
 }
 
-// ownerlessTable is a table that gained an owner it may not be without. Rows saved
-// before that column existed belong to nobody, and nobody is not a person whose
-// things these are — so they go.
+// ownerlessTable is a table that gained a required owner column; rows predating it belong to nobody and are deleted.
 type ownerlessTable struct {
 	entity      any
 	ownerColumn string
-	// description names the rows in the failure, because "clear ownerless rows"
-	// tells whoever reads it nothing about which ones.
 	description string
 }
 
-// ownerlessTables are the tables to empty while they still predate their owner
-// column. Each condition stops being true the moment the migration after it runs,
-// so this list may be kept long after every database has caught up.
+// ownerlessTables are emptied only while they still lack their owner column, so the condition fires once.
 var ownerlessTables = []ownerlessTable{
-	// StrategyScripts became somebody's property.
 	{entity: &entities.StrategyScript{}, ownerColumn: "owner_id", description: "strategy scripts"},
-	// So did conversations, and for a sharper reason: the assistant acts as whoever
-	// asked it, so a transcript can hold that person's own algorithms. A conversation
-	// belonging to nobody would be readable by everybody.
+	// Conversations can contain the asker's own algorithms, so an ownerless one must not survive.
 	{entity: &entities.Conversation{}, ownerColumn: "owner_id", description: "conversations"},
 }
 
-// Migrate creates or updates the table of every registered entity, drops the columns
-// no entity claims any more, and reports the resulting table names. Register every
-// new entity in the slice below.
+// Migrate syncs every registered entity, drops retired columns, and returns the table names; register new entities in the slice below.
 func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migratedEntities := []any{
 		&entities.KCandle{},
@@ -121,22 +90,12 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.ContractMaintenanceMarginTier{},
 	}
 
-	// Renaming has to happen before the schema is synced, not after. These three
-	// tables and the column that points into two of them changed names when the
-	// rules moved off the bot; left to AutoMigrate, the old tables would simply sit
-	// there while three empty new ones appeared beside them.
+	// Rename before syncing, or AutoMigrate would create empty new tables beside the old ones.
 	if renameError := schemaMigrator.renameMovedRuleTables(); renameError != nil {
 		return nil, renameError
 	}
 
-	// The rules move before the schema is synced, not after, and the two steps
-	// below are the whole reason.
-	//
-	// Syncing adds the foreign keys that tie a signal source and a condition node to
-	// the trading strategy they belong to. Until the move has run, those rows carry
-	// bot identifiers, so those keys cannot hold and syncing fails outright — on
-	// every database that has a bot in it, which is every database worth migrating.
-	// Moving first means they hold the moment they are added.
+	// Move the rules before syncing, because the sync adds foreign keys to trading strategies that rows still carrying bot IDs would violate.
 	if prepareError := schemaMigrator.prepareForTheMove(); prepareError != nil {
 		return nil, prepareError
 	}
@@ -145,9 +104,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, moveError
 	}
 
-	// Clearing has to happen before the schema is synced, not after: these tables
-	// gained an owner that may not be null, and a table with rows in it cannot grow
-	// such a column.
+	// Clear before syncing, since a NOT NULL owner column cannot be added to a table with rows.
 	if clearError := schemaMigrator.clearOwnerlessRows(); clearError != nil {
 		return nil, clearError
 	}
@@ -165,8 +122,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		return nil, dropError
 	}
 
-	// After the retired ones are gone, so that a name being reused never runs into
-	// the index it is replacing.
+	// After dropping retired indexes, so a reused name does not collide with the index it replaces.
 	if createError := schemaMigrator.createPartialIndexes(); createError != nil {
 		return nil, createError
 	}
@@ -187,8 +143,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	return migratedTables, nil
 }
 
-// dropRetiredColumns removes every column no entity claims any more, skipping the
-// ones already gone so that running this twice is the same as running it once.
+// dropRetiredColumns is idempotent, skipping columns already gone.
 func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 	migrator := schemaMigrator.database.Migrator()
 
@@ -205,57 +160,16 @@ func (schemaMigrator *SchemaMigrator) dropRetiredColumns() error {
 	return nil
 }
 
-// AssistantTurnOneRunningPerConversationIndex is what makes "one answer at a time per
-// conversation" a fact about the store rather than a check somebody won.
-//
-// The rule is asked before a question is accepted, but asking and appending are two
-// statements: two requests arriving together both read a conversation with nothing in
-// flight, both pass, and both start writing into it. What is then recorded is two
-// interleaved exchanges nobody can attribute — which is exactly what the rule exists
-// to prevent, and the double-send is the very thing that triggers it.
-//
-// It is named here because the write path has to recognise this one breaking
-// specifically: it is a person asking twice, not a fault.
+// AssistantTurnOneRunningPerConversationIndex enforces one running turn per conversation in the database, since a check-then-append lets concurrent requests both pass; the write path recognises its violation as a double submit, not a fault.
 const AssistantTurnOneRunningPerConversationIndex = "idx_assistant_turns_one_running_per_conversation"
 
-// KCandleHistorySyncOneRunningPerSymbolIndex keeps one symbol from being fetched by
-// two history syncs at once.
-//
-// Two runs over the same symbol race each other through the same source allowance and
-// the same rows, and neither finishes any sooner for it; at the length these runs
-// reach, a double-clicked request costs hours of somebody else's quota. Asking first
-// and starting afterwards would let two requests arriving together both find the
-// symbol free, so the database decides.
-//
-// It is named here because the write path has to recognise this one specifically: it
-// is a person asking twice, not a fault.
+// KCandleHistorySyncOneRunningPerSymbolIndex enforces one running history sync per symbol in the database, since a check-then-start lets concurrent requests both pass; its violation means a double submit, not a fault.
 const KCandleHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_history_sync_runs_one_running_per_symbol"
 
-// KCandleContractHistorySyncOneRunningPerSymbolIndex keeps one perpetual contract
-// from being fetched by two history syncs at once, for the same reason the spot one
-// does and enforced in the same place — the database, because asking first and
-// starting afterwards lets two requests arriving together both find the symbol free.
-//
-// It is its own index rather than a shared one because the runs live in their own
-// table: the two venues each get one sync per symbol, and a contract sync must not be
-// blocked by a spot sync of the same name.
+// KCandleContractHistorySyncOneRunningPerSymbolIndex is the contract-venue counterpart, separate so a spot sync does not block a contract sync of the same name.
 const KCandleContractHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_contract_history_sync_runs_one_running_per_symbol"
 
-// createPartialIndexes adds the indexes the ORM's own tags cannot express.
-//
-// A unique index over part of a table has no tag: "unique" there would mean one
-// exchange per conversation ever, which is the opposite of a conversation. So this is
-// the second place in the codebase that writes a statement out by hand, for the same
-// reason as the first — the ORM cannot say it.
-//
-// Both identifiers go through the ORM's own quoting. **The status cannot**, and that
-// is the database's rule rather than a shortcut: PostgreSQL does not accept a
-// parameter inside an index predicate, so it has to be written into the statement.
-// It is read from the same constant everything else compares against — writing
-// "running" out by hand here is how a rename would silently leave this index
-// enforcing a state nothing uses — and it is a constant of this system, never
-// anything a caller supplied.
-//
+// createPartialIndexes creates partial unique indexes GORM tags cannot express; the status is inlined from the shared constant because PostgreSQL does not accept parameters in an index predicate, and creation is idempotent.
 // Creating it is idempotent, so running this twice is the same as running it once.
 func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	created := schemaMigrator.database.Exec(
@@ -297,8 +211,7 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	return nil
 }
 
-// dropRetiredIndexes removes every index no entity claims any more, skipping the
-// ones already gone so that running this twice is the same as running it once.
+// dropRetiredIndexes is idempotent, skipping indexes already gone.
 func (schemaMigrator *SchemaMigrator) dropRetiredIndexes() error {
 	migrator := schemaMigrator.database.Migrator()
 
@@ -307,15 +220,7 @@ func (schemaMigrator *SchemaMigrator) dropRetiredIndexes() error {
 			continue
 		}
 
-		// The ORM's own DropIndex is not usable here, and this is the one place in
-		// the codebase that writes a statement out by hand. On this driver it
-		// builds "DROP INDEX <schema>.<name>" and, on a connection that names no
-		// schema, fills the first blank with a function call — which is not valid
-		// there. The statement below is what it was trying to write.
-		//
-		// It carries no value from anywhere: the name is a constant in the list
-		// above, and it goes through the ORM's own identifier quoting rather than
-		// being pasted into the text.
+		// Raw SQL because GORM's DropIndex emits an invalid schema-qualified name on this driver; the name is a constant passed through identifier quoting.
 		dropped := schemaMigrator.database.Exec("DROP INDEX IF EXISTS ?", clause.Column{Name: index.name})
 		if dropped.Error != nil {
 			return fmt.Errorf("drop retired index %s: %w", index.name, dropped.Error)
@@ -325,24 +230,13 @@ func (schemaMigrator *SchemaMigrator) dropRetiredIndexes() error {
 	return nil
 }
 
-// retiredConstraint is a foreign key an entity used to carry under another name.
-//
-// The ORM names a foreign key after the *field* that declares the association, so
-// the rules moving off the bot left four behind on the tables that came with them —
-// and, like an index, one left behind is never dropped on its own.
-//
-// Two of the four still point at StrategyBots, which is not a leftover but a live
-// fault: every row written to those tables is checked against a bot identifier that
-// is now a trading strategy identifier, and almost every write fails. The other two
-// are harmless duplicates of constraints that now carry the right name.
+// retiredConstraint is a foreign key left under an old name after the rules moved off the bot; two still point at StrategyBots and break almost every write.
 type retiredConstraint struct {
 	entity any
 	name   string
 }
 
-// retiredConstraints are the foreign keys to drop after the schema is synced.
-// Dropping is idempotent, so this list may be kept long after every database has
-// caught up.
+// retiredConstraints are dropped after the sync; dropping is idempotent.
 var retiredConstraints = []retiredConstraint{
 	{entity: &entities.TradingStrategySignalSource{}, name: "fk_StrategyBots_signal_sources"},
 	{entity: &entities.TradingStrategyConditionNode{}, name: "fk_StrategyBots_condition_nodes"},
@@ -354,15 +248,12 @@ var retiredConstraints = []retiredConstraint{
 		entity: &entities.TradingStrategyConditionNode{},
 		name:   "fk_StrategyBotConditionNodes_children",
 	},
-	// A database synced before a bot's reference lost its constraint would carry
-	// this one, and it would refuse the next upgrade that has rules to move.
+	// Present on databases synced before the bot reference lost its constraint; it would block the rule move.
 	{entity: &entities.StrategyBot{}, name: "fk_TradingStrategies_bots"},
 	{entity: &entities.StrategyBot{}, name: "fk_StrategyBots_trading_strategy"},
 }
 
-// dropRetiredConstraints removes every foreign key no entity claims any more,
-// skipping the ones already gone so that running this twice is the same as running
-// it once.
+// dropRetiredConstraints is idempotent, skipping constraints already gone.
 func (schemaMigrator *SchemaMigrator) dropRetiredConstraints() error {
 	migrator := schemaMigrator.database.Migrator()
 
@@ -379,15 +270,13 @@ func (schemaMigrator *SchemaMigrator) dropRetiredConstraints() error {
 	return nil
 }
 
-// movedRuleTable is a table that changed names when the signal sources and the two
-// condition trees moved off the bot and onto the trading strategy it now follows.
+// movedRuleTable is a table renamed when the rules moved from the bot onto the trading strategy.
 type movedRuleTable struct {
 	oldName string
 	entity  any
 }
 
-// movedRuleTables are those renames. Each one is skipped once it has happened, so
-// running this twice is the same as running it once.
+// movedRuleTables renames are skipped once done.
 var movedRuleTables = []movedRuleTable{
 	{oldName: "StrategyBotSignalSources", entity: &entities.TradingStrategySignalSource{}},
 	{oldName: "StrategyBotConditionNodes", entity: &entities.TradingStrategyConditionNode{}},
@@ -397,16 +286,13 @@ var movedRuleTables = []movedRuleTable{
 	},
 }
 
-// movedRuleIndex is an index that came along with a renamed table still carrying the
-// name it was created under.
 type movedRuleIndex struct {
 	entity  any
 	oldName string
 	newName string
 }
 
-// movedRuleIndexes are those. Renaming rather than creating and dropping is what
-// keeps the table indexed the whole way through.
+// movedRuleIndexes are renamed rather than recreated so the table stays indexed throughout.
 var movedRuleIndexes = []movedRuleIndex{
 	{
 		entity:  &entities.TradingStrategySignalSource{},
@@ -440,22 +326,13 @@ var movedRuleIndexes = []movedRuleIndex{
 	},
 }
 
-// movedRuleColumn is a column that changed names when the rules moved off the bot.
 type movedRuleColumn struct {
 	entity  any
 	oldName string
 	newName string
 }
 
-// movedRuleColumns are those renames. The first two used to name the bot the rules
-// hung off and now name the trading strategy they belong to — the values in them are
-// still bot identifiers when this runs, and moveRulesOntoTradingStrategies is what
-// corrects them. The third only changed because the model it points at was renamed;
-// its values were right all along.
-//
-// Renaming rather than adding is the whole point: the old column is declared NOT
-// NULL, so a new one beside it would leave every write failing on a column no entity
-// claims.
+// The first two columns still hold bot IDs until moveRulesOntoTradingStrategies corrects them; renaming rather than adding avoids a leftover NOT NULL column that would fail every write.
 var movedRuleColumns = []movedRuleColumn{
 	{
 		entity:  &entities.TradingStrategySignalSource{},
@@ -474,13 +351,7 @@ var movedRuleColumns = []movedRuleColumn{
 	},
 }
 
-// renameMovedRuleTables carries the rules across to their new names without moving a
-// single row: the tables, their indexes and the column that points into them are
-// renamed in place.
-//
-// Copying rows into new tables was the alternative and was rejected. A copy has a
-// half-way state, and a migration with a half-way state is a migration that can be
-// interrupted into one.
+// renameMovedRuleTables renames tables, indexes and columns in place rather than copying rows, so there is no interruptible half-way state.
 func (schemaMigrator *SchemaMigrator) renameMovedRuleTables() error {
 	migrator := schemaMigrator.database.Migrator()
 
@@ -510,14 +381,7 @@ func (schemaMigrator *SchemaMigrator) renameMovedRuleTables() error {
 			continue
 		}
 
-		// The ORM's own RenameIndex is not usable here, for the reason its DropIndex
-		// is not (see dropRetiredIndexes): on this driver it qualifies the index
-		// with a function call, which is not valid there. The statement below is
-		// what it was trying to write.
-		//
-		// It carries no value from anywhere: both names are constants in the list
-		// above, and they go through the ORM's own identifier quoting rather than
-		// being pasted into the text.
+		// Raw SQL because GORM's RenameIndex has the same invalid qualification as DropIndex; both names are constants passed through identifier quoting.
 		renamed := schemaMigrator.database.Exec("ALTER INDEX IF EXISTS ? RENAME TO ?",
 			clause.Column{Name: index.oldName}, clause.Column{Name: index.newName})
 		if renamed.Error != nil {
@@ -528,21 +392,12 @@ func (schemaMigrator *SchemaMigrator) renameMovedRuleTables() error {
 	return nil
 }
 
-// prepareForTheMove builds the two things the move writes into — the table the
-// trading strategies go in, and the column on a bot that names one — without any of
-// the foreign keys that cannot hold until the move has run.
-//
-// Syncing the schema does both of these too, and does them properly. This is only
-// what has to exist *first*, so that the move has somewhere to put its answer.
+// prepareForTheMove creates the trading strategy table and the bot's reference column without the child foreign keys that cannot hold until the move has run.
 func (schemaMigrator *SchemaMigrator) prepareForTheMove() error {
-	// Creating the table here declares only the keys that live *on* it — the one
-	// naming its owner. The keys that would refuse the move live on the child
-	// tables and are declared when those are synced, which happens afterwards.
+	// Only the table's own owner key is declared here; child-table keys come with the later sync.
 	migrator := schemaMigrator.database.Migrator()
 
-	// Nothing to prepare for on a database that has never held a bot: syncing the
-	// schema builds all of this properly a moment later, and there is nothing to
-	// move into it.
+	// Nothing to move on a database that never had bots.
 	if !migrator.HasTable(&entities.StrategyBot{}) {
 		return nil
 	}
@@ -560,25 +415,11 @@ func (schemaMigrator *SchemaMigrator) prepareForTheMove() error {
 		}
 	}
 
-	// Two of these still point at StrategyBots and would refuse the very writes the
-	// move is about to make. Dropped here rather than with the rest, because the
-	// rest can wait until the schema is synced and these cannot.
+	// Two of these still point at StrategyBots and would refuse the move's writes, so they are dropped now.
 	return schemaMigrator.dropRetiredConstraints()
 }
 
-// moveRulesOntoTradingStrategies gives every bot that still has none a trading
-// strategy of its own, made of exactly the rules it was already running.
-//
-// The name is the bot's. Two bots of one owner cannot share a name, and before this
-// there were no trading strategies at all, so nothing can collide.
-//
-// The children are repointed **by their own identifiers**, and every bot's are
-// gathered before the first trading strategy is created. Repointing them by the
-// value they carry would be a trap: that value is a bot identifier, the new trading
-// strategy identifiers come from their own sequence, and the two ranges overlap.
-//
-// A bot whose identifier is already set is skipped, which is what makes running this
-// a second time do nothing at all.
+// moveRulesOntoTradingStrategies gives each unmigrated bot a same-named trading strategy with its rules, repointing child rows by their own IDs (gathered up front) because bot and strategy ID ranges overlap; already-migrated bots are skipped.
 func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 	if !schemaMigrator.database.Migrator().HasTable(&entities.StrategyBot{}) {
 		return nil
@@ -586,11 +427,7 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 
 	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
 		unmovedBots := []entities.StrategyBot{}
-		// The three columns are named rather than taking the whole row, and that is
-		// not a saving. This runs on a connection that has already read this table
-		// once and has just altered it: a statement whose result type changed under
-		// a cached plan is refused outright. Three columns this step does not touch
-		// keep the same result type on both sides of the change.
+		// Select only three columns: the table was just altered, and a cached plan whose result type changed is refused.
 		if findError := transaction.Model(&entities.StrategyBot{}).
 			Select("id", "owner_id", "name").
 			Where(clause.Eq{Column: "trading_strategy_id", Value: 0}).
@@ -599,21 +436,12 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 			return fmt.Errorf("find bots without a trading strategy: %w", findError)
 		}
 
-		// Every identifier this move hands out is pushed past every bot identifier
-		// before the first one is used. Until a row is moved it still carries a bot
-		// identifier, and (trading_strategy_id, label) is unique — so a trading
-		// strategy whose identifier happens to equal a bot that has not been moved
-		// yet collides with that bot's own rows, for as long as the move runs.
-		//
-		// Two bots sharing the label "A" is not unusual; it is the default the
-		// screen offers. So this is the ordinary case, not a corner of it.
+		// Push strategy IDs past every bot ID first, or a new strategy could collide with an unmoved bot's rows on the unique (trading_strategy_id, label), which the default label makes common.
 		if pushError := schemaMigrator.pushIdentifiersPastEveryBot(transaction); pushError != nil {
 			return pushError
 		}
 
-		// Every bot's rows are gathered before any trading strategy is created, not
-		// one bot at a time. Gathering per bot would read a table earlier bots have
-		// already been written into.
+		// Gather every bot's rows before creating any strategy, so later reads are not disturbed by earlier writes.
 		signalSourceIDsByBot := map[uint][]uint{}
 		conditionNodeIDsByBot := map[uint][]uint{}
 
@@ -664,13 +492,7 @@ func (schemaMigrator *SchemaMigrator) moveRulesOntoTradingStrategies() error {
 	})
 }
 
-// pushIdentifiersPastEveryBot makes the next trading strategy identifier greater
-// than every bot identifier, and greater than every trading strategy identifier
-// already handed out.
-//
-// This is the one statement in the migrator written by hand, and the ORM is the
-// reason: advancing a sequence has no word in it. Nothing is pasted into the text —
-// the one value it needs goes through the ORM's own binding.
+// pushIdentifiersPastEveryBot advances the trading strategy sequence past every bot and strategy ID; raw SQL because GORM cannot set a sequence, with the value bound.
 func (schemaMigrator *SchemaMigrator) pushIdentifiersPastEveryBot(transaction *gorm.DB) error {
 	highestBotID := uint(0)
 	if readError := transaction.Model(&entities.StrategyBot{}).
@@ -678,8 +500,7 @@ func (schemaMigrator *SchemaMigrator) pushIdentifiersPastEveryBot(transaction *g
 		return fmt.Errorf("read the highest bot identifier: %w", readError)
 	}
 
-	// Nothing to push past, and nothing to move either. Pushing anyway would burn
-	// the first identifier on a database that has never held a bot.
+	// No bots means nothing to move, so do not burn an ID.
 	if highestBotID == 0 {
 		return nil
 	}
@@ -696,8 +517,7 @@ func (schemaMigrator *SchemaMigrator) pushIdentifiersPastEveryBot(transaction *g
 	return nil
 }
 
-// ruleRowIDsOf is which rows of one rule table currently hang off this bot, read
-// before anything is written so that the answer cannot be disturbed by the writing.
+// ruleRowIDsOf reads a bot's rule row IDs before any write.
 func (schemaMigrator *SchemaMigrator) ruleRowIDsOf(
 	transaction *gorm.DB, entity any, botID uint,
 ) ([]uint, error) {
@@ -712,9 +532,7 @@ func (schemaMigrator *SchemaMigrator) ruleRowIDsOf(
 	return rowIDs, nil
 }
 
-// repointRuleRows moves these exact rows onto this trading strategy, one identifier
-// at a time. A migration runs over a handful of rows per bot, so naming each one is
-// cheaper than a condition that could ever match a row it was not meant to.
+// repointRuleRows updates by explicit IDs so it can never match an unintended row.
 func (schemaMigrator *SchemaMigrator) repointRuleRows(
 	transaction *gorm.DB, entity any, rowIDs []uint, tradingStrategyID uint,
 ) error {
@@ -729,19 +547,7 @@ func (schemaMigrator *SchemaMigrator) repointRuleRows(
 	return nil
 }
 
-// clearOwnerlessRows empties every table that still predates the owner it may not
-// be without. What hangs off those rows goes with them through the cascades already
-// on the tables.
-//
-// The condition is the point: each one fires only while its table exists and has no
-// owner column, which is exactly once, and never again after the migration that
-// follows it. It is therefore not a script somebody has to remember to run once — it
-// is a statement about a shape that stops being true the moment it has done its
-// work, in the same spirit as the retired columns above.
-//
-// Assigning the rows to somebody instead was the alternative, and it was rejected:
-// picking an owner for a test row is a guess, and a guess here would leave "every
-// one of these belongs to a person" true only by accident.
+// clearOwnerlessRows deletes rows (cascading) from tables that still lack their owner column, a condition that is true exactly once; assigning an owner instead would be a guess.
 func (schemaMigrator *SchemaMigrator) clearOwnerlessRows() error {
 	migrator := schemaMigrator.database.Migrator()
 

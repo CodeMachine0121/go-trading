@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Saying nothing, saying spot, and borrowing nothing all describe the replay this
-// system performs, so all three are free to say.
+// Empty, "spot" and unleveraged declarations all describe the replay this system performs.
 func TestSpotOnlyReplayDomainAcceptsWhatAlreadyMeansSpot(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -67,9 +66,7 @@ func TestSpotOnlyReplayDomainAcceptsWhatAlreadyMeansSpot(t *testing.T) {
 	}
 }
 
-// Every set of rules other than spot is refused, and refused in one sentence. Which
-// of the three somebody asked for makes no difference to what they have to do next,
-// and three sentences would only suggest three different fixes.
+// Every non-spot trading mode is refused with one sentence since the fix is the same.
 func TestSpotOnlyReplayDomainRefusesEveryOtherSetOfRules(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -102,8 +99,6 @@ func TestSpotOnlyReplayDomainRefusesEveryOtherSetOfRules(t *testing.T) {
 			require.Error(t, refusal)
 			assert.Contains(t, refusal.Error(), "只重演現貨")
 
-			// One sentence for all four. A reader told a different thing each time
-			// would go looking for a different fix each time, and there is only one.
 			if firstRefusalSentence == "" {
 				firstRefusalSentence = refusal.Error()
 			}
@@ -112,8 +107,7 @@ func TestSpotOnlyReplayDomainRefusesEveryOtherSetOfRules(t *testing.T) {
 	}
 }
 
-// Borrowing is refused because there is nobody here to borrow from — and a figure
-// below one is refused for the older reason, in the older words.
+// Leverage above one is refused as borrowing; below one keeps its older wording.
 func TestSpotOnlyReplayDomainRefusesBorrowing(t *testing.T) {
 	testCases := []struct {
 		name             string
@@ -155,9 +149,7 @@ func TestSpotOnlyReplayDomainRefusesBorrowing(t *testing.T) {
 	}
 }
 
-// A rate at which a position gets closed out for running low on collateral only means
-// something to an account that borrowed. Sending one is answered rather than ignored,
-// because somebody who sent it was picturing a system this is not.
+// A maintenance margin rate is refused rather than ignored, since it only means something to a borrowing account.
 func TestSpotOnlyReplayDomainRefusesAMaintenanceMarginRate(t *testing.T) {
 	testCases := []struct {
 		name                          string
@@ -170,8 +162,7 @@ func TestSpotOnlyReplayDomainRefusesAMaintenanceMarginRate(t *testing.T) {
 			expectsRefusal:                true,
 		},
 		{
-			// Nobody typed this meaning a contract account, but it is still a figure
-			// about one — and reading it as "said nothing" would be a guess.
+			// Any nonzero rate counts; treating a small one as unset would be a guess.
 			name:                          "a rate below a whole percent is still a rate",
 			declaredMaintenanceMarginRate: "0.005",
 			expectsRefusal:                true,
@@ -203,8 +194,7 @@ func TestSpotOnlyReplayDomainRefusesAMaintenanceMarginRate(t *testing.T) {
 	}
 }
 
-// Every one of the three wrong at once is still refused. Which one it names does not
-// matter — what matters is that the run does not happen.
+// All three wrong at once is still refused; which one is named doesn't matter.
 func TestSpotOnlyReplayDomainRefusesWhenAllThreeAreWrong(t *testing.T) {
 	_, refusal := domains.NewSpotOnlyReplayDomain(
 		"longShort", decimal.NewFromInt(20), decimal.RequireFromString("0.5"))

@@ -12,7 +12,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// PublishedStrategyScriptRepository records which strategy scripts are on the marketplace.
 type PublishedStrategyScriptRepository struct {
 	database *gorm.DB
 }
@@ -21,13 +20,7 @@ func NewPublishedStrategyScriptRepository(database *gorm.DB) *PublishedStrategyS
 	return &PublishedStrategyScriptRepository{database: database}
 }
 
-// Publish puts this strategy script on the marketplace, or leaves it exactly where it is.
-//
-// The insert is told to do nothing on conflict rather than being preceded by a
-// look, and that is what makes publishing twice one row: two requests arriving
-// together both find the shelf empty if they look first, and only one of them
-// survives the unique index if they do not. Doing nothing also preserves the
-// original moment for free — the row that is already there is not touched.
+// Publish inserts with ON CONFLICT DO NOTHING, so concurrent publishes yield one row and the original publish time is preserved.
 func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) Publish(
 	executionContext context.Context, strategyScriptID uint, publishedAt time.Time,
 ) error {
@@ -43,10 +36,7 @@ func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) Publ
 	return nil
 }
 
-// Withdraw takes this strategy script off the marketplace. Every adoption of it goes too,
-// and not because of a second statement here: the adoptions hang off this row with
-// a cascade, so deleting it deletes them. Withdrawing something that is not there
-// affects no rows and is not a failure — what was asked for already holds.
+// Withdraw deletes the listing, cascading to its adoptions; withdrawing an unpublished script is not an error.
 func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) Withdraw(
 	executionContext context.Context, strategyScriptID uint,
 ) error {
@@ -60,8 +50,6 @@ func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) With
 	return nil
 }
 
-// FindOne returns this strategy script's place on the marketplace, or
-// ErrStrategyScriptNotPublished when it has none.
 func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) FindOne(
 	executionContext context.Context, strategyScriptID uint,
 ) (entities.PublishedStrategyScript, error) {

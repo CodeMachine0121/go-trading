@@ -7,9 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// MarketKCandleVo is one K candle as a market source reported it, already
-// normalized: the wire format stops at the proxy and never reaches the domain.
-// The figures stay precise decimals because they are prices and amounts.
+// MarketKCandleVo is one normalized K candle as a market source reported it.
 type MarketKCandleVo struct {
 	Symbol              string
 	OpenTime            time.Time
@@ -23,8 +21,7 @@ type MarketKCandleVo struct {
 	TakerBuyQuoteVolume decimal.NullDecimal
 }
 
-// ToWriteDto converts this reported candle into the shape the domain validates and
-// stores. Nothing is judged here — every K candle rule is applied downstream.
+// ToWriteDto converts the candle for validation and storage; all rules are applied downstream.
 func (marketKCandleVo MarketKCandleVo) ToWriteDto() dto.KCandleWriteDto {
 	return dto.KCandleWriteDto{
 		Symbol:              marketKCandleVo.Symbol,

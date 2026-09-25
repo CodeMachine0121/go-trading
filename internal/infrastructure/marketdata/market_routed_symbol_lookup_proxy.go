@@ -9,8 +9,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// MarketRoutedSymbolLookupProxy asks the source that serves a market whether it has
-// heard of a symbol.
 type MarketRoutedSymbolLookupProxy struct {
 	symbolLookupProxies map[vo.MarketVo]_interface.ISymbolLookupProxy
 }
@@ -21,11 +19,7 @@ func NewMarketRoutedSymbolLookupProxy(
 	return &MarketRoutedSymbolLookupProxy{symbolLookupProxies: maps.Clone(symbolLookupProxies)}
 }
 
-// LookUpSymbol asks the market itself.
-//
-// A market with nothing wired up is a failure rather than "no such symbol". The two
-// mean opposite things to whoever asked — fix what you typed, versus this system is
-// not finished — and answering the wrong one sends them looking in the wrong place.
+// LookUpSymbol fails for an unwired market rather than reporting "no such symbol", since the two mean very different things to the caller.
 func (marketRoutedSymbolLookupProxy *MarketRoutedSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
 ) (vo.SymbolListingVo, error) {

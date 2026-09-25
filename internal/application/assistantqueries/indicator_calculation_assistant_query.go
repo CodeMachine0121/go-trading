@@ -11,45 +11,30 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// indicatorCalculationAssistantArguments is what the assistant sends to run one
-// calculation. It may name a saved strategy script or bring its own algorithm, never both.
+// indicatorCalculationAssistantArguments names a saved strategy script or brings its own
+// algorithm, never both.
 type indicatorCalculationAssistantArguments struct {
 	Symbol           string `json:"symbol"`
 	Interval         string `json:"interval"`
 	StrategyScriptID uint   `json:"strategyScriptId"`
 	Script           string `json:"script"`
 	ResultType       string `json:"resultType"`
-	// StartTime and EndTime are the stretch of market to read, RFC3339. How many
-	// values come out of it depends on how much of it the symbol's market is open
-	// for, so a stretch over a Taiwan night holds nothing at all.
+	// StartTime and EndTime are RFC3339; only market-open time yields values, so a stretch over a
+	// Taiwan night holds nothing.
 	StartTime string `json:"startTime"`
 	EndTime   string `json:"endTime"`
-	// ParameterValues are what the named strategy script's knobs are worth this time.
-	// Anything left out keeps the value it was declared with.
+	// ParameterValues left out keep their declared values.
 	ParameterValues []strategyScriptParameterValueAssistantArgument `json:"parameterValues"`
 }
 
-// strategyScriptParameterValueAssistantArgument is what one knob is worth this run.
 type strategyScriptParameterValueAssistantArgument struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
 }
 
-// IndicatorCalculationAssistantQuery lets the assistant run one indicator
-// calculation, either from a saved strategy script or from an algorithm it wrote itself.
-//
-// Naming a saved strategy script is offered because that is how the question is actually
-// asked — "look at BTCUSDT with my twenty-bar average" names a strategy script, not a
-// script. The alternative, making the assistant read the strategy script and then send its
-// algorithm back, costs an extra round trip and puts the whole script through the
-// conversation twice for nothing.
-//
-// A strategy script that is named wins over an algorithm that is sent, so that the two can
-// never quietly disagree about which one ran.
-//
-// It no longer reads the strategy script itself. Fetching the algorithm belongs to the use
-// case that runs it — that is where the three gates are walked — so this capability
-// hands over an identifier and never holds a script it did not write.
+// IndicatorCalculationAssistantQuery runs one indicator calculation from a saved strategy script
+// (which wins over a sent algorithm) or from an algorithm the assistant wrote; fetching the script
+// is left to the application so this never holds a script it did not write.
 type IndicatorCalculationAssistantQuery struct {
 	indicatorCalculationApplication *application.IndicatorCalculationApplication
 }
@@ -90,18 +75,8 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ar
 		`},"required":["symbol","startTime"],"additionalProperties":false}`
 }
 
-// Run works out one calculation and hands back its values.
-//
-// Every rule the calculation already obeys is obeyed here unrelaxed — an
-// unrecognised coarseness, a count outside its bounds, an algorithm that will not
-// run, a stretch of market too thin to yield a single value — and each comes back as
-// the reason it was refused, which the assistant reads and may act on.
-//
-// A stretch merely shorter than the count asked for is not among them: the
-// calculation answers over what is there, and the answer carries both the count a
-// full one would have taken and the count it worked from. Those travel to the
-// assistant as they are, so it can say a reading is based on less market than asked
-// for instead of presenting it as complete.
+// Run surfaces every refusal of the calculation as a readable reason; a stretch merely shorter
+// than asked is answered, with required and used candle counts so the assistant can say so.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Run(
 	executionContext context.Context, viewerID uint, arguments string,
 ) (string, error) {
@@ -140,8 +115,6 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) Ru
 	return string(payload), nil
 }
 
-// requestFor is everything about this calculation except the algorithm: where to
-// read, how coarse, and what the knobs are worth this time.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) requestFor(
 	calculationArguments indicatorCalculationAssistantArguments,
 	startTime time.Time,
@@ -165,12 +138,8 @@ func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) re
 	}
 }
 
-// calculate runs whatever the assistant asked for: the strategy script it named, or the
-// algorithm it wrote itself when it named none.
-//
-// Both go through one call. Which of the two it is, is settled by the same model
-// every other caller uses, so the assistant is not a second place where "one or
-// the other" could come to mean something different.
+// calculate lets the shared run-subject model decide between the named script and the inline
+// algorithm, so the assistant cannot interpret "one or the other" differently.
 func (indicatorCalculationAssistantQuery *IndicatorCalculationAssistantQuery) calculate(
 	executionContext context.Context,
 	viewerID uint,

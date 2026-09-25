@@ -22,8 +22,7 @@ func TestContractIngestionDefaultsPointAtTheContractVenue(t *testing.T) {
 }
 
 func TestTheContractAllowanceDefaultsToHalfTheSpotOne(t *testing.T) {
-	// Every contract candle costs two requests rather than one, so the same number of
-	// candles a minute is reached from half the number written down.
+	// Half the spot default because each contract candle costs two requests.
 	applicationConfig := config.Load()
 
 	assert.Equal(t, 600, applicationConfig.Ingestion.MarketDataRequestsPerMinute)
@@ -31,9 +30,6 @@ func TestTheContractAllowanceDefaultsToHalfTheSpotOne(t *testing.T) {
 }
 
 func TestTheTwoVenuesAreSettledApart(t *testing.T) {
-	// Each of these is the contract venue's own number. Sharing the spot one would
-	// point this side at the wrong address, spend half the allowance it is allowed,
-	// or offer a history the venue does not have.
 	t.Setenv("CONTRACT_MARKET_DATA_BASE_URL", "https://example.test/contract/klines")
 	t.Setenv("CONTRACT_MARKET_DATA_MARK_PRICE_URL", "https://example.test/contract/mark")
 	t.Setenv("CONTRACT_MARKET_DATA_SYMBOL_CATALOG_URL", "https://example.test/contract/catalog")

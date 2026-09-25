@@ -7,15 +7,13 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// KCandleQueryDomain holds one time-range query and guarantees its own invariants.
 type KCandleQueryDomain struct {
 	symbol    string
 	startTime time.Time
 	endTime   time.Time
 }
 
-// NewKCandleQueryDomain validates the query against every query rule. The start and
-// end times are deliberately not required to sit on a K candle interval boundary.
+// NewKCandleQueryDomain deliberately does not require start and end to sit on a K candle boundary.
 func NewKCandleQueryDomain(queryDto dto.KCandleQueryDto) (KCandleQueryDomain, error) {
 	tradingSymbol, symbolError := NewTradingSymbolDomain(queryDto.Symbol)
 	if symbolError != nil {

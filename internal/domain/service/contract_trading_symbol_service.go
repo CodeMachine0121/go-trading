@@ -12,13 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
 
-// ContractTradingSymbolService is the application layer's only entry point for the
-// perpetual contracts the system knows about. Its public use-case methods never call
-// one another.
-//
-// It shares nothing with the spot list, which is the point: the same code names a
-// different instrument on each venue, so following BTCUSDT here neither implies nor
-// disturbs following BTCUSDT there.
+// ContractTradingSymbolService is the application layer's only entry point for perpetual contracts; it is independent of the spot list, as the same code names a different instrument per venue.
 type ContractTradingSymbolService struct {
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
 	kCandleContractRepository       domaininterface.IKCandleContractRepository
@@ -40,13 +34,7 @@ func NewContractTradingSymbolService(
 	}
 }
 
-// ListContractTradingSymbols returns every perpetual contract worth asking about: the
-// ones the system has been told about, plus the ones it actually holds candles for.
-// Each appears once, ordered by name.
-//
-// Both halves are needed, for the same reasons the spot list needs them:
-// registered-but-empty contracts are what makes a freshly built database usable at
-// all, and held-but-unregistered ones are what a hand-placed candle leaves behind.
+// ListContractTradingSymbols returns registered contracts plus any holding candles without a registration, once each, ordered by name.
 func (contractTradingSymbolService *ContractTradingSymbolService) ListContractTradingSymbols(
 	executionContext context.Context,
 ) ([]dto.ContractTradingSymbolDto, error) {
@@ -62,9 +50,7 @@ func (contractTradingSymbolService *ContractTradingSymbolService) ListContractTr
 		return nil, findHeldError
 	}
 
-	// A registered contract speaks for itself; one that is only known because a candle
-	// was stored for it has nobody to follow it, so it is added as unwatched and
-	// cannot displace a registration that says otherwise.
+	// Candle-only contracts are added as unwatched and never displace a registration.
 	dtoBySymbol := make(map[string]dto.ContractTradingSymbolDto, len(registeredSymbols))
 	for _, registeredSymbol := range registeredSymbols {
 		dtoBySymbol[registeredSymbol.Symbol] = registeredSymbol.ToDto()
@@ -89,19 +75,7 @@ func (contractTradingSymbolService *ContractTradingSymbolService) ListContractTr
 	return contractTradingSymbolDtos, nil
 }
 
-// AddToWatchlist starts keeping one perpetual contract's candles up to date, after
-// checking with the contract venue that the code exists.
-//
-// The check comes first and the write only happens if it passed. Writing first and
-// finding out later would turn one typo into a line that fails once every round for
-// as long as the system runs, in a log nobody reads.
-//
-// A venue that cannot be reached at all leaves the watchlist untouched, which is the
-// opposite of what a failed catch-up does later: here nothing has been established
-// yet, so there is nothing to keep.
-//
-// Adding something already watched leaves one entry rather than failing: the caller
-// asked for it to be watched, and it is.
+// AddToWatchlist verifies the contract with the venue before writing, so a typo never becomes a permanently failing entry; an unreachable venue changes nothing, and re-adding is idempotent.
 func (contractTradingSymbolService *ContractTradingSymbolService) AddToWatchlist(
 	executionContext context.Context, symbol string,
 ) error {
@@ -123,11 +97,7 @@ func (contractTradingSymbolService *ContractTradingSymbolService) AddToWatchlist
 
 	watchedSymbol := entities.ContractTradingSymbol{Symbol: contractSymbol.Value(), IsWatched: true}
 
-	// The specification came in the same answer that confirmed the contract, so it is
-	// recorded now, in the same write, rather than a day later. One the venue reported
-	// in a form that cannot be a specification does not stop the contract being
-	// followed — following it is what was asked for — and the contract keeps whatever
-	// it held until the daily refresh.
+	// Record the specification from the same answer; an unparsable one does not block following and is fixed by the daily refresh.
 	specificationDomain, specificationError := domains.NewContractTradingSpecificationDomain(
 		listing.Specification)
 	if specificationError == nil {
@@ -137,16 +107,7 @@ func (contractTradingSymbolService *ContractTradingSymbolService) AddToWatchlist
 	return contractTradingSymbolService.contractTradingSymbolRepository.Save(executionContext, watchedSymbol)
 }
 
-// RefreshTradingSpecifications brings the trading specification of every contract
-// the system knows up to date with what the venue says now, and says how many it
-// updated.
-//
-// **Every registered contract, not only the watched ones.** Stopping following a
-// contract does not make it one the system no longer knows, and a replay can still
-// be run over the candles held for it.
-//
-// A contract the venue no longer lists as followable keeps the specification it was
-// last confirmed with, and when. The venue failing to answer changes nothing at all.
+// RefreshTradingSpecifications updates every registered contract (watched or not) and returns how many changed; unlisted contracts keep their last confirmed specification.
 func (contractTradingSymbolService *ContractTradingSymbolService) RefreshTradingSpecifications(
 	executionContext context.Context,
 ) (int, error) {
@@ -194,14 +155,7 @@ func (contractTradingSymbolService *ContractTradingSymbolService) RefreshTrading
 	return len(refreshedSymbols), nil
 }
 
-// RemoveFromWatchlist stops keeping one perpetual contract's candles up to date.
-//
-// It only stops the following. The contract stays registered and every candle already
-// fetched stays exactly where it is, and the spot list of the same name is not touched
-// at all.
-//
-// Removing something that was not being followed is not a failure: what was asked for
-// is already true.
+// RemoveFromWatchlist stops following a contract but keeps its registration and candles; removing an unwatched one is not an error.
 func (contractTradingSymbolService *ContractTradingSymbolService) RemoveFromWatchlist(
 	executionContext context.Context, symbol string,
 ) error {

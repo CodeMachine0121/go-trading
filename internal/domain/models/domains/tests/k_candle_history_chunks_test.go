@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// historyTaipei is the zone the Taiwan session below is said in.
 var historyTaipei = time.FixedZone("Asia/Taipei", 8*60*60)
 
 func historyMarketCatalog() domains.MarketCatalogDomain {
@@ -39,14 +38,7 @@ func historyIngestionDomainAt(t *testing.T, currentTime time.Time) domains.KCand
 }
 
 func TestHistoryChunksAreOneDayEachOldestFirst(t *testing.T) {
-	// One day is the unit for three reasons at once: one source is asked a local day
-	// at a time, the coarsest aggregation bucket is a day, and it is the unit anybody
-	// asking for history is thinking in.
-	//
-	// **Oldest first matters.** A run that dies half way then leaves a continuous
-	// block of old candles with the gap at the recent end — which is exactly the shape
-	// the ordinary backfill closes. Newest first would leave the gap in the middle,
-	// and nothing in this system fills those.
+	// Chunks are one day each, oldest first, so a run that dies midway leaves the gap at the recent end where the ordinary backfill closes it.
 	ingestionDomain := historyIngestionDomainAt(t, time.Date(2026, 9, 17, 10, 30, 30, 0, time.UTC))
 
 	chunks := ingestionDomain.HistoryChunks(
@@ -65,8 +57,7 @@ func TestHistoryChunksAreOneDayEachOldestFirst(t *testing.T) {
 }
 
 func TestHistoryChunksCoverExactlyTheStretchAndNothingMore(t *testing.T) {
-	// No gap between one chunk and the next, and no overlap: a gap is a minute nobody
-	// ever fetches, and an overlap is a request paid for twice.
+	// Chunks must abut with no gap (a minute never fetched) and no overlap (a request paid twice).
 	ingestionDomain := historyIngestionDomainAt(t, time.Date(2026, 9, 17, 10, 30, 30, 0, time.UTC))
 
 	chunks := ingestionDomain.HistoryChunks("BTCUSDT", vo.MarketCrypto, 5*24*time.Hour)
@@ -95,9 +86,7 @@ func TestHistoryChunksCarryTheSymbolAndMarketEachNeeds(t *testing.T) {
 }
 
 func TestTradingKCandleCountBetweenCountsBothEnds(t *testing.T) {
-	// It is the inclusive count, because that is what "how many candles should this
-	// stretch hold" means — and comparing it against what storage holds is how a day
-	// already complete is skipped without touching the source.
+	// The count is inclusive so comparing it with storage can skip a day that is already complete.
 	testCases := []struct {
 		name          string
 		market        vo.MarketVo
@@ -106,10 +95,7 @@ func TestTradingKCandleCountBetweenCountsBothEnds(t *testing.T) {
 		expectedCount int
 	}{
 		{
-			// A round-the-clock market holds every minute of the day, both ends
-			// included. TradingBucketCountBetween answers 1439 here — one short —
-			// and that reading is left exactly as it is; this one is the inclusive
-			// question, asked separately.
+			// TradingBucketCountBetween deliberately answers 1439 here; this is the separate inclusive count.
 			name: "a whole day of a market that never closes", market: vo.MarketCrypto,
 			startTime:     time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC),
 			endTime:       time.Date(2026, 9, 14, 23, 59, 0, 0, time.UTC),

@@ -19,24 +19,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fugleIntradaySourceUnderTest answers each request with the next set of candles the
-// test handed it, repeating the last once it runs out — which is what the real venue
-// does between one minute and the next.
+// fugleIntradaySourceUnderTest serves the next set of candles per round, repeating the last once exhausted like the real venue between minutes.
 type fugleIntradaySourceUnderTest struct {
 	server     *httptest.Server
 	rounds     [][]string
 	statusCode int
 	rawBody    string
 	mutex      sync.Mutex
-	// roundIndex is which set of candles is being served. A round is over when a
-	// symbol comes round again, which is how the fake knows a poll finished without
-	// being told how many symbols are on the channel.
+	// roundIndex advances when a symbol comes round again, so the fake needs no symbol count.
 	roundIndex    int
 	servedInRound map[string]bool
 	askedSymbols  []string
 }
 
-// fugleIntradayCandle spells one candle the way this venue does.
 func fugleIntradayCandle(localTime string, closePrice string, volume string) string {
 	return fmt.Sprintf(
 		`{"date":"2026-09-23T%s:00.000+08:00","open":112.75,"high":113,"low":112.5,`+
@@ -131,8 +126,6 @@ func nextKCandle(t *testing.T, liveKCandles <-chan vo.LiveKCandleVo) vo.LiveKCan
 	}
 }
 
-// The venue states the minute already formed, so the figures are carried across as
-// they arrive — no folding, no differencing, nothing invented.
 func TestTheLatestMinuteIsReportedAsItStands(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")})
@@ -146,13 +139,7 @@ func TestTheLatestMinuteIsReportedAsItStands(t *testing.T) {
 	assert.False(t, liveKCandle.Closed, "the latest minute is still forming")
 }
 
-// A later minute appearing is what proves the earlier one finished, and the venue has
-// already stated that earlier minute whole — so what gets stored is the complete
-// minute, never the part of it that happened to be seen.
-//
-// This is the difference that matters. A feed assembled from quotes can only ever
-// store the part of a minute it witnessed, which is why the minute a follow opens in
-// used to be wrong and permanent.
+// A later minute proves the earlier one finished, and the stored minute is the venue's complete version, not the part the follow witnessed.
 func TestAFinishedMinuteIsStoredWholeEvenIfTheFollowJoinedPartWayThroughIt(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")},
@@ -168,7 +155,7 @@ func TestAFinishedMinuteIsStoredWholeEvenIfTheFollowJoinedPartWayThroughIt(t *te
 
 	finished := nextKCandle(t, liveKCandles)
 	assert.True(t, finished.Closed)
-	// 500, not the 344 that minute had been up to when the follow joined it.
+	// 500, not the 344 seen when the follow joined.
 	assert.Equal(t, "500", finished.Volume.String())
 	assert.Equal(t, "112.95", finished.Close.String())
 
@@ -177,7 +164,6 @@ func TestAFinishedMinuteIsStoredWholeEvenIfTheFollowJoinedPartWayThroughIt(t *te
 	assert.Equal(t, "120", started.Volume.String())
 }
 
-// Every symbol on the channel is asked about, one request each.
 func TestEverySymbolOnTheChannelIsAskedAbout(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")})
@@ -194,7 +180,6 @@ func TestEverySymbolOnTheChannelIsAskedAbout(t *testing.T) {
 	assert.Subset(t, source.symbolsAsked(), []string{"0050", "2330"})
 }
 
-// A symbol with nothing today yields nothing, and does not stop the others.
 func TestASymbolWithNoCandlesYetYieldsNothing(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t, []string{})
 
@@ -207,8 +192,6 @@ func TestASymbolWithNoCandlesYetYieldsNothing(t *testing.T) {
 	}
 }
 
-// A venue that will not answer is a failure to open, not a feed that opened and went
-// quiet — and the two lead the caller to do different things.
 func TestAVenueThatWillNotAnswerNeverHandsBackAFeed(t *testing.T) {
 	testCases := []struct {
 		name       string
@@ -245,7 +228,6 @@ func TestAVenueThatWillNotAnswerNeverHandsBackAFeed(t *testing.T) {
 	}
 }
 
-// Ending a follow closes the feed, which is the one way a caller learns it is over.
 func TestEndingAFugleIntradayFollowClosesTheFeed(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")})
@@ -267,8 +249,6 @@ func TestEndingAFugleIntradayFollowClosesTheFeed(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 }
 
-// One request buys one symbol, so a long watchlist cannot be asked about as often as
-// a short one. Working that out up front turns a silent slowdown into a number.
 func TestAFollowSlowsItselfToWhatTheVenueAllowanceAffords(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")})
@@ -276,8 +256,7 @@ func TestAFollowSlowsItselfToWhatTheVenueAllowanceAffords(t *testing.T) {
 	executionContext, stopFollowing := context.WithCancel(context.Background())
 	t.Cleanup(stopFollowing)
 
-	// Sixty a minute against six symbols is one round every six seconds at best, so a
-	// round every millisecond is not on offer however it is configured.
+	// Sixty a minute across six symbols allows at most one round every six seconds.
 	liveKCandles, followError := marketdata.NewFugleIntradayLiveMarketDataProxy(
 		source.server.URL, "a-key", time.Millisecond, 60, time.Hour,
 		2*time.Second, marketdata.NewRequestPacer(0),
@@ -289,14 +268,12 @@ func TestAFollowSlowsItselfToWhatTheVenueAllowanceAffords(t *testing.T) {
 		nextKCandle(t, liveKCandles)
 	}
 
-	// Six symbols asked once each opening the follow; a second round cannot have
-	// happened yet, because it is not affordable for another six seconds.
+	// Only the opening round can have happened; the next is six seconds away.
 	time.Sleep(300 * time.Millisecond)
 	assert.Len(t, source.symbolsAsked(), 6)
 }
 
-// contextWithCancel is a cancellable context that is always let go of when the test
-// ends, so a follow started by one test never outlives it into the next.
+// contextWithCancel is cancelled at test end so no follow leaks into the next test.
 func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 
@@ -306,8 +283,6 @@ func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
 	return executionContext, stopFollowing
 }
 
-// A date the venue states in a way that cannot be read ends the round rather than
-// becoming a candle at some arbitrary moment.
 func TestACandleWithAnUnreadableDateEndsTheRound(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t, []string{})
 	source.rawBody = `{"symbol":"0050","data":[{"date":"half past nine","open":1,` +
@@ -324,8 +299,6 @@ func TestACandleWithAnUnreadableDateEndsTheRound(t *testing.T) {
 	assert.Nil(t, liveKCandles)
 }
 
-// An address that is not an address, and a follow asked for after the work was called
-// off, are both refused before anything reaches the network.
 func TestAFollowThatCannotEvenBeAttemptedIsRefusedAtOnce(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")})
@@ -363,9 +336,7 @@ func TestAFollowThatCannotEvenBeAttemptedIsRefusedAtOnce(t *testing.T) {
 	}
 }
 
-// Between rounds the follow is parked. Ending it there has to end it now rather than
-// at the next round — a follow asking once a minute would otherwise outlive its
-// cancellation for most of a minute, and every roster rebuild would leave one behind.
+// Cancellation must end a parked follow immediately, not at its next round.
 func TestEndingAFollowWaitingForItsNextRoundEndsItAtOnce(t *testing.T) {
 	source := newFugleIntradaySourceUnderTest(t,
 		[]string{fugleIntradayCandle("09:30", "112.9", "344")})
@@ -396,9 +367,7 @@ func TestEndingAFollowWaitingForItsNextRoundEndsItAtOnce(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 }
 
-// More candles than the feed will hold, and nobody reading them. Ending the follow has
-// to release the send that is waiting for room, or the goroutine behind every
-// abandoned follow stays parked on a channel nobody will ever read.
+// Cancellation must release a send blocked on a full channel, or the goroutine leaks.
 func TestEndingAFugleIntradayFollowReleasesASendWaitingForRoom(t *testing.T) {
 	crowdedSymbols := make([]string, 0, 30)
 	for symbolIndex := range 30 {
@@ -427,9 +396,6 @@ func TestEndingAFugleIntradayFollowReleasesASendWaitingForRoom(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 }
 
-// A watchlist the venue's allowance cannot keep up with is said out loud, because from
-// every other angle it looks like a market that has gone quiet: the follow keeps being
-// given up for dead and reopened, and nothing about the feed is actually wrong.
 func TestAWatchlistTooLongForTheAllowanceIsSaidOutLoud(t *testing.T) {
 	writtenDown := &lockedLogBuffer{}
 	log.SetOutput(writtenDown)
@@ -444,8 +410,7 @@ func TestAWatchlistTooLongForTheAllowanceIsSaidOutLoud(t *testing.T) {
 	}
 
 	executionContext, _ := contextWithCancel(t)
-	// Sixty symbols against sixty a minute is a round a minute, which no caller
-	// waiting thirty seconds for a sign of life will sit through.
+	// Sixty symbols at sixty a minute is one round a minute, longer than the quiet timeout.
 	_, followError := marketdata.NewFugleIntradayLiveMarketDataProxy(
 		source.server.URL, "a-key", time.Millisecond, 60, 30*time.Second,
 		2*time.Second, marketdata.NewRequestPacer(0),
@@ -457,9 +422,7 @@ func TestAWatchlistTooLongForTheAllowanceIsSaidOutLoud(t *testing.T) {
 		"a follow that cannot beat the silence must say so")
 }
 
-// lockedLogBuffer collects what was written down while a follow is running. The follow
-// writes from its own goroutine and the test reads from this one, so the two have to
-// be kept apart — a plain buffer here is a data race, not a shortcut.
+// lockedLogBuffer is written by the follow's goroutine and read by the test, so it needs a lock.
 type lockedLogBuffer struct {
 	mutex   sync.Mutex
 	written bytes.Buffer

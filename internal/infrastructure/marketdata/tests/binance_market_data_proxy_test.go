@@ -17,8 +17,7 @@ import (
 
 const requestTimeout = 2 * time.Second
 
-// unpaced is what the cases that are not about pacing run with: a pacer holding
-// nothing back, so nothing waits. Pacing has its own case, which names its own rate.
+// unpaced is a pacer that never waits, for cases not about pacing.
 func unpaced() marketdata.RequestPacer {
 	return marketdata.NewRequestPacer(0)
 }
@@ -27,15 +26,13 @@ func at(hour int, minute int) time.Time {
 	return time.Date(2026, 8, 30, hour, minute, 0, 0, time.UTC)
 }
 
-// kLineJson spells one K candle the way the source does: a positional array whose
-// first element is a number of milliseconds and whose figures are quoted.
+// kLineJson is a positional array with open time in milliseconds and quoted figures.
 func kLineJson(openTime time.Time) string {
 	return fmt.Sprintf(
 		`[%d,"100","120","90","110","11",%d,"1200",7007,"5","600","0"]`,
 		openTime.UnixMilli(), openTime.Add(5*time.Minute).UnixMilli()-1)
 }
 
-// servedBy answers every request with the given body.
 func servedBy(t *testing.T, body string) string {
 	t.Helper()
 
@@ -125,10 +122,7 @@ func TestFetchKCandlesKeepsAskingUntilTheWindowIsCovered(t *testing.T) {
 }
 
 func TestFetchKCandlesHoldsItselfToTheRateTheSourceAllows(t *testing.T) {
-	// One call here becomes as many requests as the window needs, and the venue
-	// counts requests. A long fetch that sends them as fast as it can is throttled
-	// partway through and, on some venues, locked out of the address entirely — so
-	// the pace is kept here, where the requests are actually made.
+	// One call becomes many requests, so pacing belongs where requests are made.
 	available := []time.Time{at(8, 40), at(8, 45), at(8, 50)}
 	const pageSize = 1
 	const requestsPerMinute = 1200
@@ -156,12 +150,7 @@ func TestFetchKCandlesHoldsItselfToTheRateTheSourceAllows(t *testing.T) {
 
 	require.NoError(t, fetchError)
 	require.Greater(t, len(requestTimes), 2)
-	// A hair under is measurement, not the pacer letting a request through. The
-	// timestamps are taken inside the handler, so each gap carries the difference
-	// between two round trips as well as the wait — and that difference grows with
-	// whatever else the machine is doing. What this case is about is the difference
-	// between waiting and not waiting at all, and that is three orders of magnitude
-	// away from this slack.
+	// Timestamps are taken in the handler, so gaps include round-trip jitter; the slack is far below the wait being tested.
 	const timerSlack = 15 * time.Millisecond
 	shortestGapAllowed := time.Minute/requestsPerMinute - timerSlack
 	for index := 1; index < len(requestTimes); index++ {
@@ -172,9 +161,7 @@ func TestFetchKCandlesHoldsItselfToTheRateTheSourceAllows(t *testing.T) {
 }
 
 func TestEveryProxyReachingOneVenueSharesItsPace(t *testing.T) {
-	// The allowance is counted per venue, not per kind of question: asking whether a
-	// symbol is listed and asking for a day of candles both spend it. A pacer each
-	// would let the two of them together go at twice the rate either was allowed.
+	// The allowance is per venue, so both proxies must share one pacer.
 	const requestsPerMinute = 1200
 	venuePacer := marketdata.NewRequestPacer(requestsPerMinute)
 
@@ -201,8 +188,7 @@ func TestEveryProxyReachingOneVenueSharesItsPace(t *testing.T) {
 	require.NoError(t, fetchError)
 
 	require.Len(t, requestTimes, 2)
-	// A hair under is measurement, not the pacer letting a request through. See the
-	// case above.
+	// See the timer slack note above.
 	const timerSlack = 15 * time.Millisecond
 	assert.GreaterOrEqual(t, requestTimes[1].Sub(requestTimes[0]),
 		time.Minute/requestsPerMinute-timerSlack,
@@ -271,15 +257,13 @@ func TestFetchKCandlesReportsAnUnusableAnswer(t *testing.T) {
 			expectedReason: "read figure at position 1",
 		},
 		{
-			// A proxy appending its own error page to a good answer. Read only as far
-			// as the first value, this is a successful page of candles.
+			// Trailing junk after a good answer.
 			name:           "candles with something appended after them",
 			body:           `[[1788019500000,"1","2","0.5","1.5","10",1788019799999,"2000",7007,"4","800","0"]]<html>oops</html>`,
 			expectedReason: "trailing content after the answer",
 		},
 		{
-			// The same, but the answer it was appended to is empty — which read as a
-			// success is the worse of the two: a window recorded as having no candles.
+			// Trailing junk after an empty answer, which would otherwise record a window as having no candles.
 			name:           "nothing, with something appended after it",
 			body:           `[]{"error":"rate limited"}`,
 			expectedReason: "trailing content after the answer",

@@ -11,25 +11,17 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// binanceExchangeInfo is the part of the source's catalogue answer this needs: which
-// of the symbols asked about it actually lists.
 type binanceExchangeInfo struct {
 	Symbols []struct {
 		Symbol string `json:"symbol"`
 	} `json:"symbols"`
 }
 
-// BinanceSymbolLookupProxy answers whether Binance lists a trading pair.
-//
-// It asks the source's catalogue rather than trying to fetch a candle. A pair that
-// exists but has not traded in the window asked for answers with no candles, which is
-// indistinguishable from a pair that does not exist — and refusing to add a real
-// market because it was quiet is worse than the typo this check exists to catch.
+// BinanceSymbolLookupProxy checks the exchange catalogue rather than fetching candles, since a quiet real pair would return no candles just like a typo.
 type BinanceSymbolLookupProxy struct {
 	baseUrl    string
 	httpClient *http.Client
-	// pacer is the venue's, shared with every other proxy that reaches it. The
-	// allowance is counted per venue rather than per kind of question.
+	// The pacer is shared with every proxy on the venue, since the allowance is per venue.
 	pacer RequestPacer
 }
 
@@ -43,15 +35,7 @@ func NewBinanceSymbolLookupProxy(
 	}
 }
 
-// LookUpSymbol reports whether this source lists the symbol.
-//
-// It never carries a display name. A pair on this venue is already its own name, and
-// putting a translated one on screen would label it with something the venue has
-// never used.
-//
-// The market is accepted and ignored: this proxy is only ever reached for the one
-// market it serves, and taking the argument is what lets it satisfy the same contract
-// every other source does.
+// LookUpSymbol never sets a display name, and ignores the market argument because this proxy serves only one market.
 func (binanceSymbolLookupProxy *BinanceSymbolLookupProxy) LookUpSymbol(
 	executionContext context.Context, market vo.MarketVo, symbol string,
 ) (vo.SymbolListingVo, error) {
@@ -74,8 +58,7 @@ func (binanceSymbolLookupProxy *BinanceSymbolLookupProxy) LookUpSymbol(
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	// This source refuses an unknown pair rather than answering with an empty
-	// catalogue, so a refusal is the answer "no such symbol" and not a failure.
+	// The venue returns 400 for an unknown pair, which means "no such symbol", not a failure.
 	if response.StatusCode == http.StatusBadRequest {
 		return vo.SymbolListingVo{}, nil
 	}

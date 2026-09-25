@@ -9,15 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The two people in every case below. Neither number means anything beyond "not the
-// other one".
 const (
 	accessOwnerID    = uint(1)
 	accessStrangerID = uint(2)
 )
 
-// anOwnedStrategyScript is a strategy script belonging to accessOwnerID, with one knob so that
-// what a marketplace listing may show can be told from what it may not.
+// anOwnedStrategyScript has one parameter so listing visibility can be checked.
 func anOwnedStrategyScript() entities.StrategyScript {
 	return entities.StrategyScript{
 		ID:          7,
@@ -42,9 +39,8 @@ func TestStrategyScriptAccessDomainRecognisesItsOwner(t *testing.T) {
 	}{
 		{name: "the owner is the owner", viewerID: accessOwnerID, ownerID: accessOwnerID, expectedOwned: true},
 		{name: "somebody else is not", viewerID: accessStrangerID, ownerID: accessOwnerID, expectedOwned: false},
-		// Nobody owns nothing. Saying so here rather than trusting every caller to
-		// have checked is what keeps a request with no identity from matching a row
-		// whose owner column somehow holds zero.
+		// Zero never owns anything, so a request with no identity cannot match a row whose
+		// owner is zero.
 		{name: "nobody owns nothing", viewerID: 0, ownerID: 0, expectedOwned: false},
 		{name: "nobody owns somebody's", viewerID: 0, ownerID: accessOwnerID, expectedOwned: false},
 	}
@@ -108,10 +104,8 @@ func TestStrategyScriptAccessDomainHandsTheWholeStrategyScriptToItsOwner(t *test
 }
 
 func TestStrategyScriptAccessDomainRefusesEveryoneElseWithTheOneRefusal(t *testing.T) {
-	// Reading somebody else's, changing it, and running an unpublished one are three
-	// different attempts, and all three owe the same sentence — otherwise a caller
-	// holding a list of identifiers could tell which of them exist by comparing how
-	// the refusals differ.
+	// Reading, changing and running an unpublished script all give the same refusal so
+	// identifiers cannot be probed.
 	strangerReading := domains.NewStrategyScriptAccessDomain(anOwnedStrategyScript(), accessStrangerID, false)
 	strangerReadingPublished := domains.NewStrategyScriptAccessDomain(anOwnedStrategyScript(), accessStrangerID, true)
 
@@ -145,9 +139,8 @@ func TestStrategyScriptAccessDomainResolvesWhatARunNeeds(t *testing.T) {
 	})
 
 	t.Run("for a stranger, when it is published", func(t *testing.T) {
-		// The stranger never sees this — it goes to the layer that runs it — but the
-		// algorithm has to be in it, or a published strategy script would be unusable
-		// rather than merely unreadable.
+		// The runnable form must contain the script, or published scripts would be unusable
+		// rather than just unreadable.
 		accessDomain := domains.NewStrategyScriptAccessDomain(anOwnedStrategyScript(), accessStrangerID, true)
 
 		runnableStrategyScriptDto, resolveError := accessDomain.ToRunnableDto()

@@ -28,8 +28,7 @@ func TestStrategyBotRunRecordToDtoCarriesWhatAContractRoundSuggested(t *testing.
 	assert.Contains(t, string(wire), `"suggestedNotional":"5000"`)
 }
 
-// A spot round, and every round stored before these were remembered, leaves all three
-// off the wire rather than sending them empty.
+// A spot round omits all three figures rather than sending them empty.
 func TestStrategyBotRunRecordToDtoLeavesASpotRoundAsItWas(t *testing.T) {
 	runRecord := StrategyBotRunRecord{
 		RunNumber: 7, RanAt: time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC), Result: "buy",

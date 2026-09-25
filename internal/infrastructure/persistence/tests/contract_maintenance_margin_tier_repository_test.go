@@ -75,7 +75,7 @@ func TestContractMaintenanceMarginTierRepositoryReplacesNothingWhenOneLadderCann
 		"BTCUSDT": {storedTier("BTCUSDT", 1, "0", "50000", at(8, 0))},
 	}))
 
-	// Two tiers numbered the same break the unique key partway through.
+	// Two tiers with the same number break the unique key partway through.
 	replaceError := tierRepository.ReplaceLadders(t.Context(), map[string][]entities.ContractMaintenanceMarginTier{
 		"BTCUSDT": {storedTier("BTCUSDT", 1, "0", "60000", at(9, 0)), storedTier("BTCUSDT", 1, "60000", "90000", at(9, 0))},
 	})
@@ -129,8 +129,7 @@ func TestContractMaintenanceMarginTierRepositoryReplacesNothingWhenAnOldLadderCa
 }
 
 func TestContractMaintenanceMarginTierRepositoryLetsTwoRefreshesMeet(t *testing.T) {
-	// A contract joining the watchlist while the daily refresh runs: both replace the
-	// same ladder at once, and neither may fail for it.
+	// A watchlist addition racing the daily refresh: both replace the same ladder concurrently and neither may fail.
 	database := newTestDatabase(t)
 	tierRepository := persistence.NewContractMaintenanceMarginTierRepository(database)
 	ladder := func(confirmedAt time.Time) map[string][]entities.ContractMaintenanceMarginTier {

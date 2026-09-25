@@ -17,9 +17,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// strategyScriptOwnerID is whoever these tests act as. Every strategy script they save belongs
-// to them, and every strategy script they read back is their own — which is what makes
-// these tests about saving and rewriting rather than about who may see what.
+// strategyScriptOwnerID is the caller; every script saved or read here is theirs, so these tests
+// are not about visibility.
 const strategyScriptOwnerID = uint(1)
 
 type strategyScriptApplicationUnderTest struct {
@@ -28,8 +27,8 @@ type strategyScriptApplicationUnderTest struct {
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
 }
 
-// newStrategyScriptApplicationUnderTest wires the real domain service and the real
-// strategy script model, mocking only the outermost boundary: storage.
+// newStrategyScriptApplicationUnderTest wires the real domain service and model, mocking only
+// storage.
 func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicationUnderTest {
 	controller := gomock.NewController(t)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
@@ -64,8 +63,7 @@ func aStoredStrategyScript(id uint, name string) entities.StrategyScript {
 	}
 }
 
-// aPublication is one strategy script sitting on the marketplace, owned by somebody who is
-// not the caller.
+// aPublication is a marketplace strategy script owned by somebody other than the caller.
 func aPublication(id uint, name string, ownerID uint) entities.PublishedStrategyScript {
 	strategyScript := aStoredStrategyScript(id, name)
 	strategyScript.OwnerID = ownerID
@@ -118,9 +116,8 @@ func TestStrategyScriptApplicationCreateStrategyScript(t *testing.T) {
 	})
 
 	t.Run("a name differing only by its blanks reaches storage as the same name", func(t *testing.T) {
-		// This is the half of "只差前後空白的名稱視為重複" that lives above storage:
-		// two spellings arrive, one name is stored. The other half — one name twice
-		// is a conflict — is asserted against the real index in the repository tests.
+		// Names differing only by surrounding whitespace are stored as one name; the duplicate
+		// conflict itself is asserted in the repository tests.
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		storedNames := make([]string, 0, 2)
 		fixture.strategyScriptRepository.EXPECT().
@@ -198,8 +195,7 @@ func TestStrategyScriptApplicationCreateStrategyScript(t *testing.T) {
 }
 
 func TestStrategyScriptApplicationRefusesContentBeforeAnythingIsWritten(t *testing.T) {
-	// The repository is left with no expectation at all, so any call to it fails the
-	// test: nothing may be stored, and nothing already stored may be touched.
+	// The repository has no expectations, so any call to it fails the test.
 	testCases := []struct {
 		name            string
 		breakIt         func(writeDto *dto.StrategyScriptWriteDto)
@@ -235,8 +231,8 @@ func TestStrategyScriptApplicationRefusesContentBeforeAnythingIsWritten(t *testi
 		})
 
 		t.Run("rewriting with "+testCase.name, func(t *testing.T) {
-			// The strategy script is there; only its new content is wrong. Update is left
-			// unstubbed, so a write that went out anyway fails the test.
+			// The script exists but its new content is invalid; Update is unstubbed, so any write
+			// fails the test.
 			fixture := newStrategyScriptApplicationUnderTest(t)
 			fixture.strategyScriptRepository.EXPECT().
 				FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
@@ -299,8 +295,8 @@ func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
 		assert.Equal(t, "二十根均線", availableStrategyScriptsDto.Mine[0].Name)
 		assert.Equal(t, "六十根均線", availableStrategyScriptsDto.Mine[1].Name)
 
-		// Every one of them carries everything it remembers, not just its name —
-		// a collection of names would send the reader back for each strategy script again.
+		// Each carries its full content, not just its name, so the reader needs no follow-up
+		// lookups.
 		for _, strategyScriptDto := range availableStrategyScriptsDto.Mine {
 			assert.NotZero(t, strategyScriptDto.ID)
 			assert.NotEmpty(t, strategyScriptDto.Name)
@@ -401,9 +397,8 @@ func TestStrategyScriptApplicationUpdateStrategyScript(t *testing.T) {
 	})
 
 	t.Run("a strategy script that is not there is reported as such, not as bad content", func(t *testing.T) {
-		// Both are wrong: no strategy script carries this identifier, and the content has
-		// no name. Answering about the name would send the caller off to fix it,
-		// after which there is still nothing to rewrite.
+		// Both are wrong; the missing identifier is reported, since fixing the name would still
+		// leave nothing to rewrite.
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindOne(gomock.Any(), uint(999999)).Return(entities.StrategyScript{}, domains.ErrStrategyScriptNotFound)
@@ -434,9 +429,8 @@ func TestStrategyScriptApplicationUpdateStrategyScript(t *testing.T) {
 	})
 
 	t.Run("refuses a rewrite that names no strategy script without writing anything", func(t *testing.T) {
-		// No strategy script carries no identifier. Nothing is stubbed on the repository, so
-		// a write that went out anyway — which names no row, and whose blast radius
-		// is then the storage layer's decision — fails the test.
+		// A missing identifier is refused; the repository is unstubbed, so any write fails the
+		// test.
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		writeDto := aStrategyScriptWrite()
 		writeDto.ID = 0
@@ -468,11 +462,7 @@ func TestStrategyScriptApplicationDeleteStrategyScript(t *testing.T) {
 	})
 }
 
-// A rewrite naming no strategy script is refused without looking — the case above keeps
-// that promise — but it used to be refused with the sentinel's own English wording
-// while every other refusal spoke to the reader. The sentence is now written in one
-// place, so the refusal a caller meets here and the one the store gives are the
-// same sentence.
+// A rewrite naming no strategy script is refused with the same sentence the store gives.
 func TestStrategyScriptApplicationUpdateWithNoIdentifierSpeaksTheLanguageEveryOtherRefusalSpeaks(t *testing.T) {
 	// Nothing is stubbed on the repository: nothing may reach storage.
 	fixture := newStrategyScriptApplicationUnderTest(t)

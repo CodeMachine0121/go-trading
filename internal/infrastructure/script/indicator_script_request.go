@@ -13,22 +13,14 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// indicatorScriptRequestHeader is the first thing a compartment reads, before it knows
-// what kind of input follows. It carries what the compartment needs before it can read
-// anything else: which kind of market the input comes from, since that decides how the
-// rest is read; the memory cap, which must be in place before any of the script is
-// looked at; and the allowance, which the sandbox is built with.
+// indicatorScriptRequestHeader is read first and carries the market kind, memory cap and allowance needed before the rest of the request.
 type indicatorScriptRequestHeader struct {
 	MarketKind       string
 	MemoryLimitBytes int64
 	ExecutionTimeout time.Duration
 }
 
-// answer serves the request this header announces, inside the compartment. Everything
-// that makes the compartment safe to fail happens here, before the script is looked
-// at: the memory cap is set on this process by the operating system, so a script that
-// reaches past it ends this process — and only this process. headerError is how
-// reading this header went; a header that never arrived is answered as such.
+// answer serves the request inside the compartment, setting the OS memory cap before the script is read.
 func (header indicatorScriptRequestHeader) answer(
 	headerError error, decoder *gob.Decoder,
 ) indicatorScriptResponse {
@@ -38,23 +30,15 @@ func (header indicatorScriptRequestHeader) answer(
 	}
 
 	if header.MemoryLimitBytes > 0 {
-		// The collector is told to work hard well before the wall, so a script that
-		// merely churns through memory is slowed rather than stopped. Only one that
-		// genuinely holds more than the cap runs into it.
+		// A soft GC limit at 80% of the cap slows memory churn before the hard limit is hit.
 		debug.SetMemoryLimit(header.MemoryLimitBytes / 10 * 8)
 
-		// The data limit counts only memory that can be written to. The Go runtime
-		// reserves a great deal of address space it never touches, and a limit on
-		// address space would trip over that reservation long before the script had
-		// used anything; the data limit trips only when the heap actually grows.
+		// RLIMIT_DATA is used instead of an address-space limit because the Go runtime reserves far more address space than it uses.
 		limitError := syscall.Setrlimit(syscall.RLIMIT_DATA, &syscall.Rlimit{
 			Cur: uint64(header.MemoryLimitBytes),
 			Max: uint64(header.MemoryLimitBytes),
 		})
-		// Only Linux is promised the cap — that is what the service runs on. Anywhere
-		// else the compartment still keeps the service apart from the script, and a
-		// refused limit is no reason to refuse the script. On Linux, a compartment
-		// that cannot cap itself does not run the script at all.
+		// The cap is only enforced on Linux (the production OS); elsewhere a refused limit does not block the script.
 		if limitError != nil && runtime.GOOS == "linux" {
 			return newFailedIndicatorScriptResponse(fmt.Errorf(
 				"%w: 算式執行失敗：算式隔間無法設定記憶體上限：%v", domains.ErrIndicatorScriptFailed, limitError))
@@ -78,17 +62,12 @@ func (header indicatorScriptRequestHeader) answer(
 	}
 }
 
-// indicatorScriptRequest is one run, handed across to the compartment in full. Every
-// field is plain data: the service's own models do not cross the process boundary,
-// and the compartment rebuilds the ones it needs from what arrives here.
+// indicatorScriptRequest carries only plain data across the process boundary.
 type indicatorScriptRequest[Input any] struct {
 	Script     string
 	ResultType string
-	// Parameters are the knobs with this run's values already applied, so the
-	// compartment reads exactly what the caller settled on.
-	Parameters []dto.StrategyScriptParameterDto
-	// ForEachElement asks for a replay — one run per element over a growing stretch —
-	// rather than a single run over the whole input.
+	// Parameters already have this run's values applied.
+	Parameters     []dto.StrategyScriptParameterDto
 	ForEachElement bool
 	Input          []Input
 }

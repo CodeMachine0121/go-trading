@@ -12,17 +12,10 @@ import (
 	"github.com/coder/websocket"
 )
 
-// liveKCandleBufferSize lets the reader stay ahead of a domain busy storing a
-// candle that just closed, without letting an unread backlog grow without bound.
+// liveKCandleBufferSize lets the reader run ahead of a busy consumer without an unbounded backlog.
 const liveKCandleBufferSize = 16
 
-// BinanceLiveMarketDataProxy follows one market over a connection that stays open.
-// It is the only place that knows such a connection exists: everything above it
-// sees a channel of candles that ends when the feed does.
-//
-// It reports one attempt and never retries. How long to wait before trying again is
-// a rule stated in the requirements, so it lives in the domain where a table test
-// can reach it.
+// BinanceLiveMarketDataProxy follows one market over a websocket and exposes it as a channel that closes when the feed ends; it never retries, since backoff is a domain rule.
 type BinanceLiveMarketDataProxy struct {
 	baseUrl string
 }
@@ -31,17 +24,7 @@ func NewBinanceLiveMarketDataProxy(baseUrl string) *BinanceLiveMarketDataProxy {
 	return &BinanceLiveMarketDataProxy{baseUrl: baseUrl}
 }
 
-// FollowKCandles opens the feed for the channel it is handed and reports its
-// candles until the feed ends, the context is done, or the source sends something
-// unreadable. Closing the returned channel is the only way it says so.
-//
-// This source is followed one symbol to a line. It does publish combined streams
-// that carry several, but they arrive in an envelope of their own, so reading them
-// is a piece of work rather than a longer address — and nothing asks for it, because
-// this market's rules put one symbol on a channel. A channel carrying more is
-// therefore refused out loud: quietly following the first of them would leave the
-// rest looking followed and never moving, which is the failure this whole feature
-// exists to end.
+// FollowKCandles streams candles until the feed ends, the context is done, or a message is unreadable, then closes the channel; channels with more than one symbol are refused because combined streams are not supported.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 	executionContext context.Context, channel vo.LiveFollowChannelVo,
 ) (<-chan vo.LiveKCandleVo, error) {
@@ -68,14 +51,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) FollowKCandles(
 	return liveKCandles, nil
 }
 
-// read carries messages from the connection to the channel until either end stops.
-// Whatever the reason, the connection is closed and the channel with it, so the
-// caller learns of every ending in exactly one way.
-//
-// Closing is best effort and its failure is not reported: by the time this runs the
-// connection has almost always already gone, which is precisely why the read
-// stopped. What is worth saying is why it stopped, and that is said once, with the
-// symbol it happened to.
+// read closes both the connection and the channel on any exit, logging the reason once; close errors are ignored since the connection is usually already gone.
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 	executionContext context.Context,
 	connection *websocket.Conn,
@@ -88,8 +64,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 	for {
 		_, body, readError := connection.Read(executionContext)
 		if readError != nil {
-			// A follow the system ended on purpose is not a feed that broke, and
-			// saying so would put a line in the log for every orderly shutdown.
+			// Do not log an intentional shutdown.
 			if executionContext.Err() == nil {
 				log.Printf("live market data: the feed for %s ended: %v", symbol, readError)
 			}
@@ -119,8 +94,7 @@ func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) read(
 	}
 }
 
-// streamUrl spells one symbol's live K candle feed the way this source wants it:
-// lowercase symbol, the candle length, joined by an underscore.
+// streamUrl builds "<lowercase symbol>@kline_<interval>".
 func (binanceLiveMarketDataProxy *BinanceLiveMarketDataProxy) streamUrl(symbol string) (string, error) {
 	trimmedSymbol := strings.TrimSpace(symbol)
 	if trimmedSymbol == "" {

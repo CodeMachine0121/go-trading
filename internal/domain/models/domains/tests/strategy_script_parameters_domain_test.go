@@ -31,7 +31,6 @@ func parametersOf(t *testing.T, declared ...dto.StrategyScriptParameterWriteDto)
 	return parameters
 }
 
-// 建立一份參數就是把整份規則走過一遍：實例存在就代表這一份是可用的。
 func TestDeclaringParametersRefusesWhatCannotBeOne(t *testing.T) {
 	testCases := []struct {
 		name             string
@@ -106,7 +105,7 @@ func TestDeclaringParametersAcceptsWhatItShould(t *testing.T) {
 	})
 }
 
-// 這個數字是「要拿幾根」唯一的依據，拿錯就是拿錯量的 K 線。
+// 這個數字決定要拿幾根 K 線。
 func TestMaximumLookbackCountLooksOnlyAtLookbackCounts(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -138,7 +137,7 @@ func TestMaximumLookbackCountLooksOnlyAtLookbackCounts(t *testing.T) {
 	}
 }
 
-// 套值是唯一的入口，它一次答完四件事，所以呼叫端不必自己排、也漏不掉其中一步。
+// 套值一次處理四件事，呼叫端不必自己排序也不會漏步。
 func TestApplyingThisRunsValues(t *testing.T) {
 	t.Run("給了值就用給的", func(t *testing.T) {
 		applied, applyError := parametersOf(t, lookbackCountParameter("期數", 20)).
@@ -159,7 +158,7 @@ func TestApplyingThisRunsValues(t *testing.T) {
 	})
 
 	t.Run("給了沒有宣告的名稱就整次拒絕", func(t *testing.T) {
-		// 安靜忽略會讓人以為他調的那一格有作用，而它什麼都沒做。
+		// 安靜忽略會讓人以為調整有作用。
 		_, applyError := parametersOf(t, lookbackCountParameter("期數", 20)).
 			Applying([]dto.StrategyScriptParameterValueDto{{Name: "週期", Value: 50}})
 
@@ -184,7 +183,7 @@ func TestApplyingThisRunsValues(t *testing.T) {
 	})
 
 	t.Run("沒有人取用的參數值不是錯誤", func(t *testing.T) {
-		// 系統沒有、也不該有辦法知道算式用了哪些名字。
+		// 系統無法得知算式用了哪些名字。
 		applied, applyError := parametersOf(t, lookbackCountParameter("期數", 20)).
 			Applying([]dto.StrategyScriptParameterValueDto{{Name: "期數", Value: 50}})
 
@@ -193,7 +192,7 @@ func TestApplyingThisRunsValues(t *testing.T) {
 	})
 }
 
-// 這第二個回傳值就是「名字對不上」與「算式壞了」分得開的原因。
+// 第二個回傳值讓「名字對不上」與「算式壞了」分得開。
 func TestReadingAParameterSaysWhetherItWasDeclared(t *testing.T) {
 	parameters := parametersOf(t, lookbackCountParameter("期數", 20), numberParameter("倍數", 2))
 
@@ -216,8 +215,7 @@ func TestReadingAParameterSaysWhetherItWasDeclared(t *testing.T) {
 	})
 }
 
-// 是非仍然是一個數字，種類只說怎麼讀它——這是分種類的整個意義，
-// 也是為什麼多一種讀法不必動到值是怎麼存、怎麼送的。
+// 是非仍存成數字，種類只決定怎麼讀它。
 func TestABooleanIsOneNumberReadAsYesOrNo(t *testing.T) {
 	t.Run("零是否，非零是是", func(t *testing.T) {
 		parameters := parametersOf(t,
@@ -240,7 +238,7 @@ func TestABooleanIsOneNumberReadAsYesOrNo(t *testing.T) {
 	})
 
 	t.Run("宣告時就把值收成剛好零或一", func(t *testing.T) {
-		// 存下來的東西要自己說得出它是哪一個，而不是留一個 0.7 給下一個讀的人解讀。
+		// 存下的值要明確是哪一個，而不是留下 0.7 讓人解讀。
 		parameters := parametersOf(t, booleanParameter("要濾掉假突破", 0.7))
 
 		assert.InDelta(t, 1.0, parameters.ToDtos()[0].DefaultValue, 0)
@@ -257,7 +255,7 @@ func TestABooleanIsOneNumberReadAsYesOrNo(t *testing.T) {
 	})
 
 	t.Run("它不是回看根數，所以不影響要拿幾根", func(t *testing.T) {
-		// 回看根數是系統唯一會解讀的那一種。多一種讀法不該讓它多讀一根 K 線。
+		// 只有回看根數會被系統解讀，多一種讀法不該多讀 K 線。
 		parameters := parametersOf(t, booleanParameter("要濾掉假突破", 1))
 
 		assert.Equal(t, 0, parameters.MaximumLookbackCount())

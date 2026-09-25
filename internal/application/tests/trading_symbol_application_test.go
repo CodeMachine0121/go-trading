@@ -25,15 +25,13 @@ type tradingSymbolApplicationUnderTest struct {
 	marketDataProxy          *mocks.MockIMarketDataProxy
 }
 
-// newTradingSymbolApplicationUnderTest wires the real domain service, mocking only
-// the outermost boundary: storage.
+// newTradingSymbolApplicationUnderTest wires the real domain service, mocking only storage.
 func newTradingSymbolApplicationUnderTest(t *testing.T) tradingSymbolApplicationUnderTest {
 	controller := gomock.NewController(t)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 
-	// Nothing is watched unless a test says so, so a listing that also asks what
-	// holds a market's live places finds none held.
+	// Nothing is watched unless a test says so, so no market's live places are held.
 	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
 		Return([]entities.TradingSymbol{}, nil).AnyTimes()
 
@@ -66,8 +64,7 @@ func TestTradingSymbolApplicationListTradingSymbols(t *testing.T) {
 		tradingSymbolDtos, err := fixture.tradingSymbolApplication.ListTradingSymbols(t.Context())
 
 		assert.NoError(t, err)
-		// Both sides merged, ordered by name. What each one says about its own market
-		// is pinned where those rules live, not restated here.
+		// Both sides merged, ordered by name; each market's own rules are tested where they live.
 		assert.Equal(t,
 			[]dto.TradingSymbolDto{
 				{Symbol: "BTCUSDT", Market: "crypto", HasLiveUpdates: true, IsWithinTradingSession: true},
@@ -90,8 +87,7 @@ func TestTradingSymbolApplicationRegisterDefaults(t *testing.T) {
 	})
 }
 
-// tradingSymbolClockProxy stamps registrations with a moment the test states, rather
-// than with whatever the wall clock said while it ran.
+// tradingSymbolClockProxy stamps registrations with a moment the test states.
 func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockProxy {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)).AnyTimes()
@@ -99,13 +95,11 @@ func tradingSymbolClockProxy(controller *gomock.Controller) *mocks.MockIClockPro
 	return clockProxy
 }
 
-// tradingSymbolMarketCatalog is the markets these tests are written against.
 func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
-		// A market that closes is here so that adding to the watchlist can be tested
-		// as it behaves for the market that needs it: the one whose scheduled rounds
-		// have nothing left to collect after the bell.
+		// A closing market is included because it is the one that needs a catch-up on joining the
+		// watchlist.
 		vo.MarketTaiwanStock: {
 			TradingSession: vo.TradingSessionVo{
 				Location:   time.FixedZone("Asia/Taipei", 8*60*60),
@@ -124,9 +118,8 @@ func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
 
 func TestTradingSymbolApplicationAddToWatchlist(t *testing.T) {
 	t.Run("catches the symbol up on the spot, without waiting for a round", func(t *testing.T) {
-		// Adding is only half of what somebody adding a symbol wants. Without the
-		// other half they are left looking at an empty chart until a round comes
-		// round — and after a market's close, until the next start-up.
+		// Adding also catches the symbol up, or the chart stays empty until the next round (or next
+		// start-up after the close).
 		fixture := newTradingSymbolApplicationUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
 			LookUpSymbol(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(vo.SymbolListingVo{IsListed: true}, nil)
@@ -155,9 +148,8 @@ func TestTradingSymbolApplicationAddToWatchlist(t *testing.T) {
 	})
 
 	t.Run("a catch-up that fails does not undo the add", func(t *testing.T) {
-		// The symbol is on the watchlist — that is what was asked for and it is true.
-		// The ordinary rounds will reach it anyway, so refusing here would report a
-		// failure about something that fixes itself, and lose something that worked.
+		// The symbol stays on the watchlist and the ordinary rounds will catch it up, so this is
+		// not reported as a failure.
 		fixture := newTradingSymbolApplicationUnderTest(t)
 		fixture.symbolLookupProxy.EXPECT().
 			LookUpSymbol(gomock.Any(), vo.MarketCrypto, "BTCUSDT").Return(vo.SymbolListingVo{IsListed: true}, nil)

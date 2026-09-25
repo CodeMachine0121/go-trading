@@ -31,9 +31,8 @@ func TestNewStrategyBotVerdictDomainReadsTwoConditionsAsOneConclusion(t *testing
 			expectedVerdict: vo.StrategyBotVerdictNone,
 		},
 		{
-			// Both at once is the bot saying it should buy and sell in the same
-			// breath. No side is picked, because a side picked here is an opinion
-			// its owner would act on and could never trace back.
+			// Both conditions holding picks no side, since the owner could never trace an
+			// invented one.
 			name:              "both hold at once",
 			buyConditionHolds: true,
 			sellConditionHold: true,
@@ -64,9 +63,8 @@ func TestStrategyBotVerdictShouldSend(t *testing.T) {
 		expectsAnySignal  bool
 	}{
 		{
-			// Nothing sent yet is what starting a bot leaves behind, so the first
-			// conclusion always goes out: somebody who pressed play and then heard
-			// nothing cannot tell a quiet market from a broken bot.
+			// Nothing sent since starting means the first conclusion always goes out, so a
+			// quiet market is not mistaken for a broken bot.
 			name:              "the first conclusion after a start always goes out",
 			buyConditionHolds: true,
 			lastSentSignal:    "",

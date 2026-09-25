@@ -23,8 +23,8 @@ import (
 // identity in real use, never from a request body.
 const deliveryOwnerID = uint(7)
 
-// configuredAt is what a stored setting says it was set at, written out so a test
-// asserting it is asserting the requirement rather than repeating arithmetic.
+// configuredAt is written out literally so assertions state the requirement rather than repeat
+// arithmetic.
 var configuredAt = time.Date(2026, 9, 10, 8, 0, 0, 0, time.UTC)
 
 type telegramDeliveryApplicationUnderTest struct {
@@ -34,9 +34,8 @@ type telegramDeliveryApplicationUnderTest struct {
 	messageDeliveryProxy        *mocks.MockIMessageDeliveryProxy
 }
 
-// newTelegramDeliveryApplicationUnderTest wires the real domain service and the real
-// models, mocking only the outermost boundaries: the store, the lock, and whatever
-// actually carries a message.
+// newTelegramDeliveryApplicationUnderTest wires the real domain service and models, mocking only
+// the store, the lock and the message sender.
 func newTelegramDeliveryApplicationUnderTest(
 	t *testing.T,
 ) telegramDeliveryApplicationUnderTest {
@@ -85,9 +84,8 @@ func TestTelegramDeliveryApplicationGetDeliverySetting(t *testing.T) {
 		assert.Equal(t, configuredAt, deliveryDto.ConfiguredAt)
 	})
 
-	// Reading a setting must never open the sealed token. The lock is not set up
-	// here at all, so touching it fails the test — which is a stronger statement
-	// than checking the answer afterwards.
+	// Reading a setting must never open the sealed token; the lock is not set up, so touching it
+	// fails the test.
 	t.Run("reading a setting never opens the token", func(t *testing.T) {
 		fixture := newTelegramDeliveryApplicationUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().
@@ -100,8 +98,7 @@ func TestTelegramDeliveryApplicationGetDeliverySetting(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// Never having set one up is the ordinary state of somebody who has not got
-	// round to it, not a failure a caller has to decide is really nothing.
+	// Never having set one up is an ordinary state, not a failure.
 	t.Run("having never set one up is not a failure", func(t *testing.T) {
 		fixture := newTelegramDeliveryApplicationUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().
@@ -166,8 +163,7 @@ func TestTelegramDeliveryApplicationSaveDeliverySetting(t *testing.T) {
 		assert.Equal(t, "1234", deliveryDto.BotTokenTail)
 	})
 
-	// The refusal is the feature. Storing the token in the open would work
-	// perfectly, and nothing would look different until somebody read the table.
+	// Storing the token unsealed would work silently, so the refusal is the feature.
 	t.Run("with nothing to lock the token, nothing is written at all", func(t *testing.T) {
 		fixture := newTelegramDeliveryApplicationUnderTest(t)
 		fixture.secretSealProxy.EXPECT().
@@ -282,8 +278,7 @@ func TestTelegramDeliveryApplicationSendTestMessage(t *testing.T) {
 		assert.Empty(t, result.FailureReason)
 	})
 
-	// Every refusal comes back as a result rather than an error. The button was
-	// pressed to find out, and finding out is the button working.
+	// Every refusal is a result rather than an error: finding out is the test button working.
 	t.Run("each refusal comes back as its own reason", func(t *testing.T) {
 		testCases := []struct {
 			name           string
@@ -361,8 +356,8 @@ func TestTelegramDeliveryApplicationSendTestMessage(t *testing.T) {
 		}
 	})
 
-	// A token the system cannot open is the system's problem. Reported as a
-	// rejected token, it would send somebody off to replace one that is fine.
+	// An unopenable token is the system's problem; reporting it as rejected would send somebody to
+	// replace a fine token.
 	t.Run("a token that cannot be opened is not a rejected token", func(t *testing.T) {
 		fixture := newTelegramDeliveryApplicationUnderTest(t)
 		fixture.telegramDeliveryRepository.EXPECT().

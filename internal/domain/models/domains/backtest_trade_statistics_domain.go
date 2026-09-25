@@ -6,13 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestTradeStatisticsDomain is what a replay's finished round trips say about a
-// short-term strategy: whether the winners outweigh the losers, what one trade is
-// worth on average, how long a trade is held, how long a losing streak gets, and how
-// much of what the trades made the charges for trading took.
-//
-// It reads finished round trips only. A position still open at the end has no exit,
-// so it has neither a net profit nor a holding time to contribute.
+// BacktestTradeStatisticsDomain derives short-term statistics (profit factor, expectancy, holding time, loss streak, cost ratio) from finished round trips only.
 type BacktestTradeStatisticsDomain struct {
 	outcomes []vo.TradeOutcomeVo
 }

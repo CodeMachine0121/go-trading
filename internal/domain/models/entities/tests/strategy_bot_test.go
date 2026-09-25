@@ -25,13 +25,9 @@ func TestStrategyBotToDtoCarriesWhatTheListIsReadFor(t *testing.T) {
 
 	botDto := strategyBot.ToDto()
 
-	// Both times are handed out in universal time whatever zone they were read back
-	// in, so two people in two places read the same moment.
 	assert.Equal(t, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC), botDto.CreatedAt)
 	assert.Equal(t, time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC), botDto.UpdatedAt)
 
-	// A list of bots is read to answer one question — which of these needs looking
-	// at — so every part of that answer travels with the bot.
 	assert.Equal(t, uint(7), botDto.OwnerID)
 	assert.Equal(t, string(vo.StrategyBotRunning), botDto.RunState)
 	assert.Equal(t, string(vo.SignalBuy), botDto.LastSentSignal)
@@ -39,8 +35,6 @@ func TestStrategyBotToDtoCarriesWhatTheListIsReadFor(t *testing.T) {
 	assert.True(t, botDto.Conflicting)
 }
 
-// A bot names its rules and carries their current name beside the identifier, so a
-// list of bots says what each one is doing without a second read per bot.
 func TestStrategyBotToDtoNamesTheRulesItFollows(t *testing.T) {
 	strategyBot := StrategyBot{
 		ID: 3, OwnerID: 7, Name: "早盤突破", Symbol: "BTCUSDT",
@@ -54,8 +48,7 @@ func TestStrategyBotToDtoNamesTheRulesItFollows(t *testing.T) {
 	assert.Equal(t, "黃金交叉", botDto.TradingStrategyName)
 }
 
-// The name is read through the association every time rather than copied onto the
-// bot, so a bot read without it says nothing rather than something out of date.
+// A bot read without its association shows no name rather than a stale copy.
 func TestStrategyBotToDtoKeepsNoCopyOfTheRulesName(t *testing.T) {
 	botDto := StrategyBot{ID: 3, TradingStrategyID: 9}.ToDto()
 

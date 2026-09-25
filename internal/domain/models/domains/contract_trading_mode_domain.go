@@ -7,27 +7,19 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// declarableContractTradingModes is the entire set a contract replay may trade by, in
-// the order it is offered back when a declaration is not recognised.
+// declarableContractTradingModes is in the order offered back when a declaration is not recognised.
 var declarableContractTradingModes = []vo.ContractTradingModeVo{
 	vo.ContractTradingModeLongShort,
 	vo.ContractTradingModeLongOnly,
 	vo.ContractTradingModeShortOnly,
 }
 
-// ContractTradingModeDomain is which rules a contract account trades by, and the one
-// thing that follows from it: what a signal asks the account to be holding.
-//
-// There is no spot among them. Spot is cash for goods, which is the spot replay's
-// business; asking for it here is asking the contract account to be something it is
-// not, and is refused rather than quietly read as long only.
+// ContractTradingModeDomain decides what a signal asks a contract account to hold; spot is refused rather than read as long only.
 type ContractTradingModeDomain struct {
 	value vo.ContractTradingModeVo
 }
 
-// NewContractTradingModeDomain reads what was declared. Declaring nothing is long and
-// short — the natural way to trade a perpetual contract, and what a trading mode has
-// always meant when left blank. Spelling is forgiving about blanks and letter case.
+// NewContractTradingModeDomain defaults a blank declaration to long-short and matches case-insensitively.
 func NewContractTradingModeDomain(declared string) (ContractTradingModeDomain, error) {
 	normalizedDeclaration := strings.TrimSpace(declared)
 	if normalizedDeclaration == "" {
@@ -54,9 +46,7 @@ func (contractTradingModeDomain ContractTradingModeDomain) Value() vo.ContractTr
 	return contractTradingModeDomain.value
 }
 
-// TargetFor is what this signal asks a contract account to be holding under these
-// rules. A hold asks for nothing; a buy or a sell asks either to face that way or,
-// where these rules cannot face that way, to get out.
+// TargetFor maps a signal to a target position, going flat when the mode cannot face the signal's direction.
 func (contractTradingModeDomain ContractTradingModeDomain) TargetFor(
 	signal SignalDomain,
 ) vo.TargetPositionVo {

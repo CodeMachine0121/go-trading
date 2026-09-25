@@ -1,23 +1,14 @@
 package vo
 
-// IndicatorResultTypeVo is the kind of value one calculation's indicators carry.
-// A calculation declares exactly one of these; every indicator it produces holds a
-// value of that kind. Immutable, no behavior — how a kind is read, defaulted and
-// described lives in IndicatorResultTypeDomain.
+// IndicatorResultTypeVo is the value kind a calculation's indicators carry; see IndicatorResultTypeDomain.
 type IndicatorResultTypeVo string
 
 const (
-	// IndicatorResultTypeFloat is one number per indicator, the kind assumed when a
-	// caller declares nothing.
-	IndicatorResultTypeFloat IndicatorResultTypeVo = "float"
-	// IndicatorResultTypeFloatList is a series of numbers per indicator.
+	// IndicatorResultTypeFloat is the default when a caller declares nothing.
+	IndicatorResultTypeFloat     IndicatorResultTypeVo = "float"
 	IndicatorResultTypeFloatList IndicatorResultTypeVo = "floatList"
-	// IndicatorResultTypeBool is one true/false answer per indicator.
-	IndicatorResultTypeBool IndicatorResultTypeVo = "bool"
-	// IndicatorResultTypeBoolList is a series of true/false answers per indicator.
-	IndicatorResultTypeBoolList IndicatorResultTypeVo = "boolList"
-	// IndicatorResultTypeSignal is one trading signal — buy, sell or hold — and
-	// nothing else. Unlike the other kinds it carries no indicator name: the whole
-	// result is that one signal.
+	IndicatorResultTypeBool      IndicatorResultTypeVo = "bool"
+	IndicatorResultTypeBoolList  IndicatorResultTypeVo = "boolList"
+	// IndicatorResultTypeSignal is a single buy/sell/hold for the whole result, with no indicator name.
 	IndicatorResultTypeSignal IndicatorResultTypeVo = "signal"
 )

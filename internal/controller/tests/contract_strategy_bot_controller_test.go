@@ -14,7 +14,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// aContractStrategyBotBody is a contract bot watching BTCUSDT at five times.
 const aContractStrategyBotBody = `{
 	"name": "合約突破",
 	"symbol": "BTCUSDT",
@@ -67,7 +66,7 @@ func TestStrategyBotRouterCreatesAContractBotAndAnswersWithItsKind(t *testing.T)
 	}{}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answer))
 	assert.Equal(t, "contractKCandle", answer.MarketDataKind)
-	// The plan leaves in the spelling it arrived in, leverage and all.
+	// The plan is echoed back as sent, leverage included.
 	assert.Equal(t, map[string]string{
 		"capital": "1000", "sizingMode": "", "sizingValue": "0",
 		"stopLossPercentage": "2", "takeProfitPercentage": "0", "leverage": "5",
@@ -134,7 +133,6 @@ func TestStrategyBotRouterListsOneKindOfBotWhenAsked(t *testing.T) {
 	}
 }
 
-// A spot bot's plan leaves in the same spelling, and without any leverage at all.
 func TestStrategyBotRouterAnswersASpotBotsPlanWithoutLeverage(t *testing.T) {
 	fixture := newStrategyBotRouterUnderTest(t)
 	storedRow := aStoredStrategyBotRow(vo.StrategyBotStopped)

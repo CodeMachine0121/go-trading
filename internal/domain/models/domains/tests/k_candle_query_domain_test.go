@@ -72,9 +72,7 @@ func TestNewKCandleQueryDomainAcceptsValidQueries(t *testing.T) {
 	}
 }
 
-// The read side of the same rule the write side follows. Both go through the one
-// trading-symbol model, and this is what "what was written is what is later found"
-// rests on: a bot stored as BTCUSDT is queried as BTCUSDT however its owner typed it.
+// Reads normalise the symbol through the same model as writes, so a bot stored as BTCUSDT is found however it was typed.
 func TestNewKCandleQueryDomainAsksInOneCase(t *testing.T) {
 	startTime := time.Date(2026, 8, 29, 9, 1, 0, 0, time.UTC)
 	endTime := time.Date(2026, 8, 29, 9, 9, 0, 0, time.UTC)

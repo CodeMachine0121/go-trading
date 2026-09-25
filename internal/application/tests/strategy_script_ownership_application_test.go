@@ -16,8 +16,6 @@ import (
 // strategyScriptStrangerID is somebody who owns none of the strategy scripts in this file.
 const strategyScriptStrangerID = uint(2)
 
-// aStrangersStrategyScript is a stored strategy script belonging to somebody who is not the
-// caller.
 func aStrangersStrategyScript(id uint) entities.StrategyScript {
 	strategyScript := aStoredStrategyScript(id, "別人的")
 	strategyScript.OwnerID = strategyScriptStrangerID
@@ -26,9 +24,7 @@ func aStrangersStrategyScript(id uint) entities.StrategyScript {
 }
 
 func TestStrategyScriptApplicationRefusesEverySortOfSomebodyElsesStrategyScriptTheSameWay(t *testing.T) {
-	// Four attempts on somebody else's strategy script and one on a strategy script that never
-	// existed. All five have to say the same thing, or a caller holding a list of
-	// identifiers could find out which of them exist by comparing the refusals.
+	// All five refusals must read the same, or comparing them would reveal which identifiers exist.
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().
 		FindOne(gomock.Any(), uint(7)).Return(aStrangersStrategyScript(7), nil).Times(3)
@@ -51,9 +47,8 @@ func TestStrategyScriptApplicationRefusesEverySortOfSomebodyElsesStrategyScriptT
 }
 
 func TestStrategyScriptApplicationLeavesSomebodyElsesStrategyScriptExactlyAsItWas(t *testing.T) {
-	// Nothing is stubbed on the writing side: a rewrite that is refused must not
-	// reach storage at all, and it must be refused before the content it carries is
-	// even judged — otherwise the refusal tells a stranger their target exists.
+	// Nothing is stubbed on the writing side: the refusal must come before storage and before the
+	// content is judged, or it reveals the target exists.
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aStrangersStrategyScript(7), nil)
 
@@ -69,8 +64,8 @@ func TestStrategyScriptApplicationLeavesSomebodyElsesStrategyScriptExactlyAsItWa
 }
 
 func TestStrategyScriptApplicationResolvesAPublishedStrategyScriptForAnybody(t *testing.T) {
-	// Not having adopted it makes no difference: adoption fills a picker, and a
-	// marketplace nobody can try before taking from is a marketplace of blind picks.
+	// Not having adopted it makes no difference: a marketplace script can be tried before it is
+	// taken.
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aStrangersStrategyScript(7), nil)
 	fixture.publishedStrategyScriptRepository.EXPECT().
@@ -165,7 +160,6 @@ func TestStrategyScriptApplicationDescription(t *testing.T) {
 	})
 }
 
-// descriptionOfLength is a description of exactly this many characters.
 func descriptionOfLength(characterCount int) string {
 	description := make([]rune, characterCount)
 	for position := range description {
@@ -175,9 +169,8 @@ func descriptionOfLength(characterCount int) string {
 	return string(description)
 }
 
-// assertStoredDescription saves this write and checks the description that reached
-// storage. What is asserted is the stored value rather than the returned one,
-// because trimming is something the write does on the way in.
+// assertStoredDescription checks the stored description rather than the returned one, because
+// trimming happens on the way in.
 func assertStoredDescription(
 	t *testing.T, fixture strategyScriptApplicationUnderTest, writeDto dto.StrategyScriptWriteDto, expected string,
 ) {
@@ -198,8 +191,7 @@ func assertStoredDescription(
 }
 
 func TestStrategyScriptApplicationReportsAFailureToReadTheShelf(t *testing.T) {
-	// The caller's own strategy scripts come back fine and the shelf does not. Answering
-	// with half a picker would look like "you adopted nothing".
+	// A failing shelf fails the whole picker; half an answer would read as "you adopted nothing".
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	storageFailure := errors.New("connection refused")
 	fixture.strategyScriptRepository.EXPECT().
@@ -213,9 +205,7 @@ func TestStrategyScriptApplicationReportsAFailureToReadTheShelf(t *testing.T) {
 }
 
 func TestStrategyScriptApplicationReportsAFailureToAskWhetherSomethingIsPublished(t *testing.T) {
-	// "There is no publication" is one of the two answers; "the store would not
-	// say" is neither, and reading it as "not published" would turn an outage into
-	// a refusal the caller cannot tell from a real one.
+	// A store outage must not be read as "not published", or it would look like a genuine refusal.
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	storageFailure := errors.New("connection refused")
 	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aStrangersStrategyScript(7), nil)
@@ -229,9 +219,8 @@ func TestStrategyScriptApplicationReportsAFailureToAskWhetherSomethingIsPublishe
 }
 
 func TestResolvingAStrategyScriptToRunItWritesNothingBack(t *testing.T) {
-	// Running somebody else's strategy script with your own numbers must change nothing
-	// about it. Nothing is stubbed on the writing side of either store, so any
-	// write at all — to the strategy script, or to the shelf entry — fails this outright.
+	// Running somebody else's script with your own numbers must not write to either store; nothing
+	// is stubbed on the writing side.
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	strangersStrategyScript := aStrangersStrategyScript(7)
 	strangersStrategyScript.Parameters = []entities.StrategyScriptParameter{
@@ -251,9 +240,7 @@ func TestResolvingAStrategyScriptToRunItWritesNothingBack(t *testing.T) {
 }
 
 func TestRunningAnAlgorithmNobodySavedNeverTouchesTheStrategyScriptStore(t *testing.T) {
-	// An algorithm the caller just wrote is their own text, hidden from nobody, so
-	// it goes through no gate — and nothing is stubbed on either store here, which
-	// is how "no gate" is proved rather than described.
+	// An unsaved algorithm goes through no gate; nothing is stubbed on either store to prove it.
 	fixture := newIndicatorUnderTest(t)
 	fixture.kCandleRepository.EXPECT().
 		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
@@ -269,12 +256,7 @@ func TestRunningAnAlgorithmNobodySavedNeverTouchesTheStrategyScriptStore(t *test
 }
 
 func TestStrategyScriptApplicationDoesNotAskTheMarketplaceAboutTheCallersOwnStrategyScript(t *testing.T) {
-	// 「跑得動」是「我的，或已發佈」——自己的那一支先短路，所以市集答什麼都
-	// 改變不了結果。問它是一次買不到東西的查詢。
-	//
-	// 它值得一個測試，是因為那個浪費會累積：一台常駐機器人每一輪都要解析它的
-	// 每一個信號來源，而那幾乎一律是擁有者自己的策略腳本——一輪一個來源一次白問，
-	// 永遠。
+	// 自己的策略腳本先短路、不問市集；常駐機器人每輪都解析每個來源，白問會一直累積。
 	fixture := newStrategyScriptApplicationUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().
 		FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "我的"), nil)
