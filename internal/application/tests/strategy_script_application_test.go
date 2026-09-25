@@ -568,3 +568,36 @@ func TestStrategyScriptApplicationUpdateStrategyScriptWhileBotsUseIt(t *testing.
 		})
 	}
 }
+
+func TestStrategyScriptApplicationUpdateChecksOwnershipThenRunningBotsThenContent(t *testing.T) {
+	t.Run("a running bot is reported before bad content", func(t *testing.T) {
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		fixture.expectStoredForRewrite(aStoredStrategyScript(7, "二十根均線"), []entities.StrategyBot{
+			aBotUsingTheScript(strategyScriptOwnerID, "早盤突破", vo.StrategyBotRunning),
+		})
+		writeDto := aStrategyScriptWrite()
+		writeDto.ID = 7
+		writeDto.Name = ""
+
+		_, err := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptBotRunning)
+		assert.NotErrorIs(t, err, domains.ErrStrategyScriptValidation)
+	})
+
+	t.Run("someone else's script reads as missing even while the caller's bot runs on it", func(t *testing.T) {
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		someoneElses := aStoredStrategyScript(7, "二十根均線")
+		someoneElses.OwnerID = strategyScriptOwnerID + 1
+		fixture.expectStoredForRewrite(someoneElses, []entities.StrategyBot{
+			aBotUsingTheScript(strategyScriptOwnerID, "早盤突破", vo.StrategyBotRunning),
+		})
+		writeDto := aStrategyScriptWrite()
+		writeDto.ID = 7
+
+		_, err := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
+		assert.Contains(t, err.Error(), "找不到識別碼為 7 的策略腳本")
+	})
+}

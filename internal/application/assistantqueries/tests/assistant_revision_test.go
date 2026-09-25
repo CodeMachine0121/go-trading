@@ -335,22 +335,25 @@ func TestTradingStrategyUpdateAssistantQueryOnlyProposesARewriteOfAStrategyThePe
 		DoAndReturn(func(_ context.Context, proposed entities.AssistantPendingRevision) (entities.AssistantPendingRevision, error) {
 			assert.Equal(t, string(vo.AssistantRevisionSubjectTradingStrategy), proposed.SubjectKind)
 			assert.Equal(t, assistantTradingStrategyID, proposed.SubjectID)
+			assert.JSONEq(t, aTradingStrategyRewrite, proposed.Content)
 			proposed.ID = proposedPendingRevisionID
 
 			return proposed, nil
 		})
 
-	outcome, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantOrigin, `{
-      "tradingStrategyId": 11,
-      "name": "動能追蹤",
-      "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h"}],
-      "buyCondition": {"sourceLabel": "A", "signal": "buy"},
-      "sellCondition": {"sourceLabel": "A", "signal": "sell"}
-    }`)
+	outcome, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantOrigin, aTradingStrategyRewrite)
 
 	require.NoError(t, runError)
 	assert.Contains(t, outcome, `"status":"pending"`)
 }
+
+const aTradingStrategyRewrite = `{
+  "tradingStrategyId": 11,
+  "name": "動能追蹤",
+  "signalSources": [{"label": "A", "strategyScriptId": 9, "aggregationInterval": "1h"}],
+  "buyCondition": {"sourceLabel": "A", "signal": "buy"},
+  "sellCondition": {"sourceLabel": "A", "signal": "sell"}
+}`
 
 func TestTradingStrategyCreateAssistantQueryRemembersWhatItCreatedInThisConversation(t *testing.T) {
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
@@ -508,4 +511,73 @@ func TestAssistantRevisionAppliersRefuseToWriteContentTheyCannotRead(t *testing.
 			require.ErrorIs(t, applyError, domains.ErrAssistantQueryArgument)
 		})
 	}
+}
+
+func TestAssistantRevisionApplicationConfirmOfOneProposalVoidsTheOtherOnTheSameScript(t *testing.T) {
+	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
+	storedScript := aStoredStrategyScriptWithKnobs(1, "二十根均線")
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).
+		DoAndReturn(func(context.Context, uint) (entities.StrategyScript, error) {
+			return storedScript, nil
+		}).AnyTimes()
+	fixture.strategyScriptRepository.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, rewritten entities.StrategyScript) (entities.StrategyScript, error) {
+			rewritten.UpdatedAt = scriptLastChangedAt.Add(time.Minute)
+			storedScript = rewritten
+
+			return rewritten, nil
+		})
+	firstProposal := aProposedStrategyScriptRewrite(vo.AssistantPendingRevisionPending)
+	secondProposal := aProposedStrategyScriptRewrite(vo.AssistantPendingRevisionPending)
+	secondProposal.ID = proposedPendingRevisionID + 1
+	fixture.expectTheProposal(firstProposal)
+	fixture.expectTheProposal(secondProposal)
+	fixture.expectStatusMove("pending", "confirmed", true)
+
+	_, firstError := fixture.revision.application.ConfirmPendingRevision(t.Context(), assistantViewerID, firstProposal.ID)
+	_, secondError := fixture.revision.application.ConfirmPendingRevision(t.Context(), assistantViewerID, secondProposal.ID)
+
+	require.NoError(t, firstError)
+	require.ErrorIs(t, secondError, domains.ErrAssistantPendingRevisionStale)
+	assert.Contains(t, secondError.Error(), "提出這筆修改之後，它已經被改過了，請請助手重新提出")
+}
+
+func TestAssistantRevisionApplicationConfirmHandsTheProposalBackEvenWhenThePressIsAbandoned(t *testing.T) {
+	// The press is cancelled while the rewrite runs; the hand-back must still reach storage.
+	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
+	fixture.expectTheStoredScript()
+	fixture.expectTheProposal(aProposedStrategyScriptRewrite(vo.AssistantPendingRevisionPending))
+	pressContext, abandonPress := context.WithCancel(t.Context())
+	fixture.expectStatusMove("pending", "confirmed", true)
+	fixture.strategyScriptRepository.EXPECT().Update(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, entities.StrategyScript) (entities.StrategyScript, error) {
+			abandonPress()
+
+			return entities.StrategyScript{}, context.Canceled
+		})
+	handedBack := false
+	fixture.revision.pendingRevisionRepository.EXPECT().
+		TransitionStatus(gomock.Any(), proposedPendingRevisionID, "confirmed", "pending").
+		DoAndReturn(func(handBackContext context.Context, _ uint, _ string, _ string) (bool, error) {
+			handedBack = handBackContext.Err() == nil
+
+			return handedBack, handBackContext.Err()
+		})
+
+	_, confirmError := fixture.revision.application.ConfirmPendingRevision(
+		pressContext, assistantViewerID, proposedPendingRevisionID)
+
+	require.ErrorIs(t, confirmError, context.Canceled)
+	assert.True(t, handedBack, "the revision must be pending again so the owner can press once more")
+}
+
+func TestAssistantRevisionAppliersRefuseFieldsTheirCapabilityDoesNotTake(t *testing.T) {
+	// Proposed content is shown to the owner verbatim, so nothing in it may be silently dropped on writing.
+	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
+
+	_, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantOrigin,
+		`{"strategyScriptId":1,"name":"六十根均線","script":"x","resultType":"floatList","ownerId":2}`)
+
+	require.ErrorIs(t, runError, domains.ErrAssistantQueryArgument)
+	assert.Contains(t, runError.Error(), "ownerId")
 }

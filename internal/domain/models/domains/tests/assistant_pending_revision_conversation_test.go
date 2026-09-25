@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -74,9 +75,10 @@ func TestConversationDomainToDtoCarriesEachExchangesProposalsOnItsLastMessage(t 
 func TestConversationDomainToDtoCarriesNoProposalsWhenThereAreNone(t *testing.T) {
 	conversationDto := domains.NewConversationDomain(conversationOf(1)).ToDto()
 
-	for _, message := range conversationDto.Messages {
-		assert.Empty(t, message.PendingRevisions)
-	}
+	payload, marshalError := json.Marshal(conversationDto)
+	require.NoError(t, marshalError)
+
+	assert.NotContains(t, string(payload), "pendingRevisions")
 }
 
 func TestAssistantRevisionProposalDomainWritesNowOnlyWhatTheAssistantCreatedHereAndNoBotUses(t *testing.T) {

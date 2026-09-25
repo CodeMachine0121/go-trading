@@ -215,7 +215,7 @@ func TestTradingStrategyUpdateAssistantQueryRewritesTheNamedOne(t *testing.T) {
 	assert.Contains(t, outcome, "動能追蹤")
 }
 
-func TestTradingStrategyUpdateAssistantQueryLeavesTheRewriteForTheOwnerWhileABotFollowsIt(t *testing.T) {
+func TestTradingStrategyUpdateAssistantQueryLeavesTheRewriteForTheOwnerOnceABotFollowsIt(t *testing.T) {
 	// Even one the assistant just created is not rewritten behind a bot's back; the refusal comes at confirmation.
 	fixture := newTradingStrategyAssistantQueriesUnderTest(t)
 	*fixture.revision.createdInConversation = true
@@ -226,7 +226,7 @@ func TestTradingStrategyUpdateAssistantQueryLeavesTheRewriteForTheOwnerWhileABot
 	fixture.strategyBotRepository.EXPECT().
 		FindAllByTradingStrategy(gomock.Any(), assistantTradingStrategyID).
 		Return([]entities.StrategyBot{
-			{ID: 3, Name: "夜班", TradingStrategyID: assistantTradingStrategyID, RunState: "running"},
+			{ID: 3, Name: "夜班", TradingStrategyID: assistantTradingStrategyID, RunState: "stopped"},
 		}, nil)
 	fixture.revision.pendingRevisionRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, proposed entities.AssistantPendingRevision) (entities.AssistantPendingRevision, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
@@ -59,8 +60,11 @@ func (strategyScriptRevisionApplier *StrategyScriptRevisionApplier) Apply(
 func (strategyScriptRevisionApplier *StrategyScriptRevisionApplier) writeDtoOf(
 	viewerID uint, content string,
 ) (dto.StrategyScriptWriteDto, error) {
+	// Unknown fields are refused rather than dropped, so what the owner reviews is exactly what gets written.
+	decoder := json.NewDecoder(strings.NewReader(content))
+	decoder.DisallowUnknownFields()
 	writeArguments := strategyScriptWriteAssistantArguments{}
-	if unmarshalError := json.Unmarshal([]byte(content), &writeArguments); unmarshalError != nil {
+	if unmarshalError := decoder.Decode(&writeArguments); unmarshalError != nil {
 		return dto.StrategyScriptWriteDto{}, fmt.Errorf(
 			"%w: 參數不是合法的 JSON: %s", domains.ErrAssistantQueryArgument, unmarshalError)
 	}

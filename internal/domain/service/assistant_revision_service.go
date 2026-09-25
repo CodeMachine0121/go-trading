@@ -145,8 +145,9 @@ func (assistantRevisionService *AssistantRevisionService) ConfirmPendingRevision
 	}
 
 	if _, applyError := applier.Apply(executionContext, viewerID, content); applyError != nil {
+		// Detached from the request, since a press that timed out or was abandoned must still hand the revision back.
 		_, reopenError := assistantRevisionService.transition(
-			executionContext, confirmedRevision,
+			context.WithoutCancel(executionContext), confirmedRevision,
 			vo.AssistantPendingRevisionConfirmed, vo.AssistantPendingRevisionPending)
 
 		return dto.AssistantPendingRevisionDto{}, errors.Join(applyError, reopenError)
