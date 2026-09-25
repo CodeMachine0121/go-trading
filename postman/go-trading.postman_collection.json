@@ -10577,7 +10577,7 @@
                 "backtests"
               ]
             },
-            "description": "同一支算式、同一段歷史，與「買進之後一路抱著」那一發**只差一個止損距離**——而成績單從 +25% 變成 −2%。\n\n第二根（收盤 120）全押開多，拿到 100 單位，止損價是進場價下面兩個百分點：117.6。第三根的最低價是 90，掃到它，以 **117.6** 出場，這一筆虧 240，帳上剩 11,760。\n\n**止損用那一根的最低價判，不是收盤價**——停損是盤中被掃到的。而**進場那一根不判**：成交在它的收盤價，它的最低價在成交之前就已經發生過了。\n\n兩個距離留白就完全不模擬，所以這一刀之前的每一發都一個數字都沒變。",
+            "description": "同一支算式、同一段歷史，與「買進之後一路抱著」那一發**只差一個止損距離**——而成績單從 +25% 變成約 −16.7%。\n\n第二根（收盤 120）全押開多，拿到 100 單位，止損價是進場價下面兩個百分點：117.6。第三根**開盤就在 100**，已經跳過止損價，止損單能拿到的最好價格就是開盤價，所以以 **100** 出場，這一筆虧 2,000，帳上剩 10,000。\n\n**止損用那一根的最低價判，不是收盤價**——停損是盤中被掃到的；**開盤就跳過止損價時成交在開盤價**，盤中才碰到才成交在止損價本身。而**進場那一根不判**：成交在它的收盤價，它的最低價在成交之前就已經發生過了。\n\n兩個距離留白就完全不模擬，所以這一刀之前的每一發都一個數字都沒變。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12000\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\"\n}",
@@ -10597,20 +10597,20 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"被止損掃出場，成交在止損價本身\", function () {",
-                  "    // 進場 120 下面兩個百分點是 117.6；第三根最低 90 掃到它。",
+                  "pm.test(\"開盤跳過止損價，成交在開盤價\", function () {",
+                  "    // 進場 120 下面兩個百分點是 117.6；第三根開盤 100 已經跳過它。",
                   "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"117.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitPrice).to.eql(\"100\");",
                   "    pm.expect(pm.response.json().closedTrades[0].exitReason).to.eql(\"stopLoss\");",
                   "});",
                   "pm.test(\"成績單數得出那一筆是止損出場\", function () {",
                   "    pm.expect(pm.response.json().summary.stopLossExitCount).to.eql(1);",
                   "    pm.expect(pm.response.json().summary.takeProfitExitCount).to.eql(0);",
                   "});",
-                  "pm.test(\"同一支算式不設止損是 +25%，設了是 −2%\", function () {",
-                  "    // 12,000 − 240 = 11,760。不設止損時它抱到最後是 15,000。",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"11760\");",
-                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.eql(-0.02);",
+                  "pm.test(\"同一支算式不設止損是 +25%，設了約 −16.7%\", function () {",
+                  "    // 12,000 − 2,000 = 10,000。不設止損時它抱到最後是 15,000。",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"10000\");",
+                  "    pm.expect(pm.response.json().summary.totalReturnRate).to.be.closeTo(-2000 / 12000, 0.000001);",
                   "});"
                 ]
               }
@@ -10686,7 +10686,7 @@
                 "backtests"
               ]
             },
-            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根最低 90 掃到止損價 117.6，成交金額是 100 × 117.6 = 11,760，出場成本 **117.6**。價差虧 240，這一筆的損益是 **−477.6**（淨額，已扣掉兩筆成本），帳上剩 **11,642.4**。\n\n沒有成本的那一發同樣虧 240 的價差，帳上剩 11,760。\n\n**別拿兩個餘額相減**——兩發的本金本來就不同（12,000 對 12,120），差的 117.6 說不出任何事情。對得起來的是**淨變化**：不計成本那一發是 −240，這一發是 −477.6，相差的 **237.6** 正是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
+            "description": "與上面那一發「止損把那一注掃出場」是**同一支算式、同一段歷史、同一個止損距離、同樣的 100 單位**——差別只有兩個成本率，以及為了讓數字好讀而把本金從 12,000 改成 12,120。\n\n12,120 ÷ 1.01 剛好是 12,000，所以押下去的還是 12,000（在 120 買到 100 單位），另外付 **120** 的進場成本，可用資金歸零。**全押的意思因此變成「錢全部變成這一筆交易」**，部位比錢包小一點點。\n\n第三根開盤 100 就跳過止損價 117.6，成交在開盤價，成交金額是 100 × 100 = 10,000，出場成本 **100**。價差虧 2,000，這一筆的損益是 **−2,220**（淨額，已扣掉兩筆成本），帳上剩 **9,900**。\n\n沒有成本的那一發同樣虧 2,000 的價差，帳上剩 10,000。\n\n**別拿兩個餘額相減**——兩發的本金本來就不同（12,000 對 12,120），差的 100 說不出任何事情。對得起來的是**淨變化**：不計成本那一發是 −2,000，這一發是 −2,220，相差的 **220** 正是 `totalTransactionCost`。\n\n**兩格留白就完全不計**，所以這一刀之前的每一發都一個數字都沒變。只填進場那一格時，出場會沿用同一個費率——那兩格是同一件事的兩半。",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"strategyScriptId\": {{strategyScriptIdForBacktestExits}},\n  \"symbol\": \"{{symbol}}\",\n  \"aggregationInterval\": \"5m\",\n  \"startTime\": \"{{backtestStart}}\",\n  \"endTime\": \"{{backtestEnd}}\",\n  \"initialCapital\": \"12120\",\n  \"positionSizingMode\": \"allIn\",\n  \"stopLossPercentage\": \"2\",\n  \"entryCostPercentage\": \"1\",\n  \"exitCostPercentage\": \"1\"\n}",
@@ -10707,18 +10707,18 @@
                   "    pm.response.to.have.status(200);",
                   "});",
                   "pm.test(\"兩端各收一筆，出場那筆算的是成交金額\", function () {",
-                  "    // 成交金額是 100 單位 × 117.6 = 11,760，不是那一注當時值的 11,760 以外的任何數字。",
+                  "    // 成交金額是 100 單位 × 開盤價 100 = 10,000，不是當初押下去的 12,000。",
                   "    pm.expect(pm.response.json().closedTrades).to.have.lengthOf(1);",
                   "    pm.expect(pm.response.json().closedTrades[0].entryCost).to.eql(\"120\");",
-                  "    pm.expect(pm.response.json().closedTrades[0].exitCost).to.eql(\"117.6\");",
+                  "    pm.expect(pm.response.json().closedTrades[0].exitCost).to.eql(\"100\");",
                   "});",
                   "pm.test(\"逐筆損益是扣掉兩筆成本之後的淨額\", function () {",
-                  "    // 價差虧 240，再扣 120 與 117.6。",
-                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-477.6\");",
+                  "    // 價差虧 2,000，再扣 120 與 100。",
+                  "    pm.expect(pm.response.json().closedTrades[0].profit).to.eql(\"-2220\");",
                   "});",
                   "pm.test(\"成績單說得出總共付了多少\", function () {",
-                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.eql(\"237.6\");",
-                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"11642.4\");",
+                  "    pm.expect(pm.response.json().summary.totalTransactionCost).to.eql(\"220\");",
+                  "    pm.expect(pm.response.json().summary.finalEquity).to.eql(\"9900\");",
                   "});"
                 ]
               }
