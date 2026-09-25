@@ -19,6 +19,8 @@ type streamRouteUnderTest struct {
 	streamsOpen  *sync.WaitGroup
 	releaseAll   chan struct{}
 	streamsEnded *sync.WaitGroup
+	heldMutex    *sync.Mutex
+	heldStatuses *[]int
 }
 
 func newStreamRouteUnderTest(t *testing.T) streamRouteUnderTest {
@@ -38,6 +40,7 @@ func newStreamRouteUnderTest(t *testing.T) streamRouteUnderTest {
 
 	return streamRouteUnderTest{
 		engine: engine, streamsOpen: streamsOpen, releaseAll: releaseAll, streamsEnded: &sync.WaitGroup{},
+		heldMutex: &sync.Mutex{}, heldStatuses: &[]int{},
 	}
 }
 
@@ -45,8 +48,11 @@ func (routeUnderTest streamRouteUnderTest) openAndHold(count int) {
 	routeUnderTest.streamsOpen.Add(count)
 	for range count {
 		routeUnderTest.streamsEnded.Go(func() {
-			routeUnderTest.engine.ServeHTTP(httptest.NewRecorder(),
-				httptest.NewRequest(http.MethodGet, "/k-candles/live", nil))
+			recorder := httptest.NewRecorder()
+			routeUnderTest.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/k-candles/live", nil))
+			routeUnderTest.heldMutex.Lock()
+			defer routeUnderTest.heldMutex.Unlock()
+			*routeUnderTest.heldStatuses = append(*routeUnderTest.heldStatuses, recorder.Code)
 		})
 	}
 	routeUnderTest.streamsOpen.Wait()
@@ -86,6 +92,10 @@ func TestLiveStreamLimitRefusesPastTheCapAndFreesAPlaceWhenAStreamEnds(t *testin
 			}
 
 			assert.Equal(t, testCase.expectedStatus, recorder.Code)
+			assert.Len(t, *routeUnderTest.heldStatuses, testCase.heldStreams)
+			for _, heldStatus := range *routeUnderTest.heldStatuses {
+				assert.Equal(t, http.StatusOK, heldStatus, "a stream already open was disturbed")
+			}
 			if testCase.expectedStatus == http.StatusTooManyRequests {
 				var body map[string]string
 				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
