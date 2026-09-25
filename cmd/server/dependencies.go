@@ -69,8 +69,7 @@ func registerRoutes(
 		),
 	)
 
-	// Market data is deliberately public; only what belongs to a person (scripts, strategies, bots,
-	// the assistant) is mounted behind sign-in.
+	// Reading market data is public; changing it, and everything a person owns, needs an activated sign-in.
 	requiresSignIn := middlewares.NewAuthenticationMiddleware(userApplication).Handle
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
@@ -90,12 +89,12 @@ func registerRoutes(
 
 	kCandleController := controller.NewKCandleController(kCandleApplication)
 
-	engine.POST("/k-candles", kCandleController.CreateKCandle)
+	engine.POST("/k-candles", requiresSignIn, kCandleController.CreateKCandle)
 	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
 	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
 	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
-	engine.PUT("/k-candles/:symbol/:openTime", kCandleController.UpdateKCandle)
-	engine.DELETE("/k-candles/:symbol/:openTime", kCandleController.DeleteKCandle)
+	engine.PUT("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.UpdateKCandle)
+	engine.DELETE("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.DeleteKCandle)
 
 	// 與背景工作共用同一份實例，否則「今天休市」會各記各的。
 	kCandleIngestionService := service.NewKCandleIngestionService(
@@ -110,7 +109,7 @@ func registerRoutes(
 	)
 	kCandleIngestionApplication := application.NewKCandleIngestionApplication(kCandleIngestionService)
 
-	engine.POST("/k-candles/backfill",
+	engine.POST("/k-candles/backfill", requiresSignIn,
 		controller.NewKCandleBackfillController(kCandleIngestionApplication).CatchUpSymbol)
 
 	// 歷史同步先回 202 與一筆輪次，因為長區間抓取要數千次請求，進度由下面的查詢路由取得。
@@ -118,8 +117,8 @@ func registerRoutes(
 		kCandleIngestionApplication,
 		applicationConfig.Ingestion.HistorySyncMaxLookbackDays,
 	)
-	engine.POST("/k-candles/history", kCandleHistorySyncController.StartSymbolHistorySync)
-	engine.GET("/k-candles/history/:id", kCandleHistorySyncController.GetSymbolHistorySync)
+	engine.POST("/k-candles/history", requiresSignIn, kCandleHistorySyncController.StartSymbolHistorySync)
+	engine.GET("/k-candles/history/:id", requiresSignIn, kCandleHistorySyncController.GetSymbolHistorySync)
 
 	tradingSymbolApplication := application.NewTradingSymbolApplication(
 		service.NewTradingSymbolService(
@@ -136,8 +135,8 @@ func registerRoutes(
 
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
 
-	engine.POST("/watchlist", tradingSymbolController.AddToWatchlist)
-	engine.DELETE("/watchlist/:symbol", tradingSymbolController.RemoveFromWatchlist)
+	engine.POST("/watchlist", requiresSignIn, tradingSymbolController.AddToWatchlist)
+	engine.DELETE("/watchlist/:symbol", requiresSignIn, tradingSymbolController.RemoveFromWatchlist)
 
 	// 永續合約從來源到儲存都不與現貨共用：同一代號在兩個場所是不同商品，共用一張表會互相覆蓋。
 	contractKCandleRepository := persistence.NewKCandleContractRepository(database)
@@ -217,10 +216,10 @@ func registerRoutes(
 	kCandleContractController := controller.NewKCandleContractController(
 		application.NewKCandleContractApplication(kCandleContractService))
 
-	engine.POST("/contract-k-candles", kCandleContractController.CreateKCandleContract)
+	engine.POST("/contract-k-candles", requiresSignIn, kCandleContractController.CreateKCandleContract)
 	engine.GET("/contract-k-candles", kCandleContractController.GetKCandleContractsInRange)
 	engine.GET("/contract-k-candles/series", kCandleContractController.GetKCandleContractSeries)
-	engine.POST("/contract-k-candles/backfill",
+	engine.POST("/contract-k-candles/backfill", requiresSignIn,
 		controller.NewKCandleContractBackfillController(
 			kCandleContractIngestionApplication).CatchUpSymbol)
 
@@ -229,15 +228,15 @@ func registerRoutes(
 		applicationConfig.ContractIngestion.HistorySyncMaxLookbackDays,
 	)
 	// 必須在 :symbol/:openTime 之前註冊，否則 history 會被萬用路由吃掉。
-	engine.POST("/contract-k-candles/history",
+	engine.POST("/contract-k-candles/history", requiresSignIn,
 		kCandleContractHistorySyncController.StartSymbolHistorySync)
-	engine.GET("/contract-k-candles/history/:id",
+	engine.GET("/contract-k-candles/history/:id", requiresSignIn,
 		kCandleContractHistorySyncController.GetSymbolHistorySync)
 	engine.GET("/contract-k-candles/:symbol/:openTime",
 		kCandleContractController.GetKCandleContract)
-	engine.PUT("/contract-k-candles/:symbol/:openTime",
+	engine.PUT("/contract-k-candles/:symbol/:openTime", requiresSignIn,
 		kCandleContractController.UpdateKCandleContract)
-	engine.DELETE("/contract-k-candles/:symbol/:openTime",
+	engine.DELETE("/contract-k-candles/:symbol/:openTime", requiresSignIn,
 		kCandleContractController.DeleteKCandleContract)
 
 	contractFundingRateApplication := application.NewContractFundingRateApplication(
@@ -278,8 +277,8 @@ func registerRoutes(
 
 	engine.GET("/contract-trading-symbols",
 		contractTradingSymbolController.ListContractTradingSymbols)
-	engine.POST("/contract-watchlist", contractTradingSymbolController.AddToWatchlist)
-	engine.DELETE("/contract-watchlist/:symbol",
+	engine.POST("/contract-watchlist", requiresSignIn, contractTradingSymbolController.AddToWatchlist)
+	engine.DELETE("/contract-watchlist/:symbol", requiresSignIn,
 		contractTradingSymbolController.RemoveFromWatchlist)
 
 	// Every script run resolves its identifier here first, which lets a person run a published

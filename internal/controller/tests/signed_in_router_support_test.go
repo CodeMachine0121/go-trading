@@ -1,6 +1,8 @@
 package controller_test
 
 import (
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,4 +54,14 @@ func doorOpenFor(t *testing.T, viewerID uint) gin.HandlerFunc {
 			),
 		),
 	).Handle
+}
+
+// requestWithoutProof sends what a visitor who never signed in would send.
+func requestWithoutProof(engine *gin.Engine, method string, target string, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	return recorder
 }

@@ -46,8 +46,11 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 				mocks.NewMockIMarketDataProxy(mockController), tradingSymbolClockProxy(mockController),
 				tradingSymbolMarketCatalog(), 5, time.Hour)))
 
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
 	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
+	engine.POST("/watchlist", requiresSignIn, tradingSymbolController.AddToWatchlist)
+	engine.DELETE("/watchlist/:symbol", requiresSignIn, tradingSymbolController.RemoveFromWatchlist)
 
 	return tradingSymbolRouterUnderTest{
 		engine:                  engine,
@@ -130,4 +133,43 @@ func tradingSymbolMarketCatalog() domains.MarketCatalogDomain {
 	return domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 		vo.MarketCrypto: {},
 	})
+}
+
+func TestChangingTheWatchlistRefusesAVisitor(t *testing.T) {
+	testCases := []struct {
+		name   string
+		method string
+		target string
+		body   string
+	}{
+		{name: "adding", method: http.MethodPost, target: "/watchlist", body: `{"symbol":"ETHUSDT","market":"crypto"}`},
+		{name: "removing", method: http.MethodDelete, target: "/watchlist/ETHUSDT"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// No lookup or save expectation is set, so the watchlist cannot change unnoticed.
+			fixture := newTradingSymbolRouterUnderTest(t)
+
+			recorder := requestWithoutProof(fixture.engine, testCase.method, testCase.target, testCase.body)
+
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
+}
+
+func TestAnActivatedUserRemovesASymbolFromTheWatchlist(t *testing.T) {
+	fixture := newTradingSymbolRouterUnderTest(t)
+	fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "ETHUSDT").
+		Return(entities.TradingSymbol{Symbol: "ETHUSDT", Market: string(vo.MarketCrypto), IsWatched: true}, true, nil)
+	fixture.tradingSymbolRepository.EXPECT().
+		Save(gomock.Any(), entities.TradingSymbol{Symbol: "ETHUSDT", Market: string(vo.MarketCrypto), IsWatched: false}).
+		Return(nil)
+	request := httptest.NewRequest(http.MethodDelete, "/watchlist/ETHUSDT", nil)
+	request.Header.Set("Authorization", signedInProof)
+	recorder := httptest.NewRecorder()
+
+	fixture.engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
 }

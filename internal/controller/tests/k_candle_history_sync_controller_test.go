@@ -51,9 +51,10 @@ func newHistorySyncRouterUnderTest(t *testing.T) historySyncRouterUnderTest {
 			}), 5, time.Hour)),
 		historySyncCeilingDays)
 
+	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()
-	engine.POST("/k-candles/history", historySyncController.StartSymbolHistorySync)
-	engine.GET("/k-candles/history/:id", historySyncController.GetSymbolHistorySync)
+	engine.POST("/k-candles/history", requiresSignIn, historySyncController.StartSymbolHistorySync)
+	engine.GET("/k-candles/history/:id", requiresSignIn, historySyncController.GetSymbolHistorySync)
 
 	return historySyncRouterUnderTest{
 		engine:                   engine,
@@ -66,7 +67,9 @@ func newHistorySyncRouterUnderTest(t *testing.T) historySyncRouterUnderTest {
 
 func (underTest historySyncRouterUnderTest) get(path string) *httptest.ResponseRecorder {
 	recorder := httptest.NewRecorder()
-	underTest.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("Authorization", signedInProof)
+	underTest.engine.ServeHTTP(recorder, request)
 
 	return recorder
 }
@@ -76,6 +79,7 @@ func (underTest historySyncRouterUnderTest) post(body string) *httptest.Response
 	request := httptest.NewRequest(
 		http.MethodPost, "/k-candles/history", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", signedInProof)
 	underTest.engine.ServeHTTP(recorder, request)
 
 	return recorder
@@ -370,4 +374,27 @@ func TestSyncingHistoryOffersNoWayToChooseTheCoarseness(t *testing.T) {
 	// The window still ends on a whole minute: the extra field was not read at all.
 	assert.Equal(t, 0, firstAskedWindow.EndTime.Second())
 	assert.Equal(t, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), firstAskedWindow.StartTime)
+}
+
+func TestHistorySyncRefusesAVisitor(t *testing.T) {
+	testCases := []struct {
+		name   string
+		method string
+		target string
+		body   string
+	}{
+		{name: "starting records no run", method: http.MethodPost, target: "/k-candles/history",
+			body: `{"symbol":"BTCUSDT","lookbackDays":30}`},
+		{name: "asking for progress", method: http.MethodGet, target: "/k-candles/history/1"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newHistorySyncRouterUnderTest(t)
+
+			response := requestWithoutProof(underTest.engine, testCase.method, testCase.target, testCase.body)
+
+			assert.Equal(t, http.StatusUnauthorized, response.Code)
+		})
+	}
 }
