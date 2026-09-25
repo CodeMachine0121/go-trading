@@ -170,34 +170,38 @@ curl localhost:8080/health
 
 ## API Routes
 
+**看行情不必登入，改行情要登入。** 標著「需登入」的行情路由要帶 `Authorization: Bearer <登入憑證>`，
+而且是已開通的使用者：沒帶或憑證不成立回 `401`，待開通回 `403` 並附上開通指示。
+查 K 線、彙總、單根、即時跟盤、交易標的清單與合約補充資料照舊不問來者是誰。
+
 | Method | Path | 說明 |
 | :--- | :--- | :--- |
 | `GET` | `/health` | 健康檢查，恆回 `200 {"status":"Healthy"}` |
-| `POST` | `/k-candles` | 新增一根 K 線；同交易標的同起始時間即覆蓋 |
+| `POST` | `/k-candles` | **需登入。** 新增一根 K 線；同交易標的同起始時間即覆蓋 |
 | `GET` | `/k-candles?symbol=&startTime=&endTime=` | 依交易標的與時間區間查詢，起訖兩端都包含，依起始時間由早到晚 |
 | `GET` | `/k-candles/series?symbol=&startTime=&endTime=&interval=` | 同一段區間，依彙總刻度合併後回覆；`interval` 為 `1m`／`5m`／`15m`／`1h`／`4h`／`1d`，省略視為 `1m` |
 | `GET` | `/k-candles/{symbol}/{openTime}` | 讀取單一 K 線 |
-| `PUT` | `/k-candles/{symbol}/{openTime}` | 修改單一 K 線的價量數字 |
-| `DELETE` | `/k-candles/{symbol}/{openTime}` | 刪除單一 K 線 |
+| `PUT` | `/k-candles/{symbol}/{openTime}` | **需登入。** 修改單一 K 線的價量數字 |
+| `DELETE` | `/k-candles/{symbol}/{openTime}` | **需登入。** 刪除單一 K 線 |
 | `GET` | `/trading-symbols` | 列出系統認得的每一個交易標的：**已登錄的**加上**實際有 K 線的**，去重、依名稱由小到大。每一檔都帶著所屬市場、行情來源給的名稱、現在是不是交易時段、這個市場會不會收盤、有沒有即時更新、是不是追蹤中 |
-| `POST` | `/k-candles/backfill` | 手動補齊一個交易標的的歷史（body 給 `symbol`），補到回補上限為止。給還沒登錄過的代號回 `404` |
-| `POST` | `/k-candles/history` | 同步一段歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。向來源問整段、**一天一段抓一段存一段**，**只補系統沒有的，已經有的不覆蓋**，已經齊全的那幾天不問。粒度固定一分鐘一根。回溯天數不在 1 到上限之間回 `400` 並說出上限，沒登錄過的代號回 `404` |
-| `GET` | `/k-candles/history/:id` | 那一趟歷史同步走到哪：`status`、`completedChunks` / `totalChunks`、`storedCount`、`skippedCount` |
-| `POST` | `/watchlist` | 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在並記下它給的名稱，**加完立刻補齊那一檔的歷史** |
-| `DELETE` | `/watchlist/{symbol}` | 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
-| `POST` | `/contract-k-candles` | 新增一根**合約** K 線；同交易標的同起始時間即覆蓋。標記價格、指數價格、溢價指數與成交筆數必填 |
+| `POST` | `/k-candles/backfill` | **需登入。** 手動補齊一個交易標的的歷史（body 給 `symbol`），補到回補上限為止。給還沒登錄過的代號回 `404` |
+| `POST` | `/k-candles/history` | **需登入。** 同步一段歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。向來源問整段、**一天一段抓一段存一段**，**只補系統沒有的，已經有的不覆蓋**，已經齊全的那幾天不問。粒度固定一分鐘一根。回溯天數不在 1 到上限之間回 `400` 並說出上限，沒登錄過的代號回 `404` |
+| `GET` | `/k-candles/history/:id` | **需登入。** 那一趟歷史同步走到哪：`status`、`completedChunks` / `totalChunks`、`storedCount`、`skippedCount` |
+| `POST` | `/watchlist` | **需登入。** 開始持續追蹤一個交易標的（body 給 `symbol` 與 `market`）。加之前先向該市場確認代號存在並記下它給的名稱，**加完立刻補齊那一檔的歷史** |
+| `DELETE` | `/watchlist/{symbol}` | **需登入。** 停止追蹤。**只停止追蹤**——已經抓回來的 K 線一根都不刪 |
+| `POST` | `/contract-k-candles` | **需登入。** 新增一根**合約** K 線；同交易標的同起始時間即覆蓋。標記價格、指數價格、溢價指數與成交筆數必填 |
 | `GET` | `/contract-k-candles?symbol=&startTime=&endTime=` | 依交易標的與時間區間查詢合約 K 線，起訖兩端都包含，依起始時間由早到晚 |
 | `GET` | `/contract-k-candles/series?symbol=&startTime=&endTime=&interval=` 或 `&displayableCandleCount=` | 依刻度彙總的合約 K 線序列，說法與 `/k-candles/series` 一字不差。三條價格線各自合併；一格裡有一根缺指數價格或溢價指數，那一格那條線就是 `null` |
-| `GET` `PUT` `DELETE` | `/contract-k-candles/{symbol}/{openTime}` | 讀取／修改／刪除單一合約 K 線。**刪掉合約那根，現貨同代號同時間那根完全不受影響** |
-| `POST` | `/contract-k-candles/backfill` | 手動補齊一個合約標的的歷史（body 給 `symbol`），補到合約自己的回補上限為止 |
-| `POST` | `/contract-k-candles/history` | 同步一段合約歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。輪次編號**自己一串**，與現貨那串互不相干。**合約 K 線補完後，同一趟接著以同一個回溯天數從持倉統計歷史資料庫一天一天補持倉統計**，只存沒有的；那一天沒有檔案不算失敗，歷史資料庫不答話只停下持倉統計這一份、輪次照樣成功 |
-| `GET` | `/contract-k-candles/history/{id}` | 那一趟合約歷史同步走到哪：合約 K 線那組照舊在最外層，**持倉統計那組在 `positionStatistic`**（`totalDays`、`completedDays`、`storedCount`、`skippedCount`、`fetchFailureReason`），兩組不加總 |
+| `GET` `PUT` `DELETE` | `/contract-k-candles/{symbol}/{openTime}` | 讀取／修改／刪除單一合約 K 線；**修改與刪除需登入**。**刪掉合約那根，現貨同代號同時間那根完全不受影響** |
+| `POST` | `/contract-k-candles/backfill` | **需登入。** 手動補齊一個合約標的的歷史（body 給 `symbol`），補到合約自己的回補上限為止 |
+| `POST` | `/contract-k-candles/history` | **需登入。** 同步一段合約歷史（body 給 `symbol` 與 `lookbackDays`）：**回 `202` 與一筆輪次，不等抓完**。輪次編號**自己一串**，與現貨那串互不相干。**合約 K 線補完後，同一趟接著以同一個回溯天數從持倉統計歷史資料庫一天一天補持倉統計**，只存沒有的；那一天沒有檔案不算失敗，歷史資料庫不答話只停下持倉統計這一份、輪次照樣成功 |
+| `GET` | `/contract-k-candles/history/{id}` | **需登入。** 那一趟合約歷史同步走到哪：合約 K 線那組照舊在最外層，**持倉統計那組在 `positionStatistic`**（`totalDays`、`completedDays`、`storedCount`、`skippedCount`、`fetchFailureReason`），兩組不加總 |
 | `GET` | `/contract-trading-symbols` | 列出系統認得的每一個**合約**標的：已登錄的加上實際有合約 K 線的，去重、依名稱排序。每一個帶著它的**交易規格**（還沒記下時為 `null`） |
 | `GET` | `/contract-funding-rate-settlements?symbol=&startTime=&endTime=` | 一個合約標的在一段時間內的**資金費率結算**，依結算時間由早到晚 |
 | `GET` | `/contract-position-statistics?symbol=&startTime=&endTime=` | 一個合約標的在一段時間內的**持倉統計**（五分鐘一筆），依統計時間由早到晚 |
 | `GET` | `/contract-maintenance-margin-tiers?symbol=` | 一個合約標的的**整組維持保證金分級**，由第一級到最後一級。要設定帳戶金鑰才會有資料，沒有就是空的 |
-| `POST` | `/contract-watchlist` | 開始持續追蹤一個合約標的（body 只給 `symbol`——這條路只服務一個場所）。加之前先確認這個代號**存在、還在交易、而且是永續的**（已停止交易的、還沒開始的、有交割日的一律回「找不到這個代號」），**加完立刻補齊那一檔** |
-| `DELETE` | `/contract-watchlist/{symbol}` | 停止追蹤那個合約。**只停止追蹤**，已抓回的一根都不刪，現貨那邊完全不受影響 |
+| `POST` | `/contract-watchlist` | **需登入。** 開始持續追蹤一個合約標的（body 只給 `symbol`——這條路只服務一個場所）。加之前先確認這個代號**存在、還在交易、而且是永續的**（已停止交易的、還沒開始的、有交割日的一律回「找不到這個代號」），**加完立刻補齊那一檔** |
+| `DELETE` | `/contract-watchlist/{symbol}` | **需登入。** 停止追蹤那個合約。**只停止追蹤**，已抓回的一根都不刪，現貨那邊完全不受影響 |
 | `POST` | `/indicator-calculations` | 用自訂算式計算指標；可指定彙總刻度、要看幾格、算到哪個時間為止，以及這一次的參數值 |
 | `POST` | `/contract-indicator-calculations` | 對一個**合約**標的計算指標，body 與 `/indicator-calculations` 相同。算式收下一串 `indicator.ContractKCandle`（合約行情格）：現貨 K 線的每一項同名同義，另帶成交筆數、標記價格／指數價格／溢價指數各一組開高低收、**收盤時現行的資金費率**與**這一格內有沒有結算**、收盤前最近且夠新的**持倉統計**八項；沒有值一律為零。指名一支吃另一種行情的策略腳本回 `400` |
 | `POST` | `/contract-backtests` | 在**逐倉合約帳戶**上重演一支**合約**策略腳本（指名或自帶算式）。body 與 `/backtests` 相同，另收 `leverage`（留白即一倍）、`tradingMode`（`longShort`／`longOnly`／`shortOnly`，留白即多空反手）、`slippagePercentage`（留白即不計）。強平看**標記價格**、維持保證金查**分級**（沒有分級退回交易規格最小那一級）、**資金費率一律計入**、數量照交易規格取整。送 `maintenanceMarginRate` 或指名一支 K 線種類的策略腳本回 `400` |
@@ -254,7 +258,7 @@ curl localhost:8080/health
 ### 手動補齊一檔的歷史
 
 ```bash
-curl -X POST localhost:8080/k-candles/backfill \
+curl -X POST localhost:8080/k-candles/backfill -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"symbol":"2330"}'
 ```
 
@@ -267,11 +271,11 @@ curl -X POST localhost:8080/k-candles/backfill \
 ### 同步一段指定的歷史
 
 ```bash
-curl -X POST localhost:8080/k-candles/history \
+curl -X POST localhost:8080/k-candles/history -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"symbol":"BTCUSDT","lookbackDays":1460}'
 
 # 回 202 與一筆輪次；拿那個 id 回來看進度
-curl localhost:8080/k-candles/history/1
+curl localhost:8080/k-candles/history/1 -H "Authorization: Bearer $TOKEN"
 ```
 
 **它與上面那一支是兩件事，差別有兩處，而兩處都是重點。**
@@ -321,7 +325,7 @@ curl localhost:8080/k-candles/history/1
 標的已經加進去了，接下來每分鐘一輪照樣會抓到它。
 
 ```bash
-curl -X POST localhost:8080/k-candles -H 'Content-Type: application/json' -d '{
+curl -X POST localhost:8080/k-candles -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
   "symbol":"BTCUSDT","openTime":"2026-08-28T09:00:00Z",
   "open":"100","high":"120","low":"90","close":"110",
   "volume":"11","quoteVolume":"1200","takerBuyBaseVolume":"5","takerBuyQuoteVolume":"600"}'
@@ -418,17 +422,15 @@ curl -i -X POST localhost:8080/sessions/revocation -H 'Content-Type: application
 要讓**每一個人、每一台裝置**立刻重新登入，換掉 `AUTH_ACCESS_TOKEN_SIGNING_KEY` 即可——
 所有已簽發的登入憑證同時對不上簽章。
 
-### 建立使用者目前是開放的，而其餘端點目前不需要憑證
+### 建立使用者與看行情不需要憑證
 
-兩件事都是刻意的，而且都會再回來處理：
+兩件事都是刻意的：
 
 - **建立使用者不需要先登入**——系統一位使用者都沒有時，關起來就沒有人建得出第一位。
-- **K 線、指標計算、策略腳本、助手、即時跟盤目前一律不問來者是誰。**
-  把門裝上去是另一個切片，因為 `GET /k-candles/live` 是瀏覽器的持續連線、**送不出授權標頭**，
-  憑證要怎麼過去得先想清楚。和其餘端點一起改，等於在一個切片裡塞兩個不同的問題。
-
-  要裝的時候，落點是 `UserController` 裡讀 `Authorization` 標頭的那段私有 method：
-  它會長成一個中介層，掛在路由群組上、把認出來的使用者放進請求脈絡。
+- **看行情不問來者是誰**（查 K 線、彙總、即時跟盤、交易標的清單）。行情是公開的市場事實，
+  擋住它擋不住任何傷害；`GET /k-candles/live` 又是瀏覽器的持續連線、送不出授權標頭。
+  **改行情則要已開通的登入**：每一位使用者的重演與機器人讀的是同一份行情，
+  一個不知道是誰的人改掉的一根收盤價會悄悄進到所有人的結果裡。
 
 ## 行情對話助手
 
@@ -797,8 +799,8 @@ newman run postman/go-trading.postman_collection.json \
 
 **整包跑不過是正常的，而且不是程式壞了。** 需要登入的那一大半會回
 `403 帳號尚未開通`——新建立的使用者一律待開通，而放行只在系統之外做
-（見上方「帳號開通」）。所以要整包綠，得先開通 collection 建立的那位使用者；
-合約那個資料夾不需要登入，單獨跑得過。
+（見上方「帳號開通」）。所以要整包綠，得先開通 collection 建立的那位使用者。
+行情那幾個資料夾的改動（新增、補齊、同步、追蹤名單）也要登入，單獨跑之前先讓 `accessToken` 帶著一位已開通使用者的憑證。
 
 **兩個設計上的選擇：**
 
