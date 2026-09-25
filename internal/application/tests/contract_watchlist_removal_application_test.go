@@ -29,7 +29,8 @@ func TestRemovingAContractOnlyStopsFollowingIt(t *testing.T) {
 	fundingRateService := service.NewContractFundingRateService(settlementRepository, symbolRepository,
 		mocks.NewMockIContractFundingRateProxy(mockController), clockProxy, 1000)
 	positionStatisticService := service.NewContractPositionStatisticService(statisticRepository, symbolRepository,
-		mocks.NewMockIContractPositionStatisticProxy(mockController), clockProxy, 1000)
+		mocks.NewMockIContractPositionStatisticProxy(mockController),
+		mocks.NewMockIContractPositionStatisticArchiveProxy(mockController), clockProxy, 1000)
 	symbolApplication := application.NewContractTradingSymbolApplication(
 		service.NewContractTradingSymbolService(symbolRepository,
 			mocks.NewMockIKCandleContractRepository(mockController),

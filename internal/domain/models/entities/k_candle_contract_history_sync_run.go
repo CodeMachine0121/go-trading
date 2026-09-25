@@ -33,6 +33,15 @@ type KCandleContractHistorySyncRun struct {
 	FailureReason      string    `gorm:"type:text;not null;default:''"`
 	StartedAt          time.Time `gorm:"not null"`
 	FinishedAt         *time.Time
+
+	// The position statistics the same run fills in after the candles, counted apart
+	// from them. A run finished before the run filled any in has all of these at zero,
+	// which is what the defaults give the rows that were already there.
+	PositionStatisticTotalDays          int    `gorm:"not null;default:0"`
+	PositionStatisticCompletedDays      int    `gorm:"not null;default:0"`
+	PositionStatisticStoredCount        int    `gorm:"not null;default:0"`
+	PositionStatisticSkippedCount       int    `gorm:"not null;default:0"`
+	PositionStatisticFetchFailureReason string `gorm:"type:text;not null;default:''"`
 }
 
 // TableName pins the table to KCandleContractHistorySyncRuns instead of GORM's default.
@@ -42,11 +51,12 @@ func (kCandleContractHistorySyncRun KCandleContractHistorySyncRun) TableName() s
 
 // ToDto is the shape this run leaves the domain in.
 //
-// It reuses the shape the spot runs leave in, because progress is progress: what the
-// caller cannot find out any other way is how far along the run is, and that question
-// does not change with the kind of candle being fetched.
-func (kCandleContractHistorySyncRun KCandleContractHistorySyncRun) ToDto() dto.KCandleHistorySyncRunDto {
-	return dto.KCandleHistorySyncRunDto{
+// Its candle progress is the shape the spot runs leave in, because progress is
+// progress: what the caller cannot find out any other way is how far along the run
+// is, and that question does not change with the kind of candle being fetched. The
+// position statistics come beside it, as a group of their own.
+func (kCandleContractHistorySyncRun KCandleContractHistorySyncRun) ToDto() dto.KCandleContractHistorySyncRunDto {
+	return dto.KCandleContractHistorySyncRunDto{KCandleHistorySyncRunDto: dto.KCandleHistorySyncRunDto{
 		ID:                 kCandleContractHistorySyncRun.ID,
 		Symbol:             kCandleContractHistorySyncRun.Symbol,
 		LookbackDays:       kCandleContractHistorySyncRun.LookbackDays,
@@ -59,5 +69,11 @@ func (kCandleContractHistorySyncRun KCandleContractHistorySyncRun) ToDto() dto.K
 		FailureReason:      kCandleContractHistorySyncRun.FailureReason,
 		StartedAt:          kCandleContractHistorySyncRun.StartedAt.UTC(),
 		FinishedAt:         kCandleContractHistorySyncRun.FinishedAt,
-	}
+	}, PositionStatistic: dto.ContractPositionStatisticSyncProgressDto{
+		TotalDays:          kCandleContractHistorySyncRun.PositionStatisticTotalDays,
+		CompletedDays:      kCandleContractHistorySyncRun.PositionStatisticCompletedDays,
+		StoredCount:        kCandleContractHistorySyncRun.PositionStatisticStoredCount,
+		SkippedCount:       kCandleContractHistorySyncRun.PositionStatisticSkippedCount,
+		FetchFailureReason: kCandleContractHistorySyncRun.PositionStatisticFetchFailureReason,
+	}}
 }

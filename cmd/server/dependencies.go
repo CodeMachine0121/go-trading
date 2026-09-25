@@ -181,6 +181,25 @@ func registerRoutes(
 	// 立刻補齊那一檔,手動補齊也是一條路由,兩者都不該等背景工作被打開才存在。
 	contractKCandleRepository := persistence.NewKCandleContractRepository(database)
 	contractTradingSymbolRepository := persistence.NewContractTradingSymbolRepository(database)
+	// Built before the candle ingestion because a contract history sync fills in the
+	// position statistics of the same stretch once the candles are done, and it is
+	// this service that knows their rules and reads the venue's archive of them.
+	contractPositionStatisticService := service.NewContractPositionStatisticService(
+		persistence.NewContractPositionStatisticRepository(database),
+		contractTradingSymbolRepository,
+		marketdata.NewBinanceContractPositionStatisticProxy(
+			applicationConfig.ContractIngestion.StatisticsBaseUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContractStatistics,
+		),
+		marketdata.NewBinanceContractPositionStatisticArchiveProxy(
+			applicationConfig.ContractIngestion.PositionStatisticArchiveBaseUrl,
+			applicationConfig.ContractIngestion.RequestTimeout,
+			venuePacers.cryptoContractArchive,
+		),
+		clock.NewSystemClockProxy(),
+		applicationConfig.KCandleQueryMaxResults,
+	)
 	contractKCandleIngestionService := service.NewContractKCandleIngestionService(
 		contractKCandleRepository,
 		persistence.NewKCandleContractHistorySyncRunRepository(database),
@@ -197,6 +216,7 @@ func registerRoutes(
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.ContractIngestion.RoundCandleCount,
 		applicationConfig.ContractIngestion.BackfillLookback,
+		contractPositionStatisticService,
 	)
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)
@@ -230,17 +250,6 @@ func registerRoutes(
 			clock.NewSystemClockProxy(),
 		),
 		clock.NewSystemClockProxy(),
-	)
-	contractPositionStatisticService := service.NewContractPositionStatisticService(
-		persistence.NewContractPositionStatisticRepository(database),
-		contractTradingSymbolRepository,
-		marketdata.NewBinanceContractPositionStatisticProxy(
-			applicationConfig.ContractIngestion.StatisticsBaseUrl,
-			applicationConfig.ContractIngestion.RequestTimeout,
-			venuePacers.cryptoContractStatistics,
-		),
-		clock.NewSystemClockProxy(),
-		applicationConfig.KCandleQueryMaxResults,
 	)
 
 	// Shared with the contract bots below, which quote a contract's newest candle as
@@ -848,6 +857,9 @@ type venuePacers struct {
 	// statistics, which it counts apart from the one above. It is the one exception
 	// to "one venue, one budget", and it is the venue's exception, not this system's.
 	cryptoContractStatistics marketdata.RequestPacer
+	// cryptoContractArchive is the venue's history archive of position statistics: a
+	// separate file host, which counts nothing against the two allowances above.
+	cryptoContractArchive marketdata.RequestPacer
 	// taiwanStock is the market data plan's allowance, which the live quotes no longer
 	// spend: they come from the exchange itself, and its pace is the poll interval
 	// rather than an allowance shared with anybody.
@@ -862,6 +874,8 @@ func newVenuePacers(applicationConfig config.ApplicationConfig) venuePacers {
 			applicationConfig.ContractIngestion.RequestsPerMinute),
 		cryptoContractStatistics: marketdata.NewRequestPacer(
 			applicationConfig.ContractIngestion.StatisticsRequestsPerMinute),
+		cryptoContractArchive: marketdata.NewRequestPacer(
+			applicationConfig.ContractIngestion.PositionStatisticArchiveRequestsPerMinute),
 		taiwanStock: marketdata.NewRequestPacer(
 			applicationConfig.TaiwanStock.RequestsPerMinute),
 	}

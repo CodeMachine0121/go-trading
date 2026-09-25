@@ -107,7 +107,7 @@ func newPositionStatisticJobUnderTest(t *testing.T, venueError error) seriesJobU
 	positionStatisticJob := job.NewContractPositionStatisticIngestionJob(
 		application.NewContractPositionStatisticApplication(service.NewContractPositionStatisticService(
 			statisticRepository, watchlistSignalling(mockController, rounds, nil),
-			statisticProxy, clockProxy, 1000)),
+			statisticProxy, mocks.NewMockIContractPositionStatisticArchiveProxy(mockController), clockProxy, 1000)),
 		testInterval)
 	t.Cleanup(positionStatisticJob.Stop)
 

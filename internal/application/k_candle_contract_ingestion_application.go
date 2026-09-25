@@ -52,7 +52,7 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 // operator's decision, settled once at the composition root.
 func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) StartSymbolHistorySync(
 	executionContext context.Context, syncDto dto.KCandleHistorySyncDto, lookbackCeilingDays int,
-) (dto.KCandleHistorySyncRunDto, error) {
+) (dto.KCandleContractHistorySyncRunDto, error) {
 	return kCandleContractIngestionApplication.contractKCandleIngestionService.StartHistorySyncFor(
 		executionContext, syncDto, lookbackCeilingDays)
 }
@@ -60,7 +60,7 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 // GetSymbolHistorySync answers with where one contract history sync has got to.
 func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) GetSymbolHistorySync(
 	executionContext context.Context, id uint,
-) (dto.KCandleHistorySyncRunDto, error) {
+) (dto.KCandleContractHistorySyncRunDto, error) {
 	return kCandleContractIngestionApplication.contractKCandleIngestionService.GetHistorySyncRun(
 		executionContext, id)
 }

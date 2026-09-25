@@ -27,6 +27,7 @@ func positionStatisticRouterUnderTest(t *testing.T) (*gin.Engine, *mocks.MockICo
 			statisticRepository,
 			mocks.NewMockIContractTradingSymbolRepository(mockController),
 			mocks.NewMockIContractPositionStatisticProxy(mockController),
+			mocks.NewMockIContractPositionStatisticArchiveProxy(mockController),
 			clockProxy, queryMaxResults)))
 
 	engine := gin.New()

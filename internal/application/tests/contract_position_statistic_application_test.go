@@ -65,7 +65,8 @@ func TestContractPositionStatisticApplicationRecordsContractsThroughToStorage(t 
 			statisticRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Len(1)).Return(1, nil)
 			statisticApplication := application.NewContractPositionStatisticApplication(
 				service.NewContractPositionStatisticService(
-					statisticRepository, symbolRepository, statisticProxy, clockProxy, 1000))
+					statisticRepository, symbolRepository, statisticProxy,
+					mocks.NewMockIContractPositionStatisticArchiveProxy(mockController), clockProxy, 1000))
 
 			storedCount, actError := testCase.act(statisticApplication)
 

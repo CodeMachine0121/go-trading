@@ -26,14 +26,19 @@ type ContractPositionStatisticService struct {
 	statisticRepository             domaininterface.IContractPositionStatisticRepository
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository
 	positionStatisticProxy          domaininterface.IContractPositionStatisticProxy
-	clockProxy                      domaininterface.IClockProxy
-	queryMaxResults                 int
+	// positionStatisticArchiveProxy is the venue's history archive, which keeps the
+	// same statistics for years where the live source keeps thirty days. Only a
+	// contract history sync reads it; every round above still asks the live source.
+	positionStatisticArchiveProxy domaininterface.IContractPositionStatisticArchiveProxy
+	clockProxy                    domaininterface.IClockProxy
+	queryMaxResults               int
 }
 
 func NewContractPositionStatisticService(
 	statisticRepository domaininterface.IContractPositionStatisticRepository,
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
 	positionStatisticProxy domaininterface.IContractPositionStatisticProxy,
+	positionStatisticArchiveProxy domaininterface.IContractPositionStatisticArchiveProxy,
 	clockProxy domaininterface.IClockProxy,
 	queryMaxResults int,
 ) *ContractPositionStatisticService {
@@ -41,6 +46,7 @@ func NewContractPositionStatisticService(
 		statisticRepository:             statisticRepository,
 		contractTradingSymbolRepository: contractTradingSymbolRepository,
 		positionStatisticProxy:          positionStatisticProxy,
+		positionStatisticArchiveProxy:   positionStatisticArchiveProxy,
 		clockProxy:                      clockProxy,
 		queryMaxResults:                 queryMaxResults,
 	}
@@ -129,6 +135,99 @@ func (contractPositionStatisticService *ContractPositionStatisticService) FindSt
 	}
 
 	return statisticDtos, nil
+}
+
+// syncHistory walks one contract's position statistics a day at a time out of the
+// venue's archive, storing only the ones not held yet. It is the second half of a
+// contract history sync, driven by the same run as the candles; it is not a use case
+// of its own, which is why nothing outside this package can reach it.
+//
+// **A day already whole is not asked about**, exactly as a candle chunk already whole
+// is not. What is held is read only to decide whether to ask, never where to start.
+//
+// **A day the archive has no file for is simply passed**: not published yet, or the
+// contract did not exist. The archive not answering — or answering with something that
+// cannot be read — stops the statistics and is written down, but is not an error: the
+// run found something out about the source rather than doing anything wrong. Only
+// this system breaking is returned as one.
+//
+// Every archive reading is worked into the live source's shape and judged by the live
+// rules, so a statistic from the archive and one recorded live are one kind of thing.
+func (contractPositionStatisticService *ContractPositionStatisticService) syncHistory(
+	executionContext context.Context,
+	symbol string,
+	historyDomain domains.ContractPositionStatisticHistoryDomain,
+	recordProgress func(progress dto.ContractPositionStatisticSyncProgressDto),
+) error {
+	currentTime := contractPositionStatisticService.clockProxy.Now()
+	days := historyDomain.Days()
+	symbolReport := domains.NewContractSeriesSymbolReportDomain(symbol)
+	progressAt := func(completedDays int) dto.ContractPositionStatisticSyncProgressDto {
+		report := symbolReport.ToDto()
+
+		return dto.ContractPositionStatisticSyncProgressDto{
+			TotalDays:          len(days),
+			CompletedDays:      completedDays,
+			StoredCount:        report.StoredCount,
+			SkippedCount:       report.SkippedCount,
+			FetchFailureReason: report.FetchFailureReason,
+		}
+	}
+
+	for dayIndex, day := range days {
+		recordProgress(progressAt(dayIndex))
+
+		heldCount, countError := contractPositionStatisticService.statisticRepository.CountInRange(
+			executionContext, symbol, day.FirstStatisticTime, day.LastStatisticTime)
+		if countError != nil {
+			return countError
+		}
+		if historyDomain.IsDayComplete(heldCount) {
+			continue
+		}
+
+		archivedStatistics, found, fetchError := contractPositionStatisticService.
+			positionStatisticArchiveProxy.FetchDailyPositionStatistics(executionContext, symbol, day.Day)
+		if fetchError != nil {
+			// The rest of the days are abandoned rather than attempted: an archive that
+			// just refused one day will refuse the next thousand the same way.
+			symbolReport.NoteFetchFailure(fetchError.Error())
+			recordProgress(progressAt(dayIndex))
+
+			return nil
+		}
+		if !found {
+			continue
+		}
+
+		judgedStatistics := make([]entities.ContractPositionStatistic, 0, len(archivedStatistics))
+		for _, archivedStatistic := range archivedStatistics {
+			archiveDomain, archiveError := domains.NewContractPositionStatisticArchiveDomain(archivedStatistic)
+			if archiveError != nil {
+				symbolReport.NoteSkipped(archivedStatistic.StatisticTime, archiveError.Error())
+				continue
+			}
+
+			statisticDomain, validationError := domains.NewContractPositionStatisticDomain(
+				archiveDomain.ToContractPositionStatisticVo(), currentTime)
+			if validationError != nil {
+				symbolReport.NoteSkipped(archivedStatistic.StatisticTime, validationError.Error())
+				continue
+			}
+			judgedStatistics = append(judgedStatistics, statisticDomain.ToEntity())
+		}
+
+		storedCount, saveError := contractPositionStatisticService.statisticRepository.SaveAllIfAbsent(
+			executionContext, judgedStatistics)
+		if saveError != nil {
+			return saveError
+		}
+		symbolReport.NoteStored(storedCount)
+	}
+
+	recordProgress(progressAt(len(days)))
+
+	return nil
 }
 
 // recordSymbol carries one contract from its last held statistic to now. The venue or
