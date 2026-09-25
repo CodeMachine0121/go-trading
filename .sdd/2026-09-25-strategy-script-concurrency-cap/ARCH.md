@@ -19,11 +19,11 @@
 | :--- | :--- | :--- |
 | `internal/infrastructure/script/indicator_script_compartment_slots.go` | **Add** | `IndicatorScriptCompartmentSlots`：全服務共用的名額池（執行機制，不是 domain model，不加後綴，住在 compartment 旁邊） |
 | `internal/infrastructure/script/indicator_script_isolation.go` | **Modify** | 加 `CompartmentSlots *IndicatorScriptCompartmentSlots` 與 `ServesStrategyBotRounds bool`；proxy 建構子簽名不變 |
-| `internal/infrastructure/script/indicator_script_compartment.go` | **Modify** | `run` 開頭取名額、`defer` 歸還；外層時限算一次，同時送進 header 作為處理器時間上限；子行程被 `RLIMIT_CPU` 收掉時回報「未能算完」 |
+| `internal/infrastructure/script/indicator_script_compartment.go` | **Modify** | `run` 開頭取名額、`defer` 歸還；外層時限算一次，同時送進 header 作為處理器時間上限 |
 | `internal/infrastructure/script/indicator_script_request.go` | **Modify** | header 加 `ProcessorTimeLimit`；子行程設 `GOMAXPROCS(1)` 與 `RLIMIT_CPU` |
 | `internal/domain/models/domains/indicator_calculation_errors.go` | **Modify** | 新哨兵 `ErrIndicatorScriptCompartmentsBusy`（不包 `ErrIndicatorScriptFailed`） |
 | `internal/domain/service/backtest_service.go`、`contract_backtest_service.go` | **Modify** | `refusalFor` 先放行「忙碌中」，不被改寫成「用完允許時間」 |
-| `internal/controller/indicator_calculation_controller.go`、`backtest_controller.go`、`trading_strategy_backtest_controller.go` | **Modify** | 「忙碌中」→ `503 Service Unavailable`，body `{"message", "compartmentsBusy": true}`，並帶 `Retry-After` |
+| `internal/controller/indicator_calculation_controller.go`、`backtest_controller.go`、`trading_strategy_backtest_controller.go` | **Modify** | 「忙碌中」→ `503 Service Unavailable`，body `{"message", "compartmentsBusy": true}` |
 | `internal/config/application_config.go`、`.env.example`、README | **Modify** | `INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`（預設 6） |
 | `cmd/server/dependencies.go` | **Modify** | 建一份名額池；機器人輪次另建一對 indicator calculation service，其 isolation `ServesStrategyBotRounds=true` |
 | `StrategyBotRoundFailureDomain` | **Not touched** | 「忙碌中」不包 `ErrIndicatorScriptFailed`，天生落入 default = 跳過（不停機器人）；只補測試釘住 |
@@ -54,7 +54,7 @@
 | `indicatorScriptRequestHeader` | 帶行情種類、記憶體上限、允許時間 | 加 `ProcessorTimeLimit`（= 外層時限 = `ExecutionTimeout × max(runCount,1) + 5s`）；`answer` 先 `runtime.GOMAXPROCS(1)`，再以 `Cur=ceil 秒, Max=Cur+1` 設 `RLIMIT_CPU`；Linux 上設不了即失敗（與記憶體上限同一模式） |
 | `refusalFor`（兩個 backtest service） | 允許時間到就改寫成 `BacktestTimeAllowanceSpent` | 錯誤若是「忙碌中」原樣回傳 |
 
-處理器時間的決策：隔間只用一顆處理器，處理器時間 ≤ 經過時間，所以與外層牆鐘時限用同一個數字不會誤殺合法算式；soft 到 hard 之間 1 秒，Go runtime 忽略 `SIGXCPU`，hard 由核心送 `SIGKILL`。父行程在「沒回答」分支檢查 `ProcessState` 的 user+system 時間是否已達上限，是就回報「未能算完」。
+處理器時間的決策：隔間只用一顆處理器，處理器時間 ≤ 經過時間，所以與外層牆鐘時限用同一個數字不會誤殺合法算式；soft 到 hard 之間 1 秒；Go runtime 預設忽略 `SIGXCPU`（macOS 也不在 hard 送 `SIGKILL`），所以子行程自己接 `SIGXCPU` 並立刻結束，Linux 的 hard 上限 `SIGKILL` 是最後一道。由於處理器時間 ≤ 經過時間，父行程的計時一定先到、照舊回報「未能算完」；只有父行程計時失靈時核心才出手，那時隔間沒有回答，依既有規則以「算式失敗：算式隔間意外結束」收場。
 
 飽和時的決策：**等待、以呼叫端 context 為上限**，不另設等待上限——隨選計算在呼叫端離開（或反向代理切斷）時結束，重演受整次允許時間限制，機器人受一輪時限限制。等待中的 goroutine 不佔隔間資源。機器人優先保證灌爆隨選計算時，機器人最多只等「一個正在跑的隔間結束」。
 
