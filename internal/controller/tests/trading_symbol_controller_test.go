@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,8 @@ type tradingSymbolRouterUnderTest struct {
 	engine                  *gin.Engine
 	tradingSymbolRepository *mocks.MockITradingSymbolRepository
 	kCandleRepository       *mocks.MockIKCandleRepository
+	symbolLookupProxy       *mocks.MockISymbolLookupProxy
+	marketDataProxy         *mocks.MockIMarketDataProxy
 }
 
 func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest {
@@ -31,6 +34,8 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 	mockController := gomock.NewController(t)
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
+	symbolLookupProxy := mocks.NewMockISymbolLookupProxy(mockController)
+	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
 
 	// Nothing is watched unless a test says so.
 	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).
@@ -40,10 +45,10 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 		application.NewTradingSymbolApplication(
 			service.NewTradingSymbolService(
 				tradingSymbolRepository, kCandleRepository,
-				mocks.NewMockISymbolLookupProxy(mockController), tradingSymbolClockProxy(mockController),
+				symbolLookupProxy, tradingSymbolClockProxy(mockController),
 				tradingSymbolMarketCatalog()), service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository,
-				mocks.NewMockIMarketDataProxy(mockController), tradingSymbolClockProxy(mockController),
+				marketDataProxy, tradingSymbolClockProxy(mockController),
 				tradingSymbolMarketCatalog(), 5, time.Hour)))
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
@@ -56,6 +61,8 @@ func newTradingSymbolRouterUnderTest(t *testing.T) tradingSymbolRouterUnderTest 
 		engine:                  engine,
 		tradingSymbolRepository: tradingSymbolRepository,
 		kCandleRepository:       kCandleRepository,
+		symbolLookupProxy:       symbolLookupProxy,
+		marketDataProxy:         marketDataProxy,
 	}
 }
 
@@ -166,6 +173,31 @@ func TestAnActivatedUserRemovesASymbolFromTheWatchlist(t *testing.T) {
 		Save(gomock.Any(), entities.TradingSymbol{Symbol: "ETHUSDT", Market: string(vo.MarketCrypto), IsWatched: false}).
 		Return(nil)
 	request := httptest.NewRequest(http.MethodDelete, "/watchlist/ETHUSDT", nil)
+	request.Header.Set("Authorization", signedInProof)
+	recorder := httptest.NewRecorder()
+
+	fixture.engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
+}
+
+func TestAnActivatedUserAddsASymbolToTheWatchlist(t *testing.T) {
+	fixture := newTradingSymbolRouterUnderTest(t)
+	fixture.symbolLookupProxy.EXPECT().LookUpSymbol(gomock.Any(), vo.MarketCrypto, "ETHUSDT").
+		Return(vo.SymbolListingVo{IsListed: true}, nil)
+	fixture.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "ETHUSDT").
+		Return(entities.TradingSymbol{Symbol: "ETHUSDT", Market: string(vo.MarketCrypto), IsWatched: true}, true, nil).
+		AnyTimes()
+	fixture.tradingSymbolRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, savedSymbol entities.TradingSymbol) error {
+			assert.True(t, savedSymbol.IsWatched)
+			return nil
+		})
+	// Joining the watchlist catches the symbol up; the source has nothing new.
+	fixture.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "ETHUSDT", 1).Return([]entities.KCandle{}, nil)
+	fixture.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).Return([]vo.MarketKCandleVo{}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/watchlist", strings.NewReader(`{"symbol":"ETHUSDT","market":"crypto"}`))
+	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", signedInProof)
 	recorder := httptest.NewRecorder()
 
