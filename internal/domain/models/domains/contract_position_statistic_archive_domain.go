@@ -2,14 +2,16 @@ package domains
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
 // ContractPositionStatisticArchiveDomain is one reading from the venue's daily
-// archive, turned into the same shape the live source reports — so that everything
-// downstream judges and stores it without learning where it came from.
+// archive, turned into a position statistic that may be stored — judged by exactly
+// the rules a live reading is, so that nothing downstream learns where it came from.
 //
 // **The archive keeps a long-short ratio where the live source keeps two shares.**
 // The shares are worked back out of it: a ratio r of long to short means the long
@@ -17,19 +19,21 @@ import (
 // share 1 ÷ (1 + r). They come out with more decimals than the live source's four,
 // and that difference is accepted rather than rounded away.
 //
-// **Only the rule the arithmetic depends on is checked here.** A negative ratio is
+// **Only the rules the arithmetic depends on are checked here.** A negative ratio is
 // refused before anything is worked out, because at −1 the sum is zero and below it
-// the shares would be numbers with no meaning. Every other rule — a figure missing, a
-// share out of range, a time off the grid — is left to ContractPositionStatisticDomain,
-// which already keeps them for the live readings.
+// the shares would be numbers with no meaning; open interest missing is named because
+// there is nothing to carry over. Every other rule — a split missing, a share out of
+// range, a time off the grid or in the future — is ContractPositionStatisticDomain's,
+// which this hands the worked-out reading to rather than repeating.
 type ContractPositionStatisticArchiveDomain struct {
-	statistic vo.ContractPositionStatisticVo
+	statistic ContractPositionStatisticDomain
 }
 
 // NewContractPositionStatisticArchiveDomain works the shares out of one archive
-// reading, refusing it when a ratio is negative.
+// reading and judges the result, judging "in the future" against currentTime. Any
+// rule broken on the way refuses the reading, with that rule named.
 func NewContractPositionStatisticArchiveDomain(
-	archiveVo vo.ContractPositionStatisticArchiveVo,
+	archiveVo vo.ContractPositionStatisticArchiveVo, currentTime time.Time,
 ) (ContractPositionStatisticArchiveDomain, error) {
 	statistic := vo.ContractPositionStatisticVo{
 		Symbol:            archiveVo.Symbol,
@@ -64,8 +68,8 @@ func NewContractPositionStatisticArchiveDomain(
 			&statistic.TopTraderPositionLongShortRatio},
 	}
 	for _, split := range splits {
-		// An absent ratio stays absent on all three figures, and the live rules say
-		// "缺…" about it exactly as they would for a live reading missing a split.
+		// An absent ratio stays absent on all three figures, and the live rules below
+		// say "缺…" about it exactly as they would for a live reading missing a split.
 		if !split.ratio.Valid {
 			continue
 		}
@@ -81,11 +85,15 @@ func NewContractPositionStatisticArchiveDomain(
 		*split.longShortRatio = split.ratio
 	}
 
-	return ContractPositionStatisticArchiveDomain{statistic: statistic}, nil
+	statisticDomain, validationError := NewContractPositionStatisticDomain(statistic, currentTime)
+	if validationError != nil {
+		return ContractPositionStatisticArchiveDomain{}, validationError
+	}
+
+	return ContractPositionStatisticArchiveDomain{statistic: statisticDomain}, nil
 }
 
-// ToContractPositionStatisticVo is the reading in the live source's shape, ready to
-// be judged by the same rules every live reading is.
-func (archiveDomain ContractPositionStatisticArchiveDomain) ToContractPositionStatisticVo() vo.ContractPositionStatisticVo {
-	return archiveDomain.statistic
+// ToEntity converts the judged reading into the record shape that is stored.
+func (archiveDomain ContractPositionStatisticArchiveDomain) ToEntity() entities.ContractPositionStatistic {
+	return archiveDomain.statistic.ToEntity()
 }

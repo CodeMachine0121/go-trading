@@ -151,8 +151,8 @@ func (contractPositionStatisticService *ContractPositionStatisticService) FindSt
 // run found something out about the source rather than doing anything wrong. Only
 // this system breaking is returned as one.
 //
-// Every archive reading is worked into the live source's shape and judged by the live
-// rules, so a statistic from the archive and one recorded live are one kind of thing.
+// Every archive reading is worked into a statistic judged by the live rules, so a
+// statistic from the archive and one recorded live are one kind of thing.
 func (contractPositionStatisticService *ContractPositionStatisticService) syncHistory(
 	executionContext context.Context,
 	symbol string,
@@ -202,19 +202,13 @@ func (contractPositionStatisticService *ContractPositionStatisticService) syncHi
 
 		judgedStatistics := make([]entities.ContractPositionStatistic, 0, len(archivedStatistics))
 		for _, archivedStatistic := range archivedStatistics {
-			archiveDomain, archiveError := domains.NewContractPositionStatisticArchiveDomain(archivedStatistic)
-			if archiveError != nil {
-				symbolReport.NoteSkipped(archivedStatistic.StatisticTime, archiveError.Error())
-				continue
-			}
-
-			statisticDomain, validationError := domains.NewContractPositionStatisticDomain(
-				archiveDomain.ToContractPositionStatisticVo(), currentTime)
+			archiveDomain, validationError := domains.NewContractPositionStatisticArchiveDomain(
+				archivedStatistic, currentTime)
 			if validationError != nil {
 				symbolReport.NoteSkipped(archivedStatistic.StatisticTime, validationError.Error())
 				continue
 			}
-			judgedStatistics = append(judgedStatistics, statisticDomain.ToEntity())
+			judgedStatistics = append(judgedStatistics, archiveDomain.ToEntity())
 		}
 
 		storedCount, saveError := contractPositionStatisticService.statisticRepository.SaveAllIfAbsent(
