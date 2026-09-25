@@ -186,6 +186,23 @@ func TestContractStopGappedThroughAtTheOpenFillsAtTheOpen(t *testing.T) {
 		// 90 less 0.1%.
 		assertDecimalEqual(t, "89.91", resultDto.ClosedTrades[0].ExitPrice)
 	})
+
+	t.Run("a stop the entry slippage already put above the open is triggered at that open", func(t *testing.T) {
+		requestDto := contractReplayRequest()
+		requestDto.TradingMode = "longOnly"
+		requestDto.FillTiming = "nextOpen"
+		requestDto.StopLossPercentage = decimal.RequireFromString("0.5")
+		requestDto.SlippagePercentage = decimal.NewFromInt(1)
+
+		// Bought at 101 on an open of 100, so the stop near 100.5 sits above that open; selling there pays 1% too.
+		resultDto := replayContract(t, requestDto, contractReplayRules(t, contractReplaySpecification()),
+			[]contractReplayBar{{close: 99, signal: vo.SignalBuy}, {open: 100, high: 102, low: 99, close: 101}})
+
+		require.Len(t, resultDto.ClosedTrades, 1)
+		assert.Equal(t, "stopLoss", resultDto.ClosedTrades[0].ExitReason)
+		assertDecimalEqual(t, "101", resultDto.ClosedTrades[0].EntryPrice)
+		assertDecimalEqual(t, "99", resultDto.ClosedTrades[0].ExitPrice)
+	})
 }
 
 // Ten times long: 10,000 of margin on 1,000 units at 100 puts the liquidation price near 90.45.
