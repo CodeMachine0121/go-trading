@@ -37,7 +37,7 @@ func (header indicatorScriptRequestHeader) answer(
 		// One processor keeps processor time within wall time, so the limit cannot cut short a script its allowance would let finish.
 		runtime.GOMAXPROCS(1)
 		processorSeconds := uint64((header.ProcessorTimeLimit + time.Second - 1) / time.Second)
-		// The runtime would ignore the soft limit's SIGXCPU, so it ends the compartment here; on Linux the hard limit a second later is the kernel's SIGKILL.
+		// The runtime ignores SIGXCPU, so the soft limit is acted on here; the hard limit is the kernel's backstop.
 		processorTimeSpent := make(chan os.Signal, 1)
 		signal.Notify(processorTimeSpent, syscall.SIGXCPU)
 		go func() {

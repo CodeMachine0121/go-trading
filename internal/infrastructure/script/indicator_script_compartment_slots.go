@@ -9,7 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 )
 
-// IndicatorScriptCompartmentSlots caps how many compartments run at once across the whole service; strategy bot rounds wait ahead of on-demand calculations so a flood of requests cannot starve them.
+// IndicatorScriptCompartmentSlots caps compartments running at once service-wide; bot rounds wait ahead of on-demand calculations so a flood of requests cannot starve them.
 type IndicatorScriptCompartmentSlots struct {
 	mutex sync.Mutex
 	// freeCount is only ever above zero while nobody waits, since a freed slot goes to a waiter first.
