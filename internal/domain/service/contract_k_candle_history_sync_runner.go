@@ -141,9 +141,9 @@ func (contractKCandleHistorySyncRunner *contractKCandleHistorySyncRunner) curren
 
 // recordEnding closes the run at wherever both walks actually reached.
 //
-// **The chunk and day counts are the ones it got to, not the ones it was given.** A run that gave
-// up at chunk five of fifteen hundred reporting 1500 of 1500 would be worse than no
-// figure at all: it reads as finished.
+// **The chunk and day counts are the ones it got to, not the ones it was given.** A
+// run that gave up at chunk five of fifteen hundred reporting 1500 of 1500 would be
+// worse than no figure at all: it reads as finished.
 //
 // An empty failure reason is a run that walked the whole stretch. The source having
 // refused is carried separately, because a source refusing is something the run found

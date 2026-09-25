@@ -282,3 +282,15 @@ func TestArchiveProxyRefusesWhenTheArchiveCannotBeReached(t *testing.T) {
 	require.Error(t, fetchError)
 	assert.False(t, found)
 }
+
+func TestArchiveProxyNamesTheSameCellEveryTimeARowIsWrongInTwo(t *testing.T) {
+	host := servedByArchive(t, http.StatusOK, zippedArchiveDay(t, archiveHeader+
+		"2026-03-01 00:00:00,ETHUSDT,lots,plenty,2.9,1.36,2.26,1.01\n"))
+
+	for range 20 {
+		_, _, fetchError := host.proxy().FetchDailyPositionStatistics(t.Context(), "ETHUSDT", archivedDayAsked)
+
+		require.Error(t, fetchError)
+		assert.Contains(t, fetchError.Error(), "read sum_open_interest at")
+	}
+}

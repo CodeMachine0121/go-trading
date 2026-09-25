@@ -21,6 +21,9 @@ const (
 	// archiveStatisticTimeLayout is how the archive spells a statistic time. It is
 	// UTC, though the file never says so.
 	archiveStatisticTimeLayout = "2006-01-02 15:04:05"
+	// archiveDayFileSizeCeiling is the most of one answer this reads. A day's file is
+	// a few dozen kilobytes; this is hundreds of times that.
+	archiveDayFileSizeCeiling = 16 << 20
 )
 
 // The columns of one archive day that this system reads, by the name the archive's
@@ -64,8 +67,9 @@ func NewBinanceContractPositionStatisticArchiveProxy(
 }
 
 // FetchDailyPositionStatistics returns every statistic the archive holds for the
-// contract on that UTC day, oldest first. A day the archive has no file for — not yet
-// published, or before the contract existed — answers found = false.
+// contract on that UTC day, in the order the file keeps them — the order they were
+// taken. A day the archive has no file for — not yet published, or before the
+// contract existed — answers found = false. A day's file is a zip holding one CSV.
 func (archiveProxy *BinanceContractPositionStatisticArchiveProxy) FetchDailyPositionStatistics(
 	executionContext context.Context, symbol string, day time.Time,
 ) ([]vo.ContractPositionStatisticArchiveVo, bool, error) {
@@ -95,44 +99,34 @@ func (archiveProxy *BinanceContractPositionStatisticArchiveProxy) FetchDailyPosi
 			response.StatusCode, symbol, dayName)
 	}
 
-	zippedDay, readError := io.ReadAll(response.Body)
+	// A day's file is a few dozen kilobytes; the ceiling only keeps an answer that is
+	// not a day's file from being read into memory whole.
+	unreadableDay := fmt.Sprintf("read position statistic archive for %s on %s", symbol, dayName)
+	zippedDay, readError := io.ReadAll(io.LimitReader(response.Body, archiveDayFileSizeCeiling))
 	if readError != nil {
-		return nil, false, fmt.Errorf("read position statistic archive for %s on %s: %w", symbol, dayName, readError)
+		return nil, false, fmt.Errorf("%s: %w", unreadableDay, readError)
 	}
 
-	statistics, parseError := archivedDay(zippedDay).statistics(symbol)
-	if parseError != nil {
-		return nil, false, fmt.Errorf("read position statistic archive for %s on %s: %w", symbol, dayName, parseError)
-	}
-
-	return statistics, true, nil
-}
-
-// archivedDay is one day's file as it arrived: a zip holding a single CSV.
-type archivedDay []byte
-
-// statistics reads every row of the day, oldest first as the file keeps them.
-func (zippedDay archivedDay) statistics(symbol string) ([]vo.ContractPositionStatisticArchiveVo, error) {
 	zipReader, zipError := zip.NewReader(bytes.NewReader(zippedDay), int64(len(zippedDay)))
 	if zipError != nil {
-		return nil, fmt.Errorf("open day file: %w", zipError)
+		return nil, false, fmt.Errorf("%s: open day file: %w", unreadableDay, zipError)
 	}
 	if len(zipReader.File) == 0 {
-		return nil, fmt.Errorf("day file holds nothing")
+		return nil, false, fmt.Errorf("%s: day file holds nothing", unreadableDay)
 	}
 
 	csvFile, openError := zipReader.File[0].Open()
 	if openError != nil {
-		return nil, fmt.Errorf("open day file: %w", openError)
+		return nil, false, fmt.Errorf("%s: open day file: %w", unreadableDay, openError)
 	}
 	defer func() { _ = csvFile.Close() }()
 
 	rows, csvError := csv.NewReader(csvFile).ReadAll()
 	if csvError != nil {
-		return nil, fmt.Errorf("read day file: %w", csvError)
+		return nil, false, fmt.Errorf("%s: read day file: %w", unreadableDay, csvError)
 	}
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("day file has no header")
+		return nil, false, fmt.Errorf("%s: day file has no header", unreadableDay)
 	}
 
 	columnIndexes := make(map[string]int, len(rows[0]))
@@ -144,7 +138,7 @@ func (zippedDay archivedDay) statistics(symbol string) ([]vo.ContractPositionSta
 		archiveAccountLongShortRatioColumn, archiveTopTraderPositionRatioColumn,
 	} {
 		if _, hasColumn := columnIndexes[requiredColumn]; !hasColumn {
-			return nil, fmt.Errorf("day file has no %s column", requiredColumn)
+			return nil, false, fmt.Errorf("%s: day file has no %s column", unreadableDay, requiredColumn)
 		}
 	}
 
@@ -153,32 +147,38 @@ func (zippedDay archivedDay) statistics(symbol string) ([]vo.ContractPositionSta
 		statisticTime, timeError := time.ParseInLocation(archiveStatisticTimeLayout,
 			strings.TrimSpace(row[columnIndexes[archiveStatisticTimeColumn]]), time.UTC)
 		if timeError != nil {
-			return nil, fmt.Errorf("read statistic time: %w", timeError)
+			return nil, false, fmt.Errorf("%s: read statistic time: %w", unreadableDay, timeError)
 		}
 
 		statistic := vo.ContractPositionStatisticArchiveVo{Symbol: symbol, StatisticTime: statisticTime}
-		for columnName, destination := range map[string]*decimal.NullDecimal{
-			archiveOpenInterestColumn:           &statistic.OpenInterest,
-			archiveOpenInterestValueColumn:      &statistic.OpenInterestValue,
-			archiveAccountLongShortRatioColumn:  &statistic.AccountLongShortRatio,
-			archiveTopTraderPositionRatioColumn: &statistic.TopTraderPositionLongShortRatio,
+		// In the order the file names them, so a row wrong in two cells is always told
+		// about the same one.
+		for _, figureColumn := range []struct {
+			name        string
+			destination *decimal.NullDecimal
+		}{
+			{archiveOpenInterestColumn, &statistic.OpenInterest},
+			{archiveOpenInterestValueColumn, &statistic.OpenInterestValue},
+			{archiveTopTraderPositionRatioColumn, &statistic.TopTraderPositionLongShortRatio},
+			{archiveAccountLongShortRatioColumn, &statistic.AccountLongShortRatio},
 		} {
 			// A blank cell is a figure the archive does not have. It stays absent, and
 			// the domain decides what a reading without it is worth.
-			cell := strings.TrimSpace(row[columnIndexes[columnName]])
+			cell := strings.TrimSpace(row[columnIndexes[figureColumn.name]])
 			if cell == "" {
 				continue
 			}
 
 			figure, figureError := decimal.NewFromString(cell)
 			if figureError != nil {
-				return nil, fmt.Errorf("read %s at %s: %w", columnName, statisticTime.Format(archiveStatisticTimeLayout), figureError)
+				return nil, false, fmt.Errorf("%s: read %s at %s: %w", unreadableDay,
+					figureColumn.name, statisticTime.Format(archiveStatisticTimeLayout), figureError)
 			}
-			*destination = decimal.NewNullDecimal(figure)
+			*figureColumn.destination = decimal.NewNullDecimal(figure)
 		}
 
 		statistics = append(statistics, statistic)
 	}
 
-	return statistics, nil
+	return statistics, true, nil
 }

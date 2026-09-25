@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ func archivedStatistic() vo.ContractPositionStatisticArchiveVo {
 }
 
 func TestContractPositionStatisticArchiveDomainWorksTheSharesOutOfTheRatio(t *testing.T) {
-	testCases := []struct {
+	ratios := []struct {
 		name          string
 		ratio         string
 		expectedLong  string
@@ -35,35 +36,43 @@ func TestContractPositionStatisticArchiveDomainWorksTheSharesOutOfTheRatio(t *te
 		{name: "比值 1 是各佔一半", ratio: "1", expectedLong: "0.5", expectedShort: "0.5"},
 		{name: "比值 0 是一面倒做空", ratio: "0", expectedLong: "0", expectedShort: "1"},
 	}
+	sides := []struct {
+		name     string
+		setRatio func(archived *vo.ContractPositionStatisticArchiveVo, ratio decimal.NullDecimal)
+		storedOf func(stored entities.ContractPositionStatistic) (longShare, shortShare, ratio decimal.Decimal)
+	}{
+		{name: "多空人數比",
+			setRatio: func(archived *vo.ContractPositionStatisticArchiveVo, ratio decimal.NullDecimal) {
+				archived.AccountLongShortRatio = ratio
+			},
+			storedOf: func(stored entities.ContractPositionStatistic) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
+				return stored.AccountLongShare, stored.AccountShortShare, stored.AccountLongShortRatio
+			}},
+		{name: "大戶多空持倉比",
+			setRatio: func(archived *vo.ContractPositionStatisticArchiveVo, ratio decimal.NullDecimal) {
+				archived.TopTraderPositionLongShortRatio = ratio
+			},
+			storedOf: func(stored entities.ContractPositionStatistic) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
+				return stored.TopTraderPositionLongShare, stored.TopTraderPositionShortShare,
+					stored.TopTraderPositionLongShortRatio
+			}},
+	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			for _, side := range []string{"多空人數比", "大戶多空持倉比"} {
+	for _, ratioCase := range ratios {
+		for _, side := range sides {
+			t.Run(ratioCase.name+"／"+side.name, func(t *testing.T) {
 				archived := archivedStatistic()
-				if side == "多空人數比" {
-					archived.AccountLongShortRatio = figure(testCase.ratio)
-				} else {
-					archived.TopTraderPositionLongShortRatio = figure(testCase.ratio)
-				}
+				side.setRatio(&archived, figure(ratioCase.ratio))
 
 				archiveDomain, buildError := domains.NewContractPositionStatisticArchiveDomain(archived, archiveJudgedAt)
 
 				require.NoError(t, buildError)
-				stored := archiveDomain.ToEntity()
-				longShare, shortShare, longShortRatio := stored.AccountLongShare,
-					stored.AccountShortShare, stored.AccountLongShortRatio
-				if side == "大戶多空持倉比" {
-					longShare, shortShare, longShortRatio = stored.TopTraderPositionLongShare,
-						stored.TopTraderPositionShortShare, stored.TopTraderPositionLongShortRatio
-				}
-				assert.True(t, decimal.RequireFromString(testCase.expectedLong).Equal(longShare),
-					"%s 多方佔比 %s", side, longShare)
-				assert.True(t, decimal.RequireFromString(testCase.expectedShort).Equal(shortShare),
-					"%s 空方佔比 %s", side, shortShare)
-				assert.True(t, decimal.RequireFromString(testCase.ratio).Equal(longShortRatio),
-					"%s 比值 %s", side, longShortRatio)
-			}
-		})
+				longShare, shortShare, longShortRatio := side.storedOf(archiveDomain.ToEntity())
+				assert.True(t, decimal.RequireFromString(ratioCase.expectedLong).Equal(longShare), "多方佔比 %s", longShare)
+				assert.True(t, decimal.RequireFromString(ratioCase.expectedShort).Equal(shortShare), "空方佔比 %s", shortShare)
+				assert.True(t, decimal.RequireFromString(ratioCase.ratio).Equal(longShortRatio), "比值 %s", longShortRatio)
+			})
+		}
 	}
 }
 
