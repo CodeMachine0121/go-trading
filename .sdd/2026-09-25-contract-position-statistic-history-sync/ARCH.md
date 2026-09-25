@@ -46,7 +46,7 @@
 | `IContractPositionStatisticArchiveProxy` | Interface | 給一個合約標的與一個同步天，回那一天歷史資料庫的每一筆（由早到晚），以及**那一天有沒有檔案**。沒有檔案不是錯誤，是 `found=false` | — | US-04 全部；US-05「連不上」「讀不懂」 |
 | `BinanceContractPositionStatisticArchiveProxy` | Proxy | 組出 `{baseUrl}/{SYMBOL}/{SYMBOL}-metrics-{yyyy-mm-dd}.zip`、照自己的 pacer 下載；`404` → 沒有檔案；其他非 `200`、zip 或 CSV 讀不懂 → 錯誤。依表頭找欄位（不依位置），空白欄位 → 那一項**缺值**（`NullDecimal` 無效），統計時間照 `2006-01-02 15:04:05` UTC 讀 | `RequestPacer` | US-02 缺值；US-04；US-05 |
 | `ContractPositionStatisticArchiveVo` | VO | 歷史資料庫的一筆：標的、統計時間、持倉量、持倉價值、全體帳戶比值、大戶持倉比值（後四者皆可缺） | — | US-02 |
-| `ContractPositionStatisticArchiveDomain` | Domain Model | 把一筆歷史資料庫的讀數換成與即時來源同形的 `ContractPositionStatisticVo`：**多方佔比 = r ÷ (1 + r)、空方佔比 = 1 ÷ (1 + r)**，兩組比值各換一次。**比值為負時在換算前就拒絕**（`ErrContractPositionStatisticValidation`「…的比值不得為負」）——r = −1 會讓分母為零，而換出來的佔比沒有意義。缺值原樣帶過，由既有的 `ContractPositionStatisticDomain` 說「缺…」 | `ContractPositionStatisticDomain`（下游判斷） | US-02 全部 |
+| `ContractPositionStatisticArchiveDomain` | Domain Model | 把一筆歷史資料庫的讀數換成**可存的持倉統計**：先換算 **多方佔比 = r ÷ (1 + r)、空方佔比 = 1 ÷ (1 + r)**（兩組比值各換一次），再交給既有的 `ContractPositionStatisticDomain` 判斷，建構子收 `currentTime`、任何一條規則不過即拒絕並說出是哪一條；`ToEntity()` 回要存的那一筆。**比值為負時在換算前就拒絕**（「…的比值不得為負」）——r = −1 會讓分母為零；缺持倉量或持倉價值在此說「缺…」；缺比值原樣帶過，由既有規則說「缺…」。呼叫端一次呼叫、一個錯誤分支 | `ContractPositionStatisticDomain`（內部委派） | US-02 全部 |
 | `ContractPositionStatisticHistoryDomain` | Domain Model | 以「現在」與回溯長度切出持倉統計同步天：從 `now − lookback` 所在的 UTC 日曆日到今天（含），每天 `[00:00, 23:55]`；`IsDayComplete(heldCount)` 以一天 288 筆為準 | `ContractPositionStatisticInterval` | US-01「共 181 天」「共 2 天」；US-03「已存滿」 |
 | `ContractPositionStatisticSyncDayVo` | VO | 一個同步天：`Day`（日曆日）、`FirstStatisticTime`、`LastStatisticTime` | — | US-01、US-03 |
 | `ContractPositionStatisticSyncProgressDto` | DTO | 持倉統計那一組進度：`totalDays`、`completedDays`、`storedCount`、`skippedCount`、`fetchFailureReason` | — | US-06 全部 |
@@ -62,7 +62,7 @@
 | :--- | :--- | :--- |
 | `IContractPositionStatisticRepository` | 存、找最新、區間查詢 | 加 `CountInRange(ctx, symbol, startTime, endTime) (int, error)`（兩端含） |
 | `ContractPositionStatisticRepository` | GORM 實作 | 實作 `CountInRange`（`Where` + `Count`，無手寫 SQL） |
-| `ContractPositionStatisticService` | 每五分鐘錄、三十天補齊、查詢 | 建構子多收 `IContractPositionStatisticArchiveProxy`。新增 **unexported** `syncHistory(ctx, symbol, historyDomain, recordProgress) error`：對每一天——先回報進度；`CountInRange` 達 288 → 算走過、下一天；否則問 archive；`found=false` → 下一天；錯誤 → `NoteFetchFailure`、回報、**回 nil**（只停這一份）；有檔案 → 每筆經 `ContractPositionStatisticArchiveDomain` → `ContractPositionStatisticDomain`，不合法者 `NoteSkipped`，合法者 `SaveAllIfAbsent`；存不進去 → **回 error**（輪次失敗）。另加 unexported `historyOf(currentTime, lookback)` 不需要——`ContractPositionStatisticHistoryDomain` 由 ingestion service 建好傳入 |
+| `ContractPositionStatisticService` | 每五分鐘錄、三十天補齊、查詢 | 建構子多收 `IContractPositionStatisticArchiveProxy`。新增 **unexported** `syncHistory(ctx, symbol, historyDomain, recordProgress) error`：對每一天——先回報進度；`CountInRange` 達 288 → 算走過、下一天；否則問 archive；`found=false` → 下一天；錯誤 → `NoteFetchFailure`、回報、**回 nil**（只停這一份）；有檔案 → 每筆經 `ContractPositionStatisticArchiveDomain`（內部再交給 `ContractPositionStatisticDomain`），不合法者 `NoteSkipped`，合法者 `SaveAllIfAbsent`；存不進去 → **回 error**（輪次失敗）。另加 unexported `historyOf(currentTime, lookback)` 不需要——`ContractPositionStatisticHistoryDomain` 由 ingestion service 建好傳入 |
 | `ContractKCandleIngestionService` | 合約 K 線的各種抓取與歷史同步 | 建構子多收 `*ContractPositionStatisticService`。`StartHistorySyncFor`：在切 K 線段的同一個「現在」建 `ContractPositionStatisticHistoryDomain`，把 `PositionStatisticTotalDays` 寫進輪次、交給 runner。`GetHistorySyncRun` 回 `KCandleContractHistorySyncRunDto` |
 | `contractKCandleHistorySyncRunner` | 驅動 K 線段、記錄進度與收尾 | 多持有 `positionStatisticService`、`positionStatisticHistory`、`positionStatisticProgress`（`dto.ContractPositionStatisticSyncProgressDto`）。`run()`：K 線段回 error → 照舊收在失敗、**不跑**持倉統計段；否則接著跑 `syncHistory`，其 error → 失敗。`recordProgress` 與新的 `recordPositionStatisticProgress` 都寫同一列；`recordEnding` 兩組一起寫（panic 路徑同樣兩組都寫實際走到的地方） |
 | `KCandleContractHistorySyncRun` entity | 輪次一列 | 加 `PositionStatisticTotalDays`、`PositionStatisticCompletedDays`、`PositionStatisticStoredCount`、`PositionStatisticSkippedCount`（`int not null default 0`）、`PositionStatisticFetchFailureReason`（`text not null default ''`）。`ToDto()` 改回 `KCandleContractHistorySyncRunDto` |
@@ -85,7 +85,7 @@ flowchart TD
     StatService --> History
     StatService --> Archive[[IContractPositionStatisticArchiveProxy]]
     StatService --> ArchiveDomain[ContractPositionStatisticArchiveDomain]
-    ArchiveDomain --> StatDomain[ContractPositionStatisticDomain]
+    ArchiveDomain -->|內部委派| StatDomain[ContractPositionStatisticDomain]
     StatService --> StatRepo[(IContractPositionStatisticRepository)]
     Runner --> RunRepo[(IKCandleContractHistorySyncRunRepository)]
     Archive -.impl.-> Binance[BinanceContractPositionStatisticArchiveProxy]
