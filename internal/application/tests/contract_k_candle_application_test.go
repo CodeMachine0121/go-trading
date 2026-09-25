@@ -105,7 +105,7 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	ingestionService := service.NewContractKCandleIngestionService(
 		candleRepository, syncRunRepository, symbolRepository, marketDataProxy, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		5, 24*time.Hour, positionStatisticService)
+		5, 24*time.Hour, positionStatisticService, 2)
 
 	return contractApplicationsUnderTest{
 		candleApplication: application.NewKCandleContractApplication(
@@ -299,6 +299,7 @@ func TestContractIngestionApplicationStartsAndReadsAHistorySync(t *testing.T) {
 	underTest := newContractApplicationsUnderTest(t)
 	underTest.symbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
 		entities.ContractTradingSymbol{Symbol: "BTCUSDT", IsWatched: true}, true, nil)
+	underTest.syncRunRepository.EXPECT().CountRunning(gomock.Any()).Return(0, nil)
 	underTest.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ any, syncRun entities.KCandleContractHistorySyncRun,

@@ -107,6 +107,7 @@ func registerRoutes(
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.Ingestion.RoundCandleCount,
 		applicationConfig.Ingestion.BackfillLookback,
+		applicationConfig.Ingestion.HistorySyncMaxConcurrentSyncs,
 	)
 	kCandleIngestionApplication := application.NewKCandleIngestionApplication(kCandleIngestionService)
 
@@ -176,6 +177,7 @@ func registerRoutes(
 		applicationConfig.ContractIngestion.RoundCandleCount,
 		applicationConfig.ContractIngestion.BackfillLookback,
 		contractPositionStatisticService,
+		applicationConfig.ContractIngestion.HistorySyncMaxConcurrentSyncs,
 	)
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)

@@ -26,6 +26,9 @@ type KCandleIngestionService struct {
 	roundCandleCount                int
 	backfillLookback                time.Duration
 	marketClosureLedger             *kCandleIngestionMarketClosureLedger
+	historySyncCapacity             domains.KCandleHistorySyncCapacityDomain
+	// historySyncStartMutex makes counting and recording one step, so two starts cannot both take the last place.
+	historySyncStartMutex sync.Mutex
 }
 
 func NewKCandleIngestionService(
@@ -37,6 +40,7 @@ func NewKCandleIngestionService(
 	marketCatalogDomain domains.MarketCatalogDomain,
 	roundCandleCount int,
 	backfillLookback time.Duration,
+	historySyncMaxConcurrentSyncs int,
 ) *KCandleIngestionService {
 	return &KCandleIngestionService{
 		kCandleRepository:               kCandleRepository,
@@ -48,6 +52,7 @@ func NewKCandleIngestionService(
 		roundCandleCount:                roundCandleCount,
 		backfillLookback:                backfillLookback,
 		marketClosureLedger:             newKCandleIngestionMarketClosureLedger(),
+		historySyncCapacity:             domains.NewKCandleHistorySyncCapacityDomain(historySyncMaxConcurrentSyncs),
 	}
 }
 
@@ -128,7 +133,7 @@ func (kCandleIngestionService *KCandleIngestionService) StartHistorySyncFor(
 	chunks := ingestionDomain.HistoryChunks(
 		registeredSymbol.Symbol, marketDomain.Value(), lookback.Duration())
 
-	syncRun, saveError := kCandleIngestionService.kCandleHistorySyncRunRepository.Save(
+	syncRun, saveError := kCandleIngestionService.recordRunningHistorySync(
 		executionContext, entities.KCandleHistorySyncRun{
 			Symbol:       registeredSymbol.Symbol,
 			LookbackDays: syncDto.LookbackDays,
@@ -150,6 +155,26 @@ func (kCandleIngestionService *KCandleIngestionService) StartHistorySyncFor(
 	}).run()
 
 	return syncRun.ToDto(), nil
+}
+
+// recordRunningHistorySync holds historySyncStartMutex from the count to the write, so the lock is released on every return.
+func (kCandleIngestionService *KCandleIngestionService) recordRunningHistorySync(
+	executionContext context.Context, syncRun entities.KCandleHistorySyncRun,
+) (entities.KCandleHistorySyncRun, error) {
+	kCandleIngestionService.historySyncStartMutex.Lock()
+	defer kCandleIngestionService.historySyncStartMutex.Unlock()
+
+	runningCount, countError := kCandleIngestionService.kCandleHistorySyncRunRepository.CountRunning(
+		executionContext)
+	if countError != nil {
+		return entities.KCandleHistorySyncRun{}, countError
+	}
+
+	if admitError := kCandleIngestionService.historySyncCapacity.Admit(runningCount); admitError != nil {
+		return entities.KCandleHistorySyncRun{}, admitError
+	}
+
+	return kCandleIngestionService.kCandleHistorySyncRunRepository.Save(executionContext, syncRun)
 }
 
 func (kCandleIngestionService *KCandleIngestionService) GetHistorySyncRun(

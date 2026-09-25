@@ -17,6 +17,7 @@ type IKCandleContractHistorySyncRunRepository interface {
 	FindOne(
 		executionContext context.Context, id uint,
 	) (entities.KCandleContractHistorySyncRun, bool, error)
+	CountRunning(executionContext context.Context) (int, error)
 	// FailAllRunning closes runs a restart cut short.
 	FailAllRunning(
 		executionContext context.Context, reason string, finishedAt time.Time,

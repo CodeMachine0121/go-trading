@@ -170,4 +170,45 @@ func TestAHistorySyncRepositorySaysSoWhenStorageIsGone(t *testing.T) {
 	_, sweepError := repository.FailAllRunning(
 		t.Context(), "interrupted by restart", time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC))
 	require.Error(t, sweepError)
+
+	_, countError := repository.CountRunning(t.Context())
+	require.Error(t, countError)
+}
+
+func TestCountingRunningHistorySyncsLeavesTheEndedOnesOut(t *testing.T) {
+	database := newTestDatabase(t)
+	repository := persistence.NewKCandleHistorySyncRunRepository(database)
+	nothingCount, nothingError := repository.CountRunning(t.Context())
+	require.NoError(t, nothingError)
+	assert.Zero(t, nothingCount)
+
+	_, firstError := repository.Save(t.Context(), startedRun("BTCUSDT", 30))
+	require.NoError(t, firstError)
+	_, secondError := repository.Save(t.Context(), startedRun("ETHUSDT", 30))
+	require.NoError(t, secondError)
+	finishedAt := time.Date(2026, 9, 7, 2, 0, 0, 0, time.UTC)
+	for _, endedStatus := range []vo.KCandleHistorySyncRunStatusVo{
+		vo.KCandleHistorySyncSucceeded, vo.KCandleHistorySyncFailed,
+	} {
+		endedRun := startedRun("SOLUSDT", 30)
+		endedRun.Status = string(endedStatus)
+		endedRun.FinishedAt = &finishedAt
+		_, endedError := repository.Save(t.Context(), endedRun)
+		require.NoError(t, endedError)
+	}
+
+	// A contract run draws on another venue's allowance, so it must not take a spot place.
+	_, contractError := persistence.NewKCandleContractHistorySyncRunRepository(database).Save(
+		t.Context(), entities.KCandleContractHistorySyncRun{
+			Symbol:       "XRPUSDT",
+			LookbackDays: 30,
+			Status:       string(vo.KCandleHistorySyncRunning),
+			StartedAt:    time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC),
+		})
+	require.NoError(t, contractError)
+
+	runningCount, countError := repository.CountRunning(t.Context())
+
+	require.NoError(t, countError)
+	assert.Equal(t, 2, runningCount)
 }

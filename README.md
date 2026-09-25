@@ -104,6 +104,7 @@ curl localhost:8080/health
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
 | `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /k-candles/history` 一次最多往回抓幾天。打錯字的防線，不是成本上限 |
+| `KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS` | `2` | 同時最多幾趟現貨歷史同步在跑（加密貨幣現貨與台股共用這一份）。**這才是成本上限**：每一趟都跟例行抓取吃同一份來源額度。滿了新的一趟回 `429`、不留輪次 |
 | `MARKET_DATA_BASE_URL` | Binance 公開行情網址 | 加密貨幣的行情來源位址 |
 | `MARKET_DATA_SYMBOL_CATALOG_URL` | Binance 公開交易對清單網址 | 加密貨幣確認「這個代號存不存在」的位址 |
 | `MARKET_DATA_REQUEST_TIMEOUT_SECONDS` | `10` | 單次向行情來源請求的逾時 |
@@ -131,6 +132,7 @@ curl localhost:8080/health
 | `CONTRACT_KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 合約每輪針對單一標的取回幾根已收完的 K 線 |
 | `CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 合約啟動回補最多往回幾小時 |
 | `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /contract-k-candles/history` 一次最多往回抓幾天。自己一份，因為永續合約的歷史比現貨短得多 |
+| `CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS` | `2` | 同時最多幾趟合約歷史同步在跑。與現貨**各算各的**：兩邊打的是不同場所、吃不同額度 |
 | `MARKET_DATA_STREAM_URL` | Binance 公開即時行情網址 | 即時跟盤的行情來源位址 |
 | `CONTRACT_MARKET_DATA_STREAM_URL` | `wss://fstream.binance.com/ws` | 合約即時跟盤的行情來源位址 |
 | `LIVE_UPDATE_INTERVAL_CEILING_SECONDS` | `10` | 成形中的那一根至多多久送給觀看者一次；**一根走完不受此限**，一律立即送出 |
@@ -309,6 +311,14 @@ curl localhost:8080/k-candles/history/1
 
 **一個標的同時只跑一趟。** 再按一次同一個標的回 `409`——兩趟會互搶同一份來源額度、
 寫同一批列，而且誰都不會比較早結束。別的標的不受影響。
+
+**同時在跑的趟數也有上限**（`KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS`，預設 2；合約另有一份）。
+一口氣替很多標的各開一趟，它們會一起吃光同一份來源額度、擠掉每分鐘的例行抓取。
+滿了新的一趟回 `429`、說出上限是多少，**不留輪次、不問來源**——不排隊，等其中一趟結束再開。
+它和 `409` 不同：`409` 是同一個標的按了兩次，`429` 是整體太忙、稍後自然會空。
+回溯天數或代號有錯時先回那個錯，不回「太忙」。進行中幾趟以記下的輪次為準；
+數與記在服務內一個一個來，所以同時到的兩個要求不會一起擠進最後一個空位
+（服務只跑一份、重新部署時舊的先停，這樣就封得住）。
 
 沒登錄過的代號回 `404`（那是呼叫的人要改的），代號空白或回溯天數說不通回 `400`，
 **這個系統自己**問不到（連輪次都記不下來之類）回 `502`（那值得晚點再試一次）。
