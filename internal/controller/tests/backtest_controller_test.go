@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -246,6 +247,19 @@ func TestRunBacktestEndpoint(t *testing.T) {
 		response := fixture.post(backtestBody)
 
 		assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
+	})
+
+	t.Run("every compartment staying busy is answered as unavailable for now", func(t *testing.T) {
+		fixture := newBacktestRouterUnderTest(t)
+		fixture.expectTwoCandles()
+		fixture.indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy))
+
+		response := fixture.post(backtestBody)
+
+		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+		assert.Contains(t, response.Body.String(), `"compartmentsBusy":true`)
 	})
 
 	t.Run("storage refusing to answer is this system's fault", func(t *testing.T) {

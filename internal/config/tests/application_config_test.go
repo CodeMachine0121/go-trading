@@ -279,3 +279,26 @@ func TestLoadReadsTheIndicatorScriptMemoryLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReadsTheIndicatorScriptCompartmentCap(t *testing.T) {
+	testCases := []struct {
+		name          string
+		capValue      string
+		expectedCount int
+	}{
+		{name: "a usable cap is taken as given", capValue: "3", expectedCount: 3},
+		{name: "an unreadable cap falls back", capValue: "many", expectedCount: 6},
+		{name: "zero falls back rather than stopping every script", capValue: "0", expectedCount: 6},
+		{name: "a negative cap falls back", capValue: "-2", expectedCount: 6},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS", testCase.capValue)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expectedCount, applicationConfig.IndicatorScriptMaxConcurrentCompartments)
+		})
+	}
+}

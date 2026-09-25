@@ -97,6 +97,9 @@ func (holdsNoTrading *observationWindowHoldsNoTradingError) Unwrap() []error {
 // ErrIndicatorScriptFailed marks a well-formed request whose script could not compile, failed at runtime, or used something forbidden.
 var ErrIndicatorScriptFailed = errors.New("indicator script failed")
 
+// ErrIndicatorScriptCompartmentsBusy is not a script failure: nothing is wrong with the script, and only trying later helps.
+var ErrIndicatorScriptCompartmentsBusy = errors.New("indicator script compartments busy")
+
 // ErrIndicatorParameterNotDeclared is separate from a script failure so a renamed-but-not-updated knob is reported as a name mismatch, not a broken algorithm.
 var ErrIndicatorParameterNotDeclared = errors.New("indicator parameter not declared")
 

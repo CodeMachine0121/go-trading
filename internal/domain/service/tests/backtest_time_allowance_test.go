@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -216,4 +217,66 @@ func TestContractReplayAllowanceCoversReadingTheMarket(t *testing.T) {
 		RunContractBacktest(context.Background(), contractBacktestServiceRequest())
 
 	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
+}
+
+// neverGivenACompartment waits out the allowance for a compartment slot, as the script proxy does when every slot stays taken.
+func neverGivenACompartment[Input any](
+	executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
+	_ []Input, _ domains.StrategyScriptParametersDomain,
+) ([]map[string]vo.IndicatorValueVo, error) {
+	<-executionContext.Done()
+
+	return nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy)
+}
+
+func TestReplayWaitingOutItsAllowanceForACompartmentIsReportedAsBusy(t *testing.T) {
+	spotReplay := func(t *testing.T) error {
+		controller := gomock.NewController(t)
+		kCandleRepository := mocks.NewMockIKCandleRepository(controller)
+		kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(spotStoredCandles(), nil)
+		indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
+		indicatorScriptProxy.EXPECT().
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(neverGivenACompartment[vo.KCandleVo])
+		clockProxy := mocks.NewMockIClockProxy(controller)
+		clockProxy.EXPECT().Now().Return(contractBacktestServiceStart.Add(24 * time.Hour)).AnyTimes()
+
+		_, err := service.NewBacktestService(
+			kCandleRepository, indicatorScriptProxy, clockProxy, 1000, replayTimeAllowanceUnderTest,
+		).RunBacktest(context.Background(), dto.BacktestRequestDto{
+			Symbol: "BTCUSDT", AggregationInterval: "1h",
+			StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
+			Script: "the script", InitialCapital: decimal.NewFromInt(10000),
+		})
+		return err
+	}
+	contractReplay := func(t *testing.T) error {
+		contractBacktestService := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest,
+			func(boundaries contractBacktestServiceMocks) {
+				boundaries.contractIndicatorScriptProxy.EXPECT().
+					ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(neverGivenACompartment[vo.ContractKCandleVo])
+			})
+
+		_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+		return err
+	}
+
+	testCases := []struct {
+		name   string
+		replay func(t *testing.T) error
+	}{
+		{name: "a spot replay", replay: spotReplay},
+		{name: "a contract replay", replay: contractReplay},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.replay(t)
+
+			require.ErrorIs(t, err, domains.ErrIndicatorScriptCompartmentsBusy)
+			assert.NotErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
+		})
+	}
 }

@@ -202,6 +202,8 @@ type ApplicationConfig struct {
 	// IndicatorScriptMemoryLimitBytes applies per script compartment and must sit well below the
 	// service's own memory, as several run concurrently.
 	IndicatorScriptMemoryLimitBytes int64
+	// IndicatorScriptMaxConcurrentCompartments times the memory limit must leave room for the service.
+	IndicatorScriptMaxConcurrentCompartments int
 	// BacktestMaxCandleCount limits buckets per replay, separately from the single-query ceiling.
 	BacktestMaxCandleCount int
 	// BacktestTimeAllowance covers the whole replay and sits below the common 100s reverse-proxy
@@ -236,6 +238,9 @@ func Load() ApplicationConfig {
 			positiveIntWithDefault("INDICATOR_SCRIPT_TIMEOUT_SECONDS", 40)) * time.Second,
 		IndicatorScriptMemoryLimitBytes: int64(
 			positiveIntWithDefault("INDICATOR_SCRIPT_MEMORY_LIMIT_MEGABYTES", 512)) << 20,
+		// Six 512MB compartments fill 3GB of the production 4GB, leaving 1GB for the service.
+		IndicatorScriptMaxConcurrentCompartments: positiveIntWithDefault(
+			"INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS", 6),
 		BacktestMaxCandleCount: positiveIntWithDefault("BACKTEST_MAX_CANDLE_COUNT", 50000),
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,

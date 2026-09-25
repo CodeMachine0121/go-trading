@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"io"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -16,9 +18,10 @@ import (
 // These cases send the worker malformed input to pin that it always answers; the local wire types match the worker's by field name.
 
 type workerRequestHeader struct {
-	MarketKind       string
-	MemoryLimitBytes int64
-	ExecutionTimeout time.Duration
+	MarketKind         string
+	MemoryLimitBytes   int64
+	ExecutionTimeout   time.Duration
+	ProcessorTimeLimit time.Duration
 }
 
 type workerRequestParameter struct {
@@ -289,4 +292,32 @@ func TestWorkerCapsItsMemoryBeforeServing(t *testing.T) {
 	require.NoError(t, gob.NewDecoder(&output).Decode(&response))
 	assert.Equal(t, 0, exitCode)
 	assert.Equal(t, []float64{120}, response.Values["close"].Numbers)
+}
+
+func TestWorkerIsStoppedByTheProcessorTimeLimitWithoutAnyHelpFromItsParent(t *testing.T) {
+	// The allowance is an hour so only the processor time limit can end the script.
+	compartment := exec.Command(os.Args[0])
+	compartment.Env = []string{workerRoleVariable + "=1"}
+	compartment.Stdin = sealedInput(t,
+		workerRequestHeader{MarketKind: "kCandle", ExecutionTimeout: time.Hour, ProcessorTimeLimit: time.Second},
+		workerRequest{Script: spinsForeverScript, ResultType: "float", Input: candlesWithClosePrices(100)},
+	)
+	var answer bytes.Buffer
+	compartment.Stdout = &answer
+	require.NoError(t, compartment.Start())
+
+	ended := make(chan error, 1)
+	go func() { ended <- compartment.Wait() }()
+	select {
+	case <-ended:
+	case <-time.After(30 * time.Second):
+		_ = compartment.Process.Kill()
+		<-ended
+		t.Fatal("the compartment outlived its processor time limit")
+	}
+
+	assert.False(t, compartment.ProcessState.Success())
+	assert.Zero(t, answer.Len())
+	assert.GreaterOrEqual(t,
+		compartment.ProcessState.UserTime()+compartment.ProcessState.SystemTime(), 900*time.Millisecond)
 }
