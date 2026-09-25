@@ -5244,7 +5244,7 @@
     },
     {
       "name": "指標計算",
-      "description": "送出交易標的、要用幾根 K 線、以及一段算式，拿回一組「指標名稱 → 數字」。結果不留存。",
+      "description": "送出交易標的、要用幾根 K 線、以及一段算式，拿回一組「指標名稱 → 數字」。結果不留存。\n\n**同時運作的算式隔間有上限**（`INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`，預設 6）。滿了會排隊（策略機器人的輪次排在最前），在你的請求時限內等不到空位就回 `503`，body 帶 `\"compartmentsBusy\": true`——不是算式的問題，稍後再試即可。",
       "item": [
         {
           "name": "準備第 1 根",
@@ -10775,7 +10775,8 @@
             }
           ]
         }
-      ]
+      ],
+      "description": "**同時運作的算式隔間有上限**（`INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`，預設 6）。滿了會排隊（策略機器人的輪次排在最前），在你的請求時限內等不到空位就回 `503`，body 帶 `\"compartmentsBusy\": true`——不是算式的問題，稍後再試即可。"
     },
     {
       "name": "交易策略",
@@ -12430,7 +12431,8 @@
             }
           ]
         }
-      ]
+      ],
+      "description": "**同時運作的算式隔間有上限**（`INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS`，預設 6）。滿了會排隊（策略機器人的輪次排在最前），在你的請求時限內等不到空位就回 `503`，body 帶 `\"compartmentsBusy\": true`——不是算式的問題，稍後再試即可。"
     },
     {
       "name": "策略機器人",

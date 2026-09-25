@@ -145,8 +145,10 @@ func TestCompartmentSlotsReportBusyWhenTheCallerStopsWaiting(t *testing.T) {
 
 	require.ErrorIs(t, err, domains.ErrIndicatorScriptCompartmentsBusy)
 	assert.NotErrorIs(t, err, domains.ErrIndicatorScriptFailed)
-	assert.Contains(t, err.Error(), "忙碌中")
-	assert.Less(t, time.Since(startedAt), 5*time.Second)
+	assert.Contains(t, err.Error(), "算式隔間目前全數忙碌中，請稍後再試")
+	waited := time.Since(startedAt)
+	assert.GreaterOrEqual(t, waited, 200*time.Millisecond)
+	assert.Less(t, waited, 2*time.Second)
 }
 
 func TestCompartmentSlotsAreReturnedHoweverACalculationEnds(t *testing.T) {
