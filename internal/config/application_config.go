@@ -44,9 +44,11 @@ type IngestionConfig struct {
 	// HistorySyncMaxLookbackDays is only a typo guard (ten years exceeds any source's history),
 	// since syncs now stream chunk by chunk.
 	HistorySyncMaxLookbackDays int
-	MarketDataBaseUrl          string
-	SymbolCatalogUrl           string
-	MarketDataRequestTimeout   time.Duration
+	// HistorySyncMaxConcurrentSyncs is the real cost limit: running syncs share the venue allowance.
+	HistorySyncMaxConcurrentSyncs int
+	MarketDataBaseUrl             string
+	SymbolCatalogUrl              string
+	MarketDataRequestTimeout      time.Duration
 	// MarketDataRequestsPerMinute is configurable because it is the venue's allowance, which can
 	// change.
 	MarketDataRequestsPerMinute int
@@ -55,9 +57,10 @@ type IngestionConfig struct {
 // ContractIngestionConfig mirrors the spot settings without sharing any: the venues budget requests
 // separately and each contract candle costs two requests.
 type ContractIngestionConfig struct {
-	RoundCandleCount           int
-	BackfillLookback           time.Duration
-	HistorySyncMaxLookbackDays int
+	RoundCandleCount              int
+	BackfillLookback              time.Duration
+	HistorySyncMaxLookbackDays    int
+	HistorySyncMaxConcurrentSyncs int
 	// BaseUrl serves traded figures; the other three serve mark, index and premium index prices,
 	// all combined into one contract candle.
 	BaseUrl         string
@@ -248,6 +251,8 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			HistorySyncMaxLookbackDays: positiveIntWithDefault(
 				"KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
+			HistorySyncMaxConcurrentSyncs: positiveIntWithDefault(
+				"KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS", 2),
 			MarketDataBaseUrl: stringWithDefault(
 				"MARKET_DATA_BASE_URL", "https://api.binance.com/api/v3/klines"),
 			SymbolCatalogUrl: stringWithDefault(
@@ -266,6 +271,8 @@ func Load() ApplicationConfig {
 				"CONTRACT_KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS", 24)) * time.Hour,
 			HistorySyncMaxLookbackDays: positiveIntWithDefault(
 				"CONTRACT_KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS", 3650),
+			HistorySyncMaxConcurrentSyncs: positiveIntWithDefault(
+				"CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS", 2),
 			BaseUrl: stringWithDefault(
 				"CONTRACT_MARKET_DATA_BASE_URL", "https://fapi.binance.com/fapi/v1/klines"),
 			MarkPriceUrl: stringWithDefault(

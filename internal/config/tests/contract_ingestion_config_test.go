@@ -165,3 +165,36 @@ func TestTheContractAccountNeedsBothHalvesOfItsKey(t *testing.T) {
 		})
 	}
 }
+
+func TestTheHistorySyncConcurrencyLimitsAreSettledApart(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		spotValue             string
+		contractValue         string
+		expectedSpotLimit     int
+		expectedContractLimit int
+	}{
+		{name: "nothing set", spotValue: "", contractValue: "",
+			expectedSpotLimit: 2, expectedContractLimit: 2},
+		{name: "each set on its own", spotValue: "1", contractValue: "4",
+			expectedSpotLimit: 1, expectedContractLimit: 4},
+		{name: "zero falls back", spotValue: "0", contractValue: "0",
+			expectedSpotLimit: 2, expectedContractLimit: 2},
+		{name: "negative or unreadable falls back", spotValue: "-1", contractValue: "abc",
+			expectedSpotLimit: 2, expectedContractLimit: 2},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS", testCase.spotValue)
+			t.Setenv("CONTRACT_KCANDLE_HISTORY_SYNC_MAX_CONCURRENT_SYNCS", testCase.contractValue)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expectedSpotLimit,
+				applicationConfig.Ingestion.HistorySyncMaxConcurrentSyncs)
+			assert.Equal(t, testCase.expectedContractLimit,
+				applicationConfig.ContractIngestion.HistorySyncMaxConcurrentSyncs)
+		})
+	}
+}
