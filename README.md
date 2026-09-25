@@ -154,6 +154,17 @@ curl localhost:8080/health
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
 | `AUTH_SIGN_IN_FAILURE_THRESHOLD` | `3` | 連續幾次密碼錯誤就把帳號鎖起來。**到達的那一次本身就被拒絕**，沒有「先放你進去再鎖」；設 `0` 或負值會退回預設值，關不掉這道鎖 |
 | `AUTH_SIGN_IN_LOCKOUT_DAYS` | `7` | 帳號被鎖起來一次要鎖多久（天）。鎖住期間**連正確的密碼也進不來**，而且再試不會把解除時刻往後延。**沒有自助解鎖**——時間到了自己開，等不了就直接改那一列的 `locked_until`（或改密碼，那也會解鎖） |
+| `TRUSTED_PROXY_CIDRS` | 空 | 信得過的轉手所在網段，逗號分隔。**空的就是一層都不信**：請求自稱從哪裡來一律不採信，來源以直接連進來的那一方為準。格式寫錯服務拒絕啟動 |
+| `CLIENT_IP_HEADERS` | `X-Forwarded-For,X-Real-IP` | 直接連進來的那一方落在上面那段時，依序讀哪些標頭找原始來源。正式環境前面是 Cloudflare 通道 + Traefik，設 `CF-Connecting-IP,X-Forwarded-For` |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `600` | 每位請求者每分鐘補回幾份請求額度。帶著有效登入憑證算在那位使用者頭上，否則算在來源位置頭上 |
+| `RATE_LIMIT_BURST` | `120` | 請求額度最多累積幾份；用完回 `429` 與 `Retry-After` |
+| `RATE_LIMIT_CREDENTIAL_REQUESTS_PER_MINUTE` | `10` | 建立使用者、登入、續用、改密碼另一份額度，**一律認來源位置**（每次都要做一次刻意很慢的密碼運算） |
+| `RATE_LIMIT_CREDENTIAL_BURST` | `10` | 上面那份額度最多累積幾份 |
+| `LIVE_STREAM_CONNECTIONS_PER_CLIENT` | `20` | 每位請求者同時開著幾條即時跟盤 |
+| `LIVE_STREAM_CONNECTIONS_TOTAL` | `1000` | 全服務同時開著幾條即時跟盤 |
+| `REQUEST_BODY_LIMIT_KILOBYTES` | `1024` | 一次請求送進來的內容上限；超過回 `413` |
+| `SERVER_READ_TIMEOUT_SECONDS` | `30` | 一次請求要在幾秒內送完 |
+| `SERVER_IDLE_TIMEOUT_SECONDS` | `120` | 閒置連線幾秒後收回；刻意高於 Traefik 對後端的 90 秒 |
 | `ANTHROPIC_API_KEY` | 空 | 行情對話助手的憑證。沒設就只有 `/chat` 不能用，其餘功能照常 |
 | `ASSISTANT_MODEL` | `claude-opus-5` | 要問哪一個助手 |
 | `ASSISTANT_EFFORT` | `low` | 助手能想多久。對話不需要想太久；挑錯工具的代價比想得淺重得多，所以模型維持能幹的那個、只把力度調低 |
@@ -428,6 +439,17 @@ curl -i -X POST localhost:8080/sessions/revocation -H 'Content-Type: application
 
 要讓**每一個人、每一台裝置**立刻重新登入，換掉 `AUTH_ACCESS_TOKEN_SIGNING_KEY` 即可——
 所有已簽發的登入憑證同時對不上簽章。
+
+### 請求節流
+
+每位**請求者**有一份會補回的請求額度：帶著有效登入憑證的算在那位使用者頭上（外掛替十個人操作就是十位），
+否則算在來源位置頭上（新式位址以 /64 為一個來源）。用完回 `429`，`Retry-After` 說還要等幾秒，被拒的那一次不扣額度。
+建立使用者、登入、續用、改密碼另有一份嚴得多的額度，**只認來源位置**——否則註冊一批帳號就換到一批額度。
+即時跟盤另有同時連線上限，到了新開的回 `429`，已開的不受影響。
+
+- 額度只在記憶體裡、重啟歸零；補滿的請求者直接忘掉（記不記得結果一樣），所以不需要排程清理。
+- 服務**不設「回覆要在幾秒內寫完」**：即時跟盤與接近九十秒的重演都會合法地寫很久。
+- 預設值遠高於操作台與外掛的正常用量；外掛匿名的請求與它代人做的登入、續用，都算在外掛自己的位置頭上。
 
 ### 建立使用者目前是開放的，而其餘端點目前不需要憑證
 

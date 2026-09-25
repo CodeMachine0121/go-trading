@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -80,15 +79,9 @@ func main() {
 		context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopListeningForSignals()
 
-	server := &http.Server{
-		Addr:              ":" + applicationConfig.ServerPort,
-		Handler:           engine,
-		ReadHeaderTimeout: readHeaderTimeout,
-	}
-
 	if serveError := serve(
 		shutdownSignalled,
-		server,
+		newServer(applicationConfig, engine),
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
 				applicationConfig,

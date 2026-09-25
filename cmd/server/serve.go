@@ -6,11 +6,24 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/config"
 	"github.com/CodeMachine0121/go-trading/internal/job"
 )
 
 // readHeaderTimeout stops idle connections that never send headers from holding a slot forever.
 const readHeaderTimeout = 10 * time.Second
+
+// newServer sets no WriteTimeout: it is a deadline on the whole response, which would cut off live streams
+// and long backtests, and slow readers are absorbed by the reverse proxy in front.
+func newServer(applicationConfig config.ApplicationConfig, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + applicationConfig.ServerPort,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       applicationConfig.RequestLimit.ReadTimeout,
+		IdleTimeout:       applicationConfig.RequestLimit.IdleTimeout,
+	}
+}
 
 // shutdownGrace bounds request draining only; background rounds are cut off when it ends, which is
 // safe because the next startup backfill closes any candle gap.
