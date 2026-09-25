@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "go-trading",
-    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制；觀察清單無法從外部改動。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -663,6 +663,50 @@
                   "});"
                 ]
               }
+            }
+          ],
+          "response": [
+            {
+              "name": "太頻繁 — 身分相關額度用完",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/sessions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "sessions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}"
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "status": "Too Many Requests",
+              "code": 429,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "Retry-After",
+                  "value": "6"
+                }
+              ],
+              "body": "{\n    \"message\": \"請求太頻繁，請 6 秒後再試\"\n}"
             }
           ]
         },

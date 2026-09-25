@@ -39,7 +39,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `vo.RequestBudgetVo` | VO | 一份額度：每分鐘補幾份、最多累積幾份 | — | US-02、US-03 |
 | `vo.LiveStreamCapacityVo` | VO | 每位請求者幾條、全服務幾條 | — | US-04 |
-| `domains.RequesterDomain` | Domain Model | 決定一次請求算在誰頭上：`Key()`＝使用者（有效憑證）或來源位置；`AddressKey()`＝一律來源位置。新式位址收斂到 /64 | — | US-01 |
+| `domains.RequesterDomain` | Domain Model | 決定一次請求算在誰頭上：`Key()`＝使用者（有效憑證）或來源位置；以「未認出的使用者」建立即一律是來源位置。新式位址收斂到 /64 | — | US-01 |
 | `domains.RequestAllowanceLedgerDomain` | Domain Model | 每位請求者一個令牌桶（`golang.org/x/time/rate`，以明確的 `now` 呼叫，不讀時鐘）；`Admit` 拒絕時取消預約（不消耗）並回 `RequestRateExceededError{RetryAfter}`；**順手清理**已補滿的桶 | `rate.Limiter` | US-02、US-03、US-06 |
 | `domains.LiveStreamOccupancyDomain` | Domain Model | 每位請求者與全服務的同時跟盤計數；`Occupy` 超過任一上限回 `ErrLiveStreamCapacityReached`，`Vacate` 歸還 | — | US-04 |
 | `domains.RequestRateExceededError` / `ErrLiveStreamCapacityReached` | Domain error | 兩種拒絕；前者帶等待時間並產生「請求太頻繁，請 N 秒後再試」 | — | US-02、US-03、US-04 |
@@ -134,7 +134,7 @@ flowchart TD
 | US-01 沒有信得過的轉手 / 經由信得過的轉手 / 不是從信得過的轉手來 | `guardRequests`（`SetTrustedProxies` + `RemoteIPHeaders`）+ Gin `ClientIP` |
 | US-01 相鄰的新式位址算同一個來源 | `RequesterDomain`（/64） |
 | US-02 全部 | `RequestAllowanceLedgerDomain.Admit` + `RequestRateLimitMiddleware.Handle`（429 + `Retry-After`） |
-| US-03 全部 | `RequestAdmissionService.AdmitCredentialRequest`（`AddressKey`、獨立 ledger）+ `HandleCredentialRequest` 掛在四條路由 |
+| US-03 全部 | `RequestAdmissionService.AdmitCredentialRequest`（不看憑證、獨立 ledger）+ `HandleCredentialRequest` 掛在四條路由 |
 | US-04 上限、拒絕、歸還、全服務 | `LiveStreamOccupancyDomain` + `LiveStreamLimitMiddleware` |
 | US-04 掛很久也不會被切斷 | `newServer`（無 `WriteTimeout`）+ `serve_test` |
 | US-05 內容大小 | `RequestBodyLimitMiddleware` |
