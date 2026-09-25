@@ -2,6 +2,7 @@ package _interface
 
 import (
 	"context"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -21,6 +22,12 @@ type IContractPositionStatisticRepository interface {
 	FindLatest(
 		executionContext context.Context, symbol string,
 	) (entities.ContractPositionStatistic, bool, error)
+	// CountInRange is how many statistics are held for the contract whose statistic
+	// time falls between the two, both ends included. A history sync reads it only to
+	// decide whether a day is worth asking the archive about.
+	CountInRange(
+		executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+	) (int, error)
 	// FindInRange returns the statistics whose statistic time falls inside the
 	// query's range, both ends included, earliest first, at most limit of them.
 	FindInRange(

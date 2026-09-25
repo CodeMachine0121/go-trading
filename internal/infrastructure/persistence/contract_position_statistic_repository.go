@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -68,6 +69,26 @@ func (statisticRepository *ContractPositionStatisticRepository) FindLatest(
 	}
 
 	return latestStatistic, true, nil
+}
+
+// CountInRange is how many statistics are held for the contract between the two
+// times, both ends included.
+func (statisticRepository *ContractPositionStatisticRepository) CountInRange(
+	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+) (int, error) {
+	heldCount := int64(0)
+
+	result := statisticRepository.database.WithContext(executionContext).
+		Model(&entities.ContractPositionStatistic{}).
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
+		Where(clause.Gte{Column: "statistic_time", Value: startTime.UTC()}).
+		Where(clause.Lte{Column: "statistic_time", Value: endTime.UTC()}).
+		Count(&heldCount)
+	if result.Error != nil {
+		return 0, fmt.Errorf("count contract position statistics: %w", result.Error)
+	}
+
+	return int(heldCount), nil
 }
 
 // FindInRange returns the statistics inside the query's range, earliest first.

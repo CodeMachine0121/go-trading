@@ -131,3 +131,38 @@ func TestContractPositionStatisticRepositoryStoresAThirtyDayCatchUpInOneCall(t *
 	require.NoError(t, againError)
 	assert.Equal(t, 0, storedAgain)
 }
+
+func TestContractPositionStatisticRepositoryCountsOneContractsStatisticsBothEndsIncluded(t *testing.T) {
+	database := newTestDatabase(t)
+	statisticRepository := persistence.NewContractPositionStatisticRepository(database)
+	_, saveError := statisticRepository.SaveAllIfAbsent(t.Context(), []entities.ContractPositionStatistic{
+		statisticOf("BTCUSDT", at(9, 0), "100"),
+		statisticOf("BTCUSDT", at(9, 5), "101"),
+		statisticOf("BTCUSDT", at(9, 10), "102"),
+		statisticOf("BTCUSDT", at(9, 15), "103"),
+		statisticOf("ETHUSDT", at(9, 5), "200"),
+	})
+	require.NoError(t, saveError)
+
+	testCases := []struct {
+		name          string
+		symbol        string
+		startTime     time.Time
+		endTime       time.Time
+		expectedCount int
+	}{
+		{name: "兩端都算", symbol: "BTCUSDT", startTime: at(9, 5), endTime: at(9, 10), expectedCount: 2},
+		{name: "只算這個標的", symbol: "ETHUSDT", startTime: at(9, 0), endTime: at(9, 15), expectedCount: 1},
+		{name: "區間外沒有", symbol: "BTCUSDT", startTime: at(10, 0), endTime: at(11, 0), expectedCount: 0},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			heldCount, countError := statisticRepository.CountInRange(
+				t.Context(), testCase.symbol, testCase.startTime, testCase.endTime)
+
+			require.NoError(t, countError)
+			assert.Equal(t, testCase.expectedCount, heldCount)
+		})
+	}
+}
