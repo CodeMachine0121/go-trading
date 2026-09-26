@@ -2,6 +2,7 @@ package domains
 
 import (
 	"net/url"
+	"regexp"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -9,10 +10,12 @@ import (
 )
 
 const (
-	connectorCodeChallengeMethod      = "S256"
-	connectorCodeChallengeLengthLimit = 128
-	connectorEchoedValueLengthLimit   = 2048
+	connectorCodeChallengeMethod    = "S256"
+	connectorEchoedValueLengthLimit = 2048
 )
+
+// connectorCodeChallengeShape is an unpadded base64url SHA-256 digest, the only challenge S256 can produce (RFC 7636 §4.2).
+var connectorCodeChallengeShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 // ConnectorAuthorizationStartDomain is built only after the redirect address is trusted, so every refusal here may be sent back to it.
 type ConnectorAuthorizationStartDomain struct {
@@ -39,8 +42,9 @@ func (connectorAuthorizationStartDomain ConnectorAuthorizationStartDomain) Refus
 		description = "缺少挑戰（code_challenge）"
 	case startDto.CodeChallengeMethod != connectorCodeChallengeMethod:
 		description = "挑戰方式只支援 S256"
-	case len(startDto.CodeChallenge) > connectorCodeChallengeLengthLimit ||
-		len(startDto.State) > connectorEchoedValueLengthLimit ||
+	case !connectorCodeChallengeShape.MatchString(startDto.CodeChallenge):
+		description = "挑戰（code_challenge）必須是 43 字元的 base64url"
+	case len(startDto.State) > connectorEchoedValueLengthLimit ||
 		len(startDto.Resource) > connectorEchoedValueLengthLimit:
 		description = "請求內容過長"
 	default:

@@ -19,7 +19,7 @@ var ErrConnectorAuthorizationCodeNotFound = errors.New("authorization code not f
 // ErrConnectorAuthorizationCodeAlreadyRedeemed reports the write-time single-use check; callers treat it as reuse.
 var ErrConnectorAuthorizationCodeAlreadyRedeemed = errors.New("authorization code already redeemed")
 
-var ErrConnectorTokenRequestInvalid = errors.New("換授權的請求缺少必要資料")
+var ErrConnectorTokenRequestInvalid = errors.New("換授權的請求缺少必要資料或格式不合格")
 
 // ErrConnectorGrantInvalid covers every refused code alike so nothing about the code is revealed.
 var ErrConnectorGrantInvalid = errors.New("授權碼無效")

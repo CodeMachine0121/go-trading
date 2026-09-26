@@ -128,7 +128,7 @@ flowchart TD
 | US-02 完整請求 → 網頁授權頁 | `ConnectorAuthorizationService.StartConnectorAuthorization` + `ConnectorAuthorizationPolicyVo.FrontendBaseUrl` |
 | US-02 忽略埠號／路徑不同 | `ConnectorClientDomain.Registers` |
 | US-02 外掛不存在 | `ConnectorClientRepository` → `ErrConnectorClientNotFound` |
-| US-02 缺挑戰／挑戰方式／非授權碼 | `ConnectorAuthorizationStartDomain.Refusal` + `ConnectorRedirectUriDomain.WithParameters` |
+| US-02 缺挑戰／挑戰方式／挑戰格式／非授權碼 | `ConnectorAuthorizationStartDomain.RefusalRedirect`（挑戰須符合 `^[A-Za-z0-9_-]{43}$`） + `ConnectorRedirectUriDomain.WithParameters` |
 | US-02 權限範圍忽略 | `ConnectorAuthorizationStartDomain`（不讀 `scope`） |
 | US-02 請求授權額度 | `dependencies.go`：`credentialRequest`（每次請求都寫一筆待授權請求） |
 | US-03 查詢／10 分鐘邊界 | `ConnectorAuthorizationRequestDomain.Open` |
@@ -140,7 +140,7 @@ flowchart TD
 | US-04 換授權 | `ConnectorAuthorizationService.ExchangeAuthorizationCode` + `ConnectorAuthorizationCodeDomain` + `ConnectorAuthorizationCodeRepository.Redeem` + `JwtAccessTokenProxy`（`aud`） |
 | US-04 5 分鐘／答案錯／埠號差／別的外掛 | `ConnectorAuthorizationCodeDomain.Expired` / `Accepts` |
 | US-04 第二次使用 | `Redeemed()` / `ErrConnectorAuthorizationCodeAlreadyRedeemed` → `ISessionRepository.RevokeChain(SessionChainID)` |
-| US-04 缺少資料／不支援換法 | `ConnectorAuthorizationCodeExchangeDomain`；controller 的 `grant_type` 分派 |
+| US-04 缺少資料／挑戰答案格式／不支援換法 | `ConnectorAuthorizationCodeExchangeDomain`（挑戰答案須符合 `^[A-Za-z0-9._~-]{43,128}$`，否則 `ErrConnectorTokenRequestInvalid`）；controller 的 `grant_type` 分派 |
 | US-04 續用保留對象服務／重用／外掛代號不符 | `UserService.RenewConnectorSession` + `SessionDomain.Renewed/HeldBy` |
 | US-04 額度／不暫存 | `credentialRequest`；controller `Cache-Control: no-store` |
 | US-05 有效／無對象服務／無效／使用者不在 | `ConnectorAuthorizationService.IntrospectAccessToken` + `JwtAccessTokenProxy.ClaimsOf` + `AccessTokenClaimsVo.ToIntrospectionDto` |

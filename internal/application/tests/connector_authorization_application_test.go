@@ -557,7 +557,7 @@ func TestConnectorAuthorizationApplicationExchangeAuthorizationCode(t *testing.T
 	}{
 		{name: "a code exactly five minutes old", code: anAuthorizationCode(connectorMoment.Add(-5 * time.Minute)), change: func(*dto.ConnectorAuthorizationCodeExchangeDto) {}},
 		{name: "a wrong verifier", code: anAuthorizationCode(connectorMoment), change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
-			exchangeDto.CodeVerifier = "not-the-verifier"
+			exchangeDto.CodeVerifier = strings.Repeat("w", 43)
 		}},
 		{name: "a different port", code: anAuthorizationCode(connectorMoment), change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
 			exchangeDto.RedirectUri = "http://localhost:33418/callback"

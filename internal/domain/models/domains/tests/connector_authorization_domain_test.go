@@ -196,6 +196,29 @@ func TestConnectorAuthorizationStartSendsIncompleteRequestsBackToTheConnector(t 
 			refused: true, expectedRedirect: "error=invalid_request",
 		},
 		{
+			name:    "a challenge one character short",
+			change:  func(startDto *dto.ConnectorAuthorizationStartDto) { startDto.CodeChallenge = strings.Repeat("c", 42) },
+			refused: true, expectedRedirect: "error=invalid_request",
+		},
+		{
+			name:    "a challenge one character long",
+			change:  func(startDto *dto.ConnectorAuthorizationStartDto) { startDto.CodeChallenge = strings.Repeat("c", 44) },
+			refused: true, expectedRedirect: "error=invalid_request",
+		},
+		{
+			name: "a challenge in padded standard base64",
+			change: func(startDto *dto.ConnectorAuthorizationStartDto) {
+				startDto.CodeChallenge = strings.Repeat("c", 41) + "+="
+			},
+			refused: true, expectedRedirect: "error=invalid_request",
+		},
+		{
+			name: "a base64url challenge of 43 characters",
+			change: func(startDto *dto.ConnectorAuthorizationStartDto) {
+				startDto.CodeChallenge = strings.Repeat("A", 41) + "-_"
+			},
+		},
+		{
 			name: "an overlong resource",
 			change: func(startDto *dto.ConnectorAuthorizationStartDto) {
 				startDto.Resource = strings.Repeat("r", 2049)
@@ -382,6 +405,24 @@ func TestConnectorAuthorizationCodeExchangeNeedsEveryField(t *testing.T) {
 		{name: "no verifier", change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) { exchangeDto.CodeVerifier = "" }},
 		{name: "no redirect address", change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) { exchangeDto.RedirectUri = "" }},
 		{name: "no client", change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) { exchangeDto.ClientIdentifier = "" }},
+		{name: "a verifier of 42 characters", change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
+			exchangeDto.CodeVerifier = strings.Repeat("v", 42)
+		}},
+		{name: "a verifier of 43 characters", valid: true, change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
+			exchangeDto.CodeVerifier = strings.Repeat("v", 43)
+		}},
+		{name: "a verifier of 128 characters", valid: true, change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
+			exchangeDto.CodeVerifier = strings.Repeat("v", 128)
+		}},
+		{name: "a verifier of 129 characters", change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
+			exchangeDto.CodeVerifier = strings.Repeat("v", 129)
+		}},
+		{name: "a verifier using every unreserved character", valid: true, change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
+			exchangeDto.CodeVerifier = "AZaz09-._~" + strings.Repeat("v", 33)
+		}},
+		{name: "a verifier with a reserved character", change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
+			exchangeDto.CodeVerifier = strings.Repeat("v", 42) + "+"
+		}},
 	}
 
 	for _, testCase := range testCases {
@@ -413,7 +454,7 @@ func TestConnectorAuthorizationCodeAcceptsOnlyItsOwnConnectorAddressAndVerifier(
 		accepted         bool
 	}{
 		{name: "the right verifier", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier, accepted: true},
-		{name: "a wrong verifier", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: "not-the-verifier"},
+		{name: "a wrong verifier", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: strings.Repeat("w", 43)},
 		{name: "a different port", clientIdentifier: "client-A", redirectUri: "http://localhost:33418/callback", codeVerifier: rfcCodeVerifier},
 		{name: "another connector", clientIdentifier: "client-B", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier},
 	}

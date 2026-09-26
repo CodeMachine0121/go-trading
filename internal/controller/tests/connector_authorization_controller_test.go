@@ -287,20 +287,29 @@ func TestConnectorAuthorizationControllerStartsAuthorization(t *testing.T) {
 		assert.Equal(t, "https://web.example.com/connector-authorization?request=request-1", recorder.Header().Get("Location"))
 	})
 
-	t.Run("an incomplete request redirects back to the connector", func(t *testing.T) {
-		router := newConnectorRouterUnderTest(t)
-		router.expectConnectorClientA()
+	for _, testCase := range []struct {
+		name   string
+		change func(query url.Values)
+	}{
+		{name: "a plain challenge method", change: func(query url.Values) { query.Set("code_challenge_method", "plain") }},
+		{name: "a challenge that is not 43 base64url characters", change: func(query url.Values) {
+			query.Set("code_challenge", "too-short")
+		}},
+	} {
+		t.Run(testCase.name+" redirects back to the connector", func(t *testing.T) {
+			router := newConnectorRouterUnderTest(t)
+			router.expectConnectorClientA()
 
-		recorder := router.send(httptest.NewRequest(http.MethodGet,
-			authorizeTarget(func(query url.Values) { query.Set("code_challenge_method", "plain") }), nil))
+			recorder := router.send(httptest.NewRequest(http.MethodGet, authorizeTarget(testCase.change), nil))
 
-		assert.Equal(t, http.StatusFound, recorder.Code)
-		location, err := url.Parse(recorder.Header().Get("Location"))
-		require.NoError(t, err)
-		assert.Equal(t, "localhost:51000", location.Host)
-		assert.Equal(t, "invalid_request", location.Query().Get("error"))
-		assert.Equal(t, "abc", location.Query().Get("state"))
-	})
+			assert.Equal(t, http.StatusFound, recorder.Code)
+			location, err := url.Parse(recorder.Header().Get("Location"))
+			require.NoError(t, err)
+			assert.Equal(t, "localhost:51000", location.Host)
+			assert.Equal(t, "invalid_request", location.Query().Get("error"))
+			assert.Equal(t, "abc", location.Query().Get("state"))
+		})
+	}
 
 	for _, testCase := range []struct {
 		name          string
@@ -533,6 +542,9 @@ func TestConnectorAuthorizationControllerIssuesTokens(t *testing.T) {
 			router.expectConnectorClientA()
 		}},
 		{name: "a missing verifier", form: codeExchangeForm(func(form url.Values) { form.Del("code_verifier") }), expectedError: "invalid_request", arrange: func(connectorRouterUnderTest) {}},
+		{name: "a verifier shorter than 43 characters", form: codeExchangeForm(func(form url.Values) { form.Set("code_verifier", strings.Repeat("v", 42)) }), expectedError: "invalid_request", arrange: func(connectorRouterUnderTest) {}},
+		{name: "a verifier longer than 128 characters", form: codeExchangeForm(func(form url.Values) { form.Set("code_verifier", strings.Repeat("v", 129)) }), expectedError: "invalid_request", arrange: func(connectorRouterUnderTest) {}},
+		{name: "a verifier with a reserved character", form: codeExchangeForm(func(form url.Values) { form.Set("code_verifier", strings.Repeat("v", 42)+"/") }), expectedError: "invalid_request", arrange: func(connectorRouterUnderTest) {}},
 		{name: "a missing renewal token", form: url.Values{"grant_type": {"refresh_token"}, "client_id": {"client-A"}}, expectedError: "invalid_request", arrange: func(connectorRouterUnderTest) {}},
 		{name: "a missing grant type", form: url.Values{"code": {"the-code"}}, expectedError: "invalid_request", arrange: func(connectorRouterUnderTest) {}},
 		{name: "the password grant", form: url.Values{"grant_type": {"password"}}, expectedError: "unsupported_grant_type", arrange: func(connectorRouterUnderTest) {}},
