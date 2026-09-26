@@ -29,7 +29,6 @@ func NewConnectorAuthorizationController(
 	}
 }
 
-// DescribeAuthorizationServer handles GET /.well-known/oauth-authorization-server.
 func (connectorAuthorizationController *ConnectorAuthorizationController) DescribeAuthorizationServer(
 	ginContext *gin.Context,
 ) {
@@ -37,7 +36,6 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) Descri
 		connectorAuthorizationController.connectorAuthorizationApplication.DescribeAuthorizationServer())
 }
 
-// RegisterConnectorClient handles POST /oauth/register.
 func (connectorAuthorizationController *ConnectorAuthorizationController) RegisterConnectorClient(
 	ginContext *gin.Context,
 ) {
@@ -59,7 +57,6 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) Regist
 	ginContext.JSON(http.StatusCreated, connectorClientDto)
 }
 
-// StartConnectorAuthorization handles GET /oauth/authorize.
 func (connectorAuthorizationController *ConnectorAuthorizationController) StartConnectorAuthorization(
 	ginContext *gin.Context,
 ) {
@@ -81,7 +78,6 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) StartC
 	ginContext.Redirect(http.StatusFound, redirectDto.RedirectTo)
 }
 
-// GetConnectorAuthorizationRequest handles GET /oauth/authorization-requests/:requestId.
 func (connectorAuthorizationController *ConnectorAuthorizationController) GetConnectorAuthorizationRequest(
 	ginContext *gin.Context,
 ) {
@@ -95,7 +91,6 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) GetCon
 	ginContext.JSON(http.StatusOK, authorizationRequestDto)
 }
 
-// ApproveConnectorAuthorization handles POST /oauth/authorization-requests/:requestId/approval.
 func (connectorAuthorizationController *ConnectorAuthorizationController) ApproveConnectorAuthorization(
 	ginContext *gin.Context,
 ) {
@@ -110,7 +105,7 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) Approv
 	ginContext.JSON(http.StatusOK, redirectDto)
 }
 
-// DenyConnectorAuthorization handles POST /oauth/authorization-requests/:requestId/denial; no sign-in, since denying grants nothing.
+// DenyConnectorAuthorization needs no sign-in, since denying grants nothing.
 func (connectorAuthorizationController *ConnectorAuthorizationController) DenyConnectorAuthorization(
 	ginContext *gin.Context,
 ) {
@@ -124,7 +119,7 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) DenyCo
 	ginContext.JSON(http.StatusOK, redirectDto)
 }
 
-// IssueConnectorTokens handles POST /oauth/token; no answer from it may be cached, successful or not.
+// IssueConnectorTokens lets no answer be cached, successful or not.
 func (connectorAuthorizationController *ConnectorAuthorizationController) IssueConnectorTokens(
 	ginContext *gin.Context,
 ) {
@@ -163,7 +158,6 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) IssueC
 	}
 }
 
-// IntrospectAccessToken handles POST /oauth/introspection.
 func (connectorAuthorizationController *ConnectorAuthorizationController) IntrospectAccessToken(
 	ginContext *gin.Context,
 ) {
