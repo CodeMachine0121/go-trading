@@ -302,3 +302,32 @@ func TestLoadReadsTheIndicatorScriptCompartmentCap(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReadsThePublicAddressesForConnectorAuthorization(t *testing.T) {
+	testCases := []struct {
+		name                    string
+		publicBaseUrl           string
+		frontendBaseUrl         string
+		expectedPublicBaseUrl   string
+		expectedFrontendBaseUrl string
+	}{
+		{name: "unset falls back to local addresses", expectedPublicBaseUrl: "http://localhost:8080", expectedFrontendBaseUrl: "http://localhost:3000"},
+		{
+			name:          "a trailing slash is trimmed",
+			publicBaseUrl: "https://trading-api.example.com/", frontendBaseUrl: "https://web.example.com/",
+			expectedPublicBaseUrl: "https://trading-api.example.com", expectedFrontendBaseUrl: "https://web.example.com",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("PUBLIC_BASE_URL", testCase.publicBaseUrl)
+			t.Setenv("FRONTEND_BASE_URL", testCase.frontendBaseUrl)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expectedPublicBaseUrl, applicationConfig.ConnectorAuthorization.PublicBaseUrl)
+			assert.Equal(t, testCase.expectedFrontendBaseUrl, applicationConfig.ConnectorAuthorization.FrontendBaseUrl)
+		})
+	}
+}

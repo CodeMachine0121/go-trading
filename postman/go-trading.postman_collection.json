@@ -322,6 +322,42 @@
     {
       "key": "contractStrategyBotId",
       "value": ""
+    },
+    {
+      "key": "connectorRedirectUri",
+      "value": "http://localhost:33418/callback"
+    },
+    {
+      "key": "connectorResource",
+      "value": "http://localhost:8090/mcp"
+    },
+    {
+      "key": "connectorCodeVerifier",
+      "value": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    },
+    {
+      "key": "connectorCodeChallenge",
+      "value": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+    },
+    {
+      "key": "connectorClientId",
+      "value": ""
+    },
+    {
+      "key": "connectorAuthorizationRequestId",
+      "value": ""
+    },
+    {
+      "key": "connectorAuthorizationCode",
+      "value": ""
+    },
+    {
+      "key": "connectorAccessToken",
+      "value": ""
+    },
+    {
+      "key": "connectorRefreshToken",
+      "value": ""
     }
   ],
   "event": [
@@ -1806,6 +1842,1392 @@
                   "    pm.response.to.have.status(200);",
                   "});",
                   "pm.collectionVariables.set(\"passwordChangeAccessToken\", pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "外掛授權",
+      "description": "外掛（例如 Claude Code）不再經手密碼：登記 → 開始授權（送到網頁的外掛授權頁）→ 使用者允許或拒絕 → 以授權碼換授權 → 續用 → 對象服務查驗。\n\n**「允許」需要已開通的帳號。** 本包建立的使用者是待開通，所以「允許」回 403，後面依賴授權碼的幾則會自動略過；要跑完整條，請先開通 `{{userEmail}}` 再重跑本資料夾。\n\n挑戰與答案取自 RFC 7636 附錄 B。說明書的網址取自伺服器的 `PUBLIC_BASE_URL`，外掛授權頁取自 `FRONTEND_BASE_URL`。",
+      "item": [
+        {
+          "name": "說明書 — 位置都以公開網址為準",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/.well-known/oauth-authorization-server",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                ".well-known",
+                "oauth-authorization-server"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"四個位置都在發行者之下，只支援授權碼＋S256、不收外掛祕密\", function () {",
+                  "    const metadata = pm.response.json();",
+                  "    pm.expect(metadata.issuer).to.not.match(/\\/$/);",
+                  "    pm.expect(metadata.authorization_endpoint).to.eql(metadata.issuer + \"/oauth/authorize\");",
+                  "    pm.expect(metadata.token_endpoint).to.eql(metadata.issuer + \"/oauth/token\");",
+                  "    pm.expect(metadata.registration_endpoint).to.eql(metadata.issuer + \"/oauth/register\");",
+                  "    pm.expect(metadata.introspection_endpoint).to.eql(metadata.issuer + \"/oauth/introspection\");",
+                  "    pm.expect(metadata.response_types_supported).to.eql([\"code\"]);",
+                  "    pm.expect(metadata.grant_types_supported).to.eql([\"authorization_code\", \"refresh_token\"]);",
+                  "    pm.expect(metadata.code_challenge_methods_supported).to.eql([\"S256\"]);",
+                  "    pm.expect(metadata.token_endpoint_auth_methods_supported).to.eql([\"none\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "外掛登記",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"redirect_uris\": [\"{{connectorRedirectUri}}\"],\n    \"client_name\": \"Postman 外掛\",\n    \"token_endpoint_auth_method\": \"none\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"拿到外掛代號與固定的能力\", function () {",
+                  "    const client = pm.response.json();",
+                  "    pm.expect(client.client_id).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(client.client_name).to.eql(\"Postman 外掛\");",
+                  "    pm.expect(client.redirect_uris).to.eql([pm.collectionVariables.get(\"connectorRedirectUri\")]);",
+                  "    pm.expect(client.grant_types).to.eql([\"authorization_code\", \"refresh_token\"]);",
+                  "    pm.expect(client.response_types).to.eql([\"code\"]);",
+                  "    pm.expect(client.token_endpoint_auth_method).to.eql(\"none\");",
+                  "    pm.expect(client.client_id_issued_at).to.be.a(\"number\");",
+                  "    pm.collectionVariables.set(\"connectorClientId\", client.client_id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "外掛登記 — 送回地址不是本機",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"redirect_uris\": [\"https://evil.example.com/callback\"]\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_redirect_uri\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_redirect_uri\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "外掛登記 — 要用外掛祕密",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"redirect_uris\": [\"{{connectorRedirectUri}}\"],\n    \"token_endpoint_auth_method\": \"client_secret_basic\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_client_metadata\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_client_metadata\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "開始授權 — 送到網頁的外掛授權頁",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorize?response_type=code&client_id={{connectorClientId}}&redirect_uri={{connectorRedirectUri}}&code_challenge={{connectorCodeChallenge}}&code_challenge_method=S256&state=postman-state&resource={{connectorResource}}&scope=anything",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "code_challenge",
+                  "value": "{{connectorCodeChallenge}}"
+                },
+                {
+                  "key": "code_challenge_method",
+                  "value": "S256"
+                },
+                {
+                  "key": "state",
+                  "value": "postman-state"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{connectorResource}}"
+                },
+                {
+                  "key": "scope",
+                  "value": "anything"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const queryOf = (address) => Object.fromEntries((address.split(\"?\")[1] || \"\").split(\"&\").filter(Boolean).map((pair) => pair.split(\"=\").map((part) => decodeURIComponent(part.replace(/\\+/g, \" \")))));",
+                  "pm.test(\"回應 302\", function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});",
+                  "pm.test(\"送到網頁公開網址下的外掛授權頁，帶著待授權請求代號\", function () {",
+                  "    const location = pm.response.headers.get(\"Location\");",
+                  "    pm.expect(location).to.match(/\\/connector-authorization\\?request=/);",
+                  "    pm.collectionVariables.set(\"connectorAuthorizationRequestId\", queryOf(location).request);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "開始授權 — 未登記的送回地址不送回任何地方",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorize?response_type=code&client_id={{connectorClientId}}&redirect_uri=http://localhost:33418/other&code_challenge={{connectorCodeChallenge}}&code_challenge_method=S256",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "http://localhost:33418/other"
+                },
+                {
+                  "key": "code_challenge",
+                  "value": "{{connectorCodeChallenge}}"
+                },
+                {
+                  "key": "code_challenge_method",
+                  "value": "S256"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_request\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_request\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"沒有 Location\", function () {",
+                  "    pm.expect(pm.response.headers.has(\"Location\")).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "開始授權 — 外掛不存在",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorize?response_type=code&client_id=nobody&redirect_uri={{connectorRedirectUri}}&code_challenge={{connectorCodeChallenge}}&code_challenge_method=S256",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "nobody"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "code_challenge",
+                  "value": "{{connectorCodeChallenge}}"
+                },
+                {
+                  "key": "code_challenge_method",
+                  "value": "S256"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_client\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_client\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "開始授權 — 沒有挑戰就送回外掛",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorize?response_type=code&client_id={{connectorClientId}}&redirect_uri={{connectorRedirectUri}}&state=postman-state",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "state",
+                  "value": "postman-state"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const queryOf = (address) => Object.fromEntries((address.split(\"?\")[1] || \"\").split(\"&\").filter(Boolean).map((pair) => pair.split(\"=\").map((part) => decodeURIComponent(part.replace(/\\+/g, \" \")))));",
+                  "pm.test(\"回應 302\", function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});",
+                  "pm.test(\"送回外掛，附請求無效與回執記號\", function () {",
+                  "    const location = pm.response.headers.get(\"Location\");",
+                  "    pm.expect(location.split(\"?\")[0]).to.eql(pm.collectionVariables.get(\"connectorRedirectUri\"));",
+                  "    pm.expect(queryOf(location).error).to.eql(\"invalid_request\");",
+                  "    pm.expect(queryOf(location).state).to.eql(\"postman-state\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "查詢待授權請求",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"看得到外掛名稱與到期時刻\", function () {",
+                  "    const authorizationRequest = pm.response.json();",
+                  "    pm.expect(authorizationRequest.clientName).to.eql(\"Postman 外掛\");",
+                  "    pm.expect(new Date(authorizationRequest.expiresAt).getTime()).to.be.above(Date.now());",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "允許 — 沒登入",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}/approval",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}",
+                "approval"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "允許",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}/approval",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}",
+                "approval"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const queryOf = (address) => Object.fromEntries((address.split(\"?\")[1] || \"\").split(\"&\").filter(Boolean).map((pair) => pair.split(\"=\").map((part) => decodeURIComponent(part.replace(/\\+/g, \" \")))));",
+                  "pm.collectionVariables.set(\"connectorAuthorizationCode\", \"\");",
+                  "pm.test(\"已開通回 200、待開通回 403\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"送回外掛，附授權碼與回執記號\", function () {",
+                  "        const location = pm.response.json().redirectTo;",
+                  "        pm.expect(queryOf(location).state).to.eql(\"postman-state\");",
+                  "        pm.expect(queryOf(location).code).to.be.a(\"string\").and.not.empty;",
+                  "        pm.collectionVariables.set(\"connectorAuthorizationCode\", queryOf(location).code);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 以授權碼換一對憑證",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code"
+                },
+                {
+                  "key": "code",
+                  "value": "{{connectorAuthorizationCode}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "code_verifier",
+                  "value": "{{connectorCodeVerifier}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"connectorAuthorizationCode\")) {",
+                  "    console.log(\"沒有 connectorAuthorizationCode（帳號還沒開通，允許那一步被擋下），略過這一則\");",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回應不得被暫存\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"no-store\");",
+                  "});",
+                  "pm.test(\"拿到 Bearer 登入憑證與續用憑證\", function () {",
+                  "    const tokens = pm.response.json();",
+                  "    pm.expect(tokens.token_type).to.eql(\"Bearer\");",
+                  "    pm.expect(tokens.expires_in).to.be.above(0);",
+                  "    pm.collectionVariables.set(\"connectorAccessToken\", tokens.access_token);",
+                  "    pm.collectionVariables.set(\"connectorRefreshToken\", tokens.refresh_token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查驗 — 外掛的登入憑證",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/introspection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "introspection"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{connectorAccessToken}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"connectorAccessToken\")) {",
+                  "    console.log(\"沒有 connectorAccessToken（帳號還沒開通，允許那一步被擋下），略過這一則\");",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"有效，標著對象服務\", function () {",
+                  "    const introspection = pm.response.json();",
+                  "    pm.expect(introspection.active).to.be.true;",
+                  "    pm.expect(introspection.aud).to.eql(pm.collectionVariables.get(\"connectorResource\"));",
+                  "    pm.expect(introspection.sub).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(introspection.exp).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 外掛續用",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{connectorRefreshToken}}"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"connectorRefreshToken\")) {",
+                  "    console.log(\"沒有 connectorRefreshToken（帳號還沒開通，允許那一步被擋下），略過這一則\");",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"回應不得被暫存\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"no-store\");",
+                  "});",
+                  "pm.test(\"換到新的一對\", function () {",
+                  "    const tokens = pm.response.json();",
+                  "    pm.expect(tokens.refresh_token).to.not.eql(pm.collectionVariables.get(\"connectorRefreshToken\"));",
+                  "    pm.collectionVariables.set(\"connectorRefreshToken\", tokens.refresh_token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 同一張授權碼再用一次（連帶作廢換出的登入）",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code"
+                },
+                {
+                  "key": "code",
+                  "value": "{{connectorAuthorizationCode}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "code_verifier",
+                  "value": "{{connectorCodeVerifier}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"connectorAuthorizationCode\")) {",
+                  "    console.log(\"沒有 connectorAuthorizationCode（帳號還沒開通，允許那一步被擋下），略過這一則\");",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_grant\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_grant\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"回應不得被暫存\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"no-store\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 授權碼重用之後，那段登入續用不了",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{connectorRefreshToken}}"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"connectorRefreshToken\")) {",
+                  "    console.log(\"沒有 connectorRefreshToken（帳號還沒開通，允許那一步被擋下），略過這一則\");",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_grant\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_grant\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 不存在的授權碼",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code"
+                },
+                {
+                  "key": "code",
+                  "value": "not-a-code"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "code_verifier",
+                  "value": "{{connectorCodeVerifier}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_grant\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_grant\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"回應不得被暫存\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"no-store\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 缺挑戰答案",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code"
+                },
+                {
+                  "key": "code",
+                  "value": "not-a-code"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 invalid_request\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"invalid_request\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "換授權 — 不支援的換法",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"OAuth 錯誤 unsupported_grant_type\", function () {",
+                  "    pm.expect(pm.response.json().error).to.eql(\"unsupported_grant_type\");",
+                  "    pm.expect(pm.response.json().error_description).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "開始另一次授權（給拒絕用）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorize?response_type=code&client_id={{connectorClientId}}&redirect_uri={{connectorRedirectUri}}&code_challenge={{connectorCodeChallenge}}&code_challenge_method=S256&state=postman-state&resource={{connectorResource}}&scope=anything",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "code_challenge",
+                  "value": "{{connectorCodeChallenge}}"
+                },
+                {
+                  "key": "code_challenge_method",
+                  "value": "S256"
+                },
+                {
+                  "key": "state",
+                  "value": "postman-state"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{connectorResource}}"
+                },
+                {
+                  "key": "scope",
+                  "value": "anything"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const queryOf = (address) => Object.fromEntries((address.split(\"?\")[1] || \"\").split(\"&\").filter(Boolean).map((pair) => pair.split(\"=\").map((part) => decodeURIComponent(part.replace(/\\+/g, \" \")))));",
+                  "pm.test(\"回應 302\", function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});",
+                  "pm.collectionVariables.set(\"connectorAuthorizationRequestId\", queryOf(pm.response.headers.get(\"Location\")).request);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "拒絕 — 不必登入",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}/denial",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}",
+                "denial"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const queryOf = (address) => Object.fromEntries((address.split(\"?\")[1] || \"\").split(\"&\").filter(Boolean).map((pair) => pair.split(\"=\").map((part) => decodeURIComponent(part.replace(/\\+/g, \" \")))));",
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"送回外掛，附使用者拒絕與回執記號\", function () {",
+                  "    const location = pm.response.json().redirectTo;",
+                  "    pm.expect(queryOf(location).error).to.eql(\"access_denied\");",
+                  "    pm.expect(queryOf(location).state).to.eql(\"postman-state\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕 — 已經決定過",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}/denial",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}",
+                "denial"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查詢待授權請求 — 已經決定過",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查驗 — 網頁登入的憑證沒有對象服務",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/introspection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "introspection"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"有效，對象服務為空\", function () {",
+                  "    pm.expect(pm.response.json().active).to.be.true;",
+                  "    pm.expect(pm.response.json().aud).to.eql(\"\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查驗 — 壞掉的憑證只回無效",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/introspection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "introspection"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "not-a-token"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"只有 active=false\", function () {",
+                  "    pm.expect(pm.response.json()).to.eql({ active: false });",
+                  "});"
                 ]
               }
             }

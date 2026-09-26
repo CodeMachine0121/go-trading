@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
@@ -46,29 +47,29 @@ func registerRoutes(
 	})
 
 	// Built first because every owned resource sits behind sign-in.
-	userApplication := application.NewUserApplication(
-		service.NewUserService(
-			persistence.NewUserRepository(database),
-			persistence.NewSessionRepository(database),
-			security.NewBcryptPasswordProofProxy(),
-			security.NewJwtAccessTokenProxy(
-				applicationConfig.Authentication.AccessTokenSigningKey),
-			security.NewRandomRefreshTokenProxy(),
-			clock.NewSystemClockProxy(),
-			vo.SessionLifetimesVo{
-				AccessToken:  applicationConfig.Authentication.AccessTokenLifetime,
-				RefreshToken: applicationConfig.Authentication.RefreshTokenLifetime,
-			},
-			vo.AccountActivationPolicyVo{
-				RequestMailbox: applicationConfig.AccountActivation.RequestMailbox,
-				SubjectPrefix:  applicationConfig.AccountActivation.SubjectPrefix,
-			},
-			vo.SignInLockoutPolicyVo{
-				FailureThreshold: applicationConfig.SignInLockout.FailureThreshold,
-				LockoutDuration:  applicationConfig.SignInLockout.LockoutDuration,
-			},
-		),
+	sessionLifetimes := vo.SessionLifetimesVo{
+		AccessToken:  applicationConfig.Authentication.AccessTokenLifetime,
+		RefreshToken: applicationConfig.Authentication.RefreshTokenLifetime,
+	}
+	userService := service.NewUserService(
+		persistence.NewUserRepository(database),
+		persistence.NewSessionRepository(database),
+		security.NewBcryptPasswordProofProxy(),
+		security.NewJwtAccessTokenProxy(
+			applicationConfig.Authentication.AccessTokenSigningKey),
+		security.NewRandomRefreshTokenProxy(),
+		clock.NewSystemClockProxy(),
+		sessionLifetimes,
+		vo.AccountActivationPolicyVo{
+			RequestMailbox: applicationConfig.AccountActivation.RequestMailbox,
+			SubjectPrefix:  applicationConfig.AccountActivation.SubjectPrefix,
+		},
+		vo.SignInLockoutPolicyVo{
+			FailureThreshold: applicationConfig.SignInLockout.FailureThreshold,
+			LockoutDuration:  applicationConfig.SignInLockout.LockoutDuration,
+		},
 	)
+	userApplication := application.NewUserApplication(userService)
 
 	// Reading market data is public; changing it, and everything a person owns, needs an activated sign-in.
 	requiresSignIn := middlewares.NewAuthenticationMiddleware(userApplication).Handle
@@ -411,6 +412,46 @@ func registerRoutes(
 	// Behind requiresSignIn so a bad token is not confused with a wrong current password.
 	engine.POST("/users/me/password", requestGuards.credentialRequest, requiresSignIn,
 		userController.ChangePassword)
+
+	connectorAuthorizationController := controller.NewConnectorAuthorizationController(
+		application.NewConnectorAuthorizationApplication(
+			service.NewConnectorAuthorizationService(
+				persistence.NewConnectorClientRepository(database),
+				persistence.NewConnectorAuthorizationRequestRepository(database),
+				persistence.NewConnectorAuthorizationCodeRepository(database),
+				persistence.NewSessionRepository(database),
+				persistence.NewUserRepository(database),
+				security.NewJwtAccessTokenProxy(
+					applicationConfig.Authentication.AccessTokenSigningKey),
+				security.NewRandomRefreshTokenProxy(),
+				clock.NewSystemClockProxy(),
+				sessionLifetimes,
+				vo.ConnectorAuthorizationPolicyVo{
+					PublicBaseUrl:   applicationConfig.ConnectorAuthorization.PublicBaseUrl,
+					FrontendBaseUrl: applicationConfig.ConnectorAuthorization.FrontendBaseUrl,
+					RequestLifetime: 10 * time.Minute,
+					CodeLifetime:    5 * time.Minute,
+				},
+			),
+			userService,
+		),
+	)
+
+	engine.GET("/.well-known/oauth-authorization-server",
+		connectorAuthorizationController.DescribeAuthorizationServer)
+	engine.POST("/oauth/register", requestGuards.credentialRequest,
+		connectorAuthorizationController.RegisterConnectorClient)
+	engine.GET("/oauth/authorize", connectorAuthorizationController.StartConnectorAuthorization)
+	engine.GET("/oauth/authorization-requests/:requestId",
+		connectorAuthorizationController.GetConnectorAuthorizationRequest)
+	engine.POST("/oauth/authorization-requests/:requestId/approval", requiresSignIn,
+		connectorAuthorizationController.ApproveConnectorAuthorization)
+	engine.POST("/oauth/authorization-requests/:requestId/denial",
+		connectorAuthorizationController.DenyConnectorAuthorization)
+	engine.POST("/oauth/token", requestGuards.credentialRequest,
+		connectorAuthorizationController.IssueConnectorTokens)
+	// Only the global limit: the connector server introspects for every user from one address.
+	engine.POST("/oauth/introspection", connectorAuthorizationController.IntrospectAccessToken)
 
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		persistence.NewTelegramDeliveryRepository(database),

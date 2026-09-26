@@ -218,6 +218,12 @@ type RequestLimitConfig struct {
 	LiveStreamsTotal            int
 }
 
+// ConnectorAuthorizationConfig takes public addresses from configuration rather than the request, because the proxies in front rewrite the scheme to http.
+type ConnectorAuthorizationConfig struct {
+	PublicBaseUrl   string
+	FrontendBaseUrl string
+}
+
 type ApplicationConfig struct {
 	ServerPort             string
 	CorsAllowedOrigins     []string
@@ -239,16 +245,17 @@ type ApplicationConfig struct {
 	LiveFollow            LiveFollowConfig
 	TaiwanStock           TaiwanStockConfig
 	// MarketRules maps each market to its behaviour so nothing branches on market identity.
-	MarketRules       map[vo.MarketVo]vo.MarketRulesVo
-	Assistant         AssistantConfig
-	Authentication    AuthenticationConfig
-	AccountActivation AccountActivationConfig
-	SignInLockout     SignInLockoutConfig
-	Secrets           SecretsConfig
-	Telegram          TelegramConfig
-	StrategyBot       StrategyBotConfig
-	RequestLimit      RequestLimitConfig
-	Database          DatabaseConfig
+	MarketRules            map[vo.MarketVo]vo.MarketRulesVo
+	Assistant              AssistantConfig
+	Authentication         AuthenticationConfig
+	AccountActivation      AccountActivationConfig
+	SignInLockout          SignInLockoutConfig
+	Secrets                SecretsConfig
+	Telegram               TelegramConfig
+	StrategyBot            StrategyBotConfig
+	RequestLimit           RequestLimitConfig
+	ConnectorAuthorization ConnectorAuthorizationConfig
+	Database               DatabaseConfig
 }
 
 func Load() ApplicationConfig {
@@ -379,6 +386,10 @@ func Load() ApplicationConfig {
 			AnswerLengthLimit:   positiveIntWithDefault("ASSISTANT_ANSWER_LENGTH_LIMIT", 2000),
 			ResponseTimeout: time.Duration(
 				positiveIntWithDefault("ASSISTANT_RESPONSE_TIMEOUT_SECONDS", 120)) * time.Second,
+		},
+		ConnectorAuthorization: ConnectorAuthorizationConfig{
+			PublicBaseUrl:   strings.TrimRight(stringWithDefault("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
+			FrontendBaseUrl: strings.TrimRight(stringWithDefault("FRONTEND_BASE_URL", "http://localhost:3000"), "/"),
 		},
 		Authentication: AuthenticationConfig{
 			AccessTokenSigningKey: stringWithDefault("AUTH_ACCESS_TOKEN_SIGNING_KEY", ""),
