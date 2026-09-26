@@ -443,7 +443,9 @@ func registerRoutes(
 		connectorAuthorizationController.DescribeAuthorizationServer)
 	engine.POST("/oauth/register", requestGuards.credentialRequest,
 		connectorAuthorizationController.RegisterConnectorClient)
-	engine.GET("/oauth/authorize", connectorAuthorizationController.StartConnectorAuthorization)
+	// Every accepted start writes a pending request, so it spends the stricter allowance.
+	engine.GET("/oauth/authorize", requestGuards.credentialRequest,
+		connectorAuthorizationController.StartConnectorAuthorization)
 	engine.GET("/oauth/authorization-requests/:requestId",
 		connectorAuthorizationController.GetConnectorAuthorizationRequest)
 	engine.POST("/oauth/authorization-requests/:requestId/approval", requiresWebSignIn,

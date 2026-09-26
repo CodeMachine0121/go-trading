@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -77,19 +78,24 @@ func TestClientAddressIsBelievedOnlyFromTrustedProxies(t *testing.T) {
 func TestCredentialRoutesHaveTheStricterAllowance(t *testing.T) {
 	testCases := []struct {
 		name          string
+		method        string
 		path          string
 		clientAddress string
 	}{
-		{name: "registration", path: "/users", clientAddress: "198.51.100.1:40000"},
-		{name: "sign-in", path: "/sessions", clientAddress: "198.51.100.2:40000"},
-		{name: "session renewal", path: "/sessions/renewal", clientAddress: "198.51.100.3:40000"},
-		{name: "password change", path: "/users/me/password", clientAddress: "198.51.100.4:40000"},
-		{name: "connector registration", path: "/oauth/register", clientAddress: "198.51.100.5:40000"},
-		{name: "connector token exchange", path: "/oauth/token", clientAddress: "198.51.100.6:40000"},
+		{name: "registration", method: http.MethodPost, path: "/users", clientAddress: "198.51.100.1:40000"},
+		{name: "sign-in", method: http.MethodPost, path: "/sessions", clientAddress: "198.51.100.2:40000"},
+		{name: "session renewal", method: http.MethodPost, path: "/sessions/renewal", clientAddress: "198.51.100.3:40000"},
+		{name: "password change", method: http.MethodPost, path: "/users/me/password", clientAddress: "198.51.100.4:40000"},
+		{name: "connector registration", method: http.MethodPost, path: "/oauth/register", clientAddress: "198.51.100.5:40000"},
+		{name: "connector token exchange", method: http.MethodPost, path: "/oauth/token", clientAddress: "198.51.100.6:40000"},
+		{name: "connector authorization start", method: http.MethodGet, path: "/oauth/authorize?client_id=client-A",
+			clientAddress: "198.51.100.7:40000"},
 	}
 	gin.SetMode(gin.TestMode)
 	// One engine for every case, each from its own address, because building the routes is slow.
 	engine := gin.New()
+	// Admitted requests that reach storage meet no database; recovery turns that into a 500 so only the allowance is judged.
+	engine.Use(gin.RecoveryWithWriter(io.Discard))
 	registerRoutes(engine, nil, config.Load())
 
 	for _, testCase := range testCases {
@@ -98,7 +104,7 @@ func TestCredentialRoutesHaveTheStricterAllowance(t *testing.T) {
 			// Malformed bodies are refused before any storage is touched, yet still spend the allowance.
 			recorders := make([]*httptest.ResponseRecorder, 0, 11)
 			for range 11 {
-				request := httptest.NewRequest(http.MethodPost, testCase.path, strings.NewReader("{"))
+				request := httptest.NewRequest(testCase.method, testCase.path, strings.NewReader("{"))
 				request.RemoteAddr = testCase.clientAddress
 				recorder := httptest.NewRecorder()
 				engine.ServeHTTP(recorder, request)

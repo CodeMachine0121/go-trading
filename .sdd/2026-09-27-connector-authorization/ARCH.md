@@ -82,7 +82,7 @@
 | `UserService.RenewConnectorSession` | — | 新；檢查必要欄位與 `HeldBy(client)`；回 `ConnectorTokensDto` |
 | `JwtAccessTokenProxy` | HS256 JWT | `aud` 寫入/讀出；`ClaimsOf` |
 | `UserService.IdentifyActivatedWebUser` / `AuthenticationMiddleware.HandleWebSignIn` | — | 新；只認網頁登入憑證（`Audience` 為空），外掛憑證一律 401，讓外掛無法替自己按「允許」 |
-| `dependencies.go` `registerRoutes` | 組裝根 | 新組裝；`POST /oauth/register`、`POST /oauth/token` 掛 `credentialRequest`；`approval` 掛 `requiresWebSignIn`（只收網頁登入憑證） |
+| `dependencies.go` `registerRoutes` | 組裝根 | 新組裝；`POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/token` 掛 `credentialRequest`；`approval` 掛 `requiresWebSignIn`（只收網頁登入憑證） |
 
 ## 5. Component Relationships
 
@@ -130,6 +130,7 @@ flowchart TD
 | US-02 外掛不存在 | `ConnectorClientRepository` → `ErrConnectorClientNotFound` |
 | US-02 缺挑戰／挑戰方式／非授權碼 | `ConnectorAuthorizationStartDomain.Refusal` + `ConnectorRedirectUriDomain.WithParameters` |
 | US-02 權限範圍忽略 | `ConnectorAuthorizationStartDomain`（不讀 `scope`） |
+| US-02 請求授權額度 | `dependencies.go`：`credentialRequest`（每次請求都寫一筆待授權請求） |
 | US-03 查詢／10 分鐘邊界 | `ConnectorAuthorizationRequestDomain.Open` |
 | US-03 允許 | `ConnectorAuthorizationService.ApproveConnectorAuthorization` + `ConnectorAuthorizationRequestRepository.Approve` |
 | US-03 未登入／待開通不能允許 | `AuthenticationMiddleware`（`requiresWebSignIn`） |
