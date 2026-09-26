@@ -316,7 +316,6 @@ func registerRoutes(
 			service.NewStrategyScriptMarketplaceService(
 				strategyScriptRepository,
 				publishedStrategyScriptRepository,
-				persistence.NewStrategyScriptAdoptionRepository(database),
 				clock.NewSystemClockProxy(),
 			),
 		),
@@ -326,7 +325,6 @@ func registerRoutes(
 	engine.DELETE("/strategy-scripts/:id/publication", requiresSignIn, strategyScriptMarketplaceController.WithdrawStrategyScript)
 	engine.GET("/marketplace/strategy-scripts", requiresSignIn, strategyScriptMarketplaceController.BrowseMarketplace)
 	engine.POST("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AdoptStrategyScript)
-	engine.DELETE("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, strategyScriptMarketplaceController.AbandonStrategyScript)
 
 	// Each script runs in this binary re-launched as a memory-capped worker, so a runaway script
 	// kills only its compartment.

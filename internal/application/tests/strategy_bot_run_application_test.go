@@ -42,7 +42,9 @@ type strategyBotRunUnderTest struct {
 	tradingStrategyFailure *error
 	// Captured by the fixture's own AnyTimes expectation, since gomock would match it before any later one a test adds.
 	appendedRunRecords *[]dto.StrategyBotRunRecordWriteDto
-	t                  *testing.T
+	// publishedStrategyScriptIDs are on the marketplace; everything else reads as unpublished.
+	publishedStrategyScriptIDs map[uint]bool
+	t                          *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services a round goes through, mocking only storage, script execution and the carrier.
@@ -76,8 +78,15 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		Return(entities.TradingSymbol{Market: string(vo.MarketCrypto)}, true, nil).AnyTimes()
 
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
+	publishedStrategyScriptIDs := map[uint]bool{}
 	publishedStrategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-		Return(entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished).AnyTimes()
+		DoAndReturn(func(_ context.Context, id uint) (entities.PublishedStrategyScript, error) {
+			if publishedStrategyScriptIDs[id] {
+				return entities.PublishedStrategyScript{StrategyScriptID: id}, nil
+			}
+
+			return entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished
+		}).AnyTimes()
 
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 
@@ -154,6 +163,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		tradingStrategyFailure:                  &tradingStrategyFailure,
 		appendedRunRecords:                      &appendedRunRecords,
 		t:                                       t,
+		publishedStrategyScriptIDs:              publishedStrategyScriptIDs,
 	}
 }
 
@@ -355,6 +365,7 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *testing.T) {
 	testCases := []struct {
 		name                    string
+		strategyScriptFound     entities.StrategyScript
 		strategyScriptFindError error
 		expectedHaltReason      vo.StrategyBotHaltReasonVo
 	}{
@@ -363,15 +374,27 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 			strategyScriptFindError: domains.StrategyScriptNotFound(9),
 			expectedHaltReason:      vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
+		{
+			// A bot never runs someone else's rules, even ones they still publish.
+			name: "a strategy script that belongs to someone else",
+			strategyScriptFound: entities.StrategyScript{
+				ID: 9, OwnerID: strategyBotOwnerID + 1, Script: "the script", ResultType: "signal",
+				Publication: &entities.PublishedStrategyScript{StrategyScriptID: 9},
+			},
+			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
 			underTest.expectDeliverySetting()
+			if testCase.strategyScriptFound.Publication != nil {
+				underTest.publishedStrategyScriptIDs[testCase.strategyScriptFound.ID] = true
+			}
 
 			underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
-				Return(entities.StrategyScript{}, testCase.strategyScriptFindError).AnyTimes()
+				Return(testCase.strategyScriptFound, testCase.strategyScriptFindError).AnyTimes()
 			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).

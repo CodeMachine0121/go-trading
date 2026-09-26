@@ -55,7 +55,7 @@ func (strategyScriptService *StrategyScriptService) GetStrategyScript(
 	return domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false).ToOwnerDto()
 }
 
-// ListAvailableStrategyScripts returns the viewer's own scripts and adopted ones as two lists, since adopted scripts come back without their source.
+// ListAvailableStrategyScripts splits the viewer's scripts into their own work and their marketplace copies.
 func (strategyScriptService *StrategyScriptService) ListAvailableStrategyScripts(
 	executionContext context.Context, viewerID uint,
 ) (dto.AvailableStrategyScriptsDto, error) {
@@ -64,20 +64,15 @@ func (strategyScriptService *StrategyScriptService) ListAvailableStrategyScripts
 		return dto.AvailableStrategyScriptsDto{}, ownError
 	}
 
-	adoptedPublications, adoptedError := strategyScriptService.strategyScriptRepository.FindAllAdoptedBy(
-		executionContext, viewerID)
-	if adoptedError != nil {
-		return dto.AvailableStrategyScriptsDto{}, adoptedError
-	}
-
 	mine := make([]dto.StrategyScriptDto, 0, len(ownStrategyScripts))
+	adopted := make([]dto.StrategyScriptDto, 0)
 	for _, strategyScript := range ownStrategyScripts {
-		mine = append(mine, strategyScript.ToDto())
-	}
+		if domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, false).IsAdoptedFromMarketplace() {
+			adopted = append(adopted, strategyScript.ToDto())
+			continue
+		}
 
-	adopted := make([]dto.PublishedStrategyScriptDto, 0, len(adoptedPublications))
-	for _, publication := range adoptedPublications {
-		adopted = append(adopted, publication.ToDto())
+		mine = append(mine, strategyScript.ToDto())
 	}
 
 	return dto.AvailableStrategyScriptsDto{Mine: mine, Adopted: adopted}, nil
@@ -122,10 +117,15 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, domains.StrategyScriptNotFound(writeDto.ID)
 	}
 
-	existingStrategyScript, ownershipError := strategyScriptService.requireOwnership(
-		executionContext, writeDto.OwnerID, writeDto.ID)
-	if ownershipError != nil {
-		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, ownershipError
+	existingStrategyScript, findError := strategyScriptService.strategyScriptRepository.FindOne(
+		executionContext, writeDto.ID)
+	if findError != nil {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, findError
+	}
+
+	if rewritableError := domains.NewStrategyScriptAccessDomain(existingStrategyScript, writeDto.OwnerID, false).
+		RequireRewritable(domains.StrategyScriptFromMarketplaceNotRewritable()); rewritableError != nil {
+		return entities.StrategyScript{}, domains.StrategyScriptDomain{}, rewritableError
 	}
 
 	// The market data kind is judged against the stored one: omitting it keeps it, changing it is refused.
@@ -149,7 +149,7 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 	return existingStrategyScript, strategyScriptDomain, nil
 }
 
-// DeleteStrategyScript removes the viewer's script along with its marketplace listing and every adoption.
+// DeleteStrategyScript removes the viewer's script along with its marketplace listing; copies others adopted stay.
 func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -161,7 +161,7 @@ func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	return strategyScriptService.strategyScriptRepository.Delete(executionContext, id)
 }
 
-// ResolveRunnableStrategyScript is the only way a script leaves storage for a run, walking all three gates; adoption grants nothing, it only fills a picker.
+// ResolveRunnableStrategyScript lets a one-off run use the viewer's own script or someone else's published one, so a marketplace script can be tried before it is adopted.
 func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.RunnableStrategyScriptDto, error) {
@@ -182,6 +182,20 @@ func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScrip
 	}
 
 	return domains.NewStrategyScriptAccessDomain(strategyScript, viewerID, isPublished).ToRunnableDto()
+}
+
+// ResolveOwnedStrategyScript is the gate for anything a bot can depend on: only the viewer's own scripts, copies
+// included, so no author can change another person's rules.
+func (strategyScriptService *StrategyScriptService) ResolveOwnedStrategyScript(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.RunnableStrategyScriptDto, error) {
+	strategyScript, findError := strategyScriptService.strategyScriptRepository.FindOne(executionContext, id)
+	if findError != nil {
+		return dto.RunnableStrategyScriptDto{}, findError
+	}
+
+	return domains.NewStrategyScriptAccessDomain(
+		strategyScript, viewerID, strategyScript.Publication != nil).ToOwnedRunnableDto()
 }
 
 // requireOwnership answers a stranger exactly as for a missing script and skips the publication gate, since publishing never grants the right to alter.

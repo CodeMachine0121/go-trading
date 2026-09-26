@@ -494,3 +494,63 @@ func TestTradingStrategyApplicationUpdateAcceptsAMixedOneOnceItIsReconciled(t *t
 
 	require.NoError(t, updateError)
 }
+
+func TestTradingStrategyApplicationBuildsOnlyOnThisPersonsOwnScripts(t *testing.T) {
+	strangersPublishedScript := aScriptOwnedByTheCaller(9)
+	strangersPublishedScript.OwnerID = strategyBotStrangerID
+	strangersPublishedScript.Publication = &entities.PublishedStrategyScript{StrategyScriptID: 9}
+	adoptedCopy := aScriptOwnedByTheCaller(9)
+	adoptedCopy.IsAdoptedFromMarketplace = true
+
+	testCases := []struct {
+		name          string
+		namedScript   entities.StrategyScript
+		expectedError error
+	}{
+		{name: "someone else's published script is refused with a way forward", namedScript: strangersPublishedScript,
+			expectedError: domains.ErrStrategyScriptNotYours},
+		{name: "a copy adopted from the marketplace is this person's own", namedScript: adoptedCopy},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newTradingStrategyApplicationUnderTest(t)
+			underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).Return(testCase.namedScript, nil)
+			underTest.expectMarketplaceQuestion()
+			if testCase.expectedError == nil {
+				underTest.tradingStrategyRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(storedTradingStrategy(), nil)
+			}
+
+			_, createError := underTest.tradingStrategyApplication.CreateTradingStrategy(
+				context.Background(), strategyBotOwnerID, aTradingStrategyWrite())
+
+			if testCase.expectedError == nil {
+				require.NoError(t, createError)
+				return
+			}
+			require.ErrorIs(t, createError, testCase.expectedError)
+			assert.Contains(t, createError.Error(), "不是你的，請先把它加入你的策略腳本")
+		})
+	}
+}
+
+func TestTradingStrategyApplicationRewriteRefusesSomeoneElsesScript(t *testing.T) {
+	// Save is unstubbed: nothing may be written.
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	strangersPublishedScript := aScriptOwnedByTheCaller(9)
+	strangersPublishedScript.OwnerID = strategyBotStrangerID
+	strangersPublishedScript.Publication = &entities.PublishedStrategyScript{StrategyScriptID: 9}
+	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+		Return(storedTradingStrategy(), nil).AnyTimes()
+	underTest.expectFollowingBots()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).Return(strangersPublishedScript, nil)
+	underTest.expectMarketplaceQuestion()
+	writeDto := aTradingStrategyWrite()
+	writeDto.ID = tradingStrategyID
+
+	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, domains.ErrStrategyScriptNotYours)
+	assert.Contains(t, updateError.Error(), "不是你的，請先把它加入你的策略腳本")
+}

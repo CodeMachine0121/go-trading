@@ -32,6 +32,12 @@ func TestNewStrategyBotRoundFailureDomainReadsWhatAFailedRoundMeans(t *testing.T
 			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
 		},
 		{
+			name:               "a strategy script that is not the bot owner's stops it the same way",
+			roundError:         domains.StrategyScriptNotYours(7),
+			expectedToHalt:     true,
+			expectedHaltReason: vo.StrategyBotHaltStrategyScriptUnavailable,
+		},
+		{
 			name:               "a script that will not run stops the bot",
 			roundError:         fmt.Errorf("%w: boom", domains.ErrIndicatorScriptFailed),
 			expectedToHalt:     true,

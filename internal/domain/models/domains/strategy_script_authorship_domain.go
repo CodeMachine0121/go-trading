@@ -17,7 +17,7 @@ func NewStrategyScriptAuthorshipDomain(
 ) StrategyScriptAuthorshipDomain {
 	ownedByViewer := true
 	for _, runnableStrategyScript := range runnableStrategyScripts {
-		ownedByViewer = ownedByViewer && runnableStrategyScript.OwnedByViewer
+		ownedByViewer = ownedByViewer && runnableStrategyScript.AuthoredByViewer
 	}
 
 	return StrategyScriptAuthorshipDomain{ownedByViewer: ownedByViewer}

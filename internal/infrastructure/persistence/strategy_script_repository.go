@@ -207,29 +207,6 @@ func (strategyScriptRepository *StrategyScriptRepository) FindAllPublished(
 	return publications, nil
 }
 
-// FindAllAdoptedBy returns this person's adopted scripts by name; adoptions cascade with their publication, so no "still published" clause is needed.
-func (strategyScriptRepository *StrategyScriptRepository) FindAllAdoptedBy(
-	executionContext context.Context, userID uint,
-) ([]entities.PublishedStrategyScript, error) {
-	publications := make([]entities.PublishedStrategyScript, 0)
-
-	result := strategyScriptRepository.database.WithContext(executionContext).
-		Model(&entities.PublishedStrategyScript{}).
-		Joins(`JOIN "StrategyAdoptions" ON "StrategyAdoptions".strategy_id = "PublishedStrategies".strategy_id`).
-		Joins(`JOIN "Strategies" ON "Strategies".id = "PublishedStrategies".strategy_id`).
-		Where(clause.Eq{Column: clause.Column{Table: "StrategyAdoptions", Name: "user_id"}, Value: userID}).
-		Preload(publishedStrategyScriptAssociation).
-		Preload(publishedStrategyScriptParametersAssociation).
-		Preload(publishedStrategyScriptOwnerAssociation).
-		Order(clause.OrderByColumn{Column: clause.Column{Table: "Strategies", Name: "name"}}).
-		Find(&publications)
-	if result.Error != nil {
-		return nil, fmt.Errorf("find adopted strategy scripts: %w", result.Error)
-	}
-
-	return publications, nil
-}
-
 // Delete is a hard delete.
 func (strategyScriptRepository *StrategyScriptRepository) Delete(executionContext context.Context, id uint) error {
 	result := strategyScriptRepository.database.WithContext(executionContext).Delete(&entities.StrategyScript{}, id)

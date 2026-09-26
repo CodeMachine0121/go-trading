@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -27,7 +28,6 @@ type marketplaceRouterUnderTest struct {
 	engine                            *gin.Engine
 	strategyScriptRepository          *mocks.MockIStrategyScriptRepository
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
-	strategyScriptAdoptionRepository  *mocks.MockIStrategyScriptAdoptionRepository
 }
 
 func newMarketplaceRouterUnderTest(t *testing.T) marketplaceRouterUnderTest {
@@ -35,14 +35,13 @@ func newMarketplaceRouterUnderTest(t *testing.T) marketplaceRouterUnderTest {
 	mockController := gomock.NewController(t)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(mockController)
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(mockController)
-	strategyScriptAdoptionRepository := mocks.NewMockIStrategyScriptAdoptionRepository(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(marketplaceRouterNow).AnyTimes()
 
 	marketplaceController := controller.NewStrategyScriptMarketplaceController(
 		application.NewStrategyScriptMarketplaceApplication(
 			service.NewStrategyScriptMarketplaceService(
-				strategyScriptRepository, publishedStrategyScriptRepository, strategyScriptAdoptionRepository, clockProxy)))
+				strategyScriptRepository, publishedStrategyScriptRepository, clockProxy)))
 
 	engine := gin.New()
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
@@ -50,13 +49,11 @@ func newMarketplaceRouterUnderTest(t *testing.T) marketplaceRouterUnderTest {
 	engine.DELETE("/strategy-scripts/:id/publication", requiresSignIn, marketplaceController.WithdrawStrategyScript)
 	engine.GET("/marketplace/strategy-scripts", requiresSignIn, marketplaceController.BrowseMarketplace)
 	engine.POST("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, marketplaceController.AdoptStrategyScript)
-	engine.DELETE("/marketplace/strategy-scripts/:id/adoption", requiresSignIn, marketplaceController.AbandonStrategyScript)
 
 	return marketplaceRouterUnderTest{
 		engine:                            engine,
 		strategyScriptRepository:          strategyScriptRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
-		strategyScriptAdoptionRepository:  strategyScriptAdoptionRepository,
 	}
 }
 
@@ -183,14 +180,27 @@ func TestMarketplaceRouterBrowseMarketplace(t *testing.T) {
 	})
 }
 
+// aStrangersPublishedStrategyScriptRow is somebody else's script on the marketplace.
+func aStrangersPublishedStrategyScriptRow() entities.StrategyScript {
+	strangersStrategyScript := aStoredStrategyScriptRow(7, "別人的")
+	strangersStrategyScript.OwnerID = signedInViewerID + 1
+	strangersStrategyScript.Publication = &entities.PublishedStrategyScript{StrategyScriptID: 7, PublishedAt: marketplaceRouterNow}
+
+	return strangersStrategyScript
+}
+
 func TestMarketplaceRouterAdoption(t *testing.T) {
-	t.Run("adopting answers no content", func(t *testing.T) {
+	t.Run("adopting copies it and answers no content", func(t *testing.T) {
 		fixture := newMarketplaceRouterUnderTest(t)
-		strangersStrategyScript := aStoredStrategyScriptRow(7, "別人的")
-		strangersStrategyScript.OwnerID = signedInViewerID + 1
-		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(strangersStrategyScript, nil)
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Adopt(gomock.Any(), signedInViewerID, uint(7), marketplaceRouterNow).Return(nil)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+			Return(aStrangersPublishedStrategyScriptRow(), nil)
+		fixture.strategyScriptRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, copied entities.StrategyScript) (entities.StrategyScript, error) {
+				assert.Equal(t, signedInViewerID, copied.OwnerID)
+				assert.True(t, copied.IsAdoptedFromMarketplace)
+
+				return copied, nil
+			})
 
 		response := fixture.send(http.MethodPost, "/marketplace/strategy-scripts/7/adoption")
 
@@ -199,26 +209,25 @@ func TestMarketplaceRouterAdoption(t *testing.T) {
 
 	t.Run("adopting something not on the marketplace answers not found", func(t *testing.T) {
 		fixture := newMarketplaceRouterUnderTest(t)
-		strangersStrategyScript := aStoredStrategyScriptRow(7, "別人的")
-		strangersStrategyScript.OwnerID = signedInViewerID + 1
-		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(strangersStrategyScript, nil)
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Adopt(gomock.Any(), signedInViewerID, uint(7), marketplaceRouterNow).
-			Return(domains.StrategyScriptNotFound(7))
+		unpublished := aStrangersPublishedStrategyScriptRow()
+		unpublished.Publication = nil
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(unpublished, nil)
 
 		response := fixture.send(http.MethodPost, "/marketplace/strategy-scripts/7/adoption")
 
 		assert.Equal(t, http.StatusNotFound, response.Code)
 	})
 
-	t.Run("abandoning answers no content", func(t *testing.T) {
+	t.Run("adopting under a name already held answers conflict", func(t *testing.T) {
 		fixture := newMarketplaceRouterUnderTest(t)
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Abandon(gomock.Any(), signedInViewerID, uint(7)).Return(nil)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+			Return(aStrangersPublishedStrategyScriptRow(), nil)
+		fixture.strategyScriptRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			Return(entities.StrategyScript{}, domains.ErrStrategyScriptNameConflict)
 
-		response := fixture.send(http.MethodDelete, "/marketplace/strategy-scripts/7/adoption")
+		response := fixture.send(http.MethodPost, "/marketplace/strategy-scripts/7/adoption")
 
-		assert.Equal(t, http.StatusNoContent, response.Code)
+		assert.Equal(t, http.StatusConflict, response.Code)
 	})
 
 	t.Run("turns away a request carrying no proof of identity", func(t *testing.T) {
@@ -239,7 +248,6 @@ func TestMarketplaceRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 	}{
 		{name: "withdrawing", method: http.MethodDelete, target: "/strategy-scripts/nought/publication"},
 		{name: "adopting", method: http.MethodPost, target: "/marketplace/strategy-scripts/0/adoption"},
-		{name: "abandoning", method: http.MethodDelete, target: "/marketplace/strategy-scripts/nought/adoption"},
 	}
 
 	for _, testCase := range testCases {
@@ -252,14 +260,4 @@ func TestMarketplaceRouterRefusesAnIdentifierThatIsNotOne(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, response.Code)
 		})
 	}
-}
-
-func TestMarketplaceRouterReportsAFailureToTidyAShelf(t *testing.T) {
-	fixture := newMarketplaceRouterUnderTest(t)
-	fixture.strategyScriptAdoptionRepository.EXPECT().
-		Abandon(gomock.Any(), signedInViewerID, uint(7)).Return(errors.New("connection refused"))
-
-	response := fixture.send(http.MethodDelete, "/marketplace/strategy-scripts/7/adoption")
-
-	assert.Equal(t, http.StatusInternalServerError, response.Code)
 }

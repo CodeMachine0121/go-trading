@@ -5,7 +5,6 @@ package dto
 type AvailableStrategyScriptsDto struct {
 	// Mine are ordered by name and include the script.
 	Mine []StrategyScriptDto `json:"mine"`
-	// Adopted are ordered by name, exclude the script, and drop scripts whose owner has
-	// withdrawn the publication.
-	Adopted []PublishedStrategyScriptDto `json:"adopted"`
+	// Adopted are the viewer's marketplace copies, ordered by name and without the script.
+	Adopted []StrategyScriptDto `json:"adopted"`
 }

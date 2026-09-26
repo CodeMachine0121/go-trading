@@ -287,6 +287,21 @@ func TestTradingStrategyRouterMapsEachRefusalOntoItsOwnStatus(t *testing.T) {
 			expectedStatus: http.StatusConflict,
 		},
 		{
+			name: "someone else's published script must be adopted first",
+			arrange: func(fixture tradingStrategyRouterUnderTest) {
+				strangersPublishedScript := entities.StrategyScript{
+					ID: 9, OwnerID: 4242, Name: "別人的", Script: "//", ResultType: "signal",
+					Publication: &entities.PublishedStrategyScript{StrategyScriptID: 9},
+				}
+				fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+					Return(strangersPublishedScript, nil)
+			},
+			method:         http.MethodPost,
+			target:         "/trading-strategies",
+			body:           aTradingStrategyBody,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
 			name: "a script the caller cannot see is not there",
 			arrange: func(fixture tradingStrategyRouterUnderTest) {
 				strangersScript := entities.StrategyScript{

@@ -13,7 +13,7 @@ import (
 type IPublishedStrategyScriptRepository interface {
 	// Publish keeps the original publication moment when the script is already published.
 	Publish(executionContext context.Context, strategyScriptID uint, publishedAt time.Time) error
-	// Withdraw also clears every adoption; withdrawing an unpublished script is a no-op.
+	// Withdraw leaves adopted copies alone; withdrawing an unpublished script is a no-op.
 	Withdraw(executionContext context.Context, strategyScriptID uint) error
 	// FindOne returns ErrStrategyScriptNotPublished when the script is not on the marketplace.
 	FindOne(executionContext context.Context, strategyScriptID uint) (entities.PublishedStrategyScript, error)

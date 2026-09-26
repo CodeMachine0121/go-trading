@@ -28,7 +28,6 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /contract-k-candles/:symbol/:openTime",
 		"DELETE /contract-watchlist/:symbol",
 		"DELETE /k-candles/:symbol/:openTime",
-		"DELETE /marketplace/strategy-scripts/:id/adoption",
 		"DELETE /strategy-bots/:id",
 		"DELETE /strategy-bots/:id/power",
 		"DELETE /strategy-scripts/:id",

@@ -142,7 +142,8 @@ func (tradingStrategyController *TradingStrategyController) readID(
 func (tradingStrategyController *TradingStrategyController) respondWithError(
 	ginContext *gin.Context, err error,
 ) {
-	if errors.Is(err, domains.ErrTradingStrategyValidation) {
+	if errors.Is(err, domains.ErrTradingStrategyValidation) ||
+		errors.Is(err, domains.ErrStrategyScriptNotYours) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}

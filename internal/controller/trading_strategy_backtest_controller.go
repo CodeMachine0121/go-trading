@@ -111,7 +111,8 @@ func (controller *TradingStrategyBacktestController) respondWithError(
 		})
 		return
 	}
-	if errors.Is(err, domains.ErrBacktestValidation) {
+	if errors.Is(err, domains.ErrBacktestValidation) ||
+		errors.Is(err, domains.ErrStrategyScriptNotYours) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}

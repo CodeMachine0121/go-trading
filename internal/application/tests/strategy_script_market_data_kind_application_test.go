@@ -151,14 +151,11 @@ func TestStrategyScriptApplicationUpdateRefusesToGuessAStoredKindOfMarketItDoesN
 
 func TestStrategyScriptApplicationAvailableScriptsEachCarryTheirOwnKindOfMarket(t *testing.T) {
 	fixture := newStrategyScriptApplicationUnderTest(t)
+	adopted := aMarketplaceCopy(2, "別人的均線")
+	adopted.MarketDataKind = "kCandle"
 	fixture.strategyScriptRepository.EXPECT().
 		FindAllOwnedBy(gomock.Any(), strategyScriptOwnerID).
-		Return([]entities.StrategyScript{aStoredContractStrategyScript(1, "費率反轉")}, nil)
-	adopted := aPublication(2, "別人的均線", 8)
-	adopted.StrategyScript.MarketDataKind = "kCandle"
-	fixture.strategyScriptRepository.EXPECT().
-		FindAllAdoptedBy(gomock.Any(), strategyScriptOwnerID).
-		Return([]entities.PublishedStrategyScript{adopted}, nil)
+		Return([]entities.StrategyScript{aStoredContractStrategyScript(1, "費率反轉"), adopted}, nil)
 
 	availableStrategyScriptsDto, err := fixture.strategyScriptApplication.ListAvailableStrategyScripts(
 		t.Context(), strategyScriptOwnerID)

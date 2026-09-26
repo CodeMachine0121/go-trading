@@ -82,6 +82,14 @@ const aStrategyScriptBody = `{
 	"resultType": "floatList"
 }`
 
+// aMarketplaceCopyRow is one the caller adopted, holding an algorithm that is never theirs to read.
+func aMarketplaceCopyRow(id uint, name string) entities.StrategyScript {
+	copied := aStoredStrategyScriptRow(id, name)
+	copied.IsAdoptedFromMarketplace = true
+
+	return copied
+}
+
 func aStoredStrategyScriptRow(id uint, name string) entities.StrategyScript {
 	return entities.StrategyScript{
 		ID:         id,
@@ -239,10 +247,8 @@ func TestStrategyScriptRouterListAvailableStrategyScripts(t *testing.T) {
 			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{
 			aStoredStrategyScriptRow(1, "二十根均線"),
 			aStoredStrategyScriptRow(2, "六十根均線"),
+			aMarketplaceCopyRow(3, "別人的"),
 		}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), signedInViewerID).
-			Return([]entities.PublishedStrategyScript{aPublishedStrategyScriptRow(3, "別人的")}, nil)
 
 		response := fixture.send(http.MethodGet, "/strategy-scripts", "")
 
@@ -256,13 +262,9 @@ func TestStrategyScriptRouterListAvailableStrategyScripts(t *testing.T) {
 	})
 
 	t.Run("never puts an adopted strategy script's algorithm on the wire", func(t *testing.T) {
-		// The adopted shape has no script field, so the handler cannot leak it.
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
-			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), signedInViewerID).
-			Return([]entities.PublishedStrategyScript{aPublishedStrategyScriptRow(3, "別人的")}, nil)
+			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{aMarketplaceCopyRow(3, "別人的")}, nil)
 
 		response := fixture.send(http.MethodGet, "/strategy-scripts", "")
 
@@ -275,8 +277,6 @@ func TestStrategyScriptRouterListAvailableStrategyScripts(t *testing.T) {
 		fixture := newStrategyScriptRouterUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), signedInViewerID).Return([]entities.StrategyScript{}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), signedInViewerID).Return([]entities.PublishedStrategyScript{}, nil)
 
 		response := fixture.send(http.MethodGet, "/strategy-scripts", "")
 

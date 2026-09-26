@@ -5,8 +5,10 @@ import "time"
 // StrategyScriptDto is the owner's view and the only shape carrying the script; others get
 // PublishedStrategyScriptDto.
 type StrategyScriptDto struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
+	ID uint `json:"id"`
+	// IsAdoptedFromMarketplace marks a copy made on adoption, whose Script is always empty.
+	IsAdoptedFromMarketplace bool   `json:"isAdoptedFromMarketplace"`
+	Name                     string `json:"name"`
 	// Description is empty, never absent, when unset.
 	Description string `json:"description"`
 	Script      string `json:"script"`

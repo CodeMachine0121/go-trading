@@ -611,3 +611,16 @@ func TestAssistantRevisionAppliersRefuseAnythingAfterTheArguments(t *testing.T) 
 		})
 	}
 }
+
+func TestStrategyScriptUpdateAssistantQueryCannotProposeRewritingAMarketplaceCopy(t *testing.T) {
+	// Neither Save nor Update is stubbed: nothing may be proposed or written.
+	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
+	copied := aStoredStrategyScriptWithKnobs(1, "二十根均線")
+	copied.IsAdoptedFromMarketplace = true
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(1)).Return(copied, nil).AnyTimes()
+
+	_, runError := fixture.updateAssistantQuery.Run(t.Context(), assistantOrigin, aStrategyScriptRewrite)
+
+	require.ErrorIs(t, runError, domains.ErrStrategyScriptFromMarketplace)
+	assert.Contains(t, runError.Error(), "從市集加入的策略腳本不能改寫")
+}

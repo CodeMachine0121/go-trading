@@ -371,7 +371,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 		go func() {
 			defer waitGroup.Done()
 
-			runnableStrategyScript, resolveError := strategyBotRunApplication.strategyScriptService.ResolveRunnableStrategyScript(
+			runnableStrategyScript, resolveError := strategyBotRunApplication.strategyScriptService.ResolveOwnedStrategyScript(
 				executionContext, botDto.OwnerID, signalSource.StrategyScriptID)
 			if resolveError != nil {
 				sourceErrors[resultIndex] = resolveError

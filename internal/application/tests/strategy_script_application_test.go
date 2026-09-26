@@ -94,6 +94,14 @@ func aStoredStrategyScript(id uint, name string) entities.StrategyScript {
 	}
 }
 
+// aMarketplaceCopy is one the caller adopted: theirs, marked as adopted.
+func aMarketplaceCopy(id uint, name string) entities.StrategyScript {
+	copied := aStoredStrategyScript(id, name)
+	copied.IsAdoptedFromMarketplace = true
+
+	return copied
+}
+
 // aPublication is a marketplace strategy script owned by somebody other than the caller.
 func aPublication(id uint, name string, ownerID uint) entities.PublishedStrategyScript {
 	strategyScript := aStoredStrategyScript(id, name)
@@ -314,8 +322,6 @@ func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
 			aStoredStrategyScript(1, "二十根均線"),
 			aStoredStrategyScript(2, "六十根均線"),
 		}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), strategyScriptOwnerID).Return([]entities.PublishedStrategyScript{}, nil)
 
 		availableStrategyScriptsDto, err := fixture.strategyScriptApplication.ListAvailableStrategyScripts(
 			t.Context(), strategyScriptOwnerID)
@@ -337,14 +343,13 @@ func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
 		}
 	})
 
-	t.Run("hands back adopted strategy scripts after the caller's own, and without their scripts", func(t *testing.T) {
+	t.Run("hands back marketplace copies apart from the caller's own work, and without their scripts", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
+		copied := aStoredStrategyScript(2, "別人的")
+		copied.IsAdoptedFromMarketplace = true
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), strategyScriptOwnerID).
-			Return([]entities.StrategyScript{aStoredStrategyScript(1, "我的")}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), strategyScriptOwnerID).
-			Return([]entities.PublishedStrategyScript{aPublication(2, "別人的", 8)}, nil)
+			Return([]entities.StrategyScript{aStoredStrategyScript(1, "我的"), copied}, nil)
 
 		availableStrategyScriptsDto, err := fixture.strategyScriptApplication.ListAvailableStrategyScripts(
 			t.Context(), strategyScriptOwnerID)
@@ -353,16 +358,17 @@ func TestStrategyScriptApplicationListAvailableStrategyScripts(t *testing.T) {
 		require.Len(t, availableStrategyScriptsDto.Mine, 1)
 		require.Len(t, availableStrategyScriptsDto.Adopted, 1)
 		assert.Equal(t, "我的", availableStrategyScriptsDto.Mine[0].Name)
+		assert.False(t, availableStrategyScriptsDto.Mine[0].IsAdoptedFromMarketplace)
+		assert.Equal(t, uint(2), availableStrategyScriptsDto.Adopted[0].ID)
 		assert.Equal(t, "別人的", availableStrategyScriptsDto.Adopted[0].Name)
-		assert.Equal(t, "someone@example.com", availableStrategyScriptsDto.Adopted[0].PublisherEmail)
+		assert.True(t, availableStrategyScriptsDto.Adopted[0].IsAdoptedFromMarketplace)
+		assert.Empty(t, availableStrategyScriptsDto.Adopted[0].Script)
 	})
 
 	t.Run("holding none is an answer, not a failure", func(t *testing.T) {
 		fixture := newStrategyScriptApplicationUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), strategyScriptOwnerID).Return([]entities.StrategyScript{}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), strategyScriptOwnerID).Return([]entities.PublishedStrategyScript{}, nil)
 
 		availableStrategyScriptsDto, err := fixture.strategyScriptApplication.ListAvailableStrategyScripts(
 			t.Context(), strategyScriptOwnerID)
@@ -599,5 +605,40 @@ func TestStrategyScriptApplicationUpdateChecksOwnershipThenRunningBotsThenConten
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
 		assert.Contains(t, err.Error(), "找不到識別碼為 7 的策略腳本")
+	})
+}
+
+func TestStrategyScriptApplicationKeepsAMarketplaceCopyAsItWasAdopted(t *testing.T) {
+	t.Run("reading it shows no algorithm and says it was adopted", func(t *testing.T) {
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(8)).Return(aMarketplaceCopy(8, "動能"), nil)
+
+		strategyScriptDto, err := fixture.strategyScriptApplication.GetStrategyScript(t.Context(), strategyScriptOwnerID, 8)
+
+		require.NoError(t, err)
+		assert.Equal(t, "動能", strategyScriptDto.Name)
+		assert.True(t, strategyScriptDto.IsAdoptedFromMarketplace)
+		assert.Empty(t, strategyScriptDto.Script)
+	})
+
+	t.Run("rewriting it is refused and nothing is written", func(t *testing.T) {
+		// Update is unstubbed.
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		fixture.expectStoredForRewrite(aMarketplaceCopy(8, "動能"), nil)
+		writeDto := aStrategyScriptWrite()
+		writeDto.ID = 8
+
+		_, err := fixture.strategyScriptApplication.UpdateStrategyScript(t.Context(), writeDto)
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptFromMarketplace)
+		assert.Contains(t, err.Error(), "從市集加入的策略腳本不能改寫")
+	})
+
+	t.Run("deleting it works like deleting any of one's scripts", func(t *testing.T) {
+		fixture := newStrategyScriptApplicationUnderTest(t)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(8)).Return(aMarketplaceCopy(8, "動能"), nil)
+		fixture.strategyScriptRepository.EXPECT().Delete(gomock.Any(), uint(8)).Return(nil)
+
+		require.NoError(t, fixture.strategyScriptApplication.DeleteStrategyScript(t.Context(), strategyScriptOwnerID, 8))
 	})
 }
