@@ -2,6 +2,7 @@ package _interface
 
 import (
 	"context"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 )
@@ -17,10 +18,11 @@ type IConnectorAuthorizationRequestRepository interface {
 	FindOneByRequestIdentifier(
 		executionContext context.Context, requestIdentifier string,
 	) (entities.ConnectorAuthorizationRequest, error)
-	// Approve marks the request decided and stores the code in one transaction, only if still undecided; otherwise ErrConnectorAuthorizationRequestNotFound.
+	// Approve marks the request decided at decidedAt and stores the code in one transaction, only if still undecided; otherwise ErrConnectorAuthorizationRequestNotFound.
 	Approve(
-		executionContext context.Context, requestID uint, authorizationCode entities.ConnectorAuthorizationCode,
+		executionContext context.Context, requestID uint, decidedAt time.Time,
+		authorizationCode entities.ConnectorAuthorizationCode,
 	) error
-	// Deny marks the request decided only if still undecided; otherwise ErrConnectorAuthorizationRequestNotFound.
-	Deny(executionContext context.Context, requestID uint) error
+	// Deny marks the request decided at decidedAt only if still undecided; otherwise ErrConnectorAuthorizationRequestNotFound.
+	Deny(executionContext context.Context, requestID uint, decidedAt time.Time) error
 }

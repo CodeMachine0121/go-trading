@@ -384,7 +384,7 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment.Add(-time.Minute), nil))
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code", Digest: "the-code-digest"}, nil)
 		fixture.connectorAuthorizationRequestRepository.EXPECT().
-			Approve(gomock.Any(), uint(21), entities.ConnectorAuthorizationCode{
+			Approve(gomock.Any(), uint(21), connectorMoment, entities.ConnectorAuthorizationCode{
 				CodeDigest:                "the-code-digest",
 				UserID:                    7,
 				ConnectorClientIdentifier: "client-A",
@@ -405,7 +405,7 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment, nil))
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code"}, nil)
-		fixture.connectorAuthorizationRequestRepository.EXPECT().Approve(gomock.Any(), gomock.Any(), gomock.Any()).
+		fixture.connectorAuthorizationRequestRepository.EXPECT().Approve(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(domains.ErrConnectorAuthorizationRequestNotFound)
 
 		_, err := fixture.connectorAuthorizationApplication.ApproveConnectorAuthorization(t.Context(), "request-1", 7)
@@ -450,7 +450,7 @@ func TestConnectorAuthorizationApplicationDenyConnectorAuthorization(t *testing.
 	t.Run("denial sends the browser back with access_denied and the state", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment, nil))
-		fixture.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21)).Return(nil)
+		fixture.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21), connectorMoment).Return(nil)
 
 		redirect, err := fixture.connectorAuthorizationApplication.DenyConnectorAuthorization(t.Context(), "request-1")
 
@@ -471,7 +471,7 @@ func TestConnectorAuthorizationApplicationDenyConnectorAuthorization(t *testing.
 	t.Run("losing a concurrent decision is not found", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment, nil))
-		fixture.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21)).
+		fixture.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21), connectorMoment).
 			Return(domains.ErrConnectorAuthorizationRequestNotFound)
 
 		_, err := fixture.connectorAuthorizationApplication.DenyConnectorAuthorization(t.Context(), "request-1")

@@ -15,6 +15,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var decisionMoment = time.Date(2026, 9, 27, 8, 1, 2, 0, time.UTC)
+
 func aStoredConnectorClient(t *testing.T, database *gorm.DB, clientIdentifier string) entities.ConnectorClient {
 	t.Helper()
 
@@ -91,17 +93,18 @@ func TestConnectorAuthorizationRequestRepositoryApprovesOnceAndStoresTheCode(t *
 	savedRequest := aStoredAuthorizationRequest(t, database, "request-1")
 	requestRepository := persistence.NewConnectorAuthorizationRequestRepository(database)
 
-	approveError := requestRepository.Approve(t.Context(), savedRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1"))
+	approveError := requestRepository.Approve(t.Context(), savedRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1"))
 	require.NoError(t, approveError)
 
 	decidedRequest, findError := requestRepository.FindOneByRequestIdentifier(t.Context(), "request-1")
 	require.NoError(t, findError)
-	assert.NotNil(t, decidedRequest.DecidedAt)
+	require.NotNil(t, decidedRequest.DecidedAt)
+	assert.True(t, decisionMoment.Equal(*decidedRequest.DecidedAt), "決定時刻要是呼叫端給的時刻")
 	storedCode, codeError := persistence.NewConnectorAuthorizationCodeRepository(database).FindOneByDigest(t.Context(), "code-1")
 	require.NoError(t, codeError)
 	assert.Equal(t, owner.ID, storedCode.UserID)
 
-	secondError := requestRepository.Approve(t.Context(), savedRequest.ID, anAuthorizationCodeFor(owner.ID, "code-2"))
+	secondError := requestRepository.Approve(t.Context(), savedRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-2"))
 	assert.ErrorIs(t, secondError, domains.ErrConnectorAuthorizationRequestNotFound)
 	_, secondCodeError := persistence.NewConnectorAuthorizationCodeRepository(database).FindOneByDigest(t.Context(), "code-2")
 	assert.ErrorIs(t, secondCodeError, domains.ErrConnectorAuthorizationCodeNotFound, "輸掉的那一次不能留下授權碼")
@@ -117,10 +120,10 @@ func TestConnectorAuthorizationRequestRepositoryLetsOnlyOneOfConcurrentDecisions
 	results := make([]error, 2)
 	waitGroup := sync.WaitGroup{}
 	waitGroup.Go(func() {
-		results[0] = requestRepository.Approve(t.Context(), savedRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1"))
+		results[0] = requestRepository.Approve(t.Context(), savedRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1"))
 	})
 	waitGroup.Go(func() {
-		results[1] = requestRepository.Deny(t.Context(), savedRequest.ID)
+		results[1] = requestRepository.Deny(t.Context(), savedRequest.ID, decisionMoment)
 	})
 	waitGroup.Wait()
 
@@ -141,9 +144,13 @@ func TestConnectorAuthorizationRequestRepositoryDeniesOnce(t *testing.T) {
 	savedRequest := aStoredAuthorizationRequest(t, database, "request-1")
 	requestRepository := persistence.NewConnectorAuthorizationRequestRepository(database)
 
-	require.NoError(t, requestRepository.Deny(t.Context(), savedRequest.ID))
+	require.NoError(t, requestRepository.Deny(t.Context(), savedRequest.ID, decisionMoment))
+	deniedRequest, findError := requestRepository.FindOneByRequestIdentifier(t.Context(), "request-1")
+	require.NoError(t, findError)
+	require.NotNil(t, deniedRequest.DecidedAt)
+	assert.True(t, decisionMoment.Equal(*deniedRequest.DecidedAt), "決定時刻要是呼叫端給的時刻")
 
-	assert.ErrorIs(t, requestRepository.Deny(t.Context(), savedRequest.ID), domains.ErrConnectorAuthorizationRequestNotFound)
+	assert.ErrorIs(t, requestRepository.Deny(t.Context(), savedRequest.ID, decisionMoment), domains.ErrConnectorAuthorizationRequestNotFound)
 }
 
 func TestConnectorAuthorizationCodeRepositoryRedeemsOnceAndRemembersTheChain(t *testing.T) {
@@ -151,8 +158,7 @@ func TestConnectorAuthorizationCodeRepositoryRedeemsOnceAndRemembersTheChain(t *
 	owner := aSessionOwner(t, database, "james@example.com")
 	aStoredConnectorClient(t, database, "client-A")
 	savedRequest := aStoredAuthorizationRequest(t, database, "request-1")
-	require.NoError(t, persistence.NewConnectorAuthorizationRequestRepository(database).Approve(
-		t.Context(), savedRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1")))
+	require.NoError(t, persistence.NewConnectorAuthorizationRequestRepository(database).Approve(t.Context(), savedRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1")))
 	codeRepository := persistence.NewConnectorAuthorizationCodeRepository(database)
 	storedCode, findError := codeRepository.FindOneByDigest(t.Context(), "code-1")
 	require.NoError(t, findError)
@@ -218,10 +224,10 @@ func TestConnectorAuthorizationRepositoriesReportStorageFailuresAsSuch(t *testin
 			return err
 		}},
 		{name: "denying", action: func() error {
-			return requestRepository.Deny(cancelledContext, savedRequest.ID)
+			return requestRepository.Deny(cancelledContext, savedRequest.ID, decisionMoment)
 		}},
 		{name: "approving", action: func() error {
-			return requestRepository.Approve(cancelledContext, savedRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1"))
+			return requestRepository.Approve(cancelledContext, savedRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1"))
 		}},
 		{name: "finding a code", action: func() error {
 			_, err := codeRepository.FindOneByDigest(cancelledContext, "code-1")
@@ -251,9 +257,9 @@ func TestConnectorAuthorizationRepositoriesUndoTheDecisionWhenTheSecondWriteFail
 	secondRequest := aStoredAuthorizationRequest(t, database, "request-2")
 	requestRepository := persistence.NewConnectorAuthorizationRequestRepository(database)
 	codeRepository := persistence.NewConnectorAuthorizationCodeRepository(database)
-	require.NoError(t, requestRepository.Approve(t.Context(), firstRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1")))
+	require.NoError(t, requestRepository.Approve(t.Context(), firstRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1")))
 
-	duplicateCodeError := requestRepository.Approve(t.Context(), secondRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1"))
+	duplicateCodeError := requestRepository.Approve(t.Context(), secondRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1"))
 
 	require.Error(t, duplicateCodeError)
 	stillOpen, findError := requestRepository.FindOneByRequestIdentifier(t.Context(), "request-2")
@@ -278,8 +284,7 @@ func TestConnectorAuthorizationCodeRepositoryReportsAChainItCannotRecord(t *test
 	owner := aSessionOwner(t, database, "james@example.com")
 	aStoredConnectorClient(t, database, "client-A")
 	savedRequest := aStoredAuthorizationRequest(t, database, "request-1")
-	require.NoError(t, persistence.NewConnectorAuthorizationRequestRepository(database).Approve(
-		t.Context(), savedRequest.ID, anAuthorizationCodeFor(owner.ID, "code-1")))
+	require.NoError(t, persistence.NewConnectorAuthorizationRequestRepository(database).Approve(t.Context(), savedRequest.ID, decisionMoment, anAuthorizationCodeFor(owner.ID, "code-1")))
 	codeRepository := persistence.NewConnectorAuthorizationCodeRepository(database)
 	storedCode, findError := codeRepository.FindOneByDigest(t.Context(), "code-1")
 	require.NoError(t, findError)

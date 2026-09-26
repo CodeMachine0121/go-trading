@@ -364,8 +364,8 @@ func TestConnectorAuthorizationControllerShowsAndDecidesRequests(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.expectPendingRequest(connectorRouterMoment)
 		router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code", Digest: "the-code-digest"}, nil)
-		router.connectorAuthorizationRequestRepository.EXPECT().Approve(gomock.Any(), uint(21), gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ uint, authorizationCode entities.ConnectorAuthorizationCode) error {
+		router.connectorAuthorizationRequestRepository.EXPECT().Approve(gomock.Any(), uint(21), connectorRouterMoment, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uint, _ time.Time, authorizationCode entities.ConnectorAuthorizationCode) error {
 				assert.Equal(t, signedInViewerID, authorizationCode.UserID)
 				return nil
 			})
@@ -400,7 +400,7 @@ func TestConnectorAuthorizationControllerShowsAndDecidesRequests(t *testing.T) {
 	t.Run("denial needs no sign-in", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.expectPendingRequest(connectorRouterMoment)
-		router.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21)).Return(nil)
+		router.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21), connectorRouterMoment).Return(nil)
 
 		recorder := router.send(httptest.NewRequest(http.MethodPost, "/oauth/authorization-requests/request-1/denial", nil))
 
@@ -411,7 +411,7 @@ func TestConnectorAuthorizationControllerShowsAndDecidesRequests(t *testing.T) {
 	t.Run("a decided request cannot be denied again", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.expectPendingRequest(connectorRouterMoment)
-		router.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21)).
+		router.connectorAuthorizationRequestRepository.EXPECT().Deny(gomock.Any(), uint(21), connectorRouterMoment).
 			Return(domains.ErrConnectorAuthorizationRequestNotFound)
 
 		recorder := router.send(httptest.NewRequest(http.MethodPost, "/oauth/authorization-requests/request-1/denial", nil))

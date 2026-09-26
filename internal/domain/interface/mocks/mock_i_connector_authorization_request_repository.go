@@ -12,6 +12,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	gomock "go.uber.org/mock/gomock"
@@ -42,31 +43,31 @@ func (m *MockIConnectorAuthorizationRequestRepository) EXPECT() *MockIConnectorA
 }
 
 // Approve mocks base method.
-func (m *MockIConnectorAuthorizationRequestRepository) Approve(executionContext context.Context, requestID uint, authorizationCode entities.ConnectorAuthorizationCode) error {
+func (m *MockIConnectorAuthorizationRequestRepository) Approve(executionContext context.Context, requestID uint, decidedAt time.Time, authorizationCode entities.ConnectorAuthorizationCode) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Approve", executionContext, requestID, authorizationCode)
+	ret := m.ctrl.Call(m, "Approve", executionContext, requestID, decidedAt, authorizationCode)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Approve indicates an expected call of Approve.
-func (mr *MockIConnectorAuthorizationRequestRepositoryMockRecorder) Approve(executionContext, requestID, authorizationCode any) *gomock.Call {
+func (mr *MockIConnectorAuthorizationRequestRepositoryMockRecorder) Approve(executionContext, requestID, decidedAt, authorizationCode any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Approve", reflect.TypeOf((*MockIConnectorAuthorizationRequestRepository)(nil).Approve), executionContext, requestID, authorizationCode)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Approve", reflect.TypeOf((*MockIConnectorAuthorizationRequestRepository)(nil).Approve), executionContext, requestID, decidedAt, authorizationCode)
 }
 
 // Deny mocks base method.
-func (m *MockIConnectorAuthorizationRequestRepository) Deny(executionContext context.Context, requestID uint) error {
+func (m *MockIConnectorAuthorizationRequestRepository) Deny(executionContext context.Context, requestID uint, decidedAt time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Deny", executionContext, requestID)
+	ret := m.ctrl.Call(m, "Deny", executionContext, requestID, decidedAt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Deny indicates an expected call of Deny.
-func (mr *MockIConnectorAuthorizationRequestRepositoryMockRecorder) Deny(executionContext, requestID any) *gomock.Call {
+func (mr *MockIConnectorAuthorizationRequestRepositoryMockRecorder) Deny(executionContext, requestID, decidedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Deny", reflect.TypeOf((*MockIConnectorAuthorizationRequestRepository)(nil).Deny), executionContext, requestID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Deny", reflect.TypeOf((*MockIConnectorAuthorizationRequestRepository)(nil).Deny), executionContext, requestID, decidedAt)
 }
 
 // FindOneByRequestIdentifier mocks base method.

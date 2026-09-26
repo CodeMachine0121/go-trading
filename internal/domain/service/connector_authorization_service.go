@@ -159,11 +159,12 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) ApproveConne
 		return dto.ConnectorAuthorizationRedirectDto{}, redirectError
 	}
 
+	now := connectorAuthorizationService.clockProxy.Now()
 	if approveError := connectorAuthorizationService.connectorAuthorizationRequestRepository.Approve(
 		executionContext,
 		authorizationRequest.ID(),
-		authorizationRequest.ToAuthorizationCode(userID, authorizationCode.Digest,
-			connectorAuthorizationService.clockProxy.Now(),
+		now,
+		authorizationRequest.ToAuthorizationCode(userID, authorizationCode.Digest, now,
 			connectorAuthorizationService.authorizationPolicy.CodeLifetime),
 	); approveError != nil {
 		return dto.ConnectorAuthorizationRedirectDto{}, approveError
@@ -187,7 +188,8 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) DenyConnecto
 	}
 
 	if denyError := connectorAuthorizationService.connectorAuthorizationRequestRepository.Deny(
-		executionContext, authorizationRequest.ID()); denyError != nil {
+		executionContext, authorizationRequest.ID(), connectorAuthorizationService.clockProxy.Now(),
+	); denyError != nil {
 		return dto.ConnectorAuthorizationRedirectDto{}, denyError
 	}
 

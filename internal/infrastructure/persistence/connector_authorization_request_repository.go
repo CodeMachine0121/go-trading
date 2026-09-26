@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -52,11 +53,13 @@ func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepo
 }
 
 func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepository) Approve(
-	executionContext context.Context, requestID uint, authorizationCode entities.ConnectorAuthorizationCode,
+	executionContext context.Context, requestID uint, decidedAt time.Time,
+	authorizationCode entities.ConnectorAuthorizationCode,
 ) error {
 	return connectorAuthorizationRequestRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
-			if decideError := connectorAuthorizationRequestRepository.decide(transaction, requestID); decideError != nil {
+			if decideError := connectorAuthorizationRequestRepository.decide(
+				transaction, requestID, decidedAt); decideError != nil {
 				return decideError
 			}
 
@@ -69,21 +72,21 @@ func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepo
 }
 
 func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepository) Deny(
-	executionContext context.Context, requestID uint,
+	executionContext context.Context, requestID uint, decidedAt time.Time,
 ) error {
 	return connectorAuthorizationRequestRepository.decide(
-		connectorAuthorizationRequestRepository.database.WithContext(executionContext), requestID)
+		connectorAuthorizationRequestRepository.database.WithContext(executionContext), requestID, decidedAt)
 }
 
 // decide puts the not-yet-decided condition on the update itself, so a concurrent decision makes it touch zero rows.
 func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepository) decide(
-	database *gorm.DB, requestID uint,
+	database *gorm.DB, requestID uint, decidedAt time.Time,
 ) error {
 	decided := database.
 		Model(&entities.ConnectorAuthorizationRequest{}).
 		Where(clause.Eq{Column: "id", Value: requestID}).
 		Where(clause.Eq{Column: "decided_at", Value: nil}).
-		Update("decided_at", gorm.Expr("now()"))
+		Update("decided_at", decidedAt.UTC())
 	if decided.Error != nil {
 		return fmt.Errorf("decide connector authorization request: %w", decided.Error)
 	}
