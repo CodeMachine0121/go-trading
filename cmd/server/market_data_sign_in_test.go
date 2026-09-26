@@ -84,6 +84,17 @@ func TestChangingMarketDataRequiresSignIn(t *testing.T) {
 	}
 }
 
+func TestApprovingAConnectorRequiresSignInButDenyingDoesNot(t *testing.T) {
+	engine := newMountedEngine(t)
+
+	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/approval", ""))
+	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/approval", expiredAccessToken(t)))
+	assert.NotEqual(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/denial", ""))
+}
+
 func TestReadingMarketDataStaysPublic(t *testing.T) {
 	engine := newMountedEngine(t)
 	expiredProof := expiredAccessToken(t)

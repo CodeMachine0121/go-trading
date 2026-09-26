@@ -84,6 +84,8 @@ func TestCredentialRoutesHaveTheStricterAllowance(t *testing.T) {
 		{name: "sign-in", path: "/sessions", clientAddress: "198.51.100.2:40000"},
 		{name: "session renewal", path: "/sessions/renewal", clientAddress: "198.51.100.3:40000"},
 		{name: "password change", path: "/users/me/password", clientAddress: "198.51.100.4:40000"},
+		{name: "connector registration", path: "/oauth/register", clientAddress: "198.51.100.5:40000"},
+		{name: "connector token exchange", path: "/oauth/token", clientAddress: "198.51.100.6:40000"},
 	}
 	gin.SetMode(gin.TestMode)
 	// One engine for every case, each from its own address, because building the routes is slow.
@@ -109,6 +111,23 @@ func TestCredentialRoutesHaveTheStricterAllowance(t *testing.T) {
 			assert.Equal(t, http.StatusTooManyRequests, recorders[10].Code)
 			assert.Equal(t, "6", recorders[10].Header().Get("Retry-After"))
 		})
+	}
+}
+
+// The connector server introspects for every user from one address, so the credential allowance would throttle them all.
+func TestIntrospectionStaysOnTheGeneralAllowance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	registerRoutes(engine, nil, config.Load())
+
+	for attempt := range 11 {
+		request := httptest.NewRequest(http.MethodPost, "/oauth/introspection", strings.NewReader("token="))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.RemoteAddr = "198.51.100.7:40000"
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		assert.Equal(t, http.StatusOK, recorder.Code, "attempt %d", attempt+1)
 	}
 }
 

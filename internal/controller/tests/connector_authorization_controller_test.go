@@ -13,6 +13,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/controller"
+	"github.com/CodeMachine0121/go-trading/internal/controller/middlewares"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -154,6 +155,44 @@ func TestConnectorAuthorizationControllerDescribesItselfInOAuthTerms(t *testing.
 		"code_challenge_methods_supported": ["S256"],
 		"token_endpoint_auth_methods_supported": ["none"]
 	}`, recorder.Body.String())
+}
+
+func TestConnectorAuthorizationControllerIgnoresTheSchemeAProxyClaims(t *testing.T) {
+	router := newConnectorRouterUnderTest(t)
+	request := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+	request.Header.Set("X-Forwarded-Proto", "http")
+	request.Header.Set("X-Forwarded-Host", "internal.example.com")
+
+	recorder := router.send(request)
+
+	assert.Equal(t, `"https://trading-api.example.com"`, string(decodedBody(t, recorder)["issuer"]))
+}
+
+func TestConnectorAuthorizationControllerRefusesApprovalFromAPendingAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mockController := gomock.NewController(t)
+	userRepository := mocks.NewMockIUserRepository(mockController)
+	userRepository.EXPECT().FindOne(gomock.Any(), uint(9)).
+		Return(entities.User{ID: 9, Email: "pending@example.com", IsEnabled: false}, nil)
+	accessTokenProxy := mocks.NewMockIAccessTokenProxy(mockController)
+	accessTokenProxy.EXPECT().UserIdentifiedBy("a-proof").Return(uint(9), nil)
+	pendingDoor := middlewares.NewAuthenticationMiddleware(application.NewUserApplication(service.NewUserService(
+		userRepository, mocks.NewMockISessionRepository(mockController), mocks.NewMockIPasswordProofProxy(mockController),
+		accessTokenProxy, mocks.NewMockIRefreshTokenProxy(mockController), mocks.NewMockIClockProxy(mockController),
+		vo.SessionLifetimesVo{AccessToken: 15 * time.Minute, RefreshToken: 30 * 24 * time.Hour}, testActivationPolicy,
+		vo.SignInLockoutPolicyVo{FailureThreshold: 3, LockoutDuration: 7 * 24 * time.Hour}))).Handle
+	engine := gin.New()
+	engine.POST("/oauth/authorization-requests/:requestId/approval", pendingDoor, func(*gin.Context) {
+		t.Error("a pending account must never reach the approval")
+	})
+	request := httptest.NewRequest(http.MethodPost, "/oauth/authorization-requests/request-1/approval", nil)
+	request.Header.Set("Authorization", signedInProof)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, decodedBody(t, recorder), "activationInstruction")
 }
 
 func TestConnectorAuthorizationControllerRegistersConnectors(t *testing.T) {
