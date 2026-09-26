@@ -55,21 +55,6 @@ func (mr *MockIStrategyScriptRepositoryMockRecorder) Delete(executionContext, id
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIStrategyScriptRepository)(nil).Delete), executionContext, id)
 }
 
-// FindAllAdoptedBy mocks base method.
-func (m *MockIStrategyScriptRepository) FindAllAdoptedBy(executionContext context.Context, userID uint) ([]entities.PublishedStrategyScript, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAllAdoptedBy", executionContext, userID)
-	ret0, _ := ret[0].([]entities.PublishedStrategyScript)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FindAllAdoptedBy indicates an expected call of FindAllAdoptedBy.
-func (mr *MockIStrategyScriptRepositoryMockRecorder) FindAllAdoptedBy(executionContext, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllAdoptedBy", reflect.TypeOf((*MockIStrategyScriptRepository)(nil).FindAllAdoptedBy), executionContext, userID)
-}
-
 // FindAllOwnedBy mocks base method.
 func (m *MockIStrategyScriptRepository) FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.StrategyScript, error) {
 	m.ctrl.T.Helper()
