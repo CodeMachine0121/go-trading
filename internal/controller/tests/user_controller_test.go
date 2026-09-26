@@ -84,7 +84,7 @@ func (fixture userRouterUnderTest) expectSessionOpened() {
 		Mint().
 		Return(vo.RefreshTokenVo{Value: "a-refresh-token", Digest: "a-digest"}, nil)
 	fixture.accessTokenProxy.EXPECT().
-		Issue(gomock.Any(), gomock.Any()).
+		Issue(gomock.Any()).
 		Return(vo.AccessTokenVo{
 			AccessToken: "a-signed-token",
 			ExpiresAt:   time.Date(2026, 9, 5, 8, 15, 0, 0, time.UTC),
@@ -278,7 +278,7 @@ func TestUserRouterSignIn(t *testing.T) {
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-refresh-token", Digest: "a-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{}, domains.ErrAccessTokenUnavailable)
 
 		recorder := fixture.send(http.MethodPost, "/sessions", aCredentialsBody, "")
@@ -438,7 +438,7 @@ func TestUserRouterRenewSession(t *testing.T) {
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{
 				AccessToken: "a-newer-signed-token",
 				ExpiresAt:   time.Date(2026, 9, 5, 8, 15, 0, 0, time.UTC),
@@ -495,7 +495,7 @@ func TestUserRouterRenewSession(t *testing.T) {
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{}, domains.ErrAccessTokenUnavailable)
 
 		recorder := fixture.send(http.MethodPost, "/sessions/renewal", aRenewalBody, "")

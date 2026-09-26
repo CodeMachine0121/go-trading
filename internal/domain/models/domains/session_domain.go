@@ -43,9 +43,20 @@ func (sessionDomain SessionDomain) Renewed(
 	refreshTokenDigest string, now time.Time, lifetime time.Duration,
 ) entities.Session {
 	return entities.Session{
-		UserID:             sessionDomain.session.UserID,
-		ChainID:            sessionDomain.session.ChainID,
-		RefreshTokenDigest: refreshTokenDigest,
-		ExpiresAt:          now.Add(lifetime).UTC(),
+		UserID:                    sessionDomain.session.UserID,
+		ChainID:                   sessionDomain.session.ChainID,
+		RefreshTokenDigest:        refreshTokenDigest,
+		ExpiresAt:                 now.Add(lifetime).UTC(),
+		ConnectorClientIdentifier: sessionDomain.session.ConnectorClientIdentifier,
+		Audience:                  sessionDomain.session.Audience,
 	}
+}
+
+// HeldBy is true only for the channel that opened the session: web renewals pass an empty identifier.
+func (sessionDomain SessionDomain) HeldBy(connectorClientIdentifier string) bool {
+	return sessionDomain.session.ConnectorClientIdentifier == connectorClientIdentifier
+}
+
+func (sessionDomain SessionDomain) Audience() string {
+	return sessionDomain.session.Audience
 }

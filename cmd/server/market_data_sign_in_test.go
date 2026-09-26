@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/security"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,16 @@ func newMountedEngine(t *testing.T) *gin.Engine {
 
 func expiredAccessToken(t *testing.T) string {
 	accessToken, issueError := security.NewJwtAccessTokenProxy(testSigningKey).
-		Issue(1, time.Now().Add(-time.Minute))
+		Issue(vo.AccessTokenClaimsVo{UserID: 1, ExpiresAt: time.Now().Add(-time.Minute)})
+	require.NoError(t, issueError)
+
+	return "Bearer " + accessToken.AccessToken
+}
+
+func connectorAccessToken(t *testing.T) string {
+	accessToken, issueError := security.NewJwtAccessTokenProxy(testSigningKey).Issue(vo.AccessTokenClaimsVo{
+		UserID: 1, Audience: "https://mcp.example.com", ExpiresAt: time.Now().Add(time.Minute),
+	})
 	require.NoError(t, issueError)
 
 	return "Bearer " + accessToken.AccessToken
@@ -81,6 +91,19 @@ func TestChangingMarketDataRequiresSignIn(t *testing.T) {
 				requestMounted(engine, change.method, change.target, expiredProof), "with an expired proof")
 		})
 	}
+}
+
+func TestApprovingAConnectorRequiresSignInButDenyingDoesNot(t *testing.T) {
+	engine := newMountedEngine(t)
+
+	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/approval", ""))
+	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/approval", expiredAccessToken(t)))
+	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/approval", connectorAccessToken(t)), "with a connector's token")
+	assert.NotEqual(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/denial", ""))
 }
 
 func TestReadingMarketDataStaysPublic(t *testing.T) {

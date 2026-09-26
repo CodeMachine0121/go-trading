@@ -11,7 +11,6 @@ package mocks
 
 import (
 	reflect "reflect"
-	time "time"
 
 	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
@@ -41,19 +40,34 @@ func (m *MockIAccessTokenProxy) EXPECT() *MockIAccessTokenProxyMockRecorder {
 	return m.recorder
 }
 
-// Issue mocks base method.
-func (m *MockIAccessTokenProxy) Issue(userID uint, expiresAt time.Time) (vo.AccessTokenVo, error) {
+// ClaimsOf mocks base method.
+func (m *MockIAccessTokenProxy) ClaimsOf(accessToken string) (vo.AccessTokenClaimsVo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Issue", userID, expiresAt)
+	ret := m.ctrl.Call(m, "ClaimsOf", accessToken)
+	ret0, _ := ret[0].(vo.AccessTokenClaimsVo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimsOf indicates an expected call of ClaimsOf.
+func (mr *MockIAccessTokenProxyMockRecorder) ClaimsOf(accessToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimsOf", reflect.TypeOf((*MockIAccessTokenProxy)(nil).ClaimsOf), accessToken)
+}
+
+// Issue mocks base method.
+func (m *MockIAccessTokenProxy) Issue(claims vo.AccessTokenClaimsVo) (vo.AccessTokenVo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Issue", claims)
 	ret0, _ := ret[0].(vo.AccessTokenVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Issue indicates an expected call of Issue.
-func (mr *MockIAccessTokenProxyMockRecorder) Issue(userID, expiresAt any) *gomock.Call {
+func (mr *MockIAccessTokenProxyMockRecorder) Issue(claims any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Issue", reflect.TypeOf((*MockIAccessTokenProxy)(nil).Issue), userID, expiresAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Issue", reflect.TypeOf((*MockIAccessTokenProxy)(nil).Issue), claims)
 }
 
 // UserIdentifiedBy mocks base method.

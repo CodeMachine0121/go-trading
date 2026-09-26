@@ -36,6 +36,7 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"DELETE /users/me/telegram-delivery",
 		// Callers choose what to keep up to date, never when ingestion runs.
 		"DELETE /watchlist/:symbol",
+		"GET /.well-known/oauth-authorization-server",
 		"GET /chat/conversations",
 		"GET /chat/conversations/:id",
 		"GET /contract-funding-rate-settlements",
@@ -55,6 +56,8 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"GET /k-candles/series",
 		// Hands out names, descriptions and knobs, never the algorithm itself.
 		"GET /marketplace/strategy-scripts",
+		"GET /oauth/authorization-requests/:requestId",
+		"GET /oauth/authorize",
 		"GET /strategy-bots",
 		"GET /strategy-bots/:id",
 		"GET /strategy-bots/:id/runs",
@@ -81,6 +84,11 @@ func TestMountedRoutesAreExactlyTheOnesIntended(t *testing.T) {
 		"POST /k-candles/backfill",
 		"POST /k-candles/history",
 		"POST /marketplace/strategy-scripts/:id/adoption",
+		"POST /oauth/authorization-requests/:requestId/approval",
+		"POST /oauth/authorization-requests/:requestId/denial",
+		"POST /oauth/introspection",
+		"POST /oauth/register",
+		"POST /oauth/token",
 		"POST /sessions",
 		"POST /sessions/renewal",
 		"POST /sessions/revocation",

@@ -141,7 +141,7 @@ func aMintedRefreshToken() vo.RefreshTokenVo {
 func (fixture userApplicationUnderTest) expectSessionOpened() {
 	fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 	fixture.accessTokenProxy.EXPECT().
-		Issue(gomock.Any(), gomock.Any()).
+		Issue(gomock.Any()).
 		Return(vo.AccessTokenVo{AccessToken: "a-signed-token", ExpiresAt: accessTokenExpiry}, nil)
 	fixture.sessionRepository.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
@@ -305,7 +305,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 			Return(true)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(uint(7), accessTokenExpiry).
+			Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: accessTokenExpiry}).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token", ExpiresAt: accessTokenExpiry}, nil)
 		fixture.sessionRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
@@ -333,7 +333,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
@@ -356,7 +356,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
@@ -387,7 +387,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(uint(7), time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)).
+			Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)}).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
@@ -421,7 +421,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{}, domains.ErrAccessTokenUnavailable)
 
 		_, err := fixture.userApplication.SignIn(t.Context(), aSignInDto())
@@ -452,7 +452,7 @@ func TestUserApplicationSignIn(t *testing.T) {
 		fixture.passwordProofProxy.EXPECT().Matches(gomock.Any(), gomock.Any()).Return(true)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Save(gomock.Any(), gomock.Any()).
@@ -761,6 +761,49 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 	})
 }
 
+func TestUserApplicationIdentifyActivatedWebUser(t *testing.T) {
+	testCases := []struct {
+		name          string
+		audience      string
+		expectedError error
+	}{
+		{name: "a web sign-in is handed over", audience: ""},
+		{name: "a connector's sign-in is refused as needing to sign in",
+			audience: "https://mcp.example.com", expectedError: domains.ErrAuthenticationRequired},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+			fixture.accessTokenProxy.EXPECT().ClaimsOf("a-signed-token").Return(vo.AccessTokenClaimsVo{
+				UserID: 7, Audience: testCase.audience, ExpiresAt: accessTokenExpiry,
+			}, nil)
+			fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil).AnyTimes()
+			fixture.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+				Return(aLetInUser(7, "james@example.com"), nil).AnyTimes()
+
+			userDto, err := fixture.userApplication.IdentifyActivatedWebUser(t.Context(), "a-signed-token")
+
+			if testCase.expectedError != nil {
+				require.ErrorIs(t, err, testCase.expectedError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, uint(7), userDto.ID)
+		})
+	}
+
+	t.Run("a proof nobody can read is refused", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().ClaimsOf("a-tampered-token").
+			Return(vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired)
+
+		_, err := fixture.userApplication.IdentifyActivatedWebUser(t.Context(), "a-tampered-token")
+
+		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+}
+
 func aStoredSession() entities.Session {
 	return entities.Session{
 		ID:                 11,
@@ -796,7 +839,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(uint(7), accessTokenExpiry).
+			Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: accessTokenExpiry}).
 			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token", ExpiresAt: accessTokenExpiry}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), uint(11), gomock.Any()).
@@ -827,7 +870,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), uint(11), gomock.Any()).
@@ -1014,7 +1057,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 			Return(aStoredUser(7, "james@example.com"), nil)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -1038,7 +1081,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 			Return(aStoredUser(7, "james@example.com"), nil)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -1067,7 +1110,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token"}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -1089,7 +1132,7 @@ func TestUserApplicationRenewSession(t *testing.T) {
 			Return(aStoredUser(7, "james@example.com"), nil)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(gomock.Any(), gomock.Any()).
+			Issue(gomock.Any()).
 			Return(vo.AccessTokenVo{}, domains.ErrAccessTokenUnavailable)
 
 		_, err := fixture.userApplication.RenewSession(t.Context(), aRenewal())
@@ -1561,7 +1604,7 @@ func TestUserApplicationLockingAnAccountLeavesWhoeverIsAlreadyInsideAlone(t *tes
 			Mint().
 			Return(vo.RefreshTokenVo{Value: "a-newer-token", Digest: "a-newer-digest"}, nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(uint(7), accessTokenExpiry).
+			Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: accessTokenExpiry}).
 			Return(vo.AccessTokenVo{AccessToken: "a-newer-signed-token", ExpiresAt: accessTokenExpiry}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), uint(11), gomock.Any()).

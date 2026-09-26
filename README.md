@@ -152,6 +152,8 @@ curl localhost:8080/health
 | `AUTH_ACCESS_TOKEN_SIGNING_KEY` | 空 | 簽發登入憑證的鑰匙。**沒有預設值也不該有**——有預設值就是所有人共用一把，那樣的憑證誰都能自己偽造。沒設時：`POST /sessions` 與 `POST /sessions/renewal` 回 `503`，`GET /users/me` 一律 `401`（沒有鑰匙就誰的憑證都認不得）；只有 `POST /users` 與 `POST /sessions/revocation` 照常。產生一把：`openssl rand -base64 48` |
 | `AUTH_ACCESS_TOKEN_LIFETIME_MINUTES` | `15` | 一份**登入憑證**能用多久（分鐘）。它仍然不留存、撤不掉，所以這個數字就等於「登出之後那一張還通得過多久」。**舊的 `AUTH_ACCESS_TOKEN_LIFETIME_HOURS` 已不再讀取**——單位換了，沿用舊名會讓寫著 `24` 的設定安靜地從一天變成 24 分鐘 |
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | 外面看到的本服務網址（結尾斜線會去掉）。外掛授權說明書的發行者與每個位置都以它為準，**不從請求推導**——正式環境前面的轉手會把協定改寫成 http。正式環境設 `https://trading-api.coding-afternoon.com` |
+| `FRONTEND_BASE_URL` | `http://localhost:3000` | 網頁的網址（結尾斜線會去掉）；請求外掛授權時使用者被送到它底下的 `/connector-authorization?request=<代號>`。正式環境設 `https://go-trading.coding-afternoon.com` |
 | `AUTH_SIGN_IN_FAILURE_THRESHOLD` | `3` | 連續幾次密碼錯誤就把帳號鎖起來。**到達的那一次本身就被拒絕**，沒有「先放你進去再鎖」；設 `0` 或負值會退回預設值，關不掉這道鎖 |
 | `AUTH_SIGN_IN_LOCKOUT_DAYS` | `7` | 帳號被鎖起來一次要鎖多久（天）。鎖住期間**連正確的密碼也進不來**，而且再試不會把解除時刻往後延。**沒有自助解鎖**——時間到了自己開，等不了就直接改那一列的 `locked_until`（或改密碼，那也會解鎖） |
 | `TRUSTED_PROXY_CIDRS` | 空 | 信得過的轉手所在網段，逗號分隔。**空的就是一層都不信**：請求自稱從哪裡來一律不採信，來源以直接連進來的那一方為準。格式寫錯服務拒絕啟動 |
@@ -232,6 +234,14 @@ curl localhost:8080/health
 | `POST` | `/sessions/renewal` | 帶著**續用憑證**換一對全新的憑證；舊的那一份當場作廢 |
 | `POST` | `/sessions/revocation` | 登出：帶著續用憑證，把整條換發鏈作廢。恆回 `204` |
 | `GET` | `/users/me` | 帶著 `Authorization: Bearer <登入憑證>` 問「我是誰」 |
+| `GET` | `/.well-known/oauth-authorization-server` | 外掛授權說明書（RFC 8414）：授權、換授權、登記、查驗的位置，只支援授權碼＋S256、不收外掛祕密 |
+| `POST` | `/oauth/register` | 外掛登記（RFC 7591）；送回地址只收本機 `http`（`localhost`／`127.0.0.1`／`[::1]`，任何埠）。回 `201` 與 `client_id`；套用身分相關額度 |
+| `GET` | `/oauth/authorize` | 請求外掛授權（授權碼＋PKCE）。外掛或送回地址不可信回 `400`、不轉址；請求不完整轉回外掛附 `error=invalid_request`；完整則記下 10 分鐘有效的待授權請求並轉到網頁的外掛授權頁 |
+| `GET` | `/oauth/authorization-requests/{requestId}` | 網頁查詢待授權請求：`clientName`、`expiresAt`；不存在、過期、已決定一律 `404` |
+| `POST` | `/oauth/authorization-requests/{requestId}/approval` | 已開通的登入者允許；回 `redirectTo`（送回地址附一次性、5 分鐘有效的授權碼與 `state`） |
+| `POST` | `/oauth/authorization-requests/{requestId}/denial` | 拒絕，不必登入；回 `redirectTo`（附 `error=access_denied` 與 `state`） |
+| `POST` | `/oauth/token` | 以授權碼或續用憑證換一對憑證（表單）；回覆 `Cache-Control: no-store`。授權碼重用即作廢它換出的登入；套用身分相關額度 |
+| `POST` | `/oauth/introspection` | 查驗登入憑證（RFC 7662）：`{"active":true,"sub","aud","exp"}` 或 `{"active":false}`；只套用一般額度 |
 
 時間一律為 RFC3339 的世界標準時間（`2026-08-29T09:00:00Z`）。
 **修改的對象由網址決定**：內文若帶了與網址不同的交易標的或起始時間，會被拒絕。

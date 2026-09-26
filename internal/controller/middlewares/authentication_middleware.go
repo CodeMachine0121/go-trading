@@ -7,6 +7,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,7 +30,19 @@ func NewAuthenticationMiddleware(userApplication *application.UserApplication) *
 func (authenticationMiddleware *AuthenticationMiddleware) Handle(ginContext *gin.Context) {
 	userDto, identifyError := authenticationMiddleware.userApplication.IdentifyActivatedUser(
 		ginContext.Request.Context(), accessTokenOf(ginContext))
+	authenticationMiddleware.admitOrRefuse(ginContext, userDto, identifyError)
+}
 
+// HandleWebSignIn also refuses connector tokens, for the routes only the user in the browser may use.
+func (authenticationMiddleware *AuthenticationMiddleware) HandleWebSignIn(ginContext *gin.Context) {
+	userDto, identifyError := authenticationMiddleware.userApplication.IdentifyActivatedWebUser(
+		ginContext.Request.Context(), accessTokenOf(ginContext))
+	authenticationMiddleware.admitOrRefuse(ginContext, userDto, identifyError)
+}
+
+func (authenticationMiddleware *AuthenticationMiddleware) admitOrRefuse(
+	ginContext *gin.Context, userDto dto.UserDto, identifyError error,
+) {
 	// 403, not 401: callers treat 401 as "sign in again", which cannot help an account awaiting activation; the instruction comes from the domain error.
 	var notActivated domains.AccountNotActivatedError
 	if errors.As(identifyError, &notActivated) {
