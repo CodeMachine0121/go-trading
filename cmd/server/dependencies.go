@@ -426,6 +426,7 @@ func registerRoutes(
 				security.NewJwtAccessTokenProxy(
 					applicationConfig.Authentication.AccessTokenSigningKey),
 				security.NewRandomRefreshTokenProxy(),
+				security.NewRandomOpaqueIdentifierProxy(),
 				clock.NewSystemClockProxy(),
 				sessionLifetimes,
 				vo.ConnectorAuthorizationPolicyVo{

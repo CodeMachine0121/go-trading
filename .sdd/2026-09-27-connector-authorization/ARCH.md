@@ -46,13 +46,14 @@
 | `ConnectorAuthorizationRequestDomain` | Domain Model | 待授權請求是否仍可決定（`Open(now)`）、產生授權碼 entity、允許/拒絕的送回網址、`ToDto(clientName)` | `ConnectorRedirectUriDomain` | US-03 |
 | `ConnectorAuthorizationCodeExchangeDomain` | Domain Model | 換授權請求欄位齊備 | — | US-04 |
 | `ConnectorAuthorizationCodeDomain` | Domain Model | 授權碼 `Redeemed`／`Expired`／`Accepts(exchange)`（同外掛、地址一字不差、S256(verifier)==challenge）、`ToSession` | — | US-04 |
-| `ConnectorAuthorizationService` | Domain Service | 登記、開始授權、查詢/允許/拒絕待授權請求、授權碼換授權、查驗登入憑證 | 三個新 repository、`ISessionRepository`、`IUserRepository`、`IAccessTokenProxy`、`IRefreshTokenProxy`、`IClockProxy`、`SessionLifetimesVo`、`ConnectorAuthorizationPolicyVo` | US-01..05 |
+| `ConnectorAuthorizationService` | Domain Service | 登記、開始授權、查詢/允許/拒絕待授權請求、授權碼換授權、查驗登入憑證 | 三個新 repository、`ISessionRepository`、`IUserRepository`、`IAccessTokenProxy`、`IRefreshTokenProxy`、`IOpaqueIdentifierProxy`、`IClockProxy`、`SessionLifetimesVo`、`ConnectorAuthorizationPolicyVo` | US-01..05 |
 | `ConnectorAuthorizationApplication` | Application | 轉交上述用例；`RenewConnectorSession` 轉交 `UserService`；說明書由 policy 產生 | `ConnectorAuthorizationService`、`UserService` | US-04, US-06 |
 | `ConnectorAuthorizationController` | Controller | 8 個 handler；OAuth 錯誤 `{"error","error_description"}`；token 回應 `Cache-Control: no-store`；依 `grant_type` 分派 | `ConnectorAuthorizationApplication` | 全部 |
 | `IConnectorClientRepository` + `ConnectorClientRepository` | Repository | `Save`、`FindOneByClientIdentifier` | — | US-01, 02 |
 | `IConnectorAuthorizationRequestRepository` + impl | Repository | `Save`、`FindOneByRequestIdentifier`、`Approve(requestID, code)`（**同一交易**：未決定才標記＋建授權碼）、`Deny(requestID)`（未決定才標記） | — | US-03 |
 | `IConnectorAuthorizationCodeRepository` + impl | Repository | `FindOneByDigest`、`Redeem(codeID, session)`（**同一交易**：`session_chain_id` 仍為空才寫入鏈＋建登入階段） | — | US-04 |
 | `vo.ConnectorAuthorizationPolicyVo` | VO | `PublicBaseUrl`、`FrontendBaseUrl`、`RequestLifetime`(10m)、`CodeLifetime`(5m)；`ToServerMetadataDto()` | — | US-02, 03, 04, 06 |
+| `IOpaqueIdentifierProxy` / `RandomOpaqueIdentifierProxy` | 介面 / Proxy | 產生外掛代號、待授權請求代號與授權碼（256-bit 隨機值＋SHA-256 留存樣，授權碼只存留存樣）；續用憑證仍走 `IRefreshTokenProxy`，兩種能力各自演進 | — | US-01..04 |
 | `vo.AccessTokenClaimsVo` | VO | `UserID`、`Audience`、`ExpiresAt`；`ToIntrospectionDto()` | — | US-04, 05 |
 | DTOs | DTO | `ConnectorClientRegistrationDto`、`ConnectorClientDto`、`ConnectorAuthorizationStartDto`、`ConnectorAuthorizationRedirectDto`(`redirectTo`)、`ConnectorAuthorizationRequestDto`(`clientName`,`expiresAt`)、`ConnectorAuthorizationCodeExchangeDto`、`ConnectorTokensDto`、`AccessTokenIntrospectionDto`、`ConnectorAuthorizationServerMetadataDto` | — | — |
 | Requests | Request | `ConnectorClientRegistrationRequest`（JSON）、`ConnectorTokenRequest`（form）、`AccessTokenIntrospectionRequest`（form） | — | — |
@@ -100,7 +101,7 @@ flowchart TD
     S --> RR[(ConnectorAuthorizationRequestRepository)]
     S --> KR[(ConnectorAuthorizationCodeRepository)]
     S --> SR[(SessionRepository)]
-    S --> T[IAccessTokenProxy / IRefreshTokenProxy]
+    S --> T[IAccessTokenProxy / IRefreshTokenProxy / IOpaqueIdentifierProxy]
     U --> SR
 ```
 
@@ -113,7 +114,6 @@ flowchart TD
 - **Patterns applied & why:** 條件式更新（`WHERE decided_at IS NULL` / `session_chain_id = ''`）做一次性保證，與既有 `SessionRepository.Rotate` 同一招；需要兩張表一起寫時放在同一個 repository 方法的交易內（比照 `UserRepository.ChangePasswordProof` 作廢登入階段）。
 - **Do not hardcode:** 公開網址一律取自 `ConnectorAuthorizationPolicyVo`；兩個有效期在組裝根給入 VO，不散落在 Domain Model。
 - **Known debt / deferred:**
-  - 授權碼與隨機代號沿用 `IRefreshTokenProxy.Mint`（256-bit 隨機值＋SHA-256 留存樣），不另開介面——能力完全相同。
   - 換授權時「產生一對憑證」的兩行（Mint＋Issue）與 `UserService.newSessionMaterial` 重複；若再有第三處需要開登入鏈，再抽出共用的登入鏈簽發者。
   - 待授權請求、授權碼、外掛登記不清除。
 

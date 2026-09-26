@@ -45,6 +45,7 @@ type connectorAuthorizationApplicationUnderTest struct {
 	userRepository                          *mocks.MockIUserRepository
 	accessTokenProxy                        *mocks.MockIAccessTokenProxy
 	refreshTokenProxy                       *mocks.MockIRefreshTokenProxy
+	opaqueIdentifierProxy                   *mocks.MockIOpaqueIdentifierProxy
 }
 
 // newConnectorAuthorizationApplicationUnderTest uses the real domain services, mocking only stores, token proxies and the clock.
@@ -57,6 +58,10 @@ func newConnectorAuthorizationApplicationUnderTest(t *testing.T) connectorAuthor
 	userRepository := mocks.NewMockIUserRepository(mockController)
 	accessTokenProxy := mocks.NewMockIAccessTokenProxy(mockController)
 	refreshTokenProxy := mocks.NewMockIRefreshTokenProxy(mockController)
+	opaqueIdentifierProxy := mocks.NewMockIOpaqueIdentifierProxy(mockController)
+	opaqueIdentifierProxy.EXPECT().DigestOf(gomock.Any()).DoAndReturn(func(value string) string {
+		return value + "-digest"
+	}).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(connectorMoment).AnyTimes()
 	refreshTokenProxy.EXPECT().DigestOf(gomock.Any()).DoAndReturn(func(value string) string {
@@ -72,7 +77,7 @@ func newConnectorAuthorizationApplicationUnderTest(t *testing.T) connectorAuthor
 			service.NewConnectorAuthorizationService(
 				connectorClientRepository, connectorAuthorizationRequestRepository,
 				connectorAuthorizationCodeRepository, sessionRepository, userRepository,
-				accessTokenProxy, refreshTokenProxy, clockProxy, sessionLifetimes,
+				accessTokenProxy, refreshTokenProxy, opaqueIdentifierProxy, clockProxy, sessionLifetimes,
 				connectorAuthorizationPolicy),
 			userService),
 		userApplication:                         application.NewUserApplication(userService),
@@ -83,6 +88,7 @@ func newConnectorAuthorizationApplicationUnderTest(t *testing.T) connectorAuthor
 		userRepository:                          userRepository,
 		accessTokenProxy:                        accessTokenProxy,
 		refreshTokenProxy:                       refreshTokenProxy,
+		opaqueIdentifierProxy:                   opaqueIdentifierProxy,
 	}
 }
 
@@ -125,7 +131,7 @@ func TestConnectorAuthorizationApplicationDescribesItselfAtThePublicAddress(t *t
 func TestConnectorAuthorizationApplicationRegisterConnectorClient(t *testing.T) {
 	t.Run("a loopback connector gets a fresh identifier and the fixed capabilities", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
-		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "client-A", Digest: "unused"}, nil)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "client-A", Digest: "unused"}, nil)
 		fixture.connectorClientRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, connectorClient entities.ConnectorClient) (entities.ConnectorClient, error) {
 				connectorClient.ID = 3
@@ -167,10 +173,10 @@ func TestConnectorAuthorizationApplicationRegisterConnectorClient(t *testing.T) 
 			expectedError error
 		}{
 			{name: "mint", expectedError: mintFailure, arrange: func(fixture connectorAuthorizationApplicationUnderTest) {
-				fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{}, mintFailure)
+				fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{}, mintFailure)
 			}},
 			{name: "store", expectedError: storageFailure, arrange: func(fixture connectorAuthorizationApplicationUnderTest) {
-				fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "client-A"}, nil)
+				fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "client-A"}, nil)
 				fixture.connectorClientRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.ConnectorClient{}, storageFailure)
 			}},
@@ -199,7 +205,7 @@ func TestConnectorAuthorizationApplicationStartConnectorAuthorization(t *testing
 	t.Run("a complete request is recorded as sent and the browser goes to the web page", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		fixture.expectConnectorClients("client-A")
-		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "request-1"}, nil)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "request-1"}, nil)
 		fixture.connectorAuthorizationRequestRepository.EXPECT().
 			Save(gomock.Any(), entities.ConnectorAuthorizationRequest{
 				RequestIdentifier:         "request-1",
@@ -273,10 +279,10 @@ func TestConnectorAuthorizationApplicationStartConnectorAuthorization(t *testing
 			expectedError error
 		}{
 			{name: "mint", expectedError: mintFailure, arrange: func(fixture connectorAuthorizationApplicationUnderTest) {
-				fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{}, mintFailure)
+				fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{}, mintFailure)
 			}},
 			{name: "store", expectedError: storageFailure, arrange: func(fixture connectorAuthorizationApplicationUnderTest) {
-				fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "request-1"}, nil)
+				fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "request-1"}, nil)
 				fixture.connectorAuthorizationRequestRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 					Return(entities.ConnectorAuthorizationRequest{}, storageFailure)
 			}},
@@ -382,7 +388,7 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 	t.Run("approval issues a code bound to the user and sends it back with the state", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment.Add(-time.Minute), nil))
-		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code", Digest: "the-code-digest"}, nil)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "the-code", Digest: "the-code-digest"}, nil)
 		fixture.connectorAuthorizationRequestRepository.EXPECT().
 			Approve(gomock.Any(), uint(21), connectorMoment, entities.ConnectorAuthorizationCode{
 				CodeDigest:                "the-code-digest",
@@ -404,7 +410,7 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 	t.Run("losing a concurrent decision is not found", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment, nil))
-		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code"}, nil)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "the-code"}, nil)
 		fixture.connectorAuthorizationRequestRepository.EXPECT().Approve(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(domains.ErrConnectorAuthorizationRequestNotFound)
 
@@ -426,7 +432,7 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		mintFailure := errors.New("no randomness")
 		fixture.expectAuthorizationRequest(aPendingAuthorizationRequest(connectorMoment, nil))
-		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{}, mintFailure)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{}, mintFailure)
 
 		_, err := fixture.connectorAuthorizationApplication.ApproveConnectorAuthorization(t.Context(), "request-1", 7)
 
@@ -438,7 +444,7 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 		authorizationRequest := aPendingAuthorizationRequest(connectorMoment, nil)
 		authorizationRequest.RedirectUri = "https://evil.example.com/cb"
 		fixture.expectAuthorizationRequest(authorizationRequest)
-		fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code"}, nil)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "the-code"}, nil)
 
 		_, err := fixture.connectorAuthorizationApplication.ApproveConnectorAuthorization(t.Context(), "request-1", 7)
 
@@ -883,7 +889,7 @@ func TestConnectorAuthorizationApplicationIntrospectAccessToken(t *testing.T) {
 func TestConnectorAuthorizationApplicationNeverRedirectsIntoTheFrontEndWithAnUnescapedIdentifier(t *testing.T) {
 	fixture := newConnectorAuthorizationApplicationUnderTest(t)
 	fixture.expectConnectorClients("client-A")
-	fixture.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "a b&c"}, nil)
+	fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "a b&c"}, nil)
 	fixture.connectorAuthorizationRequestRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		Return(entities.ConnectorAuthorizationRequest{}, nil)
 

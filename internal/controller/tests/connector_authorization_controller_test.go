@@ -36,6 +36,7 @@ type connectorRouterUnderTest struct {
 	userRepository                          *mocks.MockIUserRepository
 	accessTokenProxy                        *mocks.MockIAccessTokenProxy
 	refreshTokenProxy                       *mocks.MockIRefreshTokenProxy
+	opaqueIdentifierProxy                   *mocks.MockIOpaqueIdentifierProxy
 }
 
 func newConnectorRouterUnderTest(t *testing.T) connectorRouterUnderTest {
@@ -48,6 +49,10 @@ func newConnectorRouterUnderTest(t *testing.T) connectorRouterUnderTest {
 	userRepository := mocks.NewMockIUserRepository(mockController)
 	accessTokenProxy := mocks.NewMockIAccessTokenProxy(mockController)
 	refreshTokenProxy := mocks.NewMockIRefreshTokenProxy(mockController)
+	opaqueIdentifierProxy := mocks.NewMockIOpaqueIdentifierProxy(mockController)
+	opaqueIdentifierProxy.EXPECT().DigestOf(gomock.Any()).DoAndReturn(func(value string) string {
+		return value + "-digest"
+	}).AnyTimes()
 	refreshTokenProxy.EXPECT().DigestOf(gomock.Any()).DoAndReturn(func(value string) string {
 		return value + "-digest"
 	}).AnyTimes()
@@ -60,7 +65,7 @@ func newConnectorRouterUnderTest(t *testing.T) connectorRouterUnderTest {
 			service.NewConnectorAuthorizationService(
 				connectorClientRepository, connectorAuthorizationRequestRepository,
 				connectorAuthorizationCodeRepository, sessionRepository, userRepository,
-				accessTokenProxy, refreshTokenProxy, clockProxy, sessionLifetimes,
+				accessTokenProxy, refreshTokenProxy, opaqueIdentifierProxy, clockProxy, sessionLifetimes,
 				vo.ConnectorAuthorizationPolicyVo{
 					PublicBaseUrl: "https://trading-api.example.com", FrontendBaseUrl: "https://web.example.com",
 					RequestLifetime: 10 * time.Minute, CodeLifetime: 5 * time.Minute,
@@ -91,6 +96,7 @@ func newConnectorRouterUnderTest(t *testing.T) connectorRouterUnderTest {
 		userRepository:                          userRepository,
 		accessTokenProxy:                        accessTokenProxy,
 		refreshTokenProxy:                       refreshTokenProxy,
+		opaqueIdentifierProxy:                   opaqueIdentifierProxy,
 	}
 }
 
@@ -198,7 +204,7 @@ func TestConnectorAuthorizationControllerRefusesApprovalFromAPendingAccount(t *t
 func TestConnectorAuthorizationControllerRegistersConnectors(t *testing.T) {
 	t.Run("a loopback connector is created", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
-		router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "client-A"}, nil)
+		router.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "client-A"}, nil)
 		router.connectorClientRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, connectorClient entities.ConnectorClient) (entities.ConnectorClient, error) {
 				return connectorClient, nil
@@ -267,7 +273,7 @@ func TestConnectorAuthorizationControllerStartsAuthorization(t *testing.T) {
 	t.Run("a complete request, scope and all, redirects to the web page", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.expectConnectorClientA()
-		router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "request-1"}, nil)
+		router.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "request-1"}, nil)
 		router.connectorAuthorizationRequestRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, authorizationRequest entities.ConnectorAuthorizationRequest) (entities.ConnectorAuthorizationRequest, error) {
 				assert.Equal(t, "https://mcp.example.com/mcp", authorizationRequest.Resource)
@@ -363,7 +369,7 @@ func TestConnectorAuthorizationControllerShowsAndDecidesRequests(t *testing.T) {
 	t.Run("a signed-in user's approval returns where to send the browser", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.expectPendingRequest(connectorRouterMoment)
-		router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "the-code", Digest: "the-code-digest"}, nil)
+		router.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "the-code", Digest: "the-code-digest"}, nil)
 		router.connectorAuthorizationRequestRepository.EXPECT().Approve(gomock.Any(), uint(21), connectorRouterMoment, gomock.Any()).
 			DoAndReturn(func(_ context.Context, _ uint, _ time.Time, authorizationCode entities.ConnectorAuthorizationCode) error {
 				assert.Equal(t, signedInViewerID, authorizationCode.UserID)

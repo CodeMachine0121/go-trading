@@ -20,6 +20,7 @@ type ConnectorAuthorizationService struct {
 	userRepository                          domaininterface.IUserRepository
 	accessTokenProxy                        domaininterface.IAccessTokenProxy
 	refreshTokenProxy                       domaininterface.IRefreshTokenProxy
+	opaqueIdentifierProxy                   domaininterface.IOpaqueIdentifierProxy
 	clockProxy                              domaininterface.IClockProxy
 	sessionLifetimes                        vo.SessionLifetimesVo
 	authorizationPolicy                     vo.ConnectorAuthorizationPolicyVo
@@ -33,6 +34,7 @@ func NewConnectorAuthorizationService(
 	userRepository domaininterface.IUserRepository,
 	accessTokenProxy domaininterface.IAccessTokenProxy,
 	refreshTokenProxy domaininterface.IRefreshTokenProxy,
+	opaqueIdentifierProxy domaininterface.IOpaqueIdentifierProxy,
 	clockProxy domaininterface.IClockProxy,
 	sessionLifetimes vo.SessionLifetimesVo,
 	authorizationPolicy vo.ConnectorAuthorizationPolicyVo,
@@ -45,6 +47,7 @@ func NewConnectorAuthorizationService(
 		userRepository:                          userRepository,
 		accessTokenProxy:                        accessTokenProxy,
 		refreshTokenProxy:                       refreshTokenProxy,
+		opaqueIdentifierProxy:                   opaqueIdentifierProxy,
 		clockProxy:                              clockProxy,
 		sessionLifetimes:                        sessionLifetimes,
 		authorizationPolicy:                     authorizationPolicy,
@@ -63,7 +66,7 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) RegisterConn
 		return dto.ConnectorClientDto{}, validationError
 	}
 
-	clientIdentifier, mintError := connectorAuthorizationService.refreshTokenProxy.Mint()
+	clientIdentifier, mintError := connectorAuthorizationService.opaqueIdentifierProxy.Mint()
 	if mintError != nil {
 		return dto.ConnectorClientDto{}, mintError
 	}
@@ -99,7 +102,7 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) StartConnect
 		return refusal, nil
 	}
 
-	requestIdentifier, mintError := connectorAuthorizationService.refreshTokenProxy.Mint()
+	requestIdentifier, mintError := connectorAuthorizationService.opaqueIdentifierProxy.Mint()
 	if mintError != nil {
 		return dto.ConnectorAuthorizationRedirectDto{}, mintError
 	}
@@ -149,7 +152,7 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) ApproveConne
 		return dto.ConnectorAuthorizationRedirectDto{}, openError
 	}
 
-	authorizationCode, mintError := connectorAuthorizationService.refreshTokenProxy.Mint()
+	authorizationCode, mintError := connectorAuthorizationService.opaqueIdentifierProxy.Mint()
 	if mintError != nil {
 		return dto.ConnectorAuthorizationRedirectDto{}, mintError
 	}
@@ -228,7 +231,7 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) ExchangeAuth
 		return dto.ConnectorTokensDto{}, clientError
 	}
 
-	codeDigest := connectorAuthorizationService.refreshTokenProxy.DigestOf(exchange.Code())
+	codeDigest := connectorAuthorizationService.opaqueIdentifierProxy.DigestOf(exchange.Code())
 	storedCode, findError := connectorAuthorizationService.connectorAuthorizationCodeRepository.FindOneByDigest(
 		executionContext, codeDigest)
 	if errors.Is(findError, domains.ErrConnectorAuthorizationCodeNotFound) {
