@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "go-trading",
-    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
+    "description": "go-trading 的完整 REST API。\n\n**先讀這段。**\n\n1. 這份 collection 可以**整包按順序跑**（Runner / Newman）。每個請求都有斷言。\n2. 所有時間由 collection 的 pre-request script **在執行當下算出來**，不會有寫死的日期過期的問題。起始時間一律對齊一分鐘刻度、且一定落在過去——系統會拒絕不在刻度上或指向未來的 K 線。\n3. CRUD 一律用 `{{symbol}}`（預設 `TESTONLY`），刻意**避開自動抓取的觀察清單**，免得測試資料跟真實行情互相干擾。\n\n**看行情不必登入，改行情要登入（自 2026-09-25 起）。** 新增／修改／刪除 K 線、手動補齊、歷史同步（含查進度）、增減觀察清單與合約追蹤名單，現貨與合約兩邊都要帶已開通使用者的登入憑證（collection 層級的 bearer `{{accessToken}}`）；沒帶回 **401**，待開通回 **403**。查 K 線、彙總、即時跟盤、交易標的清單照舊不必登入。\n\n**自動抓取沒有任何端點，這是刻意的。** 它是背景工作，只由 `BACKGROUND_JOBS_ENABLED` 與 `KCANDLE_INGESTION_SYMBOLS` 這兩個環境變數控制。要看它做了什麼請看伺服器的執行紀錄。\n\n**帳號開通把關（自 2026-09-19 起）。** 新建立的使用者一律是**待開通**：登入得進來、問得出自己是誰、續用得了、登出得掉，其餘每一件需要登入的事一律回 **403**，並附上寄信申請開通的指示。\n\n**因此這份 collection 不能整包直接跑完**——「建立使用者」之後，門後面的每一段（變更密碼、Telegram 投遞、策略腳本、交易策略、機器人、對話助手……）都會被擋。放行只在系統之外做，先對資料庫下：\n\n```sql\nUPDATE \"Users\" SET is_enabled = true WHERE email = '<剛剛建立的那個電子郵件>';\n```\n\n系統刻意**沒有**任何開通用的端點，也沒有管理員這種身分——所以誰都放行不了自己或別人。\n\n**登入失敗鎖定（自 2026-09-19 起）。** 同一個帳號連續 **3** 次密碼錯誤就會被鎖住 **7** 天，期間 `POST /sessions` 一律回 **429**（含密碼正確的那一次），回應除了訊息還帶一個 `lockedUntil` 欄位說出什麼時候能再試。再試不會把解除時刻往後延。\n\n跑這份 collection 時只要密碼填錯三次就會撞到它。解開的方式：等時間到、變更密碼（會一併解鎖），或直接對資料庫下：\n\n```sql\nUPDATE \"Users\" SET failed_sign_in_count = 0, locked_until = NULL WHERE email = '<那個電子郵件>';\n```\n\n門檻與天數可用 `AUTH_SIGN_IN_FAILURE_THRESHOLD` / `AUTH_SIGN_IN_LOCKOUT_DAYS` 調整，但**關不掉**——設 0 或負值會退回預設值。\n\n**請求節流（自 2026-09-25 起）。** 每位請求者每分鐘補回 600 份、最多累積 120 份請求額度；建立使用者、登入、續用、改密碼、外掛登記、開始外掛授權與換授權另一份**只認來源位置**的額度：每分鐘 10 份、最多累積 10 份。用完回 **429**，`Retry-After` 標頭說還要等幾秒（範例見「登入」的已存回應）。\n\n**整包連續跑會撞到身分相關額度**——這份 collection 在一分鐘內會做二十次以上的登入、續用與改密碼。本機跑 Runner / Newman 時請把伺服器的 `RATE_LIMIT_CREDENTIAL_BURST` 調高（例如 `100`），或在 Runner 設每個請求之間的延遲。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -1851,7 +1851,7 @@
     },
     {
       "name": "外掛授權",
-      "description": "外掛（例如 Claude Code）不再經手密碼：登記 → 開始授權（送到網頁的外掛授權頁）→ 使用者允許或拒絕 → 以授權碼換授權 → 續用 → 對象服務查驗。\n\n**「允許」需要已開通的帳號。** 本包建立的使用者是待開通，所以「允許」回 403，後面依賴授權碼的幾則會自動略過；要跑完整條，請先開通 `{{userEmail}}` 再重跑本資料夾。\n\n挑戰與答案取自 RFC 7636 附錄 B。說明書的網址取自伺服器的 `PUBLIC_BASE_URL`，外掛授權頁取自 `FRONTEND_BASE_URL`。",
+      "description": "外掛（例如 Claude Code）不再經手密碼：登記 → 開始授權（送到網頁的外掛授權頁）→ 使用者允許或拒絕 → 以授權碼換授權 → 續用 → 對象服務查驗。\n\n**「允許」需要已開通的帳號。** 本包建立的使用者是待開通，所以「允許」回 403，後面依賴授權碼的幾則會自動略過；要跑完整條，請先開通 `{{userEmail}}` 再重跑本資料夾。\n\n挑戰與答案取自 RFC 7636 附錄 B。挑戰必須是 43 字元的 base64url、挑戰答案必須是 43–128 個英數或 `-._~` 字元，格式不對分別送回外掛或回 400 `invalid_request`。\n\n**「允許」只收網頁登入的憑證。** 外掛換到的登入憑證（帶對象服務）按「允許」一律回 401，外掛不能替自己核准新的授權。說明書的網址取自伺服器的 `PUBLIC_BASE_URL`，外掛授權頁取自 `FRONTEND_BASE_URL`。",
       "item": [
         {
           "name": "說明書 — 位置都以公開網址為準",
@@ -2272,6 +2272,75 @@
                 {
                   "key": "redirect_uri",
                   "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "state",
+                  "value": "postman-state"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const queryOf = (address) => Object.fromEntries((address.split(\"?\")[1] || \"\").split(\"&\").filter(Boolean).map((pair) => pair.split(\"=\").map((part) => decodeURIComponent(part.replace(/\\+/g, \" \")))));",
+                  "pm.test(\"回應 302\", function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});",
+                  "pm.test(\"送回外掛，附請求無效與回執記號\", function () {",
+                  "    const location = pm.response.headers.get(\"Location\");",
+                  "    pm.expect(location.split(\"?\")[0]).to.eql(pm.collectionVariables.get(\"connectorRedirectUri\"));",
+                  "    pm.expect(queryOf(location).error).to.eql(\"invalid_request\");",
+                  "    pm.expect(queryOf(location).state).to.eql(\"postman-state\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "開始授權 — 挑戰格式不對就送回外掛",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorize?response_type=code&client_id={{connectorClientId}}&redirect_uri={{connectorRedirectUri}}&code_challenge=too-short&code_challenge_method=S256&state=postman-state",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{connectorClientId}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{connectorRedirectUri}}"
+                },
+                {
+                  "key": "code_challenge",
+                  "value": "too-short"
+                },
+                {
+                  "key": "code_challenge_method",
+                  "value": "S256"
                 },
                 {
                   "key": "state",
@@ -3031,6 +3100,49 @@
           "protocolProfileBehavior": {
             "followRedirects": false
           }
+        },
+        {
+          "name": "允許 — 外掛的登入憑證不行",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/authorization-requests/{{connectorAuthorizationRequestId}}/approval",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "authorization-requests",
+                "{{connectorAuthorizationRequestId}}",
+                "approval"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{connectorAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "外掛換到的登入憑證帶著對象服務；拿它按「允許」一律 401，這筆待授權請求仍然留著（下一則拒絕得了就是證明）。需要先跑過「換授權 — 以授權碼換一對憑證」。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "拒絕 — 不必登入",
