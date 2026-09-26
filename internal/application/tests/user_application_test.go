@@ -761,6 +761,49 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 	})
 }
 
+func TestUserApplicationIdentifyActivatedWebUser(t *testing.T) {
+	testCases := []struct {
+		name          string
+		audience      string
+		expectedError error
+	}{
+		{name: "a web sign-in is handed over", audience: ""},
+		{name: "a connector's sign-in is refused as needing to sign in",
+			audience: "https://mcp.example.com", expectedError: domains.ErrAuthenticationRequired},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+			fixture.accessTokenProxy.EXPECT().ClaimsOf("a-signed-token").Return(vo.AccessTokenClaimsVo{
+				UserID: 7, Audience: testCase.audience, ExpiresAt: accessTokenExpiry,
+			}, nil)
+			fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil).AnyTimes()
+			fixture.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).
+				Return(aLetInUser(7, "james@example.com"), nil).AnyTimes()
+
+			userDto, err := fixture.userApplication.IdentifyActivatedWebUser(t.Context(), "a-signed-token")
+
+			if testCase.expectedError != nil {
+				require.ErrorIs(t, err, testCase.expectedError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, uint(7), userDto.ID)
+		})
+	}
+
+	t.Run("a proof nobody can read is refused", func(t *testing.T) {
+		fixture := newUserApplicationUnderTest(t, sessionLifetimes)
+		fixture.accessTokenProxy.EXPECT().ClaimsOf("a-tampered-token").
+			Return(vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired)
+
+		_, err := fixture.userApplication.IdentifyActivatedWebUser(t.Context(), "a-tampered-token")
+
+		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+}
+
 func aStoredSession() entities.Session {
 	return entities.Session{
 		ID:                 11,

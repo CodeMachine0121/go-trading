@@ -157,3 +157,60 @@ func TestTheDoorReadsTheSchemeWithoutRegardToCase(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }
+
+func TestTheWebOnlyDoorTurnsAwayAConnectorsSignIn(t *testing.T) {
+	testCases := []struct {
+		name           string
+		audience       string
+		expectedStatus int
+	}{
+		{name: "a web sign-in is let in", audience: "", expectedStatus: http.StatusOK},
+		{name: "a connector's sign-in is refused", audience: "https://mcp.example.com",
+			expectedStatus: http.StatusUnauthorized},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			mockController := gomock.NewController(t)
+			storedUser := entities.User{ID: 7, Email: "alice@example.com", IsEnabled: true}
+			userRepository := mocks.NewMockIUserRepository(mockController)
+			userRepository.EXPECT().FindOne(gomock.Any(), storedUser.ID).Return(storedUser, nil).AnyTimes()
+			accessTokenProxy := mocks.NewMockIAccessTokenProxy(mockController)
+			accessTokenProxy.EXPECT().ClaimsOf("a-proof").Return(vo.AccessTokenClaimsVo{
+				UserID: storedUser.ID, Audience: testCase.audience, ExpiresAt: time.Now().Add(time.Minute),
+			}, nil).AnyTimes()
+			accessTokenProxy.EXPECT().UserIdentifiedBy("a-proof").Return(storedUser.ID, nil).AnyTimes()
+
+			middleware := middlewares.NewAuthenticationMiddleware(
+				application.NewUserApplication(
+					service.NewUserService(
+						userRepository,
+						mocks.NewMockISessionRepository(mockController),
+						mocks.NewMockIPasswordProofProxy(mockController),
+						accessTokenProxy,
+						mocks.NewMockIRefreshTokenProxy(mockController),
+						mocks.NewMockIClockProxy(mockController),
+						vo.SessionLifetimesVo{AccessToken: 15 * time.Minute, RefreshToken: 30 * 24 * time.Hour},
+						gatekeeping,
+						vo.SignInLockoutPolicyVo{FailureThreshold: 3, LockoutDuration: 7 * 24 * time.Hour},
+					),
+				),
+			)
+			handlerRunCount := 0
+			engine := gin.New()
+			engine.POST("/web-only", middleware.HandleWebSignIn, func(ginContext *gin.Context) {
+				handlerRunCount++
+				ginContext.Status(http.StatusOK)
+			})
+
+			request := httptest.NewRequest(http.MethodPost, "/web-only", nil)
+			request.Header.Set("Authorization", "Bearer a-proof")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			assert.Equal(t, testCase.expectedStatus, recorder.Code)
+			assert.Equal(t, testCase.expectedStatus == http.StatusOK, handlerRunCount == 1)
+		})
+	}
+}

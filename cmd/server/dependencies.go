@@ -72,7 +72,9 @@ func registerRoutes(
 	userApplication := application.NewUserApplication(userService)
 
 	// Reading market data is public; changing it, and everything a person owns, needs an activated sign-in.
-	requiresSignIn := middlewares.NewAuthenticationMiddleware(userApplication).Handle
+	authenticationMiddleware := middlewares.NewAuthenticationMiddleware(userApplication)
+	requiresSignIn := authenticationMiddleware.Handle
+	requiresWebSignIn := authenticationMiddleware.HandleWebSignIn
 
 	kCandleRepository := persistence.NewKCandleRepository(database)
 
@@ -444,7 +446,7 @@ func registerRoutes(
 	engine.GET("/oauth/authorize", connectorAuthorizationController.StartConnectorAuthorization)
 	engine.GET("/oauth/authorization-requests/:requestId",
 		connectorAuthorizationController.GetConnectorAuthorizationRequest)
-	engine.POST("/oauth/authorization-requests/:requestId/approval", requiresSignIn,
+	engine.POST("/oauth/authorization-requests/:requestId/approval", requiresWebSignIn,
 		connectorAuthorizationController.ApproveConnectorAuthorization)
 	engine.POST("/oauth/authorization-requests/:requestId/denial",
 		connectorAuthorizationController.DenyConnectorAuthorization)

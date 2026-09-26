@@ -81,7 +81,8 @@
 | `UserService.RenewSession` | 續用 | 邏輯移入 `renewedSessionTokens`；檢查 `HeldBy("")` |
 | `UserService.RenewConnectorSession` | — | 新；檢查必要欄位與 `HeldBy(client)`；回 `ConnectorTokensDto` |
 | `JwtAccessTokenProxy` | HS256 JWT | `aud` 寫入/讀出；`ClaimsOf` |
-| `dependencies.go` `registerRoutes` | 組裝根 | 新組裝；`POST /oauth/register`、`POST /oauth/token` 掛 `credentialRequest`；`approval` 掛 `requiresSignIn` |
+| `UserService.IdentifyActivatedWebUser` / `AuthenticationMiddleware.HandleWebSignIn` | — | 新；只認網頁登入憑證（`Audience` 為空），外掛憑證一律 401，讓外掛無法替自己按「允許」 |
+| `dependencies.go` `registerRoutes` | 組裝根 | 新組裝；`POST /oauth/register`、`POST /oauth/token` 掛 `credentialRequest`；`approval` 掛 `requiresWebSignIn`（只收網頁登入憑證） |
 
 ## 5. Component Relationships
 
@@ -131,7 +132,8 @@ flowchart TD
 | US-02 權限範圍忽略 | `ConnectorAuthorizationStartDomain`（不讀 `scope`） |
 | US-03 查詢／10 分鐘邊界 | `ConnectorAuthorizationRequestDomain.Open` |
 | US-03 允許 | `ConnectorAuthorizationService.ApproveConnectorAuthorization` + `ConnectorAuthorizationRequestRepository.Approve` |
-| US-03 未登入／待開通不能允許 | `AuthenticationMiddleware`（`requiresSignIn`） |
+| US-03 未登入／待開通不能允許 | `AuthenticationMiddleware`（`requiresWebSignIn`） |
+| US-03 外掛的登入憑證不能允許 | `AuthenticationMiddleware.HandleWebSignIn` → `UserService.IdentifyActivatedWebUser`（`Audience` 非空即 401） |
 | US-03 拒絕不必登入 | `DenyConnectorAuthorization`（路由不掛 `requiresSignIn`） |
 | US-03 已決定／過期 | `Open(now)` + 條件式更新 |
 | US-04 換授權 | `ConnectorAuthorizationService.ExchangeAuthorizationCode` + `ConnectorAuthorizationCodeDomain` + `ConnectorAuthorizationCodeRepository.Redeem` + `JwtAccessTokenProxy`（`aud`） |

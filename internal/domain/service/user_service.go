@@ -377,6 +377,27 @@ func (userService *UserService) IdentifyUser(
 func (userService *UserService) IdentifyActivatedUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {
+	return userService.activatedUser(executionContext, accessToken)
+}
+
+// IdentifyActivatedWebUser refuses connector tokens, so a connector cannot act where only the user in the browser may.
+func (userService *UserService) IdentifyActivatedWebUser(
+	executionContext context.Context, accessToken string,
+) (dto.UserDto, error) {
+	claims, claimsError := userService.accessTokenProxy.ClaimsOf(accessToken)
+	if claimsError != nil {
+		return dto.UserDto{}, claimsError
+	}
+	if claims.Audience != "" {
+		return dto.UserDto{}, domains.ErrAuthenticationRequired
+	}
+
+	return userService.activatedUser(executionContext, accessToken)
+}
+
+func (userService *UserService) activatedUser(
+	executionContext context.Context, accessToken string,
+) (dto.UserDto, error) {
 	user, identifyError := userService.identifiedUser(executionContext, accessToken)
 	if identifyError != nil {
 		return dto.UserDto{}, identifyError

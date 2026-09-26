@@ -37,6 +37,15 @@ func expiredAccessToken(t *testing.T) string {
 	return "Bearer " + accessToken.AccessToken
 }
 
+func connectorAccessToken(t *testing.T) string {
+	accessToken, issueError := security.NewJwtAccessTokenProxy(testSigningKey).Issue(vo.AccessTokenClaimsVo{
+		UserID: 1, Audience: "https://mcp.example.com", ExpiresAt: time.Now().Add(time.Minute),
+	})
+	require.NoError(t, issueError)
+
+	return "Bearer " + accessToken.AccessToken
+}
+
 func requestMounted(engine *gin.Engine, method string, target string, authorization string) int {
 	request := httptest.NewRequest(method, target, nil)
 	if authorization != "" {
@@ -91,6 +100,8 @@ func TestApprovingAConnectorRequiresSignInButDenyingDoesNot(t *testing.T) {
 		"/oauth/authorization-requests/request-1/approval", ""))
 	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
 		"/oauth/authorization-requests/request-1/approval", expiredAccessToken(t)))
+	assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
+		"/oauth/authorization-requests/request-1/approval", connectorAccessToken(t)), "with a connector's token")
 	assert.NotEqual(t, http.StatusUnauthorized, requestMounted(engine, http.MethodPost,
 		"/oauth/authorization-requests/request-1/denial", ""))
 }
