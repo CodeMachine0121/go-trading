@@ -13,8 +13,6 @@ type PublishedStrategyScript struct {
 	// PublishedAt is when the script first reached the marketplace; republishing does not change it.
 	PublishedAt    time.Time      `gorm:"type:timestamptz;not null"`
 	StrategyScript StrategyScript `gorm:"foreignKey:StrategyScriptID;constraint:OnDelete:CASCADE"`
-	// Adoptions cascade so withdrawing a publication clears it from everybody's shelf.
-	Adoptions []StrategyScriptAdoption `gorm:"foreignKey:StrategyScriptID;references:StrategyScriptID;constraint:OnDelete:CASCADE"`
 }
 
 // ToDto is the public view of this publication; it carries no algorithm.

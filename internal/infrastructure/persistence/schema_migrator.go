@@ -1,8 +1,11 @@
 package persistence
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"gorm.io/gorm"
@@ -75,7 +78,6 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.User{},
 		&entities.Session{},
 		&entities.PublishedStrategyScript{},
-		&entities.StrategyScriptAdoption{},
 		&entities.TelegramDelivery{},
 		&entities.TradingStrategy{},
 		&entities.StrategyBot{},
@@ -114,6 +116,11 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 	migrateError := schemaMigrator.database.AutoMigrate(migratedEntities...)
 	if migrateError != nil {
 		return nil, fmt.Errorf("auto migrate schema: %w", migrateError)
+	}
+
+	// After the sync, so copies can be marked as adopted.
+	if copyError := schemaMigrator.copyMarketplaceDependencies(); copyError != nil {
+		return nil, copyError
 	}
 
 	if dropError := schemaMigrator.dropRetiredColumns(); dropError != nil {
@@ -570,4 +577,151 @@ func (schemaMigrator *SchemaMigrator) clearOwnerlessRows() error {
 	}
 
 	return nil
+}
+
+// retiredStrategyScriptAdoptionRow is a row of the table that recorded adoptions before adopting made a copy; it is
+// read once, while moving to copies, and the table is then dropped.
+type retiredStrategyScriptAdoptionRow struct {
+	UserID           uint
+	StrategyScriptID uint `gorm:"column:strategy_id"`
+}
+
+func (retiredStrategyScriptAdoptionRow) TableName() string {
+	return "StrategyAdoptions"
+}
+
+// marketplaceCopyKey is one owner depending on one script someone else wrote.
+type marketplaceCopyKey struct {
+	ownerID                  uint
+	originalStrategyScriptID uint
+}
+
+// copyMarketplaceDependencies turns every old adoption, and every signal source naming someone else's script, into a
+// copy the owner holds, so no bot depends on another person's script; it does nothing once there is nothing to move.
+func (schemaMigrator *SchemaMigrator) copyMarketplaceDependencies() error {
+	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
+		copiedStrategyScriptIDs := map[marketplaceCopyKey]uint{}
+
+		copyFor := func(key marketplaceCopyKey) (uint, bool, error) {
+			if copiedStrategyScriptID, alreadyCopied := copiedStrategyScriptIDs[key]; alreadyCopied {
+				return copiedStrategyScriptID, true, nil
+			}
+
+			original := entities.StrategyScript{}
+			found := transaction.Preload("Parameters").First(&original, key.originalStrategyScriptID)
+			if errors.Is(found.Error, gorm.ErrRecordNotFound) {
+				return 0, false, nil
+			}
+			if found.Error != nil {
+				return 0, false, fmt.Errorf("read script to copy: %w", found.Error)
+			}
+
+			takenNames := []string{}
+			if plucked := transaction.Model(&entities.StrategyScript{}).
+				Where(clause.Eq{Column: "owner_id", Value: key.ownerID}).
+				Pluck("name", &takenNames); plucked.Error != nil {
+				return 0, false, fmt.Errorf("read names to avoid: %w", plucked.Error)
+			}
+			takenNameSet := make(map[string]bool, len(takenNames))
+			for _, takenName := range takenNames {
+				takenNameSet[takenName] = true
+			}
+
+			marketplaceCopy := domains.NewStrategyScriptMarketplaceCopyDomain(original, key.ownerID, time.Now()).
+				NamedAvoiding(takenNameSet).ToEntity()
+			if created := transaction.Create(&marketplaceCopy); created.Error != nil {
+				return 0, false, fmt.Errorf("create marketplace copy: %w", created.Error)
+			}
+
+			copiedStrategyScriptIDs[key] = marketplaceCopy.ID
+
+			return marketplaceCopy.ID, true, nil
+		}
+
+		migrator := transaction.Migrator()
+		hasAdoptions := migrator.HasTable(&retiredStrategyScriptAdoptionRow{})
+		if hasAdoptions {
+			adoptions := []retiredStrategyScriptAdoptionRow{}
+			if read := transaction.Find(&adoptions); read.Error != nil {
+				return fmt.Errorf("read adoptions: %w", read.Error)
+			}
+
+			for _, adoption := range adoptions {
+				if _, _, copyError := copyFor(marketplaceCopyKey{
+					ownerID: adoption.UserID, originalStrategyScriptID: adoption.StrategyScriptID,
+				}); copyError != nil {
+					return copyError
+				}
+			}
+		}
+
+		scriptOwners, scriptOwnersError := schemaMigrator.ownersOf(transaction, &entities.StrategyScript{})
+		if scriptOwnersError != nil {
+			return scriptOwnersError
+		}
+		strategyOwners, strategyOwnersError := schemaMigrator.ownersOf(transaction, &entities.TradingStrategy{})
+		if strategyOwnersError != nil {
+			return strategyOwnersError
+		}
+
+		signalSources := []entities.TradingStrategySignalSource{}
+		if read := transaction.Find(&signalSources); read.Error != nil {
+			return fmt.Errorf("read signal sources: %w", read.Error)
+		}
+
+		for _, signalSource := range signalSources {
+			scriptOwnerID, scriptExists := scriptOwners[signalSource.StrategyScriptID]
+			strategyOwnerID := strategyOwners[signalSource.TradingStrategyID]
+			if !scriptExists || scriptOwnerID == strategyOwnerID {
+				continue
+			}
+
+			copiedStrategyScriptID, copied, copyError := copyFor(marketplaceCopyKey{
+				ownerID: strategyOwnerID, originalStrategyScriptID: signalSource.StrategyScriptID,
+			})
+			if copyError != nil {
+				return copyError
+			}
+			if !copied {
+				continue
+			}
+
+			if repointed := transaction.Model(&entities.TradingStrategySignalSource{}).
+				Where(clause.Eq{Column: "id", Value: signalSource.ID}).
+				Update("strategy_id", copiedStrategyScriptID); repointed.Error != nil {
+				return fmt.Errorf("point signal source at its copy: %w", repointed.Error)
+			}
+		}
+
+		if !hasAdoptions {
+			return nil
+		}
+
+		if dropError := migrator.DropTable(&retiredStrategyScriptAdoptionRow{}); dropError != nil {
+			return fmt.Errorf("drop retired adoptions: %w", dropError)
+		}
+
+		return nil
+	})
+}
+
+// ownerRow is an identifier and its owner, which is all the move needs to know about scripts and strategies.
+type ownerRow struct {
+	ID      uint
+	OwnerID uint
+}
+
+// ownersOf maps every row of a table to its owner; used for both scripts and trading strategies.
+func (schemaMigrator *SchemaMigrator) ownersOf(transaction *gorm.DB, model any) (map[uint]uint, error) {
+	rows := []ownerRow{}
+	if read := transaction.Model(model).Select("id", "owner_id").Find(&rows); read.Error != nil {
+		return nil, fmt.Errorf("read owners: %w", read.Error)
+	}
+
+	owners := make(map[uint]uint, len(rows))
+	for _, row := range rows {
+		owners[row.ID] = row.OwnerID
+	}
+
+	return owners, nil
 }
