@@ -104,7 +104,7 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) re
 
 	for _, signalSource := range tradingStrategyDto.SignalSources {
 		runnableStrategyScript, resolveError := tradingStrategyBacktestApplication.strategyScriptService.
-			ResolveRunnableStrategyScript(executionContext, viewerID, signalSource.StrategyScriptID)
+			ResolveOwnedStrategyScript(executionContext, viewerID, signalSource.StrategyScriptID)
 		if resolveError != nil {
 			return nil, domains.StrategyScriptAuthorshipDomain{}, resolveError
 		}

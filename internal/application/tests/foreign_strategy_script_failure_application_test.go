@@ -145,13 +145,13 @@ func TestTradingStrategyBacktestApplicationMarksAReplayWithAnyForeignSourceAsFor
 		expectedMarkedForeign bool
 	}{
 		{
-			name:                  "one of the two sources is someone else's",
-			sourceScriptIDs:       []uint{9, someoneElsesStrategyScriptID},
+			name:                  "one of the two sources is the viewer's marketplace copy",
+			sourceScriptIDs:       []uint{9, viewersMarketplaceCopyID},
 			expectedMarkedForeign: true,
 		},
 		{
-			name:                  "the first of the two sources is someone else's",
-			sourceScriptIDs:       []uint{someoneElsesStrategyScriptID, 9},
+			name:                  "the first of the two sources is the viewer's marketplace copy",
+			sourceScriptIDs:       []uint{viewersMarketplaceCopyID, 9},
 			expectedMarkedForeign: true,
 		},
 		{
@@ -197,4 +197,39 @@ func TestTradingStrategyBacktestApplicationMarksAReplayWithAnyForeignSourceAsFor
 			assert.Equal(t, testCase.expectedMarkedForeign, errors.Is(err, domains.ErrForeignStrategyScriptFailed))
 		})
 	}
+}
+
+func TestTradingStrategyBacktestApplicationRefusesToReplaySomeoneElsesScript(t *testing.T) {
+	// Nothing about candles or scripts is stubbed: the replay is refused before anything runs.
+	controller := gomock.NewController(t)
+	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
+	tradingStrategy := aReplayedTradingStrategy("1h")
+	tradingStrategy.SignalSources[0].StrategyScriptID = someoneElsesStrategyScriptID
+	tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), replayedTradingStrategyID).Return(tradingStrategy, nil)
+	strategyScriptRepository, publishedStrategyScriptRepository :=
+		scriptsOwnedByViewerExceptSomeoneElses(controller, backtestViewerID)
+	withPublication := mocks.NewMockIStrategyScriptRepository(controller)
+	withPublication.EXPECT().FindOne(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, id uint) (entities.StrategyScript, error) {
+			found, findError := strategyScriptRepository.FindOne(executionContext, id)
+			if id == someoneElsesStrategyScriptID {
+				found.Publication = &entities.PublishedStrategyScript{StrategyScriptID: id}
+			}
+
+			return found, findError
+		}).AnyTimes()
+
+	tradingStrategyBacktestApplication := application.NewTradingStrategyBacktestApplication(
+		service.NewTradingStrategyService(tradingStrategyRepository),
+		service.NewStrategyScriptService(withPublication, publishedStrategyScriptRepository),
+		service.NewBacktestService(
+			mocks.NewMockIKCandleRepository(controller), mocks.NewMockIIndicatorScriptProxy(controller),
+			mocks.NewMockIClockProxy(controller), queryMaxResults, time.Minute),
+		nil)
+
+	_, err := tradingStrategyBacktestApplication.RunTradingStrategyBacktest(
+		t.Context(), backtestViewerID, replayedTradingStrategyID, tradingStrategyBacktestRequestDto())
+
+	require.ErrorIs(t, err, domains.ErrStrategyScriptNotYours)
+	assert.Contains(t, err.Error(), "不是你的，請先把它加入你的策略腳本")
 }

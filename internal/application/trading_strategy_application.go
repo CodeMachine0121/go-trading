@@ -162,7 +162,7 @@ func (tradingStrategyApplication *TradingStrategyApplication) withResolvedStrate
 
 	for _, signalSource := range writeDto.SignalSources {
 		runnableStrategyScript, resolveError := tradingStrategyApplication.strategyScriptService.
-			ResolveRunnableStrategyScript(executionContext, viewerID, signalSource.StrategyScriptID)
+			ResolveOwnedStrategyScript(executionContext, viewerID, signalSource.StrategyScriptID)
 		if resolveError != nil {
 			return dto.TradingStrategyWriteDto{}, resolveError
 		}

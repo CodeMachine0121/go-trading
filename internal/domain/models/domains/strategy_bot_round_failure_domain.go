@@ -15,8 +15,10 @@ type StrategyBotRoundFailureDomain struct {
 func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureDomain {
 	switch {
 	// Unpublished and deleted scripts share one reason so it doesn't reveal whether someone else's script exists.
+	// A script that is not the bot owner's reads the same: a bot never runs someone else's rules.
 	case errors.Is(roundError, ErrStrategyScriptNotFound),
-		errors.Is(roundError, ErrStrategyScriptNotPublished):
+		errors.Is(roundError, ErrStrategyScriptNotPublished),
+		errors.Is(roundError, ErrStrategyScriptNotYours):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltStrategyScriptUnavailable}
 
 	case errors.Is(roundError, ErrTradingStrategyNotFound):

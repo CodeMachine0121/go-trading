@@ -84,6 +84,7 @@ func (assistantPendingRevisionController *AssistantPendingRevisionController) re
 	if errors.Is(err, domains.ErrStrategyScriptValidation) ||
 		errors.Is(err, domains.ErrTradingStrategyValidation) ||
 		errors.Is(err, domains.ErrAssistantQueryArgument) ||
+		errors.Is(err, domains.ErrStrategyScriptNotYours) ||
 		errors.Is(err, domains.ErrStrategyScriptMarketDataKindMismatch) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
