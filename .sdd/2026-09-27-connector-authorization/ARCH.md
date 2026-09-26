@@ -71,7 +71,7 @@
 | `ErrConnectorGrantInvalid`、`ErrAuthenticationRequired`（續用失敗） | 400 `invalid_grant` |
 | `ErrConnectorAuthorizationRequestNotFound` | 404 `{"message": ...}`（網頁端點沿用專案風格） |
 | `ErrAccessTokenUnavailable` | 503 `temporarily_unavailable` |
-| 其他（儲存失敗） | 502 `server_error`（沿用專案「未知錯誤 → 502」慣例） |
+| 其他（儲存失敗） | 500 `server_error`，說明固定為「伺服器發生錯誤，請稍後再試」；底層錯誤只寫進伺服器紀錄。網頁端點同樣回 500 `{"message": ...}` |
 
 ## 4. Modified Components
 
@@ -158,5 +158,5 @@ flowchart TD
   7. 授權碼重用判定先於其他核對：只要持有一張已兌換的授權碼就作廢它換出的鏈（持有即代表外洩）。
   8. 換授權時 `client_id` 不存在 → `invalid_client`；存在但與授權碼不符 → `invalid_grant`。
   9. 授權碼換授權時再次確認使用者仍存在，不在則 `invalid_grant`。
-  10. 未知錯誤沿用專案慣例回 502（OAuth 形狀 `server_error`）。
+  10. 未知錯誤回 500（OAuth 形狀 `server_error`），回覆只帶固定說明、不帶底層錯誤文字（避免洩漏儲存／驅動細節），底層錯誤以 `log.Printf` 記在伺服器端。
 - **Risks / trade-offs:** 登入憑證仍撤不掉（最長 15 分鐘），外掛伺服器的查驗快取再加最多 60 秒。

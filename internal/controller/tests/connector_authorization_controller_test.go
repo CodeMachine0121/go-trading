@@ -323,8 +323,9 @@ func TestConnectorAuthorizationControllerStartsAuthorization(t *testing.T) {
 
 		recorder := router.send(httptest.NewRequest(http.MethodGet, authorizeTarget(func(url.Values) {}), nil))
 
-		assert.Equal(t, http.StatusBadGateway, recorder.Code)
+		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 		assert.Equal(t, "server_error", oauthErrorOf(t, recorder))
+		assert.NotContains(t, recorder.Body.String(), "connection closed")
 	})
 }
 
@@ -418,14 +419,15 @@ func TestConnectorAuthorizationControllerShowsAndDecidesRequests(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, recorder.Code)
 	})
 
-	t.Run("a storage failure is a bad gateway", func(t *testing.T) {
+	t.Run("a storage failure is a server error that does not reveal it", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.connectorAuthorizationRequestRepository.EXPECT().FindOneByRequestIdentifier(gomock.Any(), "request-1").
 			Return(entities.ConnectorAuthorizationRequest{}, errors.New("connection closed"))
 
 		recorder := router.send(httptest.NewRequest(http.MethodGet, "/oauth/authorization-requests/request-1", nil))
 
-		assert.Equal(t, http.StatusBadGateway, recorder.Code)
+		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+		assert.NotContains(t, recorder.Body.String(), "connection closed")
 	})
 }
 
@@ -599,8 +601,9 @@ func TestConnectorAuthorizationControllerIntrospectsTokens(t *testing.T) {
 
 		recorder := router.postForm("/oauth/introspection", url.Values{"token": {"a-token"}})
 
-		assert.Equal(t, http.StatusBadGateway, recorder.Code)
+		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 		assert.Equal(t, "server_error", oauthErrorOf(t, recorder))
+		assert.NotContains(t, recorder.Body.String(), "connection closed")
 	})
 
 	t.Run("a body that cannot be read is an invalid request", func(t *testing.T) {

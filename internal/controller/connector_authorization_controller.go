@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
@@ -11,6 +12,9 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/gin-gonic/gin"
 )
+
+// The underlying failure is logged, never answered, so storage and driver details stay on the server.
+const connectorAuthorizationServerFailureDescription = "伺服器發生錯誤，請稍後再試"
 
 // ConnectorAuthorizationController speaks OAuth (snake_case, {"error","error_description"}) to connectors, and the project's usual JSON to the web front end.
 type ConnectorAuthorizationController struct {
@@ -183,22 +187,29 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) Intros
 func (connectorAuthorizationController *ConnectorAuthorizationController) respondWithProtocolError(
 	ginContext *gin.Context, err error,
 ) {
-	status, code := http.StatusBadGateway, "server_error"
+	status, code := http.StatusBadRequest, ""
 	switch {
 	case errors.Is(err, domains.ErrConnectorRedirectUriInvalid):
-		status, code = http.StatusBadRequest, "invalid_redirect_uri"
+		code = "invalid_redirect_uri"
 	case errors.Is(err, domains.ErrConnectorClientMetadataInvalid):
-		status, code = http.StatusBadRequest, "invalid_client_metadata"
+		code = "invalid_client_metadata"
 	case errors.Is(err, domains.ErrConnectorClientNotFound):
-		status, code = http.StatusBadRequest, "invalid_client"
+		code = "invalid_client"
 	case errors.Is(err, domains.ErrConnectorRedirectUriNotRegistered),
 		errors.Is(err, domains.ErrConnectorTokenRequestInvalid):
-		status, code = http.StatusBadRequest, "invalid_request"
+		code = "invalid_request"
 	case errors.Is(err, domains.ErrConnectorGrantInvalid),
 		errors.Is(err, domains.ErrAuthenticationRequired):
-		status, code = http.StatusBadRequest, "invalid_grant"
+		code = "invalid_grant"
 	case errors.Is(err, domains.ErrAccessTokenUnavailable):
 		status, code = http.StatusServiceUnavailable, "temporarily_unavailable"
+	default:
+		log.Printf("connector authorization: %s %s failed: %v",
+			ginContext.Request.Method, ginContext.FullPath(), err)
+		ginContext.JSON(http.StatusInternalServerError, gin.H{
+			"error": "server_error", "error_description": connectorAuthorizationServerFailureDescription,
+		})
+		return
 	}
 
 	ginContext.JSON(status, gin.H{"error": code, "error_description": err.Error()})
@@ -212,5 +223,7 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) respon
 		return
 	}
 
-	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+	log.Printf("connector authorization: %s %s failed: %v",
+		ginContext.Request.Method, ginContext.FullPath(), err)
+	ginContext.JSON(http.StatusInternalServerError, gin.H{"message": connectorAuthorizationServerFailureDescription})
 }
