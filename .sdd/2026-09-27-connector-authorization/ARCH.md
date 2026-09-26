@@ -38,7 +38,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `entities.ConnectorClient` | Entity | 外掛登記：`ClientIdentifier`（唯一、隨機）、`ClientName`、`RedirectUris`（jsonb）、`CreatedAt`；`ToDto()` | — | US-01 |
 | `entities.ConnectorAuthorizationRequest` | Entity | 待授權請求：`RequestIdentifier`（唯一、隨機）、`ConnectorClientIdentifier`、`RedirectUri`（原樣）、`CodeChallenge`、`State`、`Resource`、`ExpiresAt`、`DecidedAt` | — | US-02, US-03 |
-| `entities.ConnectorAuthorizationCode` | Entity | 授權碼：`CodeDigest`（唯一）、`UserID`、`ConnectorClientIdentifier`、`RedirectUri`、`CodeChallenge`、`Resource`、`ExpiresAt`、`RedeemedAt`、`SessionChainID`（換出的鏈，重用時作廢） | — | US-04 |
+| `entities.ConnectorAuthorizationCode` | Entity | 授權碼：`CodeDigest`（唯一）、`UserID`、`ConnectorClientIdentifier`、`RedirectUri`、`CodeChallenge`、`Resource`、`ExpiresAt`、`SessionChainID`（空＝未兌換；兌換後記換出的鏈，重用時作廢——一個欄位同時是「用過了」的標記，條件式更新只需一句） | — | US-04 |
 | `ConnectorRedirectUriDomain` | Domain Model | 一個送回地址：是否本機非加密、忽略埠號比對、附參數組出送回網址 | — | US-01, US-02, US-03 |
 | `ConnectorClientRegistrationDomain` | Domain Model | 驗證登記內容（送回地址、`token_endpoint_auth_method`、`grant_types`、`response_types`、名稱長度），`ToEntity` | `ConnectorRedirectUriDomain` | US-01 |
 | `ConnectorClientDomain` | Domain Model | 某地址是否為此外掛登記過（`Registers`） | `ConnectorRedirectUriDomain` | US-02 |
@@ -51,7 +51,7 @@
 | `ConnectorAuthorizationController` | Controller | 8 個 handler；OAuth 錯誤 `{"error","error_description"}`；token 回應 `Cache-Control: no-store`；依 `grant_type` 分派 | `ConnectorAuthorizationApplication` | 全部 |
 | `IConnectorClientRepository` + `ConnectorClientRepository` | Repository | `Save`、`FindOneByClientIdentifier` | — | US-01, 02 |
 | `IConnectorAuthorizationRequestRepository` + impl | Repository | `Save`、`FindOneByRequestIdentifier`、`Approve(requestID, code)`（**同一交易**：未決定才標記＋建授權碼）、`Deny(requestID)`（未決定才標記） | — | US-03 |
-| `IConnectorAuthorizationCodeRepository` + impl | Repository | `FindOneByDigest`、`Redeem(codeID, session)`（**同一交易**：未兌換才標記並記鏈＋建登入階段） | — | US-04 |
+| `IConnectorAuthorizationCodeRepository` + impl | Repository | `FindOneByDigest`、`Redeem(codeID, session)`（**同一交易**：`session_chain_id` 仍為空才寫入鏈＋建登入階段） | — | US-04 |
 | `vo.ConnectorAuthorizationPolicyVo` | VO | `PublicBaseUrl`、`FrontendBaseUrl`、`RequestLifetime`(10m)、`CodeLifetime`(5m)；`ToServerMetadataDto()` | — | US-02, 03, 04, 06 |
 | `vo.AccessTokenClaimsVo` | VO | `UserID`、`Audience`、`ExpiresAt`；`ToIntrospectionDto()` | — | US-04, 05 |
 | DTOs | DTO | `ConnectorClientRegistrationDto`、`ConnectorClientDto`、`ConnectorAuthorizationStartDto`、`ConnectorAuthorizationRedirectDto`(`redirectTo`)、`ConnectorAuthorizationRequestDto`(`clientName`,`expiresAt`)、`ConnectorAuthorizationCodeExchangeDto`、`ConnectorTokensDto`、`AccessTokenIntrospectionDto`、`ConnectorAuthorizationServerMetadataDto` | — | — |
@@ -109,7 +109,7 @@ flowchart TD
 - **Where it lands:** 外掛登入階段已記著 `ConnectorClientIdentifier`；列出＝ `ISessionRepository` 加一個依使用者列出未作廢且有外掛的鏈，撤銷＝既有 `RevokeChain`。
 - **Next likely:** 細分權限範圍 → `scope` 目前在 `ConnectorAuthorizationStartDomain` 被忽略；要支援時把它存進待授權請求 → 授權碼 → 登入階段，並放進 `AccessTokenClaimsVo`，與 `Audience` 同一條路徑。
 - **Next likely:** 清除過期資料 → 新增一個 `XxxJob` 呼叫三個 repository 的刪除方法，不必改流程。
-- **Patterns applied & why:** 條件式更新（`WHERE decided_at IS NULL` / `redeemed_at IS NULL`）做一次性保證，與既有 `SessionRepository.Rotate` 同一招；需要兩張表一起寫時放在同一個 repository 方法的交易內（比照 `UserRepository.ChangePasswordProof` 作廢登入階段）。
+- **Patterns applied & why:** 條件式更新（`WHERE decided_at IS NULL` / `session_chain_id = ''`）做一次性保證，與既有 `SessionRepository.Rotate` 同一招；需要兩張表一起寫時放在同一個 repository 方法的交易內（比照 `UserRepository.ChangePasswordProof` 作廢登入階段）。
 - **Do not hardcode:** 公開網址一律取自 `ConnectorAuthorizationPolicyVo`；兩個有效期在組裝根給入 VO，不散落在 Domain Model。
 - **Known debt / deferred:**
   - 授權碼與隨機代號沿用 `IRefreshTokenProxy.Mint`（256-bit 隨機值＋SHA-256 留存樣），不另開介面——能力完全相同。
