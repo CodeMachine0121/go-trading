@@ -149,7 +149,7 @@ func (strategyScriptService *StrategyScriptService) preparedRewrite(
 	return existingStrategyScript, strategyScriptDomain, nil
 }
 
-// DeleteStrategyScript removes the viewer's script along with its marketplace listing and every adoption.
+// DeleteStrategyScript removes the viewer's script along with its marketplace listing; copies others adopted stay.
 func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) error {
@@ -161,7 +161,7 @@ func (strategyScriptService *StrategyScriptService) DeleteStrategyScript(
 	return strategyScriptService.strategyScriptRepository.Delete(executionContext, id)
 }
 
-// ResolveRunnableStrategyScript is the only way a script leaves storage for a run, walking all three gates; adoption grants nothing, it only fills a picker.
+// ResolveRunnableStrategyScript lets a one-off run use the viewer's own script or someone else's published one, so a marketplace script can be tried before it is adopted.
 func (strategyScriptService *StrategyScriptService) ResolveRunnableStrategyScript(
 	executionContext context.Context, viewerID uint, id uint,
 ) (dto.RunnableStrategyScriptDto, error) {

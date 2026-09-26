@@ -23,7 +23,7 @@ type StrategyScript struct {
 	CreatedAt                time.Time `gorm:"type:timestamptz;not null"`
 	UpdatedAt                time.Time `gorm:"type:timestamptz;not null"`
 	Owner                    User      `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
-	// Publication cascades so deleting a script removes it from the marketplace and, transitively, from every shelf.
+	// Publication cascades so deleting a script removes it from the marketplace.
 	Publication *PublishedStrategyScript  `gorm:"foreignKey:StrategyScriptID;constraint:OnDelete:CASCADE"`
 	Parameters  []StrategyScriptParameter `gorm:"foreignKey:StrategyScriptID;constraint:OnDelete:CASCADE"`
 }

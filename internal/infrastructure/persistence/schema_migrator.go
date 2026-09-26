@@ -608,12 +608,17 @@ func (schemaMigrator *SchemaMigrator) copyMarketplaceDependencies() error {
 			}
 
 			original := entities.StrategyScript{}
-			found := transaction.Preload("Parameters").First(&original, key.originalStrategyScriptID)
+			found := transaction.Preload("Parameters").Preload("Publication").
+				First(&original, key.originalStrategyScriptID)
 			if errors.Is(found.Error, gorm.ErrRecordNotFound) {
 				return 0, false, nil
 			}
 			if found.Error != nil {
 				return 0, false, fmt.Errorf("read script to copy: %w", found.Error)
+			}
+			// A script its author took off the marketplace is not handed out again; its bots already halted.
+			if original.Publication == nil {
+				return 0, false, nil
 			}
 
 			takenNames := []string{}

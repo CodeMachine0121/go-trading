@@ -29,18 +29,21 @@ func NewStrategyScriptMarketplaceCopyDomain(
 }
 
 // NamedAvoiding marks the copy's name, then numbers it, until it clashes with none the adopter holds; it is for
-// moving existing adoptions, where refusing is not an option.
+// moving existing adoptions, where refusing is not an option. The original name is shortened so the mark always fits.
 func (strategyScriptMarketplaceCopyDomain StrategyScriptMarketplaceCopyDomain) NamedAvoiding(
 	takenNames map[string]bool,
 ) StrategyScriptMarketplaceCopyDomain {
 	named := strategyScriptMarketplaceCopyDomain
-	baseName := strategyScriptMarketplaceCopyDomain.original.Name
+	baseName := []rune(strategyScriptMarketplaceCopyDomain.original.Name)
 
 	for attempt := 1; takenNames[named.copiedName]; attempt++ {
-		named.copiedName = fmt.Sprintf("%s（%s）", baseName, marketplaceCopyNameMark)
+		mark := fmt.Sprintf("（%s）", marketplaceCopyNameMark)
 		if attempt > 1 {
-			named.copiedName = fmt.Sprintf("%s（%s %d）", baseName, marketplaceCopyNameMark, attempt)
+			mark = fmt.Sprintf("（%s %d）", marketplaceCopyNameMark, attempt)
 		}
+
+		keptLength := min(len(baseName), strategyScriptNameMaxLength-len([]rune(mark)))
+		named.copiedName = string(baseName[:keptLength]) + mark
 	}
 
 	return named

@@ -36,7 +36,7 @@ func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) Publ
 	return nil
 }
 
-// Withdraw deletes the listing, cascading to its adoptions; withdrawing an unpublished script is not an error.
+// Withdraw deletes the listing; copies already adopted are their adopters' own and stay. Withdrawing an unpublished script is not an error.
 func (publishedStrategyScriptRepository *PublishedStrategyScriptRepository) Withdraw(
 	executionContext context.Context, strategyScriptID uint,
 ) error {

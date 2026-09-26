@@ -45,7 +45,7 @@ func (strategyScriptMarketplaceService *StrategyScriptMarketplaceService) Publis
 		executionContext, strategyScriptID, strategyScriptMarketplaceService.clockProxy.Now())
 }
 
-// WithdrawStrategyScript takes the owner's script off the marketplace and clears every adoption, so republishing starts a fresh decision for each person.
+// WithdrawStrategyScript takes the owner's script off the marketplace; copies already adopted are untouched.
 func (strategyScriptMarketplaceService *StrategyScriptMarketplaceService) WithdrawStrategyScript(
 	executionContext context.Context, ownerID uint, strategyScriptID uint,
 ) error {

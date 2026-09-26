@@ -277,3 +277,29 @@ func TestAnOwnersOwnStrategyScriptsSayWhetherTheyAreOnTheMarketplace(t *testing.
 	assert.True(t, byIdentifier[published])
 	assert.False(t, byIdentifier[kept.ID])
 }
+
+func TestRewritingOrWithdrawingTheOriginalLeavesEveryMarketplaceCopyAsItWas(t *testing.T) {
+	database := newStrategyScriptTestDatabase(t)
+	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
+	adopterID := aSecondOwner(t, database)
+	strategyScriptID := aPublishedStrategyScript(t, database)
+	original, findError := strategyScriptRepository.FindOne(t.Context(), strategyScriptID)
+	require.NoError(t, findError)
+	marketplaceCopy := strategyScriptNamed(original.Name)
+	marketplaceCopy.OwnerID = adopterID
+	marketplaceCopy.Script = original.Script
+	marketplaceCopy.IsAdoptedFromMarketplace = true
+	savedCopy, copyError := strategyScriptRepository.Save(t.Context(), marketplaceCopy)
+	require.NoError(t, copyError)
+
+	rewritten := original
+	rewritten.Script = rewrittenScript
+	_, updateError := strategyScriptRepository.Update(t.Context(), rewritten)
+	require.NoError(t, updateError)
+	require.NoError(t, persistence.NewPublishedStrategyScriptRepository(database).Withdraw(t.Context(), strategyScriptID))
+
+	stillAsAdopted, readError := strategyScriptRepository.FindOne(t.Context(), savedCopy.ID)
+	require.NoError(t, readError)
+	assert.Equal(t, original.Script, stillAsAdopted.Script)
+	assert.NotEqual(t, rewrittenScript, stillAsAdopted.Script)
+}

@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -183,12 +184,15 @@ func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
 		// Adopting the same script twice lands here too.
 		fixture := newMarketplaceUnderTest(t)
 		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aPublishedOriginal(), nil)
+		// The store answers a held name in its own words; adopting relays them untouched.
 		fixture.strategyScriptRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
-			Return(entities.StrategyScript{}, domains.ErrStrategyScriptNameConflict)
+			Return(entities.StrategyScript{}, fmt.Errorf(
+				"%w: 策略腳本名稱「二十根均線」已被使用", domains.ErrStrategyScriptNameConflict))
 
 		err := fixture.marketplaceApplication.AdoptStrategyScript(t.Context(), marketplaceGuestID, 7)
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptNameConflict)
+		assert.Contains(t, err.Error(), "策略腳本名稱「二十根均線」已被使用")
 	})
 
 	t.Run("adopting one's own does nothing and is not a failure", func(t *testing.T) {

@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -66,4 +67,15 @@ func TestStrategyScriptToDtoNeverCarriesACopysAlgorithm(t *testing.T) {
 	assert.True(t, copied.ToDto().IsAdoptedFromMarketplace)
 	assert.Equal(t, "func Calculate() {}", own.ToDto().Script)
 	assert.False(t, own.ToDto().IsAdoptedFromMarketplace)
+}
+
+func TestStrategyScriptMarketplaceCopyDomainShortensALongNameSoTheMarkFits(t *testing.T) {
+	longName := strings.Repeat("長", 128)
+
+	copied := domains.NewStrategyScriptMarketplaceCopyDomain(
+		entities.StrategyScript{Name: longName}, 2, time.Now()).
+		NamedAvoiding(map[string]bool{longName: true}).ToEntity()
+
+	assert.Equal(t, 128, len([]rune(copied.Name)))
+	assert.True(t, strings.HasSuffix(copied.Name, "（市集）"))
 }

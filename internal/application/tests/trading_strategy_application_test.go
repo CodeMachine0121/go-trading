@@ -533,3 +533,24 @@ func TestTradingStrategyApplicationBuildsOnlyOnThisPersonsOwnScripts(t *testing.
 		})
 	}
 }
+
+func TestTradingStrategyApplicationRewriteRefusesSomeoneElsesScript(t *testing.T) {
+	// Save is unstubbed: nothing may be written.
+	underTest := newTradingStrategyApplicationUnderTest(t)
+	strangersPublishedScript := aScriptOwnedByTheCaller(9)
+	strangersPublishedScript.OwnerID = strategyBotStrangerID
+	strangersPublishedScript.Publication = &entities.PublishedStrategyScript{StrategyScriptID: 9}
+	underTest.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), tradingStrategyID).
+		Return(storedTradingStrategy(), nil).AnyTimes()
+	underTest.expectFollowingBots()
+	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(9)).Return(strangersPublishedScript, nil)
+	underTest.expectMarketplaceQuestion()
+	writeDto := aTradingStrategyWrite()
+	writeDto.ID = tradingStrategyID
+
+	_, updateError := underTest.tradingStrategyApplication.UpdateTradingStrategy(
+		context.Background(), strategyBotOwnerID, writeDto)
+
+	require.ErrorIs(t, updateError, domains.ErrStrategyScriptNotYours)
+	assert.Contains(t, updateError.Error(), "不是你的，請先把它加入你的策略腳本")
+}
