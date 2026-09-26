@@ -23,3 +23,12 @@ func (sessionTokensVo SessionTokensVo) ToDto() dto.SessionTokensDto {
 		RefreshTokenExpiresAt: sessionTokensVo.RefreshTokenExpiresAt.UTC(),
 	}
 }
+
+func (sessionTokensVo SessionTokensVo) ToConnectorTokensDto(now time.Time) dto.ConnectorTokensDto {
+	return dto.ConnectorTokensDto{
+		AccessToken:      sessionTokensVo.AccessToken.AccessToken,
+		TokenType:        "Bearer",
+		ExpiresInSeconds: int64(sessionTokensVo.AccessToken.ExpiresAt.Sub(now).Seconds()),
+		RefreshToken:     sessionTokensVo.RefreshToken.Value,
+	}
+}

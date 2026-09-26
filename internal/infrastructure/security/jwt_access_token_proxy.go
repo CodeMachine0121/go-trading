@@ -3,7 +3,6 @@ package security
 import (
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -27,50 +26,72 @@ func NewJwtAccessTokenProxy(signingKey string) *JwtAccessTokenProxy {
 
 // Issue refuses to sign without a key rather than producing forgeable tokens.
 func (jwtAccessTokenProxy *JwtAccessTokenProxy) Issue(
-	userID uint, expiresAt time.Time,
+	claims vo.AccessTokenClaimsVo,
 ) (vo.AccessTokenVo, error) {
 	if len(jwtAccessTokenProxy.signingKey) == 0 {
 		return vo.AccessTokenVo{}, fmt.Errorf(
 			"%w: 尚未設定憑證簽章鑰匙", domains.ErrAccessTokenUnavailable)
 	}
 
-	claims := jwt.RegisteredClaims{
-		Subject:   strconv.FormatUint(uint64(userID), 10),
-		ExpiresAt: jwt.NewNumericDate(expiresAt),
+	registeredClaims := jwt.RegisteredClaims{
+		Subject:   strconv.FormatUint(uint64(claims.UserID), 10),
+		ExpiresAt: jwt.NewNumericDate(claims.ExpiresAt),
+	}
+	if claims.Audience != "" {
+		registeredClaims.Audience = jwt.ClaimStrings{claims.Audience}
 	}
 
-	signedToken, signError := jwt.NewWithClaims(accessTokenSigningMethod, claims).
+	signedToken, signError := jwt.NewWithClaims(accessTokenSigningMethod, registeredClaims).
 		SignedString(jwtAccessTokenProxy.signingKey)
 	if signError != nil {
 		return vo.AccessTokenVo{}, fmt.Errorf(
 			"%w: %w", domains.ErrAccessTokenUnavailable, signError)
 	}
 
-	return vo.AccessTokenVo{AccessToken: signedToken, ExpiresAt: expiresAt.UTC()}, nil
+	return vo.AccessTokenVo{AccessToken: signedToken, ExpiresAt: claims.ExpiresAt.UTC()}, nil
 }
 
-// UserIdentifiedBy returns one refusal for every invalid token so nothing about the token is revealed.
-func (jwtAccessTokenProxy *JwtAccessTokenProxy) UserIdentifiedBy(accessToken string) (uint, error) {
+// ClaimsOf returns one refusal for every invalid token so nothing about the token is revealed; the audience is not checked here because the service accepts tokens with or without one.
+func (jwtAccessTokenProxy *JwtAccessTokenProxy) ClaimsOf(accessToken string) (vo.AccessTokenClaimsVo, error) {
 	if len(jwtAccessTokenProxy.signingKey) == 0 {
-		return 0, domains.ErrAuthenticationRequired
+		return vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired
 	}
 
-	claims := jwt.RegisteredClaims{}
+	registeredClaims := jwt.RegisteredClaims{}
 
 	_, parseError := jwt.ParseWithClaims(
 		accessToken,
-		&claims,
+		&registeredClaims,
 		func(*jwt.Token) (any, error) { return jwtAccessTokenProxy.signingKey, nil },
 		jwt.WithValidMethods(acceptedSigningMethods),
+		jwt.WithExpirationRequired(),
 	)
 	if parseError != nil {
-		return 0, domains.ErrAuthenticationRequired
+		return vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired
 	}
 
-	userID, parseIdentifierError := strconv.ParseUint(claims.Subject, 10, strconv.IntSize)
+	userID, parseIdentifierError := strconv.ParseUint(registeredClaims.Subject, 10, strconv.IntSize)
 	if parseIdentifierError != nil || userID == 0 {
-		return 0, domains.ErrAuthenticationRequired
+		return vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired
 	}
 
-	return uint(userID), nil
+	audience := ""
+	if len(registeredClaims.Audience) > 0 {
+		audience = registeredClaims.Audience[0]
+	}
+
+	return vo.AccessTokenClaimsVo{
+		UserID:    uint(userID),
+		Audience:  audience,
+		ExpiresAt: registeredClaims.ExpiresAt.UTC(),
+	}, nil
+}
+
+func (jwtAccessTokenProxy *JwtAccessTokenProxy) UserIdentifiedBy(accessToken string) (uint, error) {
+	claims, claimsError := jwtAccessTokenProxy.ClaimsOf(accessToken)
+	if claimsError != nil {
+		return 0, claimsError
+	}
+
+	return claims.UserID, nil
 }

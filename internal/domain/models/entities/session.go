@@ -14,6 +14,9 @@ type Session struct {
 	// RevokedAt nil means the session is still valid.
 	RevokedAt *time.Time `gorm:"type:timestamptz"`
 	CreatedAt time.Time  `gorm:"type:timestamptz;not null"`
+	// ConnectorClientIdentifier and Audience are empty for web sign-ins.
+	ConnectorClientIdentifier string `gorm:"size:64;not null;default:''"`
+	Audience                  string `gorm:"size:2048;not null;default:''"`
 }
 
 func (session Session) TableName() string {

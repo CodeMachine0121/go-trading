@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/security"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +24,7 @@ var tokenExpiry = time.Date(2099, 9, 6, 8, 0, 0, 0, time.UTC)
 func TestJwtAccessTokenProxyIssuesAProofItCanReadBack(t *testing.T) {
 	accessTokenProxy := security.NewJwtAccessTokenProxy(signingKey)
 
-	accessTokenVo, issueError := accessTokenProxy.Issue(7, tokenExpiry)
+	accessTokenVo, issueError := accessTokenProxy.Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: tokenExpiry})
 	require.NoError(t, issueError)
 
 	assert.NotEmpty(t, accessTokenVo.AccessToken)
@@ -36,15 +38,15 @@ func TestJwtAccessTokenProxyIssuesAProofItCanReadBack(t *testing.T) {
 
 func TestJwtAccessTokenProxyRefusesEveryProofThatIsNotOne(t *testing.T) {
 	accessTokenProxy := security.NewJwtAccessTokenProxy(signingKey)
-	issuedToken, issueError := accessTokenProxy.Issue(7, tokenExpiry)
+	issuedToken, issueError := accessTokenProxy.Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: tokenExpiry})
 	require.NoError(t, issueError)
 
 	expiredToken, expiredError := accessTokenProxy.Issue(
-		7, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))
+		vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)})
 	require.NoError(t, expiredError)
 
 	otherKeyProxy := security.NewJwtAccessTokenProxy("another-signing-key")
-	otherKeyToken, otherKeyError := otherKeyProxy.Issue(7, tokenExpiry)
+	otherKeyToken, otherKeyError := otherKeyProxy.Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: tokenExpiry})
 	require.NoError(t, otherKeyError)
 
 	testCases := []struct {
@@ -93,14 +95,14 @@ func TestJwtAccessTokenProxyRefusesEveryProofThatIsNotOne(t *testing.T) {
 func TestJwtAccessTokenProxyWithNoKeyRefusesToSignAnything(t *testing.T) {
 	accessTokenProxy := security.NewJwtAccessTokenProxy("")
 
-	_, err := accessTokenProxy.Issue(7, tokenExpiry)
+	_, err := accessTokenProxy.Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: tokenExpiry})
 
 	require.ErrorIs(t, err, domains.ErrAccessTokenUnavailable,
 		"沒有鑰匙時簽出一份沒簽章的憑證，等於任何人都能自己寫一份")
 }
 
 func TestJwtAccessTokenProxyWithNoKeyRecognisesNobody(t *testing.T) {
-	signedElsewhere, issueError := security.NewJwtAccessTokenProxy(signingKey).Issue(7, tokenExpiry)
+	signedElsewhere, issueError := security.NewJwtAccessTokenProxy(signingKey).Issue(vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: tokenExpiry})
 	require.NoError(t, issueError)
 
 	_, err := security.NewJwtAccessTokenProxy("").UserIdentifiedBy(signedElsewhere.AccessToken)
@@ -165,4 +167,84 @@ func hmacSha256(key []byte, message string) []byte {
 	mac.Write([]byte(message))
 
 	return mac.Sum(nil)
+}
+
+func TestJwtAccessTokenProxyWritesTheAudienceOnlyWhenThereIsOne(t *testing.T) {
+	testCases := []struct {
+		name     string
+		audience string
+	}{
+		{name: "a connector token", audience: "https://mcp.example.com/mcp"},
+		{name: "a web token", audience: ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			accessTokenProxy := security.NewJwtAccessTokenProxy(signingKey)
+			accessTokenVo, issueError := accessTokenProxy.Issue(
+				vo.AccessTokenClaimsVo{UserID: 7, Audience: testCase.audience, ExpiresAt: tokenExpiry})
+			require.NoError(t, issueError)
+
+			claims, claimsError := accessTokenProxy.ClaimsOf(accessTokenVo.AccessToken)
+
+			require.NoError(t, claimsError)
+			assert.Equal(t, vo.AccessTokenClaimsVo{UserID: 7, Audience: testCase.audience, ExpiresAt: tokenExpiry}, claims)
+			assert.Equal(t, testCase.audience != "", strings.Contains(decodedPayload(t, accessTokenVo.AccessToken), `"aud"`))
+		})
+	}
+}
+
+func TestJwtAccessTokenProxyAcceptsAConnectorTokenForTheServiceItself(t *testing.T) {
+	accessTokenProxy := security.NewJwtAccessTokenProxy(signingKey)
+	accessTokenVo, issueError := accessTokenProxy.Issue(
+		vo.AccessTokenClaimsVo{UserID: 7, Audience: "https://mcp.example.com/mcp", ExpiresAt: tokenExpiry})
+	require.NoError(t, issueError)
+
+	userID, identifyError := accessTokenProxy.UserIdentifiedBy(accessTokenVo.AccessToken)
+
+	require.NoError(t, identifyError)
+	assert.Equal(t, uint(7), userID)
+}
+
+func TestJwtAccessTokenProxyReadsNoClaimsFromAnInvalidToken(t *testing.T) {
+	expired, issueError := security.NewJwtAccessTokenProxy(signingKey).Issue(
+		vo.AccessTokenClaimsVo{UserID: 7, ExpiresAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)})
+	require.NoError(t, issueError)
+	noSubject, signError := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(tokenExpiry),
+	}).SignedString([]byte(signingKey))
+	require.NoError(t, signError)
+	noExpiry, noExpirySignError := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Subject: "7",
+	}).SignedString([]byte(signingKey))
+	require.NoError(t, noExpirySignError)
+
+	testCases := []struct {
+		name             string
+		accessTokenProxy *security.JwtAccessTokenProxy
+		accessToken      string
+	}{
+		{name: "expired", accessTokenProxy: security.NewJwtAccessTokenProxy(signingKey), accessToken: expired.AccessToken},
+		{name: "no subject", accessTokenProxy: security.NewJwtAccessTokenProxy(signingKey), accessToken: noSubject},
+		{name: "no expiry", accessTokenProxy: security.NewJwtAccessTokenProxy(signingKey), accessToken: noExpiry},
+		{name: "no key configured", accessTokenProxy: security.NewJwtAccessTokenProxy(""), accessToken: expired.AccessToken},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := testCase.accessTokenProxy.ClaimsOf(testCase.accessToken)
+
+			assert.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+		})
+	}
+}
+
+func decodedPayload(t *testing.T, accessToken string) string {
+	t.Helper()
+	segments := strings.Split(accessToken, ".")
+	require.Len(t, segments, 3)
+	payload, decodeError := base64.RawURLEncoding.DecodeString(segments[1])
+	require.NoError(t, decodeError)
+
+	return string(payload)
 }

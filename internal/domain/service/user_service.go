@@ -115,7 +115,7 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, recordError
 	}
 
-	refreshToken, accessToken, materialError := userService.newSessionMaterial(user.ID, now)
+	refreshToken, accessToken, materialError := userService.newSessionMaterial(user.ID, "", now)
 	if materialError != nil {
 		return dto.SessionTokensDto{}, materialError
 	}
@@ -197,43 +197,78 @@ func (userService *UserService) countFailedSignIn(
 	return domains.ErrSignInLockoutStateStale
 }
 
-// RenewSession rotates a renewal token; reuse of an already-rotated token signals theft, so the whole chain is revoked.
+// RenewSession rotates a web renewal token; reuse of an already-rotated token signals theft, so the whole chain is revoked.
 func (userService *UserService) RenewSession(
 	executionContext context.Context, renewalDto dto.SessionRenewalDto,
 ) (dto.SessionTokensDto, error) {
+	sessionTokens, _, renewError := userService.renewedSessionTokens(executionContext, dto.SessionRenewalDto{
+		RefreshToken: renewalDto.RefreshToken,
+	})
+	if renewError != nil {
+		return dto.SessionTokensDto{}, renewError
+	}
+
+	return sessionTokens.ToDto(), nil
+}
+
+// RenewConnectorSession rotates a connector's renewal token under the same rules as the web, keeping the session's audience on the new access token.
+func (userService *UserService) RenewConnectorSession(
+	executionContext context.Context, renewalDto dto.SessionRenewalDto,
+) (dto.ConnectorTokensDto, error) {
+	if renewalDto.RefreshToken == "" || renewalDto.ConnectorClientIdentifier == "" {
+		return dto.ConnectorTokensDto{}, domains.ErrConnectorTokenRequestInvalid
+	}
+
+	sessionTokens, now, renewError := userService.renewedSessionTokens(executionContext, renewalDto)
+	if renewError != nil {
+		return dto.ConnectorTokensDto{}, renewError
+	}
+
+	return sessionTokens.ToConnectorTokensDto(now), nil
+}
+
+func (userService *UserService) renewedSessionTokens(
+	executionContext context.Context, renewalDto dto.SessionRenewalDto,
+) (vo.SessionTokensVo, time.Time, error) {
 	storedSession, sessionExists, findError := userService.sessionHolding(
 		executionContext, renewalDto.RefreshToken)
 	if findError != nil {
-		return dto.SessionTokensDto{}, findError
+		return vo.SessionTokensVo{}, time.Time{}, findError
 	}
 	if !sessionExists {
-		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+		return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
 	}
 
 	session := domains.NewSessionDomain(storedSession)
 	now := userService.clockProxy.Now()
 
 	if session.Revoked() {
-		return dto.SessionTokensDto{}, userService.tornDownChain(executionContext, session.ChainID())
+		return vo.SessionTokensVo{}, time.Time{}, userService.tornDownChain(executionContext, session.ChainID())
+	}
+
+	// A token presented through the other channel is refused without teardown: it is misuse, not proof of theft.
+	if !session.HeldBy(renewalDto.ConnectorClientIdentifier) {
+		return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
 	}
 
 	if session.Expired(now) {
 		// Expiry is not theft, so the chain is left intact.
-		return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+		return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
 	}
 
 	if _, userError := userService.userRepository.FindOne(
 		executionContext, session.UserID()); userError != nil {
 		if errors.Is(userError, domains.ErrUserNotFound) {
-			return dto.SessionTokensDto{}, domains.ErrAuthenticationRequired
+			return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
 		}
 
-		return dto.SessionTokensDto{}, userError
+		return vo.SessionTokensVo{}, time.Time{}, userError
 	}
 
-	refreshToken, accessToken, materialError := userService.newSessionMaterial(session.UserID(), now)
+	refreshToken, accessToken, materialError := userService.newSessionMaterial(
+		session.UserID(), session.Audience(), now)
 	if materialError != nil {
-		return dto.SessionTokensDto{}, materialError
+		return vo.SessionTokensVo{}, time.Time{}, materialError
 	}
 
 	rotatedSession, rotateError := userService.sessionRepository.Rotate(
@@ -243,17 +278,17 @@ func (userService *UserService) RenewSession(
 	)
 	// A rotation refused by the store means a concurrent renewal or sign-out used this token, so treat it as reuse and revoke the chain.
 	if errors.Is(rotateError, domains.ErrSessionAlreadyRotated) {
-		return dto.SessionTokensDto{}, userService.tornDownChain(executionContext, session.ChainID())
+		return vo.SessionTokensVo{}, time.Time{}, userService.tornDownChain(executionContext, session.ChainID())
 	}
 	if rotateError != nil {
-		return dto.SessionTokensDto{}, rotateError
+		return vo.SessionTokensVo{}, time.Time{}, rotateError
 	}
 
 	return vo.SessionTokensVo{
 		AccessToken:           accessToken,
 		RefreshToken:          refreshToken,
 		RefreshTokenExpiresAt: rotatedSession.ExpiresAt,
-	}.ToDto(), nil
+	}, now, nil
 }
 
 // RevokeSession ends the sign-in a renewal token belongs to; an unknown token is success, and the stateless access token stays valid until it expires.
@@ -307,15 +342,18 @@ func (userService *UserService) sessionHolding(
 
 // newSessionMaterial mints and signs tokens before any write, so a failure leaves no session behind and does not end the caller's existing one.
 func (userService *UserService) newSessionMaterial(
-	userID uint, now time.Time,
+	userID uint, audience string, now time.Time,
 ) (vo.RefreshTokenVo, vo.AccessTokenVo, error) {
 	refreshToken, mintError := userService.refreshTokenProxy.Mint()
 	if mintError != nil {
 		return vo.RefreshTokenVo{}, vo.AccessTokenVo{}, mintError
 	}
 
-	accessToken, issueError := userService.accessTokenProxy.Issue(
-		userID, now.Add(userService.sessionLifetimes.AccessToken))
+	accessToken, issueError := userService.accessTokenProxy.Issue(vo.AccessTokenClaimsVo{
+		UserID:    userID,
+		Audience:  audience,
+		ExpiresAt: now.Add(userService.sessionLifetimes.AccessToken),
+	})
 	if issueError != nil {
 		return vo.RefreshTokenVo{}, vo.AccessTokenVo{}, issueError
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/security"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ func newMountedEngine(t *testing.T) *gin.Engine {
 
 func expiredAccessToken(t *testing.T) string {
 	accessToken, issueError := security.NewJwtAccessTokenProxy(testSigningKey).
-		Issue(1, time.Now().Add(-time.Minute))
+		Issue(vo.AccessTokenClaimsVo{UserID: 1, ExpiresAt: time.Now().Add(-time.Minute)})
 	require.NoError(t, issueError)
 
 	return "Bearer " + accessToken.AccessToken
