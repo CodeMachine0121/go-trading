@@ -11,20 +11,17 @@ import (
 type StrategyScriptMarketplaceService struct {
 	strategyScriptRepository          domaininterface.IStrategyScriptRepository
 	publishedStrategyScriptRepository domaininterface.IPublishedStrategyScriptRepository
-	strategyScriptAdoptionRepository  domaininterface.IStrategyScriptAdoptionRepository
 	clockProxy                        domaininterface.IClockProxy
 }
 
 func NewStrategyScriptMarketplaceService(
 	strategyScriptRepository domaininterface.IStrategyScriptRepository,
 	publishedStrategyScriptRepository domaininterface.IPublishedStrategyScriptRepository,
-	strategyScriptAdoptionRepository domaininterface.IStrategyScriptAdoptionRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *StrategyScriptMarketplaceService {
 	return &StrategyScriptMarketplaceService{
 		strategyScriptRepository:          strategyScriptRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
-		strategyScriptAdoptionRepository:  strategyScriptAdoptionRepository,
 		clockProxy:                        clockProxy,
 	}
 }
@@ -33,9 +30,15 @@ func NewStrategyScriptMarketplaceService(
 func (strategyScriptMarketplaceService *StrategyScriptMarketplaceService) PublishStrategyScript(
 	executionContext context.Context, ownerID uint, strategyScriptID uint,
 ) error {
-	if ownershipError := strategyScriptMarketplaceService.requireOwnership(
-		executionContext, ownerID, strategyScriptID); ownershipError != nil {
-		return ownershipError
+	strategyScript, findError := strategyScriptMarketplaceService.strategyScriptRepository.FindOne(
+		executionContext, strategyScriptID)
+	if findError != nil {
+		return findError
+	}
+
+	if rewritableError := domains.NewStrategyScriptAccessDomain(strategyScript, ownerID, false).
+		RequireRewritable(domains.StrategyScriptFromMarketplaceNotRepublishable()); rewritableError != nil {
+		return rewritableError
 	}
 
 	return strategyScriptMarketplaceService.publishedStrategyScriptRepository.Publish(
@@ -71,28 +74,31 @@ func (strategyScriptMarketplaceService *StrategyScriptMarketplaceService) Browse
 	return publishedStrategyScriptDtos, nil
 }
 
-// AdoptStrategyScript adds a published script to the user's shelf idempotently; adopting one's own script is a no-op.
+// AdoptStrategyScript gives the adopter a snapshot copy of their own, so the author can no longer change what the
+// adopter's bots run; adopting one's own script does nothing, and a name the adopter already holds is refused.
 func (strategyScriptMarketplaceService *StrategyScriptMarketplaceService) AdoptStrategyScript(
 	executionContext context.Context, userID uint, strategyScriptID uint,
 ) error {
-	strategyScript, findError := strategyScriptMarketplaceService.strategyScriptRepository.FindOne(executionContext, strategyScriptID)
+	original, findError := strategyScriptMarketplaceService.strategyScriptRepository.FindOne(
+		executionContext, strategyScriptID)
 	if findError != nil {
 		return findError
 	}
 
-	if domains.NewStrategyScriptAccessDomain(strategyScript, userID, false).IsOwnedByViewer() {
+	access := domains.NewStrategyScriptAccessDomain(original, userID, original.Publication != nil)
+	if access.IsOwnedByViewer() {
 		return nil
 	}
+	if !access.IsRunnable() {
+		return domains.StrategyScriptNotFound(strategyScriptID)
+	}
 
-	return strategyScriptMarketplaceService.strategyScriptAdoptionRepository.Adopt(
-		executionContext, userID, strategyScriptID, strategyScriptMarketplaceService.clockProxy.Now())
-}
+	_, saveError := strategyScriptMarketplaceService.strategyScriptRepository.Save(
+		executionContext,
+		domains.NewStrategyScriptMarketplaceCopyDomain(
+			original, userID, strategyScriptMarketplaceService.clockProxy.Now()).ToEntity())
 
-// AbandonStrategyScript removes a script from the user's shelf only, without looking the script up, so tidying up still works after it was deleted.
-func (strategyScriptMarketplaceService *StrategyScriptMarketplaceService) AbandonStrategyScript(
-	executionContext context.Context, userID uint, strategyScriptID uint,
-) error {
-	return strategyScriptMarketplaceService.strategyScriptAdoptionRepository.Abandon(executionContext, userID, strategyScriptID)
+	return saveError
 }
 
 // requireOwnership answers a stranger exactly as for a missing script.

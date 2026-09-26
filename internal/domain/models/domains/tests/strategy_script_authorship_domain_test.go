@@ -18,7 +18,7 @@ const foreignStrategyScriptFailedSentence = "這支策略腳本不是你的，�
 func scriptsOwned(ownedByViewer ...bool) []dto.RunnableStrategyScriptDto {
 	runnableStrategyScripts := make([]dto.RunnableStrategyScriptDto, 0, len(ownedByViewer))
 	for _, owned := range ownedByViewer {
-		runnableStrategyScripts = append(runnableStrategyScripts, dto.RunnableStrategyScriptDto{OwnedByViewer: owned})
+		runnableStrategyScripts = append(runnableStrategyScripts, dto.RunnableStrategyScriptDto{AuthoredByViewer: owned})
 	}
 
 	return runnableStrategyScripts

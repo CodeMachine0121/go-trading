@@ -88,8 +88,6 @@ func TestStrategyScriptListAssistantQueryNamesEachStrategyScriptWithoutSendingIt
 	fixture.strategyScriptRepository.EXPECT().
 		FindAllOwnedBy(gomock.Any(), assistantViewerID).
 		Return([]entities.StrategyScript{aStoredStrategyScriptWithKnobs(1, "二十根均線")}, nil)
-	fixture.strategyScriptRepository.EXPECT().
-		FindAllAdoptedBy(gomock.Any(), assistantViewerID).Return([]entities.PublishedStrategyScript{}, nil)
 
 	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantOrigin, "{}")
 
@@ -105,8 +103,6 @@ func TestStrategyScriptListAssistantQueryAnswersHoldingNoneWithAnEmptyList(t *te
 	fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 	fixture.strategyScriptRepository.EXPECT().
 		FindAllOwnedBy(gomock.Any(), assistantViewerID).Return([]entities.StrategyScript{}, nil)
-	fixture.strategyScriptRepository.EXPECT().
-		FindAllAdoptedBy(gomock.Any(), assistantViewerID).Return([]entities.PublishedStrategyScript{}, nil)
 
 	outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantOrigin, "{}")
 
@@ -361,14 +357,10 @@ func TestStrategyScriptAssistantQueriesActAsWhoeverAskedThem(t *testing.T) {
 	t.Run("its list says which ones the asker may rewrite", func(t *testing.T) {
 		fixture := newStrategyScriptAssistantQueriesUnderTest(t)
 		adopted := aStoredStrategyScriptWithKnobs(2, "別人的")
-		adopted.OwnerID = assistantViewerID + 1
-		adopted.Owner = entities.User{ID: adopted.OwnerID, Email: "someone@example.com"}
+		adopted.IsAdoptedFromMarketplace = true
 		fixture.strategyScriptRepository.EXPECT().
 			FindAllOwnedBy(gomock.Any(), assistantViewerID).
-			Return([]entities.StrategyScript{aStoredStrategyScriptWithKnobs(1, "我的")}, nil)
-		fixture.strategyScriptRepository.EXPECT().
-			FindAllAdoptedBy(gomock.Any(), assistantViewerID).
-			Return([]entities.PublishedStrategyScript{{StrategyScriptID: 2, StrategyScript: adopted}}, nil)
+			Return([]entities.StrategyScript{aStoredStrategyScriptWithKnobs(1, "我的"), adopted}, nil)
 
 		outcome, runError := fixture.listAssistantQuery.Run(t.Context(), assistantOrigin, "{}")
 

@@ -14,6 +14,25 @@ var ErrStrategyScriptNameConflict = errors.New("strategy script name already in 
 
 var ErrStrategyScriptNotFound = errors.New("strategy script not found")
 
+// ErrStrategyScriptFromMarketplace refuses changing a copy adopted from the marketplace, whose algorithm is its author's.
+var ErrStrategyScriptFromMarketplace = errors.New("strategy script was adopted from the marketplace")
+
+func StrategyScriptFromMarketplaceNotRewritable() error {
+	return fmt.Errorf("%w: 從市集加入的策略腳本不能改寫", ErrStrategyScriptFromMarketplace)
+}
+
+func StrategyScriptFromMarketplaceNotRepublishable() error {
+	return fmt.Errorf("%w: 從市集加入的策略腳本不能再發佈", ErrStrategyScriptFromMarketplace)
+}
+
+// ErrStrategyScriptNotYours refuses building rules on someone else's script, so no author can change what another
+// person's bot runs.
+var ErrStrategyScriptNotYours = errors.New("strategy script is not yours")
+
+func StrategyScriptNotYours(id uint) error {
+	return fmt.Errorf("%w: 識別碼為 %d 的策略腳本不是你的，請先把它加入你的策略腳本", ErrStrategyScriptNotYours, id)
+}
+
 // ErrStrategyScriptBotRunning refuses a rewrite while the owner's running bots use the script, since a round must not straddle two versions of it.
 var ErrStrategyScriptBotRunning = errors.New("strategy script is used by a running bot")
 

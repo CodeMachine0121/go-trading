@@ -43,10 +43,3 @@ func (strategyScriptMarketplaceApplication *StrategyScriptMarketplaceApplication
 	return strategyScriptMarketplaceApplication.strategyScriptMarketplaceService.AdoptStrategyScript(
 		executionContext, userID, strategyScriptID)
 }
-
-func (strategyScriptMarketplaceApplication *StrategyScriptMarketplaceApplication) AbandonStrategyScript(
-	executionContext context.Context, userID uint, strategyScriptID uint,
-) error {
-	return strategyScriptMarketplaceApplication.strategyScriptMarketplaceService.AbandonStrategyScript(
-		executionContext, userID, strategyScriptID)
-}

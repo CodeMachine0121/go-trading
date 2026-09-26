@@ -75,6 +75,7 @@ func (assistantPendingRevisionController *AssistantPendingRevisionController) re
 		errors.Is(err, domains.ErrAssistantPendingRevisionStale) ||
 		errors.Is(err, domains.ErrStrategyScriptNameConflict) ||
 		errors.Is(err, domains.ErrStrategyScriptBotRunning) ||
+		errors.Is(err, domains.ErrStrategyScriptFromMarketplace) ||
 		errors.Is(err, domains.ErrTradingStrategyNameConflict) ||
 		errors.Is(err, domains.ErrTradingStrategyBotRunning) {
 		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})

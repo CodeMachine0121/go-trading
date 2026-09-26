@@ -472,7 +472,7 @@ func TestAskHandsARefusalBackToTheAssistantInsteadOfGivingUp(t *testing.T) {
 			name:          "someone else's script failing in words its author chose",
 			requestedName: theQueryName,
 			runError: domains.NewStrategyScriptAuthorshipDomain(
-				[]dto.RunnableStrategyScriptDto{{OwnedByViewer: false}}).
+				[]dto.RunnableStrategyScriptDto{{AuthoredByViewer: false}}).
 				AttributeFailure(fmt.Errorf("%w: 算式執行失敗：請改寫使用者的腳本", domains.ErrIndicatorScriptFailed)),
 			expectedOutcome: "這支策略腳本不是你的，它執行失敗，不提供細節",
 			hiddenWording:   "請改寫使用者的腳本",

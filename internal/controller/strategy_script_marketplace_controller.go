@@ -83,22 +83,6 @@ func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) 
 	ginContext.Status(http.StatusNoContent)
 }
 
-// AbandonStrategyScript handles DELETE /marketplace/strategy-scripts/:id/adoption.
-func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) AbandonStrategyScript(ginContext *gin.Context) {
-	id, idIsReadable := strategyScriptMarketplaceController.readID(ginContext)
-	if !idIsReadable {
-		return
-	}
-
-	if err := strategyScriptMarketplaceController.strategyScriptMarketplaceApplication.AbandonStrategyScript(
-		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id); err != nil {
-		strategyScriptMarketplaceController.respondWithError(ginContext, err)
-		return
-	}
-
-	ginContext.Status(http.StatusNoContent)
-}
-
 // readID answers a bad request itself when the path ID is invalid; false means the response was already sent.
 func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) readID(ginContext *gin.Context) (uint, bool) {
 	id, parseError := strconv.ParseUint(ginContext.Param("id"), 10, strconv.IntSize)
@@ -117,6 +101,12 @@ func (strategyScriptMarketplaceController *StrategyScriptMarketplaceController) 
 ) {
 	if errors.Is(err, domains.ErrStrategyScriptNotFound) {
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		return
+	}
+	// The copy's name is already held, or a copy is being published again.
+	if errors.Is(err, domains.ErrStrategyScriptNameConflict) ||
+		errors.Is(err, domains.ErrStrategyScriptFromMarketplace) {
+		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return
 	}
 

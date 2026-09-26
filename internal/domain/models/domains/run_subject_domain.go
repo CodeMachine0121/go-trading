@@ -56,6 +56,6 @@ func (runSubjectDomain RunSubjectDomain) ToRunnableDto() dto.RunnableStrategyScr
 		ResultType: runSubjectDomain.resultType,
 		Parameters: runSubjectDomain.parameters,
 		// A caller's own algorithm is their own words.
-		OwnedByViewer: true,
+		AuthoredByViewer: true,
 	}
 }

@@ -1,6 +1,7 @@
 package application_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -24,7 +25,6 @@ type marketplaceUnderTest struct {
 	marketplaceApplication            *application.StrategyScriptMarketplaceApplication
 	strategyScriptRepository          *mocks.MockIStrategyScriptRepository
 	publishedStrategyScriptRepository *mocks.MockIPublishedStrategyScriptRepository
-	strategyScriptAdoptionRepository  *mocks.MockIStrategyScriptAdoptionRepository
 }
 
 // newMarketplaceUnderTest wires the real domain service and access model, mocking only storage and
@@ -33,17 +33,15 @@ func newMarketplaceUnderTest(t *testing.T) marketplaceUnderTest {
 	controller := gomock.NewController(t)
 	strategyScriptRepository := mocks.NewMockIStrategyScriptRepository(controller)
 	publishedStrategyScriptRepository := mocks.NewMockIPublishedStrategyScriptRepository(controller)
-	strategyScriptAdoptionRepository := mocks.NewMockIStrategyScriptAdoptionRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(marketplaceNow).AnyTimes()
 
 	return marketplaceUnderTest{
 		marketplaceApplication: application.NewStrategyScriptMarketplaceApplication(
 			service.NewStrategyScriptMarketplaceService(
-				strategyScriptRepository, publishedStrategyScriptRepository, strategyScriptAdoptionRepository, clockProxy)),
+				strategyScriptRepository, publishedStrategyScriptRepository, clockProxy)),
 		strategyScriptRepository:          strategyScriptRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,
-		strategyScriptAdoptionRepository:  strategyScriptAdoptionRepository,
 	}
 }
 
@@ -141,27 +139,64 @@ func TestStrategyScriptMarketplaceBrowseMarketplace(t *testing.T) {
 	})
 }
 
-func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
-	t.Run("puts somebody else's strategy script on this person's shelf", func(t *testing.T) {
-		fixture := newMarketplaceUnderTest(t)
-		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Adopt(gomock.Any(), marketplaceGuestID, uint(7), marketplaceNow).Return(nil)
+// aPublishedOriginal is somebody else's script on the marketplace, with a knob, as adopting finds it.
+func aPublishedOriginal() entities.StrategyScript {
+	original := aStoredStrategyScript(7, "二十根均線")
+	original.OwnerID = strategyScriptOwnerID
+	original.Description = "二十根收盤價的平均"
+	original.Parameters = []entities.StrategyScriptParameter{
+		{ID: 70, StrategyScriptID: 7, Name: "lookback", Kind: "lookbackCount", DefaultValue: 20},
+	}
+	original.Publication = &entities.PublishedStrategyScript{StrategyScriptID: 7, PublishedAt: marketplaceNow}
 
-		require.NoError(t, fixture.marketplaceApplication.AdoptStrategyScript(
-			t.Context(), marketplaceGuestID, 7))
+	return original
+}
+
+func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
+	t.Run("gives the adopter a copy of their own, marked as adopted", func(t *testing.T) {
+		fixture := newMarketplaceUnderTest(t)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aPublishedOriginal(), nil)
+		fixture.strategyScriptRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, copied entities.StrategyScript) (entities.StrategyScript, error) {
+				original := aPublishedOriginal()
+				assert.Zero(t, copied.ID)
+				assert.Equal(t, marketplaceGuestID, copied.OwnerID)
+				assert.True(t, copied.IsAdoptedFromMarketplace)
+				assert.Equal(t, original.Name, copied.Name)
+				assert.Equal(t, original.Description, copied.Description)
+				assert.Equal(t, original.Script, copied.Script)
+				assert.Equal(t, original.ResultType, copied.ResultType)
+				assert.Equal(t, original.MarketDataKind, copied.MarketDataKind)
+				assert.Equal(t, []entities.StrategyScriptParameter{
+					{Name: "lookback", Kind: "lookbackCount", DefaultValue: 20},
+				}, copied.Parameters)
+				assert.Nil(t, copied.Publication)
+				assert.Equal(t, marketplaceNow, copied.CreatedAt)
+
+				return copied, nil
+			})
+
+		require.NoError(t, fixture.marketplaceApplication.AdoptStrategyScript(t.Context(), marketplaceGuestID, 7))
+	})
+
+	t.Run("a name the adopter already holds is refused", func(t *testing.T) {
+		// Adopting the same script twice lands here too.
+		fixture := newMarketplaceUnderTest(t)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aPublishedOriginal(), nil)
+		fixture.strategyScriptRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			Return(entities.StrategyScript{}, domains.ErrStrategyScriptNameConflict)
+
+		err := fixture.marketplaceApplication.AdoptStrategyScript(t.Context(), marketplaceGuestID, 7)
+
+		require.ErrorIs(t, err, domains.ErrStrategyScriptNameConflict)
 	})
 
 	t.Run("adopting one's own does nothing and is not a failure", func(t *testing.T) {
-		// Nothing is stubbed on the adoption store: the caller's own script is already on their
-		// shelf.
+		// Save is unstubbed: nothing may be copied.
 		fixture := newMarketplaceUnderTest(t)
-		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aPublishedOriginal(), nil)
 
-		require.NoError(t, fixture.marketplaceApplication.AdoptStrategyScript(
-			t.Context(), strategyScriptOwnerID, 7))
+		require.NoError(t, fixture.marketplaceApplication.AdoptStrategyScript(t.Context(), strategyScriptOwnerID, 7))
 	})
 
 	t.Run("refuses a strategy script that does not exist", func(t *testing.T) {
@@ -175,14 +210,11 @@ func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
 	})
 
 	t.Run("reports one that is not on the marketplace as one that is not there", func(t *testing.T) {
-		// The store detects the missing publication and reports it in the same words as a missing
-		// strategy script.
+		// Save is unstubbed: an unpublished script is never copied.
 		fixture := newMarketplaceUnderTest(t)
-		fixture.strategyScriptRepository.EXPECT().
-			FindOne(gomock.Any(), uint(7)).Return(aStoredStrategyScript(7, "二十根均線"), nil)
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Adopt(gomock.Any(), marketplaceGuestID, uint(7), marketplaceNow).
-			Return(domains.StrategyScriptNotFound(7))
+		unpublished := aPublishedOriginal()
+		unpublished.Publication = nil
+		fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(unpublished, nil)
 
 		err := fixture.marketplaceApplication.AdoptStrategyScript(t.Context(), marketplaceGuestID, 7)
 
@@ -190,26 +222,15 @@ func TestStrategyScriptMarketplaceAdoptStrategyScript(t *testing.T) {
 	})
 }
 
-func TestStrategyScriptMarketplaceAbandonStrategyScript(t *testing.T) {
-	t.Run("takes it off this person's shelf without asking anybody", func(t *testing.T) {
-		// The strategy script store is untouched: removing your own shelf entry needs no
-		// permission, and the script may since have been deleted.
-		fixture := newMarketplaceUnderTest(t)
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Abandon(gomock.Any(), marketplaceGuestID, uint(7)).Return(nil)
+func TestStrategyScriptMarketplacePublishRefusesAMarketplaceCopy(t *testing.T) {
+	// Publish is unstubbed: a copy never reaches the marketplace again.
+	fixture := newMarketplaceUnderTest(t)
+	copied := aStoredStrategyScript(8, "二十根均線")
+	copied.IsAdoptedFromMarketplace = true
+	fixture.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), uint(8)).Return(copied, nil)
 
-		require.NoError(t, fixture.marketplaceApplication.AbandonStrategyScript(
-			t.Context(), marketplaceGuestID, 7))
-	})
+	err := fixture.marketplaceApplication.PublishStrategyScript(t.Context(), strategyScriptOwnerID, 8)
 
-	t.Run("reports a storage failure", func(t *testing.T) {
-		fixture := newMarketplaceUnderTest(t)
-		storageFailure := errors.New("connection refused")
-		fixture.strategyScriptAdoptionRepository.EXPECT().
-			Abandon(gomock.Any(), marketplaceGuestID, uint(7)).Return(storageFailure)
-
-		err := fixture.marketplaceApplication.AbandonStrategyScript(t.Context(), marketplaceGuestID, 7)
-
-		require.ErrorIs(t, err, storageFailure)
-	})
+	require.ErrorIs(t, err, domains.ErrStrategyScriptFromMarketplace)
+	assert.Contains(t, err.Error(), "從市集加入的策略腳本不能再發佈")
 }

@@ -144,117 +144,25 @@ func TestFindAllPublishedCarriesTheStrategyScriptItsKnobsAndItsOwner(t *testing.
 	assert.Equal(t, "owner@example.com", publications[0].StrategyScript.Owner.Email)
 }
 
-func TestAdoptStrategyScriptTwiceKeepsOneRow(t *testing.T) {
-	database := newStrategyScriptTestDatabase(t)
-	adopterID := aSecondOwner(t, database)
-	strategyScriptID := aPublishedStrategyScript(t, database)
-	strategyScriptAdoptionRepository := persistence.NewStrategyScriptAdoptionRepository(database)
-
-	require.NoError(t, strategyScriptAdoptionRepository.Adopt(t.Context(), adopterID, strategyScriptID, publishedAtNoon))
-	require.NoError(t, strategyScriptAdoptionRepository.Adopt(t.Context(), adopterID, strategyScriptID, publishedAtDusk))
-
-	adopted, findError := persistence.NewStrategyScriptRepository(database).
-		FindAllAdoptedBy(t.Context(), adopterID)
-	require.NoError(t, findError)
-	assert.Len(t, adopted, 1)
-}
-
-func TestAdoptSomethingNotOnTheMarketplaceIsRefusedAsNotFound(t *testing.T) {
-	// The foreign key, not a prior read, rejects adopting an unpublished script, avoiding a race with withdrawal.
-	database := newStrategyScriptTestDatabase(t)
-	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
-	adopterID := aSecondOwner(t, database)
-	unpublished, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed("沒發佈的"))
-	require.NoError(t, saveError)
-
-	adoptError := persistence.NewStrategyScriptAdoptionRepository(database).
-		Adopt(t.Context(), adopterID, unpublished.ID, publishedAtNoon)
-
-	require.ErrorIs(t, adoptError, domains.ErrStrategyScriptNotFound)
-}
-
-func TestAbandonSomethingNeverAdoptedIsNotAFailure(t *testing.T) {
-	database := newStrategyScriptTestDatabase(t)
-	adopterID := aSecondOwner(t, database)
-	strategyScriptID := aPublishedStrategyScript(t, database)
-
-	abandonError := persistence.NewStrategyScriptAdoptionRepository(database).
-		Abandon(t.Context(), adopterID, strategyScriptID)
-
-	require.NoError(t, abandonError)
-}
-
-func TestWithdrawingAStrategyScriptClearsEverybodysAdoptionOfIt(t *testing.T) {
-	// Withdrawal removes adoptions through a schema cascade, not Go code.
-	database := newStrategyScriptTestDatabase(t)
-	adopterID := aSecondOwner(t, database)
-	strategyScriptID := aPublishedStrategyScript(t, database)
-	require.NoError(t, persistence.NewStrategyScriptAdoptionRepository(database).
-		Adopt(t.Context(), adopterID, strategyScriptID, publishedAtNoon))
-
-	require.NoError(t, persistence.NewPublishedStrategyScriptRepository(database).
-		Withdraw(t.Context(), strategyScriptID))
-
-	adopted, findError := persistence.NewStrategyScriptRepository(database).
-		FindAllAdoptedBy(t.Context(), adopterID)
-	require.NoError(t, findError)
-	assert.Empty(t, adopted)
-}
-
-func TestDeletingAStrategyScriptTakesItsPublicationAndEveryAdoptionWithIt(t *testing.T) {
+func TestDeletingAStrategyScriptTakesItsPublicationButLeavesEveryMarketplaceCopy(t *testing.T) {
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	adopterID := aSecondOwner(t, database)
 	strategyScriptID := aPublishedStrategyScript(t, database)
-	require.NoError(t, persistence.NewStrategyScriptAdoptionRepository(database).
-		Adopt(t.Context(), adopterID, strategyScriptID, publishedAtNoon))
+	marketplaceCopy := strategyScriptNamed("別人給的")
+	marketplaceCopy.OwnerID = adopterID
+	marketplaceCopy.IsAdoptedFromMarketplace = true
+	savedCopy, copyError := strategyScriptRepository.Save(t.Context(), marketplaceCopy)
+	require.NoError(t, copyError)
 
 	require.NoError(t, strategyScriptRepository.Delete(t.Context(), strategyScriptID))
 
 	publications, publicationError := strategyScriptRepository.FindAllPublished(t.Context())
 	require.NoError(t, publicationError)
 	assert.Empty(t, publications)
-	adopted, adoptedError := strategyScriptRepository.FindAllAdoptedBy(t.Context(), adopterID)
-	require.NoError(t, adoptedError)
-	assert.Empty(t, adopted)
-}
-
-func TestFindAllAdoptedByOrdersByTheStrategyScriptsName(t *testing.T) {
-	database := newStrategyScriptTestDatabase(t)
-	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
-	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
-	strategyScriptAdoptionRepository := persistence.NewStrategyScriptAdoptionRepository(database)
-	adopterID := aSecondOwner(t, database)
-
-	// ASCII names avoid depending on the database's collation for Chinese.
-	for _, name := range []string{"beta", "alpha"} {
-		savedStrategyScript, saveError := strategyScriptRepository.Save(t.Context(), strategyScriptNamed(name))
-		require.NoError(t, saveError)
-		require.NoError(t, publishedStrategyScriptRepository.Publish(t.Context(), savedStrategyScript.ID, publishedAtNoon))
-		require.NoError(t, strategyScriptAdoptionRepository.Adopt(
-			t.Context(), adopterID, savedStrategyScript.ID, publishedAtNoon))
-	}
-
-	adopted, findError := strategyScriptRepository.FindAllAdoptedBy(t.Context(), adopterID)
-
+	stillThere, findError := strategyScriptRepository.FindOne(t.Context(), savedCopy.ID)
 	require.NoError(t, findError)
-	require.Len(t, adopted, 2)
-	assert.Equal(t, "alpha", adopted[0].StrategyScript.Name)
-	assert.Equal(t, "beta", adopted[1].StrategyScript.Name)
-}
-
-func TestFindAllAdoptedBySeesOnlyThatPersonsShelf(t *testing.T) {
-	database := newStrategyScriptTestDatabase(t)
-	adopterID := aSecondOwner(t, database)
-	strategyScriptID := aPublishedStrategyScript(t, database)
-	require.NoError(t, persistence.NewStrategyScriptAdoptionRepository(database).
-		Adopt(t.Context(), adopterID, strategyScriptID, publishedAtNoon))
-
-	adopted, findError := persistence.NewStrategyScriptRepository(database).
-		FindAllAdoptedBy(t.Context(), strategyScriptRowOwnerID)
-
-	require.NoError(t, findError)
-	assert.Empty(t, adopted, "one person adopting something puts nothing on anybody else's shelf")
+	assert.True(t, stillThere.IsAdoptedFromMarketplace)
 }
 
 func aPublishedStrategyScript(t *testing.T, database *gorm.DB) uint {
@@ -274,7 +182,6 @@ func TestEveryMarketplaceOperationReportsAnUnusableStore(t *testing.T) {
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
 	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
-	strategyScriptAdoptionRepository := persistence.NewStrategyScriptAdoptionRepository(database)
 
 	sqlDatabase, connectionError := database.DB()
 	require.NoError(t, connectionError)
@@ -299,25 +206,8 @@ func TestEveryMarketplaceOperationReportsAnUnusableStore(t *testing.T) {
 			"an outage is not the same answer as 'this one is not shared'")
 	})
 
-	t.Run("adopt", func(t *testing.T) {
-		err := strategyScriptAdoptionRepository.Adopt(t.Context(), 2, 7, publishedAtNoon)
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, domains.ErrStrategyScriptNotFound)
-	})
-
-	t.Run("abandon", func(t *testing.T) {
-		err := strategyScriptAdoptionRepository.Abandon(t.Context(), 2, 7)
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, domains.ErrStrategyScriptNotFound)
-	})
-
 	t.Run("browse the marketplace", func(t *testing.T) {
 		_, err := strategyScriptRepository.FindAllPublished(t.Context())
-		assert.Error(t, err)
-	})
-
-	t.Run("read a shelf", func(t *testing.T) {
-		_, err := strategyScriptRepository.FindAllAdoptedBy(t.Context(), 2)
 		assert.Error(t, err)
 	})
 
@@ -350,32 +240,10 @@ func TestRewritingAStrategyScriptDoesNotChangeWhoItBelongsTo(t *testing.T) {
 	assert.Empty(t, theirs)
 }
 
-func TestRepublishingDoesNotBringBackAnybodysAdoption(t *testing.T) {
-	// Republishing after withdrawal does not restore earlier adoptions.
-	database := newStrategyScriptTestDatabase(t)
-	adopterID := aSecondOwner(t, database)
-	strategyScriptID := aPublishedStrategyScript(t, database)
-	require.NoError(t, persistence.NewStrategyScriptAdoptionRepository(database).
-		Adopt(t.Context(), adopterID, strategyScriptID, publishedAtNoon))
-	publishedStrategyScriptRepository := persistence.NewPublishedStrategyScriptRepository(database)
-	require.NoError(t, publishedStrategyScriptRepository.Withdraw(t.Context(), strategyScriptID))
-
-	require.NoError(t, publishedStrategyScriptRepository.Publish(t.Context(), strategyScriptID, publishedAtDusk))
-
-	adopted, findError := persistence.NewStrategyScriptRepository(database).
-		FindAllAdoptedBy(t.Context(), adopterID)
-	require.NoError(t, findError)
-	assert.Empty(t, adopted, "要再加入一次")
-}
-
-func TestRewritingAPublishedStrategyScriptLeavesItPublishedAndAdopted(t *testing.T) {
-	// Adopters see the owner's latest version, not a frozen copy.
+func TestRewritingAPublishedStrategyScriptLeavesItPublished(t *testing.T) {
 	database := newStrategyScriptTestDatabase(t)
 	strategyScriptRepository := persistence.NewStrategyScriptRepository(database)
-	adopterID := aSecondOwner(t, database)
 	strategyScriptID := aPublishedStrategyScript(t, database)
-	require.NoError(t, persistence.NewStrategyScriptAdoptionRepository(database).
-		Adopt(t.Context(), adopterID, strategyScriptID, publishedAtNoon))
 
 	rewritten := strategyScriptNamed("改過名字的")
 	rewritten.ID = strategyScriptID
@@ -383,14 +251,6 @@ func TestRewritingAPublishedStrategyScriptLeavesItPublishedAndAdopted(t *testing
 	rewritten.Script = rewrittenScript
 	_, updateError := strategyScriptRepository.Update(t.Context(), rewritten)
 	require.NoError(t, updateError)
-
-	adopted, findError := strategyScriptRepository.FindAllAdoptedBy(t.Context(), adopterID)
-	require.NoError(t, findError)
-	require.Len(t, adopted, 1, "改一支策略腳本不會把它從別人的書架上拿走")
-	assert.Equal(t, "改過名字的", adopted[0].ToDto().Name, "採用的是那一支策略腳本，不是它當時的名字")
-	assert.Equal(t, "改過的說明", adopted[0].ToDto().Description)
-	assert.Equal(t, rewrittenScript, adopted[0].StrategyScript.Script,
-		"下一次執行拿到的是改過之後的")
 
 	onTheShelf, publishedError := strategyScriptRepository.FindAllPublished(t.Context())
 	require.NoError(t, publishedError)

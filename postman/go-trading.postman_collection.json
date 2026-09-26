@@ -8330,38 +8330,6 @@
           ]
         },
         {
-          "name": "取消採用一支沒採用的，不算失敗",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/marketplace/strategy-scripts/{{publishedStrategyScriptId}}/adoption",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "marketplace",
-                "strategy-scripts",
-                "{{publishedStrategyScriptId}}",
-                "adoption"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"回應 204\", function () {",
-                  "    pm.response.to.have.status(204);",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "記住這是誰的憑證",
           "request": {
             "method": "GET",
@@ -8768,7 +8736,7 @@
           ]
         },
         {
-          "name": "加入之後清單上就有了",
+          "name": "加入之後清單上就有了一份自己的副本",
           "request": {
             "method": "GET",
             "header": [],
@@ -8791,11 +8759,13 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"採用來的排在自己的後面，而且沒有算式\", function () {",
+                  "pm.test(\"副本排在自己的後面，標明從市集加入，而且沒有算式\", function () {",
                   "    const available = pm.response.json();",
                   "    pm.expect(available.mine).to.be.empty;",
                   "    pm.expect(available.adopted).to.have.lengthOf(1);",
-                  "    pm.expect(available.adopted[0]).to.not.have.property(\"script\");",
+                  "    pm.expect(available.adopted[0].isAdoptedFromMarketplace).to.eql(true);",
+                  "    pm.expect(available.adopted[0].script).to.eql(\"\");",
+                  "    pm.expect(String(available.adopted[0].id)).to.not.eql(String(pm.collectionVariables.get(\"publishedStrategyScriptId\")));",
                   "});"
                 ]
               }
@@ -8803,7 +8773,7 @@
           ]
         },
         {
-          "name": "再加入一次也還是一筆",
+          "name": "再加入一次撞名：已經有一份同名的副本",
           "request": {
             "method": "POST",
             "header": [],
@@ -8826,8 +8796,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 204\", function () {",
-                  "    pm.response.to.have.status(204);",
+                  "pm.test(\"回應 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"說出名稱已被使用\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"已被使用\");",
                   "});"
                 ]
               }
@@ -9042,7 +9015,7 @@
           ]
         },
         {
-          "name": "收回之後，他的清單裡也沒有了",
+          "name": "收回之後，他的副本還在",
           "request": {
             "method": "GET",
             "header": [],
@@ -9065,8 +9038,8 @@
                   "pm.test(\"回應 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"擁有者收回，採用就跟著消失——不必他自己去清\", function () {",
-                  "    pm.expect(pm.response.json().adopted).to.be.empty;",
+                  "pm.test(\"副本是他自己的，擁有者收回不影響它\", function () {",
+                  "    pm.expect(pm.response.json().adopted).to.have.lengthOf(1);",
                   "});"
                 ]
               }

@@ -17,10 +17,12 @@ type StrategyScript struct {
 	Script      string `gorm:"type:text;not null"`
 	ResultType  string `gorm:"size:32;not null"`
 	// MarketDataKind is fixed at creation; the default matches scripts saved before the choice existed.
-	MarketDataKind string    `gorm:"size:32;not null;default:'kCandle'"`
-	CreatedAt      time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt      time.Time `gorm:"type:timestamptz;not null"`
-	Owner          User      `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
+	MarketDataKind string `gorm:"size:32;not null;default:'kCandle'"`
+	// IsAdoptedFromMarketplace marks a copy made on adoption; it keeps no link to the original, which may change or vanish.
+	IsAdoptedFromMarketplace bool      `gorm:"not null;default:false"`
+	CreatedAt                time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt                time.Time `gorm:"type:timestamptz;not null"`
+	Owner                    User      `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	// Publication cascades so deleting a script removes it from the marketplace and, transitively, from every shelf.
 	Publication *PublishedStrategyScript  `gorm:"foreignKey:StrategyScriptID;constraint:OnDelete:CASCADE"`
 	Parameters  []StrategyScriptParameter `gorm:"foreignKey:StrategyScriptID;constraint:OnDelete:CASCADE"`
@@ -31,18 +33,25 @@ func (strategyScript StrategyScript) TableName() string {
 	return "Strategies"
 }
 
+// ToDto never carries a marketplace copy's algorithm, which stays its author's.
 func (strategyScript StrategyScript) ToDto() dto.StrategyScriptDto {
+	script := strategyScript.Script
+	if strategyScript.IsAdoptedFromMarketplace {
+		script = ""
+	}
+
 	return dto.StrategyScriptDto{
-		ID:             strategyScript.ID,
-		Name:           strategyScript.Name,
-		Description:    strategyScript.Description,
-		Script:         strategyScript.Script,
-		ResultType:     strategyScript.ResultType,
-		MarketDataKind: strategyScript.MarketDataKind,
-		Published:      strategyScript.Publication != nil,
-		CreatedAt:      strategyScript.CreatedAt.UTC(),
-		UpdatedAt:      strategyScript.UpdatedAt.UTC(),
-		Parameters:     strategyScript.parameterDtos(),
+		ID:                       strategyScript.ID,
+		IsAdoptedFromMarketplace: strategyScript.IsAdoptedFromMarketplace,
+		Name:                     strategyScript.Name,
+		Description:              strategyScript.Description,
+		Script:                   script,
+		ResultType:               strategyScript.ResultType,
+		MarketDataKind:           strategyScript.MarketDataKind,
+		Published:                strategyScript.Publication != nil,
+		CreatedAt:                strategyScript.CreatedAt.UTC(),
+		UpdatedAt:                strategyScript.UpdatedAt.UTC(),
+		Parameters:               strategyScript.parameterDtos(),
 	}
 }
 

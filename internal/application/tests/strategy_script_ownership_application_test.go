@@ -190,20 +190,6 @@ func assertStoredDescription(
 	assert.Equal(t, expected, storedDescription)
 }
 
-func TestStrategyScriptApplicationReportsAFailureToReadTheShelf(t *testing.T) {
-	// A failing shelf fails the whole picker; half an answer would read as "you adopted nothing".
-	fixture := newStrategyScriptApplicationUnderTest(t)
-	storageFailure := errors.New("connection refused")
-	fixture.strategyScriptRepository.EXPECT().
-		FindAllOwnedBy(gomock.Any(), strategyScriptOwnerID).Return([]entities.StrategyScript{}, nil)
-	fixture.strategyScriptRepository.EXPECT().
-		FindAllAdoptedBy(gomock.Any(), strategyScriptOwnerID).Return(nil, storageFailure)
-
-	_, err := fixture.strategyScriptApplication.ListAvailableStrategyScripts(t.Context(), strategyScriptOwnerID)
-
-	require.ErrorIs(t, err, storageFailure)
-}
-
 func TestStrategyScriptApplicationReportsAFailureToAskWhetherSomethingIsPublished(t *testing.T) {
 	// A store outage must not be read as "not published", or it would look like a genuine refusal.
 	fixture := newStrategyScriptApplicationUnderTest(t)

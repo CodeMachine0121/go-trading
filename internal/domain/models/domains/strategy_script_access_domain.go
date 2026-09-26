@@ -24,7 +24,38 @@ func (strategyScriptAccessDomain StrategyScriptAccessDomain) IsOwnedByViewer() b
 		strategyScriptAccessDomain.strategyScript.OwnerID == strategyScriptAccessDomain.viewerID
 }
 
-// IsRunnable allows owned or published scripts; adoption only affects pickers, so scripts can be tried before adopting.
+// IsAdoptedFromMarketplace tells a copy made on adoption from the owner's own work.
+func (strategyScriptAccessDomain StrategyScriptAccessDomain) IsAdoptedFromMarketplace() bool {
+	return strategyScriptAccessDomain.strategyScript.IsAdoptedFromMarketplace
+}
+
+// RequireRewritable guards rewriting and publishing: only the owner's own work, never a marketplace copy, whose
+// algorithm stays its author's.
+func (strategyScriptAccessDomain StrategyScriptAccessDomain) RequireRewritable(refusal error) error {
+	if ownershipError := strategyScriptAccessDomain.RequireOwnership(); ownershipError != nil {
+		return ownershipError
+	}
+	if strategyScriptAccessDomain.IsAdoptedFromMarketplace() {
+		return refusal
+	}
+
+	return nil
+}
+
+// ToOwnedRunnableDto is the gate for anything a bot can depend on: only the viewer's own scripts, copies included;
+// someone else's published script is refused with a way forward, anything else reads as missing.
+func (strategyScriptAccessDomain StrategyScriptAccessDomain) ToOwnedRunnableDto() (dto.RunnableStrategyScriptDto, error) {
+	if strategyScriptAccessDomain.IsOwnedByViewer() {
+		return strategyScriptAccessDomain.ToRunnableDto()
+	}
+	if strategyScriptAccessDomain.isPublished {
+		return dto.RunnableStrategyScriptDto{}, StrategyScriptNotYours(strategyScriptAccessDomain.strategyScript.ID)
+	}
+
+	return dto.RunnableStrategyScriptDto{}, StrategyScriptNotFound(strategyScriptAccessDomain.strategyScript.ID)
+}
+
+// IsRunnable allows owned or published scripts, so a marketplace script can be tried before it is adopted.
 func (strategyScriptAccessDomain StrategyScriptAccessDomain) IsRunnable() bool {
 	return strategyScriptAccessDomain.IsOwnedByViewer() || strategyScriptAccessDomain.isPublished
 }
@@ -63,10 +94,10 @@ func (strategyScriptAccessDomain StrategyScriptAccessDomain) ToRunnableDto() (dt
 	}
 
 	return dto.RunnableStrategyScriptDto{
-		Script:         strategyScriptAccessDomain.strategyScript.Script,
-		ResultType:     strategyScriptAccessDomain.strategyScript.ResultType,
-		MarketDataKind: strategyScriptAccessDomain.strategyScript.MarketDataKind,
-		Parameters:     parameterWriteDtos,
-		OwnedByViewer:  strategyScriptAccessDomain.IsOwnedByViewer(),
+		Script:           strategyScriptAccessDomain.strategyScript.Script,
+		ResultType:       strategyScriptAccessDomain.strategyScript.ResultType,
+		MarketDataKind:   strategyScriptAccessDomain.strategyScript.MarketDataKind,
+		Parameters:       parameterWriteDtos,
+		AuthoredByViewer: strategyScriptAccessDomain.IsOwnedByViewer() && !strategyScriptAccessDomain.IsAdoptedFromMarketplace(),
 	}, nil
 }

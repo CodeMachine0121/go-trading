@@ -131,7 +131,8 @@ func (strategyScriptController *StrategyScriptController) respondWithError(ginCo
 		return
 	}
 	if errors.Is(err, domains.ErrStrategyScriptNameConflict) ||
-		errors.Is(err, domains.ErrStrategyScriptBotRunning) {
+		errors.Is(err, domains.ErrStrategyScriptBotRunning) ||
+		errors.Is(err, domains.ErrStrategyScriptFromMarketplace) {
 		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 		return
 	}
