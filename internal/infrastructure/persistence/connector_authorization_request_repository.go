@@ -56,7 +56,7 @@ func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepo
 ) error {
 	return connectorAuthorizationRequestRepository.database.WithContext(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
-			if decideError := decideConnectorAuthorizationRequest(transaction, requestID); decideError != nil {
+			if decideError := connectorAuthorizationRequestRepository.decide(transaction, requestID); decideError != nil {
 				return decideError
 			}
 
@@ -71,12 +71,14 @@ func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepo
 func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepository) Deny(
 	executionContext context.Context, requestID uint,
 ) error {
-	return decideConnectorAuthorizationRequest(
+	return connectorAuthorizationRequestRepository.decide(
 		connectorAuthorizationRequestRepository.database.WithContext(executionContext), requestID)
 }
 
-// decideConnectorAuthorizationRequest puts the not-yet-decided condition on the update itself, so a concurrent decision makes it touch zero rows.
-func decideConnectorAuthorizationRequest(database *gorm.DB, requestID uint) error {
+// decide puts the not-yet-decided condition on the update itself, so a concurrent decision makes it touch zero rows.
+func (connectorAuthorizationRequestRepository *ConnectorAuthorizationRequestRepository) decide(
+	database *gorm.DB, requestID uint,
+) error {
 	decided := database.
 		Model(&entities.ConnectorAuthorizationRequest{}).
 		Where(clause.Eq{Column: "id", Value: requestID}).
