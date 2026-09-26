@@ -453,7 +453,7 @@
 | 拒絕外掛授權 | `DenyConnectorAuthorization` | 任何人在授權頁按下拒絕 | 回覆送回外掛的地址（附「使用者拒絕」與回執記號）；待授權請求消耗 | 不必登入——拒絕不帶來任何權限 |
 | 以授權碼換授權 | `ExchangeAuthorizationCode` | 外掛帶授權碼、送回地址、外掛代號、挑戰謎底 | 開一段新的外掛登入階段，回覆一對憑證（登入憑證標著對象服務） | 授權碼不存在、過期、外掛或送回地址不符、謎底不對，一律「授權碼無效」；**已用過的授權碼再用即作廢它換出的那段登入**；回覆不得被暫存；套用身分相關動作額度 |
 | 外掛續用 | `RenewConnectorSession` | 外掛帶續用憑證與外掛代號 | 沿用續用登入憑證的規則換一對新憑證，登入憑證仍標著同一個對象服務 | 外掛代號與該段登入不符即「授權無效」；重用即整條換發鏈作廢 |
-| 查驗登入憑證 | `IntrospectAccessToken` | 對象服務送上一張登入憑證 | 回覆有效（使用者、對象服務、到期時刻）或無效 | 無效不說原因；套用身分相關動作額度 |
+| 查驗登入憑證 | `IntrospectAccessToken` | 對象服務送上一張登入憑證 | 回覆有效（使用者、對象服務、到期時刻）或無效 | 無效不說原因；**只套用一般請求額度**（外掛伺服器替所有使用者查驗，全部來自同一個位址） |
 
 ## 3. Ambiguities & Conflicts
 *Records cases where the same technical term means different things in different modules, or multiple terms refer to the same concept.*
