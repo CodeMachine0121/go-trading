@@ -52,6 +52,8 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.Conversation{}).Error)
 	// 刪掉使用者會連帶刪除其登入階段。
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.User{}).Error)
+	// Deleting connectors cascades to their authorization requests and codes.
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).Delete(&entities.ConnectorClient{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).
 		Delete(&entities.KCandleHistorySyncRun{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).

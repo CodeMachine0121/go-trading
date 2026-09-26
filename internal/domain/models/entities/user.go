@@ -23,7 +23,8 @@ type User struct {
 	// Sessions cascade so a deleted user has no sessions.
 	Sessions []Session `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	// TelegramDelivery cascades so a bot key never outlives its owner.
-	TelegramDelivery *TelegramDelivery `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	TelegramDelivery            *TelegramDelivery            `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	ConnectorAuthorizationCodes []ConnectorAuthorizationCode `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 func (user User) TableName() string {
