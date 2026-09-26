@@ -185,7 +185,7 @@ func (strategyBotService *StrategyBotService) ReadReferencesTo(
 	}, nil
 }
 
-// ReadReferencesToStrategyScript names only the owner's running bots, because someone else's bot on a published script is not the owner's to stop.
+// ReadReferencesToStrategyScript names only the owner's running bots, since those are the ones the owner can stop; bots only ever run their owner's scripts.
 func (strategyBotService *StrategyBotService) ReadReferencesToStrategyScript(
 	executionContext context.Context, ownerID uint, strategyScriptID uint,
 ) (dto.StrategyScriptReferencesDto, error) {

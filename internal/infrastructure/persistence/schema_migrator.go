@@ -601,6 +601,7 @@ type marketplaceCopyKey struct {
 func (schemaMigrator *SchemaMigrator) copyMarketplaceDependencies() error {
 	return schemaMigrator.database.Transaction(func(transaction *gorm.DB) error {
 		copiedStrategyScriptIDs := map[marketplaceCopyKey]uint{}
+		takenNamesByOwner := map[uint]map[string]bool{}
 
 		copyFor := func(key marketplaceCopyKey) (uint, bool, error) {
 			if copiedStrategyScriptID, alreadyCopied := copiedStrategyScriptIDs[key]; alreadyCopied {
@@ -621,15 +622,19 @@ func (schemaMigrator *SchemaMigrator) copyMarketplaceDependencies() error {
 				return 0, false, nil
 			}
 
-			takenNames := []string{}
-			if plucked := transaction.Model(&entities.StrategyScript{}).
-				Where(clause.Eq{Column: "owner_id", Value: key.ownerID}).
-				Pluck("name", &takenNames); plucked.Error != nil {
-				return 0, false, fmt.Errorf("read names to avoid: %w", plucked.Error)
-			}
-			takenNameSet := make(map[string]bool, len(takenNames))
-			for _, takenName := range takenNames {
-				takenNameSet[takenName] = true
+			takenNameSet, namesKnown := takenNamesByOwner[key.ownerID]
+			if !namesKnown {
+				takenNames := []string{}
+				if plucked := transaction.Model(&entities.StrategyScript{}).
+					Where(clause.Eq{Column: "owner_id", Value: key.ownerID}).
+					Pluck("name", &takenNames); plucked.Error != nil {
+					return 0, false, fmt.Errorf("read names to avoid: %w", plucked.Error)
+				}
+				takenNameSet = make(map[string]bool, len(takenNames))
+				for _, takenName := range takenNames {
+					takenNameSet[takenName] = true
+				}
+				takenNamesByOwner[key.ownerID] = takenNameSet
 			}
 
 			marketplaceCopy := domains.NewStrategyScriptMarketplaceCopyDomain(original, key.ownerID, time.Now()).
@@ -639,24 +644,28 @@ func (schemaMigrator *SchemaMigrator) copyMarketplaceDependencies() error {
 			}
 
 			copiedStrategyScriptIDs[key] = marketplaceCopy.ID
+			takenNameSet[marketplaceCopy.Name] = true
 
 			return marketplaceCopy.ID, true, nil
 		}
 
+		// The adoptions table is the mark that this database was never moved; once dropped, nothing runs again, so a
+		// script withdrawn at the time and republished later is never copied to someone who did not adopt it.
 		migrator := transaction.Migrator()
-		hasAdoptions := migrator.HasTable(&retiredStrategyScriptAdoptionRow{})
-		if hasAdoptions {
-			adoptions := []retiredStrategyScriptAdoptionRow{}
-			if read := transaction.Find(&adoptions); read.Error != nil {
-				return fmt.Errorf("read adoptions: %w", read.Error)
-			}
+		if !migrator.HasTable(&retiredStrategyScriptAdoptionRow{}) {
+			return nil
+		}
 
-			for _, adoption := range adoptions {
-				if _, _, copyError := copyFor(marketplaceCopyKey{
-					ownerID: adoption.UserID, originalStrategyScriptID: adoption.StrategyScriptID,
-				}); copyError != nil {
-					return copyError
-				}
+		adoptions := []retiredStrategyScriptAdoptionRow{}
+		if read := transaction.Find(&adoptions); read.Error != nil {
+			return fmt.Errorf("read adoptions: %w", read.Error)
+		}
+
+		for _, adoption := range adoptions {
+			if _, _, copyError := copyFor(marketplaceCopyKey{
+				ownerID: adoption.UserID, originalStrategyScriptID: adoption.StrategyScriptID,
+			}); copyError != nil {
+				return copyError
 			}
 		}
 
@@ -696,10 +705,6 @@ func (schemaMigrator *SchemaMigrator) copyMarketplaceDependencies() error {
 				Update("strategy_id", copiedStrategyScriptID); repointed.Error != nil {
 				return fmt.Errorf("point signal source at its copy: %w", repointed.Error)
 			}
-		}
-
-		if !hasAdoptions {
-			return nil
 		}
 
 		if dropError := migrator.DropTable(&retiredStrategyScriptAdoptionRow{}); dropError != nil {

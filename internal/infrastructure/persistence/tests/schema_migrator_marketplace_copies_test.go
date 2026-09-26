@@ -239,3 +239,18 @@ func TestMigrateLeavesASourceNamingItsOwnersOwnScriptAlone(t *testing.T) {
 	require.NoError(t, legacy.database.First(&signalSource, tradingStrategy.SignalSources[0].ID).Error)
 	assert.Equal(t, own.ID, signalSource.StrategyScriptID)
 }
+
+func TestMigrateRunsOnceSoALaterRepublishHandsOutNothing(t *testing.T) {
+	// Left alone because it was withdrawn; republishing afterwards must not copy it to someone who never adopted it.
+	legacy := newLegacyMarketplace(t)
+	publications := persistence.NewPublishedStrategyScriptRepository(legacy.database)
+	require.NoError(t, publications.Withdraw(t.Context(), legacy.originalScriptID))
+	signalSourceID := legacy.followedBy(t, legacy.originalScriptID)
+	legacy.migrate(t)
+
+	require.NoError(t, publications.Publish(t.Context(), legacy.originalScriptID, time.Now()))
+	legacy.migrate(t)
+
+	assert.Empty(t, legacy.adoptersScripts(t))
+	assert.Equal(t, legacy.originalScriptID, legacy.sourceScriptOf(t, signalSourceID))
+}
