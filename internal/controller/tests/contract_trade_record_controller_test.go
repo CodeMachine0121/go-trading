@@ -374,8 +374,8 @@ func TestContractTradeRouterChanges(t *testing.T) {
 		closed.Status = "closed"
 		closed.ClosedAt = &closedAt
 		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(27)).Return(closed, nil).Times(3)
-		fixture.contractTradeRecordRepository.EXPECT().Delete(gomock.Any(), uint(27)).Return(nil)
-		fixture.contractTradeRecordRepository.EXPECT().Delete(gomock.Any(), uint(27)).Return(context.DeadlineExceeded)
+		fixture.contractTradeRecordRepository.EXPECT().MarkDeleted(gomock.Any(), uint(27), gomock.Any()).Return(nil)
+		fixture.contractTradeRecordRepository.EXPECT().MarkDeleted(gomock.Any(), uint(27), gomock.Any()).Return(context.DeadlineExceeded)
 
 		locked := fixture.send(http.MethodPut, "/contract-trade-records/27/plan", `{"plannedStopLossPrice":"96380"}`)
 		deleted := fixture.send(http.MethodDelete, "/contract-trade-records/27", ``)

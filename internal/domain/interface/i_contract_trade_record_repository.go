@@ -10,7 +10,7 @@ import (
 
 //go:generate go tool mockgen -source=i_contract_trade_record_repository.go -destination=mocks/mock_i_contract_trade_record_repository.go -package=mocks
 
-// IContractTradeRecordRepository stores a trade together with its fills, notes and tags; ownership checks are the domain's job.
+// IContractTradeRecordRepository stores a trade together with its fills, notes and tags; every method sees only trades not deleted, and ownership checks are the domain's job.
 type IContractTradeRecordRepository interface {
 	// Create reports a second open trade for the same owner, symbol and direction as ErrContractTradeOpenPositionExists, decided by the database.
 	Create(
@@ -35,6 +35,7 @@ type IContractTradeRecordRepository interface {
 	FindOpenByOwnerSymbolDirection(
 		executionContext context.Context, ownerID uint, symbol string, direction string,
 	) (entities.ContractTradeRecord, bool, error)
-	Delete(executionContext context.Context, id uint) error
+	// MarkDeleted keeps the trade on record as deleted; a trade already deleted is reported as ErrContractTradeNotFound.
+	MarkDeleted(executionContext context.Context, id uint, deletedAt time.Time) error
 	CountByTag(executionContext context.Context, tagID uint) (int64, error)
 }

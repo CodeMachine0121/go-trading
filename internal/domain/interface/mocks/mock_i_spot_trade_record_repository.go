@@ -73,20 +73,6 @@ func (mr *MockISpotTradeRecordRepositoryMockRecorder) Create(executionContext, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockISpotTradeRecordRepository)(nil).Create), executionContext, record)
 }
 
-// Delete mocks base method.
-func (m *MockISpotTradeRecordRepository) Delete(executionContext context.Context, id uint) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", executionContext, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Delete indicates an expected call of Delete.
-func (mr *MockISpotTradeRecordRepositoryMockRecorder) Delete(executionContext, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockISpotTradeRecordRepository)(nil).Delete), executionContext, id)
-}
-
 // FindClosedByOwner mocks base method.
 func (m *MockISpotTradeRecordRepository) FindClosedByOwner(executionContext context.Context, ownerID uint, closedSince *time.Time) ([]entities.SpotTradeRecord, error) {
 	m.ctrl.T.Helper()
@@ -162,6 +148,20 @@ func (m *MockISpotTradeRecordRepository) FindPageByOwner(executionContext contex
 func (mr *MockISpotTradeRecordRepositoryMockRecorder) FindPageByOwner(executionContext, ownerID, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindPageByOwner", reflect.TypeOf((*MockISpotTradeRecordRepository)(nil).FindPageByOwner), executionContext, ownerID, filter)
+}
+
+// MarkDeleted mocks base method.
+func (m *MockISpotTradeRecordRepository) MarkDeleted(executionContext context.Context, id uint, deletedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkDeleted", executionContext, id, deletedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkDeleted indicates an expected call of MarkDeleted.
+func (mr *MockISpotTradeRecordRepositoryMockRecorder) MarkDeleted(executionContext, id, deletedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDeleted", reflect.TypeOf((*MockISpotTradeRecordRepository)(nil).MarkDeleted), executionContext, id, deletedAt)
 }
 
 // Save mocks base method.

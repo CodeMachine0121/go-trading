@@ -47,6 +47,9 @@ type retiredIndex struct {
 var retiredIndexes = []retiredIndex{
 	// Script names are now unique per owner, not system-wide.
 	{entity: &entities.StrategyScript{}, name: "idx_strategies_name"},
+	// Counted deleted trades as open, so deleting an open trade blocked recording it again.
+	{entity: &entities.ContractTradeRecord{}, name: "idx_contract_trade_records_one_open_per_symbol_direction"},
+	{entity: &entities.SpotTradeRecord{}, name: "idx_spot_trade_records_one_open_per_symbol"},
 }
 
 // ownerlessTable is a table that gained a required owner column; rows predating it belong to nobody and are deleted.
@@ -189,11 +192,11 @@ const KCandleHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_history_sync_ru
 // KCandleContractHistorySyncOneRunningPerSymbolIndex is the contract-venue counterpart, separate so a spot sync does not block a contract sync of the same name.
 const KCandleContractHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_contract_history_sync_runs_one_running_per_symbol"
 
-// ContractTradeOneOpenPerSymbolDirectionIndex keeps one open trade per owner, symbol and direction in the database, as the venue keeps one position; its violation means a second trade was started instead of adding a fill.
-const ContractTradeOneOpenPerSymbolDirectionIndex = "idx_contract_trade_records_one_open_per_symbol_direction"
+// ContractTradeOneOpenPerSymbolDirectionIndex keeps one open trade not deleted per owner, symbol and direction in the database, as the venue keeps one position; its violation means a second trade was started instead of adding a fill.
+const ContractTradeOneOpenPerSymbolDirectionIndex = "idx_contract_trade_records_one_live_open_per_symbol_direction"
 
-// SpotTradeOneOpenPerSymbolIndex keeps one open spot trade per owner and symbol; its violation means a second trade was started instead of buying more.
-const SpotTradeOneOpenPerSymbolIndex = "idx_spot_trade_records_one_open_per_symbol"
+// SpotTradeOneOpenPerSymbolIndex keeps one open spot trade not deleted per owner and symbol; its violation means a second trade was started instead of buying more.
+const SpotTradeOneOpenPerSymbolIndex = "idx_spot_trade_records_one_live_open_per_symbol"
 
 // createPartialIndexes creates partial unique indexes GORM tags cannot express; the status is inlined from the shared constant because PostgreSQL does not accept parameters in an index predicate, and creation is idempotent.
 // Creating it is idempotent, so running this twice is the same as running it once.
@@ -236,7 +239,7 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 
 	createdOpenTradeIndex := schemaMigrator.database.Exec(
 		fmt.Sprintf(
-			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id, symbol, direction) WHERE status = '%s'",
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id, symbol, direction) WHERE status = '%s' AND is_deleted = false",
 			vo.ContractTradeStatusOpen),
 		clause.Column{Name: ContractTradeOneOpenPerSymbolDirectionIndex},
 		clause.Table{Name: entities.ContractTradeRecord{}.TableName()},
@@ -248,7 +251,7 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 
 	createdOpenHoldingIndex := schemaMigrator.database.Exec(
 		fmt.Sprintf(
-			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id, symbol) WHERE status = '%s'",
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id, symbol) WHERE status = '%s' AND is_deleted = false",
 			vo.SpotTradeStatusOpen),
 		clause.Column{Name: SpotTradeOneOpenPerSymbolIndex},
 		clause.Table{Name: entities.SpotTradeRecord{}.TableName()},

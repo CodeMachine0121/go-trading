@@ -68,11 +68,17 @@ func (contractTradeRecordRepository *ContractTradeRecordRepository) Save(
 			row.Notes = nil
 			row.Tags = nil
 
-			if updateError := transaction.Model(&entities.ContractTradeRecord{}).
+			updated := transaction.Model(&entities.ContractTradeRecord{}).
 				Where(clause.Eq{Column: "id", Value: record.ID}).
+				Where(clause.Eq{Column: "is_deleted", Value: false}).
 				Select(contractTradeRecordColumns).
-				Updates(&row).Error; updateError != nil {
-				return updateError
+				Updates(&row)
+			if updated.Error != nil {
+				return updated.Error
+			}
+			// A trade deleted since it was read must not have its children rewritten.
+			if updated.RowsAffected == 0 {
+				return domains.ContractTradeNotFound(record.ID)
 			}
 
 			survivingFillIDs := []uint{}
@@ -164,8 +170,7 @@ func (contractTradeRecordRepository *ContractTradeRecordRepository) FindOne(
 func (contractTradeRecordRepository *ContractTradeRecordRepository) FindPageByOwner(
 	executionContext context.Context, ownerID uint, filter vo.TradeListFilterVo,
 ) ([]entities.ContractTradeRecord, int64, error) {
-	matching := contractTradeRecordRepository.database.WithContext(executionContext).
-		Model(&entities.ContractTradeRecord{}).
+	matching := contractTradeRecordRepository.notDeleted(executionContext).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID})
 	if filter.Status != "" {
 		matching = matching.Where(clause.Eq{Column: "status", Value: filter.Status})
@@ -252,41 +257,64 @@ func (contractTradeRecordRepository *ContractTradeRecordRepository) FindOpenByOw
 	return records[0], true, nil
 }
 
-// Delete removes the trade; its fills, notes and tag links cascade.
-func (contractTradeRecordRepository *ContractTradeRecordRepository) Delete(
-	executionContext context.Context, id uint,
+// MarkDeleted only touches a trade not yet deleted, so a second delete neither succeeds nor moves the deletion time.
+func (contractTradeRecordRepository *ContractTradeRecordRepository) MarkDeleted(
+	executionContext context.Context, id uint, deletedAt time.Time,
 ) error {
-	result := contractTradeRecordRepository.database.WithContext(executionContext).
+	result := contractTradeRecordRepository.notDeleted(executionContext).
 		Where(clause.Eq{Column: "id", Value: id}).
-		Delete(&entities.ContractTradeRecord{})
+		Updates(map[string]any{"is_deleted": true, "deleted_at": deletedAt.UTC()})
 	if result.Error != nil {
-		return fmt.Errorf("delete contract trade record: %w", result.Error)
+		return fmt.Errorf("mark contract trade record deleted: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return domains.ContractTradeNotFound(id)
 	}
 
 	return nil
 }
 
+// CountByTag counts only trades not deleted, reading the tag links first so no join has to be spelled out.
 func (contractTradeRecordRepository *ContractTradeRecordRepository) CountByTag(
 	executionContext context.Context, tagID uint,
 ) (int64, error) {
-	count := int64(0)
-
-	result := contractTradeRecordRepository.database.WithContext(executionContext).
+	taggedRecordIDs := []uint{}
+	linkResult := contractTradeRecordRepository.database.WithContext(executionContext).
 		Table("contract_trade_record_tags").
 		Where(clause.Eq{Column: "trade_tag_id", Value: tagID}).
+		Pluck("contract_trade_record_id", &taggedRecordIDs)
+	if linkResult.Error != nil {
+		return 0, fmt.Errorf("find trades carrying a tag: %w", linkResult.Error)
+	}
+	if len(taggedRecordIDs) == 0 {
+		return 0, nil
+	}
+
+	count := int64(0)
+	countResult := contractTradeRecordRepository.notDeleted(executionContext).
+		Where(map[string]any{"id": taggedRecordIDs}).
 		Count(&count)
-	if result.Error != nil {
-		return 0, fmt.Errorf("count trades carrying a tag: %w", result.Error)
+	if countResult.Error != nil {
+		return 0, fmt.Errorf("count trades carrying a tag: %w", countResult.Error)
 	}
 
 	return count, nil
+}
+
+// notDeleted is where every read starts, so a deleted trade is invisible without each query remembering it.
+func (contractTradeRecordRepository *ContractTradeRecordRepository) notDeleted(
+	executionContext context.Context,
+) *gorm.DB {
+	return contractTradeRecordRepository.database.WithContext(executionContext).
+		Model(&entities.ContractTradeRecord{}).
+		Where(clause.Eq{Column: "is_deleted", Value: false})
 }
 
 func (contractTradeRecordRepository *ContractTradeRecordRepository) withChildren(
 	executionContext context.Context,
 ) *gorm.DB {
 	return contractTradeRecordRepository.preloadChildren(
-		contractTradeRecordRepository.database.WithContext(executionContext))
+		contractTradeRecordRepository.notDeleted(executionContext))
 }
 
 func (contractTradeRecordRepository *ContractTradeRecordRepository) preloadChildren(query *gorm.DB) *gorm.DB {

@@ -43,6 +43,10 @@ type ContractTradeRecord struct {
 	CreatedAt time.Time  `gorm:"type:timestamptz;not null"`
 	UpdatedAt time.Time  `gorm:"type:timestamptz;not null"`
 
+	// IsDeleted keeps a deleted trade on record instead of erasing it; every read skips it.
+	IsDeleted bool       `gorm:"not null;default:false;index"`
+	DeletedAt *time.Time `gorm:"type:timestamptz"`
+
 	Owner User                `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	Fills []ContractTradeFill `gorm:"foreignKey:ContractTradeRecordID;constraint:OnDelete:CASCADE"`
 	Notes []ContractTradeNote `gorm:"foreignKey:ContractTradeRecordID;constraint:OnDelete:CASCADE"`
