@@ -95,6 +95,11 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.ContractFundingRateSettlement{},
 		&entities.ContractPositionStatistic{},
 		&entities.ContractMaintenanceMarginTier{},
+		&entities.TradeJournalSetting{},
+		&entities.TradeTag{},
+		&entities.ContractTradeRecord{},
+		&entities.ContractTradeFill{},
+		&entities.ContractTradeNote{},
 	}
 
 	// Rename before syncing, or AutoMigrate would create empty new tables beside the old ones.
@@ -181,6 +186,9 @@ const KCandleHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_history_sync_ru
 // KCandleContractHistorySyncOneRunningPerSymbolIndex is the contract-venue counterpart, separate so a spot sync does not block a contract sync of the same name.
 const KCandleContractHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_contract_history_sync_runs_one_running_per_symbol"
 
+// ContractTradeOneOpenPerSymbolDirectionIndex keeps one open trade per owner, symbol and direction in the database, as the venue keeps one position; its violation means a second trade was started instead of adding a fill.
+const ContractTradeOneOpenPerSymbolDirectionIndex = "idx_contract_trade_records_one_open_per_symbol_direction"
+
 // createPartialIndexes creates partial unique indexes GORM tags cannot express; the status is inlined from the shared constant because PostgreSQL does not accept parameters in an index predicate, and creation is idempotent.
 // Creating it is idempotent, so running this twice is the same as running it once.
 func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
@@ -218,6 +226,18 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	if createdContractHistorySyncIndex.Error != nil {
 		return fmt.Errorf("create index %s: %w",
 			KCandleContractHistorySyncOneRunningPerSymbolIndex, createdContractHistorySyncIndex.Error)
+	}
+
+	createdOpenTradeIndex := schemaMigrator.database.Exec(
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id, symbol, direction) WHERE status = '%s'",
+			vo.ContractTradeStatusOpen),
+		clause.Column{Name: ContractTradeOneOpenPerSymbolDirectionIndex},
+		clause.Table{Name: entities.ContractTradeRecord{}.TableName()},
+	)
+	if createdOpenTradeIndex.Error != nil {
+		return fmt.Errorf("create index %s: %w",
+			ContractTradeOneOpenPerSymbolDirectionIndex, createdOpenTradeIndex.Error)
 	}
 
 	return nil

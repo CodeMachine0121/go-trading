@@ -46,7 +46,7 @@ type ContractTradeRecord struct {
 	Owner User                `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	Fills []ContractTradeFill `gorm:"foreignKey:ContractTradeRecordID;constraint:OnDelete:CASCADE"`
 	Notes []ContractTradeNote `gorm:"foreignKey:ContractTradeRecordID;constraint:OnDelete:CASCADE"`
-	Tags  []TradeTag          `gorm:"many2many:ContractTradeRecordTags;constraint:OnDelete:CASCADE"`
+	Tags  []TradeTag          `gorm:"many2many:contract_trade_record_tags;constraint:OnDelete:CASCADE"`
 }
 
 func (contractTradeRecord ContractTradeRecord) TableName() string {

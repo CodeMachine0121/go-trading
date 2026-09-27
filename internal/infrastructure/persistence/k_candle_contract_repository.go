@@ -8,6 +8,8 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -231,4 +233,34 @@ func (kCandleContractRepository *KCandleContractRepository) Delete(
 	}
 
 	return nil
+}
+
+// FindPriceExtremesInRange aggregates in the database because a week's holding is ten thousand one-minute candles.
+func (kCandleContractRepository *KCandleContractRepository) FindPriceExtremesInRange(
+	executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+) (vo.PriceExtremesVo, error) {
+	extremes := struct {
+		HighestPrice decimal.NullDecimal
+		LowestPrice  decimal.NullDecimal
+	}{}
+
+	result := kCandleContractRepository.database.WithContext(executionContext).
+		Model(&entities.KCandleContract{}).
+		Select("MAX(high) AS highest_price, MIN(low) AS lowest_price").
+		Where(clause.Eq{Column: "symbol", Value: symbol}).
+		Where(clause.Gte{Column: "open_time", Value: startTime.UTC()}).
+		Where(clause.Lte{Column: "open_time", Value: endTime.UTC()}).
+		Scan(&extremes)
+	if result.Error != nil {
+		return vo.PriceExtremesVo{}, fmt.Errorf("find contract price extremes: %w", result.Error)
+	}
+	if !extremes.HighestPrice.Valid || !extremes.LowestPrice.Valid {
+		return vo.PriceExtremesVo{}, nil
+	}
+
+	return vo.PriceExtremesVo{
+		HighestPrice: extremes.HighestPrice.Decimal,
+		LowestPrice:  extremes.LowestPrice.Decimal,
+		Has:          true,
+	}, nil
 }

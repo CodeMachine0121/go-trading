@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 //go:generate go tool mockgen -source=i_k_candle_contract_repository.go -destination=mocks/mock_i_k_candle_contract_repository.go -package=mocks
@@ -45,4 +46,8 @@ type IKCandleContractRepository interface {
 		executionContext context.Context, symbol string, cutoffTime time.Time, limit int,
 	) ([]entities.KCandleContract, error)
 	Delete(executionContext context.Context, symbol string, openTime time.Time) error
+	// FindPriceExtremesInRange answers the highest high and lowest low with both ends included, without reading every candle.
+	FindPriceExtremesInRange(
+		executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+	) (vo.PriceExtremesVo, error)
 }
