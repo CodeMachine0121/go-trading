@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -405,4 +406,34 @@ func TestContractTradeRecordDomainNamesPositionsAsTheVenueDoes(t *testing.T) {
 		assert.True(t, recordDomain.FeeRateMissing())
 		assert.False(t, openingTrade(t, "long", "97905").FeeRateMissing())
 	})
+}
+
+func TestContractTradeRecordDomainNeverSpeaksOfFills(t *testing.T) {
+	zeroPrice := entryFill(0, tradeOpenedAt.Add(time.Minute), "0", "0.01")
+	future := entryFill(0, ledgerNow.Add(time.Hour), "97950", "0.01")
+	earlyClose := exitFill(0, tradeOpenedAt.Add(-time.Hour), "97950", "0.01")
+	closingFirst := exitFill(0, tradeOpenedAt, "97905", "0.03")
+	_, firstIsCloseError := domains.NewOpeningContractTradeRecordDomain(
+		7, "BTCUSDT", dto.ContractTradeRecordWriteDto{Direction: "long"}, closingFirst, nil, ledgerNow)
+
+	held := openingTrade(t, "long", "97905")
+	closed := closedTrade(t)
+	refusals := []error{
+		firstIsCloseError,
+		held.AddFill(zeroPrice, ledgerNow),
+		held.AddFill(future, ledgerNow),
+		held.AddFill(earlyClose, ledgerNow),
+		held.AddFill(exitFill(0, tradeOpenedAt.Add(time.Hour), "99000", "5"), ledgerNow),
+		held.AmendFill(9, entryFill(0, tradeOpenedAt, "1", "1"), ledgerNow),
+		held.AmendPlan(dto.ContractTradePlanWriteDto{PlannedStopLossPrice: price("99000")}),
+		closed.AddFill(entryFill(0, tradeOpenedAt.Add(2*time.Hour), "97950", "0.01"), ledgerNow),
+		closed.RemoveFill(1, ledgerNow),
+	}
+
+	for _, refusal := range refusals {
+		require.Error(t, refusal)
+		assert.NotContains(t, refusal.Error(), "成交")
+		assert.True(t, strings.Contains(refusal.Error(), "開倉") || strings.Contains(refusal.Error(), "平倉") ||
+			strings.Contains(refusal.Error(), "時間") || strings.Contains(refusal.Error(), "持倉"), refusal.Error())
+	}
 }
