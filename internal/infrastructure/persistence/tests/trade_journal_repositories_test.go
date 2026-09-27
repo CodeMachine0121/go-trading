@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm/clause"
 )
 
 var journalOpenedAt = time.Date(2026, 9, 25, 14, 3, 0, 0, time.UTC)
@@ -190,6 +191,7 @@ func TestContractTradeRecordRepositoryDeletesATradeAndCountsTags(t *testing.T) {
 	repository := persistence.NewContractTradeRecordRepository(database)
 	trade := anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt)
 	trade.Tags = []entities.TradeTag{mistakeTag}
+	trade.Notes = []entities.ContractTradeNote{{Content: "加碼太急", CreatedAt: journalOpenedAt}}
 	created, createError := repository.Create(t.Context(), trade)
 	require.NoError(t, createError)
 
@@ -197,6 +199,13 @@ func TestContractTradeRecordRepositoryDeletesATradeAndCountsTags(t *testing.T) {
 	require.NoError(t, repository.Delete(t.Context(), created.ID))
 	countAfter, countAfterError := repository.CountByTag(t.Context(), mistakeTag.ID)
 	_, findError := repository.FindOne(t.Context(), created.ID)
+	remainingFills, remainingNotes := int64(-1), int64(-1)
+	require.NoError(t, database.Model(&entities.ContractTradeFill{}).
+		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&remainingFills).Error)
+	require.NoError(t, database.Model(&entities.ContractTradeNote{}).
+		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&remainingNotes).Error)
+	assert.Zero(t, remainingFills)
+	assert.Zero(t, remainingNotes)
 
 	require.NoError(t, countBeforeError)
 	require.NoError(t, countAfterError)

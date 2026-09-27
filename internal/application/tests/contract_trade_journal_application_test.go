@@ -459,6 +459,22 @@ func TestContractTradeJournalApplicationChangesATrade(t *testing.T) {
 		require.ErrorIs(t, saveError, errStorageDown)
 	})
 
+	t.Run("a changed fee rate leaves fills already recorded as they were", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		fixture.quietMarket()
+		stored := aStoredOpenTrade()
+		stored.Fills[0].Fee = decimal.RequireFromString("1.47")
+		fixture.tradeJournalSettingRepository.EXPECT().FindOneByUser(gomock.Any(), journalOwnerID).
+			Return(entities.TradeJournalSetting{TakerFeeRate: percentage("0.04")}, true, nil)
+		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(27)).Return(stored, nil)
+		fixture.contractTradeRecordRepository.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(echoSaved)
+
+		recordDto, err := fixture.application.AddNote(context.Background(), journalOwnerID, 27, "費率改了")
+
+		require.NoError(t, err)
+		assert.Equal(t, "1.47", recordDto.Fills[0].Fee.String())
+	})
+
 	t.Run("the person's own trade is deleted", func(t *testing.T) {
 		fixture := newContractTradeJournalApplicationUnderTest(t)
 		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(33)).Return(aStoredClosedTrade(), nil)
