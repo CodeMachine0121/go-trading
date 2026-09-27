@@ -437,3 +437,31 @@ func TestContractTradeRecordDomainNeverSpeaksOfFills(t *testing.T) {
 			strings.Contains(refusal.Error(), "時間") || strings.Contains(refusal.Error(), "持倉"), refusal.Error())
 	}
 }
+
+func TestContractTradeRecordDomainKeepsOnlyAMatchingSource(t *testing.T) {
+	testCases := []struct {
+		name           string
+		roundSymbol    string
+		roundDirection string
+		expectsSource  bool
+	}{
+		{name: "the round that suggested this long is kept", roundSymbol: "BTCUSDT", roundDirection: "long", expectsSource: true},
+		{name: "a round about another symbol is dropped", roundSymbol: "ETHUSDT", roundDirection: "long", expectsSource: false},
+		{name: "a round suggesting the other direction is dropped", roundSymbol: "BTCUSDT", roundDirection: "short", expectsSource: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recordDomain := openingTrade(t, "long", "97905")
+
+			recordDomain.WithSource(dto.JournalLinkRoundDto{
+				StrategyBotID: 5, RunNumber: 412, Symbol: testCase.roundSymbol,
+				SuggestedDirection: testCase.roundDirection, ReferencePrice: price("97850"),
+			})
+
+			entity := recordDomain.ToEntity()
+			assert.Equal(t, testCase.expectsSource, entity.SourceStrategyBotID != nil)
+			assert.Equal(t, testCase.expectsSource, entity.SourceReferencePrice.Valid)
+		})
+	}
+}

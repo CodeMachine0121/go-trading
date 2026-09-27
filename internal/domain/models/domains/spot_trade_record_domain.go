@@ -84,7 +84,12 @@ func (recordDomain SpotTradeRecordDomain) IsOpen() bool {
 }
 
 // WithSource copies the bot round's suggestion onto the trade, since the bot forgets old rounds.
+// WithSource keeps a round only when it was about this very symbol, so its reference price never skews another trade's slippage.
 func (recordDomain *SpotTradeRecordDomain) WithSource(round dto.JournalLinkRoundDto) {
+	if round.Symbol != recordDomain.record.Symbol {
+		return
+	}
+
 	strategyBotID := round.StrategyBotID
 	runNumber := round.RunNumber
 

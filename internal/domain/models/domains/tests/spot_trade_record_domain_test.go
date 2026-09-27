@@ -329,7 +329,7 @@ func TestSpotTradeRecordDomainPlansReviewsAndTags(t *testing.T) {
 		recordDomain := openingSpotTrade(t, "taiwanStock", "2330", spotBuy(1, spotBoughtAt, "1050", "600"))
 
 		recordDomain.WithSource(dto.JournalLinkRoundDto{
-			StrategyBotID: 3, StrategyBotName: "台積電波段", RunNumber: 88,
+			StrategyBotID: 3, StrategyBotName: "台積電波段", RunNumber: 88, Symbol: "2330",
 			ReferencePrice: price("1045"), SuggestedStopLossPrice: price("1000"), SuggestedTakeProfitPrice: price("1150"),
 		})
 
@@ -338,6 +338,18 @@ func TestSpotTradeRecordDomainPlansReviewsAndTags(t *testing.T) {
 		assert.Equal(t, 88, *entity.SourceRunNumber)
 		assert.Equal(t, "1045", entity.SourceReferencePrice.Decimal.String())
 		assert.Equal(t, "台積電波段", entity.SourceStrategyBotName)
+	})
+
+	t.Run("a round about another symbol leaves no source", func(t *testing.T) {
+		recordDomain := openingSpotTrade(t, "taiwanStock", "2330", spotBuy(1, spotBoughtAt, "1050", "600"))
+
+		recordDomain.WithSource(dto.JournalLinkRoundDto{
+			StrategyBotID: 3, RunNumber: 88, Symbol: "2317", ReferencePrice: price("150"),
+		})
+
+		entity := recordDomain.ToEntity()
+		assert.Nil(t, entity.SourceStrategyBotID)
+		assert.False(t, entity.SourceReferencePrice.Valid)
 	})
 }
 
