@@ -358,6 +358,18 @@
     {
       "key": "connectorRefreshToken",
       "value": ""
+    },
+    {
+      "key": "tradeMistakeTagId",
+      "value": ""
+    },
+    {
+      "key": "tradeSetupTagId",
+      "value": ""
+    },
+    {
+      "key": "contractTradeId",
+      "value": ""
     }
   ],
   "event": [
@@ -15261,6 +15273,732 @@
               ]
             },
             "description": "收尾。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "合約交易日誌",
+      "item": [
+        {
+          "name": "設定手續費率",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/trade-journal-settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "trade-journal-settings"
+              ]
+            },
+            "description": "費率是成交金額的百分點；之後記的成交沒填手續費就照它算。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"makerFeeRate\": \"0.02\",\n  \"takerFeeRate\": \"0.05\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"吃單費率照設定\", function () { pm.expect(pm.response.json().takerFeeRate).to.eql(\"0.05\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定手續費率 — 負數",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/trade-journal-settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "trade-journal-settings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"takerFeeRate\": \"-0.01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說明不得為負\", function () { pm.expect(pm.response.json().message).to.include(\"不得為負\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "列出標籤 — 第一次就有預設失誤標籤",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/trade-tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "trade-tags"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"有追價進場\", function () { pm.expect(pm.response.json().map(function (tag) { return tag.name; })).to.include(\"追價進場\"); });",
+                  "pm.collectionVariables.set(\"tradeMistakeTagId\", pm.response.json().find(function (tag) { return tag.name === \"提早出場\"; }).id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "新增型態標籤",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/trade-tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "trade-tags"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"setup\",\n  \"name\": \"突破 {{$timestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set(\"tradeSetupTagId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "記一筆合約交易",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records"
+              ]
+            },
+            "description": "成交時間省略就以現在記下；手續費省略就照吃單費率算。",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"direction\": \"long\",\n  \"leverage\": \"10\",\n  \"firstEntryFill\": {\"kind\": \"entry\", \"price\": \"97905\", \"quantity\": \"0.030\"},\n  \"plan\": {\"plannedStopLossPrice\": \"96380\", \"entryReason\": \"突破前高\", \"confidence\": 3},\n  \"setupTagIds\": [{{tradeSetupTagId}}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 201\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"持倉中\", function () { pm.expect(pm.response.json().status).to.eql(\"open\"); });",
+                  "pm.collectionVariables.set(\"contractTradeId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "再記一筆同標的同方向 — 已有持倉中",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{contractWatchlistSymbol}}\",\n  \"direction\": \"long\",\n  \"firstEntryFill\": {\"kind\": \"entry\", \"price\": \"97905\", \"quantity\": \"0.010\"}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });",
+                  "pm.test(\"指出既有那一筆\", function () { pm.expect(pm.response.json().message).to.include(\"#\" + pm.collectionVariables.get(\"contractTradeId\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加一筆出場 — 超過持倉",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}/fills",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}",
+                "fills"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"exit\",\n  \"price\": \"99000\",\n  \"quantity\": \"0.050\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說要先平倉再反手\", function () { pm.expect(pm.response.json().message).to.include(\"反手\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加一筆出場 — 全部平掉",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}/fills",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}",
+                "fills"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"exit\",\n  \"price\": \"99000\",\n  \"quantity\": \"0.030\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"已平倉\", function () { pm.expect(pm.response.json().status).to.eql(\"closed\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "改計畫 — 平倉後已鎖定",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}",
+                "plan"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plannedStopLossPrice\": \"96300\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說可以加附註\", function () { pm.expect(pm.response.json().message).to.include(\"附註\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "加附註",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}/notes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}",
+                "notes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"止損其實是 96,300，當時打錯\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "寫檢討",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}/review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}",
+                "review"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"wentWell\": \"照計畫進場\",\n  \"wentWrong\": \"提早出場\",\n  \"nextTime\": \"讓止盈單自己成交\",\n  \"executionScore\": 4,\n  \"mistakeTagIds\": [{{tradeMistakeTagId}}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"已檢討\", function () { pm.expect(pm.response.json().status).to.eql(\"reviewed\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查看交易",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"帶著結果\", function () { pm.expect(pm.response.json().outcome).to.have.property(\"netProfit\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "列出交易",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records?status=reviewed&period=7d&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "reviewed"
+                },
+                {
+                  "key": "period",
+                  "value": "7d"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"附總筆數\", function () { pm.expect(pm.response.json()).to.have.property(\"totalCount\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "績效統計",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/statistics?period=30d",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "statistics"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "30d"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"說出期間\", function () { pm.expect(pm.response.json().period).to.eql(\"30d\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "打開記到交易日誌連結 — 已不在紀錄中",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/journal-links/not-a-remembered-round",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "journal-links",
+                "not-a-remembered-round"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 404\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "實盤 vs 回測",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/trading-strategies/{{contractTradingStrategyId}}/contract-trade-comparison",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trading-strategies",
+                "{{contractTradingStrategyId}}",
+                "contract-trade-comparison"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪除使用中的標籤 — 拒絕",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/trade-tags/{{tradeSetupTagId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "trade-tags",
+                "{{tradeSetupTagId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪除交易",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/contract-trade-records/{{contractTradeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "contract-trade-records",
+                "{{contractTradeId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "刪除沒在用的標籤",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/trade-tags/{{tradeSetupTagId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "trade-tags",
+                "{{tradeSetupTagId}}"
+              ]
+            }
           },
           "event": [
             {
