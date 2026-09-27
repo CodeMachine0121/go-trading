@@ -182,36 +182,164 @@ func TestContractTradeRecordRepositoryFindsTheOpenTradeForASymbolAndDirection(t 
 	assert.False(t, hasShort)
 }
 
-func TestContractTradeRecordRepositoryDeletesATradeAndCountsTags(t *testing.T) {
+var journalDeletedAt = time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC)
+
+func aClosedTrade(ownerID uint, tradingStrategyID uint, closedAt time.Time) entities.ContractTradeRecord {
+	trade := anOpenTrade(ownerID, "BTCUSDT", "long", closedAt.Add(-time.Hour))
+	trade.Status = string(vo.ContractTradeStatusClosed)
+	trade.TradingStrategyID = &tradingStrategyID
+	trade.ClosedAt = &closedAt
+
+	return trade
+}
+
+func TestContractTradeRecordRepositoryKeepsADeletedTradeOnRecord(t *testing.T) {
 	database := newTestDatabase(t)
 	owner := aDeliveryOwner(t, database, "james@example.com")
-	mistakeTag, tagError := persistence.NewTradeTagRepository(database).Create(t.Context(),
-		entities.TradeTag{OwnerID: owner.ID, Kind: string(vo.TradeTagKindMistake), Name: "移動止損"})
-	require.NoError(t, tagError)
 	repository := persistence.NewContractTradeRecordRepository(database)
 	trade := anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt)
-	trade.Tags = []entities.TradeTag{mistakeTag}
 	trade.Notes = []entities.ContractTradeNote{{Content: "加碼太急", CreatedAt: journalOpenedAt}}
 	created, createError := repository.Create(t.Context(), trade)
 	require.NoError(t, createError)
+	assert.False(t, created.IsDeleted)
 
-	countBefore, countBeforeError := repository.CountByTag(t.Context(), mistakeTag.ID)
-	require.NoError(t, repository.Delete(t.Context(), created.ID))
-	countAfter, countAfterError := repository.CountByTag(t.Context(), mistakeTag.ID)
-	_, findError := repository.FindOne(t.Context(), created.ID)
-	remainingFills, remainingNotes := int64(-1), int64(-1)
+	require.NoError(t, repository.MarkDeleted(t.Context(), created.ID, journalDeletedAt))
+	secondDeleteError := repository.MarkDeleted(t.Context(), created.ID, journalDeletedAt.Add(time.Hour))
+
+	require.ErrorIs(t, secondDeleteError, domains.ErrContractTradeNotFound)
+	kept := entities.ContractTradeRecord{}
+	require.NoError(t, database.Where(clause.Eq{Column: "id", Value: created.ID}).First(&kept).Error)
+	assert.True(t, kept.IsDeleted)
+	require.NotNil(t, kept.DeletedAt)
+	assert.True(t, journalDeletedAt.Equal(*kept.DeletedAt))
+	keptFills, keptNotes := int64(0), int64(0)
 	require.NoError(t, database.Model(&entities.ContractTradeFill{}).
-		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&remainingFills).Error)
+		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&keptFills).Error)
 	require.NoError(t, database.Model(&entities.ContractTradeNote{}).
-		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&remainingNotes).Error)
-	assert.Zero(t, remainingFills)
-	assert.Zero(t, remainingNotes)
+		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&keptNotes).Error)
+	assert.Equal(t, int64(1), keptFills)
+	assert.Equal(t, int64(1), keptNotes)
+}
 
-	require.NoError(t, countBeforeError)
-	require.NoError(t, countAfterError)
-	assert.Equal(t, int64(1), countBefore)
-	assert.Equal(t, int64(0), countAfter)
+func TestContractTradeRecordRepositoryReadsOnlyTradesNotDeleted(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	repository := persistence.NewContractTradeRecordRepository(database)
+	tradingStrategyID := uint(12)
+	deletedOpen, deletedOpenError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	require.NoError(t, deletedOpenError)
+	deletedClosed, deletedClosedError := repository.Create(t.Context(),
+		aClosedTrade(owner.ID, tradingStrategyID, journalOpenedAt.AddDate(0, 0, 1)))
+	require.NoError(t, deletedClosedError)
+	keptClosed, keptClosedError := repository.Create(t.Context(),
+		aClosedTrade(owner.ID, tradingStrategyID, journalOpenedAt.AddDate(0, 0, 2)))
+	require.NoError(t, keptClosedError)
+	require.NoError(t, repository.MarkDeleted(t.Context(), deletedOpen.ID, journalDeletedAt))
+	require.NoError(t, repository.MarkDeleted(t.Context(), deletedClosed.ID, journalDeletedAt))
+
+	_, findError := repository.FindOne(t.Context(), deletedOpen.ID)
+	page, totalCount, pageError := repository.FindPageByOwner(t.Context(), owner.ID, vo.TradeListFilterVo{Limit: 20})
+	openPage, openCount, openPageError := repository.FindPageByOwner(t.Context(), owner.ID,
+		vo.TradeListFilterVo{Status: string(vo.ContractTradeStatusOpen), Limit: 20})
+	allClosed, closedError := repository.FindClosedByOwner(t.Context(), owner.ID, nil)
+	strategyClosed, strategyError := repository.FindClosedByOwnerAndTradingStrategy(t.Context(), owner.ID, tradingStrategyID)
+	_, hasOpenTrade, openError := repository.FindOpenByOwnerSymbolDirection(t.Context(), owner.ID, "BTCUSDT", "long")
+
 	require.ErrorIs(t, findError, domains.ErrContractTradeNotFound)
+	require.NoError(t, pageError)
+	require.Len(t, page, 1)
+	assert.Equal(t, keptClosed.ID, page[0].ID)
+	assert.Equal(t, int64(1), totalCount)
+	require.NoError(t, openPageError)
+	assert.Empty(t, openPage)
+	assert.Zero(t, openCount)
+	require.NoError(t, closedError)
+	require.Len(t, allClosed, 1)
+	assert.Equal(t, keptClosed.ID, allClosed[0].ID)
+	require.NoError(t, strategyError)
+	require.Len(t, strategyClosed, 1)
+	assert.Equal(t, keptClosed.ID, strategyClosed[0].ID)
+	require.NoError(t, openError)
+	assert.False(t, hasOpenTrade)
+}
+
+func TestContractTradeRecordRepositoryListsNothingWhenEveryTradeIsDeleted(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	repository := persistence.NewContractTradeRecordRepository(database)
+	created, createError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	require.NoError(t, createError)
+	require.NoError(t, repository.MarkDeleted(t.Context(), created.ID, journalDeletedAt))
+
+	page, totalCount, pageError := repository.FindPageByOwner(t.Context(), owner.ID, vo.TradeListFilterVo{Limit: 20})
+
+	require.NoError(t, pageError)
+	assert.Empty(t, page)
+	assert.Zero(t, totalCount)
+}
+
+func TestContractTradeRecordRepositoryFreesTheOpenPositionOfADeletedTrade(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	repository := persistence.NewContractTradeRecordRepository(database)
+	deleted, deletedError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	require.NoError(t, deletedError)
+	require.NoError(t, repository.MarkDeleted(t.Context(), deleted.ID, journalDeletedAt))
+
+	recorded, recordError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	_, blockedError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+
+	require.NoError(t, recordError)
+	assert.NotEqual(t, deleted.ID, recorded.ID)
+	require.ErrorIs(t, blockedError, domains.ErrContractTradeOpenPositionExists)
+}
+
+func TestContractTradeRecordRepositoryRefusesToSaveADeletedTrade(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	repository := persistence.NewContractTradeRecordRepository(database)
+	created, createError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	require.NoError(t, createError)
+	require.NoError(t, repository.MarkDeleted(t.Context(), created.ID, journalDeletedAt))
+
+	amended := created
+	amended.Notes = append(amended.Notes, entities.ContractTradeNote{Content: "事後補記", CreatedAt: journalDeletedAt})
+	_, saveError := repository.Save(t.Context(), amended)
+
+	require.ErrorIs(t, saveError, domains.ErrContractTradeNotFound)
+	keptNotes := int64(-1)
+	require.NoError(t, database.Model(&entities.ContractTradeNote{}).
+		Where(clause.Eq{Column: "contract_trade_record_id", Value: created.ID}).Count(&keptNotes).Error)
+	assert.Zero(t, keptNotes)
+}
+
+func TestContractTradeRecordRepositoryCountsOnlyTradesNotDeletedCarryingATag(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	mistakeTag, tagError := persistence.NewTradeTagRepository(database).Create(t.Context(),
+		entities.TradeTag{OwnerID: owner.ID, Kind: string(vo.TradeTagKindMistake), Name: "追價進場"})
+	require.NoError(t, tagError)
+	repository := persistence.NewContractTradeRecordRepository(database)
+	deletedTrade := anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt)
+	deletedTrade.Tags = []entities.TradeTag{mistakeTag}
+	deleted, deletedError := repository.Create(t.Context(), deletedTrade)
+	require.NoError(t, deletedError)
+	untaggedCount, untaggedError := repository.CountByTag(t.Context(), mistakeTag.ID+1)
+	require.NoError(t, repository.MarkDeleted(t.Context(), deleted.ID, journalDeletedAt))
+	countWithOnlyDeleted, onlyDeletedError := repository.CountByTag(t.Context(), mistakeTag.ID)
+	keptTrade := anOpenTrade(owner.ID, "ETHUSDT", "long", journalOpenedAt)
+	keptTrade.Tags = []entities.TradeTag{mistakeTag}
+	_, keptError := repository.Create(t.Context(), keptTrade)
+	require.NoError(t, keptError)
+
+	countWithOneKept, oneKeptError := repository.CountByTag(t.Context(), mistakeTag.ID)
+
+	require.NoError(t, untaggedError)
+	assert.Zero(t, untaggedCount)
+	require.NoError(t, onlyDeletedError)
+	assert.Zero(t, countWithOnlyDeleted)
+	require.NoError(t, oneKeptError)
+	assert.Equal(t, int64(1), countWithOneKept)
 }
 
 func TestContractTradeRecordRepositoryReportsStorageFailures(t *testing.T) {
@@ -225,7 +353,7 @@ func TestContractTradeRecordRepositoryReportsStorageFailures(t *testing.T) {
 	_, closedError := repository.FindClosedByOwner(t.Context(), 1, nil)
 	_, strategyError := repository.FindClosedByOwnerAndTradingStrategy(t.Context(), 1, 1)
 	_, _, openError := repository.FindOpenByOwnerSymbolDirection(t.Context(), 1, "BTCUSDT", "long")
-	deleteError := repository.Delete(t.Context(), 1)
+	deleteError := repository.MarkDeleted(t.Context(), 1, journalDeletedAt)
 	_, countError := repository.CountByTag(t.Context(), 1)
 
 	for _, storageError := range []error{
@@ -393,4 +521,24 @@ func TestContractTradeRecordRepositoryWritesNothingWhenAChildIsRefused(t *testin
 	require.NoError(t, listError)
 	assert.Equal(t, int64(1), totalCount)
 	assert.Empty(t, trades[0].Notes)
+}
+
+func TestSchemaMigratorStopsDeletedContractTradesHoldingTheOpenPosition(t *testing.T) {
+	// A database synced before deletion kept trades still carries the index that counted them as open.
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	require.NoError(t, database.Exec(`DROP INDEX IF EXISTS ?`,
+		clause.Column{Name: persistence.ContractTradeOneOpenPerSymbolDirectionIndex}).Error)
+	require.NoError(t, database.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_contract_trade_records_one_open_per_symbol_direction"
+		ON "ContractTradeRecords" (owner_id, symbol, direction) WHERE status = 'open'`).Error)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	repository := persistence.NewContractTradeRecordRepository(database)
+	deleted, deletedError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	require.NoError(t, deletedError)
+	require.NoError(t, repository.MarkDeleted(t.Context(), deleted.ID, journalDeletedAt))
+	_, recordError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
+	require.NoError(t, recordError)
 }

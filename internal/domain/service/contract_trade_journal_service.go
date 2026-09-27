@@ -217,7 +217,7 @@ func (journalService *ContractTradeJournalService) DeleteTrade(
 		return findError
 	}
 
-	return journalService.contractTradeRecordRepository.Delete(executionContext, id)
+	return journalService.contractTradeRecordRepository.MarkDeleted(executionContext, id, journalService.clockProxy.Now().UTC())
 }
 
 func (journalService *ContractTradeJournalService) GetTrade(

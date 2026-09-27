@@ -476,12 +476,34 @@ func TestContractTradeJournalApplicationChangesATrade(t *testing.T) {
 		assert.Equal(t, "1.47", recordDto.Fills[0].Fee.String())
 	})
 
-	t.Run("the person's own trade is deleted", func(t *testing.T) {
+	t.Run("the person's own trade is kept on record as deleted at this moment", func(t *testing.T) {
 		fixture := newContractTradeJournalApplicationUnderTest(t)
 		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(33)).Return(aStoredClosedTrade(), nil)
-		fixture.contractTradeRecordRepository.EXPECT().Delete(gomock.Any(), uint(33)).Return(nil)
+		fixture.contractTradeRecordRepository.EXPECT().MarkDeleted(gomock.Any(), uint(33), journalMoment.UTC()).Return(nil)
 
 		require.NoError(t, fixture.application.DeleteTrade(context.Background(), journalOwnerID, 33))
+	})
+
+	t.Run("a trade deleted by a concurrent request is not found", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(33)).Return(aStoredClosedTrade(), nil)
+		fixture.contractTradeRecordRepository.EXPECT().MarkDeleted(gomock.Any(), uint(33), gomock.Any()).
+			Return(domains.ContractTradeNotFound(33))
+
+		err := fixture.application.DeleteTrade(context.Background(), journalOwnerID, 33)
+
+		require.ErrorIs(t, err, domains.ErrContractTradeNotFound)
+	})
+
+	t.Run("someone else's trade is not found and stays untouched", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		othersTrade := aStoredClosedTrade()
+		othersTrade.OwnerID = journalOwnerID + 1
+		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(33)).Return(othersTrade, nil)
+
+		err := fixture.application.DeleteTrade(context.Background(), journalOwnerID, 33)
+
+		require.ErrorIs(t, err, domains.ErrContractTradeNotFound)
 	})
 }
 
