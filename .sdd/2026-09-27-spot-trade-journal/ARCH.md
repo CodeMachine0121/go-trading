@@ -192,4 +192,13 @@ flowchart TD
 
 ## 9. Implementation Notes
 
-（實作時補上偏離與最終欄位）
+- **中性零件改名**：`ContractTradeLedgerDomain` → `TradeLedgerDomain`（吃 `TradeLedgerFillVo`、用詞由 `TradeLedgerWordingVo` 給，含拒絕超賣時的附加說明 `OverExitAdvice`）；`ContractTradeExcursionDomain` → `TradeExcursionDomain`（`ExcursionFor(extremesRequested, priceExtremes)`）；
+  `ContractTradeWinTallyDomain` → `TradeWinTallyDomain`（吃 `TradeResultVo`，多 `AverageReturnRate`、`RMultipleTradeCount`）；`ContractTradeStatisticsPeriodDomain` → `TradeStatisticsPeriodDomain`（建構子收該本日誌的驗證哨兵，兩本拒絕訊息各自歸屬）；
+  `ContractTradeListFilterVo` → `TradeListFilterVo`（多 `Market`）；`ContractTradeExcursionDto`／`ContractTradeFloatingDto` → `TradeExcursionDto`／`TradeFloatingDto`（JSON 不變）。
+- **結果轉成勝場輸入**：`dto` 套件不能依賴 `vo`（`vo` 已依賴 `dto`），所以轉換放在 `ContractTradeResultsDomain`／`SpotTradeResultsDomain.Tally()`，而不是 DTO 身上。
+- **連結讀回**：`TradeJournalLinkService.FindOwnedRound`（開連結）與 `FindOwnedRoundIfRemembered`（建立交易時選用，找不到就沒有來源），兩者共用私有 `ownedRound`，公開方法互不呼叫。兩本日誌的 application 先讀回那一輪、再交給各自 service；service 以行情種類判斷連結是否屬於自己，不屬於時開連結回「這條連結屬於另一本日誌」、建立交易時不抄來源。
+- **合約用語**：帳本用詞 開倉／平倉／持倉，拒絕訊息改為「一筆交易的第一筆必須是開倉」「平倉數量超過目前持倉 …，要反手請先平倉再新增一筆反方向的交易」「平倉後開平倉紀錄已鎖定」「請在那一筆加倉」「做多的止損必須低於開倉價」等；掛單或吃單的檢查與 `FeeRateMissing()` 移回 `ContractTradeRecordDomain`。
+- **現貨市場**：`SpotTradeMarketDomain` 把空白或不認得的市場讀成加密貨幣（與標的登錄一致）；台股數量檢查在每一次買賣時做。
+- **統計**：`SpotTradeStatisticsDomain` 恆輸出台股、加密貨幣兩組；報酬率分布六格 `≤-10%`、`-10%~-5%`、`-5%~0%`、`0%~5%`、`5%~10%`、`>10%`；失誤成本依淨損益由少到多排序。
+- **現貨對照**：`SpotTradeLiveComparisonApplication` 用 `BacktestService.RunTradingStrategyBacktest`，請求為初始資金 10,000、全押、進出場成本率為零。
+- **路由**：與第 3.6 節相同；請求／回應欄位即主對話交付的 `spot-api-contract`，實作未偏離。
