@@ -16,6 +16,7 @@ import (
 
 	domains "github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -145,6 +146,21 @@ func (m *MockIKCandleRepository) FindOne(executionContext context.Context, symbo
 func (mr *MockIKCandleRepositoryMockRecorder) FindOne(executionContext, symbol, openTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOne", reflect.TypeOf((*MockIKCandleRepository)(nil).FindOne), executionContext, symbol, openTime)
+}
+
+// FindPriceExtremesInRange mocks base method.
+func (m *MockIKCandleRepository) FindPriceExtremesInRange(executionContext context.Context, symbol string, startTime, endTime time.Time) (vo.PriceExtremesVo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindPriceExtremesInRange", executionContext, symbol, startTime, endTime)
+	ret0, _ := ret[0].(vo.PriceExtremesVo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindPriceExtremesInRange indicates an expected call of FindPriceExtremesInRange.
+func (mr *MockIKCandleRepositoryMockRecorder) FindPriceExtremesInRange(executionContext, symbol, startTime, endTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindPriceExtremesInRange", reflect.TypeOf((*MockIKCandleRepository)(nil).FindPriceExtremesInRange), executionContext, symbol, startTime, endTime)
 }
 
 // Save mocks base method.

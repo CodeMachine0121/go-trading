@@ -100,6 +100,9 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.ContractTradeRecord{},
 		&entities.ContractTradeFill{},
 		&entities.ContractTradeNote{},
+		&entities.SpotTradeRecord{},
+		&entities.SpotTradeFill{},
+		&entities.SpotTradeNote{},
 	}
 
 	// Rename before syncing, or AutoMigrate would create empty new tables beside the old ones.
@@ -189,6 +192,9 @@ const KCandleContractHistorySyncOneRunningPerSymbolIndex = "idx_k_candle_contrac
 // ContractTradeOneOpenPerSymbolDirectionIndex keeps one open trade per owner, symbol and direction in the database, as the venue keeps one position; its violation means a second trade was started instead of adding a fill.
 const ContractTradeOneOpenPerSymbolDirectionIndex = "idx_contract_trade_records_one_open_per_symbol_direction"
 
+// SpotTradeOneOpenPerSymbolIndex keeps one open spot trade per owner and symbol; its violation means a second trade was started instead of buying more.
+const SpotTradeOneOpenPerSymbolIndex = "idx_spot_trade_records_one_open_per_symbol"
+
 // createPartialIndexes creates partial unique indexes GORM tags cannot express; the status is inlined from the shared constant because PostgreSQL does not accept parameters in an index predicate, and creation is idempotent.
 // Creating it is idempotent, so running this twice is the same as running it once.
 func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
@@ -238,6 +244,17 @@ func (schemaMigrator *SchemaMigrator) createPartialIndexes() error {
 	if createdOpenTradeIndex.Error != nil {
 		return fmt.Errorf("create index %s: %w",
 			ContractTradeOneOpenPerSymbolDirectionIndex, createdOpenTradeIndex.Error)
+	}
+
+	createdOpenHoldingIndex := schemaMigrator.database.Exec(
+		fmt.Sprintf(
+			"CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (owner_id, symbol) WHERE status = '%s'",
+			vo.SpotTradeStatusOpen),
+		clause.Column{Name: SpotTradeOneOpenPerSymbolIndex},
+		clause.Table{Name: entities.SpotTradeRecord{}.TableName()},
+	)
+	if createdOpenHoldingIndex.Error != nil {
+		return fmt.Errorf("create index %s: %w", SpotTradeOneOpenPerSymbolIndex, createdOpenHoldingIndex.Error)
 	}
 
 	return nil
