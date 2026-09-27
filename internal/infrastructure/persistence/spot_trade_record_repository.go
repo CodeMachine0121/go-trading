@@ -238,7 +238,7 @@ func (spotTradeRecordRepository *SpotTradeRecordRepository) FindOpenByOwnerSymbo
 ) (entities.SpotTradeRecord, bool, error) {
 	records := []entities.SpotTradeRecord{}
 
-	result := spotTradeRecordRepository.database.WithContext(executionContext).
+	result := spotTradeRecordRepository.withChildren(executionContext).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Where(clause.Eq{Column: "symbol", Value: symbol}).
 		Where(clause.Eq{Column: "status", Value: string(vo.SpotTradeStatusOpen)}).

@@ -148,6 +148,7 @@ func TestSpotTradeRecordRepositoryListsAndFindsTrades(t *testing.T) {
 	require.NoError(t, openError)
 	assert.True(t, hasOpenTrade)
 	assert.Equal(t, cryptoTrade.ID, openTrade.ID)
+	assert.NotEmpty(t, openTrade.Fills, "the open holding carries its fills so a sell link can offer the whole holding")
 	_, hasClosedAsOpen, _ := repository.FindOpenByOwnerSymbol(t.Context(), owner.ID, "2330")
 	assert.False(t, hasClosedAsOpen)
 

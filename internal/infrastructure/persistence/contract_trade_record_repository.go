@@ -235,7 +235,7 @@ func (contractTradeRecordRepository *ContractTradeRecordRepository) FindOpenByOw
 ) (entities.ContractTradeRecord, bool, error) {
 	records := []entities.ContractTradeRecord{}
 
-	result := contractTradeRecordRepository.database.WithContext(executionContext).
+	result := contractTradeRecordRepository.withChildren(executionContext).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Where(clause.Eq{Column: "symbol", Value: symbol}).
 		Where(clause.Eq{Column: "direction", Value: direction}).
