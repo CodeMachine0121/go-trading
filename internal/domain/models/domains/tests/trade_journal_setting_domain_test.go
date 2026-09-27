@@ -130,7 +130,7 @@ func TestNewTradeTagDomain(t *testing.T) {
 	}
 }
 
-func TestContractTradeStatisticsPeriodDomain(t *testing.T) {
+func TestTradeStatisticsPeriodDomain(t *testing.T) {
 	testCases := []struct {
 		period        string
 		expectedValue string
@@ -144,7 +144,7 @@ func TestContractTradeStatisticsPeriodDomain(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run("period "+testCase.expectedValue, func(t *testing.T) {
-			periodDomain, err := domains.NewContractTradeStatisticsPeriodDomain(testCase.period)
+			periodDomain, err := domains.NewTradeStatisticsPeriodDomain(testCase.period, domains.ErrContractTradeValidation)
 
 			require.NoError(t, err)
 			assert.Equal(t, testCase.expectedValue, periodDomain.Value())
@@ -153,7 +153,7 @@ func TestContractTradeStatisticsPeriodDomain(t *testing.T) {
 	}
 
 	t.Run("an unknown period is refused", func(t *testing.T) {
-		_, err := domains.NewContractTradeStatisticsPeriodDomain("1y")
+		_, err := domains.NewTradeStatisticsPeriodDomain("1y", domains.ErrContractTradeValidation)
 
 		require.ErrorIs(t, err, domains.ErrContractTradeValidation)
 		assert.Contains(t, err.Error(), "期間只有 7d、30d、90d 與 all")

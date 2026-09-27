@@ -250,7 +250,7 @@ func (journalService *ContractTradeJournalService) ListTrades(
 func (journalService *ContractTradeJournalService) GetStatistics(
 	executionContext context.Context, viewerID uint, period string,
 ) (dto.ContractTradeStatisticsDto, error) {
-	periodDomain, periodError := domains.NewContractTradeStatisticsPeriodDomain(period)
+	periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(period, domains.ErrContractTradeValidation)
 	if periodError != nil {
 		return dto.ContractTradeStatisticsDto{}, periodError
 	}
@@ -447,7 +447,7 @@ func (journalService *ContractTradeJournalService) listFilterOf(
 	}
 
 	if queryDto.Period != "" {
-		periodDomain, periodError := domains.NewContractTradeStatisticsPeriodDomain(queryDto.Period)
+		periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(queryDto.Period, domains.ErrContractTradeValidation)
 		if periodError != nil {
 			return vo.TradeListFilterVo{}, periodError
 		}
