@@ -544,6 +544,54 @@ func registerRoutes(
 	engine.POST("/trading-strategies/:id/contract-backtests", requiresSignIn,
 		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
 
+	contractTradeRecordRepository := persistence.NewContractTradeRecordRepository(database)
+	tradeTagRepository := persistence.NewTradeTagRepository(database)
+	tradeJournalSettingRepository := persistence.NewTradeJournalSettingRepository(database)
+	contractTradeJournalService := service.NewContractTradeJournalService(
+		contractTradeRecordRepository,
+		tradeTagRepository,
+		tradeJournalSettingRepository,
+		persistence.NewTradingStrategyRepository(database),
+		contractTradingSymbolRepository,
+		persistence.NewContractMaintenanceMarginTierRepository(database),
+		persistence.NewContractFundingRateSettlementRepository(database),
+		contractKCandleRepository,
+		persistence.NewStrategyBotRepository(database),
+		persistence.NewStrategyBotRunRecordRepository(database),
+		clock.NewSystemClockProxy(),
+	)
+	contractTradeRecordController := controller.NewContractTradeRecordController(
+		application.NewContractTradeJournalApplication(contractTradeJournalService),
+		application.NewContractTradeLiveComparisonApplication(
+			contractTradeJournalService, tradingStrategyService, strategyScriptService, contractBacktestService),
+	)
+	engine.POST("/contract-trade-records", requiresSignIn, contractTradeRecordController.RecordTrade)
+	engine.GET("/contract-trade-records", requiresSignIn, contractTradeRecordController.ListTrades)
+	engine.GET("/contract-trade-records/statistics", requiresSignIn, contractTradeRecordController.GetStatistics)
+	engine.GET("/contract-trade-records/journal-links/:identifier", requiresSignIn,
+		contractTradeRecordController.PrepareJournalLink)
+	engine.GET("/contract-trade-records/:id", requiresSignIn, contractTradeRecordController.GetTrade)
+	engine.DELETE("/contract-trade-records/:id", requiresSignIn, contractTradeRecordController.DeleteTrade)
+	engine.POST("/contract-trade-records/:id/fills", requiresSignIn, contractTradeRecordController.AddFill)
+	engine.PUT("/contract-trade-records/:id/fills/:fillId", requiresSignIn, contractTradeRecordController.AmendFill)
+	engine.DELETE("/contract-trade-records/:id/fills/:fillId", requiresSignIn, contractTradeRecordController.RemoveFill)
+	engine.PUT("/contract-trade-records/:id/plan", requiresSignIn, contractTradeRecordController.AmendPlan)
+	engine.POST("/contract-trade-records/:id/notes", requiresSignIn, contractTradeRecordController.AddNote)
+	engine.PUT("/contract-trade-records/:id/review", requiresSignIn, contractTradeRecordController.WriteReview)
+	engine.PUT("/contract-trade-records/:id/setup-tags", requiresSignIn, contractTradeRecordController.AssignSetupTags)
+	engine.GET("/trading-strategies/:id/contract-trade-comparison", requiresSignIn,
+		contractTradeRecordController.CompareWithBacktest)
+
+	tradeJournalSettingController := controller.NewTradeJournalSettingController(
+		application.NewTradeJournalSettingApplication(service.NewTradeJournalSettingService(
+			tradeJournalSettingRepository, tradeTagRepository, contractTradeRecordRepository, clock.NewSystemClockProxy())))
+	engine.GET("/users/me/trade-journal-settings", requiresSignIn, tradeJournalSettingController.GetSetting)
+	engine.PUT("/users/me/trade-journal-settings", requiresSignIn, tradeJournalSettingController.SaveFeeRates)
+	engine.GET("/users/me/trade-tags", requiresSignIn, tradeJournalSettingController.ListTags)
+	engine.POST("/users/me/trade-tags", requiresSignIn, tradeJournalSettingController.CreateTag)
+	engine.PUT("/users/me/trade-tags/:id", requiresSignIn, tradeJournalSettingController.RenameTag)
+	engine.DELETE("/users/me/trade-tags/:id", requiresSignIn, tradeJournalSettingController.DeleteTag)
+
 	// Rewrites of what a person already has wait for their confirmation; each applier carries out one kind.
 	assistantRevisionApplication := application.NewAssistantRevisionApplication(
 		service.NewAssistantRevisionService(
