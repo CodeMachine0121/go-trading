@@ -542,3 +542,35 @@ func TestSchemaMigratorStopsDeletedContractTradesHoldingTheOpenPosition(t *testi
 	_, recordError := repository.Create(t.Context(), anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt))
 	require.NoError(t, recordError)
 }
+
+func TestSchemaMigratorTreatsTradesRecordedBeforeDeletionWasKeptAsNotDeleted(t *testing.T) {
+	database := newTestDatabase(t)
+	owner := aDeliveryOwner(t, database, "james@example.com")
+	migrator := database.Migrator()
+	for _, table := range []any{&entities.ContractTradeRecord{}, &entities.SpotTradeRecord{}} {
+		require.NoError(t, migrator.DropColumn(table, "IsDeleted"))
+		require.NoError(t, migrator.DropColumn(table, "DeletedAt"))
+	}
+	earlierContractTrade := anOpenTrade(owner.ID, "BTCUSDT", "long", journalOpenedAt)
+	earlierContractTrade.Fills = nil
+	require.NoError(t, database.Omit("IsDeleted", "DeletedAt", clause.Associations).Create(&earlierContractTrade).Error)
+	earlierSpotTrade := anOpenSpotTrade(owner.ID, "2330", "taiwanStock", journalOpenedAt)
+	earlierSpotTrade.Fills = nil
+	require.NoError(t, database.Omit("IsDeleted", "DeletedAt", clause.Associations).Create(&earlierSpotTrade).Error)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	contractPage, contractCount, contractError := persistence.NewContractTradeRecordRepository(database).
+		FindPageByOwner(t.Context(), owner.ID, vo.TradeListFilterVo{Limit: 20})
+	spotPage, spotCount, spotError := persistence.NewSpotTradeRecordRepository(database).
+		FindPageByOwner(t.Context(), owner.ID, vo.TradeListFilterVo{Limit: 20})
+	require.NoError(t, contractError)
+	require.NoError(t, spotError)
+	assert.Equal(t, int64(1), contractCount)
+	require.Len(t, contractPage, 1)
+	assert.Equal(t, earlierContractTrade.ID, contractPage[0].ID)
+	assert.Equal(t, int64(1), spotCount)
+	require.Len(t, spotPage, 1)
+	assert.Equal(t, earlierSpotTrade.ID, spotPage[0].ID)
+}

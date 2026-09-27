@@ -362,6 +362,29 @@ func TestSpotTradeJournalApplicationChangesATrade(t *testing.T) {
 		require.ErrorIs(t, tagError, errStorageDown)
 	})
 
+	t.Run("a deleted spot trade answers not found to every change and is never saved", func(t *testing.T) {
+		fixture := newSpotTradeJournalApplicationUnderTest(t)
+		fixture.spotTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(20)).
+			Return(entities.SpotTradeRecord{}, domains.SpotTradeNotFound(20)).AnyTimes()
+		fixture.tradeTagRepository.EXPECT().FindByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+		ctx := context.Background()
+
+		_, addError := fixture.application.AddFill(ctx, journalOwnerID, 20, dto.SpotTradeFillWriteDto{})
+		_, amendError := fixture.application.AmendFill(ctx, journalOwnerID, 20, 1, dto.SpotTradeFillWriteDto{})
+		_, removeError := fixture.application.RemoveFill(ctx, journalOwnerID, 20, 1)
+		_, planError := fixture.application.AmendPlan(ctx, journalOwnerID, 20, dto.SpotTradePlanWriteDto{})
+		_, noteError := fixture.application.AddNote(ctx, journalOwnerID, 20, "事後補記")
+		_, reviewError := fixture.application.WriteReview(ctx, journalOwnerID, 20, dto.SpotTradeReviewWriteDto{})
+		_, tagError := fixture.application.AssignSetupTags(ctx, journalOwnerID, 20, nil)
+		_, getError := fixture.application.GetTrade(ctx, journalOwnerID, 20)
+		deleteError := fixture.application.DeleteTrade(ctx, journalOwnerID, 20)
+
+		for _, err := range []error{addError, amendError, removeError, planError, noteError, reviewError, tagError, getError, deleteError} {
+			require.ErrorIs(t, err, domains.ErrSpotTradeNotFound)
+			assert.Contains(t, err.Error(), "找不到這筆交易")
+		}
+	})
+
 	t.Run("somebody else's trade is not found for any change or delete", func(t *testing.T) {
 		fixture := newSpotTradeJournalApplicationUnderTest(t)
 		strangers := aHeldTaiwanTrade()

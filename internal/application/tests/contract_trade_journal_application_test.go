@@ -427,6 +427,29 @@ func TestContractTradeJournalApplicationChangesATrade(t *testing.T) {
 		assert.Equal(t, "提早出場", recordDto.MistakeTags[0].Name)
 	})
 
+	t.Run("a deleted trade answers not found to every change and is never saved", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(12)).
+			Return(entities.ContractTradeRecord{}, domains.ContractTradeNotFound(12)).AnyTimes()
+		fixture.tradeTagRepository.EXPECT().FindByIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+		ctx := context.Background()
+
+		_, addError := fixture.application.AddFill(ctx, journalOwnerID, 12, dto.ContractTradeFillWriteDto{})
+		_, amendError := fixture.application.AmendFill(ctx, journalOwnerID, 12, 1, dto.ContractTradeFillWriteDto{})
+		_, removeError := fixture.application.RemoveFill(ctx, journalOwnerID, 12, 1)
+		_, planError := fixture.application.AmendPlan(ctx, journalOwnerID, 12, dto.ContractTradePlanWriteDto{})
+		_, noteError := fixture.application.AddNote(ctx, journalOwnerID, 12, "事後補記")
+		_, reviewError := fixture.application.WriteReview(ctx, journalOwnerID, 12, dto.ContractTradeReviewWriteDto{})
+		_, tagError := fixture.application.AssignSetupTags(ctx, journalOwnerID, 12, nil)
+		_, getError := fixture.application.GetTrade(ctx, journalOwnerID, 12)
+		deleteError := fixture.application.DeleteTrade(ctx, journalOwnerID, 12)
+
+		for _, err := range []error{addError, amendError, removeError, planError, noteError, reviewError, tagError, getError, deleteError} {
+			require.ErrorIs(t, err, domains.ErrContractTradeNotFound)
+			assert.Contains(t, err.Error(), "找不到這筆交易")
+		}
+	})
+
 	t.Run("failures while changing come back as they are", func(t *testing.T) {
 		fixture := newContractTradeJournalApplicationUnderTest(t)
 		fixture.contractTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(40)).Return(entities.ContractTradeRecord{}, domains.ContractTradeNotFound(40))
