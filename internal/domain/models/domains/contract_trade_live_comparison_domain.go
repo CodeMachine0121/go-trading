@@ -53,9 +53,19 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Plan() dto.ContractTra
 			}
 		}
 
+		tally := NewContractTradeResultsDomain(trades).Tally()
 		groups = append(groups, dto.ContractTradeComparisonGroupDto{
 			Symbol: symbol,
-			Live:   comparisonDomain.figuresOf(trades),
+			Live: dto.ContractTradeLiveFiguresDto{
+				ContractTradeComparisonFiguresDto: dto.ContractTradeComparisonFiguresDto{
+					ClosedTradeCount: tally.TradeCount(),
+					WinRate:          tally.WinRate(),
+					LongWinRate:      tally.OfDirection(vo.PositionDirectionLong).WinRate(),
+					ShortWinRate:     tally.OfDirection(vo.PositionDirectionShort).WinRate(),
+				},
+				AverageEntrySlippagePercentage: tally.AverageEntrySlippagePercentage(),
+				EntrySlippageTradeCount:        tally.EntrySlippageTradeCount(),
+			},
 			BacktestRequest: dto.ContractTradingStrategyBacktestRequestDto{
 				Symbol:              symbol,
 				StartTime:           startTime,
@@ -123,21 +133,4 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Compose(
 	}
 
 	return rows
-}
-
-func (comparisonDomain ContractTradeLiveComparisonDomain) figuresOf(
-	trades []dto.ContractTradeRecordDto,
-) dto.ContractTradeLiveFiguresDto {
-	tally := NewContractTradeResultsDomain(trades).Tally()
-
-	return dto.ContractTradeLiveFiguresDto{
-		ContractTradeComparisonFiguresDto: dto.ContractTradeComparisonFiguresDto{
-			ClosedTradeCount: tally.TradeCount(),
-			WinRate:          tally.WinRate(),
-			LongWinRate:      tally.OfDirection(vo.PositionDirectionLong).WinRate(),
-			ShortWinRate:     tally.OfDirection(vo.PositionDirectionShort).WinRate(),
-		},
-		AverageEntrySlippagePercentage: tally.AverageEntrySlippagePercentage(),
-		EntrySlippageTradeCount:        tally.EntrySlippageTradeCount(),
-	}
 }

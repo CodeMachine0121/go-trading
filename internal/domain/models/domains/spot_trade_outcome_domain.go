@@ -25,6 +25,28 @@ func (outcomeDomain SpotTradeOutcomeDomain) Outcome() dto.SpotTradeOutcomeDto {
 	buyCost := ledger.EntryValue()
 	plannedRisk := NewPlannedRiskDomain(
 		ledger.AverageEntryPrice(), ledger.EnteredQuantity(), outcomeDomain.record.PlannedStopLossPrice)
+	isHeld := outcomeDomain.record.Status == string(vo.SpotTradeStatusOpen)
+
+	floatingProfit := dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNotOpen}
+	if isHeld && !outcomeDomain.facts.HasLatestPrice {
+		floatingProfit = dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNoLatestPrice}
+	}
+	if isHeld && outcomeDomain.facts.HasLatestPrice {
+		floatingProfit = dto.TradeFloatingDto{
+			Available: true,
+			Price:     outcomeDomain.facts.LatestPrice,
+			Amount:    ledger.OpenProfitAt(vo.PositionDirectionLong, outcomeDomain.facts.LatestPrice),
+		}
+	}
+
+	// Slippage is positive when the buy was dearer than the bot's reference price.
+	entrySlippagePercentage := (*float64)(nil)
+	referencePrice := outcomeDomain.record.SourceReferencePrice
+	if referencePrice.Valid && referencePrice.Decimal.IsPositive() {
+		slippagePercentage := ledger.AverageEntryPrice().Sub(referencePrice.Decimal).
+			Div(referencePrice.Decimal).Mul(oneHundredPercent).InexactFloat64()
+		entrySlippagePercentage = &slippagePercentage
+	}
 
 	outcomeDto := dto.SpotTradeOutcomeDto{
 		GrossProfit: grossProfit,
@@ -35,8 +57,8 @@ func (outcomeDomain SpotTradeOutcomeDomain) Outcome() dto.SpotTradeOutcomeDto {
 		RMultiple:   plannedRisk.RMultipleOf(netProfit),
 		Excursion: NewTradeExcursionDomain(ledger, vo.PositionDirectionLong, plannedRisk).
 			ExcursionFor(outcomeDomain.facts.ExtremesRequested, outcomeDomain.facts.PriceExtremes),
-		FloatingProfit:          outcomeDomain.floatingProfit(),
-		EntrySlippagePercentage: outcomeDomain.entrySlippagePercentage(),
+		FloatingProfit:          floatingProfit,
+		EntrySlippagePercentage: entrySlippagePercentage,
 	}
 
 	if buyCost.IsPositive() {
@@ -49,39 +71,10 @@ func (outcomeDomain SpotTradeOutcomeDomain) Outcome() dto.SpotTradeOutcomeDto {
 	}
 
 	// Only a finished trade has a share captured; while held, the realised part is not the trade's result.
-	isHeld := outcomeDomain.record.Status == string(vo.SpotTradeStatusOpen)
 	if !isHeld && outcomeDto.Excursion.Available && outcomeDto.Excursion.FavorableProfit.IsPositive() {
 		profitCaptureRate := grossProfit.Div(outcomeDto.Excursion.FavorableProfit).InexactFloat64()
 		outcomeDto.ProfitCaptureRate = &profitCaptureRate
 	}
 
 	return outcomeDto
-}
-
-func (outcomeDomain SpotTradeOutcomeDomain) floatingProfit() dto.TradeFloatingDto {
-	if outcomeDomain.record.Status != string(vo.SpotTradeStatusOpen) {
-		return dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNotOpen}
-	}
-	if !outcomeDomain.facts.HasLatestPrice {
-		return dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNoLatestPrice}
-	}
-
-	return dto.TradeFloatingDto{
-		Available: true,
-		Price:     outcomeDomain.facts.LatestPrice,
-		Amount:    outcomeDomain.ledger.OpenProfitAt(vo.PositionDirectionLong, outcomeDomain.facts.LatestPrice),
-	}
-}
-
-// entrySlippagePercentage is positive when the buy was dearer than the bot's reference price.
-func (outcomeDomain SpotTradeOutcomeDomain) entrySlippagePercentage() *float64 {
-	referencePrice := outcomeDomain.record.SourceReferencePrice
-	if !referencePrice.Valid || !referencePrice.Decimal.IsPositive() {
-		return nil
-	}
-
-	slippagePercentage := outcomeDomain.ledger.AverageEntryPrice().Sub(referencePrice.Decimal).
-		Div(referencePrice.Decimal).Mul(oneHundredPercent).InexactFloat64()
-
-	return &slippagePercentage
 }

@@ -42,10 +42,18 @@ func (comparisonDomain SpotTradeLiveComparisonDomain) Plan() dto.SpotTradeCompar
 			}
 		}
 
+		tally := NewSpotTradeResultsDomain(trades).Tally()
 		groups = append(groups, dto.SpotTradeComparisonGroupDto{
 			Symbol: symbol,
 			Market: trades[0].Market,
-			Live:   comparisonDomain.figuresOf(trades),
+			Live: dto.SpotTradeLiveFiguresDto{
+				SpotTradeComparisonFiguresDto: dto.SpotTradeComparisonFiguresDto{
+					ClosedTradeCount: tally.TradeCount(),
+					WinRate:          tally.WinRate(),
+				},
+				AverageEntrySlippagePercentage: tally.AverageEntrySlippagePercentage(),
+				EntrySlippageTradeCount:        tally.EntrySlippageTradeCount(),
+			},
 			BacktestRequest: dto.TradingStrategyBacktestRequestDto{
 				Symbol:             symbol,
 				StartTime:          startTime,
@@ -107,17 +115,4 @@ func (comparisonDomain SpotTradeLiveComparisonDomain) Compose(
 	}
 
 	return rows
-}
-
-func (comparisonDomain SpotTradeLiveComparisonDomain) figuresOf(trades []dto.SpotTradeRecordDto) dto.SpotTradeLiveFiguresDto {
-	tally := NewSpotTradeResultsDomain(trades).Tally()
-
-	return dto.SpotTradeLiveFiguresDto{
-		SpotTradeComparisonFiguresDto: dto.SpotTradeComparisonFiguresDto{
-			ClosedTradeCount: tally.TradeCount(),
-			WinRate:          tally.WinRate(),
-		},
-		AverageEntrySlippagePercentage: tally.AverageEntrySlippagePercentage(),
-		EntrySlippageTradeCount:        tally.EntrySlippageTradeCount(),
-	}
 }

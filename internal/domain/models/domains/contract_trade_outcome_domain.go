@@ -62,6 +62,61 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 
 	plannedRisk := NewPlannedRiskDomain(
 		ledger.AverageEntryPrice(), ledger.EnteredQuantity(), outcomeDomain.record.PlannedStopLossPrice)
+	isHeld := outcomeDomain.record.Status == string(vo.ContractTradeStatusOpen)
+
+	floatingProfit := dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNotOpen}
+	if isHeld && !outcomeDomain.facts.HasLatestPrice {
+		floatingProfit = dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNoLatestPrice}
+	}
+	if isHeld && outcomeDomain.facts.HasLatestPrice {
+		floatingProfit = dto.TradeFloatingDto{
+			Available: true,
+			Price:     outcomeDomain.facts.LatestPrice,
+			Amount:    ledger.OpenProfitAt(outcomeDomain.direction, outcomeDomain.facts.LatestPrice),
+		}
+	}
+
+	liquidation := dto.ContractTradeLiquidationDto{UnavailableReason: outcomeUnavailableNotOpen}
+	switch {
+	case !isHeld:
+	case !outcomeDomain.rulesRequested:
+		liquidation = dto.ContractTradeLiquidationDto{UnavailableReason: outcomeUnavailableNotComputed}
+	case !outcomeDomain.hasTradingRules:
+		liquidation = dto.ContractTradeLiquidationDto{UnavailableReason: outcomeUnavailableNoTradingSpecification}
+	default:
+		// The replay's isolated-margin formula on what is still held, so the journal and the replay never disagree.
+		averageEntryPrice := ledger.AverageEntryPrice()
+		position := ledger.Position()
+		notional := averageEntryPrice.Mul(position)
+		openPosition := ContractBacktestPositionDomain{
+			direction:       outcomeDomain.direction,
+			entryPrice:      averageEntryPrice,
+			quantity:        position,
+			leverage:        outcomeDomain.record.Leverage,
+			margin:          notional.Div(outcomeDomain.record.Leverage),
+			maintenanceTier: outcomeDomain.tradingRules.TierFor(notional),
+		}
+		liquidationPrice := openPosition.LiquidationPrice()
+		liquidation = dto.ContractTradeLiquidationDto{Available: true, CannotBeLiquidated: true}
+		if liquidationPrice.IsPositive() {
+			liquidation = dto.ContractTradeLiquidationDto{
+				Available: true,
+				Price:     outcomeDomain.tradingRules.RoundedToTick(liquidationPrice),
+			}
+		}
+	}
+
+	// Slippage is positive when the fill was worse than the bot's reference price: paying more on a long, receiving less on a short.
+	entrySlippagePercentage := (*float64)(nil)
+	referencePrice := outcomeDomain.record.SourceReferencePrice
+	if referencePrice.Valid && referencePrice.Decimal.IsPositive() {
+		difference := ledger.AverageEntryPrice().Sub(referencePrice.Decimal)
+		if outcomeDomain.direction == vo.PositionDirectionShort {
+			difference = difference.Neg()
+		}
+		slippagePercentage := difference.Div(referencePrice.Decimal).Mul(oneHundredPercent).InexactFloat64()
+		entrySlippagePercentage = &slippagePercentage
+	}
 
 	outcomeDto := dto.ContractTradeOutcomeDto{
 		GrossProfit:              grossProfit,
@@ -74,9 +129,9 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		RMultiple:                plannedRisk.RMultipleOf(netProfit),
 		Excursion: NewTradeExcursionDomain(ledger, outcomeDomain.direction, plannedRisk).
 			ExcursionFor(outcomeDomain.facts.ExtremesRequested, outcomeDomain.facts.PriceExtremes),
-		FloatingProfit:          outcomeDomain.floatingProfit(),
-		LiquidationPrice:        outcomeDomain.liquidationPrice(),
-		EntrySlippagePercentage: outcomeDomain.entrySlippagePercentage(),
+		FloatingProfit:          floatingProfit,
+		LiquidationPrice:        liquidation,
+		EntrySlippagePercentage: entrySlippagePercentage,
 	}
 
 	if !plannedRisk.Value().Valid {
@@ -84,79 +139,10 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 	}
 
 	// Only a finished trade has a share captured; while held, the realised part is not the trade's result.
-	isHeld := outcomeDomain.record.Status == string(vo.ContractTradeStatusOpen)
 	if !isHeld && outcomeDto.Excursion.Available && outcomeDto.Excursion.FavorableProfit.IsPositive() {
 		profitCaptureRate := grossProfit.Div(outcomeDto.Excursion.FavorableProfit).InexactFloat64()
 		outcomeDto.ProfitCaptureRate = &profitCaptureRate
 	}
 
 	return outcomeDto
-}
-
-func (outcomeDomain ContractTradeOutcomeDomain) floatingProfit() dto.TradeFloatingDto {
-	if outcomeDomain.record.Status != string(vo.ContractTradeStatusOpen) {
-		return dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNotOpen}
-	}
-	if !outcomeDomain.facts.HasLatestPrice {
-		return dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNoLatestPrice}
-	}
-
-	return dto.TradeFloatingDto{
-		Available: true,
-		Price:     outcomeDomain.facts.LatestPrice,
-		Amount:    outcomeDomain.ledger.OpenProfitAt(outcomeDomain.direction, outcomeDomain.facts.LatestPrice),
-	}
-}
-
-// liquidationPrice reuses the replay's isolated-margin formula on what is still held, so the journal and the replay never disagree.
-func (outcomeDomain ContractTradeOutcomeDomain) liquidationPrice() dto.ContractTradeLiquidationDto {
-	if outcomeDomain.record.Status != string(vo.ContractTradeStatusOpen) {
-		return dto.ContractTradeLiquidationDto{UnavailableReason: outcomeUnavailableNotOpen}
-	}
-	if !outcomeDomain.rulesRequested {
-		return dto.ContractTradeLiquidationDto{UnavailableReason: outcomeUnavailableNotComputed}
-	}
-	if !outcomeDomain.hasTradingRules {
-		return dto.ContractTradeLiquidationDto{UnavailableReason: outcomeUnavailableNoTradingSpecification}
-	}
-
-	averageEntryPrice := outcomeDomain.ledger.AverageEntryPrice()
-	position := outcomeDomain.ledger.Position()
-	notional := averageEntryPrice.Mul(position)
-
-	openPosition := ContractBacktestPositionDomain{
-		direction:       outcomeDomain.direction,
-		entryPrice:      averageEntryPrice,
-		quantity:        position,
-		leverage:        outcomeDomain.record.Leverage,
-		margin:          notional.Div(outcomeDomain.record.Leverage),
-		maintenanceTier: outcomeDomain.tradingRules.TierFor(notional),
-	}
-
-	liquidationPrice := openPosition.LiquidationPrice()
-	if !liquidationPrice.IsPositive() {
-		return dto.ContractTradeLiquidationDto{Available: true, CannotBeLiquidated: true}
-	}
-
-	return dto.ContractTradeLiquidationDto{
-		Available: true,
-		Price:     outcomeDomain.tradingRules.RoundedToTick(liquidationPrice),
-	}
-}
-
-// entrySlippagePercentage is positive when the fill was worse than the bot's reference price: paying more on a long, receiving less on a short.
-func (outcomeDomain ContractTradeOutcomeDomain) entrySlippagePercentage() *float64 {
-	referencePrice := outcomeDomain.record.SourceReferencePrice
-	if !referencePrice.Valid || !referencePrice.Decimal.IsPositive() {
-		return nil
-	}
-
-	difference := outcomeDomain.ledger.AverageEntryPrice().Sub(referencePrice.Decimal)
-	if outcomeDomain.direction == vo.PositionDirectionShort {
-		difference = difference.Neg()
-	}
-
-	slippagePercentage := difference.Div(referencePrice.Decimal).Mul(oneHundredPercent).InexactFloat64()
-
-	return &slippagePercentage
 }

@@ -80,9 +80,17 @@ func (journalService *ContractTradeJournalService) RecordTrade(
 	}
 
 	if writeDto.TradingStrategyID != nil {
-		if strategyError := journalService.requireOwnedContractTradingStrategy(
-			executionContext, viewerID, *writeDto.TradingStrategyID); strategyError != nil {
-			return dto.ContractTradeRecordDto{}, strategyError
+		tradingStrategy, strategyFindError := journalService.tradingStrategyRepository.FindOne(
+			executionContext, *writeDto.TradingStrategyID)
+		if strategyFindError != nil {
+			return dto.ContractTradeRecordDto{}, strategyFindError
+		}
+		if tradingStrategy.OwnerID != viewerID {
+			return dto.ContractTradeRecordDto{}, domains.TradingStrategyNotFound(*writeDto.TradingStrategyID)
+		}
+		marketDataKind, _ := domains.NewMarketDataKindDomain(tradingStrategy.MarketDataKind)
+		if !marketDataKind.IsContract() {
+			return dto.ContractTradeRecordDto{}, fmt.Errorf("%w: 只能指名合約交易策略", domains.ErrContractTradeValidation)
 		}
 	}
 
@@ -227,10 +235,35 @@ func (journalService *ContractTradeJournalService) GetTrade(
 func (journalService *ContractTradeJournalService) ListTrades(
 	executionContext context.Context, viewerID uint, queryDto dto.ContractTradeListQueryDto,
 ) (dto.ContractTradeRecordPageDto, error) {
-	filter, filterError := journalService.listFilterOf(queryDto)
-	if filterError != nil {
-		return dto.ContractTradeRecordPageDto{}, filterError
+	filter := vo.TradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
+
+	switch vo.ContractTradeStatusVo(queryDto.Status) {
+	case "", vo.ContractTradeStatusOpen, vo.ContractTradeStatusClosed, vo.ContractTradeStatusReviewed:
+	default:
+		return dto.ContractTradeRecordPageDto{}, fmt.Errorf(
+			"%w: 狀態只有 open、closed 與 reviewed", domains.ErrContractTradeValidation)
 	}
+
+	if strings.TrimSpace(queryDto.Symbol) != "" {
+		contractSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(queryDto.Symbol))
+		if symbolError != nil {
+			return dto.ContractTradeRecordPageDto{}, fmt.Errorf("%w: %w", domains.ErrContractTradeValidation, symbolError)
+		}
+		filter.Symbol = contractSymbol.Value()
+	}
+
+	if queryDto.Period != "" {
+		periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(queryDto.Period, domains.ErrContractTradeValidation)
+		if periodError != nil {
+			return dto.ContractTradeRecordPageDto{}, periodError
+		}
+		filter.OpenedSince = periodDomain.Since(journalService.clockProxy.Now())
+	}
+
+	if filter.Limit <= 0 {
+		filter.Limit = contractTradeListDefaultLimit
+	}
+	filter.Limit = min(filter.Limit, contractTradeListMaximumLimit)
 
 	records, totalCount, findError := journalService.contractTradeRecordRepository.FindPageByOwner(
 		executionContext, viewerID, filter)
@@ -238,7 +271,10 @@ func (journalService *ContractTradeJournalService) ListTrades(
 		return dto.ContractTradeRecordPageDto{}, findError
 	}
 
-	tradingStrategyNames := journalService.tradingStrategyNamesOf(executionContext, viewerID)
+	tradingStrategies, strategiesFindError := journalService.tradingStrategyRepository.FindAllByOwner(
+		executionContext, viewerID)
+	// Unreadable names mark nothing deleted, so no trade is wrongly shown as orphaned.
+	tradingStrategyNames := domains.NewTradingStrategyNamesDomain(tradingStrategies, strategiesFindError == nil)
 
 	return dto.ContractTradeRecordPageDto{
 		Trades:     journalService.summariesOf(executionContext, records, tradingStrategyNames),
@@ -389,70 +425,6 @@ func (journalService *ContractTradeJournalService) ownedTags(
 	}
 
 	return domains.NewTradeTagSelectionDomain(foundTags, viewerID).Select(tagIDs)
-}
-
-func (journalService *ContractTradeJournalService) requireOwnedContractTradingStrategy(
-	executionContext context.Context, viewerID uint, tradingStrategyID uint,
-) error {
-	tradingStrategy, findError := journalService.tradingStrategyRepository.FindOne(executionContext, tradingStrategyID)
-	if findError != nil {
-		return findError
-	}
-	if tradingStrategy.OwnerID != viewerID {
-		return domains.TradingStrategyNotFound(tradingStrategyID)
-	}
-
-	marketDataKind, _ := domains.NewMarketDataKindDomain(tradingStrategy.MarketDataKind)
-	if !marketDataKind.IsContract() {
-		return fmt.Errorf("%w: 只能指名合約交易策略", domains.ErrContractTradeValidation)
-	}
-
-	return nil
-}
-
-func (journalService *ContractTradeJournalService) listFilterOf(
-	queryDto dto.ContractTradeListQueryDto,
-) (vo.TradeListFilterVo, error) {
-	filter := vo.TradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
-
-	switch vo.ContractTradeStatusVo(queryDto.Status) {
-	case "", vo.ContractTradeStatusOpen, vo.ContractTradeStatusClosed, vo.ContractTradeStatusReviewed:
-	default:
-		return vo.TradeListFilterVo{}, fmt.Errorf(
-			"%w: 狀態只有 open、closed 與 reviewed", domains.ErrContractTradeValidation)
-	}
-
-	if strings.TrimSpace(queryDto.Symbol) != "" {
-		contractSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(queryDto.Symbol))
-		if symbolError != nil {
-			return vo.TradeListFilterVo{}, fmt.Errorf("%w: %w", domains.ErrContractTradeValidation, symbolError)
-		}
-		filter.Symbol = contractSymbol.Value()
-	}
-
-	if queryDto.Period != "" {
-		periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(queryDto.Period, domains.ErrContractTradeValidation)
-		if periodError != nil {
-			return vo.TradeListFilterVo{}, periodError
-		}
-		filter.OpenedSince = periodDomain.Since(journalService.clockProxy.Now())
-	}
-
-	if filter.Limit <= 0 {
-		filter.Limit = contractTradeListDefaultLimit
-	}
-	filter.Limit = min(filter.Limit, contractTradeListMaximumLimit)
-
-	return filter, nil
-}
-
-// tradingStrategyNamesOf marks nothing deleted when the names could not be read, so no trade is wrongly shown as orphaned.
-func (journalService *ContractTradeJournalService) tradingStrategyNamesOf(
-	executionContext context.Context, viewerID uint,
-) domains.TradingStrategyNamesDomain {
-	tradingStrategies, findError := journalService.tradingStrategyRepository.FindAllByOwner(executionContext, viewerID)
-
-	return domains.NewTradingStrategyNamesDomain(tradingStrategies, findError == nil)
 }
 
 // detailOf reads everything one trade's outcome can use; a failed read only leaves its own figure unavailable.

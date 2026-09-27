@@ -68,9 +68,17 @@ func (journalService *SpotTradeJournalService) RecordTrade(
 	}
 
 	if writeDto.TradingStrategyID != nil {
-		if strategyError := journalService.requireOwnedSpotTradingStrategy(
-			executionContext, viewerID, *writeDto.TradingStrategyID); strategyError != nil {
-			return dto.SpotTradeRecordDto{}, strategyError
+		tradingStrategy, strategyFindError := journalService.tradingStrategyRepository.FindOne(
+			executionContext, *writeDto.TradingStrategyID)
+		if strategyFindError != nil {
+			return dto.SpotTradeRecordDto{}, strategyFindError
+		}
+		if tradingStrategy.OwnerID != viewerID {
+			return dto.SpotTradeRecordDto{}, domains.TradingStrategyNotFound(*writeDto.TradingStrategyID)
+		}
+		marketDataKind, _ := domains.NewMarketDataKindDomain(tradingStrategy.MarketDataKind)
+		if marketDataKind.IsContract() {
+			return dto.SpotTradeRecordDto{}, fmt.Errorf("%w: 只能指名 K 線（現貨）交易策略", domains.ErrSpotTradeValidation)
 		}
 	}
 
@@ -205,10 +213,41 @@ func (journalService *SpotTradeJournalService) GetTrade(
 func (journalService *SpotTradeJournalService) ListTrades(
 	executionContext context.Context, viewerID uint, queryDto dto.SpotTradeListQueryDto,
 ) (dto.SpotTradeRecordPageDto, error) {
-	filter, filterError := journalService.listFilterOf(queryDto)
-	if filterError != nil {
-		return dto.SpotTradeRecordPageDto{}, filterError
+	filter := vo.TradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
+
+	switch vo.SpotTradeStatusVo(queryDto.Status) {
+	case "", vo.SpotTradeStatusOpen, vo.SpotTradeStatusClosed, vo.SpotTradeStatusReviewed:
+	default:
+		return dto.SpotTradeRecordPageDto{}, fmt.Errorf("%w: 狀態只有 open、closed 與 reviewed", domains.ErrSpotTradeValidation)
 	}
+
+	switch vo.MarketVo(queryDto.Market) {
+	case "", vo.MarketCrypto, vo.MarketTaiwanStock:
+		filter.Market = queryDto.Market
+	default:
+		return dto.SpotTradeRecordPageDto{}, fmt.Errorf("%w: 市場只有 crypto 與 taiwanStock", domains.ErrSpotTradeValidation)
+	}
+
+	if strings.TrimSpace(queryDto.Symbol) != "" {
+		spotSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(queryDto.Symbol))
+		if symbolError != nil {
+			return dto.SpotTradeRecordPageDto{}, fmt.Errorf("%w: %w", domains.ErrSpotTradeValidation, symbolError)
+		}
+		filter.Symbol = spotSymbol.Value()
+	}
+
+	if queryDto.Period != "" {
+		periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(queryDto.Period, domains.ErrSpotTradeValidation)
+		if periodError != nil {
+			return dto.SpotTradeRecordPageDto{}, periodError
+		}
+		filter.OpenedSince = periodDomain.Since(journalService.clockProxy.Now())
+	}
+
+	if filter.Limit <= 0 {
+		filter.Limit = spotTradeListDefaultLimit
+	}
+	filter.Limit = min(filter.Limit, spotTradeListMaximumLimit)
 
 	records, totalCount, findError := journalService.spotTradeRecordRepository.FindPageByOwner(
 		executionContext, viewerID, filter)
@@ -216,8 +255,13 @@ func (journalService *SpotTradeJournalService) ListTrades(
 		return dto.SpotTradeRecordPageDto{}, findError
 	}
 
+	tradingStrategies, strategiesFindError := journalService.tradingStrategyRepository.FindAllByOwner(
+		executionContext, viewerID)
+	// Unreadable names mark nothing deleted, so no trade is wrongly shown as orphaned.
+	tradingStrategyNames := domains.NewTradingStrategyNamesDomain(tradingStrategies, strategiesFindError == nil)
+
 	return dto.SpotTradeRecordPageDto{
-		Trades:     journalService.summariesOf(executionContext, records, journalService.tradingStrategyNamesOf(executionContext, viewerID)),
+		Trades:     journalService.summariesOf(executionContext, records, tradingStrategyNames),
 		TotalCount: totalCount,
 	}, nil
 }
@@ -359,74 +403,6 @@ func (journalService *SpotTradeJournalService) ownedTags(
 	}
 
 	return domains.NewTradeTagSelectionDomain(foundTags, viewerID).Select(tagIDs)
-}
-
-func (journalService *SpotTradeJournalService) requireOwnedSpotTradingStrategy(
-	executionContext context.Context, viewerID uint, tradingStrategyID uint,
-) error {
-	tradingStrategy, findError := journalService.tradingStrategyRepository.FindOne(executionContext, tradingStrategyID)
-	if findError != nil {
-		return findError
-	}
-	if tradingStrategy.OwnerID != viewerID {
-		return domains.TradingStrategyNotFound(tradingStrategyID)
-	}
-
-	marketDataKind, _ := domains.NewMarketDataKindDomain(tradingStrategy.MarketDataKind)
-	if marketDataKind.IsContract() {
-		return fmt.Errorf("%w: 只能指名 K 線（現貨）交易策略", domains.ErrSpotTradeValidation)
-	}
-
-	return nil
-}
-
-func (journalService *SpotTradeJournalService) listFilterOf(queryDto dto.SpotTradeListQueryDto) (vo.TradeListFilterVo, error) {
-	filter := vo.TradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
-
-	switch vo.SpotTradeStatusVo(queryDto.Status) {
-	case "", vo.SpotTradeStatusOpen, vo.SpotTradeStatusClosed, vo.SpotTradeStatusReviewed:
-	default:
-		return vo.TradeListFilterVo{}, fmt.Errorf("%w: 狀態只有 open、closed 與 reviewed", domains.ErrSpotTradeValidation)
-	}
-
-	switch vo.MarketVo(queryDto.Market) {
-	case "", vo.MarketCrypto, vo.MarketTaiwanStock:
-		filter.Market = queryDto.Market
-	default:
-		return vo.TradeListFilterVo{}, fmt.Errorf("%w: 市場只有 crypto 與 taiwanStock", domains.ErrSpotTradeValidation)
-	}
-
-	if strings.TrimSpace(queryDto.Symbol) != "" {
-		spotSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(queryDto.Symbol))
-		if symbolError != nil {
-			return vo.TradeListFilterVo{}, fmt.Errorf("%w: %w", domains.ErrSpotTradeValidation, symbolError)
-		}
-		filter.Symbol = spotSymbol.Value()
-	}
-
-	if queryDto.Period != "" {
-		periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(queryDto.Period, domains.ErrSpotTradeValidation)
-		if periodError != nil {
-			return vo.TradeListFilterVo{}, periodError
-		}
-		filter.OpenedSince = periodDomain.Since(journalService.clockProxy.Now())
-	}
-
-	if filter.Limit <= 0 {
-		filter.Limit = spotTradeListDefaultLimit
-	}
-	filter.Limit = min(filter.Limit, spotTradeListMaximumLimit)
-
-	return filter, nil
-}
-
-// tradingStrategyNamesOf marks nothing deleted when the names could not be read, so no trade is wrongly shown as orphaned.
-func (journalService *SpotTradeJournalService) tradingStrategyNamesOf(
-	executionContext context.Context, viewerID uint,
-) domains.TradingStrategyNamesDomain {
-	tradingStrategies, findError := journalService.tradingStrategyRepository.FindAllByOwner(executionContext, viewerID)
-
-	return domains.NewTradingStrategyNamesDomain(tradingStrategies, findError == nil)
 }
 
 // detailOf reads everything one trade's outcome can use; a failed read only leaves its own figure unavailable.
