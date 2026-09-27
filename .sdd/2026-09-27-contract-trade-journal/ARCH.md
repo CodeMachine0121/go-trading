@@ -85,7 +85,7 @@
 
 ### 3.4 DTOs（`dto/`）
 
-`ContractTradeRecordWriteDto`（新增：標的、方向、槓桿、第一筆成交 `FirstEntryFill ContractTradeFillWriteDto`（請求 body 為巢狀 `firstEntryFill`）、計畫、策略 ID、標籤 ID、`JournalLinkIdentifier`）、`ContractTradeFillWriteDto`（`FilledAt *time.Time`：**省略即由交易服務以 `IClockProxy.Now()` 記下**，回覆帶出實際記下的時間——外掛與畫面都不必自己填「現在」）、`ContractTradePlanWriteDto`、`ContractTradeReviewWriteDto`、`ContractTradeRecordDto`（含 `Fills`、`Notes`、`Tags`、`Source`、`Outcome`、`TradingStrategyName`/`TradingStrategyDeleted`）、`ContractTradeRecordSummaryDto`（列表列）、`ContractTradeOutcomeDto`（每個數字都帶 `Available`/原因，如 `RMultipleUnavailableReason = noStopLoss`）、`ContractTradeStatisticsDto`、`ContractTradeLiveComparisonDto`、`ContractTradePrefillDto`、`ContractTradeListQueryDto`（狀態、標的、筆數上限，預設 20、最多 200；回覆附總筆數）、`TradeJournalSettingDto`/`WriteDto`、`TradeTagDto`/`WriteDto`。
+`ContractTradeRecordWriteDto`（新增：標的、方向、槓桿、第一筆成交 `FirstEntryFill ContractTradeFillWriteDto`（請求 body 為巢狀 `firstEntryFill`）、計畫、策略 ID、標籤 ID、`JournalLinkIdentifier`）、`ContractTradeFillWriteDto`（`FilledAt *time.Time`：**省略即由交易服務以 `IClockProxy.Now()` 記下**，回覆帶出實際記下的時間——外掛與畫面都不必自己填「現在」）、`ContractTradePlanWriteDto`、`ContractTradeReviewWriteDto`、`ContractTradeRecordDto`（含 `Fills`、`Notes`、`Tags`、`Source`、`Outcome`、`TradingStrategyName`/`TradingStrategyDeleted`）、`ContractTradeRecordSummaryDto`（列表列）、`ContractTradeOutcomeDto`（每個數字都帶 `Available`/原因，如 `RMultipleUnavailableReason = noStopLoss`）、`ContractTradeStatisticsDto`、`ContractTradeLiveComparisonDto`、`ContractTradePrefillDto`、`ContractTradeListQueryDto`（狀態、標的、期間（選填，與統計同一組 `7d`/`30d`/`90d`/`all`，依第一筆進場時間篩選；省略＝不篩選，非法值 400）、筆數上限，預設 20、最多 200；回覆附總筆數）、`TradeJournalSettingDto`/`WriteDto`、`TradeTagDto`/`WriteDto`。
 
 ### 3.5 Interfaces（`domain/interface/`，各帶 `//go:generate mockgen`）
 
@@ -121,7 +121,7 @@
 
 ```
 POST   /contract-trade-records
-GET    /contract-trade-records?status=&symbol=&limit=
+GET    /contract-trade-records?status=&symbol=&period=7d|30d|90d|all&limit=
 GET    /contract-trade-records/statistics?period=7d|30d|90d|all
 GET    /contract-trade-records/journal-links/:identifier      預填（不建立任何東西）
 GET    /contract-trade-records/:id
@@ -257,3 +257,18 @@ flowchart TD
   - 執行紀錄新欄位對既有資料為空值，預填時進場價與數量留空並說明（PRD 已涵蓋）。
   - 列表預設 20 筆、最多 200，回覆附總筆數（對齊外掛 PRD）。
   - `SourceStrategyBotName` 快照是否需要（機器人刪除後仍顯示名字）——預設要。
+
+---
+
+## 9. Implementation Notes（實作時的調整）
+
+實作貼著程式碼既有做法做了以下調整，行為與 PRD 一致：
+
+- **連結由 `ContractTradeJournalLinkService` 產生**，而不是寫在 `StrategyBotRunApplication` 裡：它只依賴 `IOpaqueIdentifierProxy` 與前端網址，跑一輪機器人因此不需要日誌的任何儲存；判斷「這一輪該不該附連結」的規則在 `ContractTradeJournalLinkDomain`。
+- **實盤 vs 回測另開 `ContractTradeLiveComparisonApplication`**，路由由 `ContractTradeRecordController.CompareWithBacktest` 處理；原本 `TradingStrategyBacktestApplication` 的私有 `resolveSignalSources` 搬到 `StrategyScriptService.ResolveSignalSources`，兩個用例共用，避免 application 呼叫 application。`TradingStrategyBacktestApplication` 的建構子不變。
+- **新增兩個小 Domain Model**：`PlannedRiskDomain`（R 的分母與 `RMultipleOf`，給結果與最大不利／最大有利共用）、`FundingSettlementScheduleDomain`（持倉期間是否跨過結算時間，用來分辨「資金費用為 0」與「沒有結算資料」）。
+- **Repository 介面貼合既有慣例**：`FindOne` 找不到回 `ErrContractTradeNotFound`（不回 bool）；列表為 `FindPageByOwner(filter vo.ContractTradeListFilterVo)` 同時回總筆數；統計用 `FindClosedByOwner(closedSince *time.Time)`。交易與標籤的對照表名稱為 `contract_trade_record_tags`。
+- **同標的同方向已有持倉中**：回 409，交易 ID 寫在訊息裡（「已有持倉中的 #27」），不另加欄位。
+- **結算當下沒有標記價格**時以該筆交易的進場均價估名目（只影響交易所最早期的結算，不會落在任何日誌交易的持倉期間），不另讀 K 線。
+- **最大不利／最大有利**從第一筆進場那一分鐘的 K 線起算（進場時間往下取整到分鐘）。
+- **實盤 vs 回測的策略已刪除**判斷：同一個策略 ID 仍有本人的已平倉實單、但策略讀不到時視為已刪除；沒有任何實單又讀不到策略則回 404。
