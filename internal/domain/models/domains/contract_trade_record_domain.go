@@ -42,6 +42,10 @@ func NewOpeningContractTradeRecordDomain(
 			"%w: 槓桿倍數不得小於一", ErrContractTradeValidation)
 	}
 
+	// The first fill can only be an entry, so a caller that leaves its kind out means exactly that.
+	if strings.TrimSpace(firstEntryFill.Kind) == "" {
+		firstEntryFill.Kind = string(vo.ContractTradeFillKindEntry)
+	}
 	if firstEntryFill.Kind != string(vo.ContractTradeFillKindEntry) {
 		return ContractTradeRecordDomain{}, fmt.Errorf(
 			"%w: 一筆交易至少要有一筆進場成交", ErrContractTradeValidation)

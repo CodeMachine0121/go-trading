@@ -62,6 +62,18 @@ func TestNewOpeningContractTradeRecordDomain(t *testing.T) {
 		assert.Equal(t, "做空", recordDomain.DirectionInWords())
 	})
 
+	t.Run("a first fill that does not say its kind is the entry", func(t *testing.T) {
+		unnamedFill := entryFill(0, tradeOpenedAt, "97905", "0.030")
+		unnamedFill.Kind = ""
+
+		recordDomain, err := domains.NewOpeningContractTradeRecordDomain(
+			7, "BTCUSDT", dto.ContractTradeRecordWriteDto{Direction: "long"}, unnamedFill, nil, ledgerNow)
+
+		require.NoError(t, err)
+		assert.Equal(t, "0.03", recordDomain.Ledger().Position().String())
+		assert.Equal(t, "entry", recordDomain.ToEntity().Fills[0].Kind)
+	})
+
 	testCases := []struct {
 		name            string
 		writeDto        dto.ContractTradeRecordWriteDto
