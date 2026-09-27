@@ -1,5 +1,7 @@
 package dto
 
+import "github.com/shopspring/decimal"
+
 // StrategyBotRoundOutcomeDto kinds never overlap: skipped has no halt reason or signal,
 // halted has only a reason, concluded has neither.
 type StrategyBotRoundOutcomeDto struct {
@@ -16,4 +18,7 @@ type StrategyBotRoundOutcomeDto struct {
 	// even if settings change later.
 	PositionPlan    PositionPlanDto
 	HasPositionPlan bool
+	// ReferencePrice and JournalLinkIdentifier travel only with a round that offered a journal link.
+	ReferencePrice        decimal.NullDecimal
+	JournalLinkIdentifier string
 }

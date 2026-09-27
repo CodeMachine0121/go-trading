@@ -31,6 +31,8 @@ type contractTradeJournalApplicationUnderTest struct {
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository *mocks.MockIContractFundingRateSettlementRepository
 	kCandleContractRepository               *mocks.MockIKCandleContractRepository
+	strategyBotRepository                   *mocks.MockIStrategyBotRepository
+	strategyBotRunRecordRepository          *mocks.MockIStrategyBotRunRecordRepository
 }
 
 func newContractTradeJournalApplicationUnderTest(t *testing.T) contractTradeJournalApplicationUnderTest {
@@ -44,6 +46,8 @@ func newContractTradeJournalApplicationUnderTest(t *testing.T) contractTradeJour
 		contractMaintenanceMarginTierRepository: mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
 		contractFundingRateSettlementRepository: mocks.NewMockIContractFundingRateSettlementRepository(mockController),
 		kCandleContractRepository:               mocks.NewMockIKCandleContractRepository(mockController),
+		strategyBotRepository:                   mocks.NewMockIStrategyBotRepository(mockController),
+		strategyBotRunRecordRepository:          mocks.NewMockIStrategyBotRunRecordRepository(mockController),
 	}
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(journalMoment).AnyTimes()
@@ -52,7 +56,8 @@ func newContractTradeJournalApplicationUnderTest(t *testing.T) contractTradeJour
 		fixture.contractTradeRecordRepository, fixture.tradeTagRepository, fixture.tradeJournalSettingRepository,
 		fixture.tradingStrategyRepository, fixture.contractTradingSymbolRepository,
 		fixture.contractMaintenanceMarginTierRepository, fixture.contractFundingRateSettlementRepository,
-		fixture.kCandleContractRepository, clockProxy)
+		fixture.kCandleContractRepository, fixture.strategyBotRepository, fixture.strategyBotRunRecordRepository,
+		clockProxy)
 	fixture.application = application.NewContractTradeJournalApplication(fixture.journalService)
 
 	return fixture
@@ -671,5 +676,169 @@ func TestContractTradeJournalApplicationGetStatistics(t *testing.T) {
 
 		require.ErrorIs(t, periodError, domains.ErrContractTradeValidation)
 		require.ErrorIs(t, readError, errStorageDown)
+	})
+}
+
+func theBotAndItsRound() (entities.StrategyBot, entities.StrategyBotRunRecord) {
+	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "BTC 趨勢跟隨", Symbol: "BTCUSDT", TradingStrategyID: 12},
+		entities.StrategyBotRunRecord{
+			StrategyBotID: 3, RunNumber: 412, RanAt: journalEntryAt.Add(-3 * time.Minute),
+			SuggestedDirection: "long", SuggestedLeverage: percentage("10"),
+			SuggestedStopLossPrice: percentage("96380"), SuggestedTakeProfitPrice: percentage("100785"),
+			ReferencePrice: percentage("97850"), SuggestedQuantity: percentage("0.051"),
+			JournalLinkIdentifier: "round-link-1",
+		}
+}
+
+func TestContractTradeJournalApplicationPrepareJournalLink(t *testing.T) {
+	t.Run("the round as it was fills in a new trade", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		strategyBot, runRecord := theBotAndItsRound()
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil)
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strategyBot, nil)
+		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), journalOwnerID, "BTCUSDT", "long").
+			Return(entities.ContractTradeRecord{}, false, nil)
+
+		prefill, err := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, "newTrade", prefill.Mode)
+		assert.Equal(t, "BTCUSDT", prefill.Symbol)
+		assert.Equal(t, "long", prefill.Direction)
+		assert.Equal(t, "10", prefill.Leverage.Decimal.String())
+		assert.Equal(t, "96380", prefill.PlannedStopLossPrice.Decimal.String())
+		assert.Equal(t, "100785", prefill.PlannedTakeProfitPrice.Decimal.String())
+		assert.Equal(t, uint(12), *prefill.TradingStrategyID)
+		assert.Equal(t, "97850", prefill.EntryPrice.Decimal.String())
+		assert.Equal(t, "0.051", prefill.Quantity.Decimal.String())
+		assert.True(t, prefill.EntryPriceNeedsConfirmation)
+		assert.Equal(t, 412, prefill.RunNumber)
+		assert.Equal(t, "BTC 趨勢跟隨", prefill.StrategyBotName)
+		assert.Empty(t, prefill.MissingReferenceReason)
+	})
+
+	t.Run("holding the symbol already turns it into an entry fill for that trade", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		strategyBot, runRecord := theBotAndItsRound()
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil)
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strategyBot, nil)
+		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), journalOwnerID, "BTCUSDT", "long").
+			Return(aStoredOpenTrade(), true, nil)
+
+		prefill, err := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, "addEntryFill", prefill.Mode)
+		assert.Equal(t, uint(27), *prefill.TargetTradeID)
+		assert.Equal(t, "97850", prefill.EntryPrice.Decimal.String())
+	})
+
+	t.Run("a round from before reference prices were kept says so", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		strategyBot, runRecord := theBotAndItsRound()
+		runRecord.ReferencePrice = decimal.NullDecimal{}
+		runRecord.SuggestedQuantity = decimal.NullDecimal{}
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil)
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strategyBot, nil)
+		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.ContractTradeRecord{}, false, nil)
+
+		prefill, err := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+
+		require.NoError(t, err)
+		assert.False(t, prefill.EntryPrice.Valid)
+		assert.Equal(t, "roundPredatesReferencePrices", prefill.MissingReferenceReason)
+	})
+
+	t.Run("a forgotten round, somebody else's bot or a deleted bot answers not found", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		strategyBot, runRecord := theBotAndItsRound()
+		strangersBot := strategyBot
+		strangersBot.OwnerID = 99
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "gone").Return(entities.StrategyBotRunRecord{}, false, nil)
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil).Times(2)
+		gomock.InOrder(
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strangersBot, nil),
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(entities.StrategyBot{}, domains.StrategyBotNotFound(3)),
+		)
+
+		_, forgottenError := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "gone")
+		_, strangerError := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+		_, deletedError := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+
+		require.ErrorIs(t, forgottenError, domains.ErrJournalLinkNotFound)
+		assert.Contains(t, forgottenError.Error(), "這一輪的建議已不在紀錄中")
+		require.ErrorIs(t, strangerError, domains.ErrJournalLinkNotFound)
+		assert.Contains(t, strangerError.Error(), "找不到這一輪的建議")
+		require.ErrorIs(t, deletedError, domains.ErrJournalLinkNotFound)
+	})
+
+	t.Run("storage failures come back as they are", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		strategyBot, runRecord := theBotAndItsRound()
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "a").Return(entities.StrategyBotRunRecord{}, false, errStorageDown)
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil).Times(2)
+		gomock.InOrder(
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(entities.StrategyBot{}, errStorageDown),
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strategyBot, nil),
+		)
+		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.ContractTradeRecord{}, false, errStorageDown)
+
+		_, runError := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "a")
+		_, botError := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+		_, openError := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+
+		require.ErrorIs(t, runError, errStorageDown)
+		require.ErrorIs(t, botError, errStorageDown)
+		require.ErrorIs(t, openError, errStorageDown)
+	})
+}
+
+func TestContractTradeJournalApplicationRecordsWhereATradeCameFrom(t *testing.T) {
+	t.Run("saving from a link keeps the round's suggestion and measures the slippage", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		fixture.quietMarket()
+		fixture.withoutFeeRates()
+		strategyBot, runRecord := theBotAndItsRound()
+		fixture.tradeTagRepository.EXPECT().FindByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil)
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strategyBot, nil)
+		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.ContractTradeRecord{}, false, nil)
+		fixture.contractTradeRecordRepository.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(echoCreated)
+		write := aLongWrite()
+		write.JournalLinkIdentifier = "round-link-1"
+
+		recordDto, err := fixture.application.RecordTrade(context.Background(), journalOwnerID, write)
+
+		require.NoError(t, err)
+		require.NotNil(t, recordDto.Source)
+		assert.Equal(t, 412, recordDto.Source.RunNumber)
+		assert.Equal(t, "BTC 趨勢跟隨", recordDto.Source.StrategyBotName)
+		assert.Equal(t, "97850", recordDto.Source.ReferencePrice.Decimal.String())
+		assert.Equal(t, "96380", recordDto.Source.SuggestedStopLossPrice.Decimal.String())
+		assert.Equal(t, "100785", recordDto.Source.SuggestedTakeProfitPrice.Decimal.String())
+		require.NotNil(t, recordDto.Outcome.EntrySlippagePercentage)
+		assert.InDelta(t, 0.06, *recordDto.Outcome.EntrySlippagePercentage, 0.005)
+	})
+
+	t.Run("a link forgotten since the page opened still records the trade, without a source", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		fixture.quietMarket()
+		fixture.withoutFeeRates()
+		fixture.tradeTagRepository.EXPECT().FindByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "gone").
+			Return(entities.StrategyBotRunRecord{}, false, nil)
+		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(entities.ContractTradeRecord{}, false, nil)
+		fixture.contractTradeRecordRepository.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(echoCreated)
+		write := aLongWrite()
+		write.JournalLinkIdentifier = "gone"
+
+		recordDto, err := fixture.application.RecordTrade(context.Background(), journalOwnerID, write)
+
+		require.NoError(t, err)
+		assert.Nil(t, recordDto.Source)
 	})
 }

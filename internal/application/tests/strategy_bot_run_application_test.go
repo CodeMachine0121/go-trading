@@ -119,6 +119,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
+	opaqueIdentifierProxy := mocks.NewMockIOpaqueIdentifierProxy(controller)
+	opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "round-link-1"}, nil).AnyTimes()
 
 	return strategyBotRunUnderTest{
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
@@ -141,6 +143,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
 			service.NewKCandleContractService(
 				kCandleContractRepository, clockProxy, marketCatalog, queryMaxResults),
+			service.NewContractTradeJournalLinkService(opaqueIdentifierProxy, "https://app.example.com"),
 			clockProxy,
 			roundGuard,
 			4,

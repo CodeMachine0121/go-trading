@@ -56,6 +56,22 @@ func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) Append(executionConte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Append", reflect.TypeOf((*MockIStrategyBotRunRecordRepository)(nil).Append), executionContext, writeDto)
 }
 
+// FindByJournalLinkIdentifier mocks base method.
+func (m *MockIStrategyBotRunRecordRepository) FindByJournalLinkIdentifier(executionContext context.Context, journalLinkIdentifier string) (entities.StrategyBotRunRecord, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByJournalLinkIdentifier", executionContext, journalLinkIdentifier)
+	ret0, _ := ret[0].(entities.StrategyBotRunRecord)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// FindByJournalLinkIdentifier indicates an expected call of FindByJournalLinkIdentifier.
+func (mr *MockIStrategyBotRunRecordRepositoryMockRecorder) FindByJournalLinkIdentifier(executionContext, journalLinkIdentifier any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByJournalLinkIdentifier", reflect.TypeOf((*MockIStrategyBotRunRecordRepository)(nil).FindByJournalLinkIdentifier), executionContext, journalLinkIdentifier)
+}
+
 // FindLatestByBot mocks base method.
 func (m *MockIStrategyBotRunRecordRepository) FindLatestByBot(executionContext context.Context, strategyBotID uint) ([]entities.StrategyBotRunRecord, error) {
 	m.ctrl.T.Helper()

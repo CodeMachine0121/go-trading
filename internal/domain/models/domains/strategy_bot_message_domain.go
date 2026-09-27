@@ -70,6 +70,10 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 			NewSignalDomainOf(vo.SignalVo(sourceSignal.Signal)).InWords()))
 	}
 
+	if strategyBotMessageDomain.round.JournalLinkUrl != "" {
+		lines = append(lines, "", fmt.Sprintf("📝 記到交易日誌：%s", strategyBotMessageDomain.round.JournalLinkUrl))
+	}
+
 	return strings.Join(lines, "\n")
 }
 

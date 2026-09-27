@@ -28,6 +28,9 @@ type StrategyBotRoundDto struct {
 	// they cannot disagree.
 	PositionPlan    PositionPlanDto
 	HasPositionPlan bool
+	// JournalLinkUrl is blank unless the round suggests opening a contract position.
+	JournalLinkIdentifier string
+	JournalLinkUrl        string
 }
 
 type StrategyBotSourceSignalDto struct {

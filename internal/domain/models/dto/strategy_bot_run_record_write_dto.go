@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 type StrategyBotRunRecordWriteDto struct {
 	StrategyBotID uint
@@ -10,4 +14,7 @@ type StrategyBotRunRecordWriteDto struct {
 	// PositionPlan is stored as absent rather than zeroes when HasPositionPlan is false.
 	PositionPlan    PositionPlanDto
 	HasPositionPlan bool
+	// ReferencePrice is set only for contract rounds that offered a journal link.
+	ReferencePrice        decimal.NullDecimal
+	JournalLinkIdentifier string
 }

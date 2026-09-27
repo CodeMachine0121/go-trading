@@ -96,6 +96,21 @@ func (recordDomain ContractTradeRecordDomain) IsOpen() bool {
 	return recordDomain.record.Status == string(vo.ContractTradeStatusOpen)
 }
 
+// WithSource copies the bot round's suggestion onto the trade, since the bot forgets old rounds.
+func (recordDomain *ContractTradeRecordDomain) WithSource(
+	strategyBot entities.StrategyBot, runRecord entities.StrategyBotRunRecord,
+) {
+	strategyBotID := strategyBot.ID
+	runNumber := runRecord.RunNumber
+
+	recordDomain.record.SourceStrategyBotID = &strategyBotID
+	recordDomain.record.SourceStrategyBotName = strategyBot.Name
+	recordDomain.record.SourceRunNumber = &runNumber
+	recordDomain.record.SourceReferencePrice = runRecord.ReferencePrice
+	recordDomain.record.SourceSuggestedStopLossPrice = runRecord.SuggestedStopLossPrice
+	recordDomain.record.SourceSuggestedTakeProfitPrice = runRecord.SuggestedTakeProfitPrice
+}
+
 func (recordDomain *ContractTradeRecordDomain) AddFill(fill entities.ContractTradeFill, now time.Time) error {
 	if !recordDomain.IsOpen() {
 		return fmt.Errorf("%w: 這筆交易已經平倉，不能再加成交", ErrContractTradeLocked)

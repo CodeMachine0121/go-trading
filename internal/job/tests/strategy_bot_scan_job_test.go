@@ -96,6 +96,8 @@ func newStrategyBotScanJobUnderTest(
 				mocks.NewMockIKCandleContractRepository(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
+			service.NewContractTradeJournalLinkService(
+				mocks.NewMockIOpaqueIdentifierProxy(mockController), "https://app.example.com"),
 			clockProxy,
 			application.NewStrategyBotRoundGuard(),
 			4,

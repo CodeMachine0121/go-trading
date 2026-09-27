@@ -624,6 +624,8 @@ func registerRoutes(
 		telegramDeliveryService,
 		kCandleService,
 		kCandleContractService,
+		service.NewContractTradeJournalLinkService(
+			security.NewRandomOpaqueIdentifierProxy(), applicationConfig.FrontendBaseUrl),
 		clock.NewSystemClockProxy(),
 		application.NewStrategyBotRoundGuard(),
 		applicationConfig.StrategyBot.MaxConcurrentRounds,

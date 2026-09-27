@@ -98,3 +98,37 @@ func TestStrategyBotRunRecordRepositoryRemembersNothingTheVenueWouldHaveRefused(
 	assert.Nil(t, runRecordDto.SuggestedLeverage)
 	assert.Nil(t, runRecordDto.SuggestedNotional)
 }
+
+func TestStrategyBotRunRecordRepositoryFindsARoundByItsJournalLink(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	botID := aBotToRecordAgainst(t, database)
+	repository := persistence.NewStrategyBotRunRecordRepository(database)
+	suggestion := aContractSuggestion()
+	suggestion.Quantity = decimal.RequireFromString("50")
+	suggestion.HasQuantity = true
+
+	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell",
+		HasPositionPlan: true, PositionPlan: suggestion,
+		ReferencePrice:        decimal.NullDecimal{Decimal: decimal.NewFromInt(100), Valid: true},
+		JournalLinkIdentifier: "round-link-1",
+	}))
+
+	runRecord, found, findError := repository.FindByJournalLinkIdentifier(t.Context(), "round-link-1")
+	_, foundUnknown, unknownError := repository.FindByJournalLinkIdentifier(t.Context(), "round-link-2")
+	_, foundBlank, blankError := repository.FindByJournalLinkIdentifier(t.Context(), "")
+
+	require.NoError(t, findError)
+	require.NoError(t, unknownError)
+	require.NoError(t, blankError)
+	assert.True(t, found)
+	assert.Equal(t, "100", runRecord.ReferencePrice.Decimal.String())
+	assert.Equal(t, "50", runRecord.SuggestedQuantity.Decimal.String())
+	assert.Equal(t, 1, runRecord.RunNumber)
+	assert.False(t, foundUnknown)
+	assert.False(t, foundBlank)
+
+	_, _, failure := persistence.NewStrategyBotRunRecordRepository(closedDatabase(t)).
+		FindByJournalLinkIdentifier(t.Context(), "round-link-1")
+	require.Error(t, failure)
+}

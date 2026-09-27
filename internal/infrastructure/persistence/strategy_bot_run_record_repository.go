@@ -42,10 +42,12 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 			}
 
 			runRecord := entities.StrategyBotRunRecord{
-				StrategyBotID: strategyBotID,
-				RunNumber:     latestNumber + 1,
-				RanAt:         writeDto.RanAt.UTC(),
-				Result:        writeDto.Result,
+				StrategyBotID:         strategyBotID,
+				RunNumber:             latestNumber + 1,
+				RanAt:                 writeDto.RanAt.UTC(),
+				Result:                writeDto.Result,
+				ReferencePrice:        writeDto.ReferencePrice,
+				JournalLinkIdentifier: writeDto.JournalLinkIdentifier,
 			}
 
 			// Plan figures are stored only for an affordable suggestion, leaving them null otherwise, since zero is a valid stop price.
@@ -58,6 +60,9 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 					runRecord.SuggestedDirection = writeDto.PositionPlan.Direction
 					runRecord.SuggestedLeverage = storedFigure(writeDto.PositionPlan.Leverage)
 					runRecord.SuggestedNotional = storedFigure(writeDto.PositionPlan.Notional)
+					if writeDto.PositionPlan.HasQuantity {
+						runRecord.SuggestedQuantity = storedFigure(writeDto.PositionPlan.Quantity)
+					}
 				}
 
 				if writeDto.PositionPlan.HasStopLoss {
@@ -111,4 +116,27 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) FindLatest
 	}
 
 	return runRecords, nil
+}
+
+// FindByJournalLinkIdentifier answers false once the round has been trimmed away.
+func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) FindByJournalLinkIdentifier(
+	executionContext context.Context, journalLinkIdentifier string,
+) (entities.StrategyBotRunRecord, bool, error) {
+	runRecords := []entities.StrategyBotRunRecord{}
+	if journalLinkIdentifier == "" {
+		return entities.StrategyBotRunRecord{}, false, nil
+	}
+
+	result := strategyBotRunRecordRepository.database.WithContext(executionContext).
+		Where(clause.Eq{Column: "journal_link_identifier", Value: journalLinkIdentifier}).
+		Limit(1).
+		Find(&runRecords)
+	if result.Error != nil {
+		return entities.StrategyBotRunRecord{}, false, fmt.Errorf("find strategy bot run record by journal link: %w", result.Error)
+	}
+	if len(runRecords) == 0 {
+		return entities.StrategyBotRunRecord{}, false, nil
+	}
+
+	return runRecords[0], true, nil
 }

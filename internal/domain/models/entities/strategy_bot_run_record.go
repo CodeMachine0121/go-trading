@@ -22,6 +22,10 @@ type StrategyBotRunRecord struct {
 	SuggestedDirection string              `gorm:"size:8;not null;default:''"`
 	SuggestedLeverage  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
 	SuggestedNotional  decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	// ReferencePrice, SuggestedQuantity and JournalLinkIdentifier let the journal link prefill a trade from this very round.
+	ReferencePrice        decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	SuggestedQuantity     decimal.NullDecimal `gorm:"type:numeric(38,18)"`
+	JournalLinkIdentifier string              `gorm:"size:64;not null;default:'';index"`
 	// Result is buy, sell, hold or conflict — see StrategyBotRoundResultVo.
 	Result string `gorm:"size:16;not null"`
 }

@@ -203,6 +203,8 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 			assert.Contains(t, message, "止損 98（往下，虧 100）")
 			assert.Contains(t, message, "　・預估強平價 80.4（往下，用最小那一級估算）")
 			assert.Contains(t, message, "　・資金費率 0.01%（最近一次結算）：每 8 小時約付 0.5（估算）")
+			assert.Contains(t, message,
+				"📝 記到交易日誌：https://app.example.com/contract-trade-journal/new?journalLink=round-link-1")
 
 			return vo.DeliveryFailureNone, nil
 		})
@@ -219,6 +221,8 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 	assert.Equal(t, "long", recorded.PositionPlan.Direction)
 	assert.Equal(t, "5", recorded.PositionPlan.Leverage.String())
 	assert.Equal(t, "5000", recorded.PositionPlan.Notional.String())
+	assert.Equal(t, "round-link-1", recorded.JournalLinkIdentifier)
+	assert.Equal(t, "100", recorded.ReferencePrice.Decimal.String())
 }
 
 // aContractSpecification is BTCUSDT's trading specification: prices step by 0.01,
@@ -331,6 +335,7 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 			assert.Contains(t, message, "⚪【平多】合約突破 · BTCUSDT 永續合約")
 			assert.Contains(t, message, "⚙️ 交易模式 只做多")
 			assert.NotContains(t, message, "建議部位")
+			assert.NotContains(t, message, "記到交易日誌")
 
 			return vo.DeliveryFailureNone, nil
 		})
@@ -341,6 +346,8 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 	require.NoError(t, runError)
 	require.Len(t, *underTest.appendedRunRecords, 1)
 	assert.False(t, (*underTest.appendedRunRecords)[0].HasPositionPlan)
+	assert.Empty(t, (*underTest.appendedRunRecords)[0].JournalLinkIdentifier)
+	assert.False(t, (*underTest.appendedRunRecords)[0].ReferencePrice.Valid)
 }
 
 // A round finding the newest candle hours old (e.g. after leaving the watchlist) is skipped: it

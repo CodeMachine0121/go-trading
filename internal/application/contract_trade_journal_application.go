@@ -88,3 +88,10 @@ func (journalApplication *ContractTradeJournalApplication) GetStatistics(
 ) (dto.ContractTradeStatisticsDto, error) {
 	return journalApplication.contractTradeJournalService.GetStatistics(executionContext, viewerID, period)
 }
+
+func (journalApplication *ContractTradeJournalApplication) PrepareJournalLink(
+	executionContext context.Context, viewerID uint, journalLinkIdentifier string,
+) (dto.ContractTradePrefillDto, error) {
+	return journalApplication.contractTradeJournalService.PrepareJournalLink(
+		executionContext, viewerID, journalLinkIdentifier)
+}

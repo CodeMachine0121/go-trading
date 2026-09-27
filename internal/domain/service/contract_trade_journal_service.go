@@ -31,6 +31,8 @@ type ContractTradeJournalService struct {
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
 	kCandleContractRepository               domaininterface.IKCandleContractRepository
+	strategyBotRepository                   domaininterface.IStrategyBotRepository
+	strategyBotRunRecordRepository          domaininterface.IStrategyBotRunRecordRepository
 	clockProxy                              domaininterface.IClockProxy
 }
 
@@ -43,6 +45,8 @@ func NewContractTradeJournalService(
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
 	kCandleContractRepository domaininterface.IKCandleContractRepository,
+	strategyBotRepository domaininterface.IStrategyBotRepository,
+	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *ContractTradeJournalService {
 	return &ContractTradeJournalService{
@@ -54,6 +58,8 @@ func NewContractTradeJournalService(
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		kCandleContractRepository:               kCandleContractRepository,
+		strategyBotRepository:                   strategyBotRepository,
+		strategyBotRunRecordRepository:          strategyBotRunRecordRepository,
 		clockProxy:                              clockProxy,
 	}
 }
@@ -100,6 +106,15 @@ func (journalService *ContractTradeJournalService) RecordTrade(
 		viewerID, contractSymbol.Value(), writeDto, firstEntryFill, setupTags, now)
 	if validationError != nil {
 		return dto.ContractTradeRecordDto{}, validationError
+	}
+
+	if writeDto.JournalLinkIdentifier != "" {
+		strategyBot, runRecord, linkError := journalService.ownedJournalLinkRound(
+			executionContext, viewerID, writeDto.JournalLinkIdentifier)
+		// A round forgotten since the page opened still lets the trade be recorded, only without its source.
+		if linkError == nil {
+			recordDomain.WithSource(strategyBot, runRecord)
+		}
 	}
 
 	openTrade, hasOpenTrade, openFindError := journalService.contractTradeRecordRepository.
@@ -257,6 +272,52 @@ func (journalService *ContractTradeJournalService) GetStatistics(
 	closedTrades := journalService.summariesOf(executionContext, records, nil)
 
 	return domains.NewContractTradeStatisticsDomain(periodDomain.Value(), closedTrades).Statistics(), nil
+}
+
+// PrepareJournalLink reads what a bot round's link prefills and records nothing; only the bot's owner may read it.
+func (journalService *ContractTradeJournalService) PrepareJournalLink(
+	executionContext context.Context, viewerID uint, journalLinkIdentifier string,
+) (dto.ContractTradePrefillDto, error) {
+	strategyBot, runRecord, linkError := journalService.ownedJournalLinkRound(
+		executionContext, viewerID, journalLinkIdentifier)
+	if linkError != nil {
+		return dto.ContractTradePrefillDto{}, linkError
+	}
+
+	prefillDomain := domains.NewContractTradePrefillDomain(strategyBot, runRecord)
+	openTrade, hasOpenTrade, openFindError := journalService.contractTradeRecordRepository.
+		FindOpenByOwnerSymbolDirection(executionContext, viewerID, strategyBot.Symbol, prefillDomain.Direction())
+	if openFindError != nil {
+		return dto.ContractTradePrefillDto{}, openFindError
+	}
+
+	return prefillDomain.Prefill(openTrade, hasOpenTrade), nil
+}
+
+// ownedJournalLinkRound answers the same not-found for a forgotten round and for somebody else's bot, so links cannot be probed.
+func (journalService *ContractTradeJournalService) ownedJournalLinkRound(
+	executionContext context.Context, viewerID uint, journalLinkIdentifier string,
+) (entities.StrategyBot, entities.StrategyBotRunRecord, error) {
+	runRecord, isRemembered, findError := journalService.strategyBotRunRecordRepository.FindByJournalLinkIdentifier(
+		executionContext, journalLinkIdentifier)
+	if findError != nil {
+		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, findError
+	}
+	if !isRemembered {
+		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, fmt.Errorf(
+			"%w: 這一輪的建議已不在紀錄中", domains.ErrJournalLinkNotFound)
+	}
+
+	strategyBot, botError := journalService.strategyBotRepository.FindOne(executionContext, runRecord.StrategyBotID)
+	if errors.Is(botError, domains.ErrStrategyBotNotFound) || (botError == nil && strategyBot.OwnerID != viewerID) {
+		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, fmt.Errorf(
+			"%w: 找不到這一輪的建議", domains.ErrJournalLinkNotFound)
+	}
+	if botError != nil {
+		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, botError
+	}
+
+	return strategyBot, runRecord, nil
 }
 
 // changeTrade is the one path every edit takes: read as the owner, change through the domain, save, and answer with the fresh detail.
