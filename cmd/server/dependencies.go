@@ -587,6 +587,35 @@ func registerRoutes(
 		contractTradeRecordController.CompareWithBacktest)
 
 	spotTradeRecordRepository := persistence.NewSpotTradeRecordRepository(database)
+	spotTradeJournalService := service.NewSpotTradeJournalService(
+		spotTradeRecordRepository,
+		tradeTagRepository,
+		persistence.NewTradingStrategyRepository(database),
+		persistence.NewTradingSymbolRepository(database),
+		kCandleRepository,
+		clock.NewSystemClockProxy(),
+	)
+	spotTradeRecordController := controller.NewSpotTradeRecordController(
+		application.NewSpotTradeJournalApplication(spotTradeJournalService, tradeJournalLinkService),
+		application.NewSpotTradeLiveComparisonApplication(
+			spotTradeJournalService, tradingStrategyService, strategyScriptService, backtestService),
+	)
+	engine.POST("/spot-trade-records", requiresSignIn, spotTradeRecordController.RecordTrade)
+	engine.GET("/spot-trade-records", requiresSignIn, spotTradeRecordController.ListTrades)
+	engine.GET("/spot-trade-records/statistics", requiresSignIn, spotTradeRecordController.GetStatistics)
+	engine.GET("/spot-trade-records/journal-links/:identifier", requiresSignIn,
+		spotTradeRecordController.PrepareJournalLink)
+	engine.GET("/spot-trade-records/:id", requiresSignIn, spotTradeRecordController.GetTrade)
+	engine.DELETE("/spot-trade-records/:id", requiresSignIn, spotTradeRecordController.DeleteTrade)
+	engine.POST("/spot-trade-records/:id/fills", requiresSignIn, spotTradeRecordController.AddFill)
+	engine.PUT("/spot-trade-records/:id/fills/:fillId", requiresSignIn, spotTradeRecordController.AmendFill)
+	engine.DELETE("/spot-trade-records/:id/fills/:fillId", requiresSignIn, spotTradeRecordController.RemoveFill)
+	engine.PUT("/spot-trade-records/:id/plan", requiresSignIn, spotTradeRecordController.AmendPlan)
+	engine.POST("/spot-trade-records/:id/notes", requiresSignIn, spotTradeRecordController.AddNote)
+	engine.PUT("/spot-trade-records/:id/review", requiresSignIn, spotTradeRecordController.WriteReview)
+	engine.PUT("/spot-trade-records/:id/setup-tags", requiresSignIn, spotTradeRecordController.AssignSetupTags)
+	engine.GET("/trading-strategies/:id/spot-trade-comparison", requiresSignIn,
+		spotTradeRecordController.CompareWithBacktest)
 
 	tradeJournalSettingController := controller.NewTradeJournalSettingController(
 		application.NewTradeJournalSettingApplication(service.NewTradeJournalSettingService(
