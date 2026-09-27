@@ -11,6 +11,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
+	"github.com/shopspring/decimal"
 )
 
 // strategyBotObservationWindowLength is one minute because that is the shortest window
@@ -32,6 +33,7 @@ type StrategyBotRunApplication struct {
 	telegramDeliveryService             *service.TelegramDeliveryService
 	kCandleService                      *service.KCandleService
 	kCandleContractService              *service.KCandleContractService
+	tradeJournalLinkService             *service.TradeJournalLinkService
 	clockProxy                          domaininterface.IClockProxy
 	roundGuard                          *StrategyBotRoundGuard
 	maxConcurrentRounds                 int
@@ -47,6 +49,7 @@ func NewStrategyBotRunApplication(
 	telegramDeliveryService *service.TelegramDeliveryService,
 	kCandleService *service.KCandleService,
 	kCandleContractService *service.KCandleContractService,
+	tradeJournalLinkService *service.TradeJournalLinkService,
 	clockProxy domaininterface.IClockProxy,
 	roundGuard *StrategyBotRoundGuard,
 	maxConcurrentRounds int,
@@ -61,6 +64,7 @@ func NewStrategyBotRunApplication(
 		telegramDeliveryService:             telegramDeliveryService,
 		kCandleService:                      kCandleService,
 		kCandleContractService:              kCandleContractService,
+		tradeJournalLinkService:             tradeJournalLinkService,
 		clockProxy:                          clockProxy,
 		roundGuard:                          roundGuard,
 		maxConcurrentRounds:                 maxConcurrentRounds,
@@ -272,7 +276,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		return skippedRound()
 	}
 
-	positionPlan, hasPositionPlan, deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
+	sentRound, deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
 		executionContext, botDto, tradingStrategyDto, reference, decision, sourceSignals)
 	if deliverError != nil {
 		// This side failing to ask (not Telegram refusing), e.g. the owner removed their delivery setting.
@@ -288,13 +292,10 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	// An undelivered message leaves the last sent signal unchanged so the next round retries,
 	// but the suggestion is still recorded in history.
 	if deliveryFailure != vo.DeliveryFailureNone {
-		return suggestingRound(
-			decision.Verdict, "", decision.Conflicting, positionPlan, hasPositionPlan)
+		return suggestingRound(decision.Verdict, "", decision.Conflicting, sentRound)
 	}
 
-	return suggestingRound(
-		decision.Verdict, decision.Verdict, decision.Conflicting,
-		positionPlan, hasPositionPlan)
+	return suggestingRound(decision.Verdict, decision.Verdict, decision.Conflicting, sentRound)
 }
 
 // roundSkipped is the outcome kind that changes nothing but when the bot is next due.
@@ -314,14 +315,18 @@ func concludedRound(verdict string, sentSignal string, conflicting bool) dto.Str
 	}
 }
 
-// suggestingRound is a concluded round that also records the position plan it sent.
+// suggestingRound is a concluded round that also records the position plan it sent and, with a journal link, the reference price the link prefills.
 func suggestingRound(
-	verdict string, sentSignal string, conflicting bool,
-	positionPlan dto.PositionPlanDto, hasPositionPlan bool,
+	verdict string, sentSignal string, conflicting bool, sentRound dto.StrategyBotRoundDto,
 ) dto.StrategyBotRoundOutcomeDto {
 	outcomeDto := concludedRound(verdict, sentSignal, conflicting)
-	outcomeDto.PositionPlan = positionPlan
-	outcomeDto.HasPositionPlan = hasPositionPlan
+	outcomeDto.PositionPlan = sentRound.PositionPlan
+	outcomeDto.HasPositionPlan = sentRound.HasPositionPlan
+
+	if sentRound.JournalLinkIdentifier != "" {
+		outcomeDto.JournalLinkIdentifier = sentRound.JournalLinkIdentifier
+		outcomeDto.ReferencePrice = decimal.NullDecimal{Decimal: sentRound.ReferencePrice, Valid: sentRound.HasReference}
+	}
 
 	return outcomeDto
 }
@@ -421,13 +426,13 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 	return signalsByLabel, sourceSignals, nil
 }
 
-// sendRoundMessage sends the round's message and returns the position plan it used; an
+// sendRoundMessage sends the round's message and returns the round as sent; an
 // unreadable reference price still sends, since the conclusion matters more than the price.
 func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 	tradingStrategyDto dto.TradingStrategyDto, reference dto.StrategyBotRoundDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
-) (dto.PositionPlanDto, bool, vo.DeliveryFailureReasonVo, error) {
+) (dto.StrategyBotRoundDto, vo.DeliveryFailureReasonVo, error) {
 	round := dto.StrategyBotRoundDto{
 		BotName:             botDto.Name,
 		Symbol:              botDto.Symbol,
@@ -454,11 +459,12 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 
 	// Planned once so the message and the history carry identical figures.
 	round = strategyBotRunApplication.strategyBotService.PlanRoundPosition(executionContext, round)
+	round = strategyBotRunApplication.tradeJournalLinkService.OfferJournalLink(round)
 
 	deliveryFailure, deliverError := strategyBotRunApplication.telegramDeliveryService.SendMessage(
 		executionContext,
 		botDto.OwnerID,
 		strategyBotRunApplication.strategyBotService.WriteRoundMessage(round))
 
-	return round.PositionPlan, round.HasPositionPlan, deliveryFailure, deliverError
+	return round, deliveryFailure, deliverError
 }

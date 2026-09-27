@@ -119,6 +119,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
+	opaqueIdentifierProxy := mocks.NewMockIOpaqueIdentifierProxy(controller)
+	opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "round-link-1"}, nil).AnyTimes()
 
 	return strategyBotRunUnderTest{
 		strategyBotRunApplication: application.NewStrategyBotRunApplication(
@@ -141,6 +143,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, queryMaxResults),
 			service.NewKCandleContractService(
 				kCandleContractRepository, clockProxy, marketCatalog, queryMaxResults),
+			service.NewTradeJournalLinkService(
+				opaqueIdentifierProxy, nil, nil, "https://app.example.com"),
 			clockProxy,
 			roundGuard,
 			4,
@@ -1113,4 +1117,37 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 	assert.Equal(t, "5000", recorded.PositionPlan.Stake.String())
 	assert.Equal(t, "62255.085", recorded.PositionPlan.StopLossPrice.String())
 	assert.Equal(t, "67389.525", recorded.PositionPlan.TakeProfitPrice.String())
+}
+
+// A spot bot's buy or exit carries a link to the spot journal, and the round remembers the price the link prefills.
+func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{aDueBot("")}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(aDueBot(""), nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.True(t, strings.HasSuffix(message,
+				"\n\n📝 記到交易日誌：https://app.example.com/spot-trade-journal/new?journalLink=round-link-1"), message)
+			assert.Contains(t, message, "【買入】早盤突破 · BTCUSDT")
+
+			return vo.DeliveryFailureNone, nil
+		})
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, runError := underTest.strategyBotRunApplication.RunDueRounds(t.Context())
+
+	require.NoError(t, runError)
+	require.Len(t, *underTest.appendedRunRecords, 1)
+	recorded := (*underTest.appendedRunRecords)[0]
+	assert.Equal(t, "round-link-1", recorded.JournalLinkIdentifier)
+	assert.Equal(t, "64180.5", recorded.ReferencePrice.Decimal.String())
 }

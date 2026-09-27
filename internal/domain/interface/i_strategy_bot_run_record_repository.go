@@ -18,4 +18,9 @@ type IStrategyBotRunRecordRepository interface {
 	FindLatestByBot(
 		executionContext context.Context, strategyBotID uint,
 	) ([]entities.StrategyBotRunRecord, error)
+
+	// FindByJournalLinkIdentifier answers false for a blank identifier or a round no longer remembered.
+	FindByJournalLinkIdentifier(
+		executionContext context.Context, journalLinkIdentifier string,
+	) (entities.StrategyBotRunRecord, bool, error)
 }

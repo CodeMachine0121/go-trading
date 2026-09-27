@@ -328,6 +328,7 @@ func TestLoadReadsThePublicAddressesForConnectorAuthorization(t *testing.T) {
 
 			assert.Equal(t, testCase.expectedPublicBaseUrl, applicationConfig.ConnectorAuthorization.PublicBaseUrl)
 			assert.Equal(t, testCase.expectedFrontendBaseUrl, applicationConfig.ConnectorAuthorization.FrontendBaseUrl)
+			assert.Equal(t, testCase.expectedFrontendBaseUrl, applicationConfig.FrontendBaseUrl)
 		})
 	}
 }

@@ -1,0 +1,620 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
+)
+
+const (
+	contractTradeListDefaultLimit = 20
+	contractTradeListMaximumLimit = 200
+	// fundingSettlementPageSize matches the repository cap; wider windows are read page by page.
+	fundingSettlementPageSize = 1000
+)
+
+// ContractTradeJournalService is the application layer's only entry point for the contract trade journal; every trade answers not found to anyone but its owner.
+type ContractTradeJournalService struct {
+	contractTradeRecordRepository           domaininterface.IContractTradeRecordRepository
+	tradeTagRepository                      domaininterface.ITradeTagRepository
+	tradeJournalSettingRepository           domaininterface.ITradeJournalSettingRepository
+	tradingStrategyRepository               domaininterface.ITradingStrategyRepository
+	contractTradingSymbolRepository         domaininterface.IContractTradingSymbolRepository
+	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
+	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
+	kCandleContractRepository               domaininterface.IKCandleContractRepository
+	clockProxy                              domaininterface.IClockProxy
+}
+
+func NewContractTradeJournalService(
+	contractTradeRecordRepository domaininterface.IContractTradeRecordRepository,
+	tradeTagRepository domaininterface.ITradeTagRepository,
+	tradeJournalSettingRepository domaininterface.ITradeJournalSettingRepository,
+	tradingStrategyRepository domaininterface.ITradingStrategyRepository,
+	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
+	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
+	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
+	kCandleContractRepository domaininterface.IKCandleContractRepository,
+	clockProxy domaininterface.IClockProxy,
+) *ContractTradeJournalService {
+	return &ContractTradeJournalService{
+		contractTradeRecordRepository:           contractTradeRecordRepository,
+		tradeTagRepository:                      tradeTagRepository,
+		tradeJournalSettingRepository:           tradeJournalSettingRepository,
+		tradingStrategyRepository:               tradingStrategyRepository,
+		contractTradingSymbolRepository:         contractTradingSymbolRepository,
+		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
+		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
+		kCandleContractRepository:               kCandleContractRepository,
+		clockProxy:                              clockProxy,
+	}
+}
+
+// RecordTrade copies the round a journal link named onto the trade; a round that is missing or belongs to the spot journal simply leaves no source.
+func (journalService *ContractTradeJournalService) RecordTrade(
+	executionContext context.Context, viewerID uint, writeDto dto.ContractTradeRecordWriteDto,
+	linkRound *dto.JournalLinkRoundDto,
+) (dto.ContractTradeRecordDto, error) {
+	contractSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(writeDto.Symbol))
+	if symbolError != nil {
+		return dto.ContractTradeRecordDto{}, fmt.Errorf("%w: %w", domains.ErrContractTradeValidation, symbolError)
+	}
+
+	_, isRegistered, symbolFindError := journalService.contractTradingSymbolRepository.FindBySymbol(
+		executionContext, contractSymbol.Value())
+	if symbolFindError != nil {
+		return dto.ContractTradeRecordDto{}, symbolFindError
+	}
+	if !isRegistered {
+		return dto.ContractTradeRecordDto{}, fmt.Errorf(
+			"%w: 找不到這個合約標的 %s", domains.ErrContractTradeValidation, contractSymbol.Value())
+	}
+
+	if writeDto.TradingStrategyID != nil {
+		tradingStrategy, strategyFindError := journalService.tradingStrategyRepository.FindOne(
+			executionContext, *writeDto.TradingStrategyID)
+		if strategyFindError != nil {
+			return dto.ContractTradeRecordDto{}, strategyFindError
+		}
+		if tradingStrategy.OwnerID != viewerID {
+			return dto.ContractTradeRecordDto{}, domains.TradingStrategyNotFound(*writeDto.TradingStrategyID)
+		}
+		marketDataKind, _ := domains.NewMarketDataKindDomain(tradingStrategy.MarketDataKind)
+		if !marketDataKind.IsContract() {
+			return dto.ContractTradeRecordDto{}, fmt.Errorf("%w: 只能指名合約交易策略", domains.ErrContractTradeValidation)
+		}
+	}
+
+	setupTags, tagError := journalService.ownedTags(executionContext, viewerID, writeDto.SetupTagIDs)
+	if tagError != nil {
+		return dto.ContractTradeRecordDto{}, tagError
+	}
+
+	setting, settingError := journalService.settingOf(executionContext, viewerID)
+	if settingError != nil {
+		return dto.ContractTradeRecordDto{}, settingError
+	}
+
+	now := journalService.clockProxy.Now()
+	firstEntryFill := setting.PricedFill(writeDto.FirstEntryFill, now)
+
+	recordDomain, validationError := domains.NewOpeningContractTradeRecordDomain(
+		viewerID, contractSymbol.Value(), writeDto, firstEntryFill, setupTags, now)
+	if validationError != nil {
+		return dto.ContractTradeRecordDto{}, validationError
+	}
+
+	if linkRound != nil && journalService.belongsToContractJournal(*linkRound) {
+		recordDomain.WithSource(*linkRound)
+	}
+
+	openTrade, hasOpenTrade, openFindError := journalService.contractTradeRecordRepository.
+		FindOpenByOwnerSymbolDirection(
+			executionContext, viewerID, contractSymbol.Value(), string(recordDomain.Direction()))
+	if openFindError != nil {
+		return dto.ContractTradeRecordDto{}, openFindError
+	}
+	if hasOpenTrade {
+		return dto.ContractTradeRecordDto{}, domains.ContractTradeOpenPositionExists(
+			contractSymbol.Value(), recordDomain.DirectionInWords(), openTrade.ID)
+	}
+
+	createdRecord, createError := journalService.contractTradeRecordRepository.Create(
+		executionContext, recordDomain.ToEntity())
+	if createError != nil {
+		return dto.ContractTradeRecordDto{}, createError
+	}
+
+	return journalService.detailOf(executionContext, createdRecord), nil
+}
+
+func (journalService *ContractTradeJournalService) AddFill(
+	executionContext context.Context, viewerID uint, id uint, fillDto dto.ContractTradeFillWriteDto,
+) (dto.ContractTradeRecordDto, error) {
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, setting domains.TradeJournalSettingDomain, now time.Time) error {
+			return recordDomain.AddFill(setting.PricedFill(fillDto, now), now)
+		})
+}
+
+func (journalService *ContractTradeJournalService) AmendFill(
+	executionContext context.Context, viewerID uint, id uint, fillID uint, fillDto dto.ContractTradeFillWriteDto,
+) (dto.ContractTradeRecordDto, error) {
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, setting domains.TradeJournalSettingDomain, now time.Time) error {
+			return recordDomain.AmendFill(fillID, setting.PricedFill(fillDto, now), now)
+		})
+}
+
+func (journalService *ContractTradeJournalService) RemoveFill(
+	executionContext context.Context, viewerID uint, id uint, fillID uint,
+) (dto.ContractTradeRecordDto, error) {
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, _ domains.TradeJournalSettingDomain, now time.Time) error {
+			return recordDomain.RemoveFill(fillID, now)
+		})
+}
+
+func (journalService *ContractTradeJournalService) AmendPlan(
+	executionContext context.Context, viewerID uint, id uint, planDto dto.ContractTradePlanWriteDto,
+) (dto.ContractTradeRecordDto, error) {
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, _ domains.TradeJournalSettingDomain, _ time.Time) error {
+			return recordDomain.AmendPlan(planDto)
+		})
+}
+
+func (journalService *ContractTradeJournalService) AddNote(
+	executionContext context.Context, viewerID uint, id uint, content string,
+) (dto.ContractTradeRecordDto, error) {
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, _ domains.TradeJournalSettingDomain, now time.Time) error {
+			return recordDomain.AddNote(content, now)
+		})
+}
+
+func (journalService *ContractTradeJournalService) WriteReview(
+	executionContext context.Context, viewerID uint, id uint, reviewDto dto.ContractTradeReviewWriteDto,
+) (dto.ContractTradeRecordDto, error) {
+	mistakeTags, tagError := journalService.ownedTags(executionContext, viewerID, reviewDto.MistakeTagIDs)
+	if tagError != nil {
+		return dto.ContractTradeRecordDto{}, tagError
+	}
+
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, _ domains.TradeJournalSettingDomain, now time.Time) error {
+			return recordDomain.WriteReview(reviewDto, mistakeTags, now)
+		})
+}
+
+func (journalService *ContractTradeJournalService) AssignSetupTags(
+	executionContext context.Context, viewerID uint, id uint, setupTagIDs []uint,
+) (dto.ContractTradeRecordDto, error) {
+	setupTags, tagError := journalService.ownedTags(executionContext, viewerID, setupTagIDs)
+	if tagError != nil {
+		return dto.ContractTradeRecordDto{}, tagError
+	}
+
+	return journalService.changeTrade(executionContext, viewerID, id,
+		func(recordDomain *domains.ContractTradeRecordDomain, _ domains.TradeJournalSettingDomain, _ time.Time) error {
+			return recordDomain.AssignSetupTags(setupTags)
+		})
+}
+
+func (journalService *ContractTradeJournalService) DeleteTrade(
+	executionContext context.Context, viewerID uint, id uint,
+) error {
+	if _, findError := journalService.findOwnedTrade(executionContext, viewerID, id); findError != nil {
+		return findError
+	}
+
+	return journalService.contractTradeRecordRepository.Delete(executionContext, id)
+}
+
+func (journalService *ContractTradeJournalService) GetTrade(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.ContractTradeRecordDto, error) {
+	record, findError := journalService.findOwnedTrade(executionContext, viewerID, id)
+	if findError != nil {
+		return dto.ContractTradeRecordDto{}, findError
+	}
+
+	return journalService.detailOf(executionContext, record), nil
+}
+
+// ListTrades works out each trade's money figures but not its excursions or liquidation price, which only the detail needs.
+func (journalService *ContractTradeJournalService) ListTrades(
+	executionContext context.Context, viewerID uint, queryDto dto.ContractTradeListQueryDto,
+) (dto.ContractTradeRecordPageDto, error) {
+	filter := vo.TradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
+
+	switch vo.ContractTradeStatusVo(queryDto.Status) {
+	case "", vo.ContractTradeStatusOpen, vo.ContractTradeStatusClosed, vo.ContractTradeStatusReviewed:
+	default:
+		return dto.ContractTradeRecordPageDto{}, fmt.Errorf(
+			"%w: 狀態只有 open、closed 與 reviewed", domains.ErrContractTradeValidation)
+	}
+
+	if strings.TrimSpace(queryDto.Symbol) != "" {
+		contractSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(queryDto.Symbol))
+		if symbolError != nil {
+			return dto.ContractTradeRecordPageDto{}, fmt.Errorf("%w: %w", domains.ErrContractTradeValidation, symbolError)
+		}
+		filter.Symbol = contractSymbol.Value()
+	}
+
+	if queryDto.Period != "" {
+		periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(queryDto.Period, domains.ErrContractTradeValidation)
+		if periodError != nil {
+			return dto.ContractTradeRecordPageDto{}, periodError
+		}
+		filter.OpenedSince = periodDomain.Since(journalService.clockProxy.Now())
+	}
+
+	if filter.Limit <= 0 {
+		filter.Limit = contractTradeListDefaultLimit
+	}
+	filter.Limit = min(filter.Limit, contractTradeListMaximumLimit)
+
+	records, totalCount, findError := journalService.contractTradeRecordRepository.FindPageByOwner(
+		executionContext, viewerID, filter)
+	if findError != nil {
+		return dto.ContractTradeRecordPageDto{}, findError
+	}
+
+	tradingStrategies, strategiesFindError := journalService.tradingStrategyRepository.FindAllByOwner(
+		executionContext, viewerID)
+	// Unreadable names mark nothing deleted, so no trade is wrongly shown as orphaned.
+	tradingStrategyNames := domains.NewTradingStrategyNamesDomain(tradingStrategies, strategiesFindError == nil)
+
+	return dto.ContractTradeRecordPageDto{
+		Trades:     journalService.summariesOf(executionContext, records, tradingStrategyNames),
+		TotalCount: totalCount,
+	}, nil
+}
+
+// GetStatistics counts trades by when they closed, so a trade opened long ago still belongs to the week it was closed.
+func (journalService *ContractTradeJournalService) GetStatistics(
+	executionContext context.Context, viewerID uint, period string,
+) (dto.ContractTradeStatisticsDto, error) {
+	periodDomain, periodError := domains.NewTradeStatisticsPeriodDomain(period, domains.ErrContractTradeValidation)
+	if periodError != nil {
+		return dto.ContractTradeStatisticsDto{}, periodError
+	}
+
+	records, findError := journalService.contractTradeRecordRepository.FindClosedByOwner(
+		executionContext, viewerID, periodDomain.Since(journalService.clockProxy.Now()))
+	if findError != nil {
+		return dto.ContractTradeStatisticsDto{}, findError
+	}
+
+	closedTrades := journalService.summariesOf(executionContext, records, domains.NewTradingStrategyNamesDomain(nil, false))
+
+	return domains.NewContractTradeStatisticsDomain(periodDomain.Value(), closedTrades).Statistics(), nil
+}
+
+// PlanLiveComparison groups the person's closed trades that followed a strategy by symbol, each with the replay to set beside it.
+func (journalService *ContractTradeJournalService) PlanLiveComparison(
+	executionContext context.Context, viewerID uint, tradingStrategyID uint,
+) (dto.ContractTradeComparisonPlanDto, error) {
+	records, findError := journalService.contractTradeRecordRepository.FindClosedByOwnerAndTradingStrategy(
+		executionContext, viewerID, tradingStrategyID)
+	if findError != nil {
+		return dto.ContractTradeComparisonPlanDto{}, findError
+	}
+
+	setting, settingError := journalService.settingOf(executionContext, viewerID)
+	if settingError != nil {
+		return dto.ContractTradeComparisonPlanDto{}, settingError
+	}
+
+	closedTrades := journalService.summariesOf(executionContext, records, domains.NewTradingStrategyNamesDomain(nil, false))
+
+	return domains.NewContractTradeLiveComparisonDomain(closedTrades, setting.TakerFeeRate()).Plan(), nil
+}
+
+// ComposeLiveComparison lines each group up with how its replay went.
+func (journalService *ContractTradeJournalService) ComposeLiveComparison(
+	groups []dto.ContractTradeComparisonGroupDto, attempts []dto.ContractTradeBacktestAttemptDto,
+) []dto.ContractTradeLiveComparisonRowDto {
+	return domains.NewContractTradeLiveComparisonDomain(nil, decimal.Zero).Compose(groups, attempts)
+}
+
+// ComposeLiveComparisonForDeletedTradingStrategy keeps the live figures of a strategy that no longer exists.
+func (journalService *ContractTradeJournalService) ComposeLiveComparisonForDeletedTradingStrategy(
+	groups []dto.ContractTradeComparisonGroupDto,
+) []dto.ContractTradeLiveComparisonRowDto {
+	return domains.NewContractTradeLiveComparisonDomain(nil, decimal.Zero).ComposeForDeletedTradingStrategy(groups)
+}
+
+// PrepareJournalLink reads what a bot round's link prefills and records nothing.
+func (journalService *ContractTradeJournalService) PrepareJournalLink(
+	executionContext context.Context, viewerID uint, linkRound dto.JournalLinkRoundDto,
+) (dto.ContractTradePrefillDto, error) {
+	if !journalService.belongsToContractJournal(linkRound) {
+		return dto.ContractTradePrefillDto{}, fmt.Errorf(
+			"%w: 這條連結屬於現貨交易日誌", domains.ErrJournalLinkNotFound)
+	}
+
+	prefillDomain := domains.NewContractTradePrefillDomain(linkRound)
+	openTrade, hasOpenTrade, openFindError := journalService.contractTradeRecordRepository.
+		FindOpenByOwnerSymbolDirection(executionContext, viewerID, linkRound.Symbol, prefillDomain.Direction())
+	if openFindError != nil {
+		return dto.ContractTradePrefillDto{}, openFindError
+	}
+
+	return prefillDomain.Prefill(openTrade, hasOpenTrade), nil
+}
+
+func (journalService *ContractTradeJournalService) belongsToContractJournal(linkRound dto.JournalLinkRoundDto) bool {
+	marketDataKind, _ := domains.NewMarketDataKindDomain(linkRound.MarketDataKind)
+
+	return marketDataKind.IsContract()
+}
+
+// changeTrade is the one path every edit takes: read as the owner, change through the domain, save, and answer with the fresh detail.
+func (journalService *ContractTradeJournalService) changeTrade(
+	executionContext context.Context, viewerID uint, id uint,
+	change func(recordDomain *domains.ContractTradeRecordDomain, setting domains.TradeJournalSettingDomain, now time.Time) error,
+) (dto.ContractTradeRecordDto, error) {
+	record, findError := journalService.findOwnedTrade(executionContext, viewerID, id)
+	if findError != nil {
+		return dto.ContractTradeRecordDto{}, findError
+	}
+
+	setting, settingError := journalService.settingOf(executionContext, viewerID)
+	if settingError != nil {
+		return dto.ContractTradeRecordDto{}, settingError
+	}
+
+	recordDomain := domains.NewContractTradeRecordDomain(record)
+	if changeError := change(&recordDomain, setting, journalService.clockProxy.Now()); changeError != nil {
+		return dto.ContractTradeRecordDto{}, changeError
+	}
+
+	savedRecord, saveError := journalService.contractTradeRecordRepository.Save(
+		executionContext, recordDomain.ToEntity())
+	if saveError != nil {
+		return dto.ContractTradeRecordDto{}, saveError
+	}
+
+	return journalService.detailOf(executionContext, savedRecord), nil
+}
+
+func (journalService *ContractTradeJournalService) findOwnedTrade(
+	executionContext context.Context, viewerID uint, id uint,
+) (entities.ContractTradeRecord, error) {
+	record, findError := journalService.contractTradeRecordRepository.FindOne(executionContext, id)
+	if findError != nil {
+		return entities.ContractTradeRecord{}, findError
+	}
+	if record.OwnerID != viewerID {
+		return entities.ContractTradeRecord{}, domains.ContractTradeNotFound(id)
+	}
+
+	return record, nil
+}
+
+func (journalService *ContractTradeJournalService) settingOf(
+	executionContext context.Context, viewerID uint,
+) (domains.TradeJournalSettingDomain, error) {
+	setting, _, findError := journalService.tradeJournalSettingRepository.FindOneByUser(executionContext, viewerID)
+	if findError != nil {
+		return domains.TradeJournalSettingDomain{}, findError
+	}
+
+	return domains.NewTradeJournalSettingDomain(setting), nil
+}
+
+// ownedTags answers not found for any tag that is missing or somebody else's; tags are shared by both journals.
+func (journalService *ContractTradeJournalService) ownedTags(
+	executionContext context.Context, viewerID uint, tagIDs []uint,
+) ([]entities.TradeTag, error) {
+	foundTags, findError := journalService.tradeTagRepository.FindByIDs(executionContext, tagIDs)
+	if findError != nil {
+		return nil, findError
+	}
+
+	return domains.NewTradeTagSelectionDomain(foundTags, viewerID).Select(tagIDs)
+}
+
+// detailOf reads everything one trade's outcome can use; a failed read only leaves its own figure unavailable.
+func (journalService *ContractTradeJournalService) detailOf(
+	executionContext context.Context, record entities.ContractTradeRecord,
+) dto.ContractTradeRecordDto {
+	recordDomain := domains.NewContractTradeRecordDomain(record)
+	facts := journalService.marketFactsOf(executionContext, []entities.ContractTradeRecord{record})[record.ID]
+
+	holdingEnd := journalService.holdingEndOf(record)
+	extremes, extremesError := journalService.kCandleContractRepository.FindPriceExtremesInRange(
+		executionContext, record.Symbol, recordDomain.Ledger().FirstEntryAt().Truncate(time.Minute), holdingEnd)
+	facts.ExtremesRequested = true
+	if extremesError == nil {
+		facts.PriceExtremes = extremes
+	}
+
+	outcomeDomain := domains.NewContractTradeOutcomeDomain(recordDomain, facts)
+	if recordDomain.IsOpen() {
+		outcomeDomain = outcomeDomain.WithTradingRules(journalService.tradingRulesOf(executionContext, record.Symbol))
+	}
+
+	recordDto := journalService.withLedgerFigures(record.ToDto(), recordDomain)
+	recordDto.Outcome = outcomeDomain.Outcome()
+
+	if record.TradingStrategyID != nil {
+		tradingStrategy, findError := journalService.tradingStrategyRepository.FindOne(
+			executionContext, *record.TradingStrategyID)
+		followedStrategies := []entities.TradingStrategy{}
+		if findError == nil {
+			followedStrategies = append(followedStrategies, tradingStrategy)
+		}
+		recordDto.TradingStrategyName, recordDto.TradingStrategyDeleted = domains.NewTradingStrategyNamesDomain(
+			followedStrategies, findError == nil || errors.Is(findError, domains.ErrTradingStrategyNotFound),
+		).Describe(record.TradingStrategyID)
+	}
+
+	return recordDto
+}
+
+func (journalService *ContractTradeJournalService) summariesOf(
+	executionContext context.Context, records []entities.ContractTradeRecord, tradingStrategyNames domains.TradingStrategyNamesDomain,
+) []dto.ContractTradeRecordDto {
+	factsByRecord := journalService.marketFactsOf(executionContext, records)
+
+	summaries := make([]dto.ContractTradeRecordDto, 0, len(records))
+	for _, record := range records {
+		recordDomain := domains.NewContractTradeRecordDomain(record)
+		recordDto := journalService.withLedgerFigures(record.ToDto(), recordDomain)
+		recordDto.Outcome = domains.NewContractTradeOutcomeDomain(recordDomain, factsByRecord[record.ID]).Outcome()
+
+		recordDto.TradingStrategyName, recordDto.TradingStrategyDeleted = tradingStrategyNames.Describe(record.TradingStrategyID)
+
+		summaries = append(summaries, recordDto)
+	}
+
+	return summaries
+}
+
+func (journalService *ContractTradeJournalService) withLedgerFigures(
+	recordDto dto.ContractTradeRecordDto, recordDomain domains.ContractTradeRecordDomain,
+) dto.ContractTradeRecordDto {
+	ledger := recordDomain.Ledger()
+	recordDto.AverageEntryPrice = ledger.AverageEntryPrice()
+	recordDto.EnteredQuantity = ledger.EnteredQuantity()
+	recordDto.Position = ledger.Position()
+	if averageExitPrice, hasExited := ledger.AverageExitPrice(); hasExited {
+		recordDto.AverageExitPrice.Decimal = averageExitPrice
+		recordDto.AverageExitPrice.Valid = true
+	}
+
+	return recordDto
+}
+
+// marketFactsOf reads each symbol's settlements and latest price once for all its trades, rather than once per trade.
+func (journalService *ContractTradeJournalService) marketFactsOf(
+	executionContext context.Context, records []entities.ContractTradeRecord,
+) map[uint]vo.ContractTradeMarketFactsVo {
+	recordsBySymbol := map[string][]entities.ContractTradeRecord{}
+	for _, record := range records {
+		recordsBySymbol[record.Symbol] = append(recordsBySymbol[record.Symbol], record)
+	}
+
+	factsByRecord := map[uint]vo.ContractTradeMarketFactsVo{}
+	for symbol, symbolRecords := range recordsBySymbol {
+		windowStart := symbolRecords[0].OpenedAt
+		windowEnd := journalService.holdingEndOf(symbolRecords[0])
+		hasOpenTrade := false
+		for _, record := range symbolRecords {
+			if record.OpenedAt.Before(windowStart) {
+				windowStart = record.OpenedAt
+			}
+			if holdingEnd := journalService.holdingEndOf(record); holdingEnd.After(windowEnd) {
+				windowEnd = holdingEnd
+			}
+			hasOpenTrade = hasOpenTrade || record.Status == string(vo.ContractTradeStatusOpen)
+		}
+
+		contractTradingSymbol, _, _ := journalService.contractTradingSymbolRepository.FindBySymbol(executionContext, symbol)
+		schedule := domains.NewFundingSettlementScheduleDomain(contractTradingSymbol)
+		settlements := journalService.settlementsBetween(executionContext, symbol, windowStart, windowEnd)
+
+		latestPrice := vo.ContractTradeMarketFactsVo{}
+		if hasOpenTrade {
+			latestCandles, latestError := journalService.kCandleContractRepository.FindLatest(executionContext, symbol, 1)
+			if latestError == nil && len(latestCandles) > 0 {
+				latestPrice.LatestPrice = latestCandles[0].Close
+				latestPrice.HasLatestPrice = true
+			}
+		}
+
+		for _, record := range symbolRecords {
+			holdingEnd := journalService.holdingEndOf(record)
+			facts := latestPrice
+			facts.FundingSettlementDue = schedule.IsDueBetween(record.OpenedAt, holdingEnd)
+			for _, settlement := range settlements {
+				if settlement.SettlementTime.Before(record.OpenedAt) || settlement.SettlementTime.After(holdingEnd) {
+					continue
+				}
+				facts.FundingSettlements = append(facts.FundingSettlements, settlement)
+			}
+			factsByRecord[record.ID] = facts
+		}
+	}
+
+	return factsByRecord
+}
+
+// settlementsBetween leaves the list empty when reading fails, which the outcome reports as missing data rather than zero.
+func (journalService *ContractTradeJournalService) settlementsBetween(
+	executionContext context.Context, symbol string, windowStart time.Time, windowEnd time.Time,
+) []vo.FundingSettlementVo {
+	settlements := []vo.FundingSettlementVo{}
+	pageStart := windowStart
+
+	for {
+		query, queryError := domains.NewKCandleQueryDomain(dto.KCandleQueryDto{
+			Symbol: symbol, StartTime: pageStart, EndTime: windowEnd,
+		})
+		if queryError != nil {
+			return settlements
+		}
+
+		page, findError := journalService.contractFundingRateSettlementRepository.FindInRange(
+			executionContext, query, fundingSettlementPageSize)
+		if findError != nil {
+			return []vo.FundingSettlementVo{}
+		}
+
+		for _, settlement := range page {
+			settlements = append(settlements, vo.FundingSettlementVo{
+				SettlementTime: settlement.SettlementTime.UTC(),
+				FundingRate:    settlement.FundingRate,
+				MarkPrice:      settlement.MarkPrice,
+			})
+		}
+
+		if len(page) < fundingSettlementPageSize {
+			return settlements
+		}
+		pageStart = page[len(page)-1].SettlementTime.Add(time.Nanosecond)
+	}
+}
+
+func (journalService *ContractTradeJournalService) tradingRulesOf(
+	executionContext context.Context, symbol string,
+) (domains.ContractTradingRulesDomain, bool) {
+	contractTradingSymbol, isRegistered, symbolError := journalService.contractTradingSymbolRepository.FindBySymbol(
+		executionContext, symbol)
+	if symbolError != nil {
+		return domains.ContractTradingRulesDomain{}, false
+	}
+
+	maintenanceMarginTiers, tierError := journalService.contractMaintenanceMarginTierRepository.FindBySymbol(
+		executionContext, symbol)
+	if tierError != nil {
+		return domains.ContractTradingRulesDomain{}, false
+	}
+
+	tradingRules, rulesError := domains.NewContractTradingRulesDomain(
+		contractTradingSymbol, isRegistered, maintenanceMarginTiers)
+
+	return tradingRules, rulesError == nil
+}
+
+// holdingEndOf is when the trade closed, or now while it is still held.
+func (journalService *ContractTradeJournalService) holdingEndOf(record entities.ContractTradeRecord) time.Time {
+	if record.ClosedAt != nil {
+		return record.ClosedAt.UTC()
+	}
+
+	return journalService.clockProxy.Now().UTC()
+}

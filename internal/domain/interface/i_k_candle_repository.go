@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 //go:generate go tool mockgen -source=i_k_candle_repository.go -destination=mocks/mock_i_k_candle_repository.go -package=mocks
@@ -29,6 +30,10 @@ type IKCandleRepository interface {
 	FindDistinctSymbols(executionContext context.Context) ([]string, error)
 	// FindLatest returns newest first, the opposite order to FindInRange.
 	FindLatest(executionContext context.Context, symbol string, limit int) ([]entities.KCandle, error)
+	// FindPriceExtremesInRange is the highest high and lowest low in the range, Has false when no candle falls in it.
+	FindPriceExtremesInRange(
+		executionContext context.Context, symbol string, startTime time.Time, endTime time.Time,
+	) (vo.PriceExtremesVo, error)
 	// FindLatestBefore returns candles strictly before cutoffTime, newest first.
 	FindLatestBefore(
 		executionContext context.Context, symbol string, cutoffTime time.Time, limit int,

@@ -419,8 +419,10 @@ func (strategyBotService *StrategyBotService) RecordRound(
 			RanAt:         ranAt,
 			Result:        string(outcome.RecordedResult()),
 			// Taken from the outcome because the bot's settings may have changed since the round was sent.
-			PositionPlan:    outcomeDto.PositionPlan,
-			HasPositionPlan: outcomeDto.HasPositionPlan,
+			PositionPlan:          outcomeDto.PositionPlan,
+			HasPositionPlan:       outcomeDto.HasPositionPlan,
+			ReferencePrice:        outcomeDto.ReferencePrice,
+			JournalLinkIdentifier: outcomeDto.JournalLinkIdentifier,
 		}); appendError != nil {
 		return dto.StrategyBotDto{}, false, appendError
 	}

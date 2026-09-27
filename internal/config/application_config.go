@@ -255,11 +255,14 @@ type ApplicationConfig struct {
 	StrategyBot            StrategyBotConfig
 	RequestLimit           RequestLimitConfig
 	ConnectorAuthorization ConnectorAuthorizationConfig
-	Database               DatabaseConfig
+	// FrontendBaseUrl is where links sent to people point, such as the journal link in a bot message.
+	FrontendBaseUrl string
+	Database        DatabaseConfig
 }
 
 func Load() ApplicationConfig {
 	taiwanStockConfig := loadTaiwanStockConfig()
+	frontendBaseUrl := strings.TrimRight(stringWithDefault("FRONTEND_BASE_URL", "http://localhost:3000"), "/")
 
 	return ApplicationConfig{
 		ServerPort: stringWithDefault("SERVER_PORT", "8080"),
@@ -389,8 +392,9 @@ func Load() ApplicationConfig {
 		},
 		ConnectorAuthorization: ConnectorAuthorizationConfig{
 			PublicBaseUrl:   strings.TrimRight(stringWithDefault("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
-			FrontendBaseUrl: strings.TrimRight(stringWithDefault("FRONTEND_BASE_URL", "http://localhost:3000"), "/"),
+			FrontendBaseUrl: frontendBaseUrl,
 		},
+		FrontendBaseUrl: frontendBaseUrl,
 		Authentication: AuthenticationConfig{
 			AccessTokenSigningKey: stringWithDefault("AUTH_ACCESS_TOKEN_SIGNING_KEY", ""),
 			// Named MINUTES (not the old HOURS) so an existing value of 24 is ignored rather than
