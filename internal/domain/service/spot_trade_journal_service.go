@@ -237,7 +237,7 @@ func (journalService *SpotTradeJournalService) GetStatistics(
 		return dto.SpotTradeStatisticsDto{}, findError
 	}
 
-	return domains.NewSpotTradeStatisticsDomain(periodDomain.Value(), journalService.summariesOf(executionContext, records, nil)).
+	return domains.NewSpotTradeStatisticsDomain(periodDomain.Value(), journalService.summariesOf(executionContext, records, domains.NewTradingStrategyNamesDomain(nil, false))).
 		Statistics(), nil
 }
 
@@ -251,7 +251,7 @@ func (journalService *SpotTradeJournalService) PlanLiveComparison(
 		return dto.SpotTradeComparisonPlanDto{}, findError
 	}
 
-	return domains.NewSpotTradeLiveComparisonDomain(journalService.summariesOf(executionContext, records, nil)).Plan(), nil
+	return domains.NewSpotTradeLiveComparisonDomain(journalService.summariesOf(executionContext, records, domains.NewTradingStrategyNamesDomain(nil, false))).Plan(), nil
 }
 
 // ComposeLiveComparison lines each group up with how its replay went.
@@ -349,32 +349,16 @@ func (journalService *SpotTradeJournalService) findOwnedTrade(
 	return record, nil
 }
 
-// ownedTags answers not found for any tag that is missing or somebody else's; tags are shared with the contract journal.
+// ownedTags answers not found for any tag that is missing or somebody else's; tags are shared by both journals.
 func (journalService *SpotTradeJournalService) ownedTags(
 	executionContext context.Context, viewerID uint, tagIDs []uint,
 ) ([]entities.TradeTag, error) {
-	tags, findError := journalService.tradeTagRepository.FindByIDs(executionContext, tagIDs)
+	foundTags, findError := journalService.tradeTagRepository.FindByIDs(executionContext, tagIDs)
 	if findError != nil {
 		return nil, findError
 	}
 
-	tagsByID := map[uint]entities.TradeTag{}
-	for _, tag := range tags {
-		if tag.OwnerID == viewerID {
-			tagsByID[tag.ID] = tag
-		}
-	}
-
-	ownedTags := make([]entities.TradeTag, 0, len(tagIDs))
-	for _, tagID := range tagIDs {
-		tag, isOwned := tagsByID[tagID]
-		if !isOwned {
-			return nil, domains.TradeTagNotFound(tagID)
-		}
-		ownedTags = append(ownedTags, tag)
-	}
-
-	return ownedTags, nil
+	return domains.NewTradeTagSelectionDomain(foundTags, viewerID).Select(tagIDs)
 }
 
 func (journalService *SpotTradeJournalService) requireOwnedSpotTradingStrategy(
@@ -436,21 +420,13 @@ func (journalService *SpotTradeJournalService) listFilterOf(queryDto dto.SpotTra
 	return filter, nil
 }
 
-// tradingStrategyNamesOf is nil when the names could not be read, so no trade is wrongly shown as orphaned.
+// tradingStrategyNamesOf marks nothing deleted when the names could not be read, so no trade is wrongly shown as orphaned.
 func (journalService *SpotTradeJournalService) tradingStrategyNamesOf(
 	executionContext context.Context, viewerID uint,
-) map[uint]string {
+) domains.TradingStrategyNamesDomain {
 	tradingStrategies, findError := journalService.tradingStrategyRepository.FindAllByOwner(executionContext, viewerID)
-	if findError != nil {
-		return nil
-	}
 
-	tradingStrategyNames := map[uint]string{}
-	for _, tradingStrategy := range tradingStrategies {
-		tradingStrategyNames[tradingStrategy.ID] = tradingStrategy.Name
-	}
-
-	return tradingStrategyNames
+	return domains.NewTradingStrategyNamesDomain(tradingStrategies, findError == nil)
 }
 
 // detailOf reads everything one trade's outcome can use; a failed read only leaves its own figure unavailable.
@@ -474,19 +450,20 @@ func (journalService *SpotTradeJournalService) detailOf(
 	if record.TradingStrategyID != nil {
 		tradingStrategy, findError := journalService.tradingStrategyRepository.FindOne(
 			executionContext, *record.TradingStrategyID)
-		switch {
-		case findError == nil:
-			recordDto.TradingStrategyName = tradingStrategy.Name
-		case errors.Is(findError, domains.ErrTradingStrategyNotFound):
-			recordDto.TradingStrategyDeleted = true
+		followedStrategies := []entities.TradingStrategy{}
+		if findError == nil {
+			followedStrategies = append(followedStrategies, tradingStrategy)
 		}
+		recordDto.TradingStrategyName, recordDto.TradingStrategyDeleted = domains.NewTradingStrategyNamesDomain(
+			followedStrategies, findError == nil || errors.Is(findError, domains.ErrTradingStrategyNotFound),
+		).Describe(record.TradingStrategyID)
 	}
 
 	return recordDto
 }
 
 func (journalService *SpotTradeJournalService) summariesOf(
-	executionContext context.Context, records []entities.SpotTradeRecord, tradingStrategyNames map[uint]string,
+	executionContext context.Context, records []entities.SpotTradeRecord, tradingStrategyNames domains.TradingStrategyNamesDomain,
 ) []dto.SpotTradeRecordDto {
 	latestPrices := journalService.latestPricesOf(executionContext, records)
 
@@ -496,11 +473,7 @@ func (journalService *SpotTradeJournalService) summariesOf(
 		recordDto := journalService.withLedgerFigures(record.ToDto(), recordDomain)
 		recordDto.Outcome = domains.NewSpotTradeOutcomeDomain(recordDomain, latestPrices[record.Symbol]).Outcome()
 
-		if record.TradingStrategyID != nil {
-			tradingStrategyName, isKnown := tradingStrategyNames[*record.TradingStrategyID]
-			recordDto.TradingStrategyName = tradingStrategyName
-			recordDto.TradingStrategyDeleted = tradingStrategyNames != nil && !isKnown
-		}
+		recordDto.TradingStrategyName, recordDto.TradingStrategyDeleted = tradingStrategyNames.Describe(record.TradingStrategyID)
 
 		summaries = append(summaries, recordDto)
 	}
