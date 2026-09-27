@@ -18,15 +18,30 @@ func ContractTradeNotFound(id uint) error {
 // ErrContractTradeOpenPositionExists keeps one open trade per symbol and direction, as the venue does.
 var ErrContractTradeOpenPositionExists = errors.New("contract trade open position exists")
 
-// ContractTradeOpenPositionExists names the open trade so the person can add the fill there instead.
+// ContractTradeOpenPositionExistsError carries the open trade so a caller can send the person straight to it.
+type ContractTradeOpenPositionExistsError struct {
+	OpenTradeID uint
+	message     string
+}
+
+func (openPositionError ContractTradeOpenPositionExistsError) Error() string {
+	return openPositionError.message
+}
+
+func (openPositionError ContractTradeOpenPositionExistsError) Unwrap() error {
+	return ErrContractTradeOpenPositionExists
+}
+
+// ContractTradeOpenPositionExists leaves OpenTradeID zero when the database refused a racing second trade before its identifier was known.
 func ContractTradeOpenPositionExists(symbol string, directionInWords string, openTradeID uint) error {
 	if openTradeID == 0 {
-		return fmt.Errorf("%w: %s %s 已有一筆持倉中的交易，請在那一筆加成交",
-			ErrContractTradeOpenPositionExists, symbol, directionInWords)
+		return ContractTradeOpenPositionExistsError{message: fmt.Sprintf("%s: %s %s 已有一筆持倉中的交易，請在那一筆加成交",
+			ErrContractTradeOpenPositionExists, symbol, directionInWords)}
 	}
 
-	return fmt.Errorf("%w: %s %s 已有持倉中的 #%d，請在那一筆加成交",
-		ErrContractTradeOpenPositionExists, symbol, directionInWords, openTradeID)
+	return ContractTradeOpenPositionExistsError{OpenTradeID: openTradeID, message: fmt.Sprintf(
+		"%s: %s %s 已有持倉中的 #%d，請在那一筆加成交",
+		ErrContractTradeOpenPositionExists, symbol, directionInWords, openTradeID)}
 }
 
 // ErrContractTradeLocked refuses changes to a closed trade's plan and fills so it keeps showing what the person meant then.

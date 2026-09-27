@@ -15535,7 +15535,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });",
-                  "pm.test(\"指出既有那一筆\", function () { pm.expect(pm.response.json().message).to.include(\"#\" + pm.collectionVariables.get(\"contractTradeId\")); });"
+                  "pm.test(\"指出既有那一筆\", function () { pm.expect(pm.response.json().message).to.include(\"#\" + pm.collectionVariables.get(\"contractTradeId\")); });",
+                  "pm.test(\"帶出既有那一筆的識別碼\", function () { pm.expect(pm.response.json().openTradeId).to.eql(Number(pm.collectionVariables.get(\"contractTradeId\"))); });"
                 ]
               }
             }

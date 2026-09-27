@@ -172,7 +172,23 @@ func TestContractTradeRouterRecordTrade(t *testing.T) {
 		assert.Contains(t, ruleBreak.Body.String(), "方向只有做多")
 		assert.Equal(t, http.StatusConflict, second.Code)
 		assert.Contains(t, second.Body.String(), "#27")
+		assert.Contains(t, second.Body.String(), `"openTradeId":27`)
 	})
+}
+
+func TestContractTradeRouterReportsARacingSecondTradeWithoutAnIdentifier(t *testing.T) {
+	fixture := newContractTradeRouterUnderTest(t)
+	fixture.tradeTagRepository.EXPECT().FindByIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
+	fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(entities.ContractTradeRecord{}, false, nil)
+	fixture.contractTradeRecordRepository.EXPECT().Create(gomock.Any(), gomock.Any()).
+		Return(entities.ContractTradeRecord{}, domains.ContractTradeOpenPositionExists("BTCUSDT", "做多", 0))
+
+	response := fixture.send(http.MethodPost, "/contract-trade-records",
+		`{"symbol":"BTCUSDT","direction":"long","firstEntryFill":{"kind":"entry","price":"1","quantity":"1"}}`)
+
+	assert.Equal(t, http.StatusConflict, response.Code)
+	assert.NotContains(t, response.Body.String(), "openTradeId")
 }
 
 func TestContractTradeRouterReads(t *testing.T) {

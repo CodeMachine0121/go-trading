@@ -283,8 +283,12 @@ func (recordController *ContractTradeRecordController) respondWithError(ginConte
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
-	if errors.Is(err, domains.ErrContractTradeOpenPositionExists) {
-		ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error()})
+	if openPositionError, isOpenPosition := errors.AsType[domains.ContractTradeOpenPositionExistsError](err); isOpenPosition {
+		body := gin.H{"message": err.Error()}
+		if openPositionError.OpenTradeID != 0 {
+			body["openTradeId"] = openPositionError.OpenTradeID
+		}
+		ginContext.JSON(http.StatusConflict, body)
 		return
 	}
 

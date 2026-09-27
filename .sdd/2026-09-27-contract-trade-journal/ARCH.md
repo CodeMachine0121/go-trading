@@ -268,7 +268,7 @@ flowchart TD
 - **實盤 vs 回測另開 `ContractTradeLiveComparisonApplication`**，路由由 `ContractTradeRecordController.CompareWithBacktest` 處理；原本 `TradingStrategyBacktestApplication` 的私有 `resolveSignalSources` 搬到 `StrategyScriptService.ResolveSignalSources`，兩個用例共用，避免 application 呼叫 application。`TradingStrategyBacktestApplication` 的建構子不變。
 - **新增兩個小 Domain Model**：`PlannedRiskDomain`（R 的分母與 `RMultipleOf`，給結果與最大不利／最大有利共用）、`FundingSettlementScheduleDomain`（持倉期間是否跨過結算時間，用來分辨「資金費用為 0」與「沒有結算資料」）。
 - **Repository 介面貼合既有慣例**：`FindOne` 找不到回 `ErrContractTradeNotFound`（不回 bool）；列表為 `FindPageByOwner(filter vo.ContractTradeListFilterVo)` 同時回總筆數；統計用 `FindClosedByOwner(closedSince *time.Time)`。交易與標籤的對照表名稱為 `contract_trade_record_tags`。
-- **同標的同方向已有持倉中**：回 409，交易 ID 寫在訊息裡（「已有持倉中的 #27」），不另加欄位。
+- **同標的同方向已有持倉中**：回 409，body 為 `{"message": "…已有持倉中的 #27…", "openTradeId": 27}`；錯誤型別 `ContractTradeOpenPositionExistsError` 帶出 `OpenTradeID`，controller 對映時放進 body，前端直接用它前往那一筆加成交。兩筆同時送達、由資料庫擋下的那一筆當下不知道既有 ID，body 不帶 `openTradeId`。
 - **結算當下沒有標記價格**時以該筆交易的進場均價估名目（只影響交易所最早期的結算，不會落在任何日誌交易的持倉期間），不另讀 K 線。
 - **最大不利／最大有利**從第一筆進場那一分鐘的 K 線起算（進場時間往下取整到分鐘）。
 - **實盤 vs 回測的策略已刪除**判斷：同一個策略 ID 仍有本人的已平倉實單、但策略讀不到時視為已刪除；沒有任何實單又讀不到策略則回 404。
