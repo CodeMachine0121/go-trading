@@ -302,6 +302,13 @@ func (journalService *ContractTradeJournalService) ComposeLiveComparison(
 	return domains.NewContractTradeLiveComparisonDomain(nil, decimal.Zero).Compose(groups, attempts)
 }
 
+// ComposeLiveComparisonForDeletedTradingStrategy keeps the live figures of a strategy that no longer exists.
+func (journalService *ContractTradeJournalService) ComposeLiveComparisonForDeletedTradingStrategy(
+	groups []dto.ContractTradeComparisonGroupDto,
+) []dto.ContractTradeLiveComparisonRowDto {
+	return domains.NewContractTradeLiveComparisonDomain(nil, decimal.Zero).ComposeForDeletedTradingStrategy(groups)
+}
+
 // PrepareJournalLink reads what a bot round's link prefills and records nothing; only the bot's owner may read it.
 func (journalService *ContractTradeJournalService) PrepareJournalLink(
 	executionContext context.Context, viewerID uint, journalLinkIdentifier string,

@@ -49,12 +49,9 @@ func (comparisonApplication *ContractTradeLiveComparisonApplication) CompareWith
 		executionContext, viewerID, tradingStrategyID)
 	// Live trades still pointing at the strategy prove it was the person's, so a missing one was deleted.
 	if errors.Is(strategyError, domains.ErrTradingStrategyNotFound) && len(groups) > 0 {
-		attempts := make([]dto.ContractTradeBacktestAttemptDto, len(groups))
-		for index := range attempts {
-			attempts[index].FailureReason = "交易策略已刪除，無法重演"
-		}
 		comparisonDto.TradingStrategyDeleted = true
-		comparisonDto.Rows = comparisonApplication.contractTradeJournalService.ComposeLiveComparison(groups, attempts)
+		comparisonDto.Rows = comparisonApplication.contractTradeJournalService.
+			ComposeLiveComparisonForDeletedTradingStrategy(groups)
 
 		return comparisonDto, nil
 	}
