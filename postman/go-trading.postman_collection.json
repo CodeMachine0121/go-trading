@@ -15919,7 +15919,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });"
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"整份策略帶進場滑點\", function () { pm.expect(pm.response.json()).to.have.property(\"averageEntrySlippagePercentage\"); pm.expect(pm.response.json()).to.have.property(\"entrySlippageTradeCount\"); });",
+                  "pm.test(\"每列實盤帶進場滑點、回測不帶\", function () { pm.response.json().rows.forEach(function (row) { pm.expect(row.live).to.have.property(\"entrySlippageTradeCount\"); if (row.backtest) { pm.expect(row.backtest).to.not.have.property(\"entrySlippageTradeCount\"); } }); });"
                 ]
               }
             }

@@ -66,6 +66,38 @@ func (tallyDomain ContractTradeWinTallyDomain) AverageRMultiple() *float64 {
 	return &average
 }
 
+// EntrySlippageTradeCount counts only trades started from a bot round, the only ones with a reference price to slip from.
+func (tallyDomain ContractTradeWinTallyDomain) EntrySlippageTradeCount() int {
+	counted := 0
+	for _, trade := range tallyDomain.trades {
+		if trade.Outcome.EntrySlippagePercentage != nil {
+			counted++
+		}
+	}
+
+	return counted
+}
+
+// AverageEntrySlippagePercentage is nil when no trade started from a bot round.
+func (tallyDomain ContractTradeWinTallyDomain) AverageEntrySlippagePercentage() *float64 {
+	total := 0.0
+	counted := 0
+	for _, trade := range tallyDomain.trades {
+		if trade.Outcome.EntrySlippagePercentage != nil {
+			total += *trade.Outcome.EntrySlippagePercentage
+			counted++
+		}
+	}
+
+	if counted == 0 {
+		return nil
+	}
+
+	average := total / float64(counted)
+
+	return &average
+}
+
 func (tallyDomain ContractTradeWinTallyDomain) OfDirection(direction vo.PositionDirectionVo) ContractTradeWinTallyDomain {
 	return tallyDomain.where(func(trade dto.ContractTradeRecordDto) bool {
 		return trade.Direction == string(direction)

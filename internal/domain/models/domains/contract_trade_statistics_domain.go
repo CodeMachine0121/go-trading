@@ -52,7 +52,6 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 	winningGrossProfit := decimal.Zero
 	costs := decimal.Zero
 	cumulativeRMultiple := 0.0
-	slippageTotal := 0.0
 	bucketCounts := make([]int, len(contractTradeRBuckets))
 	mistakeCostIndexByTag := map[uint]int{}
 	tally := NewContractTradeWinTallyDomain(statisticsDomain.trades)
@@ -70,11 +69,6 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 			winningGrossProfit = winningGrossProfit.Add(outcome.GrossProfit)
 		} else {
 			losingLoss = losingLoss.Add(outcome.NetProfit.Neg())
-		}
-
-		if outcome.EntrySlippagePercentage != nil {
-			slippageTotal += *outcome.EntrySlippagePercentage
-			statisticsDto.EntrySlippageTradeCount++
 		}
 
 		if outcome.RMultiple == nil {
@@ -135,10 +129,8 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 		statisticsDto.FeeToGrossProfitRatio = &feeToGrossProfitRatio
 	}
 
-	if statisticsDto.EntrySlippageTradeCount > 0 {
-		averageEntrySlippagePercentage := slippageTotal / float64(statisticsDto.EntrySlippageTradeCount)
-		statisticsDto.AverageEntrySlippagePercentage = &averageEntrySlippagePercentage
-	}
+	statisticsDto.EntrySlippageTradeCount = tally.EntrySlippageTradeCount()
+	statisticsDto.AverageEntrySlippagePercentage = tally.AverageEntrySlippagePercentage()
 
 	statisticsDto.WithTradingStrategy = statisticsDomain.groupStatisticsOf(tally.FollowingATradingStrategy(true))
 	statisticsDto.SelfJudged = statisticsDomain.groupStatisticsOf(tally.FollowingATradingStrategy(false))

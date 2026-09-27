@@ -23,8 +23,8 @@ func NewContractTradeLiveComparisonDomain(
 	return ContractTradeLiveComparisonDomain{closedTrades: closedTrades, takerFeeRate: takerFeeRate}
 }
 
-// Groups replays each symbol from its first entry to its last exit at the leverage of its latest trade, all in and paying the taker rate both ways.
-func (comparisonDomain ContractTradeLiveComparisonDomain) Groups() []dto.ContractTradeComparisonGroupDto {
+// Plan replays each symbol from its first entry to its last exit at the leverage of its latest trade, all in and paying the taker rate both ways.
+func (comparisonDomain ContractTradeLiveComparisonDomain) Plan() dto.ContractTradeComparisonPlanDto {
 	tradesBySymbol := map[string][]dto.ContractTradeRecordDto{}
 	symbols := []string{}
 	for _, trade := range comparisonDomain.closedTrades {
@@ -69,7 +69,13 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Groups() []dto.Contrac
 		})
 	}
 
-	return groups
+	allTrades := NewContractTradeWinTallyDomain(comparisonDomain.closedTrades)
+
+	return dto.ContractTradeComparisonPlanDto{
+		Groups:                         groups,
+		AverageEntrySlippagePercentage: allTrades.AverageEntrySlippagePercentage(),
+		EntrySlippageTradeCount:        allTrades.EntrySlippageTradeCount(),
+	}
 }
 
 // ComposeForDeletedTradingStrategy keeps the live figures and says why nothing was replayed.
@@ -121,13 +127,17 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Compose(
 
 func (comparisonDomain ContractTradeLiveComparisonDomain) figuresOf(
 	trades []dto.ContractTradeRecordDto,
-) dto.ContractTradeComparisonFiguresDto {
+) dto.ContractTradeLiveFiguresDto {
 	tally := NewContractTradeWinTallyDomain(trades)
 
-	return dto.ContractTradeComparisonFiguresDto{
-		ClosedTradeCount: tally.TradeCount(),
-		WinRate:          tally.WinRate(),
-		LongWinRate:      tally.OfDirection(vo.PositionDirectionLong).WinRate(),
-		ShortWinRate:     tally.OfDirection(vo.PositionDirectionShort).WinRate(),
+	return dto.ContractTradeLiveFiguresDto{
+		ContractTradeComparisonFiguresDto: dto.ContractTradeComparisonFiguresDto{
+			ClosedTradeCount: tally.TradeCount(),
+			WinRate:          tally.WinRate(),
+			LongWinRate:      tally.OfDirection(vo.PositionDirectionLong).WinRate(),
+			ShortWinRate:     tally.OfDirection(vo.PositionDirectionShort).WinRate(),
+		},
+		AverageEntrySlippagePercentage: tally.AverageEntrySlippagePercentage(),
+		EntrySlippageTradeCount:        tally.EntrySlippageTradeCount(),
 	}
 }

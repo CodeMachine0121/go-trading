@@ -272,3 +272,4 @@ flowchart TD
 - **結算當下沒有標記價格**時以該筆交易的進場均價估名目（只影響交易所最早期的結算，不會落在任何日誌交易的持倉期間），不另讀 K 線。
 - **最大不利／最大有利**從第一筆進場那一分鐘的 K 線起算（進場時間往下取整到分鐘）。
 - **實盤 vs 回測的策略已刪除**判斷：同一個策略 ID 仍有本人的已平倉實單、但策略讀不到時視為已刪除；沒有任何實單又讀不到策略則回 404。
+- **實盤 vs 回測帶進場滑點**：服務方法改為 `PlanLiveComparison`，回傳 `ContractTradeComparisonPlanDto`（各標的分組＋整份策略的滑點）。每列 `live` 為 `ContractTradeLiveFiguresDto`（內嵌筆數與三種勝率，另帶 `averageEntrySlippagePercentage`、`entrySlippageTradeCount`）；回應頂層另帶同名兩欄（跨所有標的）；`backtest` 仍是 `ContractTradeComparisonFiguresDto`，沒有這兩欄。平均一律由 `ContractTradeWinTallyDomain` 計算，績效統計的平均進場滑點也改走它。

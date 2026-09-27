@@ -108,6 +108,7 @@ Oracle: Acceptance Criteria (93 clauses) + Core Business Rules added after the f
 | BR-1 | 成交的預設：沒說時間即現在；沒說掛單或吃單即吃單；手動手續費不得為負 | 省略時間記為現在、省略方式記為吃單、負手續費被拒絕 | internal/domain/models/domains/trade_journal_setting_domain.go:PricedFill；contract_trade_ledger_domain.go:settled | internal/domain/models/domains/tests/trade_journal_setting_domain_test.go:a blank fill takes now, taker and the rate's fee；contract_trade_ledger_domain_test.go:a negative fee | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-2 | 附註不得為空白 | 空白附註被拒絕 | internal/domain/models/domains/contract_trade_record_domain.go:AddNote | internal/domain/models/domains/tests/contract_trade_record_domain_test.go:a blank note is refused | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-3 | 列出交易可依期間（第一筆進場時間）篩選；不選不篩；不認得的期間拒絕 | 7d 只回第一筆進場在 7 天內者；不認得的期間被拒絕 | internal/domain/service/contract_trade_journal_service.go:listFilterOf | internal/application/tests/contract_trade_journal_application_test.go:the list narrows as asked / an unknown status, symbol or period is refused | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-4 | 實盤 vs 回測每列與整份策略呈現平均進場滑點與筆數，只計有來源快照的已平倉實單；沒有就說沒有；回測欄沒有 | BTC 列兩筆 0.08%/0.06% → 0.07%、2 筆；沒有滑點的列為空；整份策略跨標的平均 | internal/domain/models/domains/contract_trade_live_comparison_domain.go:Plan；contract_trade_win_tally_domain.go:AverageEntrySlippagePercentage | internal/domain/models/domains/tests/contract_trade_live_comparison_domain_test.go:MeasuresLiveSlippage；internal/application/tests/contract_trade_live_comparison_application_test.go:each symbol is replayed | asserts-oracle | produces-oracle | ✅ conforms |
 
 ## Orphans (code with no clause)
 
@@ -117,7 +118,7 @@ Oracle: Acceptance Criteria (93 clauses) + Core Business Rules added after the f
 
 ## Summary
 
-- Conforms: 96/96 clauses ✅ (100%)（首輪 91/93；AC-25 補測試、AC-50 補斷言後重判）
+- Conforms: 97/97 clauses ✅ (100%)（首輪 91/93；AC-25 補測試、AC-50 補斷言後重判）
 - Violations: none
 - Mis-asserted: none
 - Partial: none

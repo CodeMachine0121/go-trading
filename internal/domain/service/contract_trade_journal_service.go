@@ -275,24 +275,24 @@ func (journalService *ContractTradeJournalService) GetStatistics(
 	return domains.NewContractTradeStatisticsDomain(periodDomain.Value(), closedTrades).Statistics(), nil
 }
 
-// ListComparableGroups groups the person's closed trades that followed a strategy by symbol, each with the replay to set beside it.
-func (journalService *ContractTradeJournalService) ListComparableGroups(
+// PlanLiveComparison groups the person's closed trades that followed a strategy by symbol, each with the replay to set beside it.
+func (journalService *ContractTradeJournalService) PlanLiveComparison(
 	executionContext context.Context, viewerID uint, tradingStrategyID uint,
-) ([]dto.ContractTradeComparisonGroupDto, error) {
+) (dto.ContractTradeComparisonPlanDto, error) {
 	records, findError := journalService.contractTradeRecordRepository.FindClosedByOwnerAndTradingStrategy(
 		executionContext, viewerID, tradingStrategyID)
 	if findError != nil {
-		return nil, findError
+		return dto.ContractTradeComparisonPlanDto{}, findError
 	}
 
 	setting, settingError := journalService.settingOf(executionContext, viewerID)
 	if settingError != nil {
-		return nil, settingError
+		return dto.ContractTradeComparisonPlanDto{}, settingError
 	}
 
 	closedTrades := journalService.summariesOf(executionContext, records, nil)
 
-	return domains.NewContractTradeLiveComparisonDomain(closedTrades, setting.TakerFeeRate()).Groups(), nil
+	return domains.NewContractTradeLiveComparisonDomain(closedTrades, setting.TakerFeeRate()).Plan(), nil
 }
 
 // ComposeLiveComparison lines each group up with how its replay went.

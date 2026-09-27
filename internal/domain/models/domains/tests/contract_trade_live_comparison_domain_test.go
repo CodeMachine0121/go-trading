@@ -26,7 +26,7 @@ func TestContractTradeLiveComparisonDomainGroups(t *testing.T) {
 		aClosedLiveTrade(5, 6, 10),
 		aClosedLiveTrade(1, 9, 3),
 		aClosedLiveTrade(2, 3, 20),
-	}, decimal.RequireFromString("0.05")).Groups()
+	}, decimal.RequireFromString("0.05")).Plan().Groups
 
 	require.Len(t, groups, 1)
 	request := groups[0].BacktestRequest
@@ -43,10 +43,49 @@ func TestContractTradeLiveComparisonDomainComposeWithoutAnAttempt(t *testing.T) 
 	comparisonDomain := domains.NewContractTradeLiveComparisonDomain(
 		[]dto.ContractTradeRecordDto{aClosedLiveTrade(1, 2, 5)}, decimal.Zero)
 
-	rows := comparisonDomain.Compose(comparisonDomain.Groups(), nil)
+	rows := comparisonDomain.Compose(comparisonDomain.Plan().Groups, nil)
 
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].Backtest)
 	assert.Empty(t, rows[0].BacktestUnavailableReason)
 	assert.True(t, rows[0].EndTime.After(rows[0].StartTime.Add(time.Hour)))
+}
+
+func slippedBy(trade dto.ContractTradeRecordDto, symbol string, slippagePercentage float64) dto.ContractTradeRecordDto {
+	trade.Symbol = symbol
+	trade.Outcome.EntrySlippagePercentage = &slippagePercentage
+
+	return trade
+}
+
+func TestContractTradeLiveComparisonDomainMeasuresLiveSlippage(t *testing.T) {
+	ethereum := aClosedLiveTrade(1, 2, 5)
+	ethereum.Symbol = "ETHUSDT"
+
+	plan := domains.NewContractTradeLiveComparisonDomain([]dto.ContractTradeRecordDto{
+		slippedBy(aClosedLiveTrade(1, 2, 5), "BTCUSDT", 0.08),
+		slippedBy(aClosedLiveTrade(2, 3, 5), "BTCUSDT", 0.06),
+		aClosedLiveTrade(3, 4, 5),
+		slippedBy(aClosedLiveTrade(4, 5, 5), "SOLUSDT", 0.20),
+		ethereum,
+	}, decimal.Zero).Plan()
+
+	require.Len(t, plan.Groups, 3)
+	bitcoin, ether, solana := plan.Groups[0].Live, plan.Groups[1].Live, plan.Groups[2].Live
+	assert.Equal(t, 3, bitcoin.ClosedTradeCount)
+	assert.Equal(t, 2, bitcoin.EntrySlippageTradeCount)
+	assert.InDelta(t, 0.07, *bitcoin.AverageEntrySlippagePercentage, 0.0001)
+	assert.Equal(t, 0, ether.EntrySlippageTradeCount)
+	assert.Nil(t, ether.AverageEntrySlippagePercentage)
+	assert.InDelta(t, 0.20, *solana.AverageEntrySlippagePercentage, 0.0001)
+	assert.Equal(t, 3, plan.EntrySlippageTradeCount)
+	assert.InDelta(t, (0.08+0.06+0.20)/3, *plan.AverageEntrySlippagePercentage, 0.0001)
+}
+
+func TestContractTradeLiveComparisonDomainWithoutAnySlippage(t *testing.T) {
+	plan := domains.NewContractTradeLiveComparisonDomain(
+		[]dto.ContractTradeRecordDto{aClosedLiveTrade(1, 2, 5)}, decimal.Zero).Plan()
+
+	assert.Nil(t, plan.AverageEntrySlippagePercentage)
+	assert.Equal(t, 0, plan.EntrySlippageTradeCount)
 }

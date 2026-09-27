@@ -35,14 +35,18 @@ func NewContractTradeLiveComparisonApplication(
 func (comparisonApplication *ContractTradeLiveComparisonApplication) CompareWithBacktest(
 	executionContext context.Context, viewerID uint, tradingStrategyID uint,
 ) (dto.ContractTradeLiveComparisonDto, error) {
-	groups, groupError := comparisonApplication.contractTradeJournalService.ListComparableGroups(
+	plan, planError := comparisonApplication.contractTradeJournalService.PlanLiveComparison(
 		executionContext, viewerID, tradingStrategyID)
-	if groupError != nil {
-		return dto.ContractTradeLiveComparisonDto{}, groupError
+	if planError != nil {
+		return dto.ContractTradeLiveComparisonDto{}, planError
 	}
 
+	groups := plan.Groups
 	comparisonDto := dto.ContractTradeLiveComparisonDto{
-		TradingStrategyID: tradingStrategyID, NoClosedTrades: len(groups) == 0,
+		TradingStrategyID:              tradingStrategyID,
+		NoClosedTrades:                 len(groups) == 0,
+		AverageEntrySlippagePercentage: plan.AverageEntrySlippagePercentage,
+		EntrySlippageTradeCount:        plan.EntrySlippageTradeCount,
 	}
 
 	tradingStrategyDto, strategyError := comparisonApplication.tradingStrategyService.GetTradingStrategy(

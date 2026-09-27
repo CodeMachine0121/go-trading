@@ -98,6 +98,16 @@ func aLinkedClosedTrade(id uint, symbol string, direction string, entry string, 
 	}
 }
 
+// slippedLinkedTrade marks a trade as started from a bot round quoting referencePrice; a short entered at 100 under 100.5 slipped 0.5 ÷ 100.5.
+func slippedLinkedTrade(trade entities.ContractTradeRecord, referencePrice string) entities.ContractTradeRecord {
+	strategyBotID, runNumber := uint(3), 412
+	trade.SourceStrategyBotID = &strategyBotID
+	trade.SourceRunNumber = &runNumber
+	trade.SourceReferencePrice = percentage(referencePrice)
+
+	return trade
+}
+
 func TestContractTradeLiveComparisonApplication(t *testing.T) {
 	t.Run("each symbol is replayed over the stretch its trades covered", func(t *testing.T) {
 		fixture := newLiveComparisonUnderTest(t)
@@ -105,7 +115,7 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 		fixture.contractTradeRecordRepository.EXPECT().
 			FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, contractReplayTradingStrategyID).
 			Return([]entities.ContractTradeRecord{
-				aLinkedClosedTrade(1, "BTCUSDT", "short", "100", "90", 10, 2),
+				slippedLinkedTrade(aLinkedClosedTrade(1, "BTCUSDT", "short", "100", "90", 10, 2), "100.5"),
 				aLinkedClosedTrade(2, "BTCUSDT", "long", "100", "95", 5, 3),
 				aLinkedClosedTrade(3, "ETHUSDT", "long", "3000", "3100", 5, 4),
 			}, nil)
@@ -156,6 +166,11 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 		assert.Equal(t, 1, ethereum.Live.ClosedTradeCount)
 		assert.Nil(t, ethereum.Live.ShortWinRate)
 		assert.Nil(t, ethereum.Backtest)
+		assert.Equal(t, 1, bitcoin.Live.EntrySlippageTradeCount)
+		assert.InDelta(t, 0.4975, *bitcoin.Live.AverageEntrySlippagePercentage, 0.0001)
+		assert.Nil(t, ethereum.Live.AverageEntrySlippagePercentage)
+		assert.Equal(t, 1, comparison.EntrySlippageTradeCount)
+		assert.InDelta(t, 0.4975, *comparison.AverageEntrySlippagePercentage, 0.0001)
 		assert.Contains(t, ethereum.BacktestUnavailableReason, "還沒有交易規格")
 	})
 
@@ -244,7 +259,7 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 			mocks.NewMockIStrategyBotRepository(controller), mocks.NewMockIStrategyBotRunRecordRepository(controller),
 			mocks.NewMockIClockProxy(controller))
 
-		_, err := journalService.ListComparableGroups(context.Background(), backtestViewerID, contractReplayTradingStrategyID)
+		_, err := journalService.PlanLiveComparison(context.Background(), backtestViewerID, contractReplayTradingStrategyID)
 
 		require.ErrorIs(t, err, errStorageDown)
 	})
