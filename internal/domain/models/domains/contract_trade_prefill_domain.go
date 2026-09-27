@@ -13,43 +13,41 @@ const (
 
 // ContractTradePrefillDomain turns one remembered bot round into a form to confirm; it reads the round as it was, never the bot's settings today.
 type ContractTradePrefillDomain struct {
-	strategyBot entities.StrategyBot
-	runRecord   entities.StrategyBotRunRecord
+	round dto.JournalLinkRoundDto
 }
 
-func NewContractTradePrefillDomain(
-	strategyBot entities.StrategyBot, runRecord entities.StrategyBotRunRecord,
-) ContractTradePrefillDomain {
-	return ContractTradePrefillDomain{strategyBot: strategyBot, runRecord: runRecord}
+func NewContractTradePrefillDomain(round dto.JournalLinkRoundDto) ContractTradePrefillDomain {
+	return ContractTradePrefillDomain{round: round}
 }
 
 func (prefillDomain ContractTradePrefillDomain) Direction() string {
-	return prefillDomain.runRecord.SuggestedDirection
+	return prefillDomain.round.SuggestedDirection
 }
 
 // Prefill switches to adding an entry fill when the person already holds the symbol that way, since a second open trade would be refused.
 func (prefillDomain ContractTradePrefillDomain) Prefill(
 	openTrade entities.ContractTradeRecord, hasOpenTrade bool,
 ) dto.ContractTradePrefillDto {
-	tradingStrategyID := prefillDomain.strategyBot.TradingStrategyID
+	round := prefillDomain.round
+	tradingStrategyID := round.TradingStrategyID
 	prefillDto := dto.ContractTradePrefillDto{
 		Mode:                        contractTradePrefillModeNewTrade,
-		StrategyBotID:               prefillDomain.strategyBot.ID,
-		StrategyBotName:             prefillDomain.strategyBot.Name,
-		RunNumber:                   prefillDomain.runRecord.RunNumber,
-		RanAt:                       prefillDomain.runRecord.RanAt.UTC(),
-		Symbol:                      prefillDomain.strategyBot.Symbol,
-		Direction:                   prefillDomain.runRecord.SuggestedDirection,
-		Leverage:                    prefillDomain.runRecord.SuggestedLeverage,
-		PlannedStopLossPrice:        prefillDomain.runRecord.SuggestedStopLossPrice,
-		PlannedTakeProfitPrice:      prefillDomain.runRecord.SuggestedTakeProfitPrice,
+		StrategyBotID:               round.StrategyBotID,
+		StrategyBotName:             round.StrategyBotName,
+		RunNumber:                   round.RunNumber,
+		RanAt:                       round.RanAt,
+		Symbol:                      round.Symbol,
+		Direction:                   round.SuggestedDirection,
+		Leverage:                    round.SuggestedLeverage,
+		PlannedStopLossPrice:        round.SuggestedStopLossPrice,
+		PlannedTakeProfitPrice:      round.SuggestedTakeProfitPrice,
 		TradingStrategyID:           &tradingStrategyID,
-		EntryPrice:                  prefillDomain.runRecord.ReferencePrice,
-		Quantity:                    prefillDomain.runRecord.SuggestedQuantity,
+		EntryPrice:                  round.ReferencePrice,
+		Quantity:                    round.SuggestedQuantity,
 		EntryPriceNeedsConfirmation: true,
 	}
 
-	if !prefillDomain.runRecord.ReferencePrice.Valid {
+	if !round.ReferencePrice.Valid {
 		prefillDto.MissingReferenceReason = missingReferenceRoundPredatesReferencePrices
 	}
 

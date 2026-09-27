@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -33,5 +34,16 @@ func (contractTradeFill ContractTradeFill) ToDto() dto.ContractTradeFillDto {
 		Liquidity:      contractTradeFill.Liquidity,
 		Fee:            contractTradeFill.Fee,
 		FeeRateMissing: contractTradeFill.FeeRateMissing,
+	}
+}
+
+func (contractTradeFill ContractTradeFill) ToTradeLedgerFillVo() vo.TradeLedgerFillVo {
+	return vo.TradeLedgerFillVo{
+		ID:       contractTradeFill.ID,
+		Kind:     vo.ContractTradeFillKindVo(contractTradeFill.Kind),
+		FilledAt: contractTradeFill.FilledAt,
+		Price:    contractTradeFill.Price,
+		Quantity: contractTradeFill.Quantity,
+		Fee:      contractTradeFill.Fee,
 	}
 }

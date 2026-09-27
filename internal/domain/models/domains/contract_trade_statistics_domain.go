@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
 
@@ -54,7 +55,7 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 	cumulativeRMultiple := 0.0
 	bucketCounts := make([]int, len(contractTradeRBuckets))
 	mistakeCostIndexByTag := map[uint]int{}
-	tally := NewContractTradeWinTallyDomain(statisticsDomain.trades)
+	tally := NewContractTradeResultsDomain(statisticsDomain.trades).Tally()
 
 	for _, trade := range statisticsDomain.trades {
 		outcome := trade.Outcome
@@ -64,7 +65,7 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 			costs = costs.Add(outcome.Funding.Amount.Neg())
 		}
 
-		if tally.IsWin(trade) {
+		if tally.IsWin(vo.TradeResultVo{NetProfit: outcome.NetProfit}) {
 			winningProfit = winningProfit.Add(outcome.NetProfit)
 			winningGrossProfit = winningGrossProfit.Add(outcome.GrossProfit)
 		} else {
@@ -139,7 +140,7 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 }
 
 func (statisticsDomain ContractTradeStatisticsDomain) groupStatisticsOf(
-	tally ContractTradeWinTallyDomain,
+	tally TradeWinTallyDomain,
 ) dto.ContractTradeGroupStatisticsDto {
 	return dto.ContractTradeGroupStatisticsDto{
 		TradeCount:       tally.TradeCount(),

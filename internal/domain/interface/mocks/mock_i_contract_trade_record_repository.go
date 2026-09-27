@@ -149,7 +149,7 @@ func (mr *MockIContractTradeRecordRepositoryMockRecorder) FindOpenByOwnerSymbolD
 }
 
 // FindPageByOwner mocks base method.
-func (m *MockIContractTradeRecordRepository) FindPageByOwner(executionContext context.Context, ownerID uint, filter vo.ContractTradeListFilterVo) ([]entities.ContractTradeRecord, int64, error) {
+func (m *MockIContractTradeRecordRepository) FindPageByOwner(executionContext context.Context, ownerID uint, filter vo.TradeListFilterVo) ([]entities.ContractTradeRecord, int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindPageByOwner", executionContext, ownerID, filter)
 	ret0, _ := ret[0].([]entities.ContractTradeRecord)

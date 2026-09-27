@@ -17,7 +17,8 @@ const (
 // ContractTradeOutcomeDomain puts a trade's fills, plan and market facts together into what it came to.
 type ContractTradeOutcomeDomain struct {
 	record          entities.ContractTradeRecord
-	ledger          ContractTradeLedgerDomain
+	ledger          TradeLedgerDomain
+	feeRateMissing  bool
 	direction       vo.PositionDirectionVo
 	facts           vo.ContractTradeMarketFactsVo
 	tradingRules    ContractTradingRulesDomain
@@ -29,10 +30,11 @@ func NewContractTradeOutcomeDomain(
 	recordDomain ContractTradeRecordDomain, facts vo.ContractTradeMarketFactsVo,
 ) ContractTradeOutcomeDomain {
 	return ContractTradeOutcomeDomain{
-		record:    recordDomain.record,
-		ledger:    recordDomain.ledger,
-		direction: recordDomain.Direction(),
-		facts:     facts,
+		record:         recordDomain.record,
+		ledger:         recordDomain.Ledger(),
+		feeRateMissing: recordDomain.FeeRateMissing(),
+		direction:      recordDomain.Direction(),
+		facts:          facts,
 	}
 }
 
@@ -64,14 +66,14 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 	outcomeDto := dto.ContractTradeOutcomeDto{
 		GrossProfit:              grossProfit,
 		TotalFee:                 totalFee,
-		FeeRateMissing:           ledger.FeeRateMissing(),
+		FeeRateMissing:           outcomeDomain.feeRateMissing,
 		Funding:                  funding,
 		NetProfit:                netProfit,
 		NetProfitExcludesFunding: !funding.Available,
 		PlannedRisk:              plannedRisk.Value(),
 		RMultiple:                plannedRisk.RMultipleOf(netProfit),
-		Excursion: NewContractTradeExcursionDomain(ledger, outcomeDomain.direction, plannedRisk).
-			ExcursionFor(outcomeDomain.facts),
+		Excursion: NewTradeExcursionDomain(ledger, outcomeDomain.direction, plannedRisk).
+			ExcursionFor(outcomeDomain.facts.ExtremesRequested, outcomeDomain.facts.PriceExtremes),
 		FloatingProfit:          outcomeDomain.floatingProfit(),
 		LiquidationPrice:        outcomeDomain.liquidationPrice(),
 		EntrySlippagePercentage: outcomeDomain.entrySlippagePercentage(),
@@ -91,15 +93,15 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 	return outcomeDto
 }
 
-func (outcomeDomain ContractTradeOutcomeDomain) floatingProfit() dto.ContractTradeFloatingDto {
+func (outcomeDomain ContractTradeOutcomeDomain) floatingProfit() dto.TradeFloatingDto {
 	if outcomeDomain.record.Status != string(vo.ContractTradeStatusOpen) {
-		return dto.ContractTradeFloatingDto{UnavailableReason: outcomeUnavailableNotOpen}
+		return dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNotOpen}
 	}
 	if !outcomeDomain.facts.HasLatestPrice {
-		return dto.ContractTradeFloatingDto{UnavailableReason: outcomeUnavailableNoLatestPrice}
+		return dto.TradeFloatingDto{UnavailableReason: outcomeUnavailableNoLatestPrice}
 	}
 
-	return dto.ContractTradeFloatingDto{
+	return dto.TradeFloatingDto{
 		Available: true,
 		Price:     outcomeDomain.facts.LatestPrice,
 		Amount:    outcomeDomain.ledger.OpenProfitAt(outcomeDomain.direction, outcomeDomain.facts.LatestPrice),

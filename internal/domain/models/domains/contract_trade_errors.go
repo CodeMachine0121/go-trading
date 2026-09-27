@@ -35,16 +35,16 @@ func (openPositionError ContractTradeOpenPositionExistsError) Unwrap() error {
 // ContractTradeOpenPositionExists leaves OpenTradeID zero when the database refused a racing second trade before its identifier was known.
 func ContractTradeOpenPositionExists(symbol string, directionInWords string, openTradeID uint) error {
 	if openTradeID == 0 {
-		return ContractTradeOpenPositionExistsError{message: fmt.Sprintf("%s: %s %s 已有一筆持倉中的交易，請在那一筆加成交",
+		return ContractTradeOpenPositionExistsError{message: fmt.Sprintf("%s: %s %s 已有一筆持倉中的交易，請在那一筆加倉",
 			ErrContractTradeOpenPositionExists, symbol, directionInWords)}
 	}
 
 	return ContractTradeOpenPositionExistsError{OpenTradeID: openTradeID, message: fmt.Sprintf(
-		"%s: %s %s 已有持倉中的 #%d，請在那一筆加成交",
+		"%s: %s %s 已有持倉中的 #%d，請在那一筆加倉",
 		ErrContractTradeOpenPositionExists, symbol, directionInWords, openTradeID)}
 }
 
-// ErrContractTradeLocked refuses changes to a closed trade's plan and fills so it keeps showing what the person meant then.
+// ErrContractTradeLocked refuses changes to a closed trade's plan and positions so it keeps showing what the person meant then.
 var ErrContractTradeLocked = errors.New("contract trade locked")
 
 // ErrJournalLinkNotFound covers rounds the bot has forgotten and rounds of somebody else's bot alike.

@@ -10,12 +10,12 @@ const fundingUnavailableNoSettlementData = "noSettlementData"
 
 // ContractTradeFundingDomain charges each settlement on the position held at that moment: a positive rate makes longs pay and shorts receive.
 type ContractTradeFundingDomain struct {
-	ledger    ContractTradeLedgerDomain
+	ledger    TradeLedgerDomain
 	direction vo.PositionDirectionVo
 }
 
 func NewContractTradeFundingDomain(
-	ledger ContractTradeLedgerDomain, direction vo.PositionDirectionVo,
+	ledger TradeLedgerDomain, direction vo.PositionDirectionVo,
 ) ContractTradeFundingDomain {
 	return ContractTradeFundingDomain{ledger: ledger, direction: direction}
 }

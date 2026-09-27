@@ -15,6 +15,21 @@ import (
 
 var tradeOpenedAt = time.Date(2026, 9, 25, 14, 3, 0, 0, time.UTC)
 
+func entryFill(id uint, filledAt time.Time, price string, quantity string) entities.ContractTradeFill {
+	return entities.ContractTradeFill{
+		ID: id, Kind: string(vo.ContractTradeFillKindEntry), FilledAt: filledAt,
+		Price: decimal.RequireFromString(price), Quantity: decimal.RequireFromString(quantity),
+		Liquidity: string(vo.TradeFillLiquidityTaker),
+	}
+}
+
+func exitFill(id uint, filledAt time.Time, price string, quantity string) entities.ContractTradeFill {
+	fill := entryFill(id, filledAt, price, quantity)
+	fill.Kind = string(vo.ContractTradeFillKindExit)
+
+	return fill
+}
+
 func price(value string) decimal.NullDecimal {
 	return decimal.NullDecimal{Decimal: decimal.RequireFromString(value), Valid: true}
 }
@@ -91,31 +106,31 @@ func TestNewOpeningContractTradeRecordDomain(t *testing.T) {
 		{name: "no entry fill",
 			writeDto:        dto.ContractTradeRecordWriteDto{Direction: "long"},
 			firstEntryFill:  exitFill(0, tradeOpenedAt, "100", "1"),
-			expectedMessage: "一筆交易至少要有一筆進場成交"},
+			expectedMessage: "一筆交易的第一筆必須是開倉"},
 		{name: "an entry fill that is not a fill",
 			writeDto:        dto.ContractTradeRecordWriteDto{Direction: "long"},
 			firstEntryFill:  entryFill(0, tradeOpenedAt, "0", "1"),
-			expectedMessage: "成交價與數量必須大於零"},
+			expectedMessage: "開倉價、平倉價與數量必須大於零"},
 		{name: "a long's stop above its entry",
 			writeDto: dto.ContractTradeRecordWriteDto{Direction: "long",
 				Plan: dto.ContractTradePlanWriteDto{PlannedStopLossPrice: price("98000")}},
 			firstEntryFill:  entryFill(0, tradeOpenedAt, "97905", "1"),
-			expectedMessage: "做多的止損必須低於進場價"},
+			expectedMessage: "做多的止損必須低於開倉價"},
 		{name: "a short's stop below its entry",
 			writeDto: dto.ContractTradeRecordWriteDto{Direction: "short",
 				Plan: dto.ContractTradePlanWriteDto{PlannedStopLossPrice: price("3450")}},
 			firstEntryFill:  entryFill(0, tradeOpenedAt, "3500", "1"),
-			expectedMessage: "做空的止損必須高於進場價"},
+			expectedMessage: "做空的止損必須高於開倉價"},
 		{name: "a long's target below its entry",
 			writeDto: dto.ContractTradeRecordWriteDto{Direction: "long",
 				Plan: dto.ContractTradePlanWriteDto{PlannedTakeProfitPrice: price("97000")}},
 			firstEntryFill:  entryFill(0, tradeOpenedAt, "97905", "1"),
-			expectedMessage: "做多的止盈必須高於進場價"},
+			expectedMessage: "做多的止盈必須高於開倉價"},
 		{name: "a short's target above its entry",
 			writeDto: dto.ContractTradeRecordWriteDto{Direction: "short",
 				Plan: dto.ContractTradePlanWriteDto{PlannedTakeProfitPrice: price("3600")}},
 			firstEntryFill:  entryFill(0, tradeOpenedAt, "3500", "1"),
-			expectedMessage: "做空的止盈必須低於進場價"},
+			expectedMessage: "做空的止盈必須低於開倉價"},
 		{name: "a negative stop",
 			writeDto: dto.ContractTradeRecordWriteDto{Direction: "long",
 				Plan: dto.ContractTradePlanWriteDto{PlannedStopLossPrice: price("-1")}},
@@ -170,15 +185,15 @@ func TestContractTradeRecordDomainLocksAClosedTrade(t *testing.T) {
 		change          func(recordDomain *domains.ContractTradeRecordDomain) error
 		expectedMessage string
 	}{
-		{name: "adding a fill", expectedMessage: "這筆交易已經平倉，不能再加成交",
+		{name: "adding a fill", expectedMessage: "這筆交易已經平倉，不能再加倉或減倉",
 			change: func(recordDomain *domains.ContractTradeRecordDomain) error {
 				return recordDomain.AddFill(entryFill(0, tradeOpenedAt.Add(2*time.Hour), "99000", "0.01"), ledgerNow)
 			}},
-		{name: "amending a fill", expectedMessage: "平倉後成交已鎖定，可以加附註或刪除整筆重記",
+		{name: "amending a fill", expectedMessage: "平倉後開平倉紀錄已鎖定，可以加附註或刪除整筆重記",
 			change: func(recordDomain *domains.ContractTradeRecordDomain) error {
 				return recordDomain.AmendFill(1, entryFill(0, tradeOpenedAt, "99000", "0.01"), ledgerNow)
 			}},
-		{name: "removing a fill", expectedMessage: "平倉後成交已鎖定，可以加附註或刪除整筆重記",
+		{name: "removing a fill", expectedMessage: "平倉後開平倉紀錄已鎖定，可以加附註或刪除整筆重記",
 			change: func(recordDomain *domains.ContractTradeRecordDomain) error {
 				return recordDomain.RemoveFill(1, ledgerNow)
 			}},
@@ -227,7 +242,7 @@ func TestContractTradeRecordDomainChangesAnOpenTrade(t *testing.T) {
 		amendError := recordDomain.AmendFill(1, entryFill(0, tradeOpenedAt, "96000", "0.030"), ledgerNow)
 
 		require.ErrorIs(t, amendError, domains.ErrContractTradeValidation)
-		assert.Contains(t, amendError.Error(), "做多的止損必須低於進場價")
+		assert.Contains(t, amendError.Error(), "做多的止損必須低於開倉價")
 	})
 
 	t.Run("a refused fill leaves the trade as it was", func(t *testing.T) {
@@ -344,5 +359,50 @@ func TestContractTradeRecordDomainReviews(t *testing.T) {
 			dto.ContractTradeReviewWriteDto{ExecutionScore: 4}, []entities.TradeTag{setupTag}, ledgerNow)
 
 		require.ErrorIs(t, err, domains.ErrContractTradeValidation)
+	})
+}
+
+func TestContractTradeRecordDomainNamesPositionsAsTheVenueDoes(t *testing.T) {
+	t.Run("closing more than is held is refused in the venue's words", func(t *testing.T) {
+		recordDomain := openingTrade(t, "long", "97905")
+
+		err := recordDomain.AddFill(exitFill(0, tradeOpenedAt.Add(time.Hour), "99000", "5"), ledgerNow)
+
+		require.ErrorIs(t, err, domains.ErrContractTradeValidation)
+		assert.Contains(t, err.Error(), "平倉數量超過目前持倉")
+		assert.Contains(t, err.Error(), "要反手請先平倉再新增一筆反方向的交易")
+		assert.NotContains(t, err.Error(), "成交")
+	})
+
+	t.Run("a liquidity that is neither maker nor taker is refused", func(t *testing.T) {
+		recordDomain := openingTrade(t, "long", "97905")
+		iceberg := entryFill(0, tradeOpenedAt.Add(time.Minute), "97950", "0.01")
+		iceberg.Liquidity = "iceberg"
+
+		err := recordDomain.AddFill(iceberg, ledgerNow)
+
+		require.ErrorIs(t, err, domains.ErrContractTradeValidation)
+		assert.Contains(t, err.Error(), "掛單或吃單只有 maker 與 taker")
+	})
+
+	t.Run("a position the trade does not have cannot be amended or removed", func(t *testing.T) {
+		recordDomain := openingTrade(t, "long", "97905")
+
+		amendError := recordDomain.AmendFill(9, entryFill(0, tradeOpenedAt, "1", "1"), ledgerNow)
+		removeError := recordDomain.RemoveFill(9, ledgerNow)
+
+		require.ErrorIs(t, amendError, domains.ErrContractTradeValidation)
+		require.ErrorIs(t, removeError, domains.ErrContractTradeValidation)
+		assert.Contains(t, amendError.Error(), "這筆交易沒有識別碼為 9 的開平倉紀錄")
+	})
+
+	t.Run("a fee zero only for want of a rate is remembered", func(t *testing.T) {
+		unpriced := entryFill(1, tradeOpenedAt, "97905", "0.030")
+		unpriced.FeeRateMissing = true
+		recordDomain := domains.NewContractTradeRecordDomain(entities.ContractTradeRecord{
+			Status: "open", Fills: []entities.ContractTradeFill{unpriced}})
+
+		assert.True(t, recordDomain.FeeRateMissing())
+		assert.False(t, openingTrade(t, "long", "97905").FeeRateMissing())
 	})
 }

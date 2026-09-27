@@ -23,7 +23,7 @@ type IContractTradeRecordRepository interface {
 	FindOne(executionContext context.Context, id uint) (entities.ContractTradeRecord, error)
 	// FindPageByOwner orders newest first entry first and also answers how many match without the limit.
 	FindPageByOwner(
-		executionContext context.Context, ownerID uint, filter vo.ContractTradeListFilterVo,
+		executionContext context.Context, ownerID uint, filter vo.TradeListFilterVo,
 	) ([]entities.ContractTradeRecord, int64, error)
 	// FindClosedByOwner returns closed and reviewed trades, closed no earlier than closedSince when it is given.
 	FindClosedByOwner(

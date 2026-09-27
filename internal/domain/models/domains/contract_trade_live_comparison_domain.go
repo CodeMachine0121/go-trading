@@ -69,7 +69,7 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Plan() dto.ContractTra
 		})
 	}
 
-	allTrades := NewContractTradeWinTallyDomain(comparisonDomain.closedTrades)
+	allTrades := NewContractTradeResultsDomain(comparisonDomain.closedTrades).Tally()
 
 	return dto.ContractTradeComparisonPlanDto{
 		Groups:                         groups,
@@ -128,7 +128,7 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Compose(
 func (comparisonDomain ContractTradeLiveComparisonDomain) figuresOf(
 	trades []dto.ContractTradeRecordDto,
 ) dto.ContractTradeLiveFiguresDto {
-	tally := NewContractTradeWinTallyDomain(trades)
+	tally := NewContractTradeResultsDomain(trades).Tally()
 
 	return dto.ContractTradeLiveFiguresDto{
 		ContractTradeComparisonFiguresDto: dto.ContractTradeComparisonFiguresDto{

@@ -556,12 +556,16 @@ func registerRoutes(
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		persistence.NewContractFundingRateSettlementRepository(database),
 		contractKCandleRepository,
-		persistence.NewStrategyBotRepository(database),
-		persistence.NewStrategyBotRunRecordRepository(database),
 		clock.NewSystemClockProxy(),
 	)
+	tradeJournalLinkService := service.NewTradeJournalLinkService(
+		security.NewRandomOpaqueIdentifierProxy(),
+		persistence.NewStrategyBotRunRecordRepository(database),
+		persistence.NewStrategyBotRepository(database),
+		applicationConfig.FrontendBaseUrl,
+	)
 	contractTradeRecordController := controller.NewContractTradeRecordController(
-		application.NewContractTradeJournalApplication(contractTradeJournalService),
+		application.NewContractTradeJournalApplication(contractTradeJournalService, tradeJournalLinkService),
 		application.NewContractTradeLiveComparisonApplication(
 			contractTradeJournalService, tradingStrategyService, strategyScriptService, contractBacktestService),
 	)
@@ -672,8 +676,11 @@ func registerRoutes(
 		telegramDeliveryService,
 		kCandleService,
 		kCandleContractService,
-		service.NewContractTradeJournalLinkService(
-			security.NewRandomOpaqueIdentifierProxy(), applicationConfig.FrontendBaseUrl),
+		service.NewTradeJournalLinkService(
+			security.NewRandomOpaqueIdentifierProxy(),
+			persistence.NewStrategyBotRunRecordRepository(database),
+			persistence.NewStrategyBotRepository(database),
+			applicationConfig.FrontendBaseUrl),
 		clock.NewSystemClockProxy(),
 		application.NewStrategyBotRoundGuard(),
 		applicationConfig.StrategyBot.MaxConcurrentRounds,

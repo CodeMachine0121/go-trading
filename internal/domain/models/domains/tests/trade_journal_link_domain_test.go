@@ -17,7 +17,7 @@ func aRoundSuggestingALong() dto.StrategyBotRoundDto {
 	}
 }
 
-func TestContractTradeJournalLinkDomainOffersALinkOnlyForAPositionToOpen(t *testing.T) {
+func TestTradeJournalLinkDomainOffersALinkForAContractPositionOrASpotBuyOrExit(t *testing.T) {
 	testCases := []struct {
 		name          string
 		shape         func(round *dto.StrategyBotRoundDto)
@@ -27,8 +27,22 @@ func TestContractTradeJournalLinkDomainOffersALinkOnlyForAPositionToOpen(t *test
 		{name: "a contract short with a suggestion", shape: func(round *dto.StrategyBotRoundDto) {
 			round.PositionPlan.Direction = "short"
 		}, expectedOffer: true},
-		{name: "a spot round", shape: func(round *dto.StrategyBotRoundDto) {
+		{name: "a spot buy", shape: func(round *dto.StrategyBotRoundDto) {
 			round.MarketDataKind = string(vo.MarketDataKindKCandle)
+		}, expectedOffer: true},
+		{name: "a spot buy with no suggestion", shape: func(round *dto.StrategyBotRoundDto) {
+			round.MarketDataKind = string(vo.MarketDataKindKCandle)
+			round.HasPositionPlan = false
+			round.PositionPlan = dto.PositionPlanDto{}
+		}, expectedOffer: true},
+		{name: "a spot exit", shape: func(round *dto.StrategyBotRoundDto) {
+			round.MarketDataKind = string(vo.MarketDataKindKCandle)
+			round.Verdict = string(vo.SignalSell)
+			round.HasPositionPlan = false
+		}, expectedOffer: true},
+		{name: "a spot round saying hold", shape: func(round *dto.StrategyBotRoundDto) {
+			round.MarketDataKind = string(vo.MarketDataKindKCandle)
+			round.Verdict = string(vo.SignalHold)
 		}},
 		{name: "a close with no suggestion", shape: func(round *dto.StrategyBotRoundDto) {
 			round.HasPositionPlan = false
@@ -50,16 +64,32 @@ func TestContractTradeJournalLinkDomainOffersALinkOnlyForAPositionToOpen(t *test
 			round := aRoundSuggestingALong()
 			testCase.shape(&round)
 
-			assert.Equal(t, testCase.expectedOffer, domains.NewContractTradeJournalLinkDomain(round).Offered())
+			assert.Equal(t, testCase.expectedOffer, domains.NewTradeJournalLinkDomain(round).Offered())
 		})
 	}
 }
 
-func TestContractTradeJournalLinkDomainPointsAtTheNewTradePage(t *testing.T) {
-	url := domains.NewContractTradeJournalLinkDomain(aRoundSuggestingALong()).
-		UrlFor("https://app.example.com", "a b&c")
+func TestTradeJournalLinkDomainPointsAtTheJournalOfTheBotsMarket(t *testing.T) {
+	spotRound := aRoundSuggestingALong()
+	spotRound.MarketDataKind = string(vo.MarketDataKindKCandle)
 
-	assert.Equal(t, "https://app.example.com/contract-trade-journal/new?journalLink=a+b%26c", url)
+	testCases := []struct {
+		name        string
+		round       dto.StrategyBotRoundDto
+		expectedUrl string
+	}{
+		{name: "a contract bot opens the contract journal", round: aRoundSuggestingALong(),
+			expectedUrl: "https://app.example.com/contract-trade-journal/new?journalLink=a+b%26c"},
+		{name: "a spot bot opens the spot journal", round: spotRound,
+			expectedUrl: "https://app.example.com/spot-trade-journal/new?journalLink=a+b%26c"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expectedUrl,
+				domains.NewTradeJournalLinkDomain(testCase.round).UrlFor("https://app.example.com", "a b&c"))
+		})
+	}
 }
 
 func TestStrategyBotMessageEndsWithTheJournalLinkWhenOffered(t *testing.T) {

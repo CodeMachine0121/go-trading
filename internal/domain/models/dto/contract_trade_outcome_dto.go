@@ -16,9 +16,9 @@ type ContractTradeOutcomeDto struct {
 	RMultiple                *float64            `json:"rMultiple"`
 	// RMultipleUnavailableReason is noStopLoss when no planned stop was given.
 	RMultipleUnavailableReason string                      `json:"rMultipleUnavailableReason"`
-	Excursion                  ContractTradeExcursionDto   `json:"excursion"`
+	Excursion                  TradeExcursionDto           `json:"excursion"`
 	ProfitCaptureRate          *float64                    `json:"profitCaptureRate"`
-	FloatingProfit             ContractTradeFloatingDto    `json:"floatingProfit"`
+	FloatingProfit             TradeFloatingDto            `json:"floatingProfit"`
 	LiquidationPrice           ContractTradeLiquidationDto `json:"liquidationPrice"`
 	// EntrySlippagePercentage is positive when the fill was worse than the bot's reference price.
 	EntrySlippagePercentage *float64 `json:"entrySlippagePercentage"`
@@ -30,26 +30,6 @@ type ContractTradeFundingDto struct {
 	Amount          decimal.Decimal `json:"amount"`
 	SettlementCount int             `json:"settlementCount"`
 	// UnavailableReason is noSettlementData.
-	UnavailableReason string `json:"unavailableReason"`
-}
-
-type ContractTradeExcursionDto struct {
-	Available          bool            `json:"available"`
-	AdversePrice       decimal.Decimal `json:"adversePrice"`
-	FavorablePrice     decimal.Decimal `json:"favorablePrice"`
-	AdverseProfit      decimal.Decimal `json:"adverseProfit"`
-	FavorableProfit    decimal.Decimal `json:"favorableProfit"`
-	AdverseRMultiple   *float64        `json:"adverseRMultiple"`
-	FavorableRMultiple *float64        `json:"favorableRMultiple"`
-	// UnavailableReason is noMarketData, or notComputed where only a summary was asked for.
-	UnavailableReason string `json:"unavailableReason"`
-}
-
-type ContractTradeFloatingDto struct {
-	Available bool            `json:"available"`
-	Amount    decimal.Decimal `json:"amount"`
-	Price     decimal.Decimal `json:"price"`
-	// UnavailableReason is notOpen or noLatestPrice.
 	UnavailableReason string `json:"unavailableReason"`
 }
 

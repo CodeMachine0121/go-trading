@@ -32,8 +32,6 @@ type ContractTradeJournalService struct {
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
 	kCandleContractRepository               domaininterface.IKCandleContractRepository
-	strategyBotRepository                   domaininterface.IStrategyBotRepository
-	strategyBotRunRecordRepository          domaininterface.IStrategyBotRunRecordRepository
 	clockProxy                              domaininterface.IClockProxy
 }
 
@@ -46,8 +44,6 @@ func NewContractTradeJournalService(
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
 	kCandleContractRepository domaininterface.IKCandleContractRepository,
-	strategyBotRepository domaininterface.IStrategyBotRepository,
-	strategyBotRunRecordRepository domaininterface.IStrategyBotRunRecordRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *ContractTradeJournalService {
 	return &ContractTradeJournalService{
@@ -59,14 +55,14 @@ func NewContractTradeJournalService(
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		kCandleContractRepository:               kCandleContractRepository,
-		strategyBotRepository:                   strategyBotRepository,
-		strategyBotRunRecordRepository:          strategyBotRunRecordRepository,
 		clockProxy:                              clockProxy,
 	}
 }
 
+// RecordTrade copies the round a journal link named onto the trade; a round that is missing or belongs to the spot journal simply leaves no source.
 func (journalService *ContractTradeJournalService) RecordTrade(
 	executionContext context.Context, viewerID uint, writeDto dto.ContractTradeRecordWriteDto,
+	linkRound *dto.JournalLinkRoundDto,
 ) (dto.ContractTradeRecordDto, error) {
 	contractSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(writeDto.Symbol))
 	if symbolError != nil {
@@ -109,13 +105,8 @@ func (journalService *ContractTradeJournalService) RecordTrade(
 		return dto.ContractTradeRecordDto{}, validationError
 	}
 
-	if writeDto.JournalLinkIdentifier != "" {
-		strategyBot, runRecord, linkError := journalService.ownedJournalLinkRound(
-			executionContext, viewerID, writeDto.JournalLinkIdentifier)
-		// A round forgotten since the page opened still lets the trade be recorded, only without its source.
-		if linkError == nil {
-			recordDomain.WithSource(strategyBot, runRecord)
-		}
+	if linkRound != nil && journalService.belongsToContractJournal(*linkRound) {
+		recordDomain.WithSource(*linkRound)
 	}
 
 	openTrade, hasOpenTrade, openFindError := journalService.contractTradeRecordRepository.
@@ -309,19 +300,18 @@ func (journalService *ContractTradeJournalService) ComposeLiveComparisonForDelet
 	return domains.NewContractTradeLiveComparisonDomain(nil, decimal.Zero).ComposeForDeletedTradingStrategy(groups)
 }
 
-// PrepareJournalLink reads what a bot round's link prefills and records nothing; only the bot's owner may read it.
+// PrepareJournalLink reads what a bot round's link prefills and records nothing.
 func (journalService *ContractTradeJournalService) PrepareJournalLink(
-	executionContext context.Context, viewerID uint, journalLinkIdentifier string,
+	executionContext context.Context, viewerID uint, linkRound dto.JournalLinkRoundDto,
 ) (dto.ContractTradePrefillDto, error) {
-	strategyBot, runRecord, linkError := journalService.ownedJournalLinkRound(
-		executionContext, viewerID, journalLinkIdentifier)
-	if linkError != nil {
-		return dto.ContractTradePrefillDto{}, linkError
+	if !journalService.belongsToContractJournal(linkRound) {
+		return dto.ContractTradePrefillDto{}, fmt.Errorf(
+			"%w: 這條連結屬於現貨交易日誌", domains.ErrJournalLinkNotFound)
 	}
 
-	prefillDomain := domains.NewContractTradePrefillDomain(strategyBot, runRecord)
+	prefillDomain := domains.NewContractTradePrefillDomain(linkRound)
 	openTrade, hasOpenTrade, openFindError := journalService.contractTradeRecordRepository.
-		FindOpenByOwnerSymbolDirection(executionContext, viewerID, strategyBot.Symbol, prefillDomain.Direction())
+		FindOpenByOwnerSymbolDirection(executionContext, viewerID, linkRound.Symbol, prefillDomain.Direction())
 	if openFindError != nil {
 		return dto.ContractTradePrefillDto{}, openFindError
 	}
@@ -329,30 +319,10 @@ func (journalService *ContractTradeJournalService) PrepareJournalLink(
 	return prefillDomain.Prefill(openTrade, hasOpenTrade), nil
 }
 
-// ownedJournalLinkRound answers the same not-found for a forgotten round and for somebody else's bot, so links cannot be probed.
-func (journalService *ContractTradeJournalService) ownedJournalLinkRound(
-	executionContext context.Context, viewerID uint, journalLinkIdentifier string,
-) (entities.StrategyBot, entities.StrategyBotRunRecord, error) {
-	runRecord, isRemembered, findError := journalService.strategyBotRunRecordRepository.FindByJournalLinkIdentifier(
-		executionContext, journalLinkIdentifier)
-	if findError != nil {
-		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, findError
-	}
-	if !isRemembered {
-		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, fmt.Errorf(
-			"%w: 這一輪的建議已不在紀錄中", domains.ErrJournalLinkNotFound)
-	}
+func (journalService *ContractTradeJournalService) belongsToContractJournal(linkRound dto.JournalLinkRoundDto) bool {
+	marketDataKind, _ := domains.NewMarketDataKindDomain(linkRound.MarketDataKind)
 
-	strategyBot, botError := journalService.strategyBotRepository.FindOne(executionContext, runRecord.StrategyBotID)
-	if errors.Is(botError, domains.ErrStrategyBotNotFound) || (botError == nil && strategyBot.OwnerID != viewerID) {
-		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, fmt.Errorf(
-			"%w: 找不到這一輪的建議", domains.ErrJournalLinkNotFound)
-	}
-	if botError != nil {
-		return entities.StrategyBot{}, entities.StrategyBotRunRecord{}, botError
-	}
-
-	return strategyBot, runRecord, nil
+	return marketDataKind.IsContract()
 }
 
 // changeTrade is the one path every edit takes: read as the owner, change through the domain, save, and answer with the fresh detail.
@@ -458,20 +428,20 @@ func (journalService *ContractTradeJournalService) requireOwnedContractTradingSt
 
 func (journalService *ContractTradeJournalService) listFilterOf(
 	queryDto dto.ContractTradeListQueryDto,
-) (vo.ContractTradeListFilterVo, error) {
-	filter := vo.ContractTradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
+) (vo.TradeListFilterVo, error) {
+	filter := vo.TradeListFilterVo{Status: queryDto.Status, Limit: queryDto.Limit}
 
 	switch vo.ContractTradeStatusVo(queryDto.Status) {
 	case "", vo.ContractTradeStatusOpen, vo.ContractTradeStatusClosed, vo.ContractTradeStatusReviewed:
 	default:
-		return vo.ContractTradeListFilterVo{}, fmt.Errorf(
+		return vo.TradeListFilterVo{}, fmt.Errorf(
 			"%w: 狀態只有 open、closed 與 reviewed", domains.ErrContractTradeValidation)
 	}
 
 	if strings.TrimSpace(queryDto.Symbol) != "" {
 		contractSymbol, symbolError := domains.NewTradingSymbolDomain(strings.TrimSpace(queryDto.Symbol))
 		if symbolError != nil {
-			return vo.ContractTradeListFilterVo{}, fmt.Errorf("%w: %w", domains.ErrContractTradeValidation, symbolError)
+			return vo.TradeListFilterVo{}, fmt.Errorf("%w: %w", domains.ErrContractTradeValidation, symbolError)
 		}
 		filter.Symbol = contractSymbol.Value()
 	}
@@ -479,7 +449,7 @@ func (journalService *ContractTradeJournalService) listFilterOf(
 	if queryDto.Period != "" {
 		periodDomain, periodError := domains.NewContractTradeStatisticsPeriodDomain(queryDto.Period)
 		if periodError != nil {
-			return vo.ContractTradeListFilterVo{}, periodError
+			return vo.TradeListFilterVo{}, periodError
 		}
 		filter.OpenedSince = periodDomain.Since(journalService.clockProxy.Now())
 	}

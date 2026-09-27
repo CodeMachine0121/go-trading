@@ -9,18 +9,27 @@ import (
 
 type ContractTradeJournalApplication struct {
 	contractTradeJournalService *service.ContractTradeJournalService
+	tradeJournalLinkService     *service.TradeJournalLinkService
 }
 
 func NewContractTradeJournalApplication(
 	contractTradeJournalService *service.ContractTradeJournalService,
+	tradeJournalLinkService *service.TradeJournalLinkService,
 ) *ContractTradeJournalApplication {
-	return &ContractTradeJournalApplication{contractTradeJournalService: contractTradeJournalService}
+	return &ContractTradeJournalApplication{
+		contractTradeJournalService: contractTradeJournalService,
+		tradeJournalLinkService:     tradeJournalLinkService,
+	}
 }
 
+// RecordTrade still records a trade whose link round was forgotten since the page opened, only without its source.
 func (journalApplication *ContractTradeJournalApplication) RecordTrade(
 	executionContext context.Context, viewerID uint, writeDto dto.ContractTradeRecordWriteDto,
 ) (dto.ContractTradeRecordDto, error) {
-	return journalApplication.contractTradeJournalService.RecordTrade(executionContext, viewerID, writeDto)
+	linkRound := journalApplication.tradeJournalLinkService.FindOwnedRoundIfRemembered(
+		executionContext, viewerID, writeDto.JournalLinkIdentifier)
+
+	return journalApplication.contractTradeJournalService.RecordTrade(executionContext, viewerID, writeDto, linkRound)
 }
 
 func (journalApplication *ContractTradeJournalApplication) AddFill(
@@ -92,6 +101,11 @@ func (journalApplication *ContractTradeJournalApplication) GetStatistics(
 func (journalApplication *ContractTradeJournalApplication) PrepareJournalLink(
 	executionContext context.Context, viewerID uint, journalLinkIdentifier string,
 ) (dto.ContractTradePrefillDto, error) {
-	return journalApplication.contractTradeJournalService.PrepareJournalLink(
+	linkRound, linkError := journalApplication.tradeJournalLinkService.FindOwnedRound(
 		executionContext, viewerID, journalLinkIdentifier)
+	if linkError != nil {
+		return dto.ContractTradePrefillDto{}, linkError
+	}
+
+	return journalApplication.contractTradeJournalService.PrepareJournalLink(executionContext, viewerID, linkRound)
 }

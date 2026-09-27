@@ -62,7 +62,6 @@ func newLiveComparisonUnderTest(t *testing.T) liveComparisonUnderTest {
 			fixture.contractTradeRecordRepository, mocks.NewMockITradeTagRepository(controller),
 			tradeJournalSettingRepository, fixture.tradingStrategyRepository, fixture.contractTradingSymbolRepository,
 			maintenanceMarginTierRepository, fundingRateSettlementRepository, fixture.kCandleContractRepository,
-			mocks.NewMockIStrategyBotRepository(controller), mocks.NewMockIStrategyBotRunRecordRepository(controller),
 			clockProxy),
 		service.NewTradingStrategyService(fixture.tradingStrategyRepository),
 		service.NewStrategyScriptService(fixture.strategyScriptRepository, publishedStrategyScriptRepository),
@@ -256,7 +255,6 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 			mocks.NewMockITradingStrategyRepository(controller), mocks.NewMockIContractTradingSymbolRepository(controller),
 			mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
 			mocks.NewMockIContractFundingRateSettlementRepository(controller), mocks.NewMockIKCandleContractRepository(controller),
-			mocks.NewMockIStrategyBotRepository(controller), mocks.NewMockIStrategyBotRunRecordRepository(controller),
 			mocks.NewMockIClockProxy(controller))
 
 		_, err := journalService.PlanLiveComparison(context.Background(), backtestViewerID, contractReplayTradingStrategyID)

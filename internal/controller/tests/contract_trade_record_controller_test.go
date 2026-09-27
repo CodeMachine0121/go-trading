@@ -64,10 +64,11 @@ func newContractTradeRouterUnderTest(t *testing.T) contractTradeRouterUnderTest 
 	journalService := service.NewContractTradeJournalService(
 		fixture.contractTradeRecordRepository, fixture.tradeTagRepository, fixture.tradeJournalSettingRepository,
 		fixture.tradingStrategyRepository, contractTradingSymbolRepository, maintenanceMarginTierRepository,
-		fundingRateSettlementRepository, kCandleContractRepository, fixture.strategyBotRepository,
-		fixture.strategyBotRunRecordRepository, clockProxy)
+		fundingRateSettlementRepository, kCandleContractRepository, clockProxy)
 	recordController := controller.NewContractTradeRecordController(
-		application.NewContractTradeJournalApplication(journalService),
+		application.NewContractTradeJournalApplication(journalService, service.NewTradeJournalLinkService(
+			mocks.NewMockIOpaqueIdentifierProxy(mockController), fixture.strategyBotRunRecordRepository,
+			fixture.strategyBotRepository, "https://console.example")),
 		application.NewContractTradeLiveComparisonApplication(
 			journalService, service.NewTradingStrategyService(fixture.tradingStrategyRepository),
 			service.NewStrategyScriptService(
@@ -194,7 +195,7 @@ func TestContractTradeRouterReportsARacingSecondTradeWithoutAnIdentifier(t *test
 func TestContractTradeRouterReads(t *testing.T) {
 	t.Run("the list narrows by the query and falls back on an unreadable limit", func(t *testing.T) {
 		fixture := newContractTradeRouterUnderTest(t)
-		fixture.contractTradeRecordRepository.EXPECT().FindPageByOwner(gomock.Any(), signedInViewerID, vo.ContractTradeListFilterVo{
+		fixture.contractTradeRecordRepository.EXPECT().FindPageByOwner(gomock.Any(), signedInViewerID, vo.TradeListFilterVo{
 			Status: "closed", Symbol: "ETHUSDT", Limit: 20,
 		}).Return([]entities.ContractTradeRecord{}, int64(0), nil)
 		fixture.tradingStrategyRepository.EXPECT().FindAllByOwner(gomock.Any(), signedInViewerID).Return(nil, nil)
@@ -231,7 +232,8 @@ func TestContractTradeRouterReads(t *testing.T) {
 		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "k3y").
 			Return(entities.StrategyBotRunRecord{StrategyBotID: 3, RunNumber: 412, SuggestedDirection: "long"}, true, nil)
 		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
-			Return(entities.StrategyBot{ID: 3, OwnerID: signedInViewerID, Symbol: "BTCUSDT"}, nil)
+			Return(entities.StrategyBot{ID: 3, OwnerID: signedInViewerID, Symbol: "BTCUSDT",
+				MarketDataKind: string(vo.MarketDataKindContractKCandle)}, nil)
 		fixture.contractTradeRecordRepository.EXPECT().FindOpenByOwnerSymbolDirection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(entities.ContractTradeRecord{}, false, nil)
 

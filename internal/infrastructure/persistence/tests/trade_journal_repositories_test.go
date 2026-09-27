@@ -114,7 +114,7 @@ func TestContractTradeRecordRepositoryListsAPersonsTradesNewestFirst(t *testing.
 	require.NoError(t, strangerError)
 
 	trades, totalCount, listError := repository.FindPageByOwner(t.Context(), owner.ID,
-		vo.ContractTradeListFilterVo{Limit: 2})
+		vo.TradeListFilterVo{Limit: 2})
 
 	require.NoError(t, listError)
 	assert.Equal(t, int64(3), totalCount)
@@ -125,7 +125,7 @@ func TestContractTradeRecordRepositoryListsAPersonsTradesNewestFirst(t *testing.
 
 	openedSince := journalOpenedAt.AddDate(0, 0, 1)
 	narrowed, narrowedCount, narrowError := repository.FindPageByOwner(t.Context(), owner.ID,
-		vo.ContractTradeListFilterVo{Status: "open", Symbol: "ETHUSDT", OpenedSince: &openedSince, Limit: 20})
+		vo.TradeListFilterVo{Status: "open", Symbol: "ETHUSDT", OpenedSince: &openedSince, Limit: 20})
 	require.NoError(t, narrowError)
 	assert.Equal(t, int64(1), narrowedCount)
 	require.Len(t, narrowed, 1)
@@ -221,7 +221,7 @@ func TestContractTradeRecordRepositoryReportsStorageFailures(t *testing.T) {
 	_, createError := repository.Create(t.Context(), anOpenTrade(1, "BTCUSDT", "long", journalOpenedAt))
 	_, saveError := repository.Save(t.Context(), anOpenTrade(1, "BTCUSDT", "long", journalOpenedAt))
 	_, findError := repository.FindOne(t.Context(), 1)
-	_, _, pageError := repository.FindPageByOwner(t.Context(), 1, vo.ContractTradeListFilterVo{Limit: 1})
+	_, _, pageError := repository.FindPageByOwner(t.Context(), 1, vo.TradeListFilterVo{Limit: 1})
 	_, closedError := repository.FindClosedByOwner(t.Context(), 1, nil)
 	_, strategyError := repository.FindClosedByOwnerAndTradingStrategy(t.Context(), 1, 1)
 	_, _, openError := repository.FindOpenByOwnerSymbolDirection(t.Context(), 1, "BTCUSDT", "long")
@@ -387,7 +387,7 @@ func TestContractTradeRecordRepositoryWritesNothingWhenAChildIsRefused(t *testin
 	created.Notes = []entities.ContractTradeNote{{Content: "nul\x00byte", CreatedAt: journalOpenedAt}}
 	_, saveError := repository.Save(t.Context(), created)
 
-	trades, totalCount, listError := repository.FindPageByOwner(t.Context(), owner.ID, vo.ContractTradeListFilterVo{Limit: 20})
+	trades, totalCount, listError := repository.FindPageByOwner(t.Context(), owner.ID, vo.TradeListFilterVo{Limit: 20})
 	require.Error(t, createError)
 	require.Error(t, saveError)
 	require.NoError(t, listError)

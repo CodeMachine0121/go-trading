@@ -58,3 +58,24 @@ func figureOrNothing(storedFigure decimal.NullDecimal) *decimal.Decimal {
 
 	return &figure
 }
+
+// ToJournalLinkRoundDto pairs the round with the bot that ran it, which is all a journal link prefills from.
+func (strategyBotRunRecord StrategyBotRunRecord) ToJournalLinkRoundDto(strategyBot StrategyBot) dto.JournalLinkRoundDto {
+	return dto.JournalLinkRoundDto{
+		StrategyBotID:            strategyBot.ID,
+		StrategyBotName:          strategyBot.Name,
+		Symbol:                   strategyBot.Symbol,
+		MarketDataKind:           strategyBot.MarketDataKind,
+		TradingStrategyID:        strategyBot.TradingStrategyID,
+		RunNumber:                strategyBotRunRecord.RunNumber,
+		RanAt:                    strategyBotRunRecord.RanAt.UTC(),
+		Result:                   strategyBotRunRecord.Result,
+		ReferencePrice:           strategyBotRunRecord.ReferencePrice,
+		SuggestedStake:           strategyBotRunRecord.SuggestedStake,
+		SuggestedQuantity:        strategyBotRunRecord.SuggestedQuantity,
+		SuggestedDirection:       strategyBotRunRecord.SuggestedDirection,
+		SuggestedLeverage:        strategyBotRunRecord.SuggestedLeverage,
+		SuggestedStopLossPrice:   strategyBotRunRecord.SuggestedStopLossPrice,
+		SuggestedTakeProfitPrice: strategyBotRunRecord.SuggestedTakeProfitPrice,
+	}
+}

@@ -162,7 +162,7 @@ func (contractTradeRecordRepository *ContractTradeRecordRepository) FindOne(
 }
 
 func (contractTradeRecordRepository *ContractTradeRecordRepository) FindPageByOwner(
-	executionContext context.Context, ownerID uint, filter vo.ContractTradeListFilterVo,
+	executionContext context.Context, ownerID uint, filter vo.TradeListFilterVo,
 ) ([]entities.ContractTradeRecord, int64, error) {
 	matching := contractTradeRecordRepository.database.WithContext(executionContext).
 		Model(&entities.ContractTradeRecord{}).

@@ -56,9 +56,10 @@ func newContractTradeJournalApplicationUnderTest(t *testing.T) contractTradeJour
 		fixture.contractTradeRecordRepository, fixture.tradeTagRepository, fixture.tradeJournalSettingRepository,
 		fixture.tradingStrategyRepository, fixture.contractTradingSymbolRepository,
 		fixture.contractMaintenanceMarginTierRepository, fixture.contractFundingRateSettlementRepository,
-		fixture.kCandleContractRepository, fixture.strategyBotRepository, fixture.strategyBotRunRecordRepository,
-		clockProxy)
-	fixture.application = application.NewContractTradeJournalApplication(fixture.journalService)
+		fixture.kCandleContractRepository, clockProxy)
+	fixture.application = application.NewContractTradeJournalApplication(fixture.journalService,
+		service.NewTradeJournalLinkService(mocks.NewMockIOpaqueIdentifierProxy(mockController),
+			fixture.strategyBotRunRecordRepository, fixture.strategyBotRepository, "https://console.example"))
 
 	return fixture
 }
@@ -185,7 +186,7 @@ func TestContractTradeJournalApplicationRecordTrade(t *testing.T) {
 		_, err := fixture.application.RecordTrade(context.Background(), journalOwnerID, aLongWrite())
 
 		require.ErrorIs(t, err, domains.ErrContractTradeOpenPositionExists)
-		assert.Contains(t, err.Error(), "BTCUSDT 做多 已有持倉中的 #27，請在那一筆加成交")
+		assert.Contains(t, err.Error(), "BTCUSDT 做多 已有持倉中的 #27，請在那一筆加倉")
 	})
 
 	t.Run("the person's own contract strategy is linked", func(t *testing.T) {
@@ -582,7 +583,7 @@ func TestContractTradeJournalApplicationListTrades(t *testing.T) {
 		orphaned.ID = 26
 		orphaned.TradingStrategyID = new(uint(13))
 		openedSince := journalMoment.AddDate(0, 0, -7)
-		fixture.contractTradeRecordRepository.EXPECT().FindPageByOwner(gomock.Any(), journalOwnerID, vo.ContractTradeListFilterVo{
+		fixture.contractTradeRecordRepository.EXPECT().FindPageByOwner(gomock.Any(), journalOwnerID, vo.TradeListFilterVo{
 			Status: "open", Symbol: "BTCUSDT", OpenedSince: &openedSince, Limit: 20,
 		}).Return([]entities.ContractTradeRecord{linked, orphaned}, int64(2), nil)
 		fixture.tradingStrategyRepository.EXPECT().FindAllByOwner(gomock.Any(), journalOwnerID).
@@ -604,7 +605,7 @@ func TestContractTradeJournalApplicationListTrades(t *testing.T) {
 		fixture.quietMarket()
 		linked := aStoredOpenTrade()
 		linked.TradingStrategyID = new(uint(12))
-		fixture.contractTradeRecordRepository.EXPECT().FindPageByOwner(gomock.Any(), journalOwnerID, vo.ContractTradeListFilterVo{Limit: 200}).
+		fixture.contractTradeRecordRepository.EXPECT().FindPageByOwner(gomock.Any(), journalOwnerID, vo.TradeListFilterVo{Limit: 200}).
 			Return([]entities.ContractTradeRecord{linked}, int64(1), nil)
 		fixture.tradingStrategyRepository.EXPECT().FindAllByOwner(gomock.Any(), journalOwnerID).Return(nil, errStorageDown)
 
@@ -696,7 +697,8 @@ func TestContractTradeJournalApplicationGetStatistics(t *testing.T) {
 }
 
 func theBotAndItsRound() (entities.StrategyBot, entities.StrategyBotRunRecord) {
-	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "BTC 趨勢跟隨", Symbol: "BTCUSDT", TradingStrategyID: 12},
+	return entities.StrategyBot{ID: 3, OwnerID: journalOwnerID, Name: "BTC 趨勢跟隨", Symbol: "BTCUSDT", TradingStrategyID: 12,
+		MarketDataKind: string(vo.MarketDataKindContractKCandle)},
 		entities.StrategyBotRunRecord{
 			StrategyBotID: 3, RunNumber: 412, RanAt: journalEntryAt.Add(-3 * time.Minute),
 			SuggestedDirection: "long", SuggestedLeverage: percentage("10"),

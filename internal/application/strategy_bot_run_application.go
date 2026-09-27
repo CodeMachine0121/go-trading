@@ -33,7 +33,7 @@ type StrategyBotRunApplication struct {
 	telegramDeliveryService             *service.TelegramDeliveryService
 	kCandleService                      *service.KCandleService
 	kCandleContractService              *service.KCandleContractService
-	contractTradeJournalLinkService     *service.ContractTradeJournalLinkService
+	tradeJournalLinkService     *service.TradeJournalLinkService
 	clockProxy                          domaininterface.IClockProxy
 	roundGuard                          *StrategyBotRoundGuard
 	maxConcurrentRounds                 int
@@ -49,7 +49,7 @@ func NewStrategyBotRunApplication(
 	telegramDeliveryService *service.TelegramDeliveryService,
 	kCandleService *service.KCandleService,
 	kCandleContractService *service.KCandleContractService,
-	contractTradeJournalLinkService *service.ContractTradeJournalLinkService,
+	tradeJournalLinkService *service.TradeJournalLinkService,
 	clockProxy domaininterface.IClockProxy,
 	roundGuard *StrategyBotRoundGuard,
 	maxConcurrentRounds int,
@@ -64,7 +64,7 @@ func NewStrategyBotRunApplication(
 		telegramDeliveryService:             telegramDeliveryService,
 		kCandleService:                      kCandleService,
 		kCandleContractService:              kCandleContractService,
-		contractTradeJournalLinkService:     contractTradeJournalLinkService,
+		tradeJournalLinkService:     tradeJournalLinkService,
 		clockProxy:                          clockProxy,
 		roundGuard:                          roundGuard,
 		maxConcurrentRounds:                 maxConcurrentRounds,
@@ -459,7 +459,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 
 	// Planned once so the message and the history carry identical figures.
 	round = strategyBotRunApplication.strategyBotService.PlanRoundPosition(executionContext, round)
-	round = strategyBotRunApplication.contractTradeJournalLinkService.OfferJournalLink(round)
+	round = strategyBotRunApplication.tradeJournalLinkService.OfferJournalLink(round)
 
 	deliveryFailure, deliverError := strategyBotRunApplication.telegramDeliveryService.SendMessage(
 		executionContext,
