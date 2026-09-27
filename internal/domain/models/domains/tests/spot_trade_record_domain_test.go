@@ -146,6 +146,20 @@ func TestSpotTradeRecordDomainBuysAndSells(t *testing.T) {
 		assert.Equal(t, "600", recordDomain.Ledger().Position().String())
 	})
 
+	t.Run("a contract kind is not a spot buy or sell", func(t *testing.T) {
+		for _, contractKind := range []string{"entry", "exit"} {
+			recordDomain := openingSpotTrade(t, "taiwanStock", "2330", spotBuy(0, spotBoughtAt, "1050", "600"))
+			fill := spotBuy(0, spotBoughtAt.Add(time.Hour), "1120", "100")
+			fill.Kind = contractKind
+
+			err := recordDomain.AddFill(fill, ledgerNow)
+
+			require.ErrorIs(t, err, domains.ErrSpotTradeValidation, contractKind)
+			assert.Contains(t, err.Error(), "只有買進與賣出")
+			assert.Equal(t, "600", recordDomain.Ledger().Position().String())
+		}
+	})
+
 	t.Run("a sale of part of a Taiwan share is refused", func(t *testing.T) {
 		recordDomain := openingSpotTrade(t, "taiwanStock", "2330", spotBuy(0, spotBoughtAt, "1050", "600"))
 

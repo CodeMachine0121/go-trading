@@ -33,9 +33,9 @@ func (spotTradeFill SpotTradeFill) ToDto() dto.SpotTradeFillDto {
 	}
 }
 
-// ToTradeLedgerFillVo reads a buy as the ledger's entry and a sell as its exit; any other kind is passed through for the ledger to refuse.
+// ToTradeLedgerFillVo reads a buy as the ledger's entry and a sell as its exit; any other kind, contract ones included, becomes a kind the ledger refuses.
 func (spotTradeFill SpotTradeFill) ToTradeLedgerFillVo() vo.TradeLedgerFillVo {
-	kind := vo.ContractTradeFillKindVo(spotTradeFill.Kind)
+	kind := vo.ContractTradeFillKindVo("")
 	switch vo.SpotTradeFillKindVo(spotTradeFill.Kind) {
 	case vo.SpotTradeFillKindBuy:
 		kind = vo.ContractTradeFillKindEntry
