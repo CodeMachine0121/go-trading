@@ -3,7 +3,7 @@
 Contract: PRD.md
 Design map: ARCH.md
 Implementation: go-trading（branch feat/contract-trade-journal）
-Oracle: Acceptance Criteria (93 clauses)
+Oracle: Acceptance Criteria (93 clauses) + Core Business Rules added after the first pass (3 clauses)
 
 > 靜態一致性審查：以 PRD 驗收情境為 oracle 判讀測試斷言與程式路徑，不執行自創情境。
 
@@ -35,7 +35,7 @@ Oracle: Acceptance Criteria (93 clauses)
 | AC-22 | 手動填的手續費優先 | 手續費 1.20 | internal/domain/models/domains/trade_journal_setting_domain.go:PricedFill | internal/domain/models/domains/tests/trade_journal_setting_domain_test.go:a written fee and time win | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-23 | 尚未設定費率 | 手續費 0，標示未設定費率 | internal/domain/models/domains/trade_journal_setting_domain.go:FeeFor | internal/domain/models/domains/tests/trade_journal_setting_domain_test.go:no rate set is a zero fee marked as missing | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-24 | 費率不得為負 | 拒絕，說明費率不得為負 | internal/domain/models/domains/trade_journal_setting_domain.go:WithFeeRates | internal/domain/models/domains/tests/trade_journal_setting_domain_test.go:a negative rate is refused | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-25 | 改費率不回頭改舊成交 | 舊成交的手續費仍為 1.47 | internal/infrastructure/persistence/contract_trade_record_repository.go:writeChildren | — | no-test | produces-oracle | 🟡 partial |
+| AC-25 | 改費率不回頭改舊成交 | 舊成交的手續費仍為 1.47 | internal/infrastructure/persistence/contract_trade_record_repository.go:writeChildren | internal/application/tests/contract_trade_journal_application_test.go:a changed fee rate leaves fills already recorded as they were | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-26 | 持倉中可以修改計畫 | 修改成功 | internal/domain/models/domains/contract_trade_record_domain.go:AmendPlan | internal/domain/models/domains/tests/contract_trade_record_domain_test.go:the plan changes while the trade is held | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-27 | 平倉後計畫鎖定 | 拒絕，說明計畫已鎖定，可以加附註 | internal/domain/models/domains/contract_trade_record_domain.go:AmendPlan | internal/domain/models/domains/tests/contract_trade_record_domain_test.go:changing the plan | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-28 | 平倉後成交也鎖定 | 拒絕，說明成交已鎖定，可加附註或刪除整筆重記 | internal/domain/models/domains/contract_trade_record_domain.go:AmendFill | internal/domain/models/domains/tests/contract_trade_record_domain_test.go:amending a fill | asserts-oracle | produces-oracle | ✅ conforms |
@@ -60,7 +60,7 @@ Oracle: Acceptance Criteria (93 clauses)
 | AC-47 | 沒有交易規格就估不出強平價 | 還沒有交易規格估不出 | internal/domain/models/domains/contract_trade_outcome_domain.go:liquidationPrice | internal/domain/models/domains/tests/contract_trade_outcome_domain_test.go:no specification means no estimate | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-48 | 列出自己的交易 | 只回自己的 3 筆，新到舊 | internal/infrastructure/persistence/contract_trade_record_repository.go:FindPageByOwner | internal/infrastructure/persistence/tests/trade_journal_repositories_test.go:ListsAPersonsTradesNewestFirst | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-49 | 依狀態篩選待檢討 | 只回已平倉那 4 筆 | internal/domain/service/contract_trade_journal_service.go:listFilterOf | internal/infrastructure/persistence/tests/trade_journal_repositories_test.go:ListsAPersonsTradesNewestFirst (status 篩選); internal/controller/tests/contract_trade_record_controller_test.go:the list narrows | asserts-oracle | produces-oracle | ✅ conforms |
-| AC-50 | 刪除整筆交易 | 交易連同成交、附註、檢討一併消失 | internal/infrastructure/persistence/contract_trade_record_repository.go:Delete | internal/infrastructure/persistence/tests/trade_journal_repositories_test.go:DeletesATradeAndCountsTags | shallow | produces-oracle | 🟠 mis-asserted |
+| AC-50 | 刪除整筆交易 | 交易連同成交、附註、檢討一併消失 | internal/infrastructure/persistence/contract_trade_record_repository.go:Delete | internal/infrastructure/persistence/tests/trade_journal_repositories_test.go:DeletesATradeAndCountsTags（含成交與附註筆數歸零） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-51 | 沒有任何交易 | 回空清單 | internal/domain/service/contract_trade_journal_service.go:ListTrades | internal/controller/tests/contract_trade_record_controller_test.go:the list narrows by the query | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-52 | 指名自己的合約交易策略 | 關聯到 BTC 趨勢跟隨 | internal/domain/service/contract_trade_journal_service.go:requireOwnedContractTradingStrategy | internal/application/tests/contract_trade_journal_application_test.go:the person's own contract strategy is linked | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-53 | 不指名即自行判斷 | 來源為自行判斷 | internal/domain/service/contract_trade_journal_service.go:RecordTrade | internal/application/tests/contract_trade_journal_application_test.go:a long is recorded (TradingStrategyID nil) | asserts-oracle | produces-oracle | ✅ conforms |
@@ -105,21 +105,22 @@ Oracle: Acceptance Criteria (93 clauses)
 | AC-92 | 預填的是那一輪當時的建議 | 仍為 10 倍、止損 96,380 | internal/domain/models/domains/contract_trade_prefill_domain.go:Prefill | internal/application/tests/contract_trade_journal_application_test.go:the round as it was (機器人實體無部位設定，預填只能來自那一輪) | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-93 | 做空的滑點方向 | 進場滑點 0.20% | internal/domain/models/domains/contract_trade_outcome_domain.go:entrySlippagePercentage | internal/domain/models/domains/tests/contract_trade_outcome_domain_test.go:a short filled below the reference slipped | asserts-oracle | produces-oracle | ✅ conforms |
 
+| BR-1 | 成交的預設：沒說時間即現在；沒說掛單或吃單即吃單；手動手續費不得為負 | 省略時間記為現在、省略方式記為吃單、負手續費被拒絕 | internal/domain/models/domains/trade_journal_setting_domain.go:PricedFill；contract_trade_ledger_domain.go:settled | internal/domain/models/domains/tests/trade_journal_setting_domain_test.go:a blank fill takes now, taker and the rate's fee；contract_trade_ledger_domain_test.go:a negative fee | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-2 | 附註不得為空白 | 空白附註被拒絕 | internal/domain/models/domains/contract_trade_record_domain.go:AddNote | internal/domain/models/domains/tests/contract_trade_record_domain_test.go:a blank note is refused | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-3 | 列出交易可依期間（第一筆進場時間）篩選；不選不篩；不認得的期間拒絕 | 7d 只回第一筆進場在 7 天內者；不認得的期間被拒絕 | internal/domain/service/contract_trade_journal_service.go:listFilterOf | internal/application/tests/contract_trade_journal_application_test.go:the list narrows as asked / an unknown status, symbol or period is refused | asserts-oracle | produces-oracle | ✅ conforms |
+
 ## Orphans (code with no clause)
 
 | Code | Description | Verdict |
 |------|-------------|---------|
-| internal/domain/service/contract_trade_journal_service.go:listFilterOf | 列出交易可依期間（第一筆進場時間）篩選 | undocumented（外掛切片要求，ARCH 已記；需補 PRD 情境） |
-| internal/domain/models/domains/trade_journal_setting_domain.go:PricedFill | 成交方式留白視為吃單 | undocumented |
-| internal/domain/models/domains/contract_trade_ledger_domain.go:settled | 手動填負手續費被拒絕 | undocumented |
-| internal/domain/models/domains/contract_trade_record_domain.go:AddNote | 空白附註被拒絕 | undocumented |
+| — | 原四項（期間篩選、成交方式預設、負手續費、空白附註）已補進 PRD 核心規則，改列為 BR-1～BR-3 | reconciled |
 
 ## Summary
 
-- Conforms: 91/93 clauses ✅ (97.8%)
+- Conforms: 96/96 clauses ✅ (100%)（首輪 91/93；AC-25 補測試、AC-50 補斷言後重判）
 - Violations: none
-- Mis-asserted: AC-50（刪除測試只驗交易與標籤連結消失，未驗成交與附註一併刪除）
-- Partial: AC-25（改費率不回頭改舊成交，無測試）
+- Mis-asserted: none
+- Partial: none
 - Gaps: none
 - Unclear: none
-- Orphans: 4
+- Orphans: 0（首輪 4 項已補進 PRD）
