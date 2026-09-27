@@ -378,11 +378,22 @@ func TestSpotTradeJournalApplicationChangesATrade(t *testing.T) {
 		}
 	})
 
+	t.Run("a spot trade deleted by a concurrent request is not found", func(t *testing.T) {
+		fixture := newSpotTradeJournalApplicationUnderTest(t)
+		fixture.spotTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(5)).Return(aHeldTaiwanTrade(), nil)
+		fixture.spotTradeRecordRepository.EXPECT().MarkDeleted(gomock.Any(), uint(5), gomock.Any()).
+			Return(domains.SpotTradeNotFound(5))
+
+		err := fixture.application.DeleteTrade(context.Background(), journalOwnerID, 5)
+
+		require.ErrorIs(t, err, domains.ErrSpotTradeNotFound)
+	})
+
 	t.Run("the owner deletes a trade, and failed reads or saves come back", func(t *testing.T) {
 		fixture := newSpotTradeJournalApplicationUnderTest(t)
 		fixture.spotTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(5)).Return(aHeldTaiwanTrade(), nil).Times(2)
 		fixture.spotTradeRecordRepository.EXPECT().FindOne(gomock.Any(), uint(6)).Return(entities.SpotTradeRecord{}, errStorageDown).Times(2)
-		fixture.spotTradeRecordRepository.EXPECT().Delete(gomock.Any(), uint(5)).Return(nil)
+		fixture.spotTradeRecordRepository.EXPECT().MarkDeleted(gomock.Any(), uint(5), journalMoment.UTC()).Return(nil)
 		fixture.spotTradeRecordRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(entities.SpotTradeRecord{}, errStorageDown)
 
 		require.NoError(t, fixture.application.DeleteTrade(context.Background(), journalOwnerID, 5))

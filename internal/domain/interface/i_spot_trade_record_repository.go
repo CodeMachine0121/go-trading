@@ -10,7 +10,7 @@ import (
 
 //go:generate go tool mockgen -source=i_spot_trade_record_repository.go -destination=mocks/mock_i_spot_trade_record_repository.go -package=mocks
 
-// ISpotTradeRecordRepository stores a spot trade together with its buys, sells, notes and tags; ownership checks are the domain's job.
+// ISpotTradeRecordRepository stores a spot trade together with its buys, sells, notes and tags; every method sees only trades not deleted, and ownership checks are the domain's job.
 type ISpotTradeRecordRepository interface {
 	// Create reports a second open trade for the same owner and symbol as ErrSpotTradeOpenHoldingExists, decided by the database.
 	Create(
@@ -35,6 +35,7 @@ type ISpotTradeRecordRepository interface {
 	FindOpenByOwnerSymbol(
 		executionContext context.Context, ownerID uint, symbol string,
 	) (entities.SpotTradeRecord, bool, error)
-	Delete(executionContext context.Context, id uint) error
+	// MarkDeleted keeps the trade on record as deleted; a trade already deleted is reported as ErrSpotTradeNotFound.
+	MarkDeleted(executionContext context.Context, id uint, deletedAt time.Time) error
 	CountByTag(executionContext context.Context, tagID uint) (int64, error)
 }

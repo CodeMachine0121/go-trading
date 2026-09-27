@@ -68,11 +68,17 @@ func (spotTradeRecordRepository *SpotTradeRecordRepository) Save(
 			row.Notes = nil
 			row.Tags = nil
 
-			if updateError := transaction.Model(&entities.SpotTradeRecord{}).
+			updated := transaction.Model(&entities.SpotTradeRecord{}).
 				Where(clause.Eq{Column: "id", Value: record.ID}).
+				Where(clause.Eq{Column: "is_deleted", Value: false}).
 				Select(spotTradeRecordColumns).
-				Updates(&row).Error; updateError != nil {
-				return updateError
+				Updates(&row)
+			if updated.Error != nil {
+				return updated.Error
+			}
+			// A trade deleted since it was read must not have its children rewritten.
+			if updated.RowsAffected == 0 {
+				return domains.SpotTradeNotFound(record.ID)
 			}
 
 			survivingFillIDs := []uint{}
@@ -164,8 +170,7 @@ func (spotTradeRecordRepository *SpotTradeRecordRepository) FindOne(
 func (spotTradeRecordRepository *SpotTradeRecordRepository) FindPageByOwner(
 	executionContext context.Context, ownerID uint, filter vo.TradeListFilterVo,
 ) ([]entities.SpotTradeRecord, int64, error) {
-	matching := spotTradeRecordRepository.database.WithContext(executionContext).
-		Model(&entities.SpotTradeRecord{}).
+	matching := spotTradeRecordRepository.notDeleted(executionContext).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID})
 	if filter.Status != "" {
 		matching = matching.Where(clause.Eq{Column: "status", Value: filter.Status})
@@ -254,41 +259,67 @@ func (spotTradeRecordRepository *SpotTradeRecordRepository) FindOpenByOwnerSymbo
 	return records[0], true, nil
 }
 
-// Delete removes the trade; its fills, notes and tag links cascade.
-func (spotTradeRecordRepository *SpotTradeRecordRepository) Delete(
-	executionContext context.Context, id uint,
+// MarkDeleted only touches a trade not yet deleted, so a second delete neither succeeds nor moves the deletion time.
+func (spotTradeRecordRepository *SpotTradeRecordRepository) MarkDeleted(
+	executionContext context.Context, id uint, deletedAt time.Time,
 ) error {
-	result := spotTradeRecordRepository.database.WithContext(executionContext).
+	result := spotTradeRecordRepository.notDeleted(executionContext).
 		Where(clause.Eq{Column: "id", Value: id}).
-		Delete(&entities.SpotTradeRecord{})
+		Updates(map[string]any{"is_deleted": true, "deleted_at": deletedAt.UTC()})
 	if result.Error != nil {
-		return fmt.Errorf("delete spot trade record: %w", result.Error)
+		return fmt.Errorf("mark spot trade record deleted: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return domains.SpotTradeNotFound(id)
 	}
 
 	return nil
 }
 
+// CountByTag counts only trades not deleted, reading the tag links first so no join has to be spelled out.
 func (spotTradeRecordRepository *SpotTradeRecordRepository) CountByTag(
 	executionContext context.Context, tagID uint,
 ) (int64, error) {
-	count := int64(0)
-
-	result := spotTradeRecordRepository.database.WithContext(executionContext).
+	taggedRecordIDs := []uint{}
+	linkResult := spotTradeRecordRepository.database.WithContext(executionContext).
 		Table("spot_trade_record_tags").
 		Where(clause.Eq{Column: "trade_tag_id", Value: tagID}).
+		Pluck("spot_trade_record_id", &taggedRecordIDs)
+	if linkResult.Error != nil {
+		return 0, fmt.Errorf("find trades carrying a tag: %w", linkResult.Error)
+	}
+	if len(taggedRecordIDs) == 0 {
+		return 0, nil
+	}
+
+	taggedRecordIDValues := make([]any, 0, len(taggedRecordIDs))
+	for _, taggedRecordID := range taggedRecordIDs {
+		taggedRecordIDValues = append(taggedRecordIDValues, taggedRecordID)
+	}
+
+	count := int64(0)
+	countResult := spotTradeRecordRepository.notDeleted(executionContext).
+		Where(clause.IN{Column: clause.Column{Name: "id"}, Values: taggedRecordIDValues}).
 		Count(&count)
-	if result.Error != nil {
-		return 0, fmt.Errorf("count trades carrying a tag: %w", result.Error)
+	if countResult.Error != nil {
+		return 0, fmt.Errorf("count trades carrying a tag: %w", countResult.Error)
 	}
 
 	return count, nil
+}
+
+// notDeleted is where every read starts, so a deleted trade is invisible without each query remembering it.
+func (spotTradeRecordRepository *SpotTradeRecordRepository) notDeleted(executionContext context.Context) *gorm.DB {
+	return spotTradeRecordRepository.database.WithContext(executionContext).
+		Model(&entities.SpotTradeRecord{}).
+		Where(clause.Eq{Column: "is_deleted", Value: false})
 }
 
 func (spotTradeRecordRepository *SpotTradeRecordRepository) withChildren(
 	executionContext context.Context,
 ) *gorm.DB {
 	return spotTradeRecordRepository.preloadChildren(
-		spotTradeRecordRepository.database.WithContext(executionContext))
+		spotTradeRecordRepository.notDeleted(executionContext))
 }
 
 func (spotTradeRecordRepository *SpotTradeRecordRepository) preloadChildren(query *gorm.DB) *gorm.DB {
