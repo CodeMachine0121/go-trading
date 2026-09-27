@@ -105,20 +105,14 @@ func (ledgerDomain TradeLedgerDomain) EntryValue() decimal.Decimal {
 	return ledgerDomain.valueOf(vo.ContractTradeFillKindEntry)
 }
 
-// GrossProfit is realised on what has been sold back, measured from the average entry.
+// GrossProfit is realised on what has been sold back, each exit measured from the average cost held at that moment.
 func (ledgerDomain TradeLedgerDomain) GrossProfit(direction vo.PositionDirectionVo) decimal.Decimal {
-	exitedQuantity := ledgerDomain.ExitedQuantity()
-	if exitedQuantity.IsZero() {
-		return decimal.Zero
-	}
-
-	exitValue := ledgerDomain.valueOf(vo.ContractTradeFillKindExit)
-	entryValueOfExited := ledgerDomain.EntryValue().Mul(exitedQuantity).Div(ledgerDomain.EnteredQuantity())
+	realisedLongProfit, _ := ledgerDomain.averageCostWalk()
 	if direction == vo.PositionDirectionShort {
-		return entryValueOfExited.Sub(exitValue)
+		return realisedLongProfit.Neg()
 	}
 
-	return exitValue.Sub(entryValueOfExited)
+	return realisedLongProfit
 }
 
 // ProfitAt is what the whole entered quantity would make at a price, which is how excursions are measured.
@@ -133,16 +127,17 @@ func (ledgerDomain TradeLedgerDomain) ProfitAt(
 	return valueAtPrice.Sub(ledgerDomain.EntryValue())
 }
 
-// OpenProfitAt is what the quantity still held would make at a price.
+// OpenProfitAt is what the quantity still held would make at a price, against the cost still held.
 func (ledgerDomain TradeLedgerDomain) OpenProfitAt(
 	direction vo.PositionDirectionVo, price decimal.Decimal,
 ) decimal.Decimal {
-	difference := price.Sub(ledgerDomain.AverageEntryPrice())
+	_, heldCost := ledgerDomain.averageCostWalk()
+	openLongProfit := price.Mul(ledgerDomain.Position()).Sub(heldCost)
 	if direction == vo.PositionDirectionShort {
-		difference = difference.Neg()
+		return openLongProfit.Neg()
 	}
 
-	return difference.Mul(ledgerDomain.Position())
+	return openLongProfit
 }
 
 // PositionAt counts fills at the moment itself, as the venue does when funding settles.
@@ -182,8 +177,9 @@ func (ledgerDomain TradeLedgerDomain) Validate(now time.Time) error {
 	}
 
 	firstEntryAt := ledgerDomain.FirstEntryAt()
+	lastFillIndex := len(ledgerDomain.fills) - 1
 	position := decimal.Zero
-	for _, fill := range ledgerDomain.fills {
+	for fillIndex, fill := range ledgerDomain.fills {
 		if fill.Kind == vo.ContractTradeFillKindExit && fill.FilledAt.Before(firstEntryAt) {
 			return fmt.Errorf("%w: %s不能早於第一筆%s", wording.ValidationError, wording.Exit, wording.Entry)
 		}
@@ -194,9 +190,41 @@ func (ledgerDomain TradeLedgerDomain) Validate(now time.Time) error {
 		}
 
 		position = position.Add(ledgerDomain.signedQuantityOf(fill))
+
+		// A holding that empties before the last fill is two trades, and counting it as one skews every statistic.
+		if position.IsZero() && fillIndex < lastFillIndex {
+			return fmt.Errorf("%w: %s在最後一筆之前就已歸零，之後的紀錄請另開一筆交易",
+				wording.ValidationError, wording.Holding)
+		}
 	}
 
 	return nil
+}
+
+// averageCostWalk replays the fills in order at average cost, so an add after a partial exit never reprices what was already sold back.
+func (ledgerDomain TradeLedgerDomain) averageCostWalk() (decimal.Decimal, decimal.Decimal) {
+	realisedLongProfit := decimal.Zero
+	heldCost := decimal.Zero
+	heldQuantity := decimal.Zero
+	for _, fill := range ledgerDomain.fills {
+		fillValue := fill.Price.Mul(fill.Quantity)
+		if fill.Kind == vo.ContractTradeFillKindEntry {
+			heldCost = heldCost.Add(fillValue)
+			heldQuantity = heldQuantity.Add(fill.Quantity)
+			continue
+		}
+
+		// The exit that empties the holding takes all remaining cost, so a closed trade's profit stays exact.
+		soldCost := heldCost
+		if fill.Quantity.LessThan(heldQuantity) {
+			soldCost = heldCost.Mul(fill.Quantity).Div(heldQuantity)
+		}
+		realisedLongProfit = realisedLongProfit.Add(fillValue.Sub(soldCost))
+		heldCost = heldCost.Sub(soldCost)
+		heldQuantity = heldQuantity.Sub(fill.Quantity)
+	}
+
+	return realisedLongProfit, heldCost
 }
 
 func (ledgerDomain TradeLedgerDomain) quantityOf(kind vo.ContractTradeFillKindVo) decimal.Decimal {

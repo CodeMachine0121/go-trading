@@ -125,6 +125,10 @@ func TestTradeLedgerDomainRefusesFillsThatBreakTheTradeInTheJournalsWords(t *tes
 		{name: "a kind that is neither entry nor exit", fills: []vo.TradeLedgerFillVo{held, unknownKind},
 			expectedMessage: "只有買進與賣出"},
 		{name: "a negative fee", fills: []vo.TradeLedgerFillVo{held, negativeFee}, expectedMessage: "手續費不得為負"},
+		{name: "a holding that empties before the last fill", fills: []vo.TradeLedgerFillVo{held,
+			ledgerExit(2, firstEntryAt.Add(time.Hour), "99000", "0.031"),
+			ledgerEntry(3, firstEntryAt.Add(2*time.Hour), "99500", "0.010")},
+			expectedMessage: "持有在最後一筆之前就已歸零，之後的紀錄請另開一筆交易"},
 		{name: "no entry left", fills: nil, expectedMessage: "一筆交易至少要有一筆買進；要整筆放棄請刪除交易"},
 	}
 
@@ -164,6 +168,17 @@ func TestTradeLedgerDomainProfits(t *testing.T) {
 		_, hasExited := ledger.AverageExitPrice()
 		assert.False(t, hasExited)
 		assert.True(t, ledger.GrossProfit(vo.PositionDirectionLong).IsZero())
+	})
+
+	t.Run("an add after a partial exit leaves what was sold back as it was", func(t *testing.T) {
+		soldHalf := ledgerOf(ledgerEntry(1, firstEntryAt, "100", "1"), ledgerExit(2, firstEntryAt.Add(time.Hour), "120", "0.5"))
+		addedLater := ledgerOf(ledgerEntry(1, firstEntryAt, "100", "1"), ledgerExit(2, firstEntryAt.Add(time.Hour), "120", "0.5"),
+			ledgerEntry(3, firstEntryAt.Add(2*time.Hour), "200", "1"))
+
+		assert.Equal(t, "10", soldHalf.GrossProfit(vo.PositionDirectionLong).String())
+		assert.Equal(t, "10", addedLater.GrossProfit(vo.PositionDirectionLong).String())
+		assert.Equal(t, "-10", addedLater.GrossProfit(vo.PositionDirectionShort).String())
+		assert.Equal(t, "50", addedLater.OpenProfitAt(vo.PositionDirectionLong, decimal.RequireFromString("200")).String())
 	})
 
 	t.Run("an open short gains as the price falls", func(t *testing.T) {
