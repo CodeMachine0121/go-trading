@@ -709,6 +709,19 @@ func theBotAndItsRound() (entities.StrategyBot, entities.StrategyBotRunRecord) {
 }
 
 func TestContractTradeJournalApplicationPrepareJournalLink(t *testing.T) {
+	t.Run("a spot bot's link does not open in the contract journal", func(t *testing.T) {
+		fixture := newContractTradeJournalApplicationUnderTest(t)
+		strategyBot, runRecord := theBotAndItsRound()
+		strategyBot.MarketDataKind = string(vo.MarketDataKindKCandle)
+		fixture.strategyBotRunRecordRepository.EXPECT().FindByJournalLinkIdentifier(gomock.Any(), "round-link-1").Return(runRecord, true, nil)
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(strategyBot, nil)
+
+		_, err := fixture.application.PrepareJournalLink(context.Background(), journalOwnerID, "round-link-1")
+
+		require.ErrorIs(t, err, domains.ErrJournalLinkNotFound)
+		assert.Contains(t, err.Error(), "這條連結屬於現貨交易日誌")
+	})
+
 	t.Run("the round as it was fills in a new trade", func(t *testing.T) {
 		fixture := newContractTradeJournalApplicationUnderTest(t)
 		strategyBot, runRecord := theBotAndItsRound()

@@ -82,15 +82,18 @@ func TestSpotTradeStatisticsDomain(t *testing.T) {
 
 	t.Run("mistakes are costed in money and return within the spot journal", func(t *testing.T) {
 		chasing := dto.TradeTagDto{ID: 3, Kind: "mistake", Name: "追價進場"}
+		movingStop := dto.TradeTagDto{ID: 4, Kind: "mistake", Name: "移動止損"}
 		first := closedSpotSummary(1, "taiwanStock", closedAt, "-20000", -0.02, nil)
-		first.MistakeTags = []dto.TradeTagDto{chasing}
+		first.MistakeTags = []dto.TradeTagDto{movingStop, chasing}
 		second := closedSpotSummary(2, "taiwanStock", closedAt, "-10000", -0.04, nil)
 		second.MistakeTags = []dto.TradeTagDto{chasing}
 
 		mistakeCosts := domains.NewSpotTradeStatisticsDomain("30d", []dto.SpotTradeRecordDto{first, second}).
 			Statistics().Markets[0].MistakeCosts
 
-		require.Len(t, mistakeCosts, 1)
+		require.Len(t, mistakeCosts, 2)
+		assert.Equal(t, "移動止損", mistakeCosts[1].Name)
+		assert.Equal(t, "-20000", mistakeCosts[1].TotalNetProfit.String())
 		assert.Equal(t, "追價進場", mistakeCosts[0].Name)
 		assert.Equal(t, 2, mistakeCosts[0].TradeCount)
 		assert.Equal(t, "-30000", mistakeCosts[0].TotalNetProfit.String())
@@ -103,6 +106,7 @@ func TestSpotTradeStatisticsDomain(t *testing.T) {
 			closedSpotSummary(2, "crypto", closedAt, "-1", -0.05, nil),
 			closedSpotSummary(3, "crypto", closedAt, "1", 0.0647, nil),
 			closedSpotSummary(4, "crypto", closedAt, "1", 0.3, nil),
+			{ID: 5, Market: "crypto", ClosedAt: &closedAt, Outcome: dto.SpotTradeOutcomeDto{NetProfit: decimal.Zero}},
 		}
 
 		distribution := domains.NewSpotTradeStatisticsDomain("30d", trades).Statistics().Markets[1].ReturnDistribution

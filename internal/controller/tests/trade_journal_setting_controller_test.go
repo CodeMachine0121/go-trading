@@ -37,9 +37,12 @@ func newTradeJournalSettingRouterUnderTest(t *testing.T) tradeJournalSettingRout
 		tradeTagRepository:            mocks.NewMockITradeTagRepository(mockController),
 		contractTradeRecordRepository: mocks.NewMockIContractTradeRecordRepository(mockController),
 	}
+	spotTradeRecordRepository := mocks.NewMockISpotTradeRecordRepository(mockController)
+	spotTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 	settingController := controller.NewTradeJournalSettingController(application.NewTradeJournalSettingApplication(
 		service.NewTradeJournalSettingService(
-			fixture.tradeJournalSettingRepository, fixture.tradeTagRepository, fixture.contractTradeRecordRepository, clockProxy)))
+			fixture.tradeJournalSettingRepository, fixture.tradeTagRepository, fixture.contractTradeRecordRepository,
+			spotTradeRecordRepository, clockProxy)))
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
 	engine := gin.New()

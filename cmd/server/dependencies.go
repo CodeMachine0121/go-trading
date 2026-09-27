@@ -586,9 +586,12 @@ func registerRoutes(
 	engine.GET("/trading-strategies/:id/contract-trade-comparison", requiresSignIn,
 		contractTradeRecordController.CompareWithBacktest)
 
+	spotTradeRecordRepository := persistence.NewSpotTradeRecordRepository(database)
+
 	tradeJournalSettingController := controller.NewTradeJournalSettingController(
 		application.NewTradeJournalSettingApplication(service.NewTradeJournalSettingService(
-			tradeJournalSettingRepository, tradeTagRepository, contractTradeRecordRepository, clock.NewSystemClockProxy())))
+			tradeJournalSettingRepository, tradeTagRepository, contractTradeRecordRepository, spotTradeRecordRepository,
+			clock.NewSystemClockProxy())))
 	engine.GET("/users/me/trade-journal-settings", requiresSignIn, tradeJournalSettingController.GetSetting)
 	engine.PUT("/users/me/trade-journal-settings", requiresSignIn, tradeJournalSettingController.SaveFeeRates)
 	engine.GET("/users/me/trade-tags", requiresSignIn, tradeJournalSettingController.ListTags)

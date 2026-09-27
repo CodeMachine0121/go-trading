@@ -27,6 +27,7 @@ type tradeJournalSettingApplicationUnderTest struct {
 	tradeJournalSettingRepository *mocks.MockITradeJournalSettingRepository
 	tradeTagRepository            *mocks.MockITradeTagRepository
 	contractTradeRecordRepository *mocks.MockIContractTradeRecordRepository
+	spotTradeRecordRepository     *mocks.MockISpotTradeRecordRepository
 }
 
 func newTradeJournalSettingApplicationUnderTest(t *testing.T) tradeJournalSettingApplicationUnderTest {
@@ -34,15 +35,18 @@ func newTradeJournalSettingApplicationUnderTest(t *testing.T) tradeJournalSettin
 	tradeJournalSettingRepository := mocks.NewMockITradeJournalSettingRepository(mockController)
 	tradeTagRepository := mocks.NewMockITradeTagRepository(mockController)
 	contractTradeRecordRepository := mocks.NewMockIContractTradeRecordRepository(mockController)
+	spotTradeRecordRepository := mocks.NewMockISpotTradeRecordRepository(mockController)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
 	clockProxy.EXPECT().Now().Return(journalMoment).AnyTimes()
 
 	return tradeJournalSettingApplicationUnderTest{
 		application: application.NewTradeJournalSettingApplication(service.NewTradeJournalSettingService(
-			tradeJournalSettingRepository, tradeTagRepository, contractTradeRecordRepository, clockProxy)),
+			tradeJournalSettingRepository, tradeTagRepository, contractTradeRecordRepository, spotTradeRecordRepository,
+			clockProxy)),
 		tradeJournalSettingRepository: tradeJournalSettingRepository,
 		tradeTagRepository:            tradeTagRepository,
 		contractTradeRecordRepository: contractTradeRecordRepository,
+		spotTradeRecordRepository:     spotTradeRecordRepository,
 	}
 }
 
@@ -258,6 +262,7 @@ func TestTradeJournalSettingApplicationTags(t *testing.T) {
 		fixture := newTradeJournalSettingApplicationUnderTest(t)
 		fixture.tradeTagRepository.EXPECT().FindOne(gomock.Any(), uint(5)).Return(ownTag, nil)
 		fixture.contractTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(4), nil)
+		fixture.spotTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(0), nil)
 
 		err := fixture.application.DeleteTag(context.Background(), journalOwnerID, 5)
 
@@ -265,10 +270,32 @@ func TestTradeJournalSettingApplicationTags(t *testing.T) {
 		assert.Contains(t, err.Error(), "還有 4 筆交易貼著它，請先從交易上移除或改名")
 	})
 
+	t.Run("a tag carried only by a spot trade cannot be deleted either", func(t *testing.T) {
+		fixture := newTradeJournalSettingApplicationUnderTest(t)
+		fixture.tradeTagRepository.EXPECT().FindOne(gomock.Any(), uint(5)).Return(ownTag, nil)
+		fixture.contractTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(0), nil)
+		fixture.spotTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(1), nil)
+
+		err := fixture.application.DeleteTag(context.Background(), journalOwnerID, 5)
+
+		require.ErrorIs(t, err, domains.ErrTradeTagInUse)
+		assert.Contains(t, err.Error(), "還有 1 筆交易貼著它")
+	})
+
+	t.Run("a failed spot count stops the delete", func(t *testing.T) {
+		fixture := newTradeJournalSettingApplicationUnderTest(t)
+		fixture.tradeTagRepository.EXPECT().FindOne(gomock.Any(), uint(5)).Return(ownTag, nil)
+		fixture.contractTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(0), nil)
+		fixture.spotTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(0), errStorageDown)
+
+		require.ErrorIs(t, fixture.application.DeleteTag(context.Background(), journalOwnerID, 5), errStorageDown)
+	})
+
 	t.Run("an unused tag is deleted", func(t *testing.T) {
 		fixture := newTradeJournalSettingApplicationUnderTest(t)
 		fixture.tradeTagRepository.EXPECT().FindOne(gomock.Any(), uint(5)).Return(ownTag, nil)
 		fixture.contractTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(0), nil)
+		fixture.spotTradeRecordRepository.EXPECT().CountByTag(gomock.Any(), uint(5)).Return(int64(0), nil)
 		fixture.tradeTagRepository.EXPECT().Delete(gomock.Any(), uint(5)).Return(nil)
 
 		require.NoError(t, fixture.application.DeleteTag(context.Background(), journalOwnerID, 5))

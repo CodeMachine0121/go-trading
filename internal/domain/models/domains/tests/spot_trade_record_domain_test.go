@@ -283,6 +283,27 @@ func TestSpotTradeRecordDomainPlansReviewsAndTags(t *testing.T) {
 		assert.Equal(t, []entities.TradeTag{chasing}, entity.Tags)
 	})
 
+	t.Run("a setup tag given as a mistake is refused", func(t *testing.T) {
+		recordDomain := closedSpotTrade(t)
+
+		err := recordDomain.WriteReview(dto.SpotTradeReviewWriteDto{ExecutionScore: 4},
+			[]entities.TradeTag{{ID: 4, Kind: "setup", Name: "突破"}}, ledgerNow)
+
+		require.ErrorIs(t, err, domains.ErrSpotTradeValidation)
+		assert.Contains(t, err.Error(), "標籤「突破」不能用在這裡")
+	})
+
+	t.Run("amending the first buy under the planned stop is refused", func(t *testing.T) {
+		recordDomain, err := domains.NewOpeningSpotTradeRecordDomain(7, "2330", "taiwanStock", dto.SpotTradeRecordWriteDto{
+			Plan: dto.SpotTradePlanWriteDto{PlannedStopLossPrice: price("1000")}}, spotBuy(1, spotBoughtAt, "1050", "600"), nil, ledgerNow)
+		require.NoError(t, err)
+
+		amendError := recordDomain.AmendFill(1, spotBuy(0, spotBoughtAt, "990", "600"), ledgerNow)
+
+		require.ErrorIs(t, amendError, domains.ErrSpotTradeValidation)
+		assert.Contains(t, amendError.Error(), "止損必須低於買進價")
+	})
+
 	t.Run("an execution score of six is refused", func(t *testing.T) {
 		recordDomain := closedSpotTrade(t)
 

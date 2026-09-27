@@ -16,6 +16,7 @@ type TradeJournalSettingService struct {
 	tradeJournalSettingRepository domaininterface.ITradeJournalSettingRepository
 	tradeTagRepository            domaininterface.ITradeTagRepository
 	contractTradeRecordRepository domaininterface.IContractTradeRecordRepository
+	spotTradeRecordRepository     domaininterface.ISpotTradeRecordRepository
 	clockProxy                    domaininterface.IClockProxy
 }
 
@@ -23,12 +24,14 @@ func NewTradeJournalSettingService(
 	tradeJournalSettingRepository domaininterface.ITradeJournalSettingRepository,
 	tradeTagRepository domaininterface.ITradeTagRepository,
 	contractTradeRecordRepository domaininterface.IContractTradeRecordRepository,
+	spotTradeRecordRepository domaininterface.ISpotTradeRecordRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *TradeJournalSettingService {
 	return &TradeJournalSettingService{
 		tradeJournalSettingRepository: tradeJournalSettingRepository,
 		tradeTagRepository:            tradeTagRepository,
 		contractTradeRecordRepository: contractTradeRecordRepository,
+		spotTradeRecordRepository:     spotTradeRecordRepository,
 		clockProxy:                    clockProxy,
 	}
 }
@@ -158,11 +161,19 @@ func (tradeJournalSettingService *TradeJournalSettingService) DeleteTag(
 		return findError
 	}
 
-	carryingCount, countError := tradeJournalSettingService.contractTradeRecordRepository.CountByTag(
+	contractCarryingCount, contractCountError := tradeJournalSettingService.contractTradeRecordRepository.CountByTag(
 		executionContext, id)
-	if countError != nil {
-		return countError
+	if contractCountError != nil {
+		return contractCountError
 	}
+	spotCarryingCount, spotCountError := tradeJournalSettingService.spotTradeRecordRepository.CountByTag(
+		executionContext, id)
+	if spotCountError != nil {
+		return spotCountError
+	}
+
+	// Tags are shared by both journals, so a tag still on any trade of either stays.
+	carryingCount := contractCarryingCount + spotCarryingCount
 	if carryingCount > 0 {
 		return fmt.Errorf("%w: 還有 %d 筆交易貼著它，請先從交易上移除或改名",
 			domains.ErrTradeTagInUse, carryingCount)

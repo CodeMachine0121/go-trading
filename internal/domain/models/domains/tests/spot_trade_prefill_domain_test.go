@@ -115,8 +115,9 @@ func TestSpotTradeLiveComparisonDomain(t *testing.T) {
 	}
 
 	trades := []dto.SpotTradeRecordDto{
-		trade(1, "2330", firstClose.Add(-48*time.Hour), firstClose, "100", rOf(0.5)),
-		trade(2, "2330", firstClose.Add(24*time.Hour), firstClose.Add(72*time.Hour), "-50", nil),
+		trade(1, "2330", firstClose.Add(-24*time.Hour), firstClose, "100", rOf(0.5)),
+		trade(2, "2330", firstClose.Add(-48*time.Hour), firstClose.Add(-time.Hour), "-50", nil),
+		trade(4, "2330", firstClose.Add(24*time.Hour), firstClose.Add(72*time.Hour), "30", nil),
 		trade(3, "0050", firstClose, firstClose.Add(time.Hour), "10", rOf(0.1)),
 	}
 
@@ -133,8 +134,8 @@ func TestSpotTradeLiveComparisonDomain(t *testing.T) {
 		assert.Equal(t, "allIn", group.BacktestRequest.PositionSizingMode)
 		assert.True(t, group.BacktestRequest.EntryCostPercentage.IsZero())
 		assert.True(t, group.BacktestRequest.ExitCostPercentage.IsZero())
-		assert.Equal(t, 2, group.Live.ClosedTradeCount)
-		assert.InDelta(t, 0.5, *group.Live.WinRate, 0.0001)
+		assert.Equal(t, 3, group.Live.ClosedTradeCount)
+		assert.InDelta(t, 2.0/3.0, *group.Live.WinRate, 0.0001)
 		assert.InDelta(t, 0.5, *group.Live.AverageEntrySlippagePercentage, 0.0001)
 		assert.InDelta(t, 0.3, *plan.AverageEntrySlippagePercentage, 0.0001)
 		assert.Equal(t, 2, plan.EntrySlippageTradeCount)
@@ -156,7 +157,7 @@ func TestSpotTradeLiveComparisonDomain(t *testing.T) {
 		require.NotNil(t, rows[1].Backtest)
 		assert.Equal(t, 3, rows[1].Backtest.ClosedTradeCount)
 		assert.InDelta(t, 0.6, *rows[1].Backtest.WinRate, 0.0001)
-		assert.Equal(t, 2, rows[1].Live.ClosedTradeCount)
+		assert.Equal(t, 3, rows[1].Live.ClosedTradeCount)
 	})
 
 	t.Run("a deleted strategy keeps its live figures", func(t *testing.T) {
