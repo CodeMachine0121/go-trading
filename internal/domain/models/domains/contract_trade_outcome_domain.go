@@ -81,7 +81,9 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		outcomeDto.RMultipleUnavailableReason = rMultipleUnavailableNoStopLoss
 	}
 
-	if outcomeDto.Excursion.Available && outcomeDto.Excursion.FavorableProfit.IsPositive() {
+	// Only a finished trade has a share captured; while held, the realised part is not the trade's result.
+	isHeld := outcomeDomain.record.Status == string(vo.ContractTradeStatusOpen)
+	if !isHeld && outcomeDto.Excursion.Available && outcomeDto.Excursion.FavorableProfit.IsPositive() {
 		profitCaptureRate := grossProfit.Div(outcomeDto.Excursion.FavorableProfit).InexactFloat64()
 		outcomeDto.ProfitCaptureRate = &profitCaptureRate
 	}

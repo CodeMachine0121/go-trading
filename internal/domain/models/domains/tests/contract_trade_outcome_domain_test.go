@@ -180,6 +180,18 @@ func TestContractTradeOutcomeDomainExcursions(t *testing.T) {
 		assert.Nil(t, outcome.ProfitCaptureRate)
 	})
 
+	t.Run("a trade still held has no share captured yet", func(t *testing.T) {
+		outcome := journalOutcomeOf(openBitcoinLong(), vo.ContractTradeMarketFactsVo{
+			ExtremesRequested: true,
+			PriceExtremes: vo.PriceExtremesVo{
+				LowestPrice: decimal.RequireFromString("97110"), HighestPrice: decimal.RequireFromString("100960"), Has: true,
+			},
+		}).Outcome()
+
+		require.True(t, outcome.Excursion.Available)
+		assert.Nil(t, outcome.ProfitCaptureRate)
+	})
+
 	t.Run("a summary does not work excursions out", func(t *testing.T) {
 		outcome := journalOutcomeOf(theBitcoinLong(), vo.ContractTradeMarketFactsVo{}).Outcome()
 
