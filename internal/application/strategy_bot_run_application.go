@@ -33,7 +33,7 @@ type StrategyBotRunApplication struct {
 	telegramDeliveryService             *service.TelegramDeliveryService
 	kCandleService                      *service.KCandleService
 	kCandleContractService              *service.KCandleContractService
-	tradeJournalLinkService     *service.TradeJournalLinkService
+	tradeJournalLinkService             *service.TradeJournalLinkService
 	clockProxy                          domaininterface.IClockProxy
 	roundGuard                          *StrategyBotRoundGuard
 	maxConcurrentRounds                 int
@@ -64,7 +64,7 @@ func NewStrategyBotRunApplication(
 		telegramDeliveryService:             telegramDeliveryService,
 		kCandleService:                      kCandleService,
 		kCandleContractService:              kCandleContractService,
-		tradeJournalLinkService:     tradeJournalLinkService,
+		tradeJournalLinkService:             tradeJournalLinkService,
 		clockProxy:                          clockProxy,
 		roundGuard:                          roundGuard,
 		maxConcurrentRounds:                 maxConcurrentRounds,
