@@ -12,6 +12,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -272,6 +273,33 @@ func (journalService *ContractTradeJournalService) GetStatistics(
 	closedTrades := journalService.summariesOf(executionContext, records, nil)
 
 	return domains.NewContractTradeStatisticsDomain(periodDomain.Value(), closedTrades).Statistics(), nil
+}
+
+// ListComparableGroups groups the person's closed trades that followed a strategy by symbol, each with the replay to set beside it.
+func (journalService *ContractTradeJournalService) ListComparableGroups(
+	executionContext context.Context, viewerID uint, tradingStrategyID uint,
+) ([]dto.ContractTradeComparisonGroupDto, error) {
+	records, findError := journalService.contractTradeRecordRepository.FindClosedByOwnerAndTradingStrategy(
+		executionContext, viewerID, tradingStrategyID)
+	if findError != nil {
+		return nil, findError
+	}
+
+	setting, settingError := journalService.settingOf(executionContext, viewerID)
+	if settingError != nil {
+		return nil, settingError
+	}
+
+	closedTrades := journalService.summariesOf(executionContext, records, nil)
+
+	return domains.NewContractTradeLiveComparisonDomain(closedTrades, setting.TakerFeeRate()).Groups(), nil
+}
+
+// ComposeLiveComparison lines each group up with how its replay went.
+func (journalService *ContractTradeJournalService) ComposeLiveComparison(
+	groups []dto.ContractTradeComparisonGroupDto, attempts []dto.ContractTradeBacktestAttemptDto,
+) []dto.ContractTradeLiveComparisonRowDto {
+	return domains.NewContractTradeLiveComparisonDomain(nil, decimal.Zero).Compose(groups, attempts)
 }
 
 // PrepareJournalLink reads what a bot round's link prefills and records nothing; only the bot's owner may read it.
