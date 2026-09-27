@@ -72,6 +72,18 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Groups() []dto.Contrac
 	return groups
 }
 
+// ComposeForDeletedTradingStrategy keeps the live figures and says why nothing was replayed.
+func (comparisonDomain ContractTradeLiveComparisonDomain) ComposeForDeletedTradingStrategy(
+	groups []dto.ContractTradeComparisonGroupDto,
+) []dto.ContractTradeLiveComparisonRowDto {
+	attempts := make([]dto.ContractTradeBacktestAttemptDto, len(groups))
+	for index := range attempts {
+		attempts[index].FailureReason = "交易策略已刪除，無法重演"
+	}
+
+	return comparisonDomain.Compose(groups, attempts)
+}
+
 // Compose lines each group up with how its replay went, in the same order.
 func (comparisonDomain ContractTradeLiveComparisonDomain) Compose(
 	groups []dto.ContractTradeComparisonGroupDto, attempts []dto.ContractTradeBacktestAttemptDto,
@@ -107,44 +119,15 @@ func (comparisonDomain ContractTradeLiveComparisonDomain) Compose(
 	return rows
 }
 
-// figuresOf counts a win by net profit above zero, the same way a replay's summary does.
 func (comparisonDomain ContractTradeLiveComparisonDomain) figuresOf(
 	trades []dto.ContractTradeRecordDto,
 ) dto.ContractTradeComparisonFiguresDto {
-	winCount, longCount, longWinCount, shortCount, shortWinCount := 0, 0, 0, 0, 0
-	for _, trade := range trades {
-		won := trade.Outcome.NetProfit.IsPositive()
-		if won {
-			winCount++
-		}
-		if trade.Direction == string(vo.PositionDirectionShort) {
-			shortCount++
-			if won {
-				shortWinCount++
-			}
-			continue
-		}
-		longCount++
-		if won {
-			longWinCount++
-		}
-	}
+	tally := NewContractTradeWinTallyDomain(trades)
 
 	return dto.ContractTradeComparisonFiguresDto{
-		ClosedTradeCount: len(trades),
-		WinRate:          comparisonDomain.shareOf(winCount, len(trades)),
-		LongWinRate:      comparisonDomain.shareOf(longWinCount, longCount),
-		ShortWinRate:     comparisonDomain.shareOf(shortWinCount, shortCount),
+		ClosedTradeCount: tally.TradeCount(),
+		WinRate:          tally.WinRate(),
+		LongWinRate:      tally.OfDirection(vo.PositionDirectionLong).WinRate(),
+		ShortWinRate:     tally.OfDirection(vo.PositionDirectionShort).WinRate(),
 	}
-}
-
-// shareOf is nil for a side with no trades, matching a replay's summary.
-func (comparisonDomain ContractTradeLiveComparisonDomain) shareOf(part int, whole int) *float64 {
-	if whole == 0 {
-		return nil
-	}
-
-	share := float64(part) / float64(whole)
-
-	return &share
 }

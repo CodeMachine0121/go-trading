@@ -52,12 +52,10 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 	winningGrossProfit := decimal.Zero
 	costs := decimal.Zero
 	cumulativeRMultiple := 0.0
-	rMultiples := []float64{}
 	slippageTotal := 0.0
 	bucketCounts := make([]int, len(contractTradeRBuckets))
 	mistakeCostIndexByTag := map[uint]int{}
-	withTradingStrategy := []dto.ContractTradeRecordDto{}
-	selfJudged := []dto.ContractTradeRecordDto{}
+	tally := NewContractTradeWinTallyDomain(statisticsDomain.trades)
 
 	for _, trade := range statisticsDomain.trades {
 		outcome := trade.Outcome
@@ -67,18 +65,11 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 			costs = costs.Add(outcome.Funding.Amount.Neg())
 		}
 
-		if outcome.NetProfit.IsPositive() {
-			statisticsDto.WinCount++
+		if tally.IsWin(trade) {
 			winningProfit = winningProfit.Add(outcome.NetProfit)
 			winningGrossProfit = winningGrossProfit.Add(outcome.GrossProfit)
 		} else {
 			losingLoss = losingLoss.Add(outcome.NetProfit.Neg())
-		}
-
-		if trade.TradingStrategyID != nil {
-			withTradingStrategy = append(withTradingStrategy, trade)
-		} else {
-			selfJudged = append(selfJudged, trade)
 		}
 
 		if outcome.EntrySlippagePercentage != nil {
@@ -92,7 +83,6 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 		}
 
 		rMultiple := *outcome.RMultiple
-		rMultiples = append(rMultiples, rMultiple)
 		cumulativeRMultiple += rMultiple
 		statisticsDto.CumulativeR = append(statisticsDto.CumulativeR, dto.ContractTradeCumulativeRPointDto{
 			TradeID:             trade.ID,
@@ -121,8 +111,9 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 		}
 	}
 
-	statisticsDto.WinRate = statisticsDomain.shareOf(statisticsDto.WinCount, statisticsDto.ClosedTradeCount)
-	statisticsDto.AverageRMultiple = statisticsDomain.averageOf(rMultiples)
+	statisticsDto.WinCount = tally.WinCount()
+	statisticsDto.WinRate = tally.WinRate()
+	statisticsDto.AverageRMultiple = tally.AverageRMultiple()
 	statisticsDto.RDistribution = make([]dto.ContractTradeRBucketDto, 0, len(contractTradeRBuckets))
 	for bucketIndex, bucket := range contractTradeRBuckets {
 		statisticsDto.RDistribution = append(statisticsDto.RDistribution, dto.ContractTradeRBucketDto{
@@ -149,55 +140,18 @@ func (statisticsDomain ContractTradeStatisticsDomain) Statistics() dto.ContractT
 		statisticsDto.AverageEntrySlippagePercentage = &averageEntrySlippagePercentage
 	}
 
-	statisticsDto.WithTradingStrategy = statisticsDomain.groupStatisticsOf(withTradingStrategy)
-	statisticsDto.SelfJudged = statisticsDomain.groupStatisticsOf(selfJudged)
+	statisticsDto.WithTradingStrategy = statisticsDomain.groupStatisticsOf(tally.FollowingATradingStrategy(true))
+	statisticsDto.SelfJudged = statisticsDomain.groupStatisticsOf(tally.FollowingATradingStrategy(false))
 
 	return statisticsDto
 }
 
 func (statisticsDomain ContractTradeStatisticsDomain) groupStatisticsOf(
-	trades []dto.ContractTradeRecordDto,
+	tally ContractTradeWinTallyDomain,
 ) dto.ContractTradeGroupStatisticsDto {
-	winCount := 0
-	rMultiples := []float64{}
-	for _, trade := range trades {
-		if trade.Outcome.NetProfit.IsPositive() {
-			winCount++
-		}
-		if trade.Outcome.RMultiple != nil {
-			rMultiples = append(rMultiples, *trade.Outcome.RMultiple)
-		}
-	}
-
 	return dto.ContractTradeGroupStatisticsDto{
-		TradeCount:       len(trades),
-		WinRate:          statisticsDomain.shareOf(winCount, len(trades)),
-		AverageRMultiple: statisticsDomain.averageOf(rMultiples),
+		TradeCount:       tally.TradeCount(),
+		WinRate:          tally.WinRate(),
+		AverageRMultiple: tally.AverageRMultiple(),
 	}
-}
-
-// shareOf is nil for an empty group, since no trades is not the same as no wins.
-func (statisticsDomain ContractTradeStatisticsDomain) shareOf(part int, whole int) *float64 {
-	if whole == 0 {
-		return nil
-	}
-
-	share := float64(part) / float64(whole)
-
-	return &share
-}
-
-func (statisticsDomain ContractTradeStatisticsDomain) averageOf(values []float64) *float64 {
-	if len(values) == 0 {
-		return nil
-	}
-
-	total := 0.0
-	for _, value := range values {
-		total += value
-	}
-
-	average := total / float64(len(values))
-
-	return &average
 }
