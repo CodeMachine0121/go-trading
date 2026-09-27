@@ -225,3 +225,32 @@ func (strategyScriptService *StrategyScriptService) isPublished(
 
 	return true, nil
 }
+
+// ResolveSignalSources fetches each source's script and re-checks access, since a script can be
+// deleted or withdrawn after the strategy was saved; it also says whose words a failed replay can carry.
+func (strategyScriptService *StrategyScriptService) ResolveSignalSources(
+	executionContext context.Context, viewerID uint, tradingStrategyDto dto.TradingStrategyDto,
+) ([]dto.ResolvedSignalSourceDto, domains.StrategyScriptAuthorshipDomain, error) {
+	resolvedSources := make([]dto.ResolvedSignalSourceDto, 0, len(tradingStrategyDto.SignalSources))
+	runnableStrategyScripts := make([]dto.RunnableStrategyScriptDto, 0, len(tradingStrategyDto.SignalSources))
+
+	for _, signalSource := range tradingStrategyDto.SignalSources {
+		runnableStrategyScript, resolveError := strategyScriptService.ResolveOwnedStrategyScript(
+			executionContext, viewerID, signalSource.StrategyScriptID)
+		if resolveError != nil {
+			return nil, domains.StrategyScriptAuthorshipDomain{}, resolveError
+		}
+
+		runnableStrategyScripts = append(runnableStrategyScripts, runnableStrategyScript)
+		resolvedSources = append(resolvedSources, dto.ResolvedSignalSourceDto{
+			Label:               signalSource.Label,
+			AggregationInterval: signalSource.AggregationInterval,
+			Script:              runnableStrategyScript.Script,
+			MarketDataKind:      runnableStrategyScript.MarketDataKind,
+			Parameters:          runnableStrategyScript.Parameters,
+			ParameterValues:     signalSource.ParameterValues,
+		})
+	}
+
+	return resolvedSources, domains.NewStrategyScriptAuthorshipDomain(runnableStrategyScripts), nil
+}

@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
@@ -45,7 +44,7 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 		return dto.BacktestResultDto{}, findError
 	}
 
-	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.resolveSignalSources(
+	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.strategyScriptService.ResolveSignalSources(
 		executionContext, viewerID, tradingStrategyDto)
 	if resolveError != nil {
 		return dto.BacktestResultDto{}, resolveError
@@ -76,7 +75,7 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 		return dto.ContractBacktestResultDto{}, findError
 	}
 
-	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.resolveSignalSources(
+	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.strategyScriptService.ResolveSignalSources(
 		executionContext, viewerID, tradingStrategyDto)
 	if resolveError != nil {
 		return dto.ContractBacktestResultDto{}, resolveError
@@ -92,33 +91,4 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 		RunContractTradingStrategyBacktest(executionContext, requestDto)
 
 	return resultDto, authorship.AttributeFailure(replayError)
-}
-
-// resolveSignalSources fetches each source's script and re-checks access, since a script can be
-// deleted or withdrawn after the strategy was saved; it also says whose words a failed replay can carry.
-func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) resolveSignalSources(
-	executionContext context.Context, viewerID uint, tradingStrategyDto dto.TradingStrategyDto,
-) ([]dto.ResolvedSignalSourceDto, domains.StrategyScriptAuthorshipDomain, error) {
-	resolvedSources := make([]dto.ResolvedSignalSourceDto, 0, len(tradingStrategyDto.SignalSources))
-	runnableStrategyScripts := make([]dto.RunnableStrategyScriptDto, 0, len(tradingStrategyDto.SignalSources))
-
-	for _, signalSource := range tradingStrategyDto.SignalSources {
-		runnableStrategyScript, resolveError := tradingStrategyBacktestApplication.strategyScriptService.
-			ResolveOwnedStrategyScript(executionContext, viewerID, signalSource.StrategyScriptID)
-		if resolveError != nil {
-			return nil, domains.StrategyScriptAuthorshipDomain{}, resolveError
-		}
-
-		runnableStrategyScripts = append(runnableStrategyScripts, runnableStrategyScript)
-		resolvedSources = append(resolvedSources, dto.ResolvedSignalSourceDto{
-			Label:               signalSource.Label,
-			AggregationInterval: signalSource.AggregationInterval,
-			Script:              runnableStrategyScript.Script,
-			MarketDataKind:      runnableStrategyScript.MarketDataKind,
-			Parameters:          runnableStrategyScript.Parameters,
-			ParameterValues:     signalSource.ParameterValues,
-		})
-	}
-
-	return resolvedSources, domains.NewStrategyScriptAuthorshipDomain(runnableStrategyScripts), nil
 }
