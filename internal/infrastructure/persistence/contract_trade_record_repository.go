@@ -290,14 +290,9 @@ func (contractTradeRecordRepository *ContractTradeRecordRepository) CountByTag(
 		return 0, nil
 	}
 
-	taggedRecordIDValues := make([]any, 0, len(taggedRecordIDs))
-	for _, taggedRecordID := range taggedRecordIDs {
-		taggedRecordIDValues = append(taggedRecordIDValues, taggedRecordID)
-	}
-
 	count := int64(0)
 	countResult := contractTradeRecordRepository.notDeleted(executionContext).
-		Where(clause.IN{Column: clause.Column{Name: "id"}, Values: taggedRecordIDValues}).
+		Where(map[string]any{"id": taggedRecordIDs}).
 		Count(&count)
 	if countResult.Error != nil {
 		return 0, fmt.Errorf("count trades carrying a tag: %w", countResult.Error)
