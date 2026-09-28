@@ -25,7 +25,8 @@ type ContractTradeOutcomeDto struct {
 	// EntryNotional is the average entry price times everything entered.
 	EntryNotional decimal.Decimal `json:"entryNotional"`
 	EntryMargin   decimal.Decimal `json:"entryMargin"`
-	// ReturnOnMarginPercentage is net profit over margin; 24.13 is 24.13%.
+	// EntryMargin is the entered value over leverage, so a trade that scaled out and back in counts both entries.
+	// ReturnOnMarginPercentage is net profit over margin; 24.13 is 24.13%. It leaves funding out whenever NetProfitExcludesFunding does.
 	ReturnOnMarginPercentage *float64 `json:"returnOnMarginPercentage"`
 	// ReturnOnMarginUnavailableReason is notClosed while the trade is held.
 	ReturnOnMarginUnavailableReason string `json:"returnOnMarginUnavailableReason"`

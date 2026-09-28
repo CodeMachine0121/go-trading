@@ -361,6 +361,38 @@ func TestContractTradeOutcomeDomainPositionSize(t *testing.T) {
 		assert.Nil(t, outcome.ReturnOnMarginPercentage)
 		assert.Equal(t, "notClosed", outcome.ReturnOnMarginUnavailableReason)
 	})
+
+	t.Run("a reviewed trade has a return on margin like any finished one", func(t *testing.T) {
+		record := theBitcoinLong()
+		record.Status = string(vo.ContractTradeStatusReviewed)
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{
+			FundingSettlements: threeSettlements("0.0001", "99020"), FundingSettlementDue: true,
+		}).Outcome()
+
+		require.NotNil(t, outcome.ReturnOnMarginPercentage)
+		assert.InDelta(t, 24.13, *outcome.ReturnOnMarginPercentage, 0.005)
+	})
+
+	t.Run("a leverage that is not positive reads as one times instead of failing the read", func(t *testing.T) {
+		record := theBitcoinLong()
+		record.Leverage = decimal.Zero
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, "4994.31", outcome.EntryMargin.StringFixed(2))
+	})
+
+	t.Run("a margin that does not divide evenly is rounded like the averages", func(t *testing.T) {
+		record := entities.ContractTradeRecord{
+			Direction: "long", Leverage: decimal.NewFromInt(3), Status: string(vo.ContractTradeStatusOpen),
+			Fills: []entities.ContractTradeFill{entryFill(1, tradeOpenedAt, "1000", "1")},
+		}
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, "333.333333333333", outcome.EntryMargin.String())
+	})
 }
 
 func TestContractTradeOutcomeDomainImplausibleFees(t *testing.T) {

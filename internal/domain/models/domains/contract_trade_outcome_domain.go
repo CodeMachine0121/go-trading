@@ -4,6 +4,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -14,6 +15,12 @@ const (
 	outcomeUnavailableNotComputed            = "notComputed"
 	outcomeUnavailableNotClosed              = "notClosed"
 )
+
+// contractPlausibleFeeRateBand is far wider than any contract venue's rate, so only a fee written against the wrong unit falls outside it.
+var contractPlausibleFeeRateBand = vo.PlausibleFeeRateBandVo{
+	LowestPercentage:  decimal.RequireFromString("0.001"),
+	HighestPercentage: decimal.RequireFromString("0.5"),
+}
 
 // ContractTradeOutcomeDomain puts a trade's fills, plan and market facts together into what it came to.
 type ContractTradeOutcomeDomain struct {
@@ -119,8 +126,13 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		entrySlippagePercentage = &slippagePercentage
 	}
 
+	// A leverage that is not positive is one times, the same reading a trade gets when it is opened.
+	leverage := outcomeDomain.record.Leverage
+	if !leverage.IsPositive() {
+		leverage = oneWhole
+	}
 	entryNotional := ledger.EntryValue()
-	entryMargin := entryNotional.Div(outcomeDomain.record.Leverage)
+	entryMargin := entryNotional.DivRound(leverage, averagePriceScale)
 
 	outcomeDto := dto.ContractTradeOutcomeDto{
 		GrossProfit:              grossProfit,
@@ -138,7 +150,7 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		EntrySlippagePercentage: entrySlippagePercentage,
 		EntryNotional:           entryNotional,
 		EntryMargin:             entryMargin,
-		ImplausibleFeeFillIDs:   ledger.ImplausibleFeeFillIDs(),
+		ImplausibleFeeFillIDs:   ledger.ImplausibleFeeFillIDs(contractPlausibleFeeRateBand),
 	}
 
 	switch {

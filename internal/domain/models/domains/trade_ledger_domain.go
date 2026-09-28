@@ -13,12 +13,6 @@ import (
 // averagePriceScale keeps averages exact enough to multiply back into money without drifting a cent.
 const averagePriceScale = 12
 
-// A fee this far from any venue's rate means the quantity or the fee was written in the wrong unit.
-var (
-	lowestPlausibleFeeRatePercentage  = decimal.RequireFromString("0.001")
-	highestPlausibleFeeRatePercentage = decimal.RequireFromString("0.5")
-)
-
 // TradeLedgerDomain is a trade's fills in the order they happened; it knows no market, so the contract and spot journals share it.
 type TradeLedgerDomain struct {
 	fills   []vo.TradeLedgerFillVo
@@ -106,8 +100,8 @@ func (ledgerDomain TradeLedgerDomain) TotalFee() decimal.Decimal {
 	return totalFee
 }
 
-// ImplausibleFeeFillIDs are the fills whose fee is no believable share of what they were worth; a zero fee is never one.
-func (ledgerDomain TradeLedgerDomain) ImplausibleFeeFillIDs() []uint {
+// ImplausibleFeeFillIDs are the fills whose fee falls outside the band; a zero fee is never one, since no rate or a free venue both write zero.
+func (ledgerDomain TradeLedgerDomain) ImplausibleFeeFillIDs(band vo.PlausibleFeeRateBandVo) []uint {
 	fillIDs := []uint{}
 	for _, fill := range ledgerDomain.fills {
 		fillValue := fill.Price.Mul(fill.Quantity)
@@ -116,8 +110,7 @@ func (ledgerDomain TradeLedgerDomain) ImplausibleFeeFillIDs() []uint {
 		}
 
 		feeRatePercentage := fill.Fee.Div(fillValue).Mul(oneHundredPercent)
-		if feeRatePercentage.LessThan(lowestPlausibleFeeRatePercentage) ||
-			feeRatePercentage.GreaterThan(highestPlausibleFeeRatePercentage) {
+		if feeRatePercentage.LessThan(band.LowestPercentage) || feeRatePercentage.GreaterThan(band.HighestPercentage) {
 			fillIDs = append(fillIDs, fill.ID)
 		}
 	}
