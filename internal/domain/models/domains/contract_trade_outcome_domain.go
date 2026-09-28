@@ -12,6 +12,7 @@ const (
 	outcomeUnavailableNoLatestPrice          = "noLatestPrice"
 	outcomeUnavailableNoTradingSpecification = "noTradingSpecification"
 	outcomeUnavailableNotComputed            = "notComputed"
+	outcomeUnavailableNotClosed              = "notClosed"
 )
 
 // ContractTradeOutcomeDomain puts a trade's fills, plan and market facts together into what it came to.
@@ -118,6 +119,9 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		entrySlippagePercentage = &slippagePercentage
 	}
 
+	entryNotional := ledger.EntryValue()
+	entryMargin := entryNotional.Div(outcomeDomain.record.Leverage)
+
 	outcomeDto := dto.ContractTradeOutcomeDto{
 		GrossProfit:              grossProfit,
 		TotalFee:                 totalFee,
@@ -132,6 +136,17 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		FloatingProfit:          floatingProfit,
 		LiquidationPrice:        liquidation,
 		EntrySlippagePercentage: entrySlippagePercentage,
+		EntryNotional:           entryNotional,
+		EntryMargin:             entryMargin,
+		ImplausibleFeeFillIDs:   ledger.ImplausibleFeeFillIDs(),
+	}
+
+	switch {
+	case isHeld:
+		outcomeDto.ReturnOnMarginUnavailableReason = outcomeUnavailableNotClosed
+	case entryMargin.IsPositive():
+		returnOnMarginPercentage := netProfit.Div(entryMargin).Mul(oneHundredPercent).InexactFloat64()
+		outcomeDto.ReturnOnMarginPercentage = &returnOnMarginPercentage
 	}
 
 	if !plannedRisk.Value().Valid {
