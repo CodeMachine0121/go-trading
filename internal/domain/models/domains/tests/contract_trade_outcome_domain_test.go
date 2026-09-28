@@ -316,3 +316,136 @@ func TestContractTradeOutcomeDomainEntrySlippage(t *testing.T) {
 		assert.Nil(t, journalOutcomeOf(openBitcoinLong(), vo.ContractTradeMarketFactsVo{}).Outcome().EntrySlippagePercentage)
 	})
 }
+
+func TestContractTradeOutcomeDomainPositionSize(t *testing.T) {
+	t.Run("a closed trade says its notional, margin and return on margin", func(t *testing.T) {
+		outcome := journalOutcomeOf(theBitcoinLong(), vo.ContractTradeMarketFactsVo{
+			FundingSettlements: threeSettlements("0.0001", "99020"), FundingSettlementDue: true,
+		}).Outcome()
+
+		assert.Equal(t, "4994.31", outcome.EntryNotional.StringFixed(2))
+		assert.Equal(t, "499.43", outcome.EntryMargin.StringFixed(2))
+		require.NotNil(t, outcome.ReturnOnMarginPercentage)
+		assert.InDelta(t, 24.13, *outcome.ReturnOnMarginPercentage, 0.005)
+		assert.Empty(t, outcome.ReturnOnMarginUnavailableReason)
+	})
+
+	t.Run("at one times leverage the margin is the notional", func(t *testing.T) {
+		closedAt := tradeOpenedAt.Add(time.Hour)
+		record := entities.ContractTradeRecord{
+			Direction: "long", Leverage: decimal.NewFromInt(1), Status: string(vo.ContractTradeStatusClosed),
+			ClosedAt: &closedAt,
+			Fills: []entities.ContractTradeFill{
+				entryFill(1, tradeOpenedAt, "84780.9", "0.0013"), exitFill(2, closedAt, "84510.4", "0.0013"),
+			},
+		}
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, "110.22", outcome.EntryNotional.StringFixed(2))
+		assert.Equal(t, "110.22", outcome.EntryMargin.StringFixed(2))
+		require.NotNil(t, outcome.ReturnOnMarginPercentage)
+		assert.InDelta(t, -0.32, *outcome.ReturnOnMarginPercentage, 0.005)
+	})
+
+	t.Run("a held trade has a size but no return on margin yet", func(t *testing.T) {
+		record := entities.ContractTradeRecord{
+			Direction: "long", Leverage: decimal.NewFromInt(5), Status: string(vo.ContractTradeStatusOpen),
+			Fills: []entities.ContractTradeFill{entryFill(1, tradeOpenedAt, "100", "2")},
+		}
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, "200", outcome.EntryNotional.String())
+		assert.Equal(t, "40", outcome.EntryMargin.String())
+		assert.Nil(t, outcome.ReturnOnMarginPercentage)
+		assert.Equal(t, "notClosed", outcome.ReturnOnMarginUnavailableReason)
+	})
+
+	t.Run("a reviewed trade has a return on margin like any finished one", func(t *testing.T) {
+		record := theBitcoinLong()
+		record.Status = string(vo.ContractTradeStatusReviewed)
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{
+			FundingSettlements: threeSettlements("0.0001", "99020"), FundingSettlementDue: true,
+		}).Outcome()
+
+		require.NotNil(t, outcome.ReturnOnMarginPercentage)
+		assert.InDelta(t, 24.13, *outcome.ReturnOnMarginPercentage, 0.005)
+	})
+
+	t.Run("a leverage that is not positive reads as one times instead of failing the read", func(t *testing.T) {
+		record := theBitcoinLong()
+		record.Leverage = decimal.Zero
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, "4994.31", outcome.EntryMargin.StringFixed(2))
+	})
+
+	t.Run("a margin that does not divide evenly is rounded like the averages", func(t *testing.T) {
+		record := entities.ContractTradeRecord{
+			Direction: "long", Leverage: decimal.NewFromInt(3), Status: string(vo.ContractTradeStatusOpen),
+			Fills: []entities.ContractTradeFill{entryFill(1, tradeOpenedAt, "1000", "1")},
+		}
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, "333.333333333333", outcome.EntryMargin.String())
+	})
+}
+
+func TestContractTradeOutcomeDomainImplausibleFees(t *testing.T) {
+	testCases := []struct {
+		name            string
+		price           string
+		quantity        string
+		fee             string
+		wantImplausible bool
+	}{
+		{name: "a fee far too small for one whole bitcoin", price: "84780.9", quantity: "1", fee: "0.05", wantImplausible: true},
+		{name: "a taker fee at a usual rate", price: "97905", quantity: "0.030", fee: "1.47", wantImplausible: false},
+		{name: "a zero fee is never implausible", price: "100", quantity: "1", fee: "0", wantImplausible: false},
+		{name: "just under the lowest believable rate", price: "100", quantity: "1", fee: "0.00099", wantImplausible: true},
+		{name: "exactly the lowest believable rate", price: "100", quantity: "1", fee: "0.001", wantImplausible: false},
+		{name: "exactly the highest believable rate", price: "100", quantity: "1", fee: "0.5", wantImplausible: false},
+		{name: "over the highest believable rate", price: "100", quantity: "1", fee: "0.6", wantImplausible: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fill := entryFill(7, tradeOpenedAt, testCase.price, testCase.quantity)
+			fill.Fee = decimal.RequireFromString(testCase.fee)
+			record := entities.ContractTradeRecord{
+				Direction: "long", Leverage: decimal.NewFromInt(2), Status: string(vo.ContractTradeStatusOpen),
+				Fills: []entities.ContractTradeFill{fill},
+			}
+
+			outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+			if testCase.wantImplausible {
+				assert.Equal(t, []uint{7}, outcome.ImplausibleFeeFillIDs)
+				return
+			}
+			assert.Empty(t, outcome.ImplausibleFeeFillIDs)
+		})
+	}
+
+	t.Run("only the fills that do not add up are named, in the order they happened", func(t *testing.T) {
+		closedAt := tradeOpenedAt.Add(time.Hour)
+		opening := entryFill(1, tradeOpenedAt, "84780.9", "1")
+		opening.Fee = decimal.RequireFromString("0.05")
+		addition := entryFill(2, tradeOpenedAt.Add(time.Minute), "84800", "1")
+		addition.Fee = decimal.RequireFromString("42.4")
+		closing := exitFill(3, closedAt, "84510.4", "2")
+		closing.Fee = decimal.RequireFromString("0.05")
+		record := entities.ContractTradeRecord{
+			Direction: "long", Leverage: decimal.NewFromInt(2), Status: string(vo.ContractTradeStatusClosed),
+			ClosedAt: &closedAt, Fills: []entities.ContractTradeFill{closing, addition, opening},
+		}
+
+		outcome := journalOutcomeOf(record, vo.ContractTradeMarketFactsVo{}).Outcome()
+
+		assert.Equal(t, []uint{1, 3}, outcome.ImplausibleFeeFillIDs)
+	})
+}

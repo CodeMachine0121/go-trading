@@ -4,6 +4,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -12,7 +13,14 @@ const (
 	outcomeUnavailableNoLatestPrice          = "noLatestPrice"
 	outcomeUnavailableNoTradingSpecification = "noTradingSpecification"
 	outcomeUnavailableNotComputed            = "notComputed"
+	outcomeUnavailableNotClosed              = "notClosed"
 )
+
+// contractPlausibleFeeRateBand is far wider than any contract venue's rate, so only a fee written against the wrong unit falls outside it.
+var contractPlausibleFeeRateBand = vo.PlausibleFeeRateBandVo{
+	LowestPercentage:  decimal.RequireFromString("0.001"),
+	HighestPercentage: decimal.RequireFromString("0.5"),
+}
 
 // ContractTradeOutcomeDomain puts a trade's fills, plan and market facts together into what it came to.
 type ContractTradeOutcomeDomain struct {
@@ -118,6 +126,14 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		entrySlippagePercentage = &slippagePercentage
 	}
 
+	// A leverage that is not positive is one times, the same reading a trade gets when it is opened.
+	leverage := outcomeDomain.record.Leverage
+	if !leverage.IsPositive() {
+		leverage = oneWhole
+	}
+	entryNotional := ledger.EntryValue()
+	entryMargin := entryNotional.DivRound(leverage, averagePriceScale)
+
 	outcomeDto := dto.ContractTradeOutcomeDto{
 		GrossProfit:              grossProfit,
 		TotalFee:                 totalFee,
@@ -132,6 +148,17 @@ func (outcomeDomain ContractTradeOutcomeDomain) Outcome() dto.ContractTradeOutco
 		FloatingProfit:          floatingProfit,
 		LiquidationPrice:        liquidation,
 		EntrySlippagePercentage: entrySlippagePercentage,
+		EntryNotional:           entryNotional,
+		EntryMargin:             entryMargin,
+		ImplausibleFeeFillIDs:   ledger.ImplausibleFeeFillIDs(contractPlausibleFeeRateBand),
+	}
+
+	switch {
+	case isHeld:
+		outcomeDto.ReturnOnMarginUnavailableReason = outcomeUnavailableNotClosed
+	case entryMargin.IsPositive():
+		returnOnMarginPercentage := netProfit.Div(entryMargin).Mul(oneHundredPercent).InexactFloat64()
+		outcomeDto.ReturnOnMarginPercentage = &returnOnMarginPercentage
 	}
 
 	if !plannedRisk.Value().Valid {

@@ -100,6 +100,24 @@ func (ledgerDomain TradeLedgerDomain) TotalFee() decimal.Decimal {
 	return totalFee
 }
 
+// ImplausibleFeeFillIDs are the fills whose fee falls outside the band; a zero fee is never one, since no rate or a free venue both write zero.
+func (ledgerDomain TradeLedgerDomain) ImplausibleFeeFillIDs(band vo.PlausibleFeeRateBandVo) []uint {
+	fillIDs := []uint{}
+	for _, fill := range ledgerDomain.fills {
+		fillValue := fill.Price.Mul(fill.Quantity)
+		if !fill.Fee.IsPositive() || !fillValue.IsPositive() {
+			continue
+		}
+
+		feeRatePercentage := fill.Fee.Div(fillValue).Mul(oneHundredPercent)
+		if feeRatePercentage.LessThan(band.LowestPercentage) || feeRatePercentage.GreaterThan(band.HighestPercentage) {
+			fillIDs = append(fillIDs, fill.ID)
+		}
+	}
+
+	return fillIDs
+}
+
 // EntryValue is what everything bought or opened cost before fees.
 func (ledgerDomain TradeLedgerDomain) EntryValue() decimal.Decimal {
 	return ledgerDomain.valueOf(vo.ContractTradeFillKindEntry)

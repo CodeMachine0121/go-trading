@@ -22,6 +22,16 @@ type ContractTradeOutcomeDto struct {
 	LiquidationPrice           ContractTradeLiquidationDto `json:"liquidationPrice"`
 	// EntrySlippagePercentage is positive when the fill was worse than the bot's reference price.
 	EntrySlippagePercentage *float64 `json:"entrySlippagePercentage"`
+	// EntryNotional is the average entry price times everything entered.
+	EntryNotional decimal.Decimal `json:"entryNotional"`
+	EntryMargin   decimal.Decimal `json:"entryMargin"`
+	// EntryMargin is the entered value over leverage, so a trade that scaled out and back in counts both entries.
+	// ReturnOnMarginPercentage is net profit over margin; 24.13 is 24.13%. It leaves funding out whenever NetProfitExcludesFunding does.
+	ReturnOnMarginPercentage *float64 `json:"returnOnMarginPercentage"`
+	// ReturnOnMarginUnavailableReason is notClosed while the trade is held.
+	ReturnOnMarginUnavailableReason string `json:"returnOnMarginUnavailableReason"`
+	// ImplausibleFeeFillIDs are fills whose fee is under 0.001% or over 0.5% of their value, in the order they happened.
+	ImplausibleFeeFillIDs []uint `json:"implausibleFeeFillIds"`
 }
 
 type ContractTradeFundingDto struct {
