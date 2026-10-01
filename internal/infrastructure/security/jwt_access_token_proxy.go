@@ -15,6 +15,12 @@ var accessTokenSigningMethod = jwt.SigningMethodHS256
 // acceptedSigningMethods pins the algorithm so a token's header cannot claim a weaker one, such as none.
 var acceptedSigningMethods = []string{accessTokenSigningMethod.Alg()}
 
+// accessTokenWireClaims carries the connector as client_id, the claim name RFC 9068 §2.2 gives it.
+type accessTokenWireClaims struct {
+	jwt.RegisteredClaims
+	ClientIdentifier string `json:"client_id,omitempty"`
+}
+
 // JwtAccessTokenProxy issues stateless signed tokens, so they cannot be revoked before expiry.
 type JwtAccessTokenProxy struct {
 	signingKey []byte
@@ -33,15 +39,18 @@ func (jwtAccessTokenProxy *JwtAccessTokenProxy) Issue(
 			"%w: 尚未設定憑證簽章鑰匙", domains.ErrAccessTokenUnavailable)
 	}
 
-	registeredClaims := jwt.RegisteredClaims{
-		Subject:   strconv.FormatUint(uint64(claims.UserID), 10),
-		ExpiresAt: jwt.NewNumericDate(claims.ExpiresAt),
+	wireClaims := accessTokenWireClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   strconv.FormatUint(uint64(claims.UserID), 10),
+			ExpiresAt: jwt.NewNumericDate(claims.ExpiresAt),
+		},
+		ClientIdentifier: claims.ConnectorClientIdentifier,
 	}
 	if claims.Audience != "" {
-		registeredClaims.Audience = jwt.ClaimStrings{claims.Audience}
+		wireClaims.Audience = jwt.ClaimStrings{claims.Audience}
 	}
 
-	signedToken, signError := jwt.NewWithClaims(accessTokenSigningMethod, registeredClaims).
+	signedToken, signError := jwt.NewWithClaims(accessTokenSigningMethod, wireClaims).
 		SignedString(jwtAccessTokenProxy.signingKey)
 	if signError != nil {
 		return vo.AccessTokenVo{}, fmt.Errorf(
@@ -57,11 +66,11 @@ func (jwtAccessTokenProxy *JwtAccessTokenProxy) ClaimsOf(accessToken string) (vo
 		return vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired
 	}
 
-	registeredClaims := jwt.RegisteredClaims{}
+	wireClaims := accessTokenWireClaims{}
 
 	_, parseError := jwt.ParseWithClaims(
 		accessToken,
-		&registeredClaims,
+		&wireClaims,
 		func(*jwt.Token) (any, error) { return jwtAccessTokenProxy.signingKey, nil },
 		jwt.WithValidMethods(acceptedSigningMethods),
 		jwt.WithExpirationRequired(),
@@ -70,20 +79,21 @@ func (jwtAccessTokenProxy *JwtAccessTokenProxy) ClaimsOf(accessToken string) (vo
 		return vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired
 	}
 
-	userID, parseIdentifierError := strconv.ParseUint(registeredClaims.Subject, 10, strconv.IntSize)
+	userID, parseIdentifierError := strconv.ParseUint(wireClaims.Subject, 10, strconv.IntSize)
 	if parseIdentifierError != nil || userID == 0 {
 		return vo.AccessTokenClaimsVo{}, domains.ErrAuthenticationRequired
 	}
 
 	audience := ""
-	if len(registeredClaims.Audience) > 0 {
-		audience = registeredClaims.Audience[0]
+	if len(wireClaims.Audience) > 0 {
+		audience = wireClaims.Audience[0]
 	}
 
 	return vo.AccessTokenClaimsVo{
-		UserID:    uint(userID),
-		Audience:  audience,
-		ExpiresAt: registeredClaims.ExpiresAt.UTC(),
+		UserID:                    uint(userID),
+		Audience:                  audience,
+		ConnectorClientIdentifier: wireClaims.ClientIdentifier,
+		ExpiresAt:                 wireClaims.ExpiresAt.UTC(),
 	}, nil
 }
 

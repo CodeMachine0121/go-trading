@@ -182,6 +182,68 @@ func TestConnectorAuthorizationApplicationRegisterConnectorClient(t *testing.T) 
 		require.ErrorIs(t, err, domains.ErrConnectorRedirectUriInvalid)
 	})
 
+	t.Run("a request without a resource or with a malformed one goes back to the connector and records nothing", func(t *testing.T) {
+		for _, testCase := range []struct {
+			resource            string
+			expectedError       string
+			expectedDescription string
+		}{
+			{resource: "", expectedError: "invalid_request", expectedDescription: "缺少對象服務（resource）"},
+			{resource: "trading-mcp", expectedError: "invalid_target", expectedDescription: domains.ErrConnectorResourceInvalid.Error()},
+			{resource: "http://trading-mcp.example.com/mcp", expectedError: "invalid_target", expectedDescription: domains.ErrConnectorResourceInvalid.Error()},
+			{resource: "https://trading-mcp.example.com/mcp#part", expectedError: "invalid_target", expectedDescription: domains.ErrConnectorResourceInvalid.Error()},
+		} {
+			t.Run(testCase.resource, func(t *testing.T) {
+				fixture := newConnectorAuthorizationApplicationUnderTest(t)
+				fixture.expectConnectorClients("client-A")
+				startDto := aStartDto()
+				startDto.Resource = testCase.resource
+
+				redirect, err := fixture.connectorAuthorizationApplication.StartConnectorAuthorization(t.Context(), startDto)
+
+				require.NoError(t, err)
+				sentBack, parseError := url.Parse(redirect.RedirectTo)
+				require.NoError(t, parseError)
+				assert.Equal(t, "localhost:51000", sentBack.Host)
+				assert.Equal(t, "/callback", sentBack.Path)
+				assert.Equal(t, testCase.expectedError, sentBack.Query().Get("error"))
+				assert.Equal(t, testCase.expectedDescription, sentBack.Query().Get("error_description"))
+				assert.Equal(t, "abc", sentBack.Query().Get("state"))
+			})
+		}
+	})
+
+	t.Run("a loopback resource over plain http is recorded", func(t *testing.T) {
+		fixture := newConnectorAuthorizationApplicationUnderTest(t)
+		fixture.expectConnectorClients("client-A")
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "request-1"}, nil)
+		fixture.connectorAuthorizationRequestRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, authorizationRequest entities.ConnectorAuthorizationRequest) (entities.ConnectorAuthorizationRequest, error) {
+				assert.Equal(t, "http://localhost:8787/mcp", authorizationRequest.Resource)
+				return authorizationRequest, nil
+			})
+		startDto := aStartDto()
+		startDto.Resource = "http://localhost:8787/mcp"
+
+		redirect, err := fixture.connectorAuthorizationApplication.StartConnectorAuthorization(t.Context(), startDto)
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://web.example.com/connector-authorization?request=request-1", redirect.RedirectTo)
+	})
+
+	t.Run("an unknown connector without a resource is refused without any redirect", func(t *testing.T) {
+		fixture := newConnectorAuthorizationApplicationUnderTest(t)
+		fixture.expectConnectorClients("client-A")
+		startDto := aStartDto()
+		startDto.ClientIdentifier = "nobody"
+		startDto.Resource = ""
+
+		redirect, err := fixture.connectorAuthorizationApplication.StartConnectorAuthorization(t.Context(), startDto)
+
+		require.ErrorIs(t, err, domains.ErrConnectorClientNotFound)
+		assert.Empty(t, redirect.RedirectTo)
+	})
+
 	t.Run("failures to mint or store are passed on", func(t *testing.T) {
 		mintFailure := errors.New("no randomness")
 		storageFailure := errors.New("connection closed")
@@ -523,6 +585,13 @@ func anAuthorizationCode(issuedAt time.Time) entities.ConnectorAuthorizationCode
 	}
 }
 
+func anAuthorizationCodeWithoutResource() entities.ConnectorAuthorizationCode {
+	authorizationCode := anAuthorizationCode(connectorMoment)
+	authorizationCode.Resource = ""
+
+	return authorizationCode
+}
+
 func anExchangeDto() dto.ConnectorAuthorizationCodeExchangeDto {
 	return dto.ConnectorAuthorizationCodeExchangeDto{
 		Code: "the-code", RedirectUri: "http://localhost:51000/callback",
@@ -545,7 +614,10 @@ func TestConnectorAuthorizationApplicationExchangeAuthorizationCode(t *testing.T
 		fixture.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aStoredUser(7, "james@example.com"), nil)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(vo.AccessTokenClaimsVo{UserID: 7, Audience: connectorResource, ExpiresAt: accessTokenExpiryAfterConnectorMoment()}).
+			Issue(vo.AccessTokenClaimsVo{
+				UserID: 7, Audience: connectorResource, ConnectorClientIdentifier: "client-A",
+				ExpiresAt: accessTokenExpiryAfterConnectorMoment(),
+			}).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token", ExpiresAt: accessTokenExpiryAfterConnectorMoment()}, nil)
 		fixture.connectorAuthorizationCodeRepository.EXPECT().
 			Redeem(gomock.Any(), uint(31), entities.Session{
@@ -583,6 +655,7 @@ func TestConnectorAuthorizationApplicationExchangeAuthorizationCode(t *testing.T
 		{name: "another connector", code: anAuthorizationCode(connectorMoment), change: func(exchangeDto *dto.ConnectorAuthorizationCodeExchangeDto) {
 			exchangeDto.ClientIdentifier = "client-B"
 		}},
+		{name: "a code bound to no resource", code: anAuthorizationCodeWithoutResource(), change: func(*dto.ConnectorAuthorizationCodeExchangeDto) {}},
 	} {
 		t.Run(testCase.name+" is an invalid grant and opens nothing", func(t *testing.T) {
 			fixture := newConnectorAuthorizationApplicationUnderTest(t)
@@ -759,7 +832,10 @@ func TestConnectorAuthorizationApplicationRenewConnectorSession(t *testing.T) {
 		fixture.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(aStoredUser(7, "james@example.com"), nil)
 		fixture.refreshTokenProxy.EXPECT().Mint().Return(aMintedRefreshToken(), nil)
 		fixture.accessTokenProxy.EXPECT().
-			Issue(vo.AccessTokenClaimsVo{UserID: 7, Audience: connectorResource, ExpiresAt: accessTokenExpiryAfterConnectorMoment()}).
+			Issue(vo.AccessTokenClaimsVo{
+				UserID: 7, Audience: connectorResource, ConnectorClientIdentifier: "client-A",
+				ExpiresAt: accessTokenExpiryAfterConnectorMoment(),
+			}).
 			Return(vo.AccessTokenVo{AccessToken: "a-signed-token", ExpiresAt: accessTokenExpiryAfterConnectorMoment()}, nil)
 		fixture.sessionRepository.EXPECT().
 			Rotate(gomock.Any(), uint(41), entities.Session{
@@ -802,6 +878,20 @@ func TestConnectorAuthorizationApplicationRenewConnectorSession(t *testing.T) {
 
 		_, err := fixture.connectorAuthorizationApplication.RenewConnectorSession(t.Context(), dto.SessionRenewalDto{
 			RefreshToken: "a-connector-refresh-token", ConnectorClientIdentifier: "client-B",
+		})
+
+		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)
+	})
+
+	t.Run("a connector chain without audience is refused, left intact and nothing rotates", func(t *testing.T) {
+		fixture := newConnectorAuthorizationApplicationUnderTest(t)
+		sessionWithoutAudience := aConnectorSession("client-A", nil)
+		sessionWithoutAudience.Audience = ""
+		fixture.sessionRepository.EXPECT().FindOneByDigest(gomock.Any(), gomock.Any()).
+			Return(sessionWithoutAudience, nil)
+
+		_, err := fixture.connectorAuthorizationApplication.RenewConnectorSession(t.Context(), dto.SessionRenewalDto{
+			RefreshToken: "a-connector-refresh-token", ConnectorClientIdentifier: "client-A",
 		})
 
 		require.ErrorIs(t, err, domains.ErrAuthenticationRequired)

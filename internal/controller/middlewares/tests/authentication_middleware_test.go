@@ -160,12 +160,15 @@ func TestTheDoorReadsTheSchemeWithoutRegardToCase(t *testing.T) {
 
 func TestTheWebOnlyDoorTurnsAwayAConnectorsSignIn(t *testing.T) {
 	testCases := []struct {
-		name           string
-		audience       string
-		expectedStatus int
+		name                      string
+		audience                  string
+		connectorClientIdentifier string
+		expectedStatus            int
 	}{
 		{name: "a web sign-in is let in", audience: "", expectedStatus: http.StatusOK},
 		{name: "a connector's sign-in is refused", audience: "https://mcp.example.com",
+			expectedStatus: http.StatusUnauthorized},
+		{name: "a connector's sign-in without audience is refused", connectorClientIdentifier: "client-A",
 			expectedStatus: http.StatusUnauthorized},
 	}
 
@@ -178,7 +181,8 @@ func TestTheWebOnlyDoorTurnsAwayAConnectorsSignIn(t *testing.T) {
 			userRepository.EXPECT().FindOne(gomock.Any(), storedUser.ID).Return(storedUser, nil).AnyTimes()
 			accessTokenProxy := mocks.NewMockIAccessTokenProxy(mockController)
 			accessTokenProxy.EXPECT().ClaimsOf("a-proof").Return(vo.AccessTokenClaimsVo{
-				UserID: storedUser.ID, Audience: testCase.audience, ExpiresAt: time.Now().Add(time.Minute),
+				UserID: storedUser.ID, Audience: testCase.audience,
+				ConnectorClientIdentifier: testCase.connectorClientIdentifier, ExpiresAt: time.Now().Add(time.Minute),
 			}, nil).AnyTimes()
 			accessTokenProxy.EXPECT().UserIdentifiedBy("a-proof").Return(storedUser.ID, nil).AnyTimes()
 

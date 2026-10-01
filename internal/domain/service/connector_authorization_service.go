@@ -269,11 +269,8 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) ExchangeAuth
 		return dto.ConnectorTokensDto{}, mintError
 	}
 
-	accessToken, issueError := connectorAuthorizationService.accessTokenProxy.Issue(vo.AccessTokenClaimsVo{
-		UserID:    authorizationCode.UserID(),
-		Audience:  authorizationCode.Audience(),
-		ExpiresAt: now.Add(connectorAuthorizationService.sessionLifetimes.AccessToken),
-	})
+	accessToken, issueError := connectorAuthorizationService.accessTokenProxy.Issue(
+		authorizationCode.ToAccessTokenClaims(now.Add(connectorAuthorizationService.sessionLifetimes.AccessToken)))
 	if issueError != nil {
 		return dto.ConnectorTokensDto{}, issueError
 	}

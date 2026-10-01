@@ -115,7 +115,10 @@ func (userService *UserService) SignIn(
 		return dto.SessionTokensDto{}, recordError
 	}
 
-	refreshToken, accessToken, materialError := userService.newSessionMaterial(user.ID, "", now)
+	refreshToken, accessToken, materialError := userService.newSessionMaterial(vo.AccessTokenClaimsVo{
+		UserID:    user.ID,
+		ExpiresAt: now.Add(userService.sessionLifetimes.AccessToken),
+	})
 	if materialError != nil {
 		return dto.SessionTokensDto{}, materialError
 	}
@@ -251,6 +254,11 @@ func (userService *UserService) renewedSessionTokens(
 		return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
 	}
 
+	// Not theft either, so the chain is left to expire; the connector has to reconnect.
+	if session.ConnectorWithoutAudience() {
+		return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
+	}
+
 	if session.Expired(now) {
 		// Expiry is not theft, so the chain is left intact.
 		return vo.SessionTokensVo{}, time.Time{}, domains.ErrAuthenticationRequired
@@ -266,7 +274,7 @@ func (userService *UserService) renewedSessionTokens(
 	}
 
 	refreshToken, accessToken, materialError := userService.newSessionMaterial(
-		session.UserID(), session.Audience(), now)
+		session.ToAccessTokenClaims(now.Add(userService.sessionLifetimes.AccessToken)))
 	if materialError != nil {
 		return vo.SessionTokensVo{}, time.Time{}, materialError
 	}
@@ -342,18 +350,14 @@ func (userService *UserService) sessionHolding(
 
 // newSessionMaterial mints and signs tokens before any write, so a failure leaves no session behind and does not end the caller's existing one.
 func (userService *UserService) newSessionMaterial(
-	userID uint, audience string, now time.Time,
+	accessTokenClaims vo.AccessTokenClaimsVo,
 ) (vo.RefreshTokenVo, vo.AccessTokenVo, error) {
 	refreshToken, mintError := userService.refreshTokenProxy.Mint()
 	if mintError != nil {
 		return vo.RefreshTokenVo{}, vo.AccessTokenVo{}, mintError
 	}
 
-	accessToken, issueError := userService.accessTokenProxy.Issue(vo.AccessTokenClaimsVo{
-		UserID:    userID,
-		Audience:  audience,
-		ExpiresAt: now.Add(userService.sessionLifetimes.AccessToken),
-	})
+	accessToken, issueError := userService.accessTokenProxy.Issue(accessTokenClaims)
 	if issueError != nil {
 		return vo.RefreshTokenVo{}, vo.AccessTokenVo{}, issueError
 	}
@@ -380,7 +384,7 @@ func (userService *UserService) IdentifyActivatedUser(
 	return userService.activatedUser(executionContext, accessToken)
 }
 
-// IdentifyActivatedWebUser refuses connector tokens, so a connector cannot act where only the user in the browser may.
+// IdentifyActivatedWebUser refuses connector tokens, so a connector cannot act where only the user in the browser may; either mark is enough.
 func (userService *UserService) IdentifyActivatedWebUser(
 	executionContext context.Context, accessToken string,
 ) (dto.UserDto, error) {
@@ -388,7 +392,7 @@ func (userService *UserService) IdentifyActivatedWebUser(
 	if claimsError != nil {
 		return dto.UserDto{}, claimsError
 	}
-	if claims.Audience != "" {
+	if claims.Audience != "" || claims.ConnectorClientIdentifier != "" {
 		return dto.UserDto{}, domains.ErrAuthenticationRequired
 	}
 

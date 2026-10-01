@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 // SessionDomain keeps "revoked" and "expired" separate because presenting a revoked session means a copied renewal proof and the whole chain must be torn down.
@@ -57,6 +58,16 @@ func (sessionDomain SessionDomain) HeldBy(connectorClientIdentifier string) bool
 	return sessionDomain.session.ConnectorClientIdentifier == connectorClientIdentifier
 }
 
-func (sessionDomain SessionDomain) Audience() string {
-	return sessionDomain.session.Audience
+// ConnectorWithoutAudience is a connector chain opened before a resource was required; renewing it would mint a token indistinguishable from a web one.
+func (sessionDomain SessionDomain) ConnectorWithoutAudience() bool {
+	return sessionDomain.session.ConnectorClientIdentifier != "" && sessionDomain.session.Audience == ""
+}
+
+func (sessionDomain SessionDomain) ToAccessTokenClaims(expiresAt time.Time) vo.AccessTokenClaimsVo {
+	return vo.AccessTokenClaimsVo{
+		UserID:                    sessionDomain.session.UserID,
+		Audience:                  sessionDomain.session.Audience,
+		ConnectorClientIdentifier: sessionDomain.session.ConnectorClientIdentifier,
+		ExpiresAt:                 expiresAt,
+	}
 }

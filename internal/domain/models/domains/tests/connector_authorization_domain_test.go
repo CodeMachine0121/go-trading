@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -168,6 +170,7 @@ func TestConnectorAuthorizationStartSendsIncompleteRequestsBackToTheConnector(t 
 	complete := dto.ConnectorAuthorizationStartDto{
 		ResponseType: "code", ClientIdentifier: "client-A", RedirectUri: "http://localhost:51000/callback",
 		CodeChallenge: rfcCodeChallenge, CodeChallengeMethod: "S256", State: "abc",
+		Resource: "https://trading-mcp.coding-afternoon.com/mcp",
 	}
 
 	testCases := []struct {
@@ -235,6 +238,20 @@ func TestConnectorAuthorizationStartSendsIncompleteRequestsBackToTheConnector(t 
 				startDto.Resource = strings.Repeat("r", 2049)
 			},
 			refused: true, expectedRedirect: "error=invalid_request",
+		},
+		{
+			name:    "no resource",
+			change:  func(startDto *dto.ConnectorAuthorizationStartDto) { startDto.Resource = "" },
+			refused: true, expectedRedirect: "error=invalid_request&error_description=%E7%BC%BA%E5%B0%91%E5%B0%8D%E8%B1%A1%E6%9C%8D%E5%8B%99%EF%BC%88resource%EF%BC%89&state=abc",
+		},
+		{
+			name:   "a loopback resource over plain http",
+			change: func(startDto *dto.ConnectorAuthorizationStartDto) { startDto.Resource = "http://localhost:8787/mcp" },
+		},
+		{
+			name:    "a malformed resource",
+			change:  func(startDto *dto.ConnectorAuthorizationStartDto) { startDto.Resource = "trading-mcp" },
+			refused: true, expectedRedirect: "error=invalid_target",
 		},
 	}
 
@@ -466,25 +483,27 @@ func TestConnectorAuthorizationCodeExchangeNeedsEveryField(t *testing.T) {
 }
 
 func TestConnectorAuthorizationCodeAcceptsOnlyItsOwnConnectorAddressAndVerifier(t *testing.T) {
-	authorizationCode := domains.NewConnectorAuthorizationCodeDomain(entities.ConnectorAuthorizationCode{
-		ConnectorClientIdentifier: "client-A", RedirectUri: "http://localhost:51000/callback", CodeChallenge: rfcCodeChallenge,
-	})
-
 	testCases := []struct {
 		name             string
+		resource         string
 		clientIdentifier string
 		redirectUri      string
 		codeVerifier     string
 		accepted         bool
 	}{
-		{name: "the right verifier", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier, accepted: true},
-		{name: "a wrong verifier", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: strings.Repeat("w", 43)},
-		{name: "a different port", clientIdentifier: "client-A", redirectUri: "http://localhost:33418/callback", codeVerifier: rfcCodeVerifier},
-		{name: "another connector", clientIdentifier: "client-B", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier},
+		{name: "the right verifier", resource: "https://mcp.example.com/mcp", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier, accepted: true},
+		{name: "a wrong verifier", resource: "https://mcp.example.com/mcp", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: strings.Repeat("w", 43)},
+		{name: "a different port", resource: "https://mcp.example.com/mcp", clientIdentifier: "client-A", redirectUri: "http://localhost:33418/callback", codeVerifier: rfcCodeVerifier},
+		{name: "a code bound to no resource", clientIdentifier: "client-A", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier},
+		{name: "another connector", resource: "https://mcp.example.com/mcp", clientIdentifier: "client-B", redirectUri: "http://localhost:51000/callback", codeVerifier: rfcCodeVerifier},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			authorizationCode := domains.NewConnectorAuthorizationCodeDomain(entities.ConnectorAuthorizationCode{
+				ConnectorClientIdentifier: "client-A", RedirectUri: "http://localhost:51000/callback",
+				CodeChallenge: rfcCodeChallenge, Resource: testCase.resource,
+			})
 			exchange, err := domains.NewConnectorAuthorizationCodeExchangeDomain(dto.ConnectorAuthorizationCodeExchangeDto{
 				Code: "the-code", ClientIdentifier: testCase.clientIdentifier, RedirectUri: testCase.redirectUri, CodeVerifier: testCase.codeVerifier,
 			})
@@ -561,4 +580,95 @@ func TestSessionDomainCarriesTheConnectorAndAudienceIntoTheRenewedSession(t *tes
 
 	assert.Equal(t, "client-A", renewed.ConnectorClientIdentifier)
 	assert.Equal(t, "https://mcp.example.com/mcp", renewed.Audience)
+}
+
+func TestConnectorResourceMustBeAnAbsoluteSecureAddress(t *testing.T) {
+	testCases := []struct {
+		name     string
+		resource string
+		accepted bool
+	}{
+		{name: "the hosted connector server", resource: "https://trading-mcp.coding-afternoon.com/mcp", accepted: true},
+		{name: "a loopback name over plain http", resource: "http://localhost:8787/mcp", accepted: true},
+		{name: "a loopback address over plain http", resource: "http://127.0.0.1:8787/mcp", accepted: true},
+		{name: "a new-style loopback address over plain http", resource: "http://[::1]:8787/mcp", accepted: true},
+		{name: "a bare name", resource: "trading-mcp"},
+		{name: "a path only", resource: "/mcp"},
+		{name: "a reachable host over plain http", resource: "http://trading-mcp.example.com/mcp"},
+		{name: "a fragment", resource: "https://trading-mcp.example.com/mcp#part"},
+		{name: "an empty fragment", resource: "https://trading-mcp.example.com/mcp#"},
+		{name: "credentials", resource: "https://someone:secret@example.com/mcp"},
+		{name: "another scheme", resource: "ftp://example.com/mcp"},
+		{name: "no host", resource: "https:///mcp"},
+		{name: "unparsable", resource: "https://exa mple.com/%zz"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := domains.NewConnectorResourceDomain(testCase.resource)
+
+			if testCase.accepted {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, domains.ErrConnectorResourceInvalid)
+		})
+	}
+}
+
+func TestConnectorAuthorizationStartSendsAMalformedResourceBackAsAnInvalidTarget(t *testing.T) {
+	redirectUri, err := domains.NewConnectorRedirectUriDomain("http://localhost:33418/callback", nil)
+	require.NoError(t, err)
+
+	refusal, refused := domains.NewConnectorAuthorizationStartDomain(dto.ConnectorAuthorizationStartDto{
+		ResponseType: "code", CodeChallenge: rfcCodeChallenge, CodeChallengeMethod: "S256", State: "s1",
+		Resource: "http://trading-mcp.example.com/mcp",
+	}, redirectUri).RefusalRedirect()
+
+	assert.True(t, refused)
+	assert.Equal(t, "http://localhost:33418/callback?"+url.Values{
+		"error":             {"invalid_target"},
+		"error_description": {domains.ErrConnectorResourceInvalid.Error()},
+		"state":             {"s1"},
+	}.Encode(), refusal.RedirectTo)
+}
+
+func TestConnectorAccessTokenClaimsCarryTheAudienceAndTheConnector(t *testing.T) {
+	expiresAt := connectorMoment.Add(15 * time.Minute)
+	expected := vo.AccessTokenClaimsVo{
+		UserID: 7, Audience: "https://mcp.example.com/mcp", ConnectorClientIdentifier: "client-A", ExpiresAt: expiresAt,
+	}
+
+	fromCode := domains.NewConnectorAuthorizationCodeDomain(entities.ConnectorAuthorizationCode{
+		UserID: 7, ConnectorClientIdentifier: "client-A", Resource: "https://mcp.example.com/mcp",
+	}).ToAccessTokenClaims(expiresAt)
+	fromSession := domains.NewSessionDomain(entities.Session{
+		UserID: 7, ConnectorClientIdentifier: "client-A", Audience: "https://mcp.example.com/mcp",
+	}).ToAccessTokenClaims(expiresAt)
+
+	assert.Equal(t, expected, fromCode)
+	assert.Equal(t, expected, fromSession)
+}
+
+func TestSessionDomainSpotsAConnectorChainWithoutAudience(t *testing.T) {
+	testCases := []struct {
+		name                    string
+		sessionClientIdentifier string
+		audience                string
+		withoutAudience         bool
+	}{
+		{name: "web session", withoutAudience: false},
+		{name: "connector session with audience", sessionClientIdentifier: "client-A", audience: "https://mcp.example.com/mcp", withoutAudience: false},
+		{name: "connector session without audience", sessionClientIdentifier: "client-A", withoutAudience: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			session := domains.NewSessionDomain(entities.Session{
+				ConnectorClientIdentifier: testCase.sessionClientIdentifier, Audience: testCase.audience,
+			})
+
+			assert.Equal(t, testCase.withoutAudience, session.ConnectorWithoutAudience())
+		})
+	}
 }

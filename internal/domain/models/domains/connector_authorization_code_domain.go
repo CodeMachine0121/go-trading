@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 type ConnectorAuthorizationCodeDomain struct {
@@ -27,8 +28,18 @@ func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) UserID(
 	return connectorAuthorizationCodeDomain.authorizationCode.UserID
 }
 
-func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) Audience() string {
-	return connectorAuthorizationCodeDomain.authorizationCode.Resource
+// ToAccessTokenClaims marks the token with both the audience and the connector, so it can never pass for a web sign-in.
+func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) ToAccessTokenClaims(
+	expiresAt time.Time,
+) vo.AccessTokenClaimsVo {
+	authorizationCode := connectorAuthorizationCodeDomain.authorizationCode
+
+	return vo.AccessTokenClaimsVo{
+		UserID:                    authorizationCode.UserID,
+		Audience:                  authorizationCode.Resource,
+		ConnectorClientIdentifier: authorizationCode.ConnectorClientIdentifier,
+		ExpiresAt:                 expiresAt,
+	}
 }
 
 func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) Redeemed() bool {
@@ -43,7 +54,7 @@ func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) Expired
 	return !now.Before(connectorAuthorizationCodeDomain.authorizationCode.ExpiresAt)
 }
 
-// Accepts compares the redirect address exactly (no port leniency here) and proves possession via S256.
+// Accepts compares the redirect address exactly (no port leniency here) and proves possession via S256; a code bound to no resource predates the requirement and is refused.
 func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) Accepts(
 	exchange ConnectorAuthorizationCodeExchangeDomain,
 ) bool {
@@ -51,7 +62,8 @@ func (connectorAuthorizationCodeDomain ConnectorAuthorizationCodeDomain) Accepts
 	verifierDigest := sha256.Sum256([]byte(exchange.CodeVerifier()))
 	derivedChallenge := base64.RawURLEncoding.EncodeToString(verifierDigest[:])
 
-	return authorizationCode.ConnectorClientIdentifier == exchange.ClientIdentifier() &&
+	return authorizationCode.Resource != "" &&
+		authorizationCode.ConnectorClientIdentifier == exchange.ClientIdentifier() &&
 		authorizationCode.RedirectUri == exchange.RedirectUri() &&
 		subtle.ConstantTimeCompare([]byte(derivedChallenge), []byte(authorizationCode.CodeChallenge)) == 1
 }
