@@ -154,6 +154,7 @@ curl localhost:8080/health
 | `AUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `30` | 一份**續用憑證**能用多久（天）。每次續用都從當下重算：持續使用就不必重登，連續不用超過這個天數才要 |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | 外面看到的本服務網址（結尾斜線會去掉）。外掛授權說明書的發行者與每個位置都以它為準，**不從請求推導**——正式環境前面的轉手會把協定改寫成 http。正式環境設 `https://trading-api.coding-afternoon.com` |
 | `FRONTEND_BASE_URL` | `http://localhost:3000` | 網頁的網址（結尾斜線會去掉）；請求外掛授權時使用者被送到它底下的 `/connector-authorization?request=<代號>`。正式環境設 `https://go-trading.coding-afternoon.com` |
+| `CONNECTOR_TRUSTED_REDIRECT_URIS` | `https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback` | 雲端外掛（Claude Desktop／claude.ai）登記時允許的 https 回呼位址，逗號分隔。**逐字比對**（含路徑、查詢、port），不像本機 loopback 位址那樣忽略 port；不在名單上的對外位址一律拒登，避免授權碼被送到別人手上。本機外掛（Claude Code）用的 `http://localhost` 類位址不必列 |
 | `AUTH_SIGN_IN_FAILURE_THRESHOLD` | `3` | 連續幾次密碼錯誤就把帳號鎖起來。**到達的那一次本身就被拒絕**，沒有「先放你進去再鎖」；設 `0` 或負值會退回預設值，關不掉這道鎖 |
 | `AUTH_SIGN_IN_LOCKOUT_DAYS` | `7` | 帳號被鎖起來一次要鎖多久（天）。鎖住期間**連正確的密碼也進不來**，而且再試不會把解除時刻往後延。**沒有自助解鎖**——時間到了自己開，等不了就直接改那一列的 `locked_until`（或改密碼，那也會解鎖） |
 | `TRUSTED_PROXY_CIDRS` | 空 | 信得過的轉手所在網段，逗號分隔。**空的就是一層都不信**：請求自稱從哪裡來一律不採信，來源以直接連進來的那一方為準。格式寫錯服務拒絕啟動 |

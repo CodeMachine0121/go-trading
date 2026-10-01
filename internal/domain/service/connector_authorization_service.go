@@ -61,7 +61,8 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) DescribeAuth
 func (connectorAuthorizationService *ConnectorAuthorizationService) RegisterConnectorClient(
 	executionContext context.Context, registrationDto dto.ConnectorClientRegistrationDto,
 ) (dto.ConnectorClientDto, error) {
-	registration, validationError := domains.NewConnectorClientRegistrationDomain(registrationDto)
+	registration, validationError := domains.NewConnectorClientRegistrationDomain(
+		registrationDto, connectorAuthorizationService.authorizationPolicy.TrustedRedirectUris)
 	if validationError != nil {
 		return dto.ConnectorClientDto{}, validationError
 	}
@@ -91,7 +92,8 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) StartConnect
 		return dto.ConnectorAuthorizationRedirectDto{}, findError
 	}
 
-	redirectUri, redirectUriError := domains.NewConnectorClientDomain(connectorClient).
+	redirectUri, redirectUriError := domains.NewConnectorClientDomain(
+		connectorClient, connectorAuthorizationService.authorizationPolicy.TrustedRedirectUris).
 		RegisteredRedirectUri(startDto.RedirectUri)
 	if redirectUriError != nil {
 		return dto.ConnectorAuthorizationRedirectDto{}, redirectUriError
@@ -209,7 +211,8 @@ func (connectorAuthorizationService *ConnectorAuthorizationService) openAuthoriz
 		return domains.ConnectorAuthorizationRequestDomain{}, findError
 	}
 
-	authorizationRequest := domains.NewConnectorAuthorizationRequestDomain(storedRequest)
+	authorizationRequest := domains.NewConnectorAuthorizationRequestDomain(
+		storedRequest, connectorAuthorizationService.authorizationPolicy.TrustedRedirectUris)
 	if !authorizationRequest.Open(connectorAuthorizationService.clockProxy.Now()) {
 		return domains.ConnectorAuthorizationRequestDomain{}, domains.ErrConnectorAuthorizationRequestNotFound
 	}

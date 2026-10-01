@@ -50,6 +50,10 @@ func (connectorAuthorizationController *ConnectorAuthorizationController) Regist
 	connectorClientDto, err := connectorAuthorizationController.connectorAuthorizationApplication.
 		RegisterConnectorClient(ginContext.Request.Context(), registrationRequest.ToRegistrationDto())
 	if err != nil {
+		// Hosted connectors only show an opaque reference on refusal, so the submitted metadata is the one clue.
+		log.Printf("connector registration refused: %v (client_name=%q redirect_uris=%q token_endpoint_auth_method=%q grant_types=%q response_types=%q)",
+			err, registrationRequest.ClientName, registrationRequest.RedirectUris,
+			registrationRequest.TokenEndpointAuthMethod, registrationRequest.GrantTypes, registrationRequest.ResponseTypes)
 		connectorAuthorizationController.respondWithProtocolError(ginContext, err)
 		return
 	}
