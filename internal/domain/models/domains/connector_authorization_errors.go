@@ -19,6 +19,9 @@ var ErrConnectorAuthorizationCodeNotFound = errors.New("authorization code not f
 // ErrConnectorAuthorizationCodeAlreadyRedeemed reports the write-time single-use check; callers treat it as reuse.
 var ErrConnectorAuthorizationCodeAlreadyRedeemed = errors.New("authorization code already redeemed")
 
+// ErrConnectorResourceInvalid is only ever sent back to a trusted redirect address, as invalid_target.
+var ErrConnectorResourceInvalid = errors.New("對象服務（resource）必須是完整的 https 網址（本機可用 http），且不得帶 #、? 或帳號密碼")
+
 var ErrConnectorTokenRequestInvalid = errors.New("換授權的請求缺少必要資料或格式不合格")
 
 // ErrConnectorGrantInvalid covers every refused code alike so nothing about the code is revealed.

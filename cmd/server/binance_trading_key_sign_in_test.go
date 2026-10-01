@@ -11,6 +11,7 @@ import (
 func TestBinanceTradingKeyWritesAndKeyTailRefuseConnectors(t *testing.T) {
 	engine := newMountedEngine(t)
 	connectorProof := connectorAccessToken(t)
+	audiencelessConnectorProof := audiencelessConnectorAccessToken(t)
 
 	webOnlyRoutes := []struct {
 		method string
@@ -21,6 +22,7 @@ func TestBinanceTradingKeyWritesAndKeyTailRefuseConnectors(t *testing.T) {
 		{method: http.MethodDelete, target: "/users/me/binance-trading-key"},
 		{method: http.MethodPost, target: "/strategy-bots/1/auto-order"},
 		{method: http.MethodDelete, target: "/strategy-bots/1/auto-order"},
+		{method: http.MethodPost, target: "/oauth/authorization-requests/request-1/approval"},
 	}
 
 	for _, route := range webOnlyRoutes {
@@ -29,6 +31,9 @@ func TestBinanceTradingKeyWritesAndKeyTailRefuseConnectors(t *testing.T) {
 				requestMounted(engine, route.method, route.target, ""), "without a proof")
 			assert.Equal(t, http.StatusUnauthorized,
 				requestMounted(engine, route.method, route.target, connectorProof), "with a connector's token")
+			assert.Equal(t, http.StatusUnauthorized,
+				requestMounted(engine, route.method, route.target, audiencelessConnectorProof),
+				"with a connector's token that names no audience")
 		})
 	}
 }

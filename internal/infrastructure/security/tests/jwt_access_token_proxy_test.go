@@ -194,6 +194,35 @@ func TestJwtAccessTokenProxyWritesTheAudienceOnlyWhenThereIsOne(t *testing.T) {
 	}
 }
 
+func TestJwtAccessTokenProxyWritesTheConnectorOnlyWhenThereIsOne(t *testing.T) {
+	testCases := []struct {
+		name                      string
+		connectorClientIdentifier string
+	}{
+		{name: "a connector token", connectorClientIdentifier: "client-A"},
+		{name: "a web token", connectorClientIdentifier: ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			accessTokenProxy := security.NewJwtAccessTokenProxy(signingKey)
+			issuedClaims := vo.AccessTokenClaimsVo{
+				UserID: 7, Audience: "https://mcp.example.com/mcp",
+				ConnectorClientIdentifier: testCase.connectorClientIdentifier, ExpiresAt: tokenExpiry,
+			}
+			accessTokenVo, issueError := accessTokenProxy.Issue(issuedClaims)
+			require.NoError(t, issueError)
+
+			claims, claimsError := accessTokenProxy.ClaimsOf(accessTokenVo.AccessToken)
+
+			require.NoError(t, claimsError)
+			assert.Equal(t, issuedClaims, claims)
+			assert.Equal(t, testCase.connectorClientIdentifier != "",
+				strings.Contains(decodedPayload(t, accessTokenVo.AccessToken), `"client_id":"client-A"`))
+		})
+	}
+}
+
 func TestJwtAccessTokenProxyAcceptsAConnectorTokenForTheServiceItself(t *testing.T) {
 	accessTokenProxy := security.NewJwtAccessTokenProxy(signingKey)
 	accessTokenVo, issueError := accessTokenProxy.Issue(

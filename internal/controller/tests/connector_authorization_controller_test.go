@@ -288,13 +288,16 @@ func TestConnectorAuthorizationControllerStartsAuthorization(t *testing.T) {
 	})
 
 	for _, testCase := range []struct {
-		name   string
-		change func(query url.Values)
+		name          string
+		change        func(query url.Values)
+		expectedError string
 	}{
-		{name: "a plain challenge method", change: func(query url.Values) { query.Set("code_challenge_method", "plain") }},
+		{name: "a plain challenge method", change: func(query url.Values) { query.Set("code_challenge_method", "plain") }, expectedError: "invalid_request"},
 		{name: "a challenge that is not 43 base64url characters", change: func(query url.Values) {
 			query.Set("code_challenge", "too-short")
-		}},
+		}, expectedError: "invalid_request"},
+		{name: "a missing resource", change: func(query url.Values) { query.Del("resource") }, expectedError: "invalid_request"},
+		{name: "a resource that is not an absolute address", change: func(query url.Values) { query.Set("resource", "mcp") }, expectedError: "invalid_target"},
 	} {
 		t.Run(testCase.name+" redirects back to the connector", func(t *testing.T) {
 			router := newConnectorRouterUnderTest(t)
@@ -306,7 +309,7 @@ func TestConnectorAuthorizationControllerStartsAuthorization(t *testing.T) {
 			location, err := url.Parse(recorder.Header().Get("Location"))
 			require.NoError(t, err)
 			assert.Equal(t, "localhost:51000", location.Host)
-			assert.Equal(t, "invalid_request", location.Query().Get("error"))
+			assert.Equal(t, testCase.expectedError, location.Query().Get("error"))
 			assert.Equal(t, "abc", location.Query().Get("state"))
 		})
 	}
@@ -317,6 +320,10 @@ func TestConnectorAuthorizationControllerStartsAuthorization(t *testing.T) {
 		expectedError string
 	}{
 		{name: "an unknown connector", change: func(query url.Values) { query.Set("client_id", "nobody") }, expectedError: "invalid_client"},
+		{name: "an unknown connector without a resource", change: func(query url.Values) {
+			query.Set("client_id", "nobody")
+			query.Del("resource")
+		}, expectedError: "invalid_client"},
 		{name: "an unregistered path", change: func(query url.Values) { query.Set("redirect_uri", "http://localhost:33418/other") }, expectedError: "invalid_request"},
 	} {
 		t.Run(testCase.name+" is refused without a redirect", func(t *testing.T) {
@@ -348,7 +355,7 @@ func (router connectorRouterUnderTest) expectPendingRequest(createdAt time.Time)
 	router.connectorAuthorizationRequestRepository.EXPECT().FindOneByRequestIdentifier(gomock.Any(), "request-1").
 		Return(entities.ConnectorAuthorizationRequest{
 			ID: 21, RequestIdentifier: "request-1", ConnectorClientIdentifier: "client-A",
-			RedirectUri: "http://localhost:51000/callback", State: "abc",
+			RedirectUri: "http://localhost:51000/callback", State: "abc", Resource: "https://mcp.example.com/mcp",
 			ExpiresAt: createdAt.Add(10 * time.Minute),
 		}, nil)
 }
@@ -513,6 +520,52 @@ func TestConnectorAuthorizationControllerIssuesTokens(t *testing.T) {
 			recorder.Body.String())
 	})
 
+	t.Run("a resource named on the token request never replaces the one the user allowed", func(t *testing.T) {
+		router := newConnectorRouterUnderTest(t)
+		router.expectConnectorClientA()
+		router.connectorAuthorizationCodeRepository.EXPECT().FindOneByDigest(gomock.Any(), "the-code-digest").
+			Return(entities.ConnectorAuthorizationCode{
+				ID: 31, UserID: 7, ConnectorClientIdentifier: "client-A",
+				RedirectUri:   "http://localhost:51000/callback",
+				CodeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+				Resource:      "https://mcp.example.com/mcp", ExpiresAt: connectorRouterMoment.Add(time.Minute),
+			}, nil)
+		router.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(entities.User{ID: 7}, nil)
+		router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "a-refresh-token", Digest: "d"}, nil)
+		router.accessTokenProxy.EXPECT().Issue(vo.AccessTokenClaimsVo{
+			UserID: 7, Audience: "https://mcp.example.com/mcp", ConnectorClientIdentifier: "client-A",
+			ExpiresAt: connectorRouterMoment.Add(15 * time.Minute),
+		}).Return(vo.AccessTokenVo{AccessToken: "a-signed-token", ExpiresAt: connectorRouterMoment.Add(15 * time.Minute)}, nil)
+		router.connectorAuthorizationCodeRepository.EXPECT().Redeem(gomock.Any(), uint(31), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uint, session entities.Session) (entities.Session, error) {
+				return session, nil
+			})
+
+		recorder := router.postForm("/oauth/token", codeExchangeForm(func(form url.Values) {
+			form.Set("resource", "https://elsewhere.example.com/mcp")
+		}))
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+	})
+
+	t.Run("a connector chain opened without a resource cannot be renewed", func(t *testing.T) {
+		router := newConnectorRouterUnderTest(t)
+		router.sessionRepository.EXPECT().FindOneByDigest(gomock.Any(), "a-refresh-token-digest").
+			Return(entities.Session{
+				ID: 41, UserID: 7, ChainID: "chain-1", ExpiresAt: connectorRouterMoment.Add(time.Hour),
+				ConnectorClientIdentifier: "client-A",
+			}, nil)
+
+		recorder := router.postForm("/oauth/token", url.Values{
+			"grant_type": {"refresh_token"}, "refresh_token": {"a-refresh-token"}, "client_id": {"client-A"},
+			"resource": {"https://mcp.example.com/mcp"},
+		})
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Equal(t, "invalid_grant", oauthErrorOf(t, recorder))
+		assert.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+	})
+
 	t.Run("a renewal token from another connector is an invalid grant", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.sessionRepository.EXPECT().FindOneByDigest(gomock.Any(), gomock.Any()).
@@ -553,7 +606,8 @@ func TestConnectorAuthorizationControllerIssuesTokens(t *testing.T) {
 			router.connectorAuthorizationCodeRepository.EXPECT().FindOneByDigest(gomock.Any(), gomock.Any()).
 				Return(entities.ConnectorAuthorizationCode{
 					UserID: 7, ConnectorClientIdentifier: "client-A", RedirectUri: "http://localhost:51000/callback",
-					CodeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", ExpiresAt: connectorRouterMoment.Add(time.Minute),
+					CodeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", Resource: "https://mcp.example.com/mcp",
+					ExpiresAt: connectorRouterMoment.Add(time.Minute),
 				}, nil)
 			router.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(entities.User{ID: 7}, nil)
 			router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{}, nil)

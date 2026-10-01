@@ -763,20 +763,24 @@ func TestUserApplicationIdentifyActivatedUser(t *testing.T) {
 
 func TestUserApplicationIdentifyActivatedWebUser(t *testing.T) {
 	testCases := []struct {
-		name          string
-		audience      string
-		expectedError error
+		name                      string
+		audience                  string
+		connectorClientIdentifier string
+		expectedError             error
 	}{
 		{name: "a web sign-in is handed over", audience: ""},
 		{name: "a connector's sign-in is refused as needing to sign in",
 			audience: "https://mcp.example.com", expectedError: domains.ErrAuthenticationRequired},
+		{name: "a connector's sign-in without audience is still refused by its connector mark",
+			connectorClientIdentifier: "client-A", expectedError: domains.ErrAuthenticationRequired},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newUserApplicationUnderTest(t, sessionLifetimes)
 			fixture.accessTokenProxy.EXPECT().ClaimsOf("a-signed-token").Return(vo.AccessTokenClaimsVo{
-				UserID: 7, Audience: testCase.audience, ExpiresAt: accessTokenExpiry,
+				UserID: 7, Audience: testCase.audience, ConnectorClientIdentifier: testCase.connectorClientIdentifier,
+				ExpiresAt: accessTokenExpiry,
 			}, nil)
 			fixture.accessTokenProxy.EXPECT().UserIdentifiedBy("a-signed-token").Return(uint(7), nil).AnyTimes()
 			fixture.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).

@@ -7,11 +7,12 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 )
 
-// AccessTokenClaimsVo is what an access token asserts; Audience is empty for web sign-ins.
+// AccessTokenClaimsVo is what an access token asserts; Audience and ConnectorClientIdentifier are both empty for web sign-ins.
 type AccessTokenClaimsVo struct {
-	UserID    uint
-	Audience  string
-	ExpiresAt time.Time
+	UserID                    uint
+	Audience                  string
+	ConnectorClientIdentifier string
+	ExpiresAt                 time.Time
 }
 
 func (accessTokenClaimsVo AccessTokenClaimsVo) ToIntrospectionDto() dto.AccessTokenIntrospectionDto {

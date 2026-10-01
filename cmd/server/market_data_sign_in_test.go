@@ -46,6 +46,15 @@ func connectorAccessToken(t *testing.T) string {
 	return "Bearer " + accessToken.AccessToken
 }
 
+func audiencelessConnectorAccessToken(t *testing.T) string {
+	accessToken, issueError := security.NewJwtAccessTokenProxy(testSigningKey).Issue(vo.AccessTokenClaimsVo{
+		UserID: 1, ConnectorClientIdentifier: "client-A", ExpiresAt: time.Now().Add(time.Minute),
+	})
+	require.NoError(t, issueError)
+
+	return "Bearer " + accessToken.AccessToken
+}
+
 func requestMounted(engine *gin.Engine, method string, target string, authorization string) int {
 	request := httptest.NewRequest(method, target, nil)
 	if authorization != "" {

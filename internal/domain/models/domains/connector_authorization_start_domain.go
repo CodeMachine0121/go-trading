@@ -29,12 +29,13 @@ func NewConnectorAuthorizationStartDomain(
 	return ConnectorAuthorizationStartDomain{startDto: startDto, redirectUri: redirectUri}
 }
 
-// RefusalRedirect sends the browser back to the connector when the request is incomplete; scope is deliberately not looked at.
+// RefusalRedirect sends the browser back to the connector when the request is incomplete; scope is deliberately not looked at, but a resource is required so no connector token can pass for a web one.
 func (connectorAuthorizationStartDomain ConnectorAuthorizationStartDomain) RefusalRedirect() (
 	dto.ConnectorAuthorizationRedirectDto, bool,
 ) {
 	startDto := connectorAuthorizationStartDomain.startDto
-	description := ""
+	errorCode, description := "invalid_request", ""
+	_, resourceError := NewConnectorResourceDomain(startDto.Resource)
 	switch {
 	case startDto.ResponseType != connectorCodeResponseType:
 		description = "只支援授權碼（response_type=code）"
@@ -47,12 +48,16 @@ func (connectorAuthorizationStartDomain ConnectorAuthorizationStartDomain) Refus
 	case len(startDto.State) > connectorEchoedValueLengthLimit ||
 		len(startDto.Resource) > connectorEchoedValueLengthLimit:
 		description = "請求內容過長"
+	case startDto.Resource == "":
+		description = "缺少對象服務（resource）"
+	case resourceError != nil:
+		errorCode, description = "invalid_target", resourceError.Error()
 	default:
 		return dto.ConnectorAuthorizationRedirectDto{}, false
 	}
 
 	parameters := url.Values{
-		"error":             {"invalid_request"},
+		"error":             {errorCode},
 		"error_description": {description},
 	}
 	if startDto.State != "" {

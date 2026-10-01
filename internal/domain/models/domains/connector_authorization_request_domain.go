@@ -22,9 +22,10 @@ func NewConnectorAuthorizationRequestDomain(
 	}
 }
 
-// Open treats the expiry instant itself as past, and a decided request as gone.
+// Open treats the expiry instant itself as past, a decided request as gone, and one without a resource as gone too since its code could never be exchanged.
 func (connectorAuthorizationRequestDomain ConnectorAuthorizationRequestDomain) Open(now time.Time) bool {
-	return connectorAuthorizationRequestDomain.authorizationRequest.DecidedAt == nil &&
+	return connectorAuthorizationRequestDomain.authorizationRequest.Resource != "" &&
+		connectorAuthorizationRequestDomain.authorizationRequest.DecidedAt == nil &&
 		now.Before(connectorAuthorizationRequestDomain.authorizationRequest.ExpiresAt)
 }
 
