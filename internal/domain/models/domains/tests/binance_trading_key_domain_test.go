@@ -32,6 +32,9 @@ func TestNewBinanceTradingKeyDomainRefusesBlankStrings(t *testing.T) {
 		{name: "a blank API key", apiKey: "   ", secretKey: "the-secret-key", expectedMessage: "必須給 API Key"},
 		{name: "a blank secret key", apiKey: "the-api-key", secretKey: " \t", expectedMessage: "必須給 Secret Key"},
 		{name: "both blank names the API key first", apiKey: "", secretKey: "", expectedMessage: "必須給 API Key"},
+		{name: "an API key pasted across two lines", apiKey: "the-api\nkey", secretKey: "the-secret-key", expectedMessage: "API Key 中間不能有空白或換行"},
+		{name: "an API key with a tab inside", apiKey: "the-api\tkey", secretKey: "the-secret-key", expectedMessage: "API Key 中間不能有空白或換行"},
+		{name: "a secret key with a space inside", apiKey: "the-api-key", secretKey: "the secret", expectedMessage: "Secret Key 中間不能有空白或換行"},
 	}
 
 	for _, testCase := range testCases {

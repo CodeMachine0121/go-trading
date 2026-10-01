@@ -3,6 +3,7 @@ package domains
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -31,6 +32,17 @@ func NewBinanceTradingKeyDomain(
 	if secretKey == "" {
 		return BinanceTradingKeyDomain{}, fmt.Errorf(
 			"%w: 必須給 Secret Key", ErrBinanceTradingKeyValidation)
+	}
+
+	// A key pasted across lines can never be sent, so it is refused here rather than blamed on Binance.
+	breaksInside := func(character rune) bool { return unicode.IsSpace(character) || unicode.IsControl(character) }
+	if strings.ContainsFunc(apiKey, breaksInside) {
+		return BinanceTradingKeyDomain{}, fmt.Errorf(
+			"%w: API Key 中間不能有空白或換行", ErrBinanceTradingKeyValidation)
+	}
+	if strings.ContainsFunc(secretKey, breaksInside) {
+		return BinanceTradingKeyDomain{}, fmt.Errorf(
+			"%w: Secret Key 中間不能有空白或換行", ErrBinanceTradingKeyValidation)
 	}
 
 	return BinanceTradingKeyDomain{apiKey: apiKey, secretKey: secretKey}, nil
