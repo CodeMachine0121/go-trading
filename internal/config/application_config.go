@@ -226,8 +226,9 @@ type RequestLimitConfig struct {
 
 // ConnectorAuthorizationConfig takes public addresses from configuration rather than the request, because the proxies in front rewrite the scheme to http.
 type ConnectorAuthorizationConfig struct {
-	PublicBaseUrl   string
-	FrontendBaseUrl string
+	PublicBaseUrl       string
+	FrontendBaseUrl     string
+	TrustedRedirectUris []string
 }
 
 type ApplicationConfig struct {
@@ -400,6 +401,10 @@ func Load() ApplicationConfig {
 		ConnectorAuthorization: ConnectorAuthorizationConfig{
 			PublicBaseUrl:   strings.TrimRight(stringWithDefault("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
 			FrontendBaseUrl: frontendBaseUrl,
+			TrustedRedirectUris: commaSeparatedListWithDefault("CONNECTOR_TRUSTED_REDIRECT_URIS", []string{
+				"https://claude.ai/api/mcp/auth_callback",
+				"https://claude.com/api/mcp/auth_callback",
+			}),
 		},
 		FrontendBaseUrl: frontendBaseUrl,
 		Authentication: AuthenticationConfig{

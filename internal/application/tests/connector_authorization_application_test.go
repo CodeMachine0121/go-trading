@@ -29,10 +29,11 @@ const (
 )
 
 var connectorAuthorizationPolicy = vo.ConnectorAuthorizationPolicyVo{
-	PublicBaseUrl:   "https://trading-api.example.com",
-	FrontendBaseUrl: "https://web.example.com",
-	RequestLifetime: 10 * time.Minute,
-	CodeLifetime:    5 * time.Minute,
+	PublicBaseUrl:       "https://trading-api.example.com",
+	FrontendBaseUrl:     "https://web.example.com",
+	RequestLifetime:     10 * time.Minute,
+	CodeLifetime:        5 * time.Minute,
+	TrustedRedirectUris: []string{"https://claude.ai/api/mcp/auth_callback"},
 }
 
 type connectorAuthorizationApplicationUnderTest struct {
@@ -153,6 +154,23 @@ func TestConnectorAuthorizationApplicationRegisterConnectorClient(t *testing.T) 
 			TokenEndpointAuthMethod:  "none",
 			ClientIdentifierIssuedAt: connectorMoment.Unix(),
 		}, connectorClientDto)
+	})
+
+	t.Run("a hosted connector may register a trusted https callback", func(t *testing.T) {
+		fixture := newConnectorAuthorizationApplicationUnderTest(t)
+		fixture.opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "client-B"}, nil)
+		fixture.connectorClientRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, connectorClient entities.ConnectorClient) (entities.ConnectorClient, error) {
+				return connectorClient, nil
+			})
+
+		connectorClientDto, err := fixture.connectorAuthorizationApplication.RegisterConnectorClient(
+			t.Context(), dto.ConnectorClientRegistrationDto{
+				RedirectUris: []string{"https://claude.ai/api/mcp/auth_callback"}, ClientName: "Claude",
+			})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"https://claude.ai/api/mcp/auth_callback"}, connectorClientDto.RedirectUris)
 	})
 
 	t.Run("an address elsewhere is refused before anything is minted or stored", func(t *testing.T) {

@@ -26,14 +26,14 @@ type ConnectorClientRegistrationDomain struct {
 }
 
 func NewConnectorClientRegistrationDomain(
-	registrationDto dto.ConnectorClientRegistrationDto,
+	registrationDto dto.ConnectorClientRegistrationDto, trustedRedirectUris []string,
 ) (ConnectorClientRegistrationDomain, error) {
 	if len(registrationDto.RedirectUris) == 0 ||
 		len(registrationDto.RedirectUris) > connectorRedirectUriCountLimit {
 		return ConnectorClientRegistrationDomain{}, ErrConnectorRedirectUriInvalid
 	}
 	for _, redirectUri := range registrationDto.RedirectUris {
-		if _, redirectUriError := NewConnectorRedirectUriDomain(redirectUri); redirectUriError != nil {
+		if _, redirectUriError := NewConnectorRedirectUriDomain(redirectUri, trustedRedirectUris); redirectUriError != nil {
 			return ConnectorClientRegistrationDomain{}, redirectUriError
 		}
 	}

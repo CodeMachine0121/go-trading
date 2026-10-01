@@ -363,3 +363,31 @@ func TestLoadReadsThePublicAddressesForConnectorAuthorization(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReadsTheTrustedConnectorRedirectUris(t *testing.T) {
+	testCases := []struct {
+		name     string
+		value    string
+		expected []string
+	}{
+		{
+			name:     "unset trusts the Claude hosted callbacks",
+			expected: []string{"https://claude.ai/api/mcp/auth_callback", "https://claude.com/api/mcp/auth_callback"},
+		},
+		{
+			name:     "a comma-separated list replaces the defaults",
+			value:    " https://a.example.com/cb , https://b.example.com/cb ",
+			expected: []string{"https://a.example.com/cb", "https://b.example.com/cb"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("CONNECTOR_TRUSTED_REDIRECT_URIS", testCase.value)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, testCase.expected, applicationConfig.ConnectorAuthorization.TrustedRedirectUris)
+		})
+	}
+}

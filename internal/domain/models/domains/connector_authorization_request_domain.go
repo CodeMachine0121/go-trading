@@ -10,12 +10,16 @@ import (
 
 type ConnectorAuthorizationRequestDomain struct {
 	authorizationRequest entities.ConnectorAuthorizationRequest
+	trustedRedirectUris  []string
 }
 
 func NewConnectorAuthorizationRequestDomain(
-	authorizationRequest entities.ConnectorAuthorizationRequest,
+	authorizationRequest entities.ConnectorAuthorizationRequest, trustedRedirectUris []string,
 ) ConnectorAuthorizationRequestDomain {
-	return ConnectorAuthorizationRequestDomain{authorizationRequest: authorizationRequest}
+	return ConnectorAuthorizationRequestDomain{
+		authorizationRequest: authorizationRequest,
+		trustedRedirectUris:  trustedRedirectUris,
+	}
 }
 
 // Open treats the expiry instant itself as past, and a decided request as gone.
@@ -75,7 +79,8 @@ func (connectorAuthorizationRequestDomain ConnectorAuthorizationRequestDomain) r
 ) (dto.ConnectorAuthorizationRedirectDto, error) {
 	authorizationRequest := connectorAuthorizationRequestDomain.authorizationRequest
 
-	redirectUri, redirectUriError := NewConnectorRedirectUriDomain(authorizationRequest.RedirectUri)
+	redirectUri, redirectUriError := NewConnectorRedirectUriDomain(
+		authorizationRequest.RedirectUri, connectorAuthorizationRequestDomain.trustedRedirectUris)
 	if redirectUriError != nil {
 		return dto.ConnectorAuthorizationRedirectDto{}, redirectUriError
 	}

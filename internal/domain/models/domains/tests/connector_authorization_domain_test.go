@@ -14,12 +14,14 @@ import (
 
 var connectorMoment = time.Date(2026, 9, 27, 8, 0, 0, 0, time.UTC)
 
+var trustedRedirectUris = []string{"https://claude.ai/api/mcp/auth_callback"}
+
 const (
 	rfcCodeVerifier  = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	rfcCodeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 )
 
-func TestConnectorClientRegistrationAcceptsOnlyLoopbackHttpAddresses(t *testing.T) {
+func TestConnectorClientRegistrationAcceptsLoopbackHttpAndTrustedHttpsAddresses(t *testing.T) {
 	testCases := []struct {
 		name          string
 		redirectUris  []string
@@ -28,6 +30,12 @@ func TestConnectorClientRegistrationAcceptsOnlyLoopbackHttpAddresses(t *testing.
 		{name: "localhost with a port and path", redirectUris: []string{"http://localhost:33418/callback"}},
 		{name: "IPv4 loopback", redirectUris: []string{"http://127.0.0.1:1/x"}},
 		{name: "IPv6 loopback on any port", redirectUris: []string{"http://[::1]:8765/"}},
+		{name: "a trusted hosted callback", redirectUris: []string{"https://claude.ai/api/mcp/auth_callback"}},
+		{name: "a trusted callback alongside loopback", redirectUris: []string{"http://localhost/cb", "https://claude.ai/api/mcp/auth_callback"}},
+		{name: "a trusted callback with another path", redirectUris: []string{"https://claude.ai/api/mcp/other"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
+		{name: "a trusted callback with a port", redirectUris: []string{"https://claude.ai:8443/api/mcp/auth_callback"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
+		{name: "a trusted callback over plain http", redirectUris: []string{"http://claude.ai/api/mcp/auth_callback"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
+		{name: "a trusted callback with a query", redirectUris: []string{"https://claude.ai/api/mcp/auth_callback?x=1"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
 		{name: "a public site", redirectUris: []string{"https://evil.example.com/cb"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
 		{name: "loopback over https", redirectUris: []string{"https://localhost:33418/callback"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
 		{name: "a plain http public host", redirectUris: []string{"http://example.com/cb"}, expectedError: domains.ErrConnectorRedirectUriInvalid},
@@ -48,7 +56,7 @@ func TestConnectorClientRegistrationAcceptsOnlyLoopbackHttpAddresses(t *testing.
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, err := domains.NewConnectorClientRegistrationDomain(
-				dto.ConnectorClientRegistrationDto{RedirectUris: testCase.redirectUris})
+				dto.ConnectorClientRegistrationDto{RedirectUris: testCase.redirectUris}, trustedRedirectUris)
 
 			if testCase.expectedError == nil {
 				assert.NoError(t, err)
@@ -79,7 +87,7 @@ func TestConnectorClientRegistrationRefusesMetadataANoSecretConnectorCannotUse(t
 			registrationDto := testCase.registrationDto
 			registrationDto.RedirectUris = []string{"http://localhost:33418/callback"}
 
-			_, err := domains.NewConnectorClientRegistrationDomain(registrationDto)
+			_, err := domains.NewConnectorClientRegistrationDomain(registrationDto, nil)
 
 			if testCase.expectedError == nil {
 				assert.NoError(t, err)
@@ -105,7 +113,7 @@ func TestConnectorClientRegistrationNamesAnUnnamedConnector(t *testing.T) {
 			registration, err := domains.NewConnectorClientRegistrationDomain(dto.ConnectorClientRegistrationDto{
 				RedirectUris: []string{"http://localhost:33418/callback"},
 				ClientName:   testCase.clientName,
-			})
+			}, nil)
 			require.NoError(t, err)
 
 			connectorClient := registration.ToEntity("client-A", connectorMoment)
@@ -118,10 +126,10 @@ func TestConnectorClientRegistrationNamesAnUnnamedConnector(t *testing.T) {
 	}
 }
 
-func TestConnectorClientRecognisesItsAddressesIgnoringOnlyThePort(t *testing.T) {
+func TestConnectorClientRecognisesItsAddressesIgnoringOnlyALoopbackPort(t *testing.T) {
 	connectorClient := domains.NewConnectorClientDomain(entities.ConnectorClient{
-		RedirectUris: []string{"http://localhost:33418/callback", "http://127.0.0.1/cb?mode=a"},
-	})
+		RedirectUris: []string{"http://localhost:33418/callback", "http://127.0.0.1/cb?mode=a", trustedRedirectUris[0]},
+	}, trustedRedirectUris)
 
 	testCases := []struct {
 		name       string
@@ -137,6 +145,9 @@ func TestConnectorClientRecognisesItsAddressesIgnoringOnlyThePort(t *testing.T) 
 		{name: "another loopback host", requested: "http://127.0.0.1:33418/callback", registered: false},
 		{name: "another query", requested: "http://127.0.0.1:9/cb?mode=b", registered: false},
 		{name: "not loopback", requested: "http://example.com:33418/callback", registered: false},
+		{name: "the trusted callback exactly", requested: "https://claude.ai/api/mcp/auth_callback", registered: true},
+		{name: "the trusted callback on another port", requested: "https://claude.ai:8443/api/mcp/auth_callback", registered: false},
+		{name: "the trusted callback with a query", requested: "https://claude.ai/api/mcp/auth_callback?x=1", registered: false},
 		{name: "missing", requested: "", registered: false},
 	}
 
@@ -231,7 +242,7 @@ func TestConnectorAuthorizationStartSendsIncompleteRequestsBackToTheConnector(t 
 		t.Run(testCase.name, func(t *testing.T) {
 			startDto := complete
 			testCase.change(&startDto)
-			redirectUri, err := domains.NewConnectorRedirectUriDomain(startDto.RedirectUri)
+			redirectUri, err := domains.NewConnectorRedirectUriDomain(startDto.RedirectUri, nil)
 			require.NoError(t, err)
 
 			refusal, refused := domains.NewConnectorAuthorizationStartDomain(startDto, redirectUri).RefusalRedirect()
@@ -257,7 +268,7 @@ func TestConnectorAuthorizationStartEchoesTheStateOnlyWhenGiven(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			redirectUri, err := domains.NewConnectorRedirectUriDomain("http://localhost:33418/callback")
+			redirectUri, err := domains.NewConnectorRedirectUriDomain("http://localhost:33418/callback", nil)
 			require.NoError(t, err)
 
 			refusal, _ := domains.NewConnectorAuthorizationStartDomain(
@@ -274,7 +285,7 @@ func TestConnectorAuthorizationStartEchoesTheStateOnlyWhenGiven(t *testing.T) {
 }
 
 func TestConnectorAuthorizationStartRecordsTheRequestAsSent(t *testing.T) {
-	redirectUri, err := domains.NewConnectorRedirectUriDomain("http://localhost:51000/callback")
+	redirectUri, err := domains.NewConnectorRedirectUriDomain("http://localhost:51000/callback", nil)
 	require.NoError(t, err)
 
 	authorizationRequest := domains.NewConnectorAuthorizationStartDomain(dto.ConnectorAuthorizationStartDto{
@@ -313,7 +324,7 @@ func TestConnectorAuthorizationRequestIsOpenUntilItExpiresOrIsDecided(t *testing
 			authorizationRequest := domains.NewConnectorAuthorizationRequestDomain(entities.ConnectorAuthorizationRequest{
 				ExpiresAt: testCase.createdAt.Add(10 * time.Minute),
 				DecidedAt: testCase.decidedAt,
-			})
+			}, nil)
 
 			assert.Equal(t, testCase.open, authorizationRequest.Open(connectorMoment))
 		})
@@ -322,29 +333,42 @@ func TestConnectorAuthorizationRequestIsOpenUntilItExpiresOrIsDecided(t *testing
 
 func TestConnectorAuthorizationRequestSendsTheBrowserBackWithTheDecision(t *testing.T) {
 	testCases := []struct {
-		name     string
-		state    string
-		decide   func(authorizationRequest domains.ConnectorAuthorizationRequestDomain) (dto.ConnectorAuthorizationRedirectDto, error)
-		expected string
+		name        string
+		redirectUri string
+		state       string
+		decide      func(authorizationRequest domains.ConnectorAuthorizationRequestDomain) (dto.ConnectorAuthorizationRedirectDto, error)
+		expected    string
 	}{
 		{
-			name:  "approved",
-			state: "abc",
+			name:        "approved to a trusted hosted callback",
+			redirectUri: "https://claude.ai/api/mcp/auth_callback",
+			state:       "abc",
+			decide: func(authorizationRequest domains.ConnectorAuthorizationRequestDomain) (dto.ConnectorAuthorizationRedirectDto, error) {
+				return authorizationRequest.ApprovalRedirect("the-code")
+			},
+			expected: "https://claude.ai/api/mcp/auth_callback?code=the-code&state=abc",
+		},
+		{
+			name:        "approved",
+			redirectUri: "http://localhost:51000/callback",
+			state:       "abc",
 			decide: func(authorizationRequest domains.ConnectorAuthorizationRequestDomain) (dto.ConnectorAuthorizationRedirectDto, error) {
 				return authorizationRequest.ApprovalRedirect("the-code")
 			},
 			expected: "http://localhost:51000/callback?code=the-code&state=abc",
 		},
 		{
-			name:  "denied",
-			state: "abc",
+			name:        "denied",
+			redirectUri: "http://localhost:51000/callback",
+			state:       "abc",
 			decide: func(authorizationRequest domains.ConnectorAuthorizationRequestDomain) (dto.ConnectorAuthorizationRedirectDto, error) {
 				return authorizationRequest.DenialRedirect()
 			},
 			expected: "http://localhost:51000/callback?error=access_denied&state=abc",
 		},
 		{
-			name: "denied without state",
+			name:        "denied without state",
+			redirectUri: "http://localhost:51000/callback",
 			decide: func(authorizationRequest domains.ConnectorAuthorizationRequestDomain) (dto.ConnectorAuthorizationRedirectDto, error) {
 				return authorizationRequest.DenialRedirect()
 			},
@@ -355,8 +379,8 @@ func TestConnectorAuthorizationRequestSendsTheBrowserBackWithTheDecision(t *test
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			redirect, err := testCase.decide(domains.NewConnectorAuthorizationRequestDomain(entities.ConnectorAuthorizationRequest{
-				RedirectUri: "http://localhost:51000/callback", State: testCase.state,
-			}))
+				RedirectUri: testCase.redirectUri, State: testCase.state,
+			}, trustedRedirectUris))
 
 			require.NoError(t, err)
 			assert.Equal(t, testCase.expected, redirect.RedirectTo)
@@ -367,7 +391,7 @@ func TestConnectorAuthorizationRequestSendsTheBrowserBackWithTheDecision(t *test
 func TestConnectorAuthorizationRequestRefusesToRedirectToAStoredUntrustedAddress(t *testing.T) {
 	_, err := domains.NewConnectorAuthorizationRequestDomain(entities.ConnectorAuthorizationRequest{
 		RedirectUri: "https://evil.example.com/cb",
-	}).DenialRedirect()
+	}, trustedRedirectUris).DenialRedirect()
 
 	assert.ErrorIs(t, err, domains.ErrConnectorRedirectUriInvalid)
 }
@@ -376,7 +400,7 @@ func TestConnectorAuthorizationRequestBindsTheCodeToEverythingItWasAskedWith(t *
 	authorizationCode := domains.NewConnectorAuthorizationRequestDomain(entities.ConnectorAuthorizationRequest{
 		ConnectorClientIdentifier: "client-A", RedirectUri: "http://localhost:51000/callback",
 		CodeChallenge: rfcCodeChallenge, Resource: "https://mcp.example.com/mcp",
-	}).ToAuthorizationCode(7, "code-digest", connectorMoment, 5*time.Minute)
+	}, nil).ToAuthorizationCode(7, "code-digest", connectorMoment, 5*time.Minute)
 
 	assert.Equal(t, entities.ConnectorAuthorizationCode{
 		CodeDigest:                "code-digest",

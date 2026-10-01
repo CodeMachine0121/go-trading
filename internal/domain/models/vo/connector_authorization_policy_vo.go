@@ -12,6 +12,8 @@ type ConnectorAuthorizationPolicyVo struct {
 	FrontendBaseUrl string
 	RequestLifetime time.Duration
 	CodeLifetime    time.Duration
+	// TrustedRedirectUris are the exact https callbacks hosted connectors may register; loopback addresses need no listing.
+	TrustedRedirectUris []string
 }
 
 func (connectorAuthorizationPolicyVo ConnectorAuthorizationPolicyVo) ToServerMetadataDto() dto.ConnectorAuthorizationServerMetadataDto {
