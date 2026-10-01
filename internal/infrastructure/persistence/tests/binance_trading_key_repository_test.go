@@ -304,3 +304,18 @@ func TestBinanceTradingKeyRepositoryLeavesSwitchesAloneWhenTheKeyCannotBeWritten
 	assert.NotErrorIs(t, enableError, domains.ErrStrategyBotAutoOrderKeyChanged)
 	assert.True(t, autoOrderOf(t, database, contractBot))
 }
+
+// Bots stored before the switch existed get the column on migration and read as switched off.
+func TestSchemaMigratorLeavesEveryExistingBotWithAutoOrderOff(t *testing.T) {
+	database := newTradingKeyTestDatabase(t)
+	require.NoError(t, database.Migrator().DropColumn(&entities.StrategyBot{}, "auto_order_enabled"))
+	t.Cleanup(func() { _, _ = persistence.NewSchemaMigrator(database).Migrate() })
+	existingBot := aBotRow("上線前就有的")
+	require.NoError(t, database.WithContext(t.Context()).
+		Omit(clause.Associations, "AutoOrderEnabled").Create(&existingBot).Error)
+
+	_, migrateError := persistence.NewSchemaMigrator(database).Migrate()
+
+	require.NoError(t, migrateError)
+	assert.False(t, autoOrderOf(t, database, existingBot.ID))
+}
