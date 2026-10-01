@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ConnectorResourceDomain is the service a connector's tokens are bound to; RFC 8707 §2 requires an absolute address without a fragment.
+// ConnectorResourceDomain is the service a connector's tokens are bound to; RFC 8707 §2 requires an absolute address without a fragment and advises against a query.
 type ConnectorResourceDomain struct {
 	address *url.URL
 }
@@ -17,7 +17,7 @@ func NewConnectorResourceDomain(rawResource string) (ConnectorResourceDomain, er
 	if parseError != nil ||
 		address.Hostname() == "" ||
 		address.User != nil ||
-		strings.Contains(rawResource, "#") {
+		strings.ContainsAny(rawResource, "#?") {
 		return ConnectorResourceDomain{}, ErrConnectorResourceInvalid
 	}
 

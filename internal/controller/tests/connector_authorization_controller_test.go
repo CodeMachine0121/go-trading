@@ -355,7 +355,7 @@ func (router connectorRouterUnderTest) expectPendingRequest(createdAt time.Time)
 	router.connectorAuthorizationRequestRepository.EXPECT().FindOneByRequestIdentifier(gomock.Any(), "request-1").
 		Return(entities.ConnectorAuthorizationRequest{
 			ID: 21, RequestIdentifier: "request-1", ConnectorClientIdentifier: "client-A",
-			RedirectUri: "http://localhost:51000/callback", State: "abc",
+			RedirectUri: "http://localhost:51000/callback", State: "abc", Resource: "https://mcp.example.com/mcp",
 			ExpiresAt: createdAt.Add(10 * time.Minute),
 		}, nil)
 }

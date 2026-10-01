@@ -508,6 +508,17 @@ func TestConnectorAuthorizationApplicationApproveConnectorAuthorization(t *testi
 		require.ErrorIs(t, err, domains.ErrConnectorAuthorizationRequestNotFound)
 	})
 
+	t.Run("a request recorded without a resource cannot be approved and mints no code", func(t *testing.T) {
+		fixture := newConnectorAuthorizationApplicationUnderTest(t)
+		requestWithoutResource := aPendingAuthorizationRequest(connectorMoment.Add(-time.Minute), nil)
+		requestWithoutResource.Resource = ""
+		fixture.expectAuthorizationRequest(requestWithoutResource)
+
+		_, err := fixture.connectorAuthorizationApplication.ApproveConnectorAuthorization(t.Context(), "request-1", 7)
+
+		require.ErrorIs(t, err, domains.ErrConnectorAuthorizationRequestNotFound)
+	})
+
 	t.Run("a mint failure stores nothing", func(t *testing.T) {
 		fixture := newConnectorAuthorizationApplicationUnderTest(t)
 		mintFailure := errors.New("no randomness")

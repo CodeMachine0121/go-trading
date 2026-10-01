@@ -329,11 +329,13 @@ func TestConnectorAuthorizationRequestIsOpenUntilItExpiresOrIsDecided(t *testing
 		name      string
 		createdAt time.Time
 		decidedAt *time.Time
+		resource  string
 		open      bool
 	}{
-		{name: "nine minutes old", createdAt: connectorMoment.Add(-9 * time.Minute), open: true},
-		{name: "exactly ten minutes old", createdAt: connectorMoment.Add(-10 * time.Minute), open: false},
-		{name: "already decided", createdAt: connectorMoment.Add(-2 * time.Minute), decidedAt: &decidedAt, open: false},
+		{name: "nine minutes old", createdAt: connectorMoment.Add(-9 * time.Minute), resource: "https://mcp.example.com/mcp", open: true},
+		{name: "exactly ten minutes old", createdAt: connectorMoment.Add(-10 * time.Minute), resource: "https://mcp.example.com/mcp", open: false},
+		{name: "already decided", createdAt: connectorMoment.Add(-2 * time.Minute), decidedAt: &decidedAt, resource: "https://mcp.example.com/mcp", open: false},
+		{name: "recorded without a resource", createdAt: connectorMoment.Add(-time.Minute), open: false},
 	}
 
 	for _, testCase := range testCases {
@@ -341,6 +343,7 @@ func TestConnectorAuthorizationRequestIsOpenUntilItExpiresOrIsDecided(t *testing
 			authorizationRequest := domains.NewConnectorAuthorizationRequestDomain(entities.ConnectorAuthorizationRequest{
 				ExpiresAt: testCase.createdAt.Add(10 * time.Minute),
 				DecidedAt: testCase.decidedAt,
+				Resource:  testCase.resource,
 			}, nil)
 
 			assert.Equal(t, testCase.open, authorizationRequest.Open(connectorMoment))
@@ -597,6 +600,7 @@ func TestConnectorResourceMustBeAnAbsoluteSecureAddress(t *testing.T) {
 		{name: "a reachable host over plain http", resource: "http://trading-mcp.example.com/mcp"},
 		{name: "a fragment", resource: "https://trading-mcp.example.com/mcp#part"},
 		{name: "an empty fragment", resource: "https://trading-mcp.example.com/mcp#"},
+		{name: "a query", resource: "https://trading-mcp.example.com/mcp?tenant=x"},
 		{name: "credentials", resource: "https://someone:secret@example.com/mcp"},
 		{name: "another scheme", resource: "ftp://example.com/mcp"},
 		{name: "no host", resource: "https:///mcp"},
