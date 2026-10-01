@@ -52,3 +52,31 @@ func TestTradableMarketsDomainNamesTheBotKindsToSwitchOff(t *testing.T) {
 		})
 	}
 }
+
+func TestTradableMarketsDomainRequireCovering(t *testing.T) {
+	testCases := []struct {
+		name            string
+		tradableMarkets domains.TradableMarketsDomain
+		botKind         string
+		expectedMessage string
+	}{
+		{name: "spot covers a spot bot", tradableMarkets: domains.NewTradableMarketsDomain(true, false), botKind: "kCandle"},
+		{name: "spot covers an old blank-kind bot", tradableMarkets: domains.NewTradableMarketsDomain(true, false), botKind: ""},
+		{name: "contract covers a contract bot", tradableMarkets: domains.NewTradableMarketsDomain(false, true), botKind: "contractKCandle"},
+		{name: "spot does not cover a contract bot", tradableMarkets: domains.NewTradableMarketsDomain(true, false), botKind: "contractKCandle", expectedMessage: "這組幣安交易金鑰沒有合約交易權限"},
+		{name: "contract does not cover a spot bot", tradableMarkets: domains.NewTradableMarketsDomain(false, true), botKind: "kCandle", expectedMessage: "這組幣安交易金鑰沒有現貨交易權限"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.tradableMarkets.RequireCovering(testCase.botKind)
+
+			if testCase.expectedMessage == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, domains.ErrStrategyBotAutoOrderMarketNotCovered)
+			assert.ErrorContains(t, err, testCase.expectedMessage)
+		})
+	}
+}

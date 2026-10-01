@@ -41,7 +41,7 @@
 | `vo.TradingKeyVerificationVo` | **Add** | proxy 的回答：失敗原因 + 兩個權限布林 |
 | `vo.TradingKeyCredentialVo` | **Add** | 交給 proxy 的兩串原文。**唯一裝得下完整 Secret Key 的型別**，只在 domain → infrastructure 這一段存在 |
 | `domains.BinanceTradingKeyDomain` | **Add** | 兩串的規則：去空白、不得空白（先 API Key 後 Secret Key）、算 API Key 結尾、`ToCredentialVo()`、`ToEntity(...)` |
-| `domains.TradableMarketsDomain` | **Add** | 可交易市場：`Values()`、`Covers(marketDataKind)`、`UncoveredBotMarketDataKinds()`（含既有空白＝現貨的舊列） |
+| `domains.TradableMarketsDomain` | **Add** | 可交易市場：`Covers(market)`、`RequireCovering(botMarketDataKind)`、`UncoveredBotMarketDataKinds()`——「哪一種機器人需要哪一種市場」只住在這裡（含既有空白＝現貨的舊列） |
 | `domains.BinanceTradingKeyVerificationDomain` | **Add** | 把 proxy 的回答變成「可交易市場」或一個帶失敗原因的錯誤（含「兩種都沒開」） |
 | `domains.StrategyBotAutoOrderDomain` | **Add** | 打開開關的兩道關卡：有金鑰、可交易市場涵蓋這台的種類 |
 | `domains.binance_trading_key_errors.go` | **Add** | 哨兵錯誤 + `BinanceTradingKeyVerificationError`（帶 `Reason`，比照 `AccountNotActivatedError` 帶額外欄位） |
