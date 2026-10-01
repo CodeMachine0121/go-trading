@@ -4032,6 +4032,272 @@
       ]
     },
     {
+      "name": "幣安交易金鑰",
+      "description": "使用者自己的幣安交易金鑰：存下之前先問幣安（被不被接受、開了哪幾種交易權限），兩串都上鎖保存，讀回只看得到 API Key 結尾；Secret Key 一個字都不給看。寫入與含結尾的讀取只接受網頁登入，外掛只讀得到 /status。",
+      "item": [
+        {
+          "name": "讀取設定 — 還沒設定過",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key"
+              ]
+            },
+            "description": "沒設定過不是 404，是這份設定的正常狀態。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"說自己還沒設定\", function () {",
+                  "    pm.expect(pm.response.json().configured).to.eql(false);",
+                  "    pm.expect(pm.response.json().tradableMarkets).to.eql([]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "讀取摘要（外掛也讀得到的那一份）— 還沒設定過",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key",
+                "status"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"只說有沒有設定與可交易市場，沒有任何一段金鑰\", function () {",
+                  "    const status = pm.response.json();",
+                  "    pm.expect(status.configured).to.eql(false);",
+                  "    pm.expect(status).to.not.have.property(\"apiKeyTail\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定 — API Key 只有空白",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiKey\": \"   \",\n  \"secretKey\": \"a-secret-key\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說要給 API Key\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"必須給 API Key\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定 — Secret Key 只有空白",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiKey\": \"an-api-key\",\n  \"secretKey\": \"  \"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 400\", function () { pm.response.to.have.status(400); });",
+                  "pm.test(\"說要給 Secret Key\", function () {",
+                  "    pm.expect(pm.response.json().message).to.include(\"必須給 Secret Key\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "設定 — 用一組假金鑰，看它說得出是哪一種失敗",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiKey\": \"postman-fake-api-key-a1b2\",\n  \"secretKey\": \"postman-fake-secret-key\"\n}"
+            },
+            "description": "假金鑰幣安一定不收，所以這一則驗證的是「失敗分得出種類、而且什麼都沒存」。要驗成功那一條，請換成自己在幣安建立、至少開了現貨或合約交易權限的那一組。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"存不成，而且說得出原因\", function () {",
+                  "    // 503：系統沒有開鎖的東西（沒設 SECRET_SEAL_KEY）；其餘是幣安那一側的四種原因之一。",
+                  "    pm.expect([422, 502, 503, 504]).to.include(pm.response.code);",
+                  "    if (pm.response.code !== 503) {",
+                  "        pm.expect([\"keyRejected\", \"unreachable\", \"timedOut\", \"noTradingPermission\"])",
+                  "            .to.include(pm.response.json().failureReason);",
+                  "    }",
+                  "});",
+                  "pm.test(\"回應裡沒有 Secret Key\", function () {",
+                  "    pm.expect(pm.response.text()).to.not.include(\"postman-fake-secret-key\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "存不成之後，讀回仍是還沒設定",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"原本的狀態原封不動\", function () {",
+                  "    pm.expect(pm.response.json().configured).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "移除 — 沒有設定也不算失敗",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/binance-trading-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "binance-trading-key"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 204\", function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "K 線",
       "description": "K 線的新增、查詢、修改、刪除。一根固定涵蓋一分鐘，以「交易標的 + 起始時間」唯一辨識，一律使用世界標準時間。",
       "item": [
@@ -14392,6 +14658,7 @@
                   "        Number(pm.collectionVariables.get(\"tradingStrategyId\")));",
                   "    pm.expect(saved.tradingStrategyName).to.be.a(\"string\");",
                   "});",
+                  "pm.test(\"新建的一台自動下單是關著的\", function () { pm.expect(pm.response.json().autoOrderEnabled).to.eql(false); });",
                   "pm.collectionVariables.set(\"strategyBotId\", pm.response.json().id);"
                 ]
               }
@@ -14464,6 +14731,73 @@
                   "    pm.expect(mine).to.not.be.undefined;",
                   "    pm.expect(mine.runState).to.eql(\"stopped\");",
                   "    pm.expect(mine).to.have.property(\"conflicting\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "拒絕：沒有幣安交易金鑰，自動下單打不開",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/auto-order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "auto-order"
+              ]
+            },
+            "description": "打開時要有幣安交易金鑰，且其可交易市場涵蓋這台機器人的種類。這一段的使用者沒有金鑰。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 409\", function () { pm.response.to.have.status(409); });",
+                  "pm.test(\"說要先完成幣安交易金鑰設定\", function () {",
+                  "    pm.expect(pm.response.json().reason).to.eql(\"binanceTradingKeyNotConfigured\");",
+                  "    pm.expect(pm.response.json().message).to.include(\"請先完成幣安交易金鑰設定\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "關掉自動下單永遠可以",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/strategy-bots/{{strategyBotId}}/auto-order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "strategy-bots",
+                "{{strategyBotId}}",
+                "auto-order"
+              ]
+            },
+            "description": "關掉是緊急煞車，不需要任何前提——連金鑰都不需要。"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"回應 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"自動下單是關著的\", function () {",
+                  "    pm.expect(pm.response.json().autoOrderEnabled).to.eql(false);",
                   "});"
                 ]
               }

@@ -188,6 +188,12 @@ type TelegramConfig struct {
 	RequestTimeout time.Duration
 }
 
+// BinanceTradingConfig is where a person's own Binance trading key is checked; RequestTimeout is the wait ceiling before a save counts as timed out.
+type BinanceTradingConfig struct {
+	ApiBaseUrl     string
+	RequestTimeout time.Duration
+}
+
 // StrategyBotConfig holds deployment tuning; limits that define bot semantics live in the domain.
 type StrategyBotConfig struct {
 	// ScanInterval matches the shortest bot trigger interval.
@@ -252,6 +258,7 @@ type ApplicationConfig struct {
 	SignInLockout          SignInLockoutConfig
 	Secrets                SecretsConfig
 	Telegram               TelegramConfig
+	BinanceTrading         BinanceTradingConfig
 	StrategyBot            StrategyBotConfig
 	RequestLimit           RequestLimitConfig
 	ConnectorAuthorization ConnectorAuthorizationConfig
@@ -424,6 +431,11 @@ func Load() ApplicationConfig {
 			ApiBaseUrl: stringWithDefault("TELEGRAM_API_BASE_URL", "https://api.telegram.org"),
 			RequestTimeout: time.Duration(
 				positiveIntWithDefault("TELEGRAM_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		},
+		BinanceTrading: BinanceTradingConfig{
+			ApiBaseUrl: stringWithDefault("BINANCE_TRADING_API_BASE_URL", "https://api.binance.com"),
+			RequestTimeout: time.Duration(
+				positiveIntWithDefault("BINANCE_TRADING_KEY_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
 		StrategyBot: StrategyBotConfig{
 			ScanInterval: time.Duration(

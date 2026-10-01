@@ -17,6 +17,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/assistant"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/clock"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/exchange"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/marketdata"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/messaging"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
@@ -458,9 +459,11 @@ func registerRoutes(
 	// Only the global limit: the connector server introspects for every user from one address.
 	engine.POST("/oauth/introspection", connectorAuthorizationController.IntrospectAccessToken)
 
+	secretSealProxy := security.NewAesSecretSealProxy(applicationConfig.Secrets.SealKey)
+
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		persistence.NewTelegramDeliveryRepository(database),
-		security.NewAesSecretSealProxy(applicationConfig.Secrets.SealKey),
+		secretSealProxy,
 		messaging.NewTelegramMessageDeliveryProxy(
 			applicationConfig.Telegram.ApiBaseUrl,
 			&http.Client{Timeout: applicationConfig.Telegram.RequestTimeout},
@@ -480,6 +483,30 @@ func registerRoutes(
 		requiresSignIn, telegramDeliveryController.RemoveDeliverySetting)
 	engine.POST("/users/me/telegram-delivery/test-message",
 		requiresSignIn, telegramDeliveryController.SendTestMessage)
+
+	binanceTradingKeyService := service.NewBinanceTradingKeyService(
+		persistence.NewBinanceTradingKeyRepository(database),
+		secretSealProxy,
+		exchange.NewBinanceTradingKeyVerificationProxy(
+			applicationConfig.BinanceTrading.ApiBaseUrl,
+			&http.Client{Timeout: applicationConfig.BinanceTrading.RequestTimeout},
+			clock.NewSystemClockProxy(),
+		),
+	)
+
+	binanceTradingKeyController := controller.NewBinanceTradingKeyController(
+		application.NewBinanceTradingKeyApplication(binanceTradingKeyService),
+	)
+
+	// Only the user in the browser may see the key tail or change anything: a trading key must never pass through an AI conversation.
+	engine.GET("/users/me/binance-trading-key",
+		requiresWebSignIn, binanceTradingKeyController.GetTradingKey)
+	engine.GET("/users/me/binance-trading-key/status",
+		requiresSignIn, binanceTradingKeyController.GetTradingKeyStatus)
+	engine.PUT("/users/me/binance-trading-key",
+		requiresWebSignIn, binanceTradingKeyController.SaveTradingKey)
+	engine.DELETE("/users/me/binance-trading-key",
+		requiresWebSignIn, binanceTradingKeyController.RemoveTradingKey)
 
 	// Live follow only shortens the wait for viewers; the scheduled round still stores every closed candle.
 	kCandleFollowService := service.NewKCandleFollowService(
@@ -724,6 +751,7 @@ func registerRoutes(
 			strategyBotService,
 			tradingStrategyService,
 			telegramDeliveryService,
+			binanceTradingKeyService,
 		),
 		strategyBotRunApplication,
 	)
@@ -739,6 +767,9 @@ func registerRoutes(
 	engine.GET("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.ListRunRecords)
 	// 立刻跑一輪，與排程那一輪走完全同一條路。
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
+	// Letting a bot use real money must be pressed by the person, never by a connector.
+	engine.POST("/strategy-bots/:id/auto-order", requiresWebSignIn, strategyBotController.EnableAutoOrder)
+	engine.DELETE("/strategy-bots/:id/auto-order", requiresWebSignIn, strategyBotController.DisableAutoOrder)
 
 	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
 		kCandleIngestionApplication,

@@ -158,6 +158,37 @@ func TestLoadReadsHowLongItWillWaitForTelegram(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesBinanceTradingDefaultsWhenNothingIsSet(t *testing.T) {
+	applicationConfig := config.Load()
+
+	assert.Equal(t, "https://api.binance.com", applicationConfig.BinanceTrading.ApiBaseUrl)
+	assert.Equal(t, 10*time.Second, applicationConfig.BinanceTrading.RequestTimeout)
+}
+
+func TestLoadReadsHowLongItWillWaitForBinance(t *testing.T) {
+	testCases := []struct {
+		name            string
+		waitSeconds     string
+		expectedTimeout time.Duration
+	}{
+		{name: "a usable wait is taken as given", waitSeconds: "3", expectedTimeout: 3 * time.Second},
+		{name: "an unreadable wait falls back", waitSeconds: "soon", expectedTimeout: 10 * time.Second},
+		{name: "zero falls back", waitSeconds: "0", expectedTimeout: 10 * time.Second},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("BINANCE_TRADING_API_BASE_URL", "http://localhost:9998")
+			t.Setenv("BINANCE_TRADING_KEY_REQUEST_TIMEOUT_SECONDS", testCase.waitSeconds)
+
+			applicationConfig := config.Load()
+
+			assert.Equal(t, "http://localhost:9998", applicationConfig.BinanceTrading.ApiBaseUrl)
+			assert.Equal(t, testCase.expectedTimeout, applicationConfig.BinanceTrading.RequestTimeout)
+		})
+	}
+}
+
 func TestLoadGivesTheAssistantEnoughQueriesToFinishWhatItStarted(t *testing.T) {
 	// The ceiling must allow build-replay-adjust loops of about five queries per turn.
 	testCases := []struct {

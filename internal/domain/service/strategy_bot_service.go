@@ -264,6 +264,53 @@ func (strategyBotService *StrategyBotService) StopStrategyBot(
 	return stoppedBot.ToDto(), wasRunning, nil
 }
 
+// EnableAutoOrder switches the viewer's bot's auto order on when the caller-read key covers its kind; already on is not a failure, and running or stopped makes no difference.
+func (strategyBotService *StrategyBotService) EnableAutoOrder(
+	executionContext context.Context, viewerID uint, id uint,
+	binanceTradingKeyStatus dto.BinanceTradingKeyStatusDto,
+) (dto.StrategyBotDto, error) {
+	storedBot, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id)
+	if findError != nil {
+		return dto.StrategyBotDto{}, findError
+	}
+
+	autoOrder := domains.NewStrategyBotAutoOrderDomain(storedBot)
+	if enableableError := autoOrder.RequireEnableable(binanceTradingKeyStatus); enableableError != nil {
+		return dto.StrategyBotDto{}, enableableError
+	}
+	if autoOrder.IsEnabled() {
+		return storedBot.ToDto(), nil
+	}
+
+	if enableError := strategyBotService.strategyBotRepository.EnableAutoOrder(
+		executionContext, id, storedBot.OwnerID, binanceTradingKeyStatus.ConfiguredAt); enableError != nil {
+		return dto.StrategyBotDto{}, enableError
+	}
+
+	storedBot.AutoOrderEnabled = true
+
+	return storedBot.ToDto(), nil
+}
+
+// DisableAutoOrder is the emergency brake, so nothing but ownership is ever checked.
+func (strategyBotService *StrategyBotService) DisableAutoOrder(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.StrategyBotDto, error) {
+	storedBot, findError := strategyBotService.findOwnedBot(executionContext, viewerID, id)
+	if findError != nil {
+		return dto.StrategyBotDto{}, findError
+	}
+
+	if disableError := strategyBotService.strategyBotRepository.DisableAutoOrder(
+		executionContext, id); disableError != nil {
+		return dto.StrategyBotDto{}, disableError
+	}
+
+	storedBot.AutoOrderEnabled = false
+
+	return storedBot.ToDto(), nil
+}
+
 // FindDueStrategyBots returns up to limit running bots whose next round has come, oldest first, with no viewer since the clock asked.
 func (strategyBotService *StrategyBotService) FindDueStrategyBots(
 	executionContext context.Context, limit int,

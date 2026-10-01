@@ -39,9 +39,11 @@ type StrategyBot struct {
 	// HaltReason is empty unless the system stopped this bot itself.
 	HaltReason string `gorm:"size:32;not null;default:''"`
 	// Conflicting is not a halt; it clears on the next non-conflicting round.
-	Conflicting bool      `gorm:"not null;default:false"`
-	CreatedAt   time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt   time.Time `gorm:"type:timestamptz;not null"`
+	Conflicting bool `gorm:"not null;default:false"`
+	// AutoOrderEnabled is off for every existing bot; neither Save nor UpdateRunState names it, so only the switch routes change it.
+	AutoOrderEnabled bool      `gorm:"not null;default:false"`
+	CreatedAt        time.Time `gorm:"type:timestamptz;not null"`
+	UpdatedAt        time.Time `gorm:"type:timestamptz;not null"`
 
 	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	// TradingStrategy has no constraint so it adds no foreign key; see TradingStrategyID.
@@ -87,6 +89,7 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		LastSentSignal:         strategyBot.LastSentSignal,
 		HaltReason:             strategyBot.HaltReason,
 		Conflicting:            strategyBot.Conflicting,
+		AutoOrderEnabled:       strategyBot.AutoOrderEnabled,
 		CreatedAt:              strategyBot.CreatedAt.UTC(),
 		UpdatedAt:              strategyBot.UpdatedAt.UTC(),
 	}

@@ -38,6 +38,13 @@ type IStrategyBotRepository interface {
 
 	CountRunningByOwner(executionContext context.Context, ownerID uint) (int, error)
 
+	// EnableAutoOrder switches auto order on only while the owner's trading key is still the one configured at binanceTradingKeyConfiguredAt, holding that key row against replacement or removal until done; otherwise ErrStrategyBotAutoOrderKeyChanged.
+	EnableAutoOrder(
+		executionContext context.Context, id uint, ownerID uint, binanceTradingKeyConfiguredAt time.Time,
+	) error
+
+	DisableAutoOrder(executionContext context.Context, id uint) error
+
 	// FindDue returns running bots due at or before moment, oldest due first to avoid starvation, capped by limit in the query itself.
 	FindDue(
 		executionContext context.Context, moment time.Time, limit int,

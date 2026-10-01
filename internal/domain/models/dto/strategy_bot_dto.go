@@ -29,7 +29,9 @@ type StrategyBotDto struct {
 	// HaltReason is empty when running or stopped by the owner.
 	HaltReason string `json:"haltReason,omitempty"`
 	// Conflicting is not a halt and clears once a round stops conflicting.
-	Conflicting bool      `json:"conflicting"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Conflicting bool `json:"conflicting"`
+	// AutoOrderEnabled has no effect on rounds yet; no order is ever placed.
+	AutoOrderEnabled bool      `json:"autoOrderEnabled"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }

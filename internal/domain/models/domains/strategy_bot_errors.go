@@ -37,3 +37,12 @@ func StrategyBotAlreadyRunningARound() error {
 
 // ErrStrategyBotMarketDataStale means a contract's candles stopped arriving (e.g. it left the watchlist); the round is skipped rather than halting the bot.
 var ErrStrategyBotMarketDataStale = errors.New("strategy bot market data stale")
+
+// ErrStrategyBotAutoOrderKeyNotConfigured refuses switching auto order on before a Binance trading key is stored; switching off is never refused.
+var ErrStrategyBotAutoOrderKeyNotConfigured = errors.New("strategy bot auto order needs a binance trading key")
+
+// ErrStrategyBotAutoOrderMarketNotCovered means the stored key may not trade the bot's kind of market.
+var ErrStrategyBotAutoOrderMarketNotCovered = errors.New("strategy bot auto order market not covered")
+
+// ErrStrategyBotAutoOrderKeyChanged means the key was replaced or removed while the switch was being turned on; retrying re-checks against the current key.
+var ErrStrategyBotAutoOrderKeyChanged = errors.New("strategy bot auto order key changed meanwhile")

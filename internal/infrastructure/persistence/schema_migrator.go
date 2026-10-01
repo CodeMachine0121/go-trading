@@ -85,6 +85,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.ConnectorAuthorizationCode{},
 		&entities.PublishedStrategyScript{},
 		&entities.TelegramDelivery{},
+		&entities.BinanceTradingKey{},
 		&entities.TradingStrategy{},
 		&entities.StrategyBot{},
 		&entities.TradingStrategySignalSource{},

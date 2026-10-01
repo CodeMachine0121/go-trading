@@ -24,6 +24,7 @@ type User struct {
 	Sessions []Session `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	// TelegramDelivery cascades so a bot key never outlives its owner.
 	TelegramDelivery            *TelegramDelivery            `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	BinanceTradingKey           *BinanceTradingKey           `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 	ConnectorAuthorizationCodes []ConnectorAuthorizationCode `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 

@@ -184,6 +184,17 @@ func (strategyBotController *StrategyBotController) respondWithError(
 		ginContext.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
+	// 409 with a named reason: a setup step is missing, nothing the caller sent is wrong, and the front end links each reason to a different fix.
+	for autoOrderRefusal, reason := range map[error]string{
+		domains.ErrStrategyBotAutoOrderKeyNotConfigured: "binanceTradingKeyNotConfigured",
+		domains.ErrStrategyBotAutoOrderMarketNotCovered: "tradableMarketNotCovered",
+		domains.ErrStrategyBotAutoOrderKeyChanged:       "binanceTradingKeyChanged",
+	} {
+		if errors.Is(err, autoOrderRefusal) {
+			ginContext.JSON(http.StatusConflict, gin.H{"message": err.Error(), "reason": reason})
+			return
+		}
+	}
 	if errors.Is(err, domains.ErrStrategyBotNameConflict) ||
 		errors.Is(err, domains.ErrStrategyBotRunning) ||
 		errors.Is(err, domains.ErrStrategyBotAlreadyRunningARound) ||
@@ -193,6 +204,40 @@ func (strategyBotController *StrategyBotController) respondWithError(
 	}
 
 	ginContext.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+}
+
+// EnableAutoOrder handles POST /strategy-bots/:id/auto-order; switching on an already-on bot is not a failure.
+func (strategyBotController *StrategyBotController) EnableAutoOrder(ginContext *gin.Context) {
+	id, idIsReadable := strategyBotController.readID(ginContext)
+	if !idIsReadable {
+		return
+	}
+
+	strategyBotDto, err := strategyBotController.strategyBotApplication.EnableAutoOrder(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
+	if err != nil {
+		strategyBotController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, strategyBotDto)
+}
+
+// DisableAutoOrder handles DELETE /strategy-bots/:id/auto-order; it never needs a key.
+func (strategyBotController *StrategyBotController) DisableAutoOrder(ginContext *gin.Context) {
+	id, idIsReadable := strategyBotController.readID(ginContext)
+	if !idIsReadable {
+		return
+	}
+
+	strategyBotDto, err := strategyBotController.strategyBotApplication.DisableAutoOrder(
+		ginContext.Request.Context(), middlewares.CurrentUserID(ginContext), id)
+	if err != nil {
+		strategyBotController.respondWithError(ginContext, err)
+		return
+	}
+
+	ginContext.JSON(http.StatusOK, strategyBotDto)
 }
 
 // RunRoundNow handles POST /strategy-bots/:id/runs: run one round right now.

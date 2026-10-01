@@ -24,11 +24,12 @@ import (
 )
 
 type strategyBotRouterUnderTest struct {
-	engine                     *gin.Engine
-	strategyBotRepository      *mocks.MockIStrategyBotRepository
-	strategyScriptRepository   *mocks.MockIStrategyScriptRepository
-	tradingStrategyRepository  *mocks.MockITradingStrategyRepository
-	telegramDeliveryRepository *mocks.MockITelegramDeliveryRepository
+	engine                      *gin.Engine
+	strategyBotRepository       *mocks.MockIStrategyBotRepository
+	strategyScriptRepository    *mocks.MockIStrategyScriptRepository
+	tradingStrategyRepository   *mocks.MockITradingStrategyRepository
+	telegramDeliveryRepository  *mocks.MockITelegramDeliveryRepository
+	binanceTradingKeyRepository *mocks.MockIBinanceTradingKeyRepository
 	// contractTradingSymbolRepository and contractMaintenanceMarginTierRepository validate contract bots on save.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
@@ -83,9 +84,15 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
 
+	binanceTradingKeyRepository := mocks.NewMockIBinanceTradingKeyRepository(mockController)
+	binanceTradingKeyService := service.NewBinanceTradingKeyService(
+		binanceTradingKeyRepository, secretSealProxy,
+		mocks.NewMockITradingKeyVerificationProxy(mockController))
+
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
-			strategyBotService, tradingStrategyService, telegramDeliveryService),
+			strategyBotService, tradingStrategyService, telegramDeliveryService,
+			binanceTradingKeyService),
 		// 「立即運算」那一條走時鐘那一側，而它走的必須是同一條路。
 		application.NewStrategyBotRunApplication(
 			strategyBotService,
@@ -124,13 +131,16 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	engine.POST("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StartStrategyBot)
 	engine.DELETE("/strategy-bots/:id/power", requiresSignIn, strategyBotController.StopStrategyBot)
 	engine.POST("/strategy-bots/:id/runs", requiresSignIn, strategyBotController.RunRoundNow)
+	engine.POST("/strategy-bots/:id/auto-order", requiresSignIn, strategyBotController.EnableAutoOrder)
+	engine.DELETE("/strategy-bots/:id/auto-order", requiresSignIn, strategyBotController.DisableAutoOrder)
 
 	return strategyBotRouterUnderTest{
-		engine:                     engine,
-		strategyBotRepository:      strategyBotRepository,
-		strategyScriptRepository:   strategyScriptRepository,
-		tradingStrategyRepository:  tradingStrategyRepository,
-		telegramDeliveryRepository: telegramDeliveryRepository,
+		engine:                      engine,
+		strategyBotRepository:       strategyBotRepository,
+		strategyScriptRepository:    strategyScriptRepository,
+		tradingStrategyRepository:   tradingStrategyRepository,
+		telegramDeliveryRepository:  telegramDeliveryRepository,
+		binanceTradingKeyRepository: binanceTradingKeyRepository,
 
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
@@ -626,4 +636,107 @@ func TestStrategyBotRouterAcceptsABotWithNoPositionPlan(t *testing.T) {
 	response := fixture.send(http.MethodPost, "/strategy-bots", aStrategyBotBody)
 
 	require.Equal(t, http.StatusCreated, response.Code)
+}
+
+func TestStrategyBotRouterAutoOrder(t *testing.T) {
+	keyConfiguredAt := time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)
+
+	t.Run("switching on answers with the bot showing it on", func(t *testing.T) {
+		fixture := newStrategyBotRouterUnderTest(t)
+		fixture.binanceTradingKeyRepository.EXPECT().FindOneByUser(gomock.Any(), signedInViewerID).
+			Return(entities.BinanceTradingKey{SpotTradingEnabled: true, UpdatedAt: keyConfiguredAt}, nil)
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+			Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+		fixture.strategyBotRepository.EXPECT().
+			EnableAutoOrder(gomock.Any(), uint(3), signedInViewerID, keyConfiguredAt).Return(nil)
+
+		response := fixture.send(http.MethodPost, "/strategy-bots/3/auto-order", "")
+
+		require.Equal(t, http.StatusOK, response.Code)
+		assert.Contains(t, response.Body.String(), `"autoOrderEnabled":true`)
+	})
+
+	t.Run("each refusal to switch on is a conflict with a named reason", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			arrange        func(fixture strategyBotRouterUnderTest)
+			expectedReason string
+		}{
+			{
+				name: "no trading key",
+				arrange: func(fixture strategyBotRouterUnderTest) {
+					fixture.binanceTradingKeyRepository.EXPECT().FindOneByUser(gomock.Any(), signedInViewerID).
+						Return(entities.BinanceTradingKey{}, domains.ErrBinanceTradingKeyNotConfigured)
+				},
+				expectedReason: "binanceTradingKeyNotConfigured",
+			},
+			{
+				name: "the key cannot trade spot",
+				arrange: func(fixture strategyBotRouterUnderTest) {
+					fixture.binanceTradingKeyRepository.EXPECT().FindOneByUser(gomock.Any(), signedInViewerID).
+						Return(entities.BinanceTradingKey{ContractTradingEnabled: true, UpdatedAt: keyConfiguredAt}, nil)
+				},
+				expectedReason: "tradableMarketNotCovered",
+			},
+			{
+				name: "the key changed meanwhile",
+				arrange: func(fixture strategyBotRouterUnderTest) {
+					fixture.binanceTradingKeyRepository.EXPECT().FindOneByUser(gomock.Any(), signedInViewerID).
+						Return(entities.BinanceTradingKey{SpotTradingEnabled: true, UpdatedAt: keyConfiguredAt}, nil)
+					fixture.strategyBotRepository.EXPECT().
+						EnableAutoOrder(gomock.Any(), uint(3), signedInViewerID, keyConfiguredAt).
+						Return(domains.ErrStrategyBotAutoOrderKeyChanged)
+				},
+				expectedReason: "binanceTradingKeyChanged",
+			},
+		}
+
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				fixture := newStrategyBotRouterUnderTest(t)
+				fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+					Return(aStoredStrategyBotRow(vo.StrategyBotStopped), nil)
+				testCase.arrange(fixture)
+
+				response := fixture.send(http.MethodPost, "/strategy-bots/3/auto-order", "")
+
+				require.Equal(t, http.StatusConflict, response.Code)
+				assert.Contains(t, response.Body.String(), `"reason":"`+testCase.expectedReason+`"`)
+			})
+		}
+	})
+
+	t.Run("switching off answers with the bot showing it off", func(t *testing.T) {
+		fixture := newStrategyBotRouterUnderTest(t)
+		switchedOn := aStoredStrategyBotRow(vo.StrategyBotRunning)
+		switchedOn.AutoOrderEnabled = true
+		fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).Return(switchedOn, nil)
+		fixture.strategyBotRepository.EXPECT().DisableAutoOrder(gomock.Any(), uint(3)).Return(nil)
+
+		response := fixture.send(http.MethodDelete, "/strategy-bots/3/auto-order", "")
+
+		require.Equal(t, http.StatusOK, response.Code)
+		assert.Contains(t, response.Body.String(), `"autoOrderEnabled":false`)
+	})
+
+	t.Run("a bot that is not there is not found either way", func(t *testing.T) {
+		for _, method := range []string{http.MethodPost, http.MethodDelete} {
+			fixture := newStrategyBotRouterUnderTest(t)
+			fixture.binanceTradingKeyRepository.EXPECT().FindOneByUser(gomock.Any(), signedInViewerID).
+				Return(entities.BinanceTradingKey{SpotTradingEnabled: true, UpdatedAt: keyConfiguredAt}, nil).AnyTimes()
+			fixture.strategyBotRepository.EXPECT().FindOne(gomock.Any(), uint(3)).
+				Return(entities.StrategyBot{}, domains.StrategyBotNotFound(3))
+
+			response := fixture.send(method, "/strategy-bots/3/auto-order", "")
+
+			assert.Equal(t, http.StatusNotFound, response.Code, method)
+		}
+	})
+
+	t.Run("an unreadable bot identifier is a bad request", func(t *testing.T) {
+		fixture := newStrategyBotRouterUnderTest(t)
+
+		assert.Equal(t, http.StatusBadRequest, fixture.send(http.MethodPost, "/strategy-bots/zero/auto-order", "").Code)
+		assert.Equal(t, http.StatusBadRequest, fixture.send(http.MethodDelete, "/strategy-bots/0/auto-order", "").Code)
+	})
 }
