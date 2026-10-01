@@ -520,6 +520,52 @@ func TestConnectorAuthorizationControllerIssuesTokens(t *testing.T) {
 			recorder.Body.String())
 	})
 
+	t.Run("a resource named on the token request never replaces the one the user allowed", func(t *testing.T) {
+		router := newConnectorRouterUnderTest(t)
+		router.expectConnectorClientA()
+		router.connectorAuthorizationCodeRepository.EXPECT().FindOneByDigest(gomock.Any(), "the-code-digest").
+			Return(entities.ConnectorAuthorizationCode{
+				ID: 31, UserID: 7, ConnectorClientIdentifier: "client-A",
+				RedirectUri:   "http://localhost:51000/callback",
+				CodeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+				Resource:      "https://mcp.example.com/mcp", ExpiresAt: connectorRouterMoment.Add(time.Minute),
+			}, nil)
+		router.userRepository.EXPECT().FindOne(gomock.Any(), uint(7)).Return(entities.User{ID: 7}, nil)
+		router.refreshTokenProxy.EXPECT().Mint().Return(vo.RefreshTokenVo{Value: "a-refresh-token", Digest: "d"}, nil)
+		router.accessTokenProxy.EXPECT().Issue(vo.AccessTokenClaimsVo{
+			UserID: 7, Audience: "https://mcp.example.com/mcp", ConnectorClientIdentifier: "client-A",
+			ExpiresAt: connectorRouterMoment.Add(15 * time.Minute),
+		}).Return(vo.AccessTokenVo{AccessToken: "a-signed-token", ExpiresAt: connectorRouterMoment.Add(15 * time.Minute)}, nil)
+		router.connectorAuthorizationCodeRepository.EXPECT().Redeem(gomock.Any(), uint(31), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ uint, session entities.Session) (entities.Session, error) {
+				return session, nil
+			})
+
+		recorder := router.postForm("/oauth/token", codeExchangeForm(func(form url.Values) {
+			form.Set("resource", "https://elsewhere.example.com/mcp")
+		}))
+
+		assert.Equal(t, http.StatusOK, recorder.Code)
+	})
+
+	t.Run("a connector chain opened without a resource cannot be renewed", func(t *testing.T) {
+		router := newConnectorRouterUnderTest(t)
+		router.sessionRepository.EXPECT().FindOneByDigest(gomock.Any(), "a-refresh-token-digest").
+			Return(entities.Session{
+				ID: 41, UserID: 7, ChainID: "chain-1", ExpiresAt: connectorRouterMoment.Add(time.Hour),
+				ConnectorClientIdentifier: "client-A",
+			}, nil)
+
+		recorder := router.postForm("/oauth/token", url.Values{
+			"grant_type": {"refresh_token"}, "refresh_token": {"a-refresh-token"}, "client_id": {"client-A"},
+			"resource": {"https://mcp.example.com/mcp"},
+		})
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Equal(t, "invalid_grant", oauthErrorOf(t, recorder))
+		assert.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+	})
+
 	t.Run("a renewal token from another connector is an invalid grant", func(t *testing.T) {
 		router := newConnectorRouterUnderTest(t)
 		router.sessionRepository.EXPECT().FindOneByDigest(gomock.Any(), gomock.Any()).
