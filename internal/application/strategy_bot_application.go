@@ -7,22 +7,25 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyBotApplication joins the bot, trading strategy and delivery services, since a domain service does not call another.
+// StrategyBotApplication joins the bot, trading strategy, delivery and trading key services, since a domain service does not call another.
 type StrategyBotApplication struct {
-	strategyBotService      *service.StrategyBotService
-	tradingStrategyService  *service.TradingStrategyService
-	telegramDeliveryService *service.TelegramDeliveryService
+	strategyBotService       *service.StrategyBotService
+	tradingStrategyService   *service.TradingStrategyService
+	telegramDeliveryService  *service.TelegramDeliveryService
+	binanceTradingKeyService *service.BinanceTradingKeyService
 }
 
 func NewStrategyBotApplication(
 	strategyBotService *service.StrategyBotService,
 	tradingStrategyService *service.TradingStrategyService,
 	telegramDeliveryService *service.TelegramDeliveryService,
+	binanceTradingKeyService *service.BinanceTradingKeyService,
 ) *StrategyBotApplication {
 	return &StrategyBotApplication{
-		strategyBotService:      strategyBotService,
-		tradingStrategyService:  tradingStrategyService,
-		telegramDeliveryService: telegramDeliveryService,
+		strategyBotService:       strategyBotService,
+		tradingStrategyService:   tradingStrategyService,
+		telegramDeliveryService:  telegramDeliveryService,
+		binanceTradingKeyService: binanceTradingKeyService,
 	}
 }
 
@@ -114,6 +117,25 @@ func (strategyBotApplication *StrategyBotApplication) StopStrategyBot(
 	}
 
 	return stoppedBot, nil
+}
+
+func (strategyBotApplication *StrategyBotApplication) EnableAutoOrder(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.StrategyBotDto, error) {
+	binanceTradingKeyStatus, statusError := strategyBotApplication.binanceTradingKeyService.
+		GetTradingKeyStatus(executionContext, viewerID)
+	if statusError != nil {
+		return dto.StrategyBotDto{}, statusError
+	}
+
+	return strategyBotApplication.strategyBotService.EnableAutoOrder(
+		executionContext, viewerID, id, binanceTradingKeyStatus)
+}
+
+func (strategyBotApplication *StrategyBotApplication) DisableAutoOrder(
+	executionContext context.Context, viewerID uint, id uint,
+) (dto.StrategyBotDto, error) {
+	return strategyBotApplication.strategyBotService.DisableAutoOrder(executionContext, viewerID, id)
 }
 
 func (strategyBotApplication *StrategyBotApplication) ListRunRecords(

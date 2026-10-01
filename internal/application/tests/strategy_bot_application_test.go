@@ -34,6 +34,7 @@ type strategyBotApplicationUnderTest struct {
 	announcements                  *[]string
 	tradingStrategyRepository      *mocks.MockITradingStrategyRepository
 	telegramDeliveryRepository     *mocks.MockITelegramDeliveryRepository
+	binanceTradingKeyRepository    *mocks.MockIBinanceTradingKeyRepository
 	clockProxy                     *mocks.MockIClockProxy
 	// Consulted when saving a contract bot: is the contract followed, and how much leverage may it carry.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
@@ -51,6 +52,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
+	binanceTradingKeyRepository := mocks.NewMockIBinanceTradingKeyRepository(controller)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
@@ -82,6 +84,9 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewTelegramDeliveryService(
 				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
+			service.NewBinanceTradingKeyService(
+				binanceTradingKeyRepository, secretSealProxy,
+				mocks.NewMockITradingKeyVerificationProxy(controller)),
 		),
 		strategyBotRepository:          strategyBotRepository,
 		strategyBotRunRecordRepository: strategyBotRunRecordRepository,
@@ -89,6 +94,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 		announcements:                  announcements,
 		tradingStrategyRepository:      tradingStrategyRepository,
 		telegramDeliveryRepository:     telegramDeliveryRepository,
+		binanceTradingKeyRepository:    binanceTradingKeyRepository,
 		clockProxy:                     clockProxy,
 
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,

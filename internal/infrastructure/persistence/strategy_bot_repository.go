@@ -233,6 +233,52 @@ func (strategyBotRepository *StrategyBotRepository) CountRunningByOwner(
 	return int(runningBotCount), nil
 }
 
+// EnableAutoOrder holds the owner's trading key row with a shared lock while writing, so a concurrent replace or removal either waits for this switch (and then turns it off) or has already changed the key (and this refuses).
+func (strategyBotRepository *StrategyBotRepository) EnableAutoOrder(
+	executionContext context.Context, id uint, ownerID uint, binanceTradingKeyConfiguredAt time.Time,
+) error {
+	return strategyBotRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			heldKeys := []entities.BinanceTradingKey{}
+			lockResult := transaction.
+				Clauses(clause.Locking{Strength: clause.LockingStrengthShare}).
+				Where(clause.Eq{Column: "user_id", Value: ownerID}).
+				Where(clause.Eq{Column: "updated_at", Value: binanceTradingKeyConfiguredAt}).
+				Find(&heldKeys)
+			if lockResult.Error != nil {
+				return fmt.Errorf("hold binance trading key: %w", lockResult.Error)
+			}
+			if lockResult.RowsAffected == 0 {
+				return fmt.Errorf("%w: 幣安交易金鑰剛剛變了，請再試一次",
+					domains.ErrStrategyBotAutoOrderKeyChanged)
+			}
+
+			result := transaction.Model(&entities.StrategyBot{}).
+				Where(clause.Eq{Column: "id", Value: id}).
+				UpdateColumn("auto_order_enabled", true)
+			if result.Error != nil {
+				return fmt.Errorf("enable strategy bot auto order: %w", result.Error)
+			}
+
+			return nil
+		})
+}
+
+// DisableAutoOrder leaves UpdatedAt alone, since the bot's configuration did not change.
+func (strategyBotRepository *StrategyBotRepository) DisableAutoOrder(
+	executionContext context.Context, id uint,
+) error {
+	result := strategyBotRepository.database.WithContext(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		UpdateColumn("auto_order_enabled", false)
+	if result.Error != nil {
+		return fmt.Errorf("disable strategy bot auto order: %w", result.Error)
+	}
+
+	return nil
+}
+
 // FindDue returns at most limit due running bots, oldest due first.
 func (strategyBotRepository *StrategyBotRepository) FindDue(
 	executionContext context.Context, moment time.Time, limit int,

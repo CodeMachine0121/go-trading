@@ -1151,3 +1151,40 @@ func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) 
 	assert.Equal(t, "round-link-1", recorded.JournalLinkIdentifier)
 	assert.Equal(t, "64180.5", recorded.ReferencePrice.Decimal.String())
 }
+
+// The auto-order switch has no effect yet: a switched-on bot still only speaks, exactly once, through Telegram.
+func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectDeliverySetting()
+	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+	switchedOnBot := aDueBot("")
+	switchedOnBot.AutoOrderEnabled = true
+
+	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+		Return([]entities.StrategyBot{switchedOnBot}, nil)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(switchedOnBot, nil).AnyTimes()
+	underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+	underTest.messageDeliveryProxy.EXPECT().
+		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
+		) (vo.DeliveryFailureReasonVo, error) {
+			assert.Contains(t, message, "【買入】早盤突破 · BTCUSDT")
+
+			return vo.DeliveryFailureNone, nil
+		}).Times(1)
+	underTest.strategyBotRepository.EXPECT().
+		UpdateRunState(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
+			assert.Equal(t, string(vo.SignalBuy), bot.LastSentSignal)
+
+			return nil
+		})
+
+	roundsRun, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+	require.NoError(t, runError)
+	assert.Equal(t, 1, roundsRun)
+}

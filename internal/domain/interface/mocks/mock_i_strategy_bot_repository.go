@@ -71,6 +71,34 @@ func (mr *MockIStrategyBotRepositoryMockRecorder) Delete(executionContext, id an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockIStrategyBotRepository)(nil).Delete), executionContext, id)
 }
 
+// DisableAutoOrder mocks base method.
+func (m *MockIStrategyBotRepository) DisableAutoOrder(executionContext context.Context, id uint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisableAutoOrder", executionContext, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DisableAutoOrder indicates an expected call of DisableAutoOrder.
+func (mr *MockIStrategyBotRepositoryMockRecorder) DisableAutoOrder(executionContext, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableAutoOrder", reflect.TypeOf((*MockIStrategyBotRepository)(nil).DisableAutoOrder), executionContext, id)
+}
+
+// EnableAutoOrder mocks base method.
+func (m *MockIStrategyBotRepository) EnableAutoOrder(executionContext context.Context, id, ownerID uint, binanceTradingKeyConfiguredAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnableAutoOrder", executionContext, id, ownerID, binanceTradingKeyConfiguredAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EnableAutoOrder indicates an expected call of EnableAutoOrder.
+func (mr *MockIStrategyBotRepositoryMockRecorder) EnableAutoOrder(executionContext, id, ownerID, binanceTradingKeyConfiguredAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnableAutoOrder", reflect.TypeOf((*MockIStrategyBotRepository)(nil).EnableAutoOrder), executionContext, id, ownerID, binanceTradingKeyConfiguredAt)
+}
+
 // FindAllByOwner mocks base method.
 func (m *MockIStrategyBotRepository) FindAllByOwner(executionContext context.Context, ownerID uint) ([]entities.StrategyBot, error) {
 	m.ctrl.T.Helper()

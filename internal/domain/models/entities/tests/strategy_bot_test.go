@@ -55,3 +55,21 @@ func TestStrategyBotToDtoKeepsNoCopyOfTheRulesName(t *testing.T) {
 	assert.Equal(t, uint(9), botDto.TradingStrategyID)
 	assert.Empty(t, botDto.TradingStrategyName)
 }
+
+func TestStrategyBotToDtoCarriesTheAutoOrderSwitch(t *testing.T) {
+	testCases := []struct {
+		name             string
+		autoOrderEnabled bool
+	}{
+		{name: "switched on", autoOrderEnabled: true},
+		{name: "switched off, as every bot starts", autoOrderEnabled: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			strategyBotDto := StrategyBot{AutoOrderEnabled: testCase.autoOrderEnabled}.ToDto()
+
+			assert.Equal(t, testCase.autoOrderEnabled, strategyBotDto.AutoOrderEnabled)
+		})
+	}
+}
