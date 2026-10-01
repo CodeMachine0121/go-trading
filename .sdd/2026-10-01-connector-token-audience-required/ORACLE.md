@@ -10,9 +10,11 @@
 | A1 | `R` | 不拒絕；存下待授權請求（Resource=`R`），轉到網頁授權頁 |
 | A2 | `http://localhost:8787/mcp`、`http://127.0.0.1:8787/mcp`、`http://[::1]:8787/mcp` | 不拒絕 |
 | A3 | 空字串 | 送回 `http://localhost:33418/callback?error=invalid_request&error_description=缺少對象服務（resource）&state=s1`；不存請求 |
-| A4 | `trading-mcp`、`/mcp`、`http://trading-mcp.example.com/mcp`、`https://trading-mcp.example.com/mcp#part`、`https://someone:secret@example.com/mcp`、`ftp://example.com/mcp`、`https:///mcp` | 送回 `error=invalid_target`、`error_description`=`ErrConnectorResourceInvalid` 訊息、`state=s1`；不存請求 |
+| A4 | `trading-mcp`、`/mcp`、`http://trading-mcp.example.com/mcp`、`https://trading-mcp.example.com/mcp#part`、`https://someone:secret@example.com/mcp`、`https://trading-mcp.example.com/mcp?x=1`、`ftp://example.com/mcp`、`https:///mcp` | 送回 `error=invalid_target`、`error_description`=`ErrConnectorResourceInvalid` 訊息、`state=s1`；不存請求 |
 | A5 | 外掛代號不存在 + 空對象服務 | `ErrConnectorClientNotFound`，無 redirect |
 | A6 | 2049 字元的對象服務 | 仍為 `invalid_request`「請求內容過長」 |
+
+| A7 | 修正前記下、沒有對象服務的待授權請求 | 查詢 / 允許 / 拒絕一律 `ErrConnectorAuthorizationRequestNotFound`，不發授權碼 |
 
 ## B · 換授權（`ExchangeAuthorizationCode`）
 

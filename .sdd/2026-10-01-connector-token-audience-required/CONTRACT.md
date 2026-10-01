@@ -3,7 +3,7 @@
 Contract: PRD.md
 Design map: ARCH.md
 Implementation: `internal/`（domains / service / security），`cmd/server`
-Oracle: Acceptance Criteria + Business Rules + NFR（19 clauses）
+Oracle: Acceptance Criteria + Business Rules + NFR（20 clauses）
 
 縮寫：`DT` = `internal/domain/models/domains/tests/connector_authorization_domain_test.go`、`AT` = `internal/application/tests/connector_authorization_application_test.go`、`CT` = `internal/controller/tests/connector_authorization_controller_test.go`。
 
@@ -24,6 +24,7 @@ Oracle: Acceptance Criteria + Business Rules + NFR（19 clauses）
 | AC-11 | 標著對象服務的憑證被拒 | 拒絕，要求重新登入 | user_service.go:395 | cmd/server/binance_trading_key_sign_in_test.go:11（真 JWT、401） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-12 | 沒有對象服務但標著外掛的憑證被拒 | 拒絕，要求重新登入 | user_service.go:395；jwt_access_token_proxy.go:95 | cmd/server/binance_trading_key_sign_in_test.go:11（auto-order、真 JWT、401）；middleware:161 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-1 | 對象服務必填且格式規則（含長度沿用「請求內容過長」） | 規則逐條成立；過長仍為請求無效 | start_domain.go:48-54；resource_domain.go | DT:585、DT `an overlong resource` | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-6 | 修正前記下、沒有對象服務的待授權請求視同不存在 | 不能允許，不發授權碼 | connector_authorization_request_domain.go `Open` | AT `a request recorded without a resource cannot be approved…`；DT `recorded without a resource` | asserts-oracle | produces-oracle | ✅ conforms（code review 後補） |
 | BR-2 | 拒絕順序：外掛與送回地址先於請求內容 | 不可信即直接拒絕 | service `StartConnectorAuthorization` | AT:234 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-3 | 憑證上的對象服務只來自允許的那一筆；換授權、續用另帶的不採用 | token 請求帶別的 resource，憑證仍為原對象服務 | `ConnectorTokenRequest` 不綁定 resource；code/session `ToAccessTokenClaims` | CT:523（契約檢查時補上）；CT:551 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-4 | 外掛憑證同時標對象服務與外掛代號；網頁專屬看到任一即拒 | 兩種標記皆寫入並讀回；任一即拒 | jwt_access_token_proxy.go:47/95；user_service.go:395 | jwt_access_token_proxy_test.go:197；user_application_test.go:764 | asserts-oracle | produces-oracle | ✅ conforms |
@@ -39,7 +40,7 @@ Oracle: Acceptance Criteria + Business Rules + NFR（19 clauses）
 
 ## Summary
 
-- Conforms: 19/19 clauses ✅ (100%)
+- Conforms: 20/20 clauses ✅ (100%)
 - Violations: —
 - Mis-asserted: —
 - Partial: BR-3 原為 🟡（沒有測試證明 token 請求另帶的 resource 不被採用），已補 CT:523 與 CT:551 後轉 ✅

@@ -17,7 +17,7 @@
 
 | Area | Action | What / Why |
 | :--- | :--- | :--- |
-| `domains/connector_resource_domain.go` | **Add** | `ConnectorResourceDomain`：對象服務格式驗證（RFC 8707 §2：absolute URI、無 fragment；另要求 https，loopback 才可 http；無 userinfo） |
+| `domains/connector_resource_domain.go` | **Add** | `ConnectorResourceDomain`：對象服務格式驗證（RFC 8707 §2：absolute URI、無 fragment；另要求 https，loopback 才可 http；無 userinfo、無 query（RFC 8707 SHOULD NOT）） |
 | `domains/connector_authorization_errors.go` | **Modify** | 新增 `ErrConnectorResourceInvalid`（description of `invalid_target`） |
 | `domains/connector_authorization_start_domain.go` | **Modify** | `RefusalRedirect`：缺 `resource` → `invalid_request`「缺少對象服務（resource）」；不合格 → `invalid_target` |
 | `domains/connector_authorization_code_domain.go` | **Modify** | `Accepts` 要求授權碼綁定非空 Resource；`Audience()` 改為 `ToAccessTokenClaims(expiresAt)`（帶 `ConnectorClientIdentifier`） |
@@ -26,6 +26,7 @@
 | `service/connector_authorization_service.go` | **Modify** | 換授權改用 `authorizationCode.ToAccessTokenClaims(...)` |
 | `service/user_service.go` | **Modify** | `renewedSessionTokens` 對 `ConnectorWithoutAudience` 回 `ErrAuthenticationRequired`（不作廢鏈）；`newSessionMaterial` 改收 claims；`IdentifyActivatedWebUser` 看 `Audience` **或** `ConnectorClientIdentifier` |
 | `infrastructure/security/jwt_access_token_proxy.go` | **Modify** | JWT 增加 `client_id` claim（RFC 9068 §2.2 同名），簽發與解析 |
+| `domains/connector_authorization_request_domain.go` | **Modify** | `Open` 視沒有 Resource 的待授權請求為已不存在（修正前的過渡期，避免發出必然換不到的授權碼） |
 | `postman/` | **Modify** | `/oauth/authorize` 說明與缺 `resource` 的範例 |
 | controller / routes / middleware | **Not touched** | `invalid_target` 只經由 redirect 回應，既有 `respondWithProtocolError` 對映已足；middleware 只呼叫 `IdentifyActivatedWebUser` |
 | `ConnectorTokenRequest`（token endpoint 的 `resource`） | **Not touched** | 憑證的 `aud` 永遠來自使用者允許的那筆請求；token 請求帶的 `resource` 不採用，避免外掛改寫對象服務，也不因字串正規化差異弄壞真實外掛 |
