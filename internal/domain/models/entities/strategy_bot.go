@@ -53,6 +53,8 @@ type StrategyBot struct {
 	TradingStrategy TradingStrategy `gorm:"foreignKey:TradingStrategyID;references:ID;constraint:-"`
 	// RunRecords is declared only so deleting a bot cascades to its history.
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
+	// PendingMessages is declared only so deleting a bot drops what it has not said yet.
+	PendingMessages []PendingMessage `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
 func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSettingsDto {
