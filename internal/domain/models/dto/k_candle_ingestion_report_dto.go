@@ -23,6 +23,10 @@ type KCandleSymbolIngestionReportDto struct {
 	SkippedKCandles          []SkippedKCandleDto `json:"skippedKCandles"`
 	SkippedKCandlesTruncated bool                `json:"skippedKCandlesTruncated"`
 	FetchFailureReason       string              `json:"fetchFailureReason"`
+	// PresumedClosedDayCount counts days the source said it holds nothing for. Only a
+	// history sync presumes these and it reports them on its own run, so the rounds and
+	// catch-ups that answer with this report leave it out rather than show a zero.
+	PresumedClosedDayCount int `json:"-"`
 }
 
 type SkippedKCandleDto struct {

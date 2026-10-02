@@ -18,6 +18,7 @@ type KCandleSymbolIngestionReportDomain struct {
 	skippedKCandles          []dto.SkippedKCandleDto
 	skippedKCandlesTruncated bool
 	fetchFailureReason       string
+	presumedClosedDayCount   int
 }
 
 // NewKCandleSymbolIngestionReportDomain starts the skipped list empty rather than nil so every exit path answers with a list.
@@ -62,6 +63,11 @@ func (reportDomain *KCandleSymbolIngestionReportDomain) NoteFetchFailure(reason 
 	reportDomain.fetchFailureReason = reason
 }
 
+// NotePresumedClosedDay counts a day the source said it holds nothing for; it leaves wasAsked alone because "nothing held" is not "answered with no candles".
+func (reportDomain *KCandleSymbolIngestionReportDomain) NotePresumedClosedDay() {
+	reportDomain.presumedClosedDayCount++
+}
+
 func (reportDomain *KCandleSymbolIngestionReportDomain) ToDto() dto.KCandleSymbolIngestionReportDto {
 	return dto.KCandleSymbolIngestionReportDto{
 		Symbol:                   reportDomain.symbol,
@@ -72,5 +78,6 @@ func (reportDomain *KCandleSymbolIngestionReportDomain) ToDto() dto.KCandleSymbo
 		SkippedKCandles:          reportDomain.skippedKCandles,
 		SkippedKCandlesTruncated: reportDomain.skippedKCandlesTruncated,
 		FetchFailureReason:       reportDomain.fetchFailureReason,
+		PresumedClosedDayCount:   reportDomain.presumedClosedDayCount,
 	}
 }

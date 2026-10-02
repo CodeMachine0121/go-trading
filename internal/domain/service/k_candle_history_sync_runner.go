@@ -82,6 +82,7 @@ func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) recordProgress(
 	syncRun.CompletedChunks = completedChunks
 	syncRun.StoredCount = symbolReport.StoredCount
 	syncRun.SkippedCount = symbolReport.SkippedCount
+	syncRun.PresumedClosedDayCount = symbolReport.PresumedClosedDayCount
 
 	kCandleHistorySyncRunner.save(context.Background(), syncRun, progressWriteAttempts)
 }
@@ -98,6 +99,7 @@ func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) recordEnding(
 	syncRun.CompletedChunks = kCandleHistorySyncRunner.completedChunks
 	syncRun.StoredCount = kCandleHistorySyncRunner.symbolReport.StoredCount
 	syncRun.SkippedCount = kCandleHistorySyncRunner.symbolReport.SkippedCount
+	syncRun.PresumedClosedDayCount = kCandleHistorySyncRunner.symbolReport.PresumedClosedDayCount
 	syncRun.FetchFailureReason = kCandleHistorySyncRunner.symbolReport.FetchFailureReason
 	syncRun.FailureReason = failureReason
 	syncRun.FinishedAt = &finishedAt

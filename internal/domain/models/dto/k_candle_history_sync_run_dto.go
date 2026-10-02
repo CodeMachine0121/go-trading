@@ -12,6 +12,9 @@ type KCandleHistorySyncRunDto struct {
 	CompletedChunks int    `json:"completedChunks"`
 	StoredCount     int    `json:"storedCount"`
 	SkippedCount    int    `json:"skippedCount"`
+	// PresumedClosedDayCount is whole days the source said it holds nothing for, unlike
+	// SkippedCount, which is candles the source sent but that failed their own rules.
+	PresumedClosedDayCount int `json:"presumedClosedDayCount"`
 	// FetchFailureReason is the source refusing, which ends the run without counting as a
 	// run failure.
 	FetchFailureReason string `json:"fetchFailureReason"`

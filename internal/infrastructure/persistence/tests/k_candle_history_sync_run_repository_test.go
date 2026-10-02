@@ -49,6 +49,7 @@ func TestSavingAHistorySyncAgainMovesItAlongInsteadOfMakingASecondOne(t *testing
 
 	saved.CompletedChunks = 11
 	saved.StoredCount = 15840
+	saved.PresumedClosedDayCount = 3
 	_, progressError := repository.Save(t.Context(), saved)
 	require.NoError(t, progressError)
 
@@ -57,6 +58,7 @@ func TestSavingAHistorySyncAgainMovesItAlongInsteadOfMakingASecondOne(t *testing
 	require.NoError(t, findError)
 	assert.Equal(t, 11, found.CompletedChunks)
 	assert.Equal(t, 15840, found.StoredCount)
+	assert.Equal(t, 3, found.PresumedClosedDayCount)
 }
 
 func TestAHistorySyncGoingBackToNothingStoredIsWrittenDownAsSuch(t *testing.T) {
