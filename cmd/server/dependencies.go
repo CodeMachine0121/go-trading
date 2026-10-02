@@ -36,7 +36,7 @@ func registerRoutes(
 	liveFollowApplications,
 	*application.KCandleIngestionApplication,
 	*application.KCandleContractIngestionApplication,
-	*application.StrategyBotRunApplication,
+	strategyBotJobApplications,
 	*application.AssistantConversationApplication,
 	contractSeriesApplications,
 ) {
@@ -747,6 +747,19 @@ func registerRoutes(
 		applicationConfig.StrategyBot.RoundTimeout,
 	)
 
+	// Every replica sends queued messages; the queue hands each one to a single replica at a time.
+	pendingMessageDispatchApplication := application.NewPendingMessageDispatchApplication(
+		service.NewPendingMessageService(
+			persistence.NewPendingMessageRepository(database),
+			persistence.NewStrategyBotRepository(database),
+			persistence.NewTransactionRepository(database),
+			telegramDeliveryService,
+			clock.NewSystemClockProxy(),
+			applicationConfig.Replica.Name,
+			applicationConfig.PendingMessage.SendTimeout,
+			applicationConfig.PendingMessage.MaxConcurrentDeliveries,
+		))
+
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
 			strategyBotService,
@@ -774,7 +787,10 @@ func registerRoutes(
 
 	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
 		kCandleIngestionApplication,
-		kCandleContractIngestionApplication, strategyBotRunApplication,
+		kCandleContractIngestionApplication,
+		strategyBotJobApplications{
+			run: strategyBotRunApplication, pendingMessageDispatch: pendingMessageDispatchApplication,
+		},
 		assistantConversationApplication,
 		contractSeriesApplications{
 			fundingRate:       contractFundingRateApplication,
@@ -792,6 +808,12 @@ type liveFollowApplications struct {
 func (liveFollowApplications liveFollowApplications) Stop() {
 	liveFollowApplications.spot.Stop()
 	liveFollowApplications.contract.Stop()
+}
+
+// strategyBotJobApplications groups the bot use cases that run as background jobs.
+type strategyBotJobApplications struct {
+	run                    *application.StrategyBotRunApplication
+	pendingMessageDispatch *application.PendingMessageDispatchApplication
 }
 
 // contractSeriesApplications groups the contract use cases that run their own background rounds.
@@ -849,7 +871,7 @@ func backgroundJobsFor(
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
-	strategyBotRunApplication *application.StrategyBotRunApplication,
+	strategyBotJobs strategyBotJobApplications,
 	contractSeries contractSeriesApplications,
 ) []domaininterface.IBackgroundJob {
 	if !applicationConfig.BackgroundJobsEnabled {
@@ -869,7 +891,11 @@ func backgroundJobsFor(
 
 	// One scan over stored bot state rather than a goroutine per bot, so a restart loses at most one interval.
 	strategyBotScanJob := job.NewStrategyBotScanJob(
-		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
+		strategyBotJobs.run, applicationConfig.StrategyBot.ScanInterval)
+
+	// On every replica, beside the scans that queue the messages.
+	pendingMessageDispatchJob := job.NewPendingMessageDispatchJob(
+		strategyBotJobs.pendingMessageDispatch, applicationConfig.PendingMessage.DispatchInterval)
 
 	// First, so the duty is being kept fresh before any job asks about it.
 	jobLeadershipLeaseJob := job.NewJobLeadershipLeaseJob(
@@ -878,6 +904,7 @@ func backgroundJobsFor(
 	backgroundJobs := []domaininterface.IBackgroundJob{
 		jobLeadershipLeaseJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
+		pendingMessageDispatchJob,
 	}
 
 	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.

@@ -34,7 +34,7 @@ func main() {
 
 	engine := gin.Default()
 	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication,
-		strategyBotRunApplication, assistantConversationApplication,
+		strategyBotJobs, assistantConversationApplication,
 		contractSeries := registerRoutes(engine, database, applicationConfig)
 
 	// In-flight answers live only in this process, so any left by the last run are stale; swept at
@@ -96,7 +96,7 @@ func main() {
 				liveFollows.spot,
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
-				strategyBotRunApplication,
+				strategyBotJobs,
 				contractSeries)),
 		liveFollows.Stop,
 		dutyHolder,

@@ -217,6 +217,13 @@ type JobLeadershipConfig struct {
 	SafetyMargin time.Duration
 }
 
+// PendingMessageConfig tunes how queued bot messages are sent; SendTimeout must outlast one Telegram request, or a slow send is sent twice.
+type PendingMessageConfig struct {
+	DispatchInterval        time.Duration
+	SendTimeout             time.Duration
+	MaxConcurrentDeliveries int
+}
+
 // RequestLimitConfig bounds what one client can ask of the service; defaults sit far above what the front end
 // and the MCP plugin need.
 type RequestLimitConfig struct {
@@ -263,6 +270,7 @@ type ApplicationConfig struct {
 	BackgroundJobsEnabled bool
 	Replica               ReplicaConfig
 	JobLeadership         JobLeadershipConfig
+	PendingMessage        PendingMessageConfig
 	Ingestion             IngestionConfig
 	ContractIngestion     ContractIngestionConfig
 	LiveFollow            LiveFollowConfig
@@ -313,6 +321,13 @@ func Load() ApplicationConfig {
 				positiveIntWithDefault("JOB_LEADERSHIP_RENEW_INTERVAL_SECONDS", 10)) * time.Second,
 			SafetyMargin: time.Duration(
 				positiveIntWithDefault("JOB_LEADERSHIP_SAFETY_MARGIN_SECONDS", 5)) * time.Second,
+		},
+		PendingMessage: PendingMessageConfig{
+			DispatchInterval: time.Duration(
+				positiveIntWithDefault("PENDING_MESSAGE_DISPATCH_INTERVAL_SECONDS", 2)) * time.Second,
+			SendTimeout: time.Duration(
+				positiveIntWithDefault("PENDING_MESSAGE_SEND_TIMEOUT_SECONDS", 120)) * time.Second,
+			MaxConcurrentDeliveries: positiveIntWithDefault("PENDING_MESSAGE_MAX_CONCURRENT_DELIVERIES", 8),
 		},
 		TaiwanStock: taiwanStockConfig,
 		MarketRules: marketRules(taiwanStockConfig),
