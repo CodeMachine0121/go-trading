@@ -1,0 +1,97 @@
+# Contract Traceability Matrix — 2026-10-02-multi-replica-background-work
+
+Contract: PRD.md (v1.0, Finalized)
+Design map: ARCH.md (§7 Traceability used as a map only)
+Implementation: `git diff main...HEAD` on `feat/multi-replica-job-leadership`
+Oracle: Acceptance Criteria + Business Rules + NFR — 61 clauses (36 AC, 18 BR, 7 NFR)
+Audited: 2026-10-03. ORACLE.md (written by the implementer) was **not** used; every oracle below was derived from PRD.md before any code or test was opened.
+
+> Ceiling: this is a static conformance audit. It judges test assertions and code paths against the spec's expected outcome. It does not execute invented scenarios. For corroboration, the mapped Postgres tests for lease acquire/release/race, bot-claim race, outbox claim and transaction rollback were run alone (all green). No verdict rests on pass/fail.
+
+## Clauses
+
+| ID | Clause | Spec-expected (oracle) | Impl | Test | Test audit | Code audit | Status |
+|----|--------|------------------------|------|------|------------|------------|--------|
+| AC-1 | 沒有人值班時恰好一台成為值班分身 | When several replicas try at once, exactly one becomes the duty replica, and only it fetches market data | persistence/job_leadership_lease_repository.go:25-51; job/k_candle_ingestion_job.go:88 | persistence/tests/job_leadership_lease_repository_test.go:99 (5-way race → 1 winner); job/tests/k_candle_ingestion_job_test.go `TestTheJobFetchesNothingWhileThisReplicaIsOffDuty` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-2 | 值班分身持續續期時別台無法接手 | While A keeps renewing, B and C stay off duty and A stays on | job_leadership_lease_repository.go:36-43 | lease_repository_test.go:21 (case 1, 2), :62 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-3 | 接近租期尾聲時值班分身保守地認定自己已不在值班 | 26 s after the last renewal (30 s lease, 5 s margin) A counts itself off duty and does not fetch | domains/job_leadership_term_domain.go:30; service/job_leadership_service.go:68-74 | application/tests/job_leadership_application_test.go:56 (26 s → false); job tests (off duty → no fetch) | asserts-oracle | produces-oracle | ✅ conforms (note: at exactly 25 s code says off duty; PRD only says "過了"; conservative reading, accepted) |
+| AC-4 | 保守提早量之內仍在值班 | 24 s after the last renewal A is still on duty | same | job_leadership_application_test.go:62 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-5 | 值班分身倒下後租期到期由別台接手 | When A stops renewing for more than 30 s, B gets the duty and starts fetching | lease_repository.go:40-42 (`expires_at < now`) | lease_repository_test.go:39 (31 s → B wins); k_candle_ingestion_job_test `TestTheJobBackfillsFirstWhenItComesOnDuty` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-6 | 值班分身正常關機時立刻交還 | After a graceful shutdown hands the duty back, B's next attempt succeeds with no wait for expiry | lease_repository.go:53-66; cmd/server/serve.go:53,93-109 | lease_repository_test.go:74; cmd/server/serve_test.go `TestServeTakesTheDutyBeforeTheJobsStartAndGivesItBackAfterTheyAreCutOff` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-7 | 失去值班身分時放下台股固定跟盤 | At its next check after losing duty, A follows no Taiwan stocks; the new duty replica starts following the watchlist at its next check | job/live_follow_roster_job.go:79-90; service/k_candle_follow_service.go:148 | job/tests/live_follow_roster_job_test.go:71,81; service/tests/k_candle_follow_service_test.go `TestReleasingFixedFollows*` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-8 | 只有一台分身時行為與現在相同 | A lone replica becomes duty replica at boot and fetches/backfills/follows on the same cadence as before | serve.go:55-63; k_candle_ingestion_job.go:43,94-101 | serve_test.go (acquired before started); k_candle_ingestion_job_test (backfill then scheduled round) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-9 | 多台分身同時找到期機器人時各自認領不同的 | Each due bot is claimed and run by exactly one replica | persistence/strategy_bot_repository.go:284-328 (SKIP LOCKED + claim columns) | persistence/tests/strategy_bot_round_claim_repository_test.go:100 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-10 | 已被認領且未逾期的機器人會被跳過 | B does not claim X while A's claim is live | strategy_bot_repository.go:365-371 | round_claim_repository_test.go:65 (case 1) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-11 | 認領的分身倒下後認領到期由別台接手 | Once A's claim has expired, B claims X and runs it | same | round_claim_repository_test.go:65 (case 2) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-12 | 正在跑的機器人被手動要求再跑一輪時拒絕 | A hand-pressed round on another replica is refused with "這台機器人正在跑一輪" | service/strategy_bot_service.go ClaimStrategyBot; domains/strategy_bot_errors.go:33 | application/tests/strategy_bot_run_application_test.go:931; round_claim_repository_test.go:135 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-13 | 沒人在跑時手動跑一輪由接到請求的分身完成 | Whichever replica receives the request claims X, runs a round, and the owner sees its result | application/strategy_bot_run_application.go:123-148 | strategy_bot_run_application_test.go:880,902 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-14 | 結論改變時一輪的紀錄、訊息與上次訊號一起成立 | History gains run 52, one pending "Run 52 買入" message exists, last sent signal becomes 買入 | strategy_bot_service.go RecordRound (Atomically → UpdateRunState → Append → Enqueue) | strategy_bot_run_application_test.go:1120 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-15 | 結論沒變時只記下這一輪、不產生訊息 | History gains the round AND no new pending message | RecordRound (`HasMessage=false`) | strategy_bot_run_application_test.go:414 | **shallow** — asserts no message only; never asserts the run was appended (`appendedRunRecords` unchecked) | produces-oracle | 🟠 mis-asserted |
+| AC-16 | 記下途中出錯時什麼都沒改變 | A failure mid-record leaves no new run, no pending message, last signal still 賣出 | RecordRound inside TransactionRepository.Atomically; all three repos use `ambientTransactionDatabase`, wired with the same `*gorm.DB` (cmd/server/dependencies.go:299-307) | strategy_bot_run_application_test.go:1172,1212 (Atomically mocked as pass-through); pending_message_repository_test.go:221 | **shallow** — app tests run the transaction inline, so a failed Enqueue still leaves the appended run and updated bot state, and the test only checks "queue empty" (trivially true). The only real rollback test covers the outbox row alone, not run history or bot state | produces-oracle | 🟠 mis-asserted |
+| AC-17 | 同一輪被記第二次不會多出第二則訊息 | Still exactly one pending message for run 52 | PendingMessage unique index (bot, round_due_at) + `OnConflict DoNothing`; RecordRound NextRunAt CAS | pending_message_repository_test.go:73; strategy_bot_run_application_test.go:853 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-18 | 衝突或沒有結論時不產生訊息 | No pending message; last sent signal unchanged | run application playRound → concludedRound | strategy_bot_run_application_test.go:433, :562 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-19 | 一輪造成機器人停擺時停擺通知與這一輪一起成立 | Bot stopped with reason "交易策略找不到了" and a pending "已停擺" message exists | RecordRound `outcome.HaltsTheBot()` branch | strategy_bot_run_application_test.go:1191, :957 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-20 | 啟動與停止的通知也成為待送訊息 | Starting X produces a pending "已啟動" message | application/strategy_bot_application.go announce → EnqueueLifecycleMessage | application/tests/strategy_bot_application_test.go:540 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-21 | 待送訊息被寄出並印著輪次編號 | Owner receives a 買入 message showing "Run 52"; it is marked sent and never sent again | domains/strategy_bot_message_domain.go:78; pending_message_service.go:141-150 | pending_message_dispatch_application_test.go:115; pending_message_repository_test.go:127; strategy_bot_message_domain_test | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-22 | Telegram 暫時連不上時稍後再寄且越等越久 | Message not voided; retried after a wait that grows each time, capped at 5 min | domains/pending_message_domain.go:143-157 | domains/tests/pending_message_domain_test.go:44; dispatch test :145 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-23 | Telegram 要求放慢時照它說的等 | That owner's messages wait at least 7 s | messaging/telegram_message_delivery_proxy.go 429 branch; pending_message_domain.go:156; queue head rule | telegram_message_delivery_proxy_test.go:238; pending_message_domain_test.go:74; dispatch test :153 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-24 | 金鑰不被接受時作廢並停下機器人 | Message voided; running X stopped with "機器人金鑰不被接受" | pending_message_service.go:151-164,182-203 | dispatch test :191 (case 1) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-25 | 找不到聊天室時作廢並停下機器人 | Message voided; X stopped with "找不到這個聊天室" | same | dispatch test :191 (case 2) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-26 | 投遞設定已被移除時作廢並停下機器人 | Message voided; X stopped with "沒有 Telegram 投遞設定" | pending_message_domain.go:121-125 | dispatch test :191 (case 3) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-27 | 輪次訊息超過送達期限仍送不出去時作廢並忘記上次訊號 | At the first send check after the 5-min deadline the message is voided, X's last signal is cleared, and X's next round produces a message whether it concludes 買入 or 賣出 | pending_message_service.go:84,99-112 — expiry is checked only for a per-owner head that is already dispatchable and successfully claimed | dispatch test :274 (only `ExpiresAt == now` with `NextAttemptAt == now`) | shallow | **diverges** | 🔴 violation |
+| AC-28 | 送達期限至少 5 分鐘 | A 1-min bot's message 3 min old is still sent, not voided | pending_message_domain.go:44 (`max(interval, 5m)`) | pending_message_domain_test.go:179; run application test :1120 (1-min → 09:20) | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-29 | 機器人被刪掉後還沒寄出的訊息作廢 | The unsent message is never sent | entities/strategy_bot.go PendingMessages `OnDelete:CASCADE` | pending_message_repository_test.go:212 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-30 | 機器人被停止後已產生的訊息仍會寄出 | Owner receives run 52 買入 first, then 已停止 | queue by id (pending_message_queue_domain.go:20-36); dispatch ignores bot run state | dispatch test :315; pending_message_domain_test.go:213 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-31 | 同一位擁有者的訊息依產生順序送達 | 已停止 is not sent until run 52 買入 is sent or voided | pending_message_queue_domain.go:24-33 | pending_message_domain_test.go:213 (case 2); dispatch test :315 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-32 | 正常寄出只寄一次 | Owner receives the message once | Claim + MarkSent (pending_message_repository.go:60-97) | dispatch test :115, :132; repo test :127 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-33 | 寄送中逾時後由別台重寄 | After the 2-min send timeout B resends it | pending_message_repository.go:73-76; pending_message_domain.go:101-104 | pending_message_repository_test.go:91 (case 2); domain test :146 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-34 | 寄送逾時前別台不碰 | Before the timeout B does not send it | same | repo test :91 (case 1); domain test :159 | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-35 | 已寄到卻來不及回報時刻意接受重複 | Owner receives two identical messages both showing "Run 52" | stored text resent after claim expiry | repo test :91 (case 2) + stored text | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-36 | 測試訊息當場送出並當場回報 | Sent on the spot, owner sees success or one of four reasons, no pending message | telegram_delivery_service.go SendTestMessage (no outbox dependency) | telegram_delivery_application_test.go:254 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-1 | 值班身分：≤1 持有者、30 s、每 10 s 續期、+30−5、關機交還、無名分身自產不重複名字 | At most one holder; 30 s lease; 10 s renew; self-judge at renew+25 s; release on shutdown; an unnamed replica gets a name that is unique | config/application_config.go:316,614-621 (`os.Hostname()` default) | config/tests/replica_config_test.go:11 (asserts hostname is used) | mis-asserted (pins hostname, not uniqueness) | **diverges** — hostname is not unique for two processes on one host; both then match `holder_name = holder` and both are on duty | 🔴 violation |
+| BR-2 | 值班工作清單（7 項）；每輪開始前檢查；台股不值班時放下全部 | All seven jobs skip a whole round when off duty; Taiwan follow drops everything | the 7 jobs under internal/job (IsLeader at round start) | job_duty_test helpers; contract_series_jobs_test `TestEverySeriesJobDoesNothingWhileThisReplicaIsOffDuty`; k_candle / contract_k_candle / roster job tests | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-3 | 認領期限＝該輪時限（觸發間隔與上限取小）＋記下時間；記下後解除；手動同一條；不改觸發規則 | Claim lasts min(interval, round cap) + record time and is released after recording | strategy_bot_run_application.go:171-173 (`roundTimeout + strategyBotRecordTimeout`, ignores interval) | run application test fixture `botRoundClaimedUntil` (cap 1 min < 5-min interval, so min == cap) | shallow | **diverges** — 1-min bot with default 120 s cap gets a 135 s claim instead of 75 s; takeover after a crash is delayed | 🔴 violation |
+| BR-4 | 一起記下：紀錄、訊息、上次訊號、停擺原因/狀態、停擺通知一起成立或不成立 | All-or-nothing | RecordRound Atomically; ambient repos; dependencies.go:299-307 | see AC-16 | shallow | produces-oracle | 🟠 mis-asserted |
+| BR-5 | 一輪至多一則訊息（bot + 觸發時刻） | Never a second pending message for the same bot + due time | entities/pending_message.go:9-10; repository Enqueue | repo test :73 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-6 | 上次送出的信號在決定要送時與這一輪一起記下 | Last sent signal set in the same record as the round | RecordRound → RoundFinished | run application test :1120 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-7 | 同一擁有者依序；不同擁有者互不等待 | FIFO per owner, independent across owners | pending_message_queue_domain.go | domain test :213 (case 1, 2) | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-8 | 每台每 2 秒檢查 | Every replica checks every 2 s | config PendingMessage.DispatchInterval; dependencies.go dispatch job on every replica | replica_config_test.go:42; pending_message_dispatch_job_test | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-9 | 重試等待 2 s 起加倍、封頂 5 min；Telegram 較長以它為準 | As stated | pending_message_domain.go:143-157 | domain test :44 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-10 | 寄送逾時 2 分鐘後重新可寄 | As stated | config SendTimeout 120 s; repo Claim | repo test :91; config test | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-11 | 送達期限：輪次＝間隔但 ≥5 min；動靜 1 h；超過即作廢；輪次作廢時信號仍相同才清空 | Past the deadline the message is voided; clear last signal only if it still equals this message's | pending_message_domain.go:44,63; strategy_bot_repository.go ForgetSentSignal; pending_message_service.go:84-112 | domain tests :179,:205; dispatch test :274; claim repo test :208 | shallow | **diverges** (same root as AC-27: messages in back-off or behind an owner's earlier message are not voided when they pass the deadline) | 🔴 violation |
+| BR-12 | 永久失敗 → 作廢並停下；已停止只作廢、不停、不發通知 | Halt only running bots; stopped bots only void | pending_message_service.go:182-203 | dispatch tests :191, :241 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-13 | 機器人已刪除：未寄訊息作廢 | As AC-29 | FK cascade | repo test :212; dispatch test :474 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-14 | 每則輪次訊息印出 Run N | As stated | strategy_bot_message_domain.go:78-79 | strategy_bot_message_domain_test; run application test :1146 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-15 | 已寄出/作廢保留 7 天，於寄送檢查時修剪 | Trim settled messages older than 7 days on each dispatch | pending_message_service.go:73-76 | dispatch test :360; repo test :195 | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-E1 | 共用留存失敗：續期失敗視同沒續到、保守提早量之後停止；掃描/寄送失敗本次不做 | A failed renewal is treated as not renewed: duty continues until the last renewal's held-until, then stops | job_leadership_service.go:57 (`held = acquireError == nil && acquired`) drops duty immediately and overwrites `heldUntil` | job_leadership_application_test.go:109 asserts "stops at once" | mis-asserted | **diverges** — one transient storage error ends duty at once (and arms backfill / roster release), instead of at renew+25 s | 🔴 violation |
+| BR-E2 | 待送期間重設投遞設定 → 寄送時讀當下設定 | Sent to the new chat | telegram_delivery_service.go deliver reads FindOneByUser at send time | dispatch test :115 (credential read at send) | asserts-oracle | produces-oracle | ✅ conforms |
+| BR-E3 | 中途倒下不記任何東西、到期重跑；記下後倒下仍寄出 | Crash mid-round → nothing recorded, re-run after claim expiry; crash after record → message still sent | ClaimDue expiry; outbox | claim repo test :65; repo claim test | asserts-oracle | produces-oracle | ✅ conforms |
+| NFR-1 | 記下到被拿去寄 ≤ 3 秒 | Picked up within 3 s normally | 2 s dispatch interval on every replica | config test :42 | asserts-oracle | produces-oracle | ✅ conforms |
+| NFR-2 | 值班交接：倒下 ≤ 30 s；正常關機 ≤ 10 s | Crash handover ≤ 30 s; graceful ≤ 10 s | 30 s lease + 10 s renew tick; `expires_at < now` | lease repo tests | shallow | **diverges** — crash right after a renewal: lease ends at +30 s, next attempt by B up to +10 s later → up to ~40 s. (PRD's own 30/10 parameters cannot meet ≤30 s; spec inconsistency to reconcile) | 🔴 violation |
+| NFR-3 | 同時跑的輪次上限隨分身數線性增加 | Capacity scales linearly with replicas | each replica claims up to MaxConcurrentRounds per scan | — | no-test | produces-oracle | 🟡 partial |
+| NFR-4 | 待送訊息不含金鑰；寄送時才以當下設定開鎖 | No token in stored message; unseal at send | telegram_delivery_service.go deliver; PendingMessage stores text only | dispatch test :115 (Unseal at send) | asserts-oracle | produces-oracle | ✅ conforms |
+| NFR-5 | 只開一台時行為與現在相同 | As AC-8 | as AC-8 | as AC-8 | asserts-oracle | produces-oracle | ✅ conforms |
+| NFR-6 | 部署端提供分身名字（不提供時自動產生）、關機寬限 ≥ 輪次時限 | Name auto-generated (unique) when absent | application_config.go:316,614 | replica_config_test.go:11 | mis-asserted | **diverges** (as BR-1) | 🔴 violation |
+| NFR-7 | 紀錄：成為/失去/交還值班；輪次訊息作廢（含原因）；寄送中逾時重寄 | A log line for each of the five events | gained/lost: job_leadership_lease_job.go:26-31; expired void: pending_message_service.go:131 | — | no-test | **not-implemented** for three events: successful hand-back (serve.go:105 logs only failure), refusal void (pending_message_service.go:160-164 silent on success), in-flight-timeout resend (Claim of an expired `sending` row is silent) | ❌ gap |
+
+## Orphans (code with no clause)
+
+| Code | Description | Verdict |
+|------|-------------|---------|
+| pending_message_service.go:16 | Reads at most 500 unsettled messages per check; a large backlog delays other owners past NFR-1's 3 s | undocumented (ARCH §6 debt) |
+| config PENDING_MESSAGE_MAX_CONCURRENT_DELIVERIES=8 | Caps concurrent sends per replica | undocumented |
+| live_follow_roster_job.go:80 + ARCH §8 | Viewers connected to a non-duty replica are told Taiwan live follow is unavailable and fall back to polling | undocumented behavior change |
+
+No code implements an Out of Scope item (no dedup of delivered-but-unreported, no rate-limit split, auto-order untouched, no deployment files, no pending-message listing route).
+
+## Summary
+
+- Conforms: 49/61 clauses ✅ (80.3%)
+- Violations: AC-27, BR-1, BR-3, BR-11, BR-E1, NFR-2, NFR-6
+- Mis-asserted: AC-15, AC-16, BR-4
+- Partial: NFR-3
+- Gaps: NFR-7
+- Unclear: none
+- Orphans: 3
+
+Boundary notes (not counted as violations): duty self-judgement treats exactly renew+25 s as off duty, and message expiry treats exactly the deadline as expired, while PRD says "過了/超過". Comparison operators also differ across seams: lease and bot claim expire on `<` (strict), outbox claim on `<=`.
