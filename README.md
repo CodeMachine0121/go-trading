@@ -84,7 +84,7 @@ curl localhost:8080/health
 - **至少一台分身開著背景工作**（`BACKGROUND_JOBS_ENABLED=true`）。機器人的訊息由任何一台寫下，但只由開著背景工作的分身寄出。
 - 每台分身有不同的名字（Kubernetes 預設的 `HOSTNAME` 就是 pod 名稱，不必另外設定）。
 - `terminationGracePeriodSeconds` 至少 35 秒：排空請求 15 秒、等背景那一輪結束最多 10 秒、交還值班最多 5 秒，讓關機順序跑完。
-- schema 用 `migrate` 指令跑一次（例如 init container 或 Job），不要每台分身各跑一次。
+- schema 用 `migrate` 指令套用（例如每個 pod 的 init container）。多台同時啟動時 `migrate` 會用資料庫鎖輪流執行，不會互相撞。
 
 ## Commands
 
