@@ -3,7 +3,7 @@
 Contract: PRD.md
 Design map: ARCH.md
 Implementation: `internal/domain/service/k_candle_ingestion_service.go`, `internal/domain/service/k_candle_history_sync_runner.go`, `internal/infrastructure/marketdata/fugle_market_data_proxy.go`, `internal/domain/models/{domains,dto,entities}/`
-Oracle: Acceptance Criteria + Core Business Rules + NFR (18 clauses)
+Oracle: Acceptance Criteria + Core Business Rules + NFR (20 clauses)
 
 Test files: `internal/domain/service/tests/k_candle_ingestion_service_test.go`（下稱 svc）、`internal/infrastructure/marketdata/tests/fugle_market_data_proxy_test.go`（下稱 fugle）、`internal/infrastructure/persistence/tests/k_candle_history_sync_run_repository_test.go`（下稱 repo）。
 
@@ -25,6 +25,8 @@ Bridge（UL-MAP / ARCH）：「推定休市天數」= `PresumedClosedDayCount`�
 | AC-10 | 上一趟推定休市的那一天，下一趟會再問一次 | 第二趟再問那天；仍沒資料則第二趟也推定 1 | 無長期記錄（設計使然） | svc `TestSyncingHistoryAsksAgainAboutADayItPresumedClosedLastTime` | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-11 | 已齊全的一天不問、也不算推定休市 | 那天不問；不算進推定休市 | `k_candle_ingestion_service.go:227-239` | svc `TestSyncingHistoryDoesNotCountADayItAlreadyHoldsAsClosed`（齊全那天若被算進去會是 3 不是 2） | asserts-oracle | produces-oracle | ✅ conforms |
 | AC-12 | 推定休市之後存不進去 | 失敗、寫系統失敗原因；推定休市 1、已存根數保留 | `k_candle_history_sync_runner.go:86`（ending 經 `progressedRun`） | svc `TestSyncingHistoryEndsAsFailedWhenStorageBreaksAfterAClosedDay` | asserts-oracle | produces-oracle | ✅ conforms |
+| AC-13 | 連續 15 個交易日都沒資料就停下 | 第 1 天存下；第 15 個沒資料的日子之後不問；完成、推定休市 15、拒絕原因說明連續 15 天沒資料與來源可能不認得這個標的 | `k_candle_symbol_ingestion_report_domain.go` `NotePresumedClosedDay`；`k_candle_ingestion_service.go:243-250` | svc `TestSyncingHistoryGivesUpOnASourceThatHoldsNothingForLongerThanAnyClosure` | asserts-oracle（植入 off-by-one、永不停、改計總數都會紅） | produces-oracle | ✅ conforms（code review 後新增） |
+| AC-14 | 中間有一天有資料就重新算 | 每一天都問過；完成、推定休市 28、沒有拒絕原因 | `NoteAsked()` 歸零連續數 | svc `TestSyncingHistoryKeepsGoingThroughClosuresShorterThanTheLimit` | asserts-oracle（植入「答了不歸零」會紅） | produces-oracle | ✅ conforms（code review 後新增） |
 | BR-1 | 三種回答、三種下場 | 有回答→照判定存；沒資料→跳過繼續；其他→放棄 | `k_candle_ingestion_service.go:240-256` | AC-1～AC-8 的測試合起來 | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-2 | 只有明確的「沒有這份資料」才算推定休市 | 429、500、看不懂、連不上都不是沒資料 | `fugle_market_data_proxy.go:131-140` | fugle 上述三支（`NotErrorIs`） | asserts-oracle | produces-oracle | ✅ conforms |
 | BR-3 | 推定休市天數：每天至多一次、從零開始、進行中隨走過的天數增加 | 進行中寫入的天數依序 0,0,1,1,2 | `k_candle_history_sync_runner.go:75-94` | svc `TestSyncingHistorySaysHowManyDaysItPresumedClosedWhileStillGoing` | asserts-oracle | produces-oracle | ✅ conforms |
@@ -41,7 +43,7 @@ Bridge（UL-MAP / ARCH）：「推定休市天數」= `PresumedClosedDayCount`�
 
 ## Summary
 
-- Conforms: 18/18 clauses ✅ (100%)（修正前 17/18：AC-1 🟠 mis-asserted）
+- Conforms: 20/20 clauses ✅ (100%)（初次核對 17/18：AC-1 🟠 mis-asserted，已補台股日期測試；code review 指出「每一個 404 都當假日」會讓來源不認得的標的被問上幾千天，新增 AC-13、AC-14 並實作連續推定休市上限）
 - Violations: —
 - Mis-asserted: —（AC-1 已補台股真實日曆的測試）
 - Partial: —
