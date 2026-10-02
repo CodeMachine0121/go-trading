@@ -2516,3 +2516,34 @@ func TestSyncingHistoryKeepsGoingThroughClosuresShorterThanTheLimit(t *testing.T
 	assert.Equal(t, 28, endedRun.PresumedClosedDayCount)
 	assert.Empty(t, endedRun.FetchFailureReason)
 }
+
+func TestSyncingHistoryCountsADayItAlreadyHoldsAsBreakingARunOfClosedDays(t *testing.T) {
+	// Re-syncing mostly stored years: only the scattered holidays reach the source, and a stored day between them proves the market traded.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	runs := underTest.recordsEveryHistorySyncRun()
+	stretchStart := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, startTime time.Time, endTime time.Time,
+		) (int, error) {
+			// Every other day is held in full, starting with the first.
+			if int(startTime.Sub(stretchStart).Hours()/24)%2 == 0 {
+				return int(endTime.Sub(startTime)/time.Minute) + 1, nil
+			}
+
+			return 0, nil
+		}).AnyTimes()
+	source := underTest.sourceAnswersDayByDay(repeated(notHeld, 16)...)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 31), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 16, source.asked(), "十六個假日散在已存的日子之間，每一個都問到")
+	assert.Equal(t, 16, endedRun.PresumedClosedDayCount)
+	assert.Empty(t, endedRun.FetchFailureReason, "不是連續的，不能說來源不認得這個代號")
+	assert.Equal(t, 32, endedRun.CompletedChunks)
+}

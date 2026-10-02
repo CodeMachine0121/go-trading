@@ -24,7 +24,7 @@ type KCandleSymbolIngestionReportDomain struct {
 	skippedKCandlesTruncated bool
 	fetchFailureReason       string
 	presumedClosedDayCount   int
-	// presumedClosedDaysInARow restarts whenever the source answers, so only an unbroken run counts against the limit.
+	// presumedClosedDaysInARow restarts on any day known to have traded (answered, or already held in full), so only an unbroken run counts against the limit.
 	presumedClosedDaysInARow int
 }
 
@@ -42,6 +42,11 @@ func NewKCandleSymbolIngestionReportDomain(
 // NoteAsked distinguishes "the source said nothing" from "never asked"; only the former lets a market be presumed shut.
 func (reportDomain *KCandleSymbolIngestionReportDomain) NoteAsked() {
 	reportDomain.wasAsked = true
+	reportDomain.presumedClosedDaysInARow = 0
+}
+
+// NoteHeldInFull marks a day skipped because it is already stored in full; that day traded, so it breaks a run of nothing-held days just as an answer does, or a re-sync of mostly stored years would add up scattered holidays into a false "unknown symbol".
+func (reportDomain *KCandleSymbolIngestionReportDomain) NoteHeldInFull() {
 	reportDomain.presumedClosedDaysInARow = 0
 }
 

@@ -235,6 +235,8 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 
 		if alreadyHeld >= marketDomain.TradingKCandleCountBetween(
 			tradableChunk.StartTime, tradableChunk.EndTime) {
+			symbolReport.NoteHeldInFull()
+
 			continue
 		}
 
