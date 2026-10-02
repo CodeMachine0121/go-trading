@@ -20,6 +20,8 @@ type KCandleHistorySyncRun struct {
 	CompletedChunks int `gorm:"not null"`
 	StoredCount     int `gorm:"not null"`
 	SkippedCount    int `gorm:"not null"`
+	// PresumedClosedDayCount defaults to zero so runs recorded before it existed read as none.
+	PresumedClosedDayCount int `gorm:"not null;default:0"`
 	// FetchFailureReason is the source refusing; FailureReason is this system breaking.
 	FetchFailureReason string    `gorm:"type:text;not null;default:''"`
 	FailureReason      string    `gorm:"type:text;not null;default:''"`
@@ -34,17 +36,18 @@ func (kCandleHistorySyncRun KCandleHistorySyncRun) TableName() string {
 
 func (kCandleHistorySyncRun KCandleHistorySyncRun) ToDto() dto.KCandleHistorySyncRunDto {
 	return dto.KCandleHistorySyncRunDto{
-		ID:                 kCandleHistorySyncRun.ID,
-		Symbol:             kCandleHistorySyncRun.Symbol,
-		LookbackDays:       kCandleHistorySyncRun.LookbackDays,
-		Status:             string(vo.NewKCandleHistorySyncRunStatusVo(kCandleHistorySyncRun.Status)),
-		TotalChunks:        kCandleHistorySyncRun.TotalChunks,
-		CompletedChunks:    kCandleHistorySyncRun.CompletedChunks,
-		StoredCount:        kCandleHistorySyncRun.StoredCount,
-		SkippedCount:       kCandleHistorySyncRun.SkippedCount,
-		FetchFailureReason: kCandleHistorySyncRun.FetchFailureReason,
-		FailureReason:      kCandleHistorySyncRun.FailureReason,
-		StartedAt:          kCandleHistorySyncRun.StartedAt.UTC(),
-		FinishedAt:         kCandleHistorySyncRun.FinishedAt,
+		ID:                     kCandleHistorySyncRun.ID,
+		Symbol:                 kCandleHistorySyncRun.Symbol,
+		LookbackDays:           kCandleHistorySyncRun.LookbackDays,
+		Status:                 string(vo.NewKCandleHistorySyncRunStatusVo(kCandleHistorySyncRun.Status)),
+		TotalChunks:            kCandleHistorySyncRun.TotalChunks,
+		CompletedChunks:        kCandleHistorySyncRun.CompletedChunks,
+		StoredCount:            kCandleHistorySyncRun.StoredCount,
+		SkippedCount:           kCandleHistorySyncRun.SkippedCount,
+		PresumedClosedDayCount: kCandleHistorySyncRun.PresumedClosedDayCount,
+		FetchFailureReason:     kCandleHistorySyncRun.FetchFailureReason,
+		FailureReason:          kCandleHistorySyncRun.FailureReason,
+		StartedAt:              kCandleHistorySyncRun.StartedAt.UTC(),
+		FinishedAt:             kCandleHistorySyncRun.FinishedAt,
 	}
 }

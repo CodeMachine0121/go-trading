@@ -2,6 +2,7 @@ package marketdata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -106,8 +107,14 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 		queryValues.Set("to", requestedDate)
 	}
 
-	return fugleMarketDataProxy.ask(
+	dayKCandles, askError := fugleMarketDataProxy.ask(
 		executionContext, baseUrl+"/"+url.PathEscape(symbol), queryValues, symbol)
+	if errors.Is(askError, domains.ErrMarketDataNotHeld) {
+		// Name the day, since "nothing held" is about one day and a run of them is read day by day.
+		return nil, fmt.Errorf("%w on %s", askError, localDay.Format(time.DateOnly))
+	}
+
+	return dayKCandles, askError
 }
 
 func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
@@ -128,6 +135,12 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
 		return nil, fmt.Errorf("reach market source for %s: %w", symbol, requestError)
 	}
 	defer func() { _ = response.Body.Close() }()
+
+	// The source answers a day it holds nothing for (a holiday the calendar does not know) with not found; only that answer is marked, so every other failure stays a refusal.
+	if response.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: market source answered %d for %s",
+			domains.ErrMarketDataNotHeld, response.StatusCode, symbol)
+	}
 
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("market source answered %d for %s", response.StatusCode, symbol)

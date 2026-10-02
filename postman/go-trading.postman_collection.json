@@ -17941,8 +17941,24 @@
                 "{{historySyncRunId}}"
               ]
             },
-            "description": "status 是 running / succeeded / failed；completedChunks / totalChunks 是走到第幾段。\n\n來源不答話時 status 仍是 succeeded，原因寫在 fetchFailureReason——那是這一趟查到的事。failureReason 那一格才是這個系統自己壞掉時寫的。\n\n服務重啟會把還掛在 running 的輪次掃成 failed，寫上 interrupted by restart。"
+            "description": "status 是 running / succeeded / failed；completedChunks / totalChunks 是走到第幾段。\n\n來源不答話時 status 仍是 succeeded，原因寫在 fetchFailureReason——那是這一趟查到的事。failureReason 那一格才是這個系統自己壞掉時寫的。\n\n服務重啟會把還掛在 running 的輪次掃成 failed，寫上 interrupted by restart。\n\npresumedClosedDayCount 是來源說「這一天沒有這個標的的資料」而被跳過的平日數（多半是交易日曆不認得的國定假日）。那一天跳過、繼續問下一天，不算來源拒絕；與 skippedCount（來源答了、但某幾根不合格）是兩件事。"
           },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('說得出走到哪，以及推定休市幾天', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const run = pm.response.json();",
+                  "    pm.expect(run).to.include.all.keys('completedChunks', 'totalChunks', 'storedCount', 'skippedCount', 'presumedClosedDayCount', 'fetchFailureReason', 'failureReason');",
+                  "    pm.expect(run.presumedClosedDayCount).to.be.at.least(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
           "response": []
         },
         {

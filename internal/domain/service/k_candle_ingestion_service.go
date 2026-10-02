@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -234,11 +235,24 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 
 		if alreadyHeld >= marketDomain.TradingKCandleCountBetween(
 			tradableChunk.StartTime, tradableChunk.EndTime) {
+			symbolReport.NoteHeldInFull()
+
 			continue
 		}
 
 		reportedKCandles, fetchError := kCandleIngestionService.marketDataProxy.FetchKCandles(
 			executionContext, tradableChunk)
+		if errors.Is(fetchError, domains.ErrMarketDataNotHeld) {
+			// A chunk is one trading day, so a source holding nothing for it is a closed day the calendar did not know; skip it rather than give up on the years after it.
+			if symbolReport.NotePresumedClosedDay(fetchError.Error()) {
+				continue
+			}
+
+			recordProgress(chunkIndex, symbolReport.ToDto())
+
+			return nil
+		}
+
 		if fetchError != nil {
 			// Abandon the rest instead of hammering a refusing source into a ban; stored chunks stay and a rerun resumes from them.
 			symbolReport.NoteFetchFailure(fetchError.Error())

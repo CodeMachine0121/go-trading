@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -1855,12 +1856,14 @@ func TestGettingAHistorySyncAnswersWithWhereItGotTo(t *testing.T) {
 			ID: 7, Symbol: "BTCUSDT", LookbackDays: 30,
 			Status:      string(vo.KCandleHistorySyncRunning),
 			TotalChunks: 30, CompletedChunks: 11, StoredCount: 15840,
-			StartedAt: ingestionAt(9, 0, 0),
+			PresumedClosedDayCount: 2,
+			StartedAt:              ingestionAt(9, 0, 0),
 		}, true, nil)
 
 	syncRun, findError := underTest.service.GetHistorySyncRun(t.Context(), 7)
 
 	require.NoError(t, findError)
+	assert.Equal(t, 2, syncRun.PresumedClosedDayCount)
 	assert.Equal(t, 11, syncRun.CompletedChunks)
 	assert.Equal(t, 30, syncRun.TotalChunks)
 	assert.Nil(t, syncRun.FinishedAt)
@@ -2085,4 +2088,462 @@ func (underTest ingestionUnderTest) registersCryptoForHistory(symbol string) {
 		entities.TradingSymbol{
 			Symbol: symbol, Market: string(vo.MarketCrypto), IsWatched: true,
 		}, true, nil).AnyTimes()
+}
+
+// notHeld is how a source says it holds nothing for a day; it is wrapped, as every real source wraps it.
+var notHeld = fmt.Errorf("%w: market source answered 404 for BTCUSDT", domains.ErrMarketDataNotHeld)
+
+// sourceAnswersDayByDay answers each asked chunk in turn and counts the asking; a nil error with no candles given is one valid candle.
+type sourceAnswersDayByDay struct {
+	mutex     sync.Mutex
+	answers   []error
+	askedDays int
+}
+
+func (underTest ingestionUnderTest) sourceAnswersDayByDay(answers ...error) *sourceAnswersDayByDay {
+	source := &sourceAnswersDayByDay{answers: answers}
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, window vo.KCandleFetchWindowVo,
+		) ([]vo.MarketKCandleVo, error) {
+			source.mutex.Lock()
+			defer source.mutex.Unlock()
+
+			answer := source.answers[source.askedDays]
+			source.askedDays++
+			if answer != nil {
+				return nil, answer
+			}
+
+			return []vo.MarketKCandleVo{validReportedKCandle(window.StartTime)}, nil
+		}).AnyTimes()
+
+	return source
+}
+
+func (source *sourceAnswersDayByDay) asked() int {
+	source.mutex.Lock()
+	defer source.mutex.Unlock()
+
+	return source.askedDays
+}
+
+func (underTest ingestionUnderTest) syncingBTCUSDT() {
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(
+		entities.TradingSymbol{
+			Symbol: "BTCUSDT", Market: string(vo.MarketCrypto), IsWatched: true,
+		}, true, nil).AnyTimes()
+}
+
+func TestSyncingHistoryCarriesOnPastADayTheSourceHoldsNothingFor(t *testing.T) {
+	// Five chunks: a lookback of four days plus today.
+	testCases := []struct {
+		name                   string
+		answers                []error
+		expectedStoredCount    int
+		expectedPresumedClosed int
+	}{
+		{
+			name:                   "a day in the middle",
+			answers:                []error{nil, nil, notHeld, nil, nil},
+			expectedStoredCount:    4,
+			expectedPresumedClosed: 1,
+		},
+		{
+			name:                   "the first day",
+			answers:                []error{notHeld, nil, nil, nil, nil},
+			expectedStoredCount:    4,
+			expectedPresumedClosed: 1,
+		},
+		{
+			name:                   "the last day",
+			answers:                []error{nil, nil, nil, nil, notHeld},
+			expectedStoredCount:    4,
+			expectedPresumedClosed: 1,
+		},
+		{
+			name:                   "several days",
+			answers:                []error{nil, notHeld, notHeld, nil, notHeld},
+			expectedStoredCount:    2,
+			expectedPresumedClosed: 3,
+		},
+		{
+			name:                   "every day",
+			answers:                []error{notHeld, notHeld, notHeld, notHeld, notHeld},
+			expectedStoredCount:    0,
+			expectedPresumedClosed: 5,
+		},
+		{
+			name:                   "no day",
+			answers:                []error{nil, nil, nil, nil, nil},
+			expectedStoredCount:    5,
+			expectedPresumedClosed: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+			underTest.syncingBTCUSDT()
+			saved := underTest.syncingFromEmptyStorage()
+			runs := underTest.recordsEveryHistorySyncRun()
+			source := underTest.sourceAnswersDayByDay(testCase.answers...)
+
+			_, startError := underTest.service.StartHistorySyncFor(
+				t.Context(), historySyncOf("BTCUSDT", 4), historyCeilingDays)
+
+			require.NoError(t, startError)
+			endedRun := runs.awaitEnding(t)
+			assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+			assert.Equal(t, 5, source.asked(), "每一天都問過，沒有在沒資料的那天收工")
+			assert.Equal(t, 5, endedRun.CompletedChunks)
+			assert.Len(t, saved.all(), testCase.expectedStoredCount)
+			assert.Equal(t, testCase.expectedStoredCount, endedRun.StoredCount)
+			assert.Equal(t, testCase.expectedPresumedClosed, endedRun.PresumedClosedDayCount)
+			assert.Empty(t, endedRun.FetchFailureReason, "沒資料不是來源拒絕")
+			assert.Equal(t, testCase.expectedPresumedClosed,
+				endedRun.ToDto().PresumedClosedDayCount, "回覆輪次時也說得出推定休市幾天")
+		})
+	}
+}
+
+func TestSyncingHistorySaysHowManyDaysItPresumedClosedWhileStillGoing(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.sourceAnswersDayByDay(notHeld, nil, notHeld)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	runs.awaitEnding(t)
+
+	runs.mutex.Lock()
+	defer runs.mutex.Unlock()
+	runningFigures := make([]int, 0)
+	for _, syncRun := range runs.written {
+		if vo.NewKCandleHistorySyncRunStatusVo(syncRun.Status) == vo.KCandleHistorySyncRunning {
+			runningFigures = append(runningFigures, syncRun.PresumedClosedDayCount)
+		}
+	}
+	// Written before anything is asked, as each chunk is reached, and once all are walked.
+	assert.Equal(t, []int{0, 0, 1, 1, 2}, runningFigures)
+}
+
+func TestSyncingHistoryStillGivesUpOnASourceThatRefuses(t *testing.T) {
+	testCases := []struct {
+		name    string
+		refusal error
+	}{
+		{name: "too many requests", refusal: errors.New("market source answered 429 for BTCUSDT")},
+		{name: "the source broke", refusal: errors.New("market source answered 500 for BTCUSDT")},
+		{name: "the source is unreachable", refusal: sourceUnreachable},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+			underTest.syncingBTCUSDT()
+			saved := underTest.syncingFromEmptyStorage()
+			runs := underTest.recordsEveryHistorySyncRun()
+			source := underTest.sourceAnswersDayByDay(nil, nil, testCase.refusal, nil, nil)
+
+			_, startError := underTest.service.StartHistorySyncFor(
+				t.Context(), historySyncOf("BTCUSDT", 4), historyCeilingDays)
+
+			require.NoError(t, startError)
+			endedRun := runs.awaitEnding(t)
+			assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+			assert.Equal(t, 3, source.asked(), "拒絕之後的日子不再問")
+			assert.Len(t, saved.all(), 2)
+			assert.Equal(t, testCase.refusal.Error(), endedRun.FetchFailureReason)
+			assert.Zero(t, endedRun.PresumedClosedDayCount)
+		})
+	}
+}
+
+func TestSyncingHistoryKeepsTheClosedDaysItFoundBeforeASourceRefused(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	saved := underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	tooManyRequests := errors.New("market source answered 429 for BTCUSDT")
+	source := underTest.sourceAnswersDayByDay(nil, notHeld, nil, nil, tooManyRequests, nil)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 5), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 5, source.asked())
+	assert.Len(t, saved.all(), 3)
+	assert.Equal(t, 1, endedRun.PresumedClosedDayCount)
+	assert.Equal(t, tooManyRequests.Error(), endedRun.FetchFailureReason)
+}
+
+func TestSyncingHistoryCountsClosedDaysApartFromSkippedKCandles(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	saved := underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+
+	// 270 candles, of which the first 2 have a high below their low.
+	answeredDay := make([]vo.MarketKCandleVo, 0, 270)
+	for minute := range 270 {
+		if minute < 2 {
+			answeredDay = append(answeredDay, reportedKCandle(ingestionAt(0, minute, 0), "90", "120"))
+
+			continue
+		}
+		answeredDay = append(answeredDay, validReportedKCandle(ingestionAt(0, minute, 0)))
+	}
+	gomock.InOrder(
+		underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+			Return(nil, notHeld),
+		underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+			Return(answeredDay, nil),
+		underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+			Return([]vo.MarketKCandleVo{}, nil),
+	)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 1, endedRun.PresumedClosedDayCount)
+	assert.Equal(t, 2, endedRun.SkippedCount)
+	assert.Equal(t, 268, endedRun.StoredCount)
+	assert.Len(t, saved.all(), 268)
+}
+
+func TestSyncingHistoryAsksAgainAboutADayItPresumedClosedLastTime(t *testing.T) {
+	// Nothing about the presumption is kept, so the next sync asks about that day again.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	underTest.syncingFromEmptyStorage()
+	source := underTest.sourceAnswersDayByDay(
+		nil, notHeld, nil,
+		nil, notHeld, nil,
+	)
+
+	runs := underTest.recordsEveryHistorySyncRun()
+
+	_, firstStartError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+	require.NoError(t, firstStartError)
+	assert.Equal(t, 1, runs.awaitEnding(t).PresumedClosedDayCount)
+
+	secondRun, secondStartError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+	require.NoError(t, secondStartError)
+	require.Eventually(t, func() bool { return source.asked() == 6 }, 5*time.Second, time.Millisecond,
+		"第二趟也問了那一天")
+	require.Eventually(t, func() bool {
+		runs.mutex.Lock()
+		defer runs.mutex.Unlock()
+		lastWrite := runs.written[len(runs.written)-1]
+
+		return lastWrite.ID == secondRun.ID &&
+			vo.NewKCandleHistorySyncRunStatusVo(lastWrite.Status) == vo.KCandleHistorySyncSucceeded &&
+			lastWrite.PresumedClosedDayCount == 1
+	}, 5*time.Second, time.Millisecond, "第二趟也推定那一天休市")
+}
+
+func TestSyncingHistoryDoesNotCountADayItAlreadyHoldsAsClosed(t *testing.T) {
+	// The first chunk is held in full and never asked; the other two say nothing is held.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	runs := underTest.recordsEveryHistorySyncRun()
+	secondChunkStart := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, startTime time.Time, endTime time.Time,
+		) (int, error) {
+			if endTime.Before(secondChunkStart) {
+				return int(endTime.Sub(startTime)/time.Minute) + 1, nil
+			}
+
+			return 0, nil
+		}).AnyTimes()
+	source := underTest.sourceAnswersDayByDay(notHeld, notHeld)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	require.NoError(t, startError)
+	assert.Equal(t, 2, runs.awaitEnding(t).PresumedClosedDayCount)
+	assert.Equal(t, 2, source.asked())
+}
+
+func TestSyncingHistoryEndsAsFailedWhenStorageBreaksAfterAClosedDay(t *testing.T) {
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	runs := underTest.recordsEveryHistorySyncRun()
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(0, nil).AnyTimes()
+	storedBatches := 0
+	underTest.kCandleRepository.EXPECT().SaveAllIfAbsent(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, kCandles []entities.KCandle) (int, error) {
+			storedBatches++
+			if storedBatches > 1 {
+				return 0, errors.New("storage unavailable")
+			}
+
+			return len(kCandles), nil
+		}).AnyTimes()
+	underTest.sourceAnswersDayByDay(nil, notHeld, nil, nil)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 3), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncFailed), endedRun.Status)
+	assert.Contains(t, endedRun.FailureReason, "storage unavailable")
+	assert.Equal(t, 1, endedRun.PresumedClosedDayCount)
+	assert.Equal(t, 1, endedRun.StoredCount)
+}
+
+func TestSyncingHistorySkipsAWeekdayHolidayBetweenTradingDays(t *testing.T) {
+	// 2023/10/10 is National Day, a Tuesday the trading calendar does not know; the weekend before it is never asked about.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2023-10-11T14:00:00+08:00"))
+	runs := underTest.recordsEveryHistorySyncRun()
+	saved := underTest.syncingFromEmptyStorage()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+
+	taipeiZone := time.FixedZone("Asia/Taipei", 8*60*60)
+	var askedMutex sync.Mutex
+	askedDays := make([]string, 0)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, window vo.KCandleFetchWindowVo,
+		) ([]vo.MarketKCandleVo, error) {
+			askedDay := window.StartTime.In(taipeiZone).Format(time.DateOnly)
+			askedMutex.Lock()
+			askedDays = append(askedDays, askedDay)
+			askedMutex.Unlock()
+
+			if askedDay == "2023-10-10" {
+				return nil, fmt.Errorf("%w: market source answered 404 for 2330", domains.ErrMarketDataNotHeld)
+			}
+
+			return []vo.MarketKCandleVo{reportedFor("2330", window.StartTime)}, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("2330", 6), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 1, endedRun.PresumedClosedDayCount, "週末不問也不算，只有雙十那一天")
+	assert.Empty(t, endedRun.FetchFailureReason)
+
+	askedMutex.Lock()
+	defer askedMutex.Unlock()
+	assert.Equal(t,
+		[]string{"2023-10-05", "2023-10-06", "2023-10-09", "2023-10-10", "2023-10-11"}, askedDays)
+
+	storedDays := make([]string, 0)
+	for _, openTime := range saved.all() {
+		storedDays = append(storedDays, openTime.In(taipeiZone).Format(time.DateOnly))
+	}
+	assert.Equal(t, []string{"2023-10-05", "2023-10-06", "2023-10-09", "2023-10-11"}, storedDays)
+	assert.Equal(t, 4, endedRun.StoredCount)
+}
+
+// repeated lists an answer the given number of times, for runs of days in a row.
+func repeated(answer error, times int) []error {
+	answers := make([]error, 0, times)
+	for range times {
+		answers = append(answers, answer)
+	}
+
+	return answers
+}
+
+func TestSyncingHistoryGivesUpOnASourceThatHoldsNothingForLongerThanAnyClosure(t *testing.T) {
+	// Fifteen trading days in a row is past any real closure: the source does not know the symbol, or the address is wrong.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	saved := underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	answers := append([]error{nil}, repeated(notHeld, 15)...)
+	answers = append(answers, repeated(nil, 4)...)
+	source := underTest.sourceAnswersDayByDay(answers...)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 19), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 16, source.asked(), "第 15 天連續沒資料就停，後面的不再問")
+	assert.Len(t, saved.all(), 1)
+	assert.Equal(t, 15, endedRun.PresumedClosedDayCount)
+	assert.Contains(t, endedRun.FetchFailureReason,
+		"the source held nothing for 15 trading days in a row")
+	assert.Contains(t, endedRun.FetchFailureReason, notHeld.Error(), "說出最後一次來源怎麼回答")
+	assert.Equal(t, 15, endedRun.CompletedChunks, "停在第 16 段，不能說後面幾段也走完了")
+}
+
+func TestSyncingHistoryKeepsGoingThroughClosuresShorterThanTheLimit(t *testing.T) {
+	// Two runs of fourteen, broken by a day the source answers: each is a closure, and their total past fifteen does not matter.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	saved := underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	answers := append(repeated(notHeld, 14), nil)
+	answers = append(answers, repeated(notHeld, 14)...)
+	answers = append(answers, nil)
+	source := underTest.sourceAnswersDayByDay(answers...)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 29), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 30, source.asked())
+	assert.Len(t, saved.all(), 2)
+	assert.Equal(t, 28, endedRun.PresumedClosedDayCount)
+	assert.Empty(t, endedRun.FetchFailureReason)
+}
+
+func TestSyncingHistoryCountsADayItAlreadyHoldsAsBreakingARunOfClosedDays(t *testing.T) {
+	// Re-syncing mostly stored years: only the scattered holidays reach the source, and a stored day between them proves the market traded.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	runs := underTest.recordsEveryHistorySyncRun()
+	stretchStart := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	underTest.kCandleRepository.EXPECT().
+		CountInRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, _ string, startTime time.Time, endTime time.Time,
+		) (int, error) {
+			// Every other day is held in full, starting with the first.
+			if int(startTime.Sub(stretchStart).Hours()/24)%2 == 0 {
+				return int(endTime.Sub(startTime)/time.Minute) + 1, nil
+			}
+
+			return 0, nil
+		}).AnyTimes()
+	source := underTest.sourceAnswersDayByDay(repeated(notHeld, 16)...)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 31), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 16, source.asked(), "十六個假日散在已存的日子之間，每一個都問到")
+	assert.Equal(t, 16, endedRun.PresumedClosedDayCount)
+	assert.Empty(t, endedRun.FetchFailureReason, "不是連續的，不能說來源不認得這個代號")
+	assert.Equal(t, 32, endedRun.CompletedChunks)
 }
