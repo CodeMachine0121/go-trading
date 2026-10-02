@@ -129,6 +129,12 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
 	}
 	defer func() { _ = response.Body.Close() }()
 
+	// The source answers a day it holds nothing for (a holiday the calendar does not know) with not found; only that answer is marked, so every other failure stays a refusal.
+	if response.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: market source answered %d for %s",
+			domains.ErrMarketDataNotHeld, response.StatusCode, symbol)
+	}
+
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("market source answered %d for %s", response.StatusCode, symbol)
 	}

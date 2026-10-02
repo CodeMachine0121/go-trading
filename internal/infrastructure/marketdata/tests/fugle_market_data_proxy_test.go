@@ -283,6 +283,12 @@ func TestFugleReportsASourceThatWillNotAnswer(t *testing.T) {
 			},
 		},
 		{
+			name: "a source that broke",
+			handle: func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(http.StatusInternalServerError)
+			},
+		},
+		{
 			name: "an answer that cannot be read",
 			handle: func(writer http.ResponseWriter, _ *http.Request) {
 				_, _ = writer.Write([]byte(`{"data": not json`))
@@ -316,6 +322,50 @@ func TestFugleReportsASourceThatWillNotAnswer(t *testing.T) {
 				t.Context(), fugleWindow(t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
 
 			require.Error(t, fetchError)
+			// Only a plain "nothing held" may let a history sync carry on past a day.
+			assert.NotErrorIs(t, fetchError, domains.ErrMarketDataNotHeld)
+		})
+	}
+}
+
+func TestFugleSaysWhenItHoldsNothingForTheDayAskedAbout(t *testing.T) {
+	// A weekday holiday the calendar does not know is answered as not found, on either address.
+	testCases := []struct {
+		name        string
+		currentTime string
+		startTime   string
+		endTime     string
+	}{
+		{
+			name:        "an earlier day",
+			currentTime: "2026-09-08T10:07:00+08:00",
+			startTime:   "2026-09-07T09:00:00+08:00",
+			endTime:     "2026-09-07T13:29:00+08:00",
+		},
+		{
+			name:        "today",
+			currentTime: "2026-09-08T10:07:00+08:00",
+			startTime:   "2026-09-08T09:00:00+08:00",
+			endTime:     "2026-09-08T10:00:00+08:00",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(
+				func(writer http.ResponseWriter, _ *http.Request) {
+					writer.WriteHeader(http.StatusNotFound)
+				}))
+			t.Cleanup(server.Close)
+			clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
+			clockProxy.EXPECT().Now().Return(taipeiAt(t, testCase.currentTime)).AnyTimes()
+
+			_, fetchError := marketdata.NewFugleMarketDataProxy(
+				server.URL+"/intraday", server.URL+"/historical",
+				"a-key", taipeiMarket(), clockProxy, requestTimeout, unpaced(),
+			).FetchKCandles(t.Context(), fugleWindow(t, testCase.startTime, testCase.endTime))
+
+			assert.ErrorIs(t, fetchError, domains.ErrMarketDataNotHeld)
 		})
 	}
 }
@@ -416,6 +466,22 @@ func TestFugleReportsAnAddressItCannotEvenAskAt(t *testing.T) {
 		t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
 
 	require.Error(t, fetchError)
+	assert.NotErrorIs(t, fetchError, domains.ErrMarketDataNotHeld)
+}
+
+func TestFugleReportsASourceItCannotReach(t *testing.T) {
+	// Unreachable is a refusal, never a closed day.
+	clockProxy := mocks.NewMockIClockProxy(gomock.NewController(t))
+	clockProxy.EXPECT().Now().Return(taipeiAt(t, "2026-09-08T10:07:00+08:00")).AnyTimes()
+
+	_, fetchError := marketdata.NewFugleMarketDataProxy(
+		"http://127.0.0.1:1/intraday", "http://127.0.0.1:1/historical",
+		"a-key", taipeiMarket(), clockProxy, 50*time.Millisecond, unpaced(),
+	).FetchKCandles(t.Context(), fugleWindow(
+		t, "2026-09-08T09:40:00+08:00", "2026-09-08T10:00:00+08:00"))
+
+	require.Error(t, fetchError)
+	assert.NotErrorIs(t, fetchError, domains.ErrMarketDataNotHeld)
 }
 
 func TestFugleReportsALookupAddressItCannotEvenAskAt(t *testing.T) {
