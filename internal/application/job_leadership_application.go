@@ -27,6 +27,7 @@ func (jobLeadershipApplication *JobLeadershipApplication) IsLeader() bool {
 	return jobLeadershipApplication.jobLeadershipService.IsLeader()
 }
 
-func (jobLeadershipApplication *JobLeadershipApplication) ReleaseLeadership(executionContext context.Context) error {
+// ReleaseLeadership reports whether this replica had the duty to give back.
+func (jobLeadershipApplication *JobLeadershipApplication) ReleaseLeadership(executionContext context.Context) (bool, error) {
 	return jobLeadershipApplication.jobLeadershipService.Release(executionContext)
 }

@@ -102,12 +102,15 @@ func releaseLeadership(
 	release, endRelease := context.WithTimeout(context.Background(), leadershipCallTimeout)
 	defer endRelease()
 
-	if releaseError := jobLeadership.ReleaseLeadership(release); releaseError != nil {
+	released, releaseError := jobLeadership.ReleaseLeadership(release)
+	if releaseError != nil {
 		log.Printf("job leadership could not be given back; the next replica waits out the lease: %v",
 			releaseError)
 
 		return
 	}
 
-	log.Printf("job leadership given back, if this replica held it")
+	if released {
+		log.Printf("job leadership given back: the next replica can take it at once")
+	}
 }

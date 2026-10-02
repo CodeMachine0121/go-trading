@@ -83,13 +83,13 @@ func (jobLeadershipService *JobLeadershipService) IsLeader() bool {
 		jobLeadershipService.clockProxy.Now().Before(jobLeadershipService.heldUntil)
 }
 
-// Release gives the duty back so the next replica need not wait out the lease; a replica not on duty has nothing to give.
-func (jobLeadershipService *JobLeadershipService) Release(executionContext context.Context) error {
+// Release gives the duty back so the next replica need not wait out the lease, and reports whether there was one to give.
+func (jobLeadershipService *JobLeadershipService) Release(executionContext context.Context) (bool, error) {
 	if !jobLeadershipService.forgetDuty() {
-		return nil
+		return false, nil
 	}
 
-	return jobLeadershipService.jobLeadershipLeaseRepository.Release(
+	return true, jobLeadershipService.jobLeadershipLeaseRepository.Release(
 		executionContext, jobLeadershipLeaseName, jobLeadershipService.replicaName)
 }
 

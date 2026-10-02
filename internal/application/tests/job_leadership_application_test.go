@@ -141,8 +141,10 @@ func TestJobLeadershipApplicationReleaseGivesTheDutyBack(t *testing.T) {
 	underTest.jobLeadershipLeaseRepository.EXPECT().
 		Release(gomock.Any(), gomock.Any(), thisReplicaName).Return(nil)
 
-	require.NoError(t, underTest.jobLeadershipApplication.ReleaseLeadership(t.Context()))
+	released, releaseError := underTest.jobLeadershipApplication.ReleaseLeadership(t.Context())
 
+	require.NoError(t, releaseError)
+	assert.True(t, released)
 	assert.False(t, underTest.jobLeadershipApplication.IsLeader())
 }
 
@@ -150,7 +152,10 @@ func TestJobLeadershipApplicationReleaseDoesNothingWhenNeverOnDuty(t *testing.T)
 	underTest := newJobLeadershipApplicationUnderTest(t)
 	// No Release expectation: the mock fails the test if it is called.
 
-	require.NoError(t, underTest.jobLeadershipApplication.ReleaseLeadership(t.Context()))
+	released, releaseError := underTest.jobLeadershipApplication.ReleaseLeadership(t.Context())
+
+	require.NoError(t, releaseError)
+	assert.False(t, released)
 }
 
 func TestJobLeadershipApplicationAFailedRenewalAfterTheCutoffReportsTheLoss(t *testing.T) {
