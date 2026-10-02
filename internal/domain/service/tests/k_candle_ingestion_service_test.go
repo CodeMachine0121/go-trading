@@ -2408,3 +2408,54 @@ func TestSyncingHistoryEndsAsFailedWhenStorageBreaksAfterAClosedDay(t *testing.T
 	assert.Equal(t, 1, endedRun.PresumedClosedDayCount)
 	assert.Equal(t, 1, endedRun.StoredCount)
 }
+
+func TestSyncingHistorySkipsAWeekdayHolidayBetweenTradingDays(t *testing.T) {
+	// 2023/10/10 is National Day, a Tuesday the trading calendar does not know; the weekend before it is never asked about.
+	underTest := newIngestionUnderTest(t, taipeiIngestionAt(t, "2023-10-11T14:00:00+08:00"))
+	runs := underTest.recordsEveryHistorySyncRun()
+	saved := underTest.syncingFromEmptyStorage()
+	underTest.tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "2330").Return(
+		entities.TradingSymbol{
+			Symbol: "2330", Market: string(vo.MarketTaiwanStock), IsWatched: true,
+		}, true, nil)
+
+	taipeiZone := time.FixedZone("Asia/Taipei", 8*60*60)
+	var askedMutex sync.Mutex
+	askedDays := make([]string, 0)
+	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context, window vo.KCandleFetchWindowVo,
+		) ([]vo.MarketKCandleVo, error) {
+			askedDay := window.StartTime.In(taipeiZone).Format(time.DateOnly)
+			askedMutex.Lock()
+			askedDays = append(askedDays, askedDay)
+			askedMutex.Unlock()
+
+			if askedDay == "2023-10-10" {
+				return nil, fmt.Errorf("%w: market source answered 404 for 2330", domains.ErrMarketDataNotHeld)
+			}
+
+			return []vo.MarketKCandleVo{reportedFor("2330", window.StartTime)}, nil
+		}).AnyTimes()
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("2330", 6), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 1, endedRun.PresumedClosedDayCount, "週末不問也不算，只有雙十那一天")
+	assert.Empty(t, endedRun.FetchFailureReason)
+
+	askedMutex.Lock()
+	defer askedMutex.Unlock()
+	assert.Equal(t,
+		[]string{"2023-10-05", "2023-10-06", "2023-10-09", "2023-10-10", "2023-10-11"}, askedDays)
+
+	storedDays := make([]string, 0)
+	for _, openTime := range saved.all() {
+		storedDays = append(storedDays, openTime.In(taipeiZone).Format(time.DateOnly))
+	}
+	assert.Equal(t, []string{"2023-10-05", "2023-10-06", "2023-10-09", "2023-10-11"}, storedDays)
+	assert.Equal(t, 4, endedRun.StoredCount)
+}
