@@ -72,7 +72,7 @@ func (pendingMessageRepository *PendingMessageRepository) Claim(
 			),
 			clause.And(
 				clause.Eq{Column: "status", Value: string(vo.PendingMessageSending)},
-				clause.Lt{Column: "claimed_until", Value: moment.UTC()},
+				clause.Lte{Column: "claimed_until", Value: moment.UTC()},
 			),
 		)).
 		Select("status", "claimed_by", "claimed_until").

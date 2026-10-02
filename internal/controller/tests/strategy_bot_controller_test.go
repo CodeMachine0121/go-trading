@@ -60,7 +60,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("the-token", nil).AnyTimes()
 	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(mockController)
 	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryFailureNone, nil).AnyTimes()
+		Return(vo.DeliveryResultVo{}, nil).AnyTimes()
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).

@@ -267,7 +267,7 @@ func TestTelegramDeliveryApplicationSendTestMessage(t *testing.T) {
 					ChatID:   "987654",
 				},
 				"哈囉，這是一則測試").
-			Return(vo.DeliveryFailureNone, nil)
+			Return(vo.DeliveryResultVo{}, nil)
 
 		result, err := fixture.telegramDeliveryApplication.SendTestMessage(
 			context.Background(), deliveryOwnerID,
@@ -302,7 +302,7 @@ func TestTelegramDeliveryApplicationSendTestMessage(t *testing.T) {
 					Return("123456:AAH", nil)
 				fixture.messageDeliveryProxy.EXPECT().
 					Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(testCase.reason, nil)
+					Return(vo.DeliveryResultVo{FailureReason: testCase.reason}, nil)
 
 				result, err := fixture.telegramDeliveryApplication.SendTestMessage(
 					context.Background(), deliveryOwnerID, dto.TestMessageDto{Message: "哈囉"})
@@ -312,6 +312,23 @@ func TestTelegramDeliveryApplicationSendTestMessage(t *testing.T) {
 				assert.Equal(t, testCase.expectedReason, result.FailureReason)
 			})
 		}
+	})
+
+	t.Run("being told to slow down reads as nothing answered, sent at once and never queued", func(t *testing.T) {
+		fixture := newTelegramDeliveryApplicationUnderTest(t)
+		fixture.telegramDeliveryRepository.EXPECT().
+			FindOneByUser(gomock.Any(), deliveryOwnerID).Return(aStoredDelivery(), nil)
+		fixture.secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("123456:AAH", nil)
+		fixture.messageDeliveryProxy.EXPECT().
+			Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable, RetryAfter: 7 * time.Second}, nil)
+
+		result, err := fixture.telegramDeliveryApplication.SendTestMessage(
+			context.Background(), deliveryOwnerID, dto.TestMessageDto{Message: "哈囉"})
+
+		require.NoError(t, err)
+		assert.False(t, result.Delivered)
+		assert.Equal(t, "unreachable", result.FailureReason)
 	})
 
 	t.Run("without a setting there is nothing to send with", func(t *testing.T) {
@@ -383,7 +400,7 @@ func TestTelegramDeliveryApplicationSendTestMessage(t *testing.T) {
 		fixture.secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("123456:AAH", nil)
 		fixture.messageDeliveryProxy.EXPECT().
 			Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(vo.DeliveryFailureUnreachable, deliverFailure)
+			Return(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable}, deliverFailure)
 
 		_, err := fixture.telegramDeliveryApplication.SendTestMessage(
 			context.Background(), deliveryOwnerID, dto.TestMessageDto{Message: "哈囉"})

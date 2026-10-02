@@ -10,10 +10,10 @@ import (
 
 // IMessageDeliveryProxy sends one message a person can read; Telegram is currently the only implementation.
 type IMessageDeliveryProxy interface {
-	// Deliver returns a destination's refusal as a reason with a nil error; only local failures (unbuildable request, unreadable answer) are errors.
+	// Deliver returns a destination's refusal as a reason with a nil error, with how long the destination asked to wait when it said; only local failures (unbuildable request, unreadable answer) are errors.
 	Deliver(
 		executionContext context.Context,
 		credential vo.MessageDeliveryCredentialVo,
 		message string,
-	) (vo.DeliveryFailureReasonVo, error)
+	) (vo.DeliveryResultVo, error)
 }

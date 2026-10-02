@@ -65,10 +65,10 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			*announcements = append(*announcements, message)
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		}).AnyTimes()
 
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)

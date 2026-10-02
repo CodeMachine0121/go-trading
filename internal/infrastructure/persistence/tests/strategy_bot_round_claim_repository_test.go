@@ -1,10 +1,12 @@
 package persistence_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
@@ -201,4 +203,51 @@ func TestStrategyBotRepositoryAReleasedBotIsClaimableAgainAtOnce(t *testing.T) {
 	require.NoError(t, claimError)
 
 	assert.Equal(t, []string{"X"}, namesOf(claimed))
+}
+
+func TestStrategyBotRepositoryForgetSentSignal(t *testing.T) {
+	testCases := []struct {
+		name           string
+		forgotten      vo.SignalVo
+		expectedSignal string
+	}{
+		{name: "the signal a message carried is forgotten", forgotten: vo.SignalBuy, expectedSignal: ""},
+		{name: "a newer signal is kept", forgotten: vo.SignalSell, expectedSignal: string(vo.SignalBuy)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			database := newStrategyBotTestDatabase(t)
+			repository := persistence.NewStrategyBotRepository(database)
+			bot := aDueRunningBot(t, repository, "X")
+			bot.LastSentSignal = string(vo.SignalBuy)
+			require.NoError(t, repository.UpdateRunState(t.Context(), bot))
+
+			require.NoError(t, repository.ForgetSentSignal(t.Context(), bot.ID, string(testCase.forgotten)))
+
+			stored, findError := repository.FindOne(t.Context(), bot.ID)
+			require.NoError(t, findError)
+			assert.Equal(t, testCase.expectedSignal, stored.LastSentSignal)
+		})
+	}
+}
+
+func TestStrategyBotRepositoryFindOneLockedReadsTheBotInsideATransaction(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	bot := aDueRunningBot(t, repository, "X")
+
+	readError := persistence.NewTransactionRepository(database).Atomically(t.Context(),
+		func(transactionContext context.Context) error {
+			locked, findError := repository.FindOneLocked(transactionContext, bot.ID)
+			require.NoError(t, findError)
+			assert.Equal(t, "X", locked.Name)
+
+			_, missingError := repository.FindOneLocked(transactionContext, bot.ID+1000)
+			assert.ErrorIs(t, missingError, domains.ErrStrategyBotNotFound)
+
+			return nil
+		})
+
+	require.NoError(t, readError)
 }

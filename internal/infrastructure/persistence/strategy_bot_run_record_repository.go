@@ -14,12 +14,13 @@ import (
 // strategyBotRememberedRunCount caps each bot's run history, trimmed on write so no separate cleanup job is needed.
 const strategyBotRememberedRunCount = 50
 
+// It reads through ambientTransactionDatabase so a booked round can land in one transaction with what it caused.
 type StrategyBotRunRecordRepository struct {
-	database *gorm.DB
+	database ambientTransactionDatabase
 }
 
 func NewStrategyBotRunRecordRepository(database *gorm.DB) *StrategyBotRunRecordRepository {
-	return &StrategyBotRunRecordRepository{database: database}
+	return &StrategyBotRunRecordRepository{database: ambientTransactionDatabase{root: database}}
 }
 
 // Append inserts the run and trims the history in one transaction, so a failed trim cannot let one bot's history grow unbounded.
@@ -28,7 +29,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 ) error {
 	strategyBotID := writeDto.StrategyBotID
 
-	transactionError := strategyBotRunRecordRepository.database.WithContext(executionContext).
+	transactionError := strategyBotRunRecordRepository.database.within(executionContext).
 		Transaction(func(transaction *gorm.DB) error {
 			latestNumber := 0
 
@@ -106,7 +107,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) FindLatest
 ) ([]entities.StrategyBotRunRecord, error) {
 	runRecords := []entities.StrategyBotRunRecord{}
 
-	result := strategyBotRunRecordRepository.database.WithContext(executionContext).
+	result := strategyBotRunRecordRepository.database.within(executionContext).
 		Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
 		Order("run_number DESC").
 		Limit(strategyBotRememberedRunCount).
@@ -127,7 +128,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) FindByJour
 		return entities.StrategyBotRunRecord{}, false, nil
 	}
 
-	result := strategyBotRunRecordRepository.database.WithContext(executionContext).
+	result := strategyBotRunRecordRepository.database.within(executionContext).
 		Where(clause.Eq{Column: "journal_link_identifier", Value: journalLinkIdentifier}).
 		Limit(1).
 		Find(&runRecords)

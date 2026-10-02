@@ -37,10 +37,10 @@ func telegramAnswering(
 func TestTelegramMessageDeliveryProxyReportsAMessageThatWentThrough(t *testing.T) {
 	proxy := telegramAnswering(t, http.StatusOK, `{"ok":true}`)
 
-	reason, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+	result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
 
 	require.NoError(t, err)
-	assert.Equal(t, vo.DeliveryFailureNone, reason)
+	assert.Equal(t, vo.DeliveryFailureNone, result.FailureReason)
 }
 
 func TestTelegramMessageDeliveryProxySendsAsTheBotIntoTheChat(t *testing.T) {
@@ -144,11 +144,11 @@ func TestTelegramMessageDeliveryProxySortsEveryRefusalIntoOneOfTheFourReasons(t 
 		t.Run(testCase.name, func(t *testing.T) {
 			proxy := telegramAnswering(t, testCase.statusCode, testCase.body)
 
-			reason, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+			result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
 
 			require.NoError(t, err,
 				"對方拒絕是一次問到答案的詢問，不是這一側壞掉")
-			assert.Equal(t, testCase.expectedReason, reason)
+			assert.Equal(t, testCase.expectedReason, result.FailureReason)
 		})
 	}
 }
@@ -172,10 +172,10 @@ func TestTelegramMessageDeliveryProxyTellsRunningOutOfTimeApartFromNotBeingThere
 		proxy := messaging.NewTelegramMessageDeliveryProxy(
 			server.URL, &http.Client{Timeout: 30 * time.Millisecond})
 
-		reason, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+		result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
 
 		require.NoError(t, err)
-		assert.Equal(t, vo.DeliveryFailureTimedOut, reason)
+		assert.Equal(t, vo.DeliveryFailureTimedOut, result.FailureReason)
 	})
 
 	t.Run("a caller who gave up before the answer came", func(t *testing.T) {
@@ -185,10 +185,10 @@ func TestTelegramMessageDeliveryProxyTellsRunningOutOfTimeApartFromNotBeingThere
 		executionContext, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 		defer cancel()
 
-		reason, err := proxy.Deliver(executionContext, aCredential, "哈囉")
+		result, err := proxy.Deliver(executionContext, aCredential, "哈囉")
 
 		require.NoError(t, err)
-		assert.Equal(t, vo.DeliveryFailureTimedOut, reason)
+		assert.Equal(t, vo.DeliveryFailureTimedOut, result.FailureReason)
 	})
 
 	t.Run("nothing listening at all", func(t *testing.T) {
@@ -200,10 +200,10 @@ func TestTelegramMessageDeliveryProxyTellsRunningOutOfTimeApartFromNotBeingThere
 		proxy := messaging.NewTelegramMessageDeliveryProxy(
 			address, &http.Client{Timeout: time.Second})
 
-		reason, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+		result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
 
 		require.NoError(t, err)
-		assert.Equal(t, vo.DeliveryFailureUnreachable, reason)
+		assert.Equal(t, vo.DeliveryFailureUnreachable, result.FailureReason)
 	})
 }
 
@@ -211,20 +211,64 @@ func TestTelegramMessageDeliveryProxyNeverPutsTheAddressInWhatItReturns(t *testi
 	proxy := messaging.NewTelegramMessageDeliveryProxy(
 		"http://127.0.0.1:1/never-listening", &http.Client{Timeout: 200 * time.Millisecond})
 
-	reason, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+	result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
 
 	require.NoError(t, err)
-	assert.Equal(t, vo.DeliveryFailureUnreachable, reason)
-	assert.False(t, strings.Contains(string(reason), "AAHqwertyuiop"))
+	assert.Equal(t, vo.DeliveryFailureUnreachable, result.FailureReason)
+	assert.False(t, strings.Contains(string(result.FailureReason), "AAHqwertyuiop"))
 }
 
 func TestTelegramMessageDeliveryProxyReportsItsOwnFailureWithoutTheToken(t *testing.T) {
 	proxy := messaging.NewTelegramMessageDeliveryProxy("://not-an-address", http.DefaultClient)
 
-	reason, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+	result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
 
 	require.Error(t, err)
-	assert.Equal(t, vo.DeliveryFailureUnreachable, reason)
+	assert.Equal(t, vo.DeliveryFailureUnreachable, result.FailureReason)
 	assert.NotContains(t, err.Error(), "AAHqwertyuiop1234")
 	assert.NotContains(t, err.Error(), "not-an-address")
+}
+
+func TestTelegramMessageDeliveryProxyCarriesTheWaitTelegramAsksFor(t *testing.T) {
+	testCases := []struct {
+		name               string
+		statusCode         int
+		body               string
+		expectedReason     vo.DeliveryFailureReasonVo
+		expectedRetryAfter time.Duration
+	}{
+		{
+			name:               "told to slow down for seven seconds",
+			statusCode:         http.StatusTooManyRequests,
+			body:               `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 7","parameters":{"retry_after":7}}`,
+			expectedReason:     vo.DeliveryFailureUnreachable,
+			expectedRetryAfter: 7 * time.Second,
+		},
+		{
+			name:               "told to slow down without saying for how long",
+			statusCode:         http.StatusTooManyRequests,
+			body:               `{"ok":false,"error_code":429,"description":"Too Many Requests"}`,
+			expectedReason:     vo.DeliveryFailureUnreachable,
+			expectedRetryAfter: 0,
+		},
+		{
+			name:               "a delivered message asks for no wait",
+			statusCode:         http.StatusOK,
+			body:               `{"ok":true,"result":{}}`,
+			expectedReason:     vo.DeliveryFailureNone,
+			expectedRetryAfter: 0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			proxy := telegramAnswering(t, testCase.statusCode, testCase.body)
+
+			result, err := proxy.Deliver(t.Context(), aCredential, "哈囉")
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectedReason, result.FailureReason)
+			assert.Equal(t, testCase.expectedRetryAfter, result.RetryAfter)
+		})
+	}
 }

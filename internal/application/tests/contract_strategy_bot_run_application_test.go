@@ -94,13 +94,13 @@ func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T)
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "🟢【做多】合約突破 · BTCUSDT 永續合約")
 			assert.Contains(t, message, "⚙️ 交易模式 多空反手")
 			assert.Contains(t, message, "💰 參考價 64000.5")
 			assert.Contains(t, message, "那一根一分鐘合約 K 線的收盤價")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 
 	underTest.strategyBotRepository.EXPECT().
@@ -156,10 +156,10 @@ func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "【已停擺】合約突破 · BTCUSDT 永續合約")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -197,7 +197,7 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
 			assert.Contains(t, message, "　・數量 50")
 			assert.Contains(t, message, "止損 98（往下，虧 100）")
@@ -206,7 +206,7 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 			assert.Contains(t, message,
 				"📝 記到交易日誌：https://app.example.com/contract-trade-journal/new?journalLink=round-link-1")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -331,13 +331,13 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "⚪【平多】合約突破 · BTCUSDT 永續合約")
 			assert.Contains(t, message, "⚙️ 交易模式 只做多")
 			assert.NotContains(t, message, "建議部位")
 			assert.NotContains(t, message, "記到交易日誌")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -404,7 +404,7 @@ func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing
 		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).Times(2)
 	underTest.expectTheContractsLatestCandle("100")
 	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryFailureNone, nil)
+		Return(vo.DeliveryResultVo{}, nil)
 
 	dueBot := aDueContractBot("")
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).

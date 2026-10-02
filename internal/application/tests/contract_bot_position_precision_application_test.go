@@ -33,7 +33,7 @@ func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
 	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryFailureNone, nil)
+		Return(vo.DeliveryResultVo{}, nil)
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -65,10 +65,10 @@ func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testin
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "部位資金不足，押不下 2000")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -104,12 +104,12 @@ func TestStrategyBotRunApplicationStillSuggestsWhenTheVenueCannotBeRead(t *testi
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
 			assert.Contains(t, message, "這個合約標的還沒有交易規格")
 			assert.Contains(t, message, "還沒有資金費率紀錄")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 

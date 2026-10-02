@@ -198,11 +198,11 @@ func (underTest strategyBotRunUnderTest) expectNoRoundMessage() {
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.NotContains(underTest.t, message, "參考價",
 				"這一輪不該對市場說話")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		}).AnyTimes()
 }
 
@@ -307,12 +307,12 @@ func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, credential vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Equal(t, "the-token", credential.BotToken)
 			assert.Contains(t, message, "【買入】早盤突破 · BTCUSDT")
 			assert.Contains(t, message, "64180.5")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 
 	underTest.strategyBotRepository.EXPECT().
@@ -565,12 +565,12 @@ func TestStrategyBotRunApplicationReadsTelegramsRefusalTheWayItWasMeant(t *testi
 				Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 				DoAndReturn(func(
 					_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-				) (vo.DeliveryFailureReasonVo, error) {
+				) (vo.DeliveryResultVo, error) {
 					if strings.Contains(message, "已停擺") {
-						return vo.DeliveryFailureNone, nil
+						return vo.DeliveryResultVo{}, nil
 					}
 
-					return testCase.failureReason, nil
+					return vo.DeliveryResultVo{FailureReason: testCase.failureReason}, nil
 				}).AnyTimes()
 
 			underTest.strategyBotRepository.EXPECT().
@@ -607,11 +607,11 @@ func TestStrategyBotRunApplicationStillSendsWhenThereIsNoPriceToQuote(t *testing
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "【買入】")
 			assert.Contains(t, message, "讀不到這個交易標的的最新 K 線")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -690,7 +690,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 	// This side failing to ask (not Telegram refusing) waits rather than halting the bot.
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryFailureNone, errors.New("the request could not be built"))
+		Return(vo.DeliveryResultVo{}, errors.New("the request could not be built"))
 
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -805,11 +805,11 @@ func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "【買入】")
 			assert.Contains(t, message, "讀不到這個交易標的的最新 K 線")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -953,10 +953,10 @@ func TestStrategyBotRunApplicationRunsARoundByHandDownTheSamePath(t *testing.T) 
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			delivered = message
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
@@ -982,7 +982,7 @@ func TestStrategyBotRunApplicationRunsAStoppedBotByHand(t *testing.T) {
 		Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil).AnyTimes()
 	underTest.messageDeliveryProxy.EXPECT().
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryFailureNone, nil)
+		Return(vo.DeliveryResultVo{}, nil)
 
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -1039,10 +1039,10 @@ func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "那一份交易策略找不到了")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -1088,14 +1088,14 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "開倉金額 5000")
 			assert.Contains(t, message, "止損 62255.085（往下，虧 150）")
 			assert.Contains(t, message, "止盈 67389.525（往上，賺 250）")
 			assert.Contains(t, message, "這個系統不下單")
 			assert.Contains(t, message, "回測要算進止損止盈，重演時把這兩個距離填上")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 
 	underTest.strategyBotRepository.EXPECT().
@@ -1126,12 +1126,12 @@ func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) 
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.True(t, strings.HasSuffix(message,
 				"\n\n📝 記到交易日誌：https://app.example.com/spot-trade-journal/new?journalLink=round-link-1"), message)
 			assert.Contains(t, message, "【買入】早盤突破 · BTCUSDT")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
@@ -1162,10 +1162,10 @@ func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *test
 		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
+		) (vo.DeliveryResultVo, error) {
 			assert.Contains(t, message, "【買入】早盤突破 · BTCUSDT")
 
-			return vo.DeliveryFailureNone, nil
+			return vo.DeliveryResultVo{}, nil
 		}).Times(1)
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
