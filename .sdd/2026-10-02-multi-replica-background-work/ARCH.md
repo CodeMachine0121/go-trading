@@ -25,7 +25,7 @@
 | `domain/models/vo` | **Add** `DeliveryResultVo`、`PendingMessageStatusVo`、`PendingMessageKindVo` | 寄送結果帶 Telegram 指定的等待；待送訊息狀態與種類 |
 | `domain/models/dto` | **Add** `PendingMessageDto`、`PendingMessageWriteDto`、`JobLeadershipChangeDto`；**Modify** `StrategyBotRoundOutcomeDto`、`StrategyBotRoundDto` | outcome 改帶整個 `Round`（記下時才印 Run N）；round 加 `RunNumber` |
 | `domain/interface` | **Add** `ITransactionRepository`、`IJobLeadershipLeaseRepository`、`IPendingMessageRepository`；**Modify** `IStrategyBotRepository`、`IStrategyBotRunRecordRepository`、`IMessageDeliveryProxy` | 原子縫隙；租約；outbox；認領 / 鎖讀 / 釋放；`Append` 回傳輪次編號；`Deliver` 回傳 `DeliveryResultVo` |
-| `domain/service` | **Add** `JobLeadershipService`、`PendingMessageService`；**Modify** `StrategyBotService`、`TelegramDeliveryService`、`KCandleFollowService` | 值班狀態；寄送編排；`RecordRound` 改為單一 transaction 並寫 outbox、`ClaimDueStrategyBots` / `ClaimStrategyBot`；`DeliverPendingMessage`；`ReleaseFixedFollows` |
+| `domain/service` | **Add** `JobLeadershipService`、`PendingMessageService`；**Modify** `StrategyBotService`、`TelegramDeliveryService`、`KCandleFollowService` | 值班狀態；寄送編排；`RecordRound` 改為單一 transaction 並寫 outbox、`ClaimDueStrategyBots` / `ClaimStrategyBot`；`DeliverPendingMessage`（取代 `SendMessage`；`ReadDeliveryFailure`、`WriteRoundMessage` 移除）；`ReleaseFixedFollows` |
 | `application` | **Add** `JobLeadershipApplication`、`PendingMessageDispatchApplication`；**Modify** `StrategyBotRunApplication`、`StrategyBotApplication`、`KCandleFollowApplication`；**Remove** `StrategyBotRoundGuard` | 一輪不再直接送、改認領；生命週期通知改 enqueue |
 | `job` | **Add** `JobLeadershipLeaseJob`、`PendingMessageDispatchJob`；**Modify** 7 個值班 job | 值班 job 每輪開頭一行 `IsLeader()` |
 | `infrastructure/persistence` | **Add** `TransactionRepository`、`JobLeadershipLeaseRepository`、`PendingMessageRepository`、`ambientTransactionDatabase`；**Modify** `StrategyBotRepository`、`StrategyBotRunRecordRepository`、`SchemaMigrator` | 見 §4 |
@@ -77,7 +77,7 @@
 | `StrategyBotApplication` | 啟動 / 停止並通知 | `announce` 改呼叫 `PendingMessageService.EnqueueLifecycleMessage`（期限 1h），失敗記 log 不擋操作（與現在「通知失敗不影響已發生的動作」一致） |
 | `TelegramDeliveryService` | 投遞設定、送訊息 | `SendMessage` → `DeliverPendingMessage(ctx, userID, text) (DeliveryResultVo, error)`；`SendTestMessage` 讀 `.FailureReason` |
 | `IMessageDeliveryProxy` / `TelegramMessageDeliveryProxy` | 送 Telegram | `Deliver` 回傳 `DeliveryResultVo`；429 → `Unreachable` + `RetryAfter`（測試訊息仍只看到四種原因） |
-| `KCandleFollowService` / `KCandleFollowApplication` | 台股固定跟盤 | 新增 `ReleaseFixedFollows(ctx)`：以空 roster 走同一條結束路徑；與 `RefreshFixedFollows` 共用私有 `followRoster`（兩個 public 共用才抽） |
+| `KCandleFollowService` / `KCandleFollowApplication` | 台股固定跟盤 | 新增 `ReleaseFixedFollows()`：以空 roster 走同一條結束路徑；與 `RefreshFixedFollows` 共用私有 `retireUnwantedChannels`（兩個 public 共用才抽） |
 | 值班 job：`KCandleIngestionJob`、`ContractKCandleIngestionJob`、`LiveFollowRosterJob`、`ContractFundingRateIngestionJob`、`ContractPositionStatisticIngestionJob`、`ContractTradingSpecificationRefreshJob`、`ContractMaintenanceMarginTierRefreshJob` | 定時抓取 | 每輪開頭 `if !jobLeadershipApplication.IsLeader() { return }`。兩個 K 線 job：**不在值班時記下「下次值班要先回補」**，重新值班的第一輪跑 `RunBackfill`（只補缺口）而非 `RunScheduledRound`——交接期間的缺口靠它補齊。`LiveFollowRosterJob` 不在值班時改呼叫 `ReleaseFixedFollows` |
 | `repeatingRound` | 共用輪詢迴圈 | 不變；四個 contract job 把 `IsLeader` 檢查放進傳給它的 round 函式 |
 | `StrategyBotScanJob` | 定時掃描 | 不變（認領在 application 內） |
@@ -189,4 +189,8 @@ flowchart TD
   - 寄送改成非同步：永久失敗造成的停擺晚 ≤ 數秒才發生；一輪不再因 Telegram 暫時失敗而「下一輪重新判斷」，改由郵差重試到送達期限。PRD §7 已列。
   - `ambientTransactionDatabase` 只在被換上的 repository 生效；把別的 repository 拉進 `Atomically` 卻忘了換，寫入會在 transaction 外。以註解與 persistence 測試（rollback 後確認沒寫入）守住。
   - 關機時 `ReleaseLeadership` 在取消 job context 之後才做，因此舊值班的抓取不會與新值班重疊；代價是被取消的那一輪資料由新值班的回補補齊。
+- **實作時發現、刻意留給下一個切片的限制：**
+  - **台股固定跟盤只在值班 replica 上**：台股的即時跟盤名額有上限，不能每台都跟。觀看者連到非值班 replica 時拿到「目前不可用」、退回每分鐘輪詢。要讓每台都能轉播，需要跨 replica 的即時轉送（例如 Postgres `LISTEN/NOTIFY`），另開切片。
+  - **啟動善後不分 replica**：`FailInterruptedAnswers`、`FailInterruptedHistorySyncs` 在每台啟動時把所有「進行中」標成失敗，會誤傷別台正在跑的。修法是讓這些列記錄負責的 replica 與心跳，只掃心跳過期的；另開切片。
+  - 一輪改成「先組好訊息再記下」：被刪除或重啟中的 bot 仍會多讀一次參考價（以前在組訊息前就放棄），之後在記下時才被擋掉、不寫任何東西。
 - **Open decisions (for implementation):** 無。
