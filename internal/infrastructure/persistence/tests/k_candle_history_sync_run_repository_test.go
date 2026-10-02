@@ -143,8 +143,9 @@ func TestFailingTheRunningHistorySyncsLeavesTheFinishedOnesAlone(t *testing.T) {
 	require.NoError(t, secondError)
 
 	sweptAt := time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC)
-	sweptCount, sweepError := repository.FailAllRunning(
-		t.Context(), "interrupted by restart", sweptAt)
+	// No replica is alive, so every running run is swept.
+	sweptCount, sweepError := repository.FailRunningOutside(
+		t.Context(), nil, "interrupted by restart", sweptAt)
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 1, sweptCount)
@@ -169,8 +170,8 @@ func TestAHistorySyncRepositorySaysSoWhenStorageIsGone(t *testing.T) {
 	_, _, findError := repository.FindOne(t.Context(), 1)
 	require.Error(t, findError)
 
-	_, sweepError := repository.FailAllRunning(
-		t.Context(), "interrupted by restart", time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC))
+	_, sweepError := repository.FailRunningOutside(
+		t.Context(), nil, "interrupted by restart", time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC))
 	require.Error(t, sweepError)
 
 	_, countError := repository.CountRunning(t.Context())
@@ -213,4 +214,26 @@ func TestCountingRunningHistorySyncsLeavesTheEndedOnesOut(t *testing.T) {
 
 	require.NoError(t, countError)
 	assert.Equal(t, 2, runningCount)
+}
+
+func TestSweepingHistorySyncsSparesRunsOfReplicasStillAlive(t *testing.T) {
+	repository := persistence.NewKCandleHistorySyncRunRepository(newTestDatabase(t))
+	vanished := startedRun("BTCUSDT", 30)
+	vanished.ReplicaName = "replica-gone"
+	vanished, vanishedError := repository.Save(t.Context(), vanished)
+	require.NoError(t, vanishedError)
+	alive := startedRun("ETHUSDT", 30)
+	alive.ReplicaName = "replica-alive"
+	alive, aliveError := repository.Save(t.Context(), alive)
+	require.NoError(t, aliveError)
+
+	sweptCount, sweepError := repository.FailRunningOutside(
+		t.Context(), []string{"replica-alive"}, "interrupted by restart", time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC))
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 1, sweptCount)
+	foundVanished, _, _ := repository.FindOne(t.Context(), vanished.ID)
+	assert.Equal(t, string(vo.KCandleHistorySyncFailed), foundVanished.Status)
+	foundAlive, _, _ := repository.FindOne(t.Context(), alive.ID)
+	assert.Equal(t, string(vo.KCandleHistorySyncRunning), foundAlive.Status)
 }

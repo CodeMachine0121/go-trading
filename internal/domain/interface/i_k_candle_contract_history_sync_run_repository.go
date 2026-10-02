@@ -18,8 +18,8 @@ type IKCandleContractHistorySyncRunRepository interface {
 		executionContext context.Context, id uint,
 	) (entities.KCandleContractHistorySyncRun, bool, error)
 	CountRunning(executionContext context.Context) (int, error)
-	// FailAllRunning closes runs a restart cut short.
-	FailAllRunning(
-		executionContext context.Context, reason string, finishedAt time.Time,
+	// FailRunningOutside closes running runs whose replica is not among liveReplicaNames, since that replica is gone and so is the fetching.
+	FailRunningOutside(
+		executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time,
 	) (int, error)
 }

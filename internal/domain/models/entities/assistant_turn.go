@@ -12,6 +12,8 @@ type AssistantTurn struct {
 	Answer string `gorm:"type:text;not null"`
 	// Status is running, answered or failed; rows predating it default to answered.
 	Status string `gorm:"type:text;not null;default:answered;index:idx_assistant_turns_status"`
+	// ReplicaName is the replica writing a running answer, so only that replica vanishing marks it interrupted.
+	ReplicaName string `gorm:"size:255;not null;default:''"`
 	// FailureReason is not classified because every failure leaves the reader the same
 	// remedy: ask again.
 	FailureReason string `gorm:"type:text;not null;default:''"`

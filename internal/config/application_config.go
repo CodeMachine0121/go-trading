@@ -207,6 +207,8 @@ type StrategyBotConfig struct {
 // ReplicaConfig names this server among its replicas; the name only says who holds a lease or claim right now.
 type ReplicaConfig struct {
 	Name string
+	// HeartbeatInterval is how often this replica says it is alive; three missed beats make its unfinished work count as interrupted.
+	HeartbeatInterval time.Duration
 }
 
 // JobLeadershipConfig tunes how the replica on duty is chosen; the lease must outlast a renewal plus the safety margin.
@@ -345,7 +347,11 @@ func loadAsWritten() ApplicationConfig {
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		// The host name (the pod name in Kubernetes) with a random tail, so replicas are told apart without extra settings.
-		Replica: ReplicaConfig{Name: stringWithDefault("REPLICA_NAME", hostnameOrRandomName())},
+		Replica: ReplicaConfig{
+			Name: stringWithDefault("REPLICA_NAME", hostnameOrRandomName()),
+			HeartbeatInterval: time.Duration(
+				positiveIntWithDefault("REPLICA_HEARTBEAT_INTERVAL_SECONDS", 10)) * time.Second,
+		},
 		JobLeadership: JobLeadershipConfig{
 			LeaseDuration: time.Duration(
 				positiveIntWithDefault("JOB_LEADERSHIP_LEASE_SECONDS", 30)) * time.Second,

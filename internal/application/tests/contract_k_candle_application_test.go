@@ -105,7 +105,7 @@ func newContractApplicationsUnderTest(t *testing.T) contractApplicationsUnderTes
 	ingestionService := service.NewContractKCandleIngestionService(
 		candleRepository, syncRunRepository, symbolRepository, marketDataProxy, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		5, 24*time.Hour, positionStatisticService, 2)
+		5, 24*time.Hour, positionStatisticService, 2, "replica-under-test")
 
 	return contractApplicationsUnderTest{
 		candleApplication: application.NewKCandleContractApplication(
@@ -277,22 +277,17 @@ func TestContractIngestionApplicationDrivesEveryWayOfFetching(t *testing.T) {
 		Return([]entities.KCandleContract{}, nil).AnyTimes()
 	underTest.marketDataProxy.EXPECT().FetchKCandles(gomock.Any(), gomock.Any()).
 		Return([]vo.ContractMarketKCandleVo{}, nil).AnyTimes()
-	underTest.syncRunRepository.EXPECT().FailAllRunning(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(3, nil)
 
 	roundReport, roundError := underTest.ingestionApplication.RunScheduledRound(t.Context())
 	backfillReport, backfillError := underTest.ingestionApplication.RunBackfill(t.Context())
 	catchUpReport, catchUpError := underTest.ingestionApplication.CatchUpSymbol(t.Context(), "BTCUSDT")
-	sweptCount, sweepError := underTest.ingestionApplication.FailInterruptedHistorySyncs(t.Context())
 
 	require.NoError(t, roundError)
 	require.NoError(t, backfillError)
 	require.NoError(t, catchUpError)
-	require.NoError(t, sweepError)
 	assert.Len(t, roundReport.SymbolReports, 1)
 	assert.Len(t, backfillReport.SymbolReports, 1)
 	assert.Len(t, catchUpReport.SymbolReports, 1)
-	assert.Equal(t, 3, sweptCount)
 }
 
 func TestContractIngestionApplicationStartsAndReadsAHistorySync(t *testing.T) {

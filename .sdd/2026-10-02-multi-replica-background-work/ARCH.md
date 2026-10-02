@@ -191,9 +191,10 @@ flowchart TD
   - 關機時 `ReleaseLeadership` 在取消 job context 之後才做，因此舊值班的抓取不會與新值班重疊；代價是被取消的那一輪資料由新值班的回補補齊。
 - **實作時發現、刻意留給下一個切片的限制：**
   - **台股固定跟盤只在值班 replica 上**：台股的即時跟盤名額有上限，不能每台都跟。觀看者連到非值班 replica 時拿到「目前不可用」、退回每分鐘輪詢。要讓每台都能轉播，需要跨 replica 的即時轉送（例如 Postgres `LISTEN/NOTIFY`），另開切片。
-  - **啟動善後不分 replica**：`FailInterruptedAnswers`、`FailInterruptedHistorySyncs` 在每台啟動時把所有「進行中」標成失敗，會誤傷別台正在跑的。修法是讓這些列記錄負責的 replica 與心跳，只掃心跳過期的；另開切片。
+  - **啟動善後改為只掃已不在的 replica**（code review 後補上）：助手回覆與歷史同步的進行中列記錄 `ReplicaName`；`ReplicaHeartbeatJob` 每 10 秒寫 `ReplicaHeartbeats`；`InterruptedWorkApplication` 只把連續三次沒心跳的 replica 留下的列標成中斷——啟動時（自己舊名字下的也算）與值班 replica 每分鐘一次（`InterruptedWorkSweepJob`）。
   - 一輪改成「先組好訊息再記下」：被刪除或重啟中的 bot 仍會多讀一次參考價（以前在組訊息前就放棄），之後在記下時才被擋掉、不寫任何東西。
 - **刻意的例外（code review 後記錄）：**
+  - `ReplicaHeartbeatJob` 不受 `BACKGROUND_JOBS_ENABLED` 管：總開關關的是「工作」，心跳說的是「這台還在」；關掉背景工作的 replica 仍在接會開始助手回覆與歷史同步的請求，沒有心跳的話別台會把它的工作當成中斷。
   - `ITransactionRepository` 不對應任何 entity：它是跨 repository 的交易邊界（unit of work），放在 Repository 角色是因為它只碰自家資料庫；naming.md「Repository 以聚合命名」對它不適用，其餘 repository 仍一 entity 一個。
   - `PendingMessageService` 呼叫 `TelegramDeliveryService.DeliverPendingMessage`：開鎖金鑰只能有一個呼叫點（`deliver`），把寄送拆到 application 會讓呼叫端每則訊息自己串三個呼叫。codebase 既有先例：`ContractKCandleIngestionService` 持有 `ContractPositionStatisticService`。
 - **Open decisions (for implementation):** 無。

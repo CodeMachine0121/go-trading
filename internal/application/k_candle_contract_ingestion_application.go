@@ -54,11 +54,3 @@ func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) 
 	return kCandleContractIngestionApplication.contractKCandleIngestionService.GetHistorySyncRun(
 		executionContext, id)
 }
-
-// FailInterruptedHistorySyncs fails runs the last shutdown cut off and returns how many.
-func (kCandleContractIngestionApplication *KCandleContractIngestionApplication) FailInterruptedHistorySyncs(
-	executionContext context.Context,
-) (int, error) {
-	return kCandleContractIngestionApplication.contractKCandleIngestionService.
-		FailInterruptedHistorySyncs(executionContext)
-}

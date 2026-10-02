@@ -82,7 +82,7 @@ func newContractRouterUnderTest(t *testing.T) contractRouterUnderTest {
 	ingestionService := service.NewContractKCandleIngestionService(
 		candleRepository, syncRunRepository, symbolRepository, marketDataProxy, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		5, 24*time.Hour, positionStatisticService, 2)
+		5, 24*time.Hour, positionStatisticService, 2, "replica-under-test")
 	ingestionApplication := application.NewKCandleContractIngestionApplication(ingestionService)
 
 	candleController := controller.NewKCandleContractController(

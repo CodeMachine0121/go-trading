@@ -22,6 +22,8 @@ type AssistantConversationService struct {
 	queryLimit          int
 	dailyUsageAllowance int
 	answerLengthLimit   int
+	// replicaName marks the answers this replica writes, so only its vanishing marks them interrupted.
+	replicaName string
 }
 
 func NewAssistantConversationService(
@@ -33,6 +35,7 @@ func NewAssistantConversationService(
 	queryLimit int,
 	dailyUsageAllowance int,
 	answerLengthLimit int,
+	replicaName string,
 ) *AssistantConversationService {
 	declarations := make([]vo.AssistantQueryDeclarationVo, 0, len(assistantQueries))
 	for _, assistantQuery := range assistantQueries {
@@ -48,6 +51,7 @@ func NewAssistantConversationService(
 		assistantProxy:         assistantProxy,
 		assistantQueries:       assistantQueries,
 		clockProxy:             clockProxy,
+		replicaName:            replicaName,
 		declarations:           declarations,
 		recentMessageLimit:     recentMessageLimit,
 		queryLimit:             queryLimit,
@@ -95,7 +99,7 @@ func (assistantConversationService *AssistantConversationService) Ask(
 	)
 
 	conversationID, turnID, startError := assistantConversationService.start(
-		executionContext, askDto.ViewerID, askDto.ConversationID, exchange.ToStartedTurn(now))
+		executionContext, askDto.ViewerID, askDto.ConversationID, exchange.ToStartedTurn(now, assistantConversationService.replicaName))
 	if startError != nil {
 		return dto.AssistantAnswerStartedDto{}, startError
 	}
@@ -274,10 +278,10 @@ func (assistantConversationService *AssistantConversationService) start(
 	return startedConversation.ID, startedConversation.Turns[0].ID, nil
 }
 
-// FailInterruptedAnswers marks answers left running by the last shutdown as failed and returns how many.
+// FailInterruptedAnswers marks answers left running by replicas no longer alive as failed and returns how many.
 func (assistantConversationService *AssistantConversationService) FailInterruptedAnswers(
-	executionContext context.Context,
+	executionContext context.Context, liveReplicaNames []string,
 ) (int, error) {
-	return assistantConversationService.conversationRepository.FailAllRunningTurns(
-		executionContext, domains.AssistantAnswerInterruptedByRestart())
+	return assistantConversationService.conversationRepository.FailRunningTurnsOutside(
+		executionContext, liveReplicaNames, domains.AssistantAnswerInterruptedByRestart())
 }

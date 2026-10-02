@@ -30,6 +30,8 @@ type ContractKCandleIngestionService struct {
 	historySyncCapacity      domains.KCandleHistorySyncCapacityDomain
 	// historySyncStartMutex makes counting and recording one step, so two starts cannot both take the last place.
 	historySyncStartMutex sync.Mutex
+	// replicaName marks the syncs this replica runs, so only its vanishing marks them interrupted.
+	replicaName string
 }
 
 func NewContractKCandleIngestionService(
@@ -43,6 +45,7 @@ func NewContractKCandleIngestionService(
 	backfillLookback time.Duration,
 	positionStatisticService *ContractPositionStatisticService,
 	historySyncMaxConcurrentSyncs int,
+	replicaName string,
 ) *ContractKCandleIngestionService {
 	return &ContractKCandleIngestionService{
 		kCandleContractRepository:               kCandleContractRepository,
@@ -54,6 +57,7 @@ func NewContractKCandleIngestionService(
 		roundCandleCount:                        roundCandleCount,
 		backfillLookback:                        backfillLookback,
 		positionStatisticService:                positionStatisticService,
+		replicaName:                             replicaName,
 		historySyncCapacity:                     domains.NewKCandleHistorySyncCapacityDomain(historySyncMaxConcurrentSyncs),
 	}
 }
@@ -133,6 +137,7 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) StartHis
 			Symbol:                     registeredSymbol.Symbol,
 			LookbackDays:               syncDto.LookbackDays,
 			Status:                     string(vo.KCandleHistorySyncRunning),
+			ReplicaName:                contractKCandleIngestionService.replicaName,
 			TotalChunks:                len(chunks),
 			StartedAt:                  ingestionDomain.CurrentTime(),
 			PositionStatisticTotalDays: len(positionStatisticHistory.Days()),
@@ -195,10 +200,10 @@ func (contractKCandleIngestionService *ContractKCandleIngestionService) GetHisto
 
 // FailInterruptedHistorySyncs fails the contract runs cut off by the last shutdown and returns how many.
 func (contractKCandleIngestionService *ContractKCandleIngestionService) FailInterruptedHistorySyncs(
-	executionContext context.Context,
+	executionContext context.Context, liveReplicaNames []string,
 ) (int, error) {
-	return contractKCandleIngestionService.kCandleContractHistorySyncRunRepository.FailAllRunning(
-		executionContext, kCandleHistorySyncInterrupted,
+	return contractKCandleIngestionService.kCandleContractHistorySyncRunRepository.FailRunningOutside(
+		executionContext, liveReplicaNames, kCandleHistorySyncInterrupted,
 		contractKCandleIngestionService.clockProxy.Now())
 }
 

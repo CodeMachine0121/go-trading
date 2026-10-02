@@ -88,7 +88,7 @@ func newJobUnderTestWith(
 			service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, 2)),
+				roundCandleCount, lookback, 2, "replica-under-test")),
 		jobLeadershipApplication, testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
@@ -228,7 +228,7 @@ func newSlowJobUnderTest(t *testing.T) slowJobUnderTest {
 			service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, 2)),
+				roundCandleCount, lookback, 2, "replica-under-test")),
 		onDuty(t), testInterval)
 	// Released first so a failing test cannot leave the round blocked.
 	t.Cleanup(releaseTheRound)

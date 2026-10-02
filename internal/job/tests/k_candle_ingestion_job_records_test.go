@@ -112,7 +112,7 @@ func startJobEvery(
 			service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, 2)),
+				roundCandleCount, lookback, 2, "replica-under-test")),
 		onDuty(t), interval)
 	t.Cleanup(ingestionJob.Stop)
 	ingestionJob.Start(t.Context())

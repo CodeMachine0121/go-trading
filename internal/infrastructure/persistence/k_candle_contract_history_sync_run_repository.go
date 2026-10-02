@@ -87,14 +87,21 @@ func (kCandleContractHistorySyncRunRepository *KCandleContractHistorySyncRunRepo
 	return int(runningCount), nil
 }
 
-// FailAllRunning fails every running run in one statement, since all are stale after a restart.
-func (kCandleContractHistorySyncRunRepository *KCandleContractHistorySyncRunRepository) FailAllRunning(
-	executionContext context.Context, reason string, finishedAt time.Time,
+// FailRunningOutside fails, in one statement, every running run left by a replica no longer alive.
+func (kCandleContractHistorySyncRunRepository *KCandleContractHistorySyncRunRepository) FailRunningOutside(
+	executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time,
 ) (int, error) {
+	// A replica still alive is still writing its own; GORM's IN clause takes its values loosely typed.
+	liveReplicaValues := make([]any, 0, len(liveReplicaNames))
+	for _, liveReplicaName := range liveReplicaNames {
+		liveReplicaValues = append(liveReplicaValues, liveReplicaName)
+	}
+
 	// The finish time is set too, so a swept run does not look still in flight.
 	swept := kCandleContractHistorySyncRunRepository.database.WithContext(executionContext).
 		Model(&entities.KCandleContractHistorySyncRun{}).
 		Where(clause.Eq{Column: "status", Value: string(vo.KCandleHistorySyncRunning)}).
+		Where(clause.Not(clause.IN{Column: "replica_name", Values: liveReplicaValues})).
 		Select("status", "failure_reason", "finished_at").
 		Updates(entities.KCandleContractHistorySyncRun{
 			Status:        string(vo.KCandleHistorySyncFailed),

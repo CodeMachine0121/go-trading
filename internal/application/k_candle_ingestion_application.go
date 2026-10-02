@@ -50,11 +50,3 @@ func (kCandleIngestionApplication *KCandleIngestionApplication) GetSymbolHistory
 	return kCandleIngestionApplication.kCandleIngestionService.GetHistorySyncRun(
 		executionContext, id)
 }
-
-// FailInterruptedHistorySyncs fails runs the last shutdown cut off and returns how many.
-func (kCandleIngestionApplication *KCandleIngestionApplication) FailInterruptedHistorySyncs(
-	executionContext context.Context,
-) (int, error) {
-	return kCandleIngestionApplication.kCandleIngestionService.FailInterruptedHistorySyncs(
-		executionContext)
-}

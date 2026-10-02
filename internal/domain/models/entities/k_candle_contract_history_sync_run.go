@@ -13,6 +13,8 @@ type KCandleContractHistorySyncRun struct {
 	Symbol       string `gorm:"type:text;not null;index:idx_k_candle_contract_history_sync_runs_symbol"`
 	LookbackDays int    `gorm:"not null"`
 	Status       string `gorm:"type:text;not null;index:idx_k_candle_contract_history_sync_runs_status"`
+	// ReplicaName is the replica running the sync, so only that replica vanishing marks it interrupted.
+	ReplicaName string `gorm:"size:255;not null;default:''"`
 
 	TotalChunks     int `gorm:"not null"`
 	CompletedChunks int `gorm:"not null"`

@@ -145,13 +145,20 @@ func (conversationRepository *ConversationRepository) CompleteTurn(
 	return nil
 }
 
-// FailAllRunningTurns fails every running turn in one statement, since all are stale after a restart.
-func (conversationRepository *ConversationRepository) FailAllRunningTurns(
-	executionContext context.Context, reason string,
+// FailRunningTurnsOutside fails, in one statement, every running turn left by a replica no longer alive.
+func (conversationRepository *ConversationRepository) FailRunningTurnsOutside(
+	executionContext context.Context, liveReplicaNames []string, reason string,
 ) (int, error) {
+	// A replica still alive is still writing its own; GORM's IN clause takes its values loosely typed.
+	liveReplicaValues := make([]any, 0, len(liveReplicaNames))
+	for _, liveReplicaName := range liveReplicaNames {
+		liveReplicaValues = append(liveReplicaValues, liveReplicaName)
+	}
+
 	swept := conversationRepository.database.WithContext(executionContext).
 		Model(&entities.AssistantTurn{}).
 		Where(clause.Eq{Column: "status", Value: string(vo.AssistantTurnRunning)}).
+		Where(clause.Not(clause.IN{Column: "replica_name", Values: liveReplicaValues})).
 		Select("status", "failure_reason").
 		Updates(entities.AssistantTurn{
 			Status:        string(vo.AssistantTurnFailed),

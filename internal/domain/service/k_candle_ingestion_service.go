@@ -30,6 +30,8 @@ type KCandleIngestionService struct {
 	historySyncCapacity             domains.KCandleHistorySyncCapacityDomain
 	// historySyncStartMutex makes counting and recording one step, so two starts cannot both take the last place.
 	historySyncStartMutex sync.Mutex
+	// replicaName marks the syncs this replica runs, so only its vanishing marks them interrupted.
+	replicaName string
 }
 
 func NewKCandleIngestionService(
@@ -42,6 +44,7 @@ func NewKCandleIngestionService(
 	roundCandleCount int,
 	backfillLookback time.Duration,
 	historySyncMaxConcurrentSyncs int,
+	replicaName string,
 ) *KCandleIngestionService {
 	return &KCandleIngestionService{
 		kCandleRepository:               kCandleRepository,
@@ -53,6 +56,7 @@ func NewKCandleIngestionService(
 		roundCandleCount:                roundCandleCount,
 		backfillLookback:                backfillLookback,
 		marketClosureLedger:             newKCandleIngestionMarketClosureLedger(),
+		replicaName:                     replicaName,
 		historySyncCapacity:             domains.NewKCandleHistorySyncCapacityDomain(historySyncMaxConcurrentSyncs),
 	}
 }
@@ -139,6 +143,7 @@ func (kCandleIngestionService *KCandleIngestionService) StartHistorySyncFor(
 			Symbol:       registeredSymbol.Symbol,
 			LookbackDays: syncDto.LookbackDays,
 			Status:       string(vo.KCandleHistorySyncRunning),
+			ReplicaName:  kCandleIngestionService.replicaName,
 			TotalChunks:  len(chunks),
 			StartedAt:    ingestionDomain.CurrentTime(),
 		})
@@ -193,12 +198,12 @@ func (kCandleIngestionService *KCandleIngestionService) GetHistorySyncRun(
 	return syncRun.ToDto(), nil
 }
 
-// FailInterruptedHistorySyncs marks every run still recorded as running as failed, since runs live only in the process that started them.
+// FailInterruptedHistorySyncs fails runs left running by replicas no longer alive, since a run lives only in the replica that started it.
 func (kCandleIngestionService *KCandleIngestionService) FailInterruptedHistorySyncs(
-	executionContext context.Context,
+	executionContext context.Context, liveReplicaNames []string,
 ) (int, error) {
-	return kCandleIngestionService.kCandleHistorySyncRunRepository.FailAllRunning(
-		executionContext, kCandleHistorySyncInterrupted,
+	return kCandleIngestionService.kCandleHistorySyncRunRepository.FailRunningOutside(
+		executionContext, liveReplicaNames, kCandleHistorySyncInterrupted,
 		kCandleIngestionService.clockProxy.Now())
 }
 
