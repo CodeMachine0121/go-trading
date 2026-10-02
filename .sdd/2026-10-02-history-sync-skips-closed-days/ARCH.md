@@ -20,7 +20,7 @@
 | `internal/domain/models/domains/k_candle_ingestion_errors.go` | **Modify** | 新增 `ErrMarketDataNotHeld`：來源明確說「這段時間沒有這個標的的資料」。放在 ingestion 的錯誤檔，因為它是 ingestion 對來源回答的分類 |
 | `FugleMarketDataProxy.ask` | **Modify** | 來源回 `404` 時以 `%w` 包上 `ErrMarketDataNotHeld`（訊息照舊帶狀態碼與代號、加上日子）；其他非 200 狀態原樣 |
 | `KCandleIngestionService.syncSymbolHistory` | **Modify** | `errors.Is(fetchError, domains.ErrMarketDataNotHeld)` → `NotePresumedClosedDay()`、`continue`；其他錯誤照舊 `NoteFetchFailure` 並放棄 |
-| `KCandleSymbolIngestionReportDomain` / `KCandleSymbolIngestionReportDto` | **Modify** | 加 `presumedClosedDayCount`、`presumedClosedDaysInARow` 與 `NotePresumedClosedDay(notHeldReason) bool`——連續到 `maxPresumedClosedDaysInARow`（15）時自己記下拒絕原因並回 `false`；`NoteAsked()` 把連續數歸零。DTO 加 `PresumedClosedDayCount`（`json:"-"`，只在輪次上對外） |
+| `KCandleSymbolIngestionReportDomain` / `KCandleSymbolIngestionReportDto` | **Modify** | 加 `presumedClosedDayCount`、`presumedClosedDaysInARow` 與 `NotePresumedClosedDay(notHeldReason) bool`——連續到 `maxPresumedClosedDaysInARow`（15）時自己記下拒絕原因並回 `false`；`NoteAsked()` 與 `NoteHeldInFull()`（已齊全就不問的那一段）都把連續數歸零。DTO 加 `PresumedClosedDayCount`（`json:"-"`，只在輪次上對外） |
 | `KCandleHistorySyncRun`（entity）/ `KCandleHistorySyncRunDto` | **Modify** | 加 `PresumedClosedDayCount int`（`gorm:"not null;default:0"`，舊列由 AutoMigrate 補 0）；JSON `presumedClosedDayCount` |
 | `kCandleHistorySyncRunner.recordProgress` / `recordEnding` | **Modify** | 兩處都把 `PresumedClosedDayCount` 從 symbol report 抄到輪次 |
 | `postman/go-trading.postman_collection.json` | **Modify** | 「看那一趟走到哪」斷言新欄位存在、說明補一句 |
@@ -103,3 +103,4 @@ flowchart TD
 | 舊輪次讀作 0 | entity `default:0`，AutoMigrate 補欄位 |
 | 連續 15 個交易日都沒資料就停下 | `KCandleSymbolIngestionReportDomain.NotePresumedClosedDay` 回 `false` + `syncSymbolHistory` 收尾 |
 | 中間有一天有資料就重新算 | `NoteAsked()` 歸零連續數 |
+| 已存齊的一天也算有交易，同樣重新算 | `syncSymbolHistory` 已齊全分支呼叫 `NoteHeldInFull()` |
