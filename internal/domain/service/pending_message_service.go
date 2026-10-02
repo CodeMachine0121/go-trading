@@ -53,6 +53,15 @@ func NewPendingMessageService(
 	}
 }
 
+// EnqueueLifecycleMessage queues what a bot says about itself, such as having started or stopped.
+func (pendingMessageService *PendingMessageService) EnqueueLifecycleMessage(
+	executionContext context.Context, strategyBotID uint, recipientUserID uint, text string,
+) error {
+	return pendingMessageService.pendingMessageRepository.Enqueue(executionContext,
+		domains.NewLifecyclePendingMessageDomain(
+			strategyBotID, recipientUserID, text, pendingMessageService.clockProxy.Now()).ToEntity())
+}
+
 // DispatchPendingMessages sends each person's oldest due message and reports how many arrived.
 // A failure on one message is logged and left for its claim to run out, so it never stops the others.
 func (pendingMessageService *PendingMessageService) DispatchPendingMessages(

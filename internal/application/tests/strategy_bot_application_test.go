@@ -31,11 +31,15 @@ type strategyBotApplicationUnderTest struct {
 	strategyBotRepository          *mocks.MockIStrategyBotRepository
 	strategyBotRunRecordRepository *mocks.MockIStrategyBotRunRecordRepository
 	messageDeliveryProxy           *mocks.MockIMessageDeliveryProxy
-	announcements                  *[]string
-	tradingStrategyRepository      *mocks.MockITradingStrategyRepository
-	telegramDeliveryRepository     *mocks.MockITelegramDeliveryRepository
-	binanceTradingKeyRepository    *mocks.MockIBinanceTradingKeyRepository
-	clockProxy                     *mocks.MockIClockProxy
+	// announcements are the texts of what the bot queued to say about itself.
+	announcements *[]string
+	// queuedAnnouncements are those messages exactly as queued.
+	queuedAnnouncements         *[]entities.PendingMessage
+	enqueueFailure              *error
+	tradingStrategyRepository   *mocks.MockITradingStrategyRepository
+	telegramDeliveryRepository  *mocks.MockITelegramDeliveryRepository
+	binanceTradingKeyRepository *mocks.MockIBinanceTradingKeyRepository
+	clockProxy                  *mocks.MockIClockProxy
 	// Consulted when saving a contract bot: is the contract followed, and how much leverage may it carry.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
@@ -48,8 +52,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(controller)
 	// 歷史寫入與這些測試無關，一律放行。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
-	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	strategyBotRunRecordRepository.EXPECT().Append(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 	binanceTradingKeyRepository := mocks.NewMockIBinanceTradingKeyRepository(controller)
@@ -57,41 +60,53 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 
 	clockProxy.EXPECT().Now().Return(time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)).AnyTimes()
 
-	// 啟動與停止會發通知，送不送得出去與這些測試無關，一律放行。
+	// 啟動與停止會寫一則待送通知；寄送是郵差的事，這裡一則都不該直接送出。
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
 	secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("the-token", nil).AnyTimes()
 	announcements := &[]string{}
-	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(controller)
-	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			*announcements = append(*announcements, message)
+	queuedAnnouncements := &[]entities.PendingMessage{}
+	enqueueFailure := error(nil)
+	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(controller)
+	pendingMessageRepository.EXPECT().Enqueue(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, pendingMessage entities.PendingMessage) error {
+			if enqueueFailure != nil {
+				return enqueueFailure
+			}
+			*announcements = append(*announcements, pendingMessage.Text)
+			*queuedAnnouncements = append(*queuedAnnouncements, pendingMessage)
 
-			return vo.DeliveryResultVo{}, nil
+			return nil
 		}).AnyTimes()
+	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(controller)
 
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
+
+	telegramDeliveryService := service.NewTelegramDeliveryService(
+		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
 
 	return strategyBotApplicationUnderTest{
 		strategyBotApplication: application.NewStrategyBotApplication(
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository,
 				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-				contractFundingRateSettlementRepository, clockProxy),
+				contractFundingRateSettlementRepository, nil, nil, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
-			service.NewTelegramDeliveryService(
-				telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy),
+			telegramDeliveryService,
 			service.NewBinanceTradingKeyService(
 				binanceTradingKeyRepository, secretSealProxy,
 				mocks.NewMockITradingKeyVerificationProxy(controller)),
+			service.NewPendingMessageService(
+				pendingMessageRepository, strategyBotRepository, nil, telegramDeliveryService, clockProxy,
+				"replica-under-test", 2*time.Minute, 8),
 		),
 		strategyBotRepository:          strategyBotRepository,
 		strategyBotRunRecordRepository: strategyBotRunRecordRepository,
 		messageDeliveryProxy:           messageDeliveryProxy,
 		announcements:                  announcements,
+		queuedAnnouncements:            queuedAnnouncements,
+		enqueueFailure:                 &enqueueFailure,
 		tradingStrategyRepository:      tradingStrategyRepository,
 		telegramDeliveryRepository:     telegramDeliveryRepository,
 		binanceTradingKeyRepository:    binanceTradingKeyRepository,
@@ -559,22 +574,39 @@ func TestStrategyBotApplicationSaysNothingWhenTheButtonChangedNothing(t *testing
 }
 
 func TestStrategyBotApplicationStopsEvenWhenItCannotSaySo(t *testing.T) {
-	// 通知送不出去不代表停止失敗：機器人已經停了，回報失敗只會讓人再按一次。
+	// 通知寫不進待送訊息不代表停止失敗：機器人已經停了，回報失敗只會讓人再按一次。
 	underTest := newStrategyBotApplicationUnderTest(t)
+	*underTest.enqueueFailure = errors.New("the database went away")
 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(storedBot(vo.StrategyBotRunning), nil)
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
-	underTest.telegramDeliveryRepository.EXPECT().
-		FindOneByUser(gomock.Any(), strategyBotOwnerID).
-		Return(entities.TelegramDelivery{}, domains.ErrTelegramDeliveryNotConfigured)
 
 	stoppedBot, stopError := underTest.strategyBotApplication.StopStrategyBot(
 		context.Background(), strategyBotOwnerID, strategyBotID)
 
 	require.NoError(t, stopError)
 	assert.Equal(t, string(vo.StrategyBotStopped), stoppedBot.RunState)
+}
+
+func TestStrategyBotApplicationQueuesWhatABotSaysAboutItselfForAnHour(t *testing.T) {
+	underTest := newStrategyBotApplicationUnderTest(t)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+		Return(storedBot(vo.StrategyBotRunning), nil)
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+
+	_, stopError := underTest.strategyBotApplication.StopStrategyBot(
+		context.Background(), strategyBotOwnerID, strategyBotID)
+
+	require.NoError(t, stopError)
+	require.Len(t, *underTest.queuedAnnouncements, 1)
+	queued := (*underTest.queuedAnnouncements)[0]
+	assert.Equal(t, strategyBotID, queued.StrategyBotID)
+	assert.Equal(t, strategyBotOwnerID, queued.RecipientUserID)
+	assert.Equal(t, string(vo.PendingMessageLifecycle), queued.Kind)
+	assert.Nil(t, queued.RoundDueAt)
+	assert.Equal(t, time.Date(2026, 9, 16, 14, 0, 0, 0, time.UTC), queued.ExpiresAt)
 }
 
 func TestStrategyBotApplicationListsWhatABotHasBeenDoing(t *testing.T) {

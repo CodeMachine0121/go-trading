@@ -302,6 +302,8 @@ func registerRoutes(
 		contractTradingSymbolRepository,
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		persistence.NewContractFundingRateSettlementRepository(database),
+		persistence.NewPendingMessageRepository(database),
+		persistence.NewTransactionRepository(database),
 		clock.NewSystemClockProxy(),
 	)
 
@@ -733,7 +735,6 @@ func registerRoutes(
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
 		),
-		telegramDeliveryService,
 		kCandleService,
 		kCandleContractService,
 		service.NewTradeJournalLinkService(
@@ -748,17 +749,17 @@ func registerRoutes(
 	)
 
 	// Every replica sends queued messages; the queue hands each one to a single replica at a time.
-	pendingMessageDispatchApplication := application.NewPendingMessageDispatchApplication(
-		service.NewPendingMessageService(
-			persistence.NewPendingMessageRepository(database),
-			persistence.NewStrategyBotRepository(database),
-			persistence.NewTransactionRepository(database),
-			telegramDeliveryService,
-			clock.NewSystemClockProxy(),
-			applicationConfig.Replica.Name,
-			applicationConfig.PendingMessage.SendTimeout,
-			applicationConfig.PendingMessage.MaxConcurrentDeliveries,
-		))
+	pendingMessageService := service.NewPendingMessageService(
+		persistence.NewPendingMessageRepository(database),
+		persistence.NewStrategyBotRepository(database),
+		persistence.NewTransactionRepository(database),
+		telegramDeliveryService,
+		clock.NewSystemClockProxy(),
+		applicationConfig.Replica.Name,
+		applicationConfig.PendingMessage.SendTimeout,
+		applicationConfig.PendingMessage.MaxConcurrentDeliveries,
+	)
+	pendingMessageDispatchApplication := application.NewPendingMessageDispatchApplication(pendingMessageService)
 
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
@@ -766,6 +767,7 @@ func registerRoutes(
 			tradingStrategyService,
 			telegramDeliveryService,
 			binanceTradingKeyService,
+			pendingMessageService,
 		),
 		strategyBotRunApplication,
 	)

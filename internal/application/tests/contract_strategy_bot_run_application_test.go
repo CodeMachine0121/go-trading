@@ -90,18 +90,12 @@ func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
 
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			assert.Contains(t, message, "🟢【做多】合約突破 · BTCUSDT 永續合約")
-			assert.Contains(t, message, "⚙️ 交易模式 多空反手")
-			assert.Contains(t, message, "💰 參考價 64000.5")
-			assert.Contains(t, message, "那一根一分鐘合約 K 線的收盤價")
-
-			return vo.DeliveryResultVo{}, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "🟢【做多】合約突破 · BTCUSDT 永續合約")
+		assert.Contains(t, message, "⚙️ 交易模式 多空反手")
+		assert.Contains(t, message, "💰 參考價 64000.5")
+		assert.Contains(t, message, "那一根一分鐘合約 K 線的收盤價")
+	})
 
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -152,15 +146,9 @@ func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			assert.Contains(t, message, "【已停擺】合約突破 · BTCUSDT 永續合約")
-
-			return vo.DeliveryResultVo{}, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "【已停擺】合約突破 · BTCUSDT 永續合約")
+	})
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
@@ -193,21 +181,15 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
 	underTest.expectTheVenue(aContractSpecification(), nil, "0.0001")
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
-			assert.Contains(t, message, "　・數量 50")
-			assert.Contains(t, message, "止損 98（往下，虧 100）")
-			assert.Contains(t, message, "　・預估強平價 80.4（往下，用最小那一級估算）")
-			assert.Contains(t, message, "　・資金費率 0.01%（最近一次結算）：每 8 小時約付 0.5（估算）")
-			assert.Contains(t, message,
-				"📝 記到交易日誌：https://app.example.com/contract-trade-journal/new?journalLink=round-link-1")
-
-			return vo.DeliveryResultVo{}, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
+		assert.Contains(t, message, "　・數量 50")
+		assert.Contains(t, message, "止損 98（往下，虧 100）")
+		assert.Contains(t, message, "　・預估強平價 80.4（往下，用最小那一級估算）")
+		assert.Contains(t, message, "　・資金費率 0.01%（最近一次結算）：每 8 小時約付 0.5（估算）")
+		assert.Contains(t, message,
+			"📝 記到交易日誌：https://app.example.com/contract-trade-journal/new?journalLink=round-link-1")
+	})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
@@ -327,18 +309,12 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			assert.Contains(t, message, "⚪【平多】合約突破 · BTCUSDT 永續合約")
-			assert.Contains(t, message, "⚙️ 交易模式 只做多")
-			assert.NotContains(t, message, "建議部位")
-			assert.NotContains(t, message, "記到交易日誌")
-
-			return vo.DeliveryResultVo{}, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "⚪【平多】合約突破 · BTCUSDT 永續合約")
+		assert.Contains(t, message, "⚙️ 交易模式 只做多")
+		assert.NotContains(t, message, "建議部位")
+		assert.NotContains(t, message, "記到交易日誌")
+	})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -403,8 +379,7 @@ func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).Times(2)
 	underTest.expectTheContractsLatestCandle("100")
-	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryResultVo{}, nil)
+	underTest.expectQueuedMessage(func(string) {})
 
 	dueBot := aDueContractBot("")
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).

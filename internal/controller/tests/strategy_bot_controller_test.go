@@ -41,8 +41,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
-	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	strategyBotRunRecordRepository.EXPECT().Append(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
 	strategyBotRunRecordRepository.EXPECT().
 		FindLatestByBot(gomock.Any(), gomock.Any()).
 		Return([]entities.StrategyBotRunRecord{}, nil).AnyTimes()
@@ -59,8 +58,9 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	secretSealProxy := mocks.NewMockISecretSealProxy(mockController)
 	secretSealProxy.EXPECT().Unseal(gomock.Any()).Return("the-token", nil).AnyTimes()
 	messageDeliveryProxy := mocks.NewMockIMessageDeliveryProxy(mockController)
-	messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryResultVo{}, nil).AnyTimes()
+	// 啟停會寫一則待送通知；這些測試只關心路由與狀態碼，故一律放行。
+	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(mockController)
+	pendingMessageRepository.EXPECT().Enqueue(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
@@ -76,11 +76,10 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository,
 		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-		contractFundingRateSettlementRepository, clockProxy)
+		contractFundingRateSettlementRepository, nil, nil, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)
-	// 啟停會發送通知；這些測試只關心路由與狀態碼，故投遞一律放行。
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
 
@@ -92,7 +91,10 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
 			strategyBotService, tradingStrategyService, telegramDeliveryService,
-			binanceTradingKeyService),
+			binanceTradingKeyService,
+			service.NewPendingMessageService(
+				pendingMessageRepository, strategyBotRepository, nil, telegramDeliveryService, clockProxy,
+				"replica-under-test", 2*time.Minute, 8)),
 		// 「立即運算」那一條走時鐘那一側，而它走的必須是同一條路。
 		application.NewStrategyBotRunApplication(
 			strategyBotService,
@@ -108,7 +110,6 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 				mocks.NewMockIContractPositionStatisticRepository(mockController),
 				mocks.NewMockIContractIndicatorScriptProxy(mockController),
 				clockProxy, marketCatalog, 1000),
-			telegramDeliveryService,
 			service.NewKCandleService(
 				kCandleRepository, tradingSymbolRepository, clockProxy, marketCatalog, 1000),
 			service.NewKCandleContractService(

@@ -32,8 +32,7 @@ func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) 
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryResultVo{}, nil)
+	underTest.expectQueuedMessage(func(string) {})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -61,15 +60,9 @@ func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testin
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			assert.Contains(t, message, "部位資金不足，押不下 2000")
-
-			return vo.DeliveryResultVo{}, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "部位資金不足，押不下 2000")
+	})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -100,17 +93,11 @@ func TestStrategyBotRunApplicationStillSuggestsWhenTheVenueCannotBeRead(t *testi
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryResultVo, error) {
-			assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
-			assert.Contains(t, message, "這個合約標的還沒有交易規格")
-			assert.Contains(t, message, "還沒有資金費率紀錄")
-
-			return vo.DeliveryResultVo{}, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
+		assert.Contains(t, message, "這個合約標的還沒有交易規格")
+		assert.Contains(t, message, "還沒有資金費率紀錄")
+	})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())

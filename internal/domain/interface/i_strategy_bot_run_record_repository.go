@@ -11,8 +11,8 @@ import (
 
 // IStrategyBotRunRecordRepository has its own repository because run history is read independently of the bot.
 type IStrategyBotRunRecordRepository interface {
-	// Append numbers the round and trims beyond the bot's retention window in one operation.
-	Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) error
+	// Append numbers the round, trims beyond the bot's retention window in one operation, and returns the round's number.
+	Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) (int, error)
 
 	// FindLatestByBot returns newest first.
 	FindLatestByBot(

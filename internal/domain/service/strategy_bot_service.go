@@ -20,6 +20,8 @@ type StrategyBotService struct {
 	contractTradingSymbolRepository         domaininterface.IContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
+	pendingMessageRepository                domaininterface.IPendingMessageRepository
+	transactionRepository                   domaininterface.ITransactionRepository
 	clockProxy                              domaininterface.IClockProxy
 }
 
@@ -29,6 +31,8 @@ func NewStrategyBotService(
 	contractTradingSymbolRepository domaininterface.IContractTradingSymbolRepository,
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
+	pendingMessageRepository domaininterface.IPendingMessageRepository,
+	transactionRepository domaininterface.ITransactionRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *StrategyBotService {
 	return &StrategyBotService{
@@ -37,6 +41,8 @@ func NewStrategyBotService(
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
+		pendingMessageRepository:                pendingMessageRepository,
+		transactionRepository:                   transactionRepository,
 		clockProxy:                              clockProxy,
 	}
 }
@@ -398,14 +404,6 @@ func (strategyBotService *StrategyBotService) ReadRoundFailure(
 	return domains.NewStrategyBotRoundFailureDomain(roundError).ToOutcomeDto()
 }
 
-// ReadDeliveryFailure does the same for a failure Telegram reported.
-func (strategyBotService *StrategyBotService) ReadDeliveryFailure(
-	failureReason string,
-) dto.StrategyBotRoundOutcomeDto {
-	return domains.NewStrategyBotDeliveryFailureDomain(
-		vo.DeliveryFailureReasonVo(failureReason)).ToOutcomeDto()
-}
-
 // PlanRoundPosition computes the suggested position once so the message and the history show the same figures.
 // Unreadable settings leave the round unchanged; contract venue reads happen only when there is something to suggest, and a failed read is treated as unknown.
 func (strategyBotService *StrategyBotService) PlanRoundPosition(
@@ -447,70 +445,94 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	return round
 }
 
-func (strategyBotService *StrategyBotService) WriteRoundMessage(
-	round dto.StrategyBotRoundDto,
-) string {
-	return domains.NewStrategyBotMessageDomain(round).Text()
-}
-
 // RecordRound applies any round outcome through one method, so no exit can forget to reschedule the bot and leave it due forever.
+// The bot's new state, the round's history, what the round has to say and the release of claimant's claim land in one transaction, so an owner is never told of a round the bot did not keep, nor kept in the dark about one it did.
 // It reports whether the outcome was applied; a bot that moved on meanwhile is left untouched.
 func (strategyBotService *StrategyBotService) RecordRound(
 	executionContext context.Context, id uint, dueAt time.Time, claimant string,
 	outcomeDto dto.StrategyBotRoundOutcomeDto,
 ) (dto.StrategyBotDto, bool, error) {
-	endedBot, applied, recordError := strategyBotService.applyRound(executionContext, id, dueAt, outcomeDto)
-
-	// Released whether or not the round applied, since the claim was only ever for this round.
-	if releaseError := strategyBotService.strategyBotRepository.ReleaseRoundClaim(
-		executionContext, id, claimant); releaseError != nil && recordError == nil {
-		return endedBot, applied, releaseError
-	}
-
-	return endedBot, applied, recordError
-}
-
-// applyRound writes the outcome back unless the bot moved on meanwhile.
-func (strategyBotService *StrategyBotService) applyRound(
-	executionContext context.Context, id uint, dueAt time.Time,
-	outcomeDto dto.StrategyBotRoundOutcomeDto,
-) (dto.StrategyBotDto, bool, error) {
 	outcome := domains.NewStrategyBotRoundOutcomeDomainOf(outcomeDto)
+	endedBotDto := dto.StrategyBotDto{}
+	applied := false
 
-	storedBot, findError := strategyBotService.strategyBotRepository.FindOne(executionContext, id)
-	if findError != nil {
-		return dto.StrategyBotDto{}, false, findError
+	transactionError := strategyBotService.transactionRepository.Atomically(executionContext,
+		func(transactionContext context.Context) error {
+			// Locked so a halt from a failed send cannot interleave with this write.
+			storedBot, findError := strategyBotService.strategyBotRepository.FindOneLocked(transactionContext, id)
+			if findError != nil {
+				return findError
+			}
+
+			// dueAt is the token: a stop-and-restart during the round moves NextRunAt, and writing the round back would silently undo the restart.
+			if !storedBot.NextRunAt.UTC().Equal(dueAt.UTC()) {
+				endedBotDto = storedBot.ToDto()
+
+				return strategyBotService.strategyBotRepository.ReleaseRoundClaim(transactionContext, id, claimant)
+			}
+
+			ranAt := strategyBotService.clockProxy.Now()
+			endedBot := outcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), ranAt)
+
+			if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
+				transactionContext, endedBot); updateError != nil {
+				return updateError
+			}
+
+			runNumber, appendError := strategyBotService.strategyBotRunRecordRepository.Append(
+				transactionContext, dto.StrategyBotRunRecordWriteDto{
+					StrategyBotID: id,
+					RanAt:         ranAt,
+					Result:        string(outcome.RecordedResult()),
+					// Taken from the outcome because the bot's settings may have changed since the round was decided.
+					PositionPlan:          outcomeDto.PositionPlan,
+					HasPositionPlan:       outcomeDto.HasPositionPlan,
+					ReferencePrice:        outcomeDto.ReferencePrice,
+					JournalLinkIdentifier: outcomeDto.JournalLinkIdentifier,
+				})
+			if appendError != nil {
+				return appendError
+			}
+
+			if outcomeDto.HasMessage {
+				round := outcomeDto.Round
+				round.RunNumber = runNumber
+
+				if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
+					domains.NewRoundPendingMessageDomain(
+						id, storedBot.OwnerID, dueAt, vo.SignalVo(outcomeDto.SentSignal),
+						domains.NewStrategyBotMessageDomain(round).Text(),
+						time.Duration(storedBot.TriggerIntervalMinutes)*time.Minute, ranAt,
+					).ToEntity()); enqueueError != nil {
+					return enqueueError
+				}
+			}
+
+			// Said only when this round is what stopped the bot.
+			if outcome.HaltsTheBot() {
+				if enqueueError := strategyBotService.pendingMessageRepository.Enqueue(transactionContext,
+					domains.NewLifecyclePendingMessageDomain(
+						id, storedBot.OwnerID,
+						domains.NewStrategyBotLifecycleMessageDomain(
+							endedBot.Name,
+							domains.NewStrategyBotMarketDomain(endedBot.MarketDataKind, "").SymbolLabel(endedBot.Symbol),
+							vo.StrategyBotHaltReasonVo(endedBot.HaltReason)).StoppedText(),
+						ranAt,
+					).ToEntity()); enqueueError != nil {
+					return enqueueError
+				}
+			}
+
+			endedBotDto = endedBot.ToDto()
+			applied = true
+
+			return strategyBotService.strategyBotRepository.ReleaseRoundClaim(transactionContext, id, claimant)
+		})
+	if transactionError != nil {
+		return dto.StrategyBotDto{}, false, transactionError
 	}
 
-	// dueAt is the token: a stop-and-restart during the round moves NextRunAt, and writing the round back would silently undo the restart.
-	if !storedBot.NextRunAt.UTC().Equal(dueAt.UTC()) {
-		return storedBot.ToDto(), false, nil
-	}
-
-	ranAt := strategyBotService.clockProxy.Now()
-	endedBot := outcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), ranAt)
-
-	if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
-		executionContext, endedBot); updateError != nil {
-		return dto.StrategyBotDto{}, false, updateError
-	}
-
-	// History is written after the bot state so no phantom round is recorded, and its failure is reported so history cannot silently stop growing.
-	if appendError := strategyBotService.strategyBotRunRecordRepository.Append(
-		executionContext, dto.StrategyBotRunRecordWriteDto{
-			StrategyBotID: id,
-			RanAt:         ranAt,
-			Result:        string(outcome.RecordedResult()),
-			// Taken from the outcome because the bot's settings may have changed since the round was sent.
-			PositionPlan:          outcomeDto.PositionPlan,
-			HasPositionPlan:       outcomeDto.HasPositionPlan,
-			ReferencePrice:        outcomeDto.ReferencePrice,
-			JournalLinkIdentifier: outcomeDto.JournalLinkIdentifier,
-		}); appendError != nil {
-		return dto.StrategyBotDto{}, false, appendError
-	}
-
-	return endedBot.ToDto(), true, nil
+	return endedBotDto, applied, nil
 }
 
 // WriteStartedMessage and WriteStoppedMessage write the bot's lifecycle messages, a domain decision the sending layer cannot make itself.

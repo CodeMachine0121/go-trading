@@ -26,7 +26,7 @@ func TestStrategyBotRunRecordRepositoryRemembersWhichWayAndHowFarAContractRoundL
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell",
 		HasPositionPlan: true, PositionPlan: aContractSuggestion(),
 	}))
@@ -54,7 +54,7 @@ func TestStrategyBotRunRecordRepositoryKeepsASpotRoundAsItWas(t *testing.T) {
 		Stake: decimal.NewFromInt(5000), Affordable: true,
 		Direction: "long", Leverage: decimal.NewFromInt(1), Notional: decimal.NewFromInt(5000),
 	}
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy",
 		HasPositionPlan: true, PositionPlan: spotSuggestion,
 	}))
@@ -81,7 +81,7 @@ func TestStrategyBotRunRecordRepositoryRemembersNothingTheVenueWouldHaveRefused(
 	refused.HasTakeProfit = true
 	refused.HasVenueRefusal = true
 	refused.VenueRefusal = dto.ContractOrderRefusalDto{Reason: "belowMinimumNotional"}
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy",
 		HasPositionPlan: true, PositionPlan: refused,
 	}))
@@ -107,7 +107,7 @@ func TestStrategyBotRunRecordRepositoryFindsARoundByItsJournalLink(t *testing.T)
 	suggestion.Quantity = decimal.RequireFromString("50")
 	suggestion.HasQuantity = true
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell",
 		HasPositionPlan: true, PositionPlan: suggestion,
 		ReferencePrice:        decimal.NullDecimal{Decimal: decimal.NewFromInt(100), Valid: true},

@@ -26,8 +26,9 @@ func NewStrategyBotRunRecordRepository(database *gorm.DB) *StrategyBotRunRecordR
 // Append inserts the run and trims the history in one transaction, so a failed trim cannot let one bot's history grow unbounded.
 func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 	executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto,
-) error {
+) (int, error) {
 	strategyBotID := writeDto.StrategyBotID
+	runNumber := 0
 
 	transactionError := strategyBotRunRecordRepository.database.within(executionContext).
 		Transaction(func(transaction *gorm.DB) error {
@@ -80,6 +81,7 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 			if createError := transaction.Create(&runRecord).Error; createError != nil {
 				return createError
 			}
+			runNumber = runRecord.RunNumber
 
 			return transaction.
 				Where(clause.Eq{Column: "strategy_bot_id", Value: strategyBotID}).
@@ -90,10 +92,10 @@ func (strategyBotRunRecordRepository *StrategyBotRunRecordRepository) Append(
 				Delete(&entities.StrategyBotRunRecord{}).Error
 		})
 	if transactionError != nil {
-		return fmt.Errorf("append strategy bot run record: %w", transactionError)
+		return 0, fmt.Errorf("append strategy bot run record: %w", transactionError)
 	}
 
-	return nil
+	return runNumber, nil
 }
 
 // storedFigure marks a suggested figure as present, even if zero.

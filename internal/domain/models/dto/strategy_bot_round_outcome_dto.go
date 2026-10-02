@@ -21,4 +21,7 @@ type StrategyBotRoundOutcomeDto struct {
 	// ReferencePrice and JournalLinkIdentifier travel only with a round that offered a journal link.
 	ReferencePrice        decimal.NullDecimal
 	JournalLinkIdentifier string
+	// Round is what the round's message says, written when the round is booked in; only set when HasMessage.
+	Round      StrategyBotRoundDto
+	HasMessage bool
 }

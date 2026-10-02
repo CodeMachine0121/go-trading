@@ -43,11 +43,12 @@ func (m *MockIStrategyBotRunRecordRepository) EXPECT() *MockIStrategyBotRunRecor
 }
 
 // Append mocks base method.
-func (m *MockIStrategyBotRunRecordRepository) Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) error {
+func (m *MockIStrategyBotRunRecordRepository) Append(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Append", executionContext, writeDto)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Append indicates an expected call of Append.

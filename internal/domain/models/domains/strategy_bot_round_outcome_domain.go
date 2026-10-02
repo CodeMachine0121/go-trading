@@ -60,6 +60,11 @@ func NewStrategyBotRoundConcludedOutcome(
 		verdict: verdict, sentSignal: sentSignal, conflicting: conflicting}
 }
 
+// HaltsTheBot is true when this round is what stops the bot.
+func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) HaltsTheBot() bool {
+	return strategyBotRoundOutcomeDomain.haltReason != vo.StrategyBotHaltNone
+}
+
 // RecordedResult comes from the verdict, not the sent signal, and keeps conflict distinct from hold because a conflicted bot needs its owner to change a condition.
 func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResult() vo.StrategyBotRoundResultVo {
 	switch strategyBotRoundOutcomeDomain.verdict {

@@ -94,15 +94,6 @@ func (telegramDeliveryService *TelegramDeliveryService) SendTestMessage(
 	return deliveryResult.FailureReason.ToDto(), nil
 }
 
-// SendMessage sends a system-composed message without the typed-message length rules; refusals come back as a reason so callers can tell a rejected token from an unreachable Telegram.
-func (telegramDeliveryService *TelegramDeliveryService) SendMessage(
-	executionContext context.Context, userID uint, message string,
-) (vo.DeliveryFailureReasonVo, error) {
-	deliveryResult, deliverError := telegramDeliveryService.deliver(executionContext, userID, message)
-
-	return deliveryResult.FailureReason, deliverError
-}
-
 // DeliverPendingMessage sends one queued message; a person without a delivery setting comes back as ErrTelegramDeliveryNotConfigured.
 func (telegramDeliveryService *TelegramDeliveryService) DeliverPendingMessage(
 	executionContext context.Context, userID uint, message string,

@@ -48,7 +48,7 @@ func newStrategyScriptRouterUnderTest(t *testing.T) strategyScriptRouterUnderTes
 				mocks.NewMockIStrategyBotRunRecordRepository(mockController),
 				mocks.NewMockIContractTradingSymbolRepository(mockController),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
-				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController), nil, nil,
 				mocks.NewMockIClockProxy(mockController))))
 
 	engine := gin.New()
