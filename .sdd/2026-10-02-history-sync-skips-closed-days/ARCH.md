@@ -20,7 +20,7 @@
 | `internal/domain/models/domains/k_candle_ingestion_errors.go` | **Modify** | 新增 `ErrMarketDataNotHeld`：來源明確說「這段時間沒有這個標的的資料」。放在 ingestion 的錯誤檔，因為它是 ingestion 對來源回答的分類 |
 | `FugleMarketDataProxy.ask` | **Modify** | 來源回 `404` 時以 `%w` 包上 `ErrMarketDataNotHeld`（訊息照舊帶狀態碼與代號、加上日子）；其他非 200 狀態原樣 |
 | `KCandleIngestionService.syncSymbolHistory` | **Modify** | `errors.Is(fetchError, domains.ErrMarketDataNotHeld)` → `NotePresumedClosedDay()`、`continue`；其他錯誤照舊 `NoteFetchFailure` 並放棄 |
-| `KCandleSymbolIngestionReportDomain` / `KCandleSymbolIngestionReportDto` | **Modify** | 加 `presumedClosedDayCount` 與 `NotePresumedClosedDay()`；DTO 加 `PresumedClosedDayCount` |
+| `KCandleSymbolIngestionReportDomain` / `KCandleSymbolIngestionReportDto` | **Modify** | 加 `presumedClosedDayCount`、`presumedClosedDaysInARow` 與 `NotePresumedClosedDay(notHeldReason) bool`——連續到 `maxPresumedClosedDaysInARow`（15）時自己記下拒絕原因並回 `false`；`NoteAsked()` 把連續數歸零。DTO 加 `PresumedClosedDayCount`（`json:"-"`，只在輪次上對外） |
 | `KCandleHistorySyncRun`（entity）/ `KCandleHistorySyncRunDto` | **Modify** | 加 `PresumedClosedDayCount int`（`gorm:"not null;default:0"`，舊列由 AutoMigrate 補 0）；JSON `presumedClosedDayCount` |
 | `kCandleHistorySyncRunner.recordProgress` / `recordEnding` | **Modify** | 兩處都把 `PresumedClosedDayCount` 從 symbol report 抄到輪次 |
 | `postman/go-trading.postman_collection.json` | **Modify** | 「看那一趟走到哪」斷言新欄位存在、說明補一句 |
@@ -47,7 +47,8 @@
 | Component | Current role | Change needed |
 | :--- | :--- | :--- |
 | `FugleMarketDataProxy.ask` | 非 200 一律 `fmt.Errorf("market source answered %d for %s")` | `404` → `fmt.Errorf("%w: market source answered 404 for %s", domains.ErrMarketDataNotHeld, symbol)`；其他照舊 |
-| `KCandleIngestionService.syncSymbolHistory` | 任一 fetch 錯誤 → 記拒絕、放棄 | 先判 `ErrMarketDataNotHeld`：記一天、繼續下一段；其餘照舊 |
+| `KCandleIngestionService.syncSymbolHistory` | 任一 fetch 錯誤 → 記拒絕、放棄 | 先判 `ErrMarketDataNotHeld`：`NotePresumedClosedDay` 回 `true` 就繼續下一段，回 `false`（連續太久）就照拒絕的路收尾；其餘照舊 |
+| `FugleMarketDataProxy.fetchDay` | 回 `ask` 的結果 | `ErrMarketDataNotHeld` 再包上 `on {日期}`，讓拒絕原因說得出最後是哪一天 |
 | `KCandleSymbolIngestionReportDomain` | 記 asked / stored / skipped / fetchFailure | 加 `NotePresumedClosedDay()`；**不設 `wasAsked`**——「沒資料」不是「答了零根」，不能餵進例行抓取的休市推定 |
 | `KCandleHistorySyncRun` / DTO / runner | 記段數、存、略過、拒絕原因 | 多一個推定休市天數，進行中與收尾都寫 |
 
@@ -78,6 +79,7 @@ flowchart TD
 - **How to add it:** 加一個新來源時，只要在它的 proxy 把「沒有這份資料」翻成 `%w domains.ErrMarketDataNotHeld`；不翻就是拒絕，預設安全。
 - **Patterns applied & why:** 哨兵錯誤＋`%w`——現有 `ErrMarketDataSourceUnavailable`、`ErrTradingSymbolNotInMarket` 同一個做法；`errors.Is` 穿得過 routed proxy。
 - **Do not hardcode:** 不要在 service 裡比對錯誤字串或狀態碼——那會讓 domain 認識 HTTP。
+- **連續推定休市上限是常數不是設定**：它由市場最長的休市決定，不是營運選擇；接進休市更長的市場時，改成依市場給（`MarketRulesVo`）再說。
 - **Known debt / deferred:** `FugleMarketDataProxy.FetchKCandles` 一次多天時，一天 `NotHeld` 會讓整個 window 回錯（例行回補的跨日 window）。歷史同步一段只有一天所以不受影響；等例行抓取那一刀再一起決定要不要讓 proxy 在多天 window 裡略過單日。
 
 ---
@@ -99,3 +101,5 @@ flowchart TD
 | 已齊全的一天不問、也不算推定休市 | 既有 `CountInRange` 跳段在 fetch 之前 |
 | 推定休市之後存不進去 | 既有 save 失敗分支；runner `recordEnding` 帶上已累積的推定休市天數 |
 | 舊輪次讀作 0 | entity `default:0`，AutoMigrate 補欄位 |
+| 連續 15 個交易日都沒資料就停下 | `KCandleSymbolIngestionReportDomain.NotePresumedClosedDay` 回 `false` + `syncSymbolHistory` 收尾 |
+| 中間有一天有資料就重新算 | `NoteAsked()` 歸零連續數 |
