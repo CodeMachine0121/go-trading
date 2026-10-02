@@ -116,7 +116,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 			service.NewTradeJournalLinkService(
 				mocks.NewMockIOpaqueIdentifierProxy(mockController), nil, nil, "https://app.example.com"),
 			clockProxy,
-			application.NewStrategyBotRoundGuard(),
+			"replica-under-test",
 			4,
 			time.Minute,
 		))

@@ -279,22 +279,92 @@ func (strategyBotRepository *StrategyBotRepository) DisableAutoOrder(
 	return nil
 }
 
-// FindDue returns at most limit due running bots, oldest due first.
-func (strategyBotRepository *StrategyBotRepository) FindDue(
-	executionContext context.Context, moment time.Time, limit int,
+// ClaimDue picks and claims in one transaction: the row locks skip whatever another replica is claiming right now, and the claim columns keep it out of later scans until it expires.
+func (strategyBotRepository *StrategyBotRepository) ClaimDue(
+	executionContext context.Context, moment time.Time, limit int, claimant string, claimedUntil time.Time,
 ) ([]entities.StrategyBot, error) {
-	bots := []entities.StrategyBot{}
+	claimedBots := []entities.StrategyBot{}
+	claimedUntilUtc := claimedUntil.UTC()
 
-	result := strategyBotRepository.database.WithContext(executionContext).
-		Preload("TradingStrategy").
-		Where(clause.Eq{Column: "run_state", Value: string(vo.StrategyBotRunning)}).
-		Where(clause.Lte{Column: "next_run_at", Value: moment.UTC()}).
-		Order("next_run_at ASC").
-		Limit(limit).
-		Find(&bots)
-	if result.Error != nil {
-		return nil, fmt.Errorf("find due strategy bots: %w", result.Error)
+	transactionError := strategyBotRepository.database.WithContext(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			dueIDs := []uint{}
+			if pickError := transaction.Model(&entities.StrategyBot{}).
+				Clauses(clause.Locking{
+					Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked,
+				}).
+				Where(clause.Eq{Column: "run_state", Value: string(vo.StrategyBotRunning)}).
+				Where(clause.Lte{Column: "next_run_at", Value: moment.UTC()}).
+				Where(strategyBotRepository.unclaimedAt(moment)).
+				Order("next_run_at ASC").
+				Limit(limit).
+				Pluck("id", &dueIDs).Error; pickError != nil {
+				return pickError
+			}
+			if len(dueIDs) == 0 {
+				return nil
+			}
+
+			// A slice of primary keys is GORM's own form of "id IN (...)".
+			if claimError := transaction.Model(&entities.StrategyBot{}).
+				Where(dueIDs).
+				Select("round_claimed_by", "round_claimed_until").
+				UpdateColumns(entities.StrategyBot{
+					RoundClaimedBy: claimant, RoundClaimedUntil: &claimedUntilUtc,
+				}).Error; claimError != nil {
+				return claimError
+			}
+
+			return transaction.Preload("TradingStrategy").
+				Order("next_run_at ASC").
+				Find(&claimedBots, dueIDs).Error
+		})
+	if transactionError != nil {
+		return nil, fmt.Errorf("claim due strategy bots: %w", transactionError)
 	}
 
-	return bots, nil
+	return claimedBots, nil
+}
+
+// ClaimOne is one conditional update, so two replicas pressing at once cannot both win.
+func (strategyBotRepository *StrategyBotRepository) ClaimOne(
+	executionContext context.Context, id uint, claimant string, moment time.Time, claimedUntil time.Time,
+) (bool, error) {
+	claimedUntilUtc := claimedUntil.UTC()
+
+	result := strategyBotRepository.database.WithContext(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		Where(strategyBotRepository.unclaimedAt(moment)).
+		Select("round_claimed_by", "round_claimed_until").
+		UpdateColumns(entities.StrategyBot{RoundClaimedBy: claimant, RoundClaimedUntil: &claimedUntilUtc})
+	if result.Error != nil {
+		return false, fmt.Errorf("claim strategy bot: %w", result.Error)
+	}
+
+	return result.RowsAffected == 1, nil
+}
+
+func (strategyBotRepository *StrategyBotRepository) ReleaseRoundClaim(
+	executionContext context.Context, id uint, claimant string,
+) error {
+	result := strategyBotRepository.database.WithContext(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		Where(clause.Eq{Column: "round_claimed_by", Value: claimant}).
+		Select("round_claimed_by", "round_claimed_until").
+		UpdateColumns(entities.StrategyBot{})
+	if result.Error != nil {
+		return fmt.Errorf("release strategy bot round claim: %w", result.Error)
+	}
+
+	return nil
+}
+
+// unclaimedAt matches a bot nobody has claimed, or whose claim had run out by moment.
+func (strategyBotRepository *StrategyBotRepository) unclaimedAt(moment time.Time) clause.Expression {
+	return clause.Or(
+		clause.Eq{Column: "round_claimed_until", Value: nil},
+		clause.Lt{Column: "round_claimed_until", Value: moment.UTC()},
+	)
 }

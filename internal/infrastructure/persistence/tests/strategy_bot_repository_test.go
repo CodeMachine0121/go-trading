@@ -262,7 +262,7 @@ func TestStrategyBotRepositoryUpdateRunStateClearsRatherThanSkippingEmptyValues(
 	assert.False(t, readBot.Conflicting)
 }
 
-func TestStrategyBotRepositoryFindDueAnswersOnlyRunningBotsThatAreDue(t *testing.T) {
+func TestStrategyBotRepositoryClaimDueAnswersOnlyRunningBotsThatAreDue(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)
 
@@ -285,7 +285,7 @@ func TestStrategyBotRepositoryFindDueAnswersOnlyRunningBotsThatAreDue(t *testing
 	stoppedBot.NextRunAt = now.Add(-time.Hour)
 	require.NoError(t, repository.UpdateRunState(t.Context(), stoppedBot))
 
-	dueBots, findError := repository.FindDue(t.Context(), now, 10)
+	dueBots, findError := repository.ClaimDue(t.Context(), now, 10, "replica-a", now.Add(2*time.Minute))
 	require.NoError(t, findError)
 
 	require.Len(t, dueBots, 1)
@@ -293,7 +293,7 @@ func TestStrategyBotRepositoryFindDueAnswersOnlyRunningBotsThatAreDue(t *testing
 	assert.Equal(t, botRowTradingStrategyID, dueBots[0].TradingStrategyID)
 }
 
-func TestStrategyBotRepositoryFindDueHonoursTheCapOnTheReadItself(t *testing.T) {
+func TestStrategyBotRepositoryClaimDueHonoursTheCapOnTheReadItself(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	repository := persistence.NewStrategyBotRepository(database)
 
@@ -307,7 +307,7 @@ func TestStrategyBotRepositoryFindDueHonoursTheCapOnTheReadItself(t *testing.T) 
 		require.NoError(t, repository.UpdateRunState(t.Context(), bot))
 	}
 
-	dueBots, findError := repository.FindDue(t.Context(), now, 2)
+	dueBots, findError := repository.ClaimDue(t.Context(), now, 2, "replica-a", now.Add(2*time.Minute))
 	require.NoError(t, findError)
 
 	// The due query is limited so a long outage does not load every bot.
@@ -367,8 +367,13 @@ func TestStrategyBotRepositorySaysSoWhenStorageCannotAnswer(t *testing.T) {
 	_, countError := repository.CountRunningByOwner(t.Context(), botRowOwnerID)
 	assert.Error(t, countError)
 
-	_, dueError := repository.FindDue(t.Context(), time.Now(), 10)
+	_, dueError := repository.ClaimDue(t.Context(), time.Now(), 10, "replica-a", time.Now())
 	assert.Error(t, dueError)
+
+	_, claimError := repository.ClaimOne(t.Context(), 1, "replica-a", time.Now(), time.Now())
+	assert.Error(t, claimError)
+
+	assert.Error(t, repository.ReleaseRoundClaim(t.Context(), 1, "replica-a"))
 
 	_, followersError := repository.FindAllByTradingStrategy(t.Context(), 1)
 	assert.Error(t, followersError)

@@ -42,6 +42,36 @@ func (m *MockIStrategyBotRepository) EXPECT() *MockIStrategyBotRepositoryMockRec
 	return m.recorder
 }
 
+// ClaimDue mocks base method.
+func (m *MockIStrategyBotRepository) ClaimDue(executionContext context.Context, moment time.Time, limit int, claimant string, claimedUntil time.Time) ([]entities.StrategyBot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimDue", executionContext, moment, limit, claimant, claimedUntil)
+	ret0, _ := ret[0].([]entities.StrategyBot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimDue indicates an expected call of ClaimDue.
+func (mr *MockIStrategyBotRepositoryMockRecorder) ClaimDue(executionContext, moment, limit, claimant, claimedUntil any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimDue", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ClaimDue), executionContext, moment, limit, claimant, claimedUntil)
+}
+
+// ClaimOne mocks base method.
+func (m *MockIStrategyBotRepository) ClaimOne(executionContext context.Context, id uint, claimant string, moment, claimedUntil time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimOne", executionContext, id, claimant, moment, claimedUntil)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimOne indicates an expected call of ClaimOne.
+func (mr *MockIStrategyBotRepositoryMockRecorder) ClaimOne(executionContext, id, claimant, moment, claimedUntil any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimOne", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ClaimOne), executionContext, id, claimant, moment, claimedUntil)
+}
+
 // CountRunningByOwner mocks base method.
 func (m *MockIStrategyBotRepository) CountRunningByOwner(executionContext context.Context, ownerID uint) (int, error) {
 	m.ctrl.T.Helper()
@@ -144,21 +174,6 @@ func (mr *MockIStrategyBotRepositoryMockRecorder) FindAllByTradingStrategy(execu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAllByTradingStrategy", reflect.TypeOf((*MockIStrategyBotRepository)(nil).FindAllByTradingStrategy), executionContext, tradingStrategyID)
 }
 
-// FindDue mocks base method.
-func (m *MockIStrategyBotRepository) FindDue(executionContext context.Context, moment time.Time, limit int) ([]entities.StrategyBot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindDue", executionContext, moment, limit)
-	ret0, _ := ret[0].([]entities.StrategyBot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FindDue indicates an expected call of FindDue.
-func (mr *MockIStrategyBotRepositoryMockRecorder) FindDue(executionContext, moment, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDue", reflect.TypeOf((*MockIStrategyBotRepository)(nil).FindDue), executionContext, moment, limit)
-}
-
 // FindOne mocks base method.
 func (m *MockIStrategyBotRepository) FindOne(executionContext context.Context, id uint) (entities.StrategyBot, error) {
 	m.ctrl.T.Helper()
@@ -172,6 +187,20 @@ func (m *MockIStrategyBotRepository) FindOne(executionContext context.Context, i
 func (mr *MockIStrategyBotRepositoryMockRecorder) FindOne(executionContext, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOne", reflect.TypeOf((*MockIStrategyBotRepository)(nil).FindOne), executionContext, id)
+}
+
+// ReleaseRoundClaim mocks base method.
+func (m *MockIStrategyBotRepository) ReleaseRoundClaim(executionContext context.Context, id uint, claimant string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseRoundClaim", executionContext, id, claimant)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleaseRoundClaim indicates an expected call of ReleaseRoundClaim.
+func (mr *MockIStrategyBotRepositoryMockRecorder) ReleaseRoundClaim(executionContext, id, claimant any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseRoundClaim", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ReleaseRoundClaim), executionContext, id, claimant)
 }
 
 // Save mocks base method.

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -35,9 +34,10 @@ type StrategyBotRunApplication struct {
 	kCandleContractService              *service.KCandleContractService
 	tradeJournalLinkService             *service.TradeJournalLinkService
 	clockProxy                          domaininterface.IClockProxy
-	roundGuard                          *StrategyBotRoundGuard
-	maxConcurrentRounds                 int
-	roundTimeout                        time.Duration
+	// replicaName is who this replica's round claims say is running the bot.
+	replicaName         string
+	maxConcurrentRounds int
+	roundTimeout        time.Duration
 }
 
 func NewStrategyBotRunApplication(
@@ -51,7 +51,7 @@ func NewStrategyBotRunApplication(
 	kCandleContractService *service.KCandleContractService,
 	tradeJournalLinkService *service.TradeJournalLinkService,
 	clockProxy domaininterface.IClockProxy,
-	roundGuard *StrategyBotRoundGuard,
+	replicaName string,
 	maxConcurrentRounds int,
 	roundTimeout time.Duration,
 ) *StrategyBotRunApplication {
@@ -66,7 +66,7 @@ func NewStrategyBotRunApplication(
 		kCandleContractService:              kCandleContractService,
 		tradeJournalLinkService:             tradeJournalLinkService,
 		clockProxy:                          clockProxy,
-		roundGuard:                          roundGuard,
+		replicaName:                         replicaName,
 		maxConcurrentRounds:                 maxConcurrentRounds,
 		roundTimeout:                        roundTimeout,
 	}
@@ -77,10 +77,12 @@ func NewStrategyBotRunApplication(
 func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	executionContext context.Context,
 ) (int, error) {
-	dueBots, findError := strategyBotRunApplication.strategyBotService.FindDueStrategyBots(
-		executionContext, strategyBotRunApplication.maxConcurrentRounds)
-	if findError != nil {
-		return 0, findError
+	// Claimed rather than just read, so no other replica runs these bots until this one is done with them.
+	dueBots, claimError := strategyBotRunApplication.strategyBotService.ClaimDueStrategyBots(
+		executionContext, strategyBotRunApplication.maxConcurrentRounds,
+		strategyBotRunApplication.replicaName, strategyBotRunApplication.roundClaimDuration())
+	if claimError != nil {
+		return 0, claimError
 	}
 
 	// A full batch means some due bots wait for the next scan, which is otherwise invisible.
@@ -93,27 +95,14 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	waitGroup := sync.WaitGroup{}
 	roundsRun := 0
 	roundsRunMutex := sync.Mutex{}
-	// Deduplicated here because the guard only catches a bot still mid-round, so a batch
-	// naming a bot twice would slip past it whenever the first round finished quickly.
-	scannedBotIDs := map[uint]struct{}{}
 
 	for index := range dueBots {
 		botDto := dueBots[index]
-
-		if _, alreadyScanned := scannedBotIDs[botDto.ID]; alreadyScanned {
-			continue
-		}
-		scannedBotIDs[botDto.ID] = struct{}{}
-
-		if !strategyBotRunApplication.roundGuard.TryEnter(botDto.ID) {
-			continue
-		}
 
 		waitGroup.Add(1)
 
 		go func() {
 			defer waitGroup.Done()
-			defer strategyBotRunApplication.roundGuard.Leave(botDto.ID)
 
 			roundContext, endRound := context.WithTimeout(
 				executionContext, strategyBotRunApplication.roundDeadlineFor(botDto))
@@ -144,11 +133,12 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunRoundNow(
 		return dto.StrategyBotDto{}, findError
 	}
 
-	// Shares the scan's claim so a hand-pressed and a scheduled round are never in flight together.
-	if !strategyBotRunApplication.roundGuard.TryEnter(id) {
-		return dto.StrategyBotDto{}, domains.StrategyBotAlreadyRunningARound()
+	// Shares the scan's claim so a hand-pressed and a scheduled round are never in flight together, on any replica.
+	if claimError := strategyBotRunApplication.strategyBotService.ClaimStrategyBot(
+		executionContext, id, strategyBotRunApplication.replicaName,
+		strategyBotRunApplication.roundClaimDuration()); claimError != nil {
+		return dto.StrategyBotDto{}, claimError
 	}
-	defer strategyBotRunApplication.roundGuard.Leave(id)
 
 	roundContext, endRound := context.WithTimeout(
 		executionContext, strategyBotRunApplication.roundDeadlineFor(botDto))
@@ -173,7 +163,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 	defer endRecord()
 
 	endedBot, applied, recordError := strategyBotRunApplication.strategyBotService.RecordRound(
-		recordContext, botDto.ID, botDto.NextRunAt, outcomeDto)
+		recordContext, botDto.ID, botDto.NextRunAt, strategyBotRunApplication.replicaName, outcomeDto)
 	if recordError != nil {
 		log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
 
@@ -187,6 +177,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 			recordContext, endedBot.OwnerID,
 			strategyBotRunApplication.strategyBotService.WriteStoppedMessage(endedBot))
 	}
+}
+
+// roundClaimDuration outlasts the longest a round may take plus booking it in, so a live round's claim never lapses.
+func (strategyBotRunApplication *StrategyBotRunApplication) roundClaimDuration() time.Duration {
+	return strategyBotRunApplication.roundTimeout + strategyBotRecordTimeout
 }
 
 // roundDeadlineFor is the shorter of the bot's trigger interval and the configured ceiling,

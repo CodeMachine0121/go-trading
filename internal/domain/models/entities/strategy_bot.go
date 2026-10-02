@@ -40,6 +40,9 @@ type StrategyBot struct {
 	HaltReason string `gorm:"size:32;not null;default:''"`
 	// Conflicting is not a halt; it clears on the next non-conflicting round.
 	Conflicting bool `gorm:"not null;default:false"`
+	// RoundClaimedBy and RoundClaimedUntil say which replica is running this bot's round and until when; a claim past its time is free to take, so a replica that dies mid-round never strands its bot.
+	RoundClaimedBy    string     `gorm:"size:255;not null;default:''"`
+	RoundClaimedUntil *time.Time `gorm:"type:timestamptz"`
 	// AutoOrderEnabled is off for every existing bot; neither Save nor UpdateRunState names it, so only the switch routes change it.
 	AutoOrderEnabled bool      `gorm:"not null;default:false"`
 	CreatedAt        time.Time `gorm:"type:timestamptz;not null"`

@@ -742,7 +742,7 @@ func registerRoutes(
 			persistence.NewStrategyBotRepository(database),
 			applicationConfig.FrontendBaseUrl),
 		clock.NewSystemClockProxy(),
-		application.NewStrategyBotRoundGuard(),
+		applicationConfig.Replica.Name,
 		applicationConfig.StrategyBot.MaxConcurrentRounds,
 		applicationConfig.StrategyBot.RoundTimeout,
 	)

@@ -45,8 +45,16 @@ type IStrategyBotRepository interface {
 
 	DisableAutoOrder(executionContext context.Context, id uint) error
 
-	// FindDue returns running bots due at or before moment, oldest due first to avoid starvation, capped by limit in the query itself.
-	FindDue(
-		executionContext context.Context, moment time.Time, limit int,
+	// ClaimDue claims for claimant, until claimedUntil, up to limit running bots due at or before moment that no other replica holds a live claim on, oldest due first; rows another replica is claiming at this instant are skipped, never waited for.
+	ClaimDue(
+		executionContext context.Context, moment time.Time, limit int, claimant string, claimedUntil time.Time,
 	) ([]entities.StrategyBot, error)
+
+	// ClaimOne claims one bot regardless of its run state; false means another replica's claim is still live at moment.
+	ClaimOne(
+		executionContext context.Context, id uint, claimant string, moment time.Time, claimedUntil time.Time,
+	) (bool, error)
+
+	// ReleaseRoundClaim frees the bot only when claimant still holds it, so a late finisher never frees a newer claim.
+	ReleaseRoundClaim(executionContext context.Context, id uint, claimant string) error
 }

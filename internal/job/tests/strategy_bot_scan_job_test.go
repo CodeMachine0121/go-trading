@@ -38,9 +38,9 @@ func newStrategyBotScanJobUnderTest(
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
 	strategyBotRunRecordRepository.EXPECT().
 		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	strategyBotRepository.EXPECT().FindDue(gomock.Any(), scanNow, gomock.Any()).
+	strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), scanNow, gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
-			_ context.Context, _ time.Time, _ int,
+			_ context.Context, _ time.Time, _ int, _ string, _ time.Time,
 		) ([]entities.StrategyBot, error) {
 			select {
 			case scans <- struct{}{}:
@@ -99,7 +99,7 @@ func newStrategyBotScanJobUnderTest(
 			service.NewTradeJournalLinkService(
 				mocks.NewMockIOpaqueIdentifierProxy(mockController), nil, nil, "https://app.example.com"),
 			clockProxy,
-			application.NewStrategyBotRoundGuard(),
+			"replica-under-test",
 			4,
 			time.Minute,
 		),

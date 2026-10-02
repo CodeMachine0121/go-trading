@@ -85,7 +85,7 @@ func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T)
 	underTest.expectTheContractsLatestCandle("64000.5")
 
 	dueBot := aDueContractBot(string(vo.SignalSell))
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -126,7 +126,7 @@ func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T)
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 
 	dueBot := aDueContractBot(string(vo.SignalBuy))
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil)
@@ -148,7 +148,7 @@ func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.
 		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9)).AnyTimes()
 
 	dueBot := aDueContractBot("")
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -188,7 +188,7 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
 	dueBot.PositionPlanStopLossPercentage = decimal.NewFromInt(2)
 	dueBot.PositionPlanLeverage = decimal.NewFromInt(5)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -292,7 +292,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 			underTest.expectNoRoundMessage()
 
 			dueBot := aDueContractBot(string(vo.SignalSell))
-			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+			underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 				Return([]entities.StrategyBot{dueBot}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 				Return(dueBot, nil).AnyTimes()
@@ -323,7 +323,7 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 
 	dueBot := aDueContractBot(string(vo.SignalBuy))
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -362,7 +362,7 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving
 	underTest.expectNoRoundMessage()
 
 	dueBot := aDueContractBot(string(vo.SignalSell))
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -407,7 +407,7 @@ func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing
 		Return(vo.DeliveryFailureNone, nil)
 
 	dueBot := aDueContractBot("")
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()

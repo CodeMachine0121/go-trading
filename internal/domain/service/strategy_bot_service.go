@@ -311,14 +311,16 @@ func (strategyBotService *StrategyBotService) DisableAutoOrder(
 	return storedBot.ToDto(), nil
 }
 
-// FindDueStrategyBots returns up to limit running bots whose next round has come, oldest first, with no viewer since the clock asked.
-func (strategyBotService *StrategyBotService) FindDueStrategyBots(
-	executionContext context.Context, limit int,
+// ClaimDueStrategyBots claims for this replica up to limit running bots whose next round has come, oldest first, with no viewer since the clock asked; another replica's live claim keeps a bot out.
+func (strategyBotService *StrategyBotService) ClaimDueStrategyBots(
+	executionContext context.Context, limit int, claimant string, claimDuration time.Duration,
 ) ([]dto.StrategyBotDto, error) {
-	bots, findError := strategyBotService.strategyBotRepository.FindDue(
-		executionContext, strategyBotService.clockProxy.Now(), limit)
-	if findError != nil {
-		return nil, findError
+	now := strategyBotService.clockProxy.Now()
+
+	bots, claimError := strategyBotService.strategyBotRepository.ClaimDue(
+		executionContext, now, limit, claimant, now.Add(claimDuration))
+	if claimError != nil {
+		return nil, claimError
 	}
 
 	botDtos := make([]dto.StrategyBotDto, 0, len(bots))
@@ -327,6 +329,24 @@ func (strategyBotService *StrategyBotService) FindDueStrategyBots(
 	}
 
 	return botDtos, nil
+}
+
+// ClaimStrategyBot claims one bot for a round asked for by hand; a bot some replica is already running refuses.
+func (strategyBotService *StrategyBotService) ClaimStrategyBot(
+	executionContext context.Context, id uint, claimant string, claimDuration time.Duration,
+) error {
+	now := strategyBotService.clockProxy.Now()
+
+	claimed, claimError := strategyBotService.strategyBotRepository.ClaimOne(
+		executionContext, id, claimant, now, now.Add(claimDuration))
+	if claimError != nil {
+		return claimError
+	}
+	if !claimed {
+		return domains.StrategyBotAlreadyRunningARound()
+	}
+
+	return nil
 }
 
 // DecideRound evaluates the buy and sell conditions against this round's signals, with no I/O, so it can be replayed over history.
@@ -436,6 +456,22 @@ func (strategyBotService *StrategyBotService) WriteRoundMessage(
 // RecordRound applies any round outcome through one method, so no exit can forget to reschedule the bot and leave it due forever.
 // It reports whether the outcome was applied; a bot that moved on meanwhile is left untouched.
 func (strategyBotService *StrategyBotService) RecordRound(
+	executionContext context.Context, id uint, dueAt time.Time, claimant string,
+	outcomeDto dto.StrategyBotRoundOutcomeDto,
+) (dto.StrategyBotDto, bool, error) {
+	endedBot, applied, recordError := strategyBotService.applyRound(executionContext, id, dueAt, outcomeDto)
+
+	// Released whether or not the round applied, since the claim was only ever for this round.
+	if releaseError := strategyBotService.strategyBotRepository.ReleaseRoundClaim(
+		executionContext, id, claimant); releaseError != nil && recordError == nil {
+		return endedBot, applied, releaseError
+	}
+
+	return endedBot, applied, recordError
+}
+
+// applyRound writes the outcome back unless the bot moved on meanwhile.
+func (strategyBotService *StrategyBotService) applyRound(
 	executionContext context.Context, id uint, dueAt time.Time,
 	outcomeDto dto.StrategyBotRoundOutcomeDto,
 ) (dto.StrategyBotDto, bool, error) {

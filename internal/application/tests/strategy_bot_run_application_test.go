@@ -23,6 +23,9 @@ import (
 
 var botRunNow = at(9, 15)
 
+// botRoundClaimedUntil is the one-minute round ceiling plus the fifteen seconds that booking a round in may take.
+var botRoundClaimedUntil = at(9, 16).Add(15 * time.Second)
+
 type strategyBotRunUnderTest struct {
 	strategyBotRunApplication               *application.StrategyBotRunApplication
 	strategyBotRepository                   *mocks.MockIStrategyBotRepository
@@ -36,7 +39,10 @@ type strategyBotRunUnderTest struct {
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository *mocks.MockIContractFundingRateSettlementRepository
-	roundGuard                              *application.StrategyBotRoundGuard
+	// claimHeldElsewhere makes a hand-pressed round find another replica already running the bot.
+	claimHeldElsewhere *bool
+	// releasedClaims lists every bot whose round claim this replica freed.
+	releasedClaims *[]uint
 	// Held by pointer so a test can edit the rules and the next round sees the change.
 	tradingStrategy        *entities.TradingStrategy
 	tradingStrategyFailure *error
@@ -70,8 +76,22 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(botRunNow).AnyTimes()
 
-	// 讓測試能自己佔住鎖，模擬「正在跑的時候按下去」。
-	roundGuard := application.NewStrategyBotRoundGuard()
+	// 讓測試能模擬「別的分身正在跑的時候按下去」。
+	claimHeldElsewhere := false
+	strategyBotRepository.EXPECT().
+		ClaimOne(gomock.Any(), strategyBotID, thisReplicaName, botRunNow, botRoundClaimedUntil).
+		DoAndReturn(func(context.Context, uint, string, time.Time, time.Time) (bool, error) {
+			return !claimHeldElsewhere, nil
+		}).AnyTimes()
+	// Every round frees its claim when it is booked in, applied or not.
+	releasedClaims := []uint{}
+	strategyBotRepository.EXPECT().
+		ReleaseRoundClaim(gomock.Any(), gomock.Any(), thisReplicaName).
+		DoAndReturn(func(_ context.Context, id uint, _ string) error {
+			releasedClaims = append(releasedClaims, id)
+
+			return nil
+		}).AnyTimes()
 
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(controller)
 	tradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), gomock.Any()).
@@ -146,7 +166,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			service.NewTradeJournalLinkService(
 				opaqueIdentifierProxy, nil, nil, "https://app.example.com"),
 			clockProxy,
-			roundGuard,
+			thisReplicaName,
 			4,
 			time.Minute,
 		),
@@ -162,7 +182,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
-		roundGuard:                              roundGuard,
+		claimHeldElsewhere:                      &claimHeldElsewhere,
+		releasedClaims:                          &releasedClaims,
 		tradingStrategy:                         &tradingStrategy,
 		tradingStrategyFailure:                  &tradingStrategyFailure,
 		appendedRunRecords:                      &appendedRunRecords,
@@ -275,7 +296,7 @@ func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -315,7 +336,7 @@ func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *t
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot(string(vo.SignalBuy))}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(string(vo.SignalBuy)), nil)
@@ -344,7 +365,7 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalSell, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{conflictingBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(conflictingBot, nil)
@@ -399,7 +420,7 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 
 			underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 				Return(testCase.strategyScriptFound, testCase.strategyScriptFindError).AnyTimes()
-			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+			underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 				Return(aDueBot(""), nil).AnyTimes()
@@ -440,7 +461,7 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 		Return(nil, domains.ErrIndicatorScriptFailed).AnyTimes()
 	underTest.expectNoRoundMessage()
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -474,7 +495,7 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 		FindLatestBefore(gomock.Any(), "BTCUSDT", gomock.Any(), gomock.Any()).
 		Return([]entities.KCandle{}, nil).AnyTimes()
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot(string(vo.SignalBuy))}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(string(vo.SignalBuy)), nil)
@@ -533,7 +554,7 @@ func TestStrategyBotRunApplicationReadsTelegramsRefusalTheWayItWasMeant(t *testi
 			underTest.expectDeliverySetting()
 			underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+			underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 				Return(aDueBot(""), nil).AnyTimes()
@@ -575,7 +596,7 @@ func TestStrategyBotRunApplicationStillSendsWhenThereIsNoPriceToQuote(t *testing
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -602,7 +623,7 @@ func TestStrategyBotRunApplicationStillSendsWhenThereIsNoPriceToQuote(t *testing
 func TestStrategyBotRunApplicationRunsNothingWhenNothingIsDue(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{}, nil)
 
 	roundsRun, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -614,23 +635,12 @@ func TestStrategyBotRunApplicationRunsNothingWhenNothingIsDue(t *testing.T) {
 func TestStrategyBotRunApplicationReportsAFailedScan(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return(nil, errors.New("the database went away"))
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
 	assert.Error(t, runError)
-}
-
-func TestStrategyBotRoundGuardKeepsOneBotToOneRoundAtATime(t *testing.T) {
-	roundGuard := application.NewStrategyBotRoundGuard()
-
-	assert.True(t, roundGuard.TryEnter(strategyBotID))
-	assert.False(t, roundGuard.TryEnter(strategyBotID))
-	assert.True(t, roundGuard.TryEnter(strategyBotID+1))
-
-	roundGuard.Leave(strategyBotID)
-	assert.True(t, roundGuard.TryEnter(strategyBotID))
 }
 
 func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t *testing.T) {
@@ -647,7 +657,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t
 			SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
 	}
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{brokenBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(brokenBot, nil)
@@ -671,7 +681,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -697,24 +707,6 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseMessageCouldNotBeBuilt(t *test
 }
 
 // One round per bot per scan even when the batch names it twice, independent of round timing.
-func TestStrategyBotRunApplicationLeavesABotThatIsAlreadyMidRound(t *testing.T) {
-	underTest := newStrategyBotRunUnderTest(t)
-
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
-		Return([]entities.StrategyBot{aDueBot(""), aDueBot("")}, nil)
-	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
-		Return(aDueBot(""), nil).Times(1)
-	underTest.expectDeliverySetting()
-	underTest.expectSources(vo.SignalHold, vo.SignalHold)
-	underTest.strategyBotRepository.EXPECT().
-		UpdateRunState(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-
-	roundsRun, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
-
-	require.NoError(t, runError)
-	assert.Equal(t, 1, roundsRun)
-}
-
 func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -758,7 +750,7 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
-			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+			underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 				Return([]entities.StrategyBot{aDueBot("")}, nil)
 			testCase.arrange(underTest)
 
@@ -785,7 +777,7 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 			SourceLabel: "Z", ExpectedSignal: string(vo.SignalSell)},
 	}
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{brokenBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(brokenBot, nil)
@@ -802,7 +794,7 @@ func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -855,7 +847,7 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 			return []entities.KCandle{kCandleAt(at(9, 10), "100")}, nil
 		}).AnyTimes()
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -879,7 +871,7 @@ func TestStrategyBotRunApplicationSaysNothingForABotDeletedMidRound(t *testing.T
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	// 這一輪算完之後機器人已被刪除。
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
@@ -901,7 +893,7 @@ func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *tes
 	restarted := aDueBot("")
 	restarted.NextRunAt = botRunNow
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(restarted, nil).AnyTimes()
@@ -924,7 +916,7 @@ func TestStrategyBotRunApplicationHaltsWhenTheDeliverySettingIsGone(t *testing.T
 		FindOneByUser(gomock.Any(), gomock.Any()).
 		Return(entities.TelegramDelivery{}, domains.ErrTelegramDeliveryNotConfigured).AnyTimes()
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -1012,7 +1004,7 @@ func TestStrategyBotRunApplicationRefusesAHandPressedRoundWhileOneIsInFlight(t *
 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
-	require.True(t, underTest.roundGuard.TryEnter(strategyBotID))
+	*underTest.claimHeldElsewhere = true
 
 	_, runError := underTest.strategyBotRunApplication.RunRoundNow(
 		context.Background(), strategyBotOwnerID, strategyBotID)
@@ -1036,7 +1028,7 @@ func TestStrategyBotRunApplicationRefusesToRunSomebodyElsesBotByHand(t *testing.
 func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil)
@@ -1085,7 +1077,7 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	plannedBot := aPositionPlannedDueBot()
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{plannedBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(plannedBot, nil).AnyTimes()
@@ -1124,7 +1116,7 @@ func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) 
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(aDueBot(""), nil).AnyTimes()
@@ -1160,7 +1152,7 @@ func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *test
 	switchedOnBot := aDueBot("")
 	switchedOnBot.AutoOrderEnabled = true
 
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{switchedOnBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(switchedOnBot, nil).AnyTimes()
@@ -1187,4 +1179,34 @@ func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *test
 
 	require.NoError(t, runError)
 	assert.Equal(t, 1, roundsRun)
+}
+
+func TestStrategyBotRunApplicationFreesTheClaimOfEveryRoundItBooks(t *testing.T) {
+	testCases := []struct {
+		name          string
+		storedNextRun time.Time
+	}{
+		{name: "a round that is written back", storedNextRun: aDueBot("").NextRunAt},
+		{name: "a round the bot moved on from meanwhile", storedNextRun: botRunNow.Add(time.Hour)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newStrategyBotRunUnderTest(t)
+			underTest.expectDeliverySetting()
+			underTest.expectSources(vo.SignalHold, vo.SignalHold)
+			storedBot := aDueBot("")
+			storedBot.NextRunAt = testCase.storedNextRun
+			underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
+				Return([]entities.StrategyBot{aDueBot("")}, nil)
+			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
+				Return(storedBot, nil).AnyTimes()
+			underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+			_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
+
+			require.NoError(t, runError)
+			assert.Equal(t, []uint{strategyBotID}, *underTest.releasedClaims)
+		})
+	}
 }

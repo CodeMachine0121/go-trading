@@ -28,7 +28,7 @@ func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) 
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
 	dueBot.PositionPlanStopLossPercentage = decimal.RequireFromString("2.03")
 	dueBot.PositionPlanLeverage = decimal.NewFromInt(5)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -57,7 +57,7 @@ func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testin
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
 	dueBot.PositionPlanSizingMode = string(vo.PositionSizingModeFixedAmount)
 	dueBot.PositionPlanSizingValue = decimal.NewFromInt(2000)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -96,7 +96,7 @@ func TestStrategyBotRunApplicationStillSuggestsWhenTheVenueCannotBeRead(t *testi
 	dueBot := aDueContractBot("")
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
 	dueBot.PositionPlanLeverage = decimal.NewFromInt(5)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
