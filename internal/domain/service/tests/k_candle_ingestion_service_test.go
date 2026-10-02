@@ -2459,3 +2459,60 @@ func TestSyncingHistorySkipsAWeekdayHolidayBetweenTradingDays(t *testing.T) {
 	assert.Equal(t, []string{"2023-10-05", "2023-10-06", "2023-10-09", "2023-10-11"}, storedDays)
 	assert.Equal(t, 4, endedRun.StoredCount)
 }
+
+// repeated lists an answer the given number of times, for runs of days in a row.
+func repeated(answer error, times int) []error {
+	answers := make([]error, 0, times)
+	for range times {
+		answers = append(answers, answer)
+	}
+
+	return answers
+}
+
+func TestSyncingHistoryGivesUpOnASourceThatHoldsNothingForLongerThanAnyClosure(t *testing.T) {
+	// Fifteen trading days in a row is past any real closure: the source does not know the symbol, or the address is wrong.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	saved := underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	answers := append([]error{nil}, repeated(notHeld, 15)...)
+	answers = append(answers, repeated(nil, 4)...)
+	source := underTest.sourceAnswersDayByDay(answers...)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 19), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, string(vo.KCandleHistorySyncSucceeded), endedRun.Status)
+	assert.Equal(t, 16, source.asked(), "第 15 天連續沒資料就停，後面的不再問")
+	assert.Len(t, saved.all(), 1)
+	assert.Equal(t, 15, endedRun.PresumedClosedDayCount)
+	assert.Contains(t, endedRun.FetchFailureReason,
+		"the source held nothing for 15 trading days in a row")
+	assert.Contains(t, endedRun.FetchFailureReason, notHeld.Error(), "說出最後一次來源怎麼回答")
+	assert.Equal(t, 15, endedRun.CompletedChunks, "停在第 16 段，不能說後面幾段也走完了")
+}
+
+func TestSyncingHistoryKeepsGoingThroughClosuresShorterThanTheLimit(t *testing.T) {
+	// Two runs of fourteen, broken by a day the source answers: each is a closure, and their total past fifteen does not matter.
+	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
+	underTest.syncingBTCUSDT()
+	saved := underTest.syncingFromEmptyStorage()
+	runs := underTest.recordsEveryHistorySyncRun()
+	answers := append(repeated(notHeld, 14), nil)
+	answers = append(answers, repeated(notHeld, 14)...)
+	answers = append(answers, nil)
+	source := underTest.sourceAnswersDayByDay(answers...)
+
+	_, startError := underTest.service.StartHistorySyncFor(
+		t.Context(), historySyncOf("BTCUSDT", 29), historyCeilingDays)
+
+	require.NoError(t, startError)
+	endedRun := runs.awaitEnding(t)
+	assert.Equal(t, 30, source.asked())
+	assert.Len(t, saved.all(), 2)
+	assert.Equal(t, 28, endedRun.PresumedClosedDayCount)
+	assert.Empty(t, endedRun.FetchFailureReason)
+}

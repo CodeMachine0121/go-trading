@@ -242,9 +242,13 @@ func (kCandleIngestionService *KCandleIngestionService) syncSymbolHistory(
 			executionContext, tradableChunk)
 		if errors.Is(fetchError, domains.ErrMarketDataNotHeld) {
 			// A chunk is one trading day, so a source holding nothing for it is a closed day the calendar did not know; skip it rather than give up on the years after it.
-			symbolReport.NotePresumedClosedDay()
+			if symbolReport.NotePresumedClosedDay(fetchError.Error()) {
+				continue
+			}
 
-			continue
+			recordProgress(chunkIndex, symbolReport.ToDto())
+
+			return nil
 		}
 
 		if fetchError != nil {

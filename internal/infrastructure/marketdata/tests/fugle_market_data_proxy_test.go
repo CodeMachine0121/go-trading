@@ -335,18 +335,21 @@ func TestFugleSaysWhenItHoldsNothingForTheDayAskedAbout(t *testing.T) {
 		currentTime string
 		startTime   string
 		endTime     string
+		expectedDay string
 	}{
 		{
 			name:        "an earlier day",
 			currentTime: "2026-09-08T10:07:00+08:00",
 			startTime:   "2026-09-07T09:00:00+08:00",
 			endTime:     "2026-09-07T13:29:00+08:00",
+			expectedDay: "on 2026-09-07",
 		},
 		{
 			name:        "today",
 			currentTime: "2026-09-08T10:07:00+08:00",
 			startTime:   "2026-09-08T09:00:00+08:00",
 			endTime:     "2026-09-08T10:00:00+08:00",
+			expectedDay: "on 2026-09-08",
 		},
 	}
 
@@ -366,6 +369,7 @@ func TestFugleSaysWhenItHoldsNothingForTheDayAskedAbout(t *testing.T) {
 			).FetchKCandles(t.Context(), fugleWindow(t, testCase.startTime, testCase.endTime))
 
 			assert.ErrorIs(t, fetchError, domains.ErrMarketDataNotHeld)
+			assert.ErrorContains(t, fetchError, testCase.expectedDay, "說出是哪一天沒資料")
 		})
 	}
 }

@@ -2,6 +2,7 @@ package marketdata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -106,8 +107,14 @@ func (fugleMarketDataProxy *FugleMarketDataProxy) fetchDay(
 		queryValues.Set("to", requestedDate)
 	}
 
-	return fugleMarketDataProxy.ask(
+	dayKCandles, askError := fugleMarketDataProxy.ask(
 		executionContext, baseUrl+"/"+url.PathEscape(symbol), queryValues, symbol)
+	if errors.Is(askError, domains.ErrMarketDataNotHeld) {
+		// Name the day, since "nothing held" is about one day and a run of them is read day by day.
+		return nil, fmt.Errorf("%w on %s", askError, localDay.Format(time.DateOnly))
+	}
+
+	return dayKCandles, askError
 }
 
 func (fugleMarketDataProxy *FugleMarketDataProxy) ask(
