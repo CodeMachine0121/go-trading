@@ -78,13 +78,19 @@ func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) recordProgress(
 	kCandleHistorySyncRunner.completedChunks = completedChunks
 	kCandleHistorySyncRunner.symbolReport = symbolReport
 
-	syncRun := kCandleHistorySyncRunner.syncRun
-	syncRun.CompletedChunks = completedChunks
-	syncRun.StoredCount = symbolReport.StoredCount
-	syncRun.SkippedCount = symbolReport.SkippedCount
-	syncRun.PresumedClosedDayCount = symbolReport.PresumedClosedDayCount
+	kCandleHistorySyncRunner.save(
+		context.Background(), kCandleHistorySyncRunner.progressedRun(), progressWriteAttempts)
+}
 
-	kCandleHistorySyncRunner.save(context.Background(), syncRun, progressWriteAttempts)
+// progressedRun is the run carrying the progress reached so far; progress and ending share it so a new figure is added in one place.
+func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) progressedRun() entities.KCandleHistorySyncRun {
+	syncRun := kCandleHistorySyncRunner.syncRun
+	syncRun.CompletedChunks = kCandleHistorySyncRunner.completedChunks
+	syncRun.StoredCount = kCandleHistorySyncRunner.symbolReport.StoredCount
+	syncRun.SkippedCount = kCandleHistorySyncRunner.symbolReport.SkippedCount
+	syncRun.PresumedClosedDayCount = kCandleHistorySyncRunner.symbolReport.PresumedClosedDayCount
+
+	return syncRun
 }
 
 // recordEnding closes the run at the chunk actually reached, not the planned total, so an early failure never reads as finished.
@@ -95,11 +101,7 @@ func (kCandleHistorySyncRunner *kCandleHistorySyncRunner) recordEnding(
 	// Read now so the recorded duration is real.
 	finishedAt := kCandleHistorySyncRunner.kCandleIngestionService.clockProxy.Now()
 
-	syncRun := kCandleHistorySyncRunner.syncRun
-	syncRun.CompletedChunks = kCandleHistorySyncRunner.completedChunks
-	syncRun.StoredCount = kCandleHistorySyncRunner.symbolReport.StoredCount
-	syncRun.SkippedCount = kCandleHistorySyncRunner.symbolReport.SkippedCount
-	syncRun.PresumedClosedDayCount = kCandleHistorySyncRunner.symbolReport.PresumedClosedDayCount
+	syncRun := kCandleHistorySyncRunner.progressedRun()
 	syncRun.FetchFailureReason = kCandleHistorySyncRunner.symbolReport.FetchFailureReason
 	syncRun.FailureReason = failureReason
 	syncRun.FinishedAt = &finishedAt
