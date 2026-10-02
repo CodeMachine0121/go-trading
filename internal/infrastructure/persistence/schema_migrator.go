@@ -107,6 +107,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.SpotTradeRecord{},
 		&entities.SpotTradeFill{},
 		&entities.SpotTradeNote{},
+		&entities.JobLeadershipLease{},
 	}
 
 	// Rename before syncing, or AutoMigrate would create empty new tables beside the old ones.
