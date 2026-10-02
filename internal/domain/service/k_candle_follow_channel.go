@@ -12,18 +12,22 @@ type kCandleFollowChannel struct {
 	follows  map[string]*kCandleFollowSymbol
 	cancel   context.CancelFunc
 	finished chan struct{}
+	// relayed lines read what the replica on duty saw instead of asking the source.
+	relayed bool
 }
 
 func newKCandleFollowChannel(
 	channel vo.LiveFollowChannelVo,
 	follows map[string]*kCandleFollowSymbol,
 	cancel context.CancelFunc,
+	relayed bool,
 ) *kCandleFollowChannel {
 	return &kCandleFollowChannel{
 		channel:  channel,
 		follows:  follows,
 		cancel:   cancel,
 		finished: make(chan struct{}),
+		relayed:  relayed,
 	}
 }
 

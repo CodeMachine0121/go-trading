@@ -521,6 +521,9 @@ func registerRoutes(
 		applicationConfig.LiveFollow.UpdateIntervalCeiling,
 		applicationConfig.LiveFollow.QuietTimeout,
 		applicationConfig.LiveFollow.MaximumRetryDelay,
+		// Off duty, a roster is followed from what the replica on duty saw.
+		persistence.NewLiveKCandleSnapshotRepository(database),
+		applicationConfig.LiveFollow.RelayInterval,
 	)
 
 	kCandleFollowApplication := application.NewKCandleFollowApplication(kCandleFollowService)

@@ -74,7 +74,7 @@ func newContractFollowRouterUnderTest(t *testing.T, repositoryError error) contr
 	spotFollowService := service.NewKCandleFollowService(
 		mocks.NewMockILiveMarketDataProxy(mockController), mocks.NewMockIKCandleRepository(mockController),
 		mocks.NewMockITradingSymbolRepository(mockController), clockProxy,
-		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), time.Nanosecond, time.Hour, 10*time.Millisecond)
+		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}), time.Nanosecond, time.Hour, 10*time.Millisecond, allowingSnapshots(t), time.Second)
 	t.Cleanup(spotFollowService.Stop)
 
 	followController := controller.NewKCandleFollowController(

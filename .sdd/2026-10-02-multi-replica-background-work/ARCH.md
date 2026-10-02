@@ -190,7 +190,7 @@ flowchart TD
   - `ambientTransactionDatabase` 只在被換上的 repository 生效；把別的 repository 拉進 `Atomically` 卻忘了換，寫入會在 transaction 外。以註解與 persistence 測試（rollback 後確認沒寫入）守住。
   - 關機時 `ReleaseLeadership` 在取消 job context 之後才做，因此舊值班的抓取不會與新值班重疊；代價是被取消的那一輪資料由新值班的回補補齊。
 - **實作時發現、刻意留給下一個切片的限制：**
-  - **台股固定跟盤只在值班 replica 上**：台股的即時跟盤名額有上限，不能每台都跟。觀看者連到非值班 replica 時拿到「目前不可用」、退回每分鐘輪詢。要讓每台都能轉播，需要跨 replica 的即時轉送（例如 Postgres `LISTEN/NOTIFY`），另開切片。
+  - **台股即時跟盤轉播**（code review 後補上）：只有值班 replica 向 Fugle 跟 roster；它在 `KCandleFollowService.report` 把 rostered 的每一根即時 K 線寫進 `LiveKCandleSnapshots`。非值班 replica 的 roster job 改呼叫 `RefreshRelayedFollows`，以 `kCandleSnapshotRelay`（實作 `ILiveMarketDataProxy`，每 `LIVE_FOLLOW_RELAY_INTERVAL_SECONDS` 讀一次快照、只在 `ObservedAt` 變新時才送）當線路來源；值班身分改變時兩種線路互換。值班 replica 倒下時快照停止更新，既有的 quiet timeout 讓觀看者收到暫停。選快照表而非 `LISTEN/NOTIFY`，因為後者需要手寫 SQL 與專用連線。
   - **啟動善後改為只掃已不在的 replica**（code review 後補上）：助手回覆與歷史同步的進行中列記錄 `ReplicaName`；`ReplicaHeartbeatJob` 每 10 秒寫 `ReplicaHeartbeats`；`InterruptedWorkApplication` 只把連續三次沒心跳的 replica 留下的列標成中斷——啟動時（自己舊名字下的也算）與值班 replica 每分鐘一次（`InterruptedWorkSweepJob`）。
   - 一輪改成「先組好訊息再記下」：被刪除或重啟中的 bot 仍會多讀一次參考價（以前在組訊息前就放棄），之後在記下時才被擋掉、不寫任何東西。
 - **刻意的例外（code review 後記錄）：**

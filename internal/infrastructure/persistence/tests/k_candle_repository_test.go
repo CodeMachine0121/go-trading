@@ -74,6 +74,8 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 		Delete(&entities.PendingMessage{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).
 		Delete(&entities.ReplicaHeartbeat{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.LiveKCandleSnapshot{}).Error)
 
 	return database
 }

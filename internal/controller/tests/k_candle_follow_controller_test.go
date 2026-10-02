@@ -110,7 +110,7 @@ func newFollowRouterUnderTest(t *testing.T, followError error) followRouterUnder
 	kCandleFollowService := service.NewKCandleFollowService(
 		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		time.Nanosecond, time.Hour, 10*time.Millisecond,
+		time.Nanosecond, time.Hour, 10*time.Millisecond, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(kCandleFollowService.Stop)
 
@@ -244,7 +244,7 @@ func TestWatchingASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
 		mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		time.Nanosecond, time.Hour, 10*time.Millisecond,
+		time.Nanosecond, time.Hour, 10*time.Millisecond, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(kCandleFollowService.Stop)
 
@@ -256,4 +256,15 @@ func TestWatchingASymbolNobodyRegisteredIsAnsweredAsNotFound(t *testing.T) {
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/k-candles/live?symbol=2454", nil))
 
 	assert.Equal(t, http.StatusNotFound, recorder.Code)
+}
+
+// allowingSnapshots is a snapshot store that accepts every live candle passed on and has none to relay.
+func allowingSnapshots(t *testing.T) *mocks.MockILiveKCandleSnapshotRepository {
+	t.Helper()
+
+	snapshotRepository := mocks.NewMockILiveKCandleSnapshotRepository(gomock.NewController(t))
+	snapshotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	snapshotRepository.EXPECT().FindBySymbols(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	return snapshotRepository
 }

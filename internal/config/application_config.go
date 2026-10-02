@@ -99,8 +99,10 @@ type ContractIngestionConfig struct {
 type LiveFollowConfig struct {
 	UpdateIntervalCeiling time.Duration
 	QuietTimeout          time.Duration
-	MaximumRetryDelay     time.Duration
-	MarketDataStreamUrl   string
+	// RelayInterval is how often a replica off duty reads the live candles the replica on duty passed on.
+	RelayInterval       time.Duration
+	MaximumRetryDelay   time.Duration
+	MarketDataStreamUrl string
 	// ContractMarketDataStreamUrl is the only contract-specific live setting; the timing rules are
 	// market-independent.
 	ContractMarketDataStreamUrl string
@@ -451,6 +453,8 @@ func loadAsWritten() ApplicationConfig {
 				"CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE", 300),
 		},
 		LiveFollow: LiveFollowConfig{
+			RelayInterval: time.Duration(
+				positiveIntWithDefault("LIVE_FOLLOW_RELAY_INTERVAL_SECONDS", 2)) * time.Second,
 			UpdateIntervalCeiling: time.Duration(
 				positiveIntWithDefault("LIVE_UPDATE_INTERVAL_CEILING_SECONDS", 10)) * time.Second,
 			QuietTimeout: time.Duration(

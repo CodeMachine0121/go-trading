@@ -150,7 +150,7 @@ func newFollowTestBedWith(
 	// A near-zero ceiling avoids throttling in lifecycle tests, and an hour-long quiet threshold means silence is never taken for death except where a test sets its own.
 	testBed.service = service.NewKCandleFollowService(
 		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
-		followMarketCatalog(), updateIntervalCeiling, quietTimeout, 10*time.Millisecond,
+		followMarketCatalog(), updateIntervalCeiling, quietTimeout, 10*time.Millisecond, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(testBed.service.Stop)
 
@@ -721,7 +721,7 @@ func newTaiwanFollowTestBedWithCatalog(
 
 	testBed.service = service.NewKCandleFollowService(
 		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
-		marketCatalogDomain, time.Nanosecond, time.Hour, time.Hour,
+		marketCatalogDomain, time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(testBed.service.Stop)
 
@@ -949,7 +949,7 @@ func TestWatchingASymbolNobodyRegisteredIsRefused(t *testing.T) {
 		mocks.NewMockILiveMarketDataProxy(mockController),
 		mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy, followMarketCatalog(),
-		time.Nanosecond, time.Hour, time.Hour,
+		time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(followService.Stop)
 
@@ -1055,7 +1055,7 @@ func TestChannelsAreGivenUpBeforeNewOnesAreTaken(t *testing.T) {
 	followService := service.NewKCandleFollowService(
 		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy, followMarketCatalog(),
-		time.Nanosecond, time.Hour, time.Hour,
+		time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(followService.Stop)
 
@@ -1143,7 +1143,7 @@ func TestWatchingFailsWhenTheRegistrationCannotBeRead(t *testing.T) {
 		mocks.NewMockILiveMarketDataProxy(mockController),
 		mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy, followMarketCatalog(),
-		time.Nanosecond, time.Hour, time.Hour,
+		time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(followService.Stop)
 
@@ -1163,7 +1163,7 @@ func TestHandingOutPlacesFailsWhenTheWatchlistCannotBeRead(t *testing.T) {
 		mocks.NewMockILiveMarketDataProxy(mockController),
 		mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy, followMarketCatalog(),
-		time.Nanosecond, time.Hour, time.Hour,
+		time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(followService.Stop)
 
@@ -1201,7 +1201,7 @@ func TestHandingOutPlacesLeavesAViewerDrivenFollowAlone(t *testing.T) {
 	followService := service.NewKCandleFollowService(
 		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy, followMarketCatalog(),
-		time.Nanosecond, time.Hour, time.Hour,
+		time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(followService.Stop)
 	_, watchError := followService.WatchKCandles(t.Context(), "BTCUSDT")
@@ -1301,7 +1301,7 @@ func newSharedChannelTestBed(t *testing.T) *sharedChannelTestBed {
 	// A minimal update ceiling avoids throttling, and a small retry ceiling lets reopens happen within the test.
 	testBed.service = service.NewKCandleFollowService(
 		liveMarketDataProxy, kCandleRepository, tradingSymbolRepository, clockProxy,
-		followMarketCatalog(), time.Nanosecond, time.Hour, 10*time.Millisecond,
+		followMarketCatalog(), time.Nanosecond, time.Hour, 10*time.Millisecond, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(testBed.service.Stop)
 
@@ -1526,7 +1526,7 @@ func TestAChannelThatFellSilentIsLetGoOfBeforeTheNextAttempt(t *testing.T) {
 	followService := service.NewKCandleFollowService(
 		liveMarketDataProxy, mocks.NewMockIKCandleRepository(mockController),
 		tradingSymbolRepository, clockProxy, followMarketCatalog(),
-		time.Nanosecond, 2*time.Millisecond, time.Millisecond,
+		time.Nanosecond, 2*time.Millisecond, time.Millisecond, allowingSnapshots(t), time.Second,
 	)
 	t.Cleanup(followService.Stop)
 
@@ -1656,36 +1656,13 @@ func TestAViewerOfAnUnwatchedSymbolIsToldSoEvenWhenNothingCapsTheMarket(t *testi
 	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
 }
 
-func TestReleasingFixedFollowsEndsEveryRosteredFollow(t *testing.T) {
-	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
-	testBed.watching("2330", "2454")
-	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
-	require.Equal(t, 2, testBed.service.FollowedSymbolCount())
+// allowingSnapshots is a snapshot store that accepts every live candle passed on and has none to relay.
+func allowingSnapshots(t *testing.T) *mocks.MockILiveKCandleSnapshotRepository {
+	t.Helper()
 
-	testBed.service.ReleaseFixedFollows()
+	snapshotRepository := mocks.NewMockILiveKCandleSnapshotRepository(gomock.NewController(t))
+	snapshotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	snapshotRepository.EXPECT().FindBySymbols(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
-	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
-}
-
-func TestReleasingFixedFollowsLeavesAFollowOpenedForAViewer(t *testing.T) {
-	feed := newLiveFeed()
-	testBed := newFollowTestBed(t, func(string) (<-chan vo.LiveKCandleVo, error) {
-		return feed.kCandles, nil
-	})
-	viewer, leave := context.WithCancel(context.Background())
-	defer leave()
-	_, watchError := testBed.service.WatchKCandles(viewer, "BTCUSDT")
-	require.NoError(t, watchError)
-
-	testBed.service.ReleaseFixedFollows()
-
-	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
-}
-
-func TestReleasingFixedFollowsWithNoneOpenChangesNothing(t *testing.T) {
-	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
-
-	testBed.service.ReleaseFixedFollows()
-
-	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+	return snapshotRepository
 }

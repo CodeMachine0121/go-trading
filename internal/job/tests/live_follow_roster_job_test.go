@@ -23,6 +23,9 @@ type rosterJobUnderTest struct {
 	job           *job.LiveFollowRosterJob
 	followService *service.KCandleFollowService
 	rosterReads   chan string
+	// sourceOpened and sourceEnded tick when a line to the source is opened and when it is let go.
+	sourceOpened chan string
+	sourceEnded  chan string
 }
 
 func newRosterJobUnderTest(t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication) rosterJobUnderTest {
@@ -39,9 +42,19 @@ func newRosterJobUnderTestEvery(
 
 	mockController := gomock.NewController(t)
 	rosterReads := make(chan string, 256)
+	sourceOpened := make(chan string, 16)
+	sourceEnded := make(chan string, 16)
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
-	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).
-		Return(make(chan vo.LiveKCandleVo), nil).AnyTimes()
+	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(executionContext context.Context, channel vo.LiveFollowChannelVo) (<-chan vo.LiveKCandleVo, error) {
+			sourceOpened <- channel.Key
+			go func() {
+				<-executionContext.Done()
+				sourceEnded <- channel.Key
+			}()
+
+			return make(chan vo.LiveKCandleVo), nil
+		}).AnyTimes()
 	tradingSymbolRepository := mocks.NewMockITradingSymbolRepository(mockController)
 	tradingSymbolRepository.EXPECT().FindWatched(gomock.Any()).DoAndReturn(
 		func(context.Context) ([]entities.TradingSymbol, error) {
@@ -67,14 +80,17 @@ func newRosterJobUnderTestEvery(
 				SymbolsPerLiveChannel: 25,
 			},
 		}),
-		time.Nanosecond, time.Hour, time.Hour)
+		time.Nanosecond, time.Hour, time.Hour, allowingSnapshots(t), time.Second)
 	t.Cleanup(followService.Stop)
 
 	rosterJob := job.NewLiveFollowRosterJob(
 		application.NewKCandleFollowApplication(followService), jobLeadershipApplication, interval, testInterval)
 	t.Cleanup(rosterJob.Stop)
 
-	return rosterJobUnderTest{job: rosterJob, followService: followService, rosterReads: rosterReads}
+	return rosterJobUnderTest{
+		job: rosterJob, followService: followService, rosterReads: rosterReads,
+		sourceOpened: sourceOpened, sourceEnded: sourceEnded,
+	}
 }
 
 func TestTheRosterJobFollowsTheRosterOnDuty(t *testing.T) {
@@ -87,36 +103,42 @@ func TestTheRosterJobFollowsTheRosterOnDuty(t *testing.T) {
 		time.Second, 5*time.Millisecond)
 }
 
-func TestTheRosterJobLetsGoOfTheRosterWhenThisReplicaLeavesDuty(t *testing.T) {
-	duty := newDuty(t, true)
-	underTest := newRosterJobUnderTest(t, duty.application)
+func TestTheRosterJobRelaysTheRosterOffDutyWithoutAskingTheSource(t *testing.T) {
+	underTest := newRosterJobUnderTest(t, newDuty(t, false).application)
+
 	underTest.job.Start(t.Context())
+
+	assert.Equal(t, "roster", nextFrom(t, underTest.rosterReads))
 	assert.Eventually(t, func() bool { return underTest.followService.FollowedSymbolCount() == 1 },
-		time.Second, 5*time.Millisecond)
-
-	duty.set(t, false)
-
-	assert.Eventually(t, func() bool { return underTest.followService.FollowedSymbolCount() == 0 },
-		time.Second, 5*time.Millisecond)
-	drain(underTest.rosterReads)
-	duty.waitForChecks(t, 3)
-	assert.Empty(t, underTest.rosterReads, "off duty, the roster is not read at all")
+		time.Second, 5*time.Millisecond, "viewers on a replica off duty still have a live follow to join")
+	assert.Empty(t, underTest.sourceOpened, "the source's places belong to the replica on duty")
 }
 
-func TestTheRosterJobRefreshesOnlyEveryIntervalButLetsGoAtTheNextDutyCheck(t *testing.T) {
+func TestTheRosterJobLetsGoOfTheSourceAtTheNextDutyCheckAfterLeavingDuty(t *testing.T) {
 	duty := newDuty(t, true)
 	underTest := newRosterJobUnderTestEvery(t, duty.application, time.Hour)
 	underTest.job.Start(t.Context())
-	assert.Equal(t, "roster", nextFrom(t, underTest.rosterReads))
+	openedKey := nextFrom(t, underTest.sourceOpened)
 
 	duty.waitForChecks(t, 3)
+	drain(underTest.rosterReads)
 	assert.Empty(t, underTest.rosterReads, "within the interval the roster is not read again")
 
 	duty.set(t, false)
-	assert.Eventually(t, func() bool { return underTest.followService.FollowedSymbolCount() == 0 },
-		time.Second, 5*time.Millisecond, "leaving duty lets go of the roster at the next duty check, not the next interval")
+	assert.Equal(t, openedKey, nextFrom(t, underTest.sourceEnded),
+		"leaving duty lets go of the source at the next duty check, not the next interval")
 
 	duty.set(t, true)
-	assert.Equal(t, "roster", nextFrom(t, underTest.rosterReads),
-		"coming back on duty follows the roster at once")
+	assert.Equal(t, openedKey, nextFrom(t, underTest.sourceOpened), "coming back on duty follows the source at once")
+}
+
+// allowingSnapshots is a snapshot store that accepts every live candle passed on and has none to relay.
+func allowingSnapshots(t *testing.T) *mocks.MockILiveKCandleSnapshotRepository {
+	t.Helper()
+
+	snapshotRepository := mocks.NewMockILiveKCandleSnapshotRepository(gomock.NewController(t))
+	snapshotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	snapshotRepository.EXPECT().FindBySymbols(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	return snapshotRepository
 }
