@@ -34,7 +34,8 @@ func (interruptedWorkApplication *InterruptedWorkApplication) BeatHeartbeat(exec
 	return interruptedWorkApplication.replicaPresenceService.Beat(executionContext)
 }
 
-// FailWorkLeftByLastRun runs at startup: anything still running under this replica's own name was left by its previous run, so only other live replicas are spared.
+// FailWorkLeftByLastRun runs at startup and spares only other live replicas: with a fixed REPLICA_NAME, anything under this replica's own name was left by its previous run.
+// With the default name, which changes on every start, the previous run looks like another replica until it misses three beats; the sweep on duty catches it then.
 func (interruptedWorkApplication *InterruptedWorkApplication) FailWorkLeftByLastRun(
 	executionContext context.Context,
 ) (dto.InterruptedWorkDto, error) {

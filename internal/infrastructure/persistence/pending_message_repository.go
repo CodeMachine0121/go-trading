@@ -45,6 +45,7 @@ func (pendingMessageRepository *PendingMessageRepository) FindDispatchCandidates
 		clause.Eq{Column: "status", Value: string(vo.PendingMessageSending)},
 	)
 
+	// MIN(id) per recipient is an aggregate GORM has no typed form for; the fragment names columns only and takes no input, like COALESCE(MAX(...)) elsewhere here.
 	headIDs := []uint{}
 	if headError := pendingMessageRepository.database.within(executionContext).
 		Model(&entities.PendingMessage{}).

@@ -12,10 +12,6 @@ import (
 // LiveFollowRosterInterval matches the K candle length so a newly opened market waits at most one candle to be followed.
 const LiveFollowRosterInterval = 5 * time.Minute
 
-// LiveFollowRosterDutyCheckInterval is how often the job looks at the duty between refreshes, matching the duty's safety margin:
-// a replica that leaves duty lets go of the places within it, before the next replica can take duty and the places.
-const LiveFollowRosterDutyCheckInterval = 5 * time.Second
-
 // LiveFollowRosterJob is separate from ingestion so a slow ingestion round cannot delay following a newly opened market.
 // Only the replica on duty follows the roster from the source, since a market caps how many symbols can be followed at once; the others relay what it saw.
 type LiveFollowRosterJob struct {

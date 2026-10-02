@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ type relayTestBed struct {
 	sourceAsked    chan string
 	sourceEnded    chan string
 	savedSnapshots chan entities.LiveKCandleSnapshot
+	trimmedBefore  chan time.Time
 	mutex          sync.Mutex
 	snapshots      []entities.LiveKCandleSnapshot
 }
@@ -44,6 +46,7 @@ func newRelayTestBedGoingQuietAfter(t *testing.T, quietTimeout time.Duration) *r
 		sourceAsked:    make(chan string, 16),
 		sourceEnded:    make(chan string, 16),
 		savedSnapshots: make(chan entities.LiveKCandleSnapshot, 16),
+		trimmedBefore:  make(chan time.Time, 16),
 	}
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
 	liveMarketDataProxy.EXPECT().FollowKCandles(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -63,12 +66,29 @@ func newRelayTestBedGoingQuietAfter(t *testing.T, quietTimeout time.Duration) *r
 
 			return nil
 		}).AnyTimes()
-	snapshotRepository.EXPECT().FindBySymbols(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(context.Context, []string) ([]entities.LiveKCandleSnapshot, error) {
+	// Answers as the table would: only sightings after since, oldest minute first.
+	snapshotRepository.EXPECT().FindObservedAfter(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ []string, since time.Time) ([]entities.LiveKCandleSnapshot, error) {
 			testBed.mutex.Lock()
 			defer testBed.mutex.Unlock()
 
-			return append([]entities.LiveKCandleSnapshot{}, testBed.snapshots...), nil
+			found := []entities.LiveKCandleSnapshot{}
+			for _, snapshot := range testBed.snapshots {
+				if snapshot.ObservedAt.After(since) {
+					found = append(found, snapshot)
+				}
+			}
+			slices.SortStableFunc(found, func(first, second entities.LiveKCandleSnapshot) int {
+				return first.OpenTime.Compare(second.OpenTime)
+			})
+
+			return found, nil
+		}).AnyTimes()
+	snapshotRepository.EXPECT().DeleteObservedBefore(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, cutoff time.Time) error {
+			testBed.trimmedBefore <- cutoff
+
+			return nil
 		}).AnyTimes()
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 	kCandleRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(entities.KCandle{}, nil).AnyTimes()
@@ -97,15 +117,25 @@ func newRelayTestBedGoingQuietAfter(t *testing.T, quietTimeout time.Duration) *r
 }
 
 func (testBed *relayTestBed) theReplicaOnDutySaw(closePrice string, observedAt time.Time) {
+	testBed.theReplicaOnDutySawMinute(time.Date(2026, 9, 8, 1, 59, 0, 0, time.UTC), closePrice, false, observedAt)
+}
+
+// theReplicaOnDutySawMinute stores what the replica on duty saw of one minute, replacing that minute's earlier sighting as the table does.
+func (testBed *relayTestBed) theReplicaOnDutySawMinute(
+	openTime time.Time, closePrice string, closed bool, observedAt time.Time,
+) {
 	testBed.mutex.Lock()
 	defer testBed.mutex.Unlock()
 
-	testBed.snapshots = []entities.LiveKCandleSnapshot{{
-		Symbol: "2330", OpenTime: time.Date(2026, 9, 8, 1, 59, 0, 0, time.UTC),
+	testBed.snapshots = slices.DeleteFunc(testBed.snapshots, func(snapshot entities.LiveKCandleSnapshot) bool {
+		return snapshot.OpenTime.Equal(openTime)
+	})
+	testBed.snapshots = append(testBed.snapshots, entities.LiveKCandleSnapshot{
+		Symbol: "2330", OpenTime: openTime,
 		Open: decimal.RequireFromString("1000"), High: decimal.RequireFromString("1010"),
 		Low: decimal.RequireFromString("990"), Close: decimal.RequireFromString(closePrice),
-		Volume: decimal.RequireFromString("12"), ObservedAt: observedAt,
-	}}
+		Volume: decimal.RequireFromString("12"), Closed: closed, ObservedAt: observedAt,
+	})
 }
 
 func taiwanLiveKCandle(closePrice string) vo.LiveKCandleVo {
@@ -226,4 +256,75 @@ func TestARelayedViewerIsToldWhenTheReplicaOnDutyGoesSilent(t *testing.T) {
 			t.Fatal("a relay that kept repeating an old candle hid that the replica on duty went silent")
 		}
 	}
+}
+
+func TestARelayedViewerSeesAMinuteCloseEvenWhenTheNextOneFollowsAtOnce(t *testing.T) {
+	testBed := newRelayTestBed(t)
+	seenAt := time.Date(2026, 9, 8, 2, 0, 0, 0, time.UTC)
+	require.NoError(t, testBed.service.RefreshRelayedFollows(t.Context()))
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+	require.NoError(t, watchError)
+
+	// The source reports the closed minute and the next one in the same breath.
+	testBed.theReplicaOnDutySawMinute(time.Date(2026, 9, 8, 1, 59, 0, 0, time.UTC), "1007", true, seenAt)
+	testBed.theReplicaOnDutySawMinute(time.Date(2026, 9, 8, 2, 0, 0, 0, time.UTC), "1008", false,
+		seenAt.Add(time.Millisecond))
+
+	closing := firstCandleUpdateFrom(t, updates)
+	assert.Equal(t, dto.KCandleFollowStatusClosed, closing.Status)
+	assert.Equal(t, "1007", closing.KCandle.Close.String())
+}
+
+func TestARelayNeverPassesOnACandleFromBeforeAnOutageAsLive(t *testing.T) {
+	testBed := newRelayTestBedGoingQuietAfter(t, 50*time.Millisecond)
+	// Seen an hour ago, as when the replica on duty died before this replica came up.
+	testBed.theReplicaOnDutySaw("1007", time.Date(2026, 9, 8, 1, 0, 0, 0, time.UTC))
+	require.NoError(t, testBed.service.RefreshRelayedFollows(t.Context()))
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+	require.NoError(t, watchError)
+
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case update := <-updates:
+			assert.NotEqual(t, dto.KCandleFollowStatusForming, update.Status, "an old candle was passed on as live")
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestARelayPassesEachSightingOnOnlyOnce(t *testing.T) {
+	testBed := newRelayTestBed(t)
+	testBed.theReplicaOnDutySaw("1007", time.Date(2026, 9, 8, 2, 0, 0, 0, time.UTC))
+	require.NoError(t, testBed.service.RefreshRelayedFollows(t.Context()))
+	updates, watchError := testBed.service.WatchKCandles(t.Context(), "2330")
+	require.NoError(t, watchError)
+	firstCandleUpdateFrom(t, updates)
+
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case update := <-updates:
+			assert.NotEqual(t, dto.KCandleFollowStatusForming, update.Status, "the same sighting was passed on again")
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestTheReplicaOnDutyDropsOldSnapshotsAsEachMinuteCloses(t *testing.T) {
+	testBed := newRelayTestBed(t)
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	nextOf(t, testBed.sourceAsked)
+
+	closing := taiwanLiveKCandle("1007")
+	closing.Closed = true
+	testBed.sourceFeed <- closing
+
+	nextOf(t, testBed.savedSnapshots)
+	cutoff := nextOf(t, testBed.trimmedBefore)
+	assert.True(t, cutoff.Before(taipeiFollowAt(t, "2026-09-08T09:51:00+08:00")),
+		"only snapshots older than ten minutes are dropped")
+	assert.True(t, cutoff.After(taipeiFollowAt(t, "2026-09-08T09:49:00+08:00")))
 }

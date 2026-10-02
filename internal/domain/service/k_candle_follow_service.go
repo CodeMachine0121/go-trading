@@ -14,6 +14,9 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
+// liveKCandleSnapshotRetention keeps snapshots long enough for a relay that reconnected after a short outage, and no longer.
+const liveKCandleSnapshotRetention = 10 * time.Minute
+
 // ErrKCandleFollowStopped lets callers tell "shutting down" apart from "this market cannot be followed".
 var ErrKCandleFollowStopped = errors.New("k candle follow stopped")
 
@@ -61,7 +64,7 @@ func NewKCandleFollowService(
 	kCandleFollowService.feed = newKCandleFollowFeed(
 		liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.report)
 	kCandleFollowService.relayFeed = newKCandleFollowFeed(
-		kCandleSnapshotRelay{liveKCandleSnapshotRepository: liveKCandleSnapshotRepository, interval: relayInterval},
+		newKCandleSnapshotRelay(liveKCandleSnapshotRepository, clockProxy, relayInterval, quietTimeout),
 		clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.reportRelayed)
 
 	return kCandleFollowService
@@ -400,6 +403,13 @@ func (kCandleFollowService *KCandleFollowService) report(
 			domains.NewLiveKCandleSnapshotDomain(liveKCandle, now).ToEntity()); saveError != nil {
 			log.Printf("live k candle follow: %s could not be passed on to the other replicas: %v",
 				liveKCandle.Symbol, saveError)
+		}
+		// Trimmed as each minute closes, so the table holds only what a relay could still be reading.
+		if liveKCandle.Closed {
+			if trimError := kCandleFollowService.liveKCandleSnapshotRepository.DeleteObservedBefore(
+				executionContext, now.Add(-liveKCandleSnapshotRetention)); trimError != nil {
+				log.Printf("live k candle follow: old snapshots could not be dropped: %v", trimError)
+			}
 		}
 	}
 

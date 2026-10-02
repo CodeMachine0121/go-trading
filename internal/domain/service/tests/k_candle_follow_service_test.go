@@ -1662,7 +1662,8 @@ func allowingSnapshots(t *testing.T) *mocks.MockILiveKCandleSnapshotRepository {
 
 	snapshotRepository := mocks.NewMockILiveKCandleSnapshotRepository(gomock.NewController(t))
 	snapshotRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	snapshotRepository.EXPECT().FindBySymbols(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	snapshotRepository.EXPECT().FindObservedAfter(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	snapshotRepository.EXPECT().DeleteObservedBefore(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	return snapshotRepository
 }

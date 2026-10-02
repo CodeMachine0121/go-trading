@@ -900,7 +900,9 @@ func backgroundJobsFor(
 	// Its own job so a stalled ingestion round cannot delay a market that has just opened.
 	liveFollowRosterJob := job.NewLiveFollowRosterJob(
 		kCandleFollowApplication, jobLeadershipApplication, job.LiveFollowRosterInterval,
-		job.LiveFollowRosterDutyCheckInterval)
+		// Half the duty's safety margin, so a replica leaving duty lets go of the places, refresh included,
+		// before the next replica can take the duty and the places.
+		applicationConfig.JobLeadership.SafetyMargin/2)
 
 	// One scan over stored bot state rather than a goroutine per bot, so a restart loses at most one interval.
 	strategyBotScanJob := job.NewStrategyBotScanJob(

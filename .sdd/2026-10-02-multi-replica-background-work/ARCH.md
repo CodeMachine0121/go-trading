@@ -25,7 +25,7 @@
 | `domain/models/vo` | **Add** `DeliveryResultVo`、`PendingMessageStatusVo`、`PendingMessageKindVo` | 寄送結果帶 Telegram 指定的等待；待送訊息狀態與種類 |
 | `domain/models/dto` | **Add** `PendingMessageDto`、`PendingMessageWriteDto`、`JobLeadershipChangeDto`；**Modify** `StrategyBotRoundOutcomeDto`、`StrategyBotRoundDto` | outcome 改帶整個 `Round`（記下時才印 Run N）；round 加 `RunNumber` |
 | `domain/interface` | **Add** `ITransactionRepository`、`IJobLeadershipLeaseRepository`、`IPendingMessageRepository`；**Modify** `IStrategyBotRepository`、`IStrategyBotRunRecordRepository`、`IMessageDeliveryProxy` | 原子縫隙；租約；outbox；認領 / 鎖讀 / 釋放；`Append` 回傳輪次編號；`Deliver` 回傳 `DeliveryResultVo` |
-| `domain/service` | **Add** `JobLeadershipService`、`PendingMessageService`；**Modify** `StrategyBotService`、`TelegramDeliveryService`、`KCandleFollowService` | 值班狀態；寄送編排；`RecordRound` 改為單一 transaction 並寫 outbox、`ClaimDueStrategyBots` / `ClaimStrategyBot`；`DeliverPendingMessage`（取代 `SendMessage`；`ReadDeliveryFailure`、`WriteRoundMessage` 移除）；`ReleaseFixedFollows` |
+| `domain/service` | **Add** `JobLeadershipService`、`PendingMessageService`；**Modify** `StrategyBotService`、`TelegramDeliveryService`、`KCandleFollowService` | 值班狀態；寄送編排；`RecordRound` 改為單一 transaction 並寫 outbox、`ClaimDueStrategyBots` / `ClaimStrategyBot`；`DeliverPendingMessage`（取代 `SendMessage`；`ReadDeliveryFailure`、`WriteRoundMessage` 移除）；`RefreshRelayedFollows` |
 | `application` | **Add** `JobLeadershipApplication`、`PendingMessageDispatchApplication`；**Modify** `StrategyBotRunApplication`、`StrategyBotApplication`、`KCandleFollowApplication`；**Remove** `StrategyBotRoundGuard` | 一輪不再直接送、改認領；生命週期通知改 enqueue |
 | `job` | **Add** `JobLeadershipLeaseJob`、`PendingMessageDispatchJob`；**Modify** 7 個值班 job | 值班 job 每輪開頭一行 `IsLeader()` |
 | `infrastructure/persistence` | **Add** `TransactionRepository`、`JobLeadershipLeaseRepository`、`PendingMessageRepository`、`ambientTransactionDatabase`；**Modify** `StrategyBotRepository`、`StrategyBotRunRecordRepository`、`SchemaMigrator` | 見 §4 |
@@ -51,10 +51,10 @@
 | `JobLeadershipApplication` | Application | 對 job 的唯一入口：`RenewLeadership`、`IsLeader`、`ReleaseLeadership` | `JobLeadershipService` | US-01 |
 | `JobLeadershipLeaseJob` | Job | 每 `RenewInterval` 呼叫 `RenewLeadership`，記成為 / 失去值班的 log。**Stop 不交還**（交還由 `serve` 在背景工作全部放手之後做，見 §5） | `JobLeadershipApplication` | US-01 |
 | `PendingMessage` | Entity | 待送訊息：`ID`、`StrategyBotID`（FK、OnDelete CASCADE）、`RecipientUserID`、`Kind`、`RoundDueAt *time.Time`（`uniqueIndex(strategy_bot_id, round_due_at)`；生命週期訊息為 NULL、Postgres 視 NULL 互異）、`Signal`、`Text`、`Status`、`AttemptCount`、`NextAttemptAt`、`ClaimedBy`、`ClaimedUntil *time.Time`、`ExpiresAt`、`SettledAt *time.Time`、`AbandonReason`、`CreatedAt`；index `(status, recipient_user_id, id)` 與 `(settled_at)` | — | US-03、US-04、US-05 |
-| `IPendingMessageRepository` / `PendingMessageRepository` | Interface / Repository | `Enqueue`（參與 transaction；唯一鍵衝突視為已存在、不報錯）；`FindUnsettled(ctx, limit)`（依 id 升冪）；`Claim(ctx, id, claimant, now, claimedUntil) (bool, error)`（條件更新：status 可寄且 next_attempt_at ≤ now，或寄送中且 claimed_until < now）；`MarkSent` / `Reschedule` / `Abandon`（皆帶 `claimed_by = claimant` 守門）；`DeleteSettledBefore(ctx, cutoff)` | `ambientTransactionDatabase` | US-03、US-04、US-05 |
+| `IPendingMessageRepository` / `PendingMessageRepository` | Interface / Repository | `Enqueue`（參與 transaction；唯一鍵衝突視為已存在、不報錯）；`FindDispatchCandidates(ctx, moment, limit)`（每位收件人最舊一則＋已過期者，依 id 升冪）；`Claim(ctx, id, claimant, now, claimedUntil) (bool, error)`（條件更新：status 可寄且 next_attempt_at ≤ now，或寄送中且 claimed_until < now）；`MarkSent` / `Reschedule` / `Abandon`（皆帶 `claimed_by = claimant` 守門）；`DeleteSettledBefore(ctx, cutoff)` | `ambientTransactionDatabase` | US-03、US-04、US-05 |
 | `PendingMessageDomain` | Domain Model | 一則訊息的規則：`IsExpiredAt(now)`；`IsDispatchableAt(now)`；`AfterAttempt(result, now)` → `sent` / `retry(nextAttemptAt)`（2s 起加倍、封頂 5m，`RetryAfter` 較長時取它）/ `refused(haltReason)`；`ForgetsSignalWhenAbandoned()`（只有輪次訊息）。建構子把非法 status / kind 正規化為安全值 | `PendingMessageStatusVo`、`DeliveryResultVo` | US-04、US-05 |
 | `PendingMessageQueueDomain` | Domain Model | 由依 id 排序的未結訊息取出**每位收件人的第一則**，再濾出此刻可寄者——後一則永遠等前一則結清 | `PendingMessageDomain` | 「同一位擁有者的訊息依產生順序送達」「機器人被停止後已產生的訊息仍會寄出」 |
-| `PendingMessageService` | Domain Service | `EnqueueLifecycleMessage(ctx, writeDto)`；`DispatchPendingMessages(ctx) (int, error)`：修剪 7 天前已結 → `FindUnsettled` → queue 取 head → 併發（上限 `MaxConcurrentDeliveries`）逐則 `Claim` → 過期就忘記信號再作廢 → 否則 `TelegramDeliveryService.DeliverPendingMessage` → `AfterAttempt` → 拒收時在 transaction 內鎖讀 bot、執行中才 `Halt` → 結清 | `IPendingMessageRepository`、`IStrategyBotRepository`、`ITransactionRepository`、`TelegramDeliveryService`、`IClockProxy` | US-04、US-05 |
+| `PendingMessageService` | Domain Service | `EnqueueLifecycleMessage(ctx, writeDto)`；`DispatchPendingMessages(ctx) (int, error)`：每分鐘至多一次修剪 7 天前已結 → `FindDispatchCandidates` → queue 取 head（`DueAt`） → 併發（上限 `MaxConcurrentDeliveries`）逐則 `Claim` → 過期就忘記信號再作廢 → 否則 `TelegramDeliveryService.DeliverPendingMessage` → `AfterAttempt` → 拒收時在 transaction 內鎖讀 bot、執行中才 `Halt` → 結清 | `IPendingMessageRepository`、`IStrategyBotRepository`、`ITransactionRepository`、`TelegramDeliveryService`、`IClockProxy` | US-04、US-05 |
 | `PendingMessageDispatchApplication` | Application | `DispatchPendingMessages(ctx)` | `PendingMessageService` | US-04、US-05 |
 | `PendingMessageDispatchJob` | Job | 每 `DispatchInterval`（2s）呼叫一次；Stop 讓手上那一批寄完 | `PendingMessageDispatchApplication` | US-04、US-05 |
 | `DeliveryResultVo` | VO | `FailureReason DeliveryFailureReasonVo` + `RetryAfter time.Duration`（只有 Telegram 429 會給） | — | 「Telegram 要求放慢時照它說的等」 |
@@ -77,8 +77,8 @@
 | `StrategyBotApplication` | 啟動 / 停止並通知 | `announce` 改呼叫 `PendingMessageService.EnqueueLifecycleMessage`（期限 1h），失敗記 log 不擋操作（與現在「通知失敗不影響已發生的動作」一致） |
 | `TelegramDeliveryService` | 投遞設定、送訊息 | `SendMessage` → `DeliverPendingMessage(ctx, userID, text) (DeliveryResultVo, error)`；`SendTestMessage` 讀 `.FailureReason` |
 | `IMessageDeliveryProxy` / `TelegramMessageDeliveryProxy` | 送 Telegram | `Deliver` 回傳 `DeliveryResultVo`；429 → `Unreachable` + `RetryAfter`（測試訊息仍只看到四種原因） |
-| `KCandleFollowService` / `KCandleFollowApplication` | 台股固定跟盤 | 新增 `ReleaseFixedFollows()`：以空 roster 走同一條結束路徑；與 `RefreshFixedFollows` 共用私有 `retireUnwantedChannels`（兩個 public 共用才抽） |
-| 值班 job：`KCandleIngestionJob`、`ContractKCandleIngestionJob`、`LiveFollowRosterJob`、`ContractFundingRateIngestionJob`、`ContractPositionStatisticIngestionJob`、`ContractTradingSpecificationRefreshJob`、`ContractMaintenanceMarginTierRefreshJob` | 定時抓取 | 每輪開頭 `if !jobLeadershipApplication.IsLeader() { return }`。兩個 K 線 job：**不在值班時記下「下次值班要先回補」**，重新值班的第一輪跑 `RunBackfill`（只補缺口）而非 `RunScheduledRound`——交接期間的缺口靠它補齊。`LiveFollowRosterJob` 不在值班時改呼叫 `ReleaseFixedFollows` |
+| `KCandleFollowService` / `KCandleFollowApplication` | 台股固定跟盤 | 新增 `RefreshRelayedFollows(ctx)`：同一份 roster 改由快照轉播當線路來源；與 `RefreshFixedFollows` 共用私有 `followRoster`（兩個 public 共用才抽），身分改變時兩種線路互換 |
+| 值班 job：`KCandleIngestionJob`、`ContractKCandleIngestionJob`、`LiveFollowRosterJob`、`ContractFundingRateIngestionJob`、`ContractPositionStatisticIngestionJob`、`ContractTradingSpecificationRefreshJob`、`ContractMaintenanceMarginTierRefreshJob` | 定時抓取 | 每輪開頭 `if !jobLeadershipApplication.IsLeader() { return }`。兩個 K 線 job：**不在值班時記下「下次值班要先回補」**，重新值班的第一輪跑 `RunBackfill`（只補缺口）而非 `RunScheduledRound`——交接期間的缺口靠它補齊。`LiveFollowRosterJob` 不在值班時改呼叫 `RefreshRelayedFollows`（轉播） |
 | `repeatingRound` | 共用輪詢迴圈 | 不變；四個 contract job 把 `IsLeader` 檢查放進傳給它的 round 函式 |
 | `StrategyBotScanJob` | 定時掃描 | 不變（認領在 application 內） |
 | `cmd/server/dependencies.go` | 組裝 | 組新 repository / service / application / job；`backgroundJobsFor` 把 `JobLeadershipLeaseJob` 放第一個、`PendingMessageDispatchJob` 與 bot 掃描並列；回傳 `jobLeadershipApplication` 給 `serve` |
@@ -119,7 +119,7 @@ flowchart TD
 
 **一輪的時序**（每個 replica 都一樣）：`ClaimDue`（SKIP LOCKED + 寫認領）→ 算訊號 → `Atomically{ 鎖讀 bot → CAS → 更新 run state → Append(取 RunNumber) → Enqueue 訊息 → 釋放認領 }`。
 
-**寄送的時序**：`FindUnsettled` → 每收件人取 head → `Claim`（條件更新）→ `Deliver` → `MarkSent` / `Reschedule` / `Abandon(+Halt)`。寄到但 `MarkSent` 前倒下 → `claimed_until` 過後別台重寄（至少一次）。
+**寄送的時序**：`FindDispatchCandidates` → 每收件人取 head（加上已過期者） → `Claim`（條件更新）→ `Deliver` → `MarkSent` / `Reschedule` / `Abandon(+Halt)`。寄到但 `MarkSent` 前倒下 → `claimed_until` 過後別台重寄（至少一次）。
 
 ---
 
@@ -134,7 +134,7 @@ flowchart TD
 - **Patterns applied & why:** Transactional Outbox（訊息與狀態原子、寄送與判斷解耦）；Lease-based leader election（不依賴 k8s API / RBAC，只依賴既有 Postgres）；`SELECT … FOR UPDATE SKIP LOCKED` 認領（多 replica 自然分攤 bot）；條件更新當樂觀鎖（郵差搶單、手動跑一輪認領）。
 - **Do not hardcode:** 租期 / 續期 / 提早量、寄送檢查間隔 / 寄送逾時 / 同時寄送上限、replica 名字——全部在 config。送達期限下限 5m、生命週期 1h、重試 2s→5m、保留 7 天屬業務規則，放 `PendingMessageDomain` 常數（同 `strategyBotRunningLimit` 的慣例）。
 - **Known debt / deferred:**
-  - 郵差每次讀至多 500 則未結訊息再於記憶體取 head：一位收件人堆積上百則時，排在後面的別人會晚一輪。訊號：`FindUnsettled` 經常回滿 500。屆時改成 per-recipient `DISTINCT ON` 查詢。
+  - 郵差每次只讀每位收件人的第一則與已過期者（至多 500）；只有同時有 500 位以上收件人在等時才會晚一輪。
   - 值班交接後，間隔長的值班 job（例如每小時的資金費率）要等它下一個 tick 才在新值班 replica 上跑。資金費率每 8 小時結算一次，延遲一小時可接受。
   - 時間一律以 replica 時鐘（`IClockProxy`）為準，不讀 DB 的 `now()`（避免手寫 SQL 片段）；k8s 節點有 NTP，秒級以下的偏差由 5 秒保守提早量吸收。
 
@@ -150,7 +150,7 @@ flowchart TD
 | 保守提早量之內仍在值班 | 同上 |
 | 值班分身倒下後租期到期由別台接手 | `Acquire`（`expires_at < now`） |
 | 值班分身正常關機時立刻交還 | `JobLeadershipLeaseRepository.Release` + `serve` 關機順序 |
-| 失去值班身分時放下台股固定跟盤 | `LiveFollowRosterJob` + `KCandleFollowService.ReleaseFixedFollows` |
+| 失去值班身分時放下台股固定跟盤 | `LiveFollowRosterJob` + `KCandleFollowService.RefreshRelayedFollows`（放下來源、改轉播） |
 | 只有一台分身時行為與現在相同 | `serve` 啟動前 `RenewLeadership` + 值班 job 首輪照常（K 線首輪即 `RunBackfill`） |
 | 多台分身同時找到期機器人時各自認領不同的 | `StrategyBotRepository.ClaimDue`（`FOR UPDATE SKIP LOCKED` + 認領欄位） |
 | 已被認領且未逾期的機器人會被跳過 | `ClaimDue` 過濾 `round_claimed_until` |

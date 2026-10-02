@@ -53,16 +53,16 @@
 | D3 | 啟動時在值班 | K 線 job 第一輪 | 跑回補（`RunBackfill`），不跑定時輪 | 只有一台時行為相同 |
 | D4 | 啟動時不在值班 → 之後成為值班 | K 線 job 成為值班後的第一個 tick | 跑**回補**（補交接缺口），下一個 tick 跑定時輪 | 接手時先回補 |
 | D5 | 在值班 → 失去 → 再成為值班 | K 線 job | 再次成為值班的第一個 tick 跑回補 | 同上 |
-| D6 | 不在值班 | 跟盤 roster job 一輪 | 呼叫 `ReleaseFixedFollows`，不呼叫 `RefreshFixedFollows` | 失去值班時放下台股固定跟盤 |
+| D6 | 不在值班 | 跟盤 roster job 一輪 | 呼叫 `RefreshRelayedFollows`（轉播快照），不向來源要 | 失去值班時放下來源名額、改為轉播 |
 | D7 | 在值班 | 跟盤 roster job 一輪 | 呼叫 `RefreshFixedFollows` | 照常 |
 | D8 | 合約 K 線 job | D3–D5 同樣成立 | 同上 | 值班工作清單 |
 
-## E · `KCandleFollowService.ReleaseFixedFollows`
+## E · `KCandleFollowService.RefreshRelayedFollows`（code review 後由放下改為轉播）
 
 | # | Given | When | Then（預期） | 出處 |
 | :-- | :--- | :--- | :--- | :--- |
-| E1 | 正在固定跟盤 2330 | `ReleaseFixedFollows` | 那條跟盤結束；`FollowedSymbolCount()` = 0 | 放下全部 |
-| E2 | 沒有任何跟盤 | `ReleaseFixedFollows` | 不出錯，`FollowedSymbolCount()` = 0 | 防禦 |
+| E1 | 正在向來源跟盤 2330 | `RefreshRelayedFollows` | 來源那條線結束；改由快照轉播，`FollowedSymbolCount()` 仍為 1 | 失去值班放下名額 |
+| E2 | 值班分身寫下 2330 的快照 | 轉播的觀看者 | 收到同一根 K 線；收盤的那根不會被下一根蓋掉；舊快照不當成即時 | 每台分身都看得到即時更新 |
 
 ## F · 輪次認領（`StrategyBotRepository`，真 Postgres）
 
@@ -161,7 +161,7 @@
 | L3 | 一則 ready、nextAttemptAt ≤ now | A `Claim` 再 B `Claim` | A true、B false | 一則同時只被一台拿去寄 |
 | L4 | A claim 到 `T+2m` | B 於 `T+3m` `Claim` | true | 寄送中逾時重寄 |
 | L5 | A claim | B `MarkSent(id, B)` | 不生效，仍為寄送中 | 只有拿著的人能結清 |
-| L6 | A claim | A `MarkSent` | 狀態 sent，`FindUnsettled` 不再回它 | 寄出只寄一次 |
+| L6 | A claim | A `MarkSent` | 狀態 sent，`FindDispatchCandidates` 不再回它 | 寄出只寄一次 |
 | L7 | 一則 sent 於 `T−8d`、一則 abandoned 於 `T−6d` | `DeleteSettledBefore(T−7d)` | 只刪前者 | 保留 7 天 |
 | L8 | bot X 有一則待送訊息 | 刪除 X | 該則消失 | 機器人被刪掉後訊息作廢 |
 | L9 | 在 `Atomically` 內 Enqueue 後 work 回 error | — | 沒有任何訊息留下 | 記下途中出錯什麼都沒改變 |

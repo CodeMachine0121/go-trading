@@ -12,6 +12,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	gomock "go.uber.org/mock/gomock"
@@ -41,19 +42,33 @@ func (m *MockILiveKCandleSnapshotRepository) EXPECT() *MockILiveKCandleSnapshotR
 	return m.recorder
 }
 
-// FindBySymbols mocks base method.
-func (m *MockILiveKCandleSnapshotRepository) FindBySymbols(executionContext context.Context, symbols []string) ([]entities.LiveKCandleSnapshot, error) {
+// DeleteObservedBefore mocks base method.
+func (m *MockILiveKCandleSnapshotRepository) DeleteObservedBefore(executionContext context.Context, cutoff time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindBySymbols", executionContext, symbols)
+	ret := m.ctrl.Call(m, "DeleteObservedBefore", executionContext, cutoff)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteObservedBefore indicates an expected call of DeleteObservedBefore.
+func (mr *MockILiveKCandleSnapshotRepositoryMockRecorder) DeleteObservedBefore(executionContext, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteObservedBefore", reflect.TypeOf((*MockILiveKCandleSnapshotRepository)(nil).DeleteObservedBefore), executionContext, cutoff)
+}
+
+// FindObservedAfter mocks base method.
+func (m *MockILiveKCandleSnapshotRepository) FindObservedAfter(executionContext context.Context, symbols []string, since time.Time) ([]entities.LiveKCandleSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindObservedAfter", executionContext, symbols, since)
 	ret0, _ := ret[0].([]entities.LiveKCandleSnapshot)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindBySymbols indicates an expected call of FindBySymbols.
-func (mr *MockILiveKCandleSnapshotRepositoryMockRecorder) FindBySymbols(executionContext, symbols any) *gomock.Call {
+// FindObservedAfter indicates an expected call of FindObservedAfter.
+func (mr *MockILiveKCandleSnapshotRepositoryMockRecorder) FindObservedAfter(executionContext, symbols, since any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindBySymbols", reflect.TypeOf((*MockILiveKCandleSnapshotRepository)(nil).FindBySymbols), executionContext, symbols)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindObservedAfter", reflect.TypeOf((*MockILiveKCandleSnapshotRepository)(nil).FindObservedAfter), executionContext, symbols, since)
 }
 
 // Save mocks base method.
