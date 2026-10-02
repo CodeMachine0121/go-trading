@@ -8,9 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/config"
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 	"github.com/CodeMachine0121/go-trading/internal/job"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +45,7 @@ func TestServeStopsTheJobsAndReturnsWhenShutdownIsSignalled(t *testing.T) {
 			listeningOnAnyFreePort(),
 			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}),
 			func() { liveFollowsStopped <- struct{}{} },
+			nil,
 		)
 	}()
 
@@ -70,7 +74,7 @@ func TestServeReportsAnAddressItCannotListenOn(t *testing.T) {
 		Addr:              takenListener.Addr().String(),
 		Handler:           http.NewServeMux(),
 		ReadHeaderTimeout: readHeaderTimeout,
-	}, job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}), func() {})
+	}, job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}), func() {}, nil)
 
 	require.Error(t, serveError)
 	assert.Contains(t, serveError.Error(), takenListener.Addr().String())
@@ -85,6 +89,7 @@ func TestServeWithNoBackgroundJobsStillShutsDown(t *testing.T) {
 			listeningOnAnyFreePort(),
 			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}),
 			func() {},
+			nil,
 		)
 	}()
 
@@ -163,4 +168,52 @@ func TestServerKeepsAStreamOpenPastTheReadTimeoutButDropsASlowBody(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestServeTakesTheDutyBeforeTheJobsStartAndGivesItBackAfterTheyAreCutOff(t *testing.T) {
+	mockController := gomock.NewController(t)
+	events := make(chan string, 8)
+	leaseRepository := mocks.NewMockIJobLeadershipLeaseRepository(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)).AnyTimes()
+	leaseRepository.EXPECT().Acquire(gomock.Any(), gomock.Any(), "replica-a", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, string, string, time.Time, time.Time) (bool, error) {
+			events <- "acquired"
+			return true, nil
+		})
+	leaseRepository.EXPECT().Release(gomock.Any(), gomock.Any(), "replica-a").
+		DoAndReturn(func(context.Context, string, string) error {
+			events <- "released"
+			return nil
+		})
+	backgroundJob := mocks.NewMockIBackgroundJob(mockController)
+	backgroundJob.EXPECT().Start(gomock.Any()).Do(func(executionContext context.Context) {
+		events <- "started"
+		go func() {
+			<-executionContext.Done()
+			events <- "cut off"
+		}()
+	})
+	backgroundJob.EXPECT().Stop()
+	jobLeadership := application.NewJobLeadershipApplication(service.NewJobLeadershipService(
+		leaseRepository, clockProxy, domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second), "replica-a"))
+
+	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
+	serveFinished := make(chan error, 1)
+	go func() {
+		serveFinished <- serve(shutdownSignalled, listeningOnAnyFreePort(),
+			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}), func() {}, jobLeadership)
+	}()
+	assert.Equal(t, "acquired", <-events)
+	assert.Equal(t, "started", <-events)
+	signalShutdown()
+
+	select {
+	case serveError := <-serveFinished:
+		require.NoError(t, serveError)
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return after shutdown was signalled")
+	}
+	assert.Equal(t, "cut off", <-events)
+	assert.Equal(t, "released", <-events)
 }

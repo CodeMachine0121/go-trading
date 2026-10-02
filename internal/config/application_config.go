@@ -2,6 +2,7 @@ package config
 
 import (
 	"cmp"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"strconv"
@@ -203,6 +204,19 @@ type StrategyBotConfig struct {
 	RoundTimeout        time.Duration
 }
 
+// ReplicaConfig names this server among its replicas; the name only says who holds a lease or claim right now.
+type ReplicaConfig struct {
+	Name string
+}
+
+// JobLeadershipConfig tunes how the replica on duty is chosen; the lease must outlast a renewal plus the safety margin.
+type JobLeadershipConfig struct {
+	LeaseDuration time.Duration
+	RenewInterval time.Duration
+	// SafetyMargin is how much earlier than the stored lease a replica stops acting as on duty.
+	SafetyMargin time.Duration
+}
+
 // RequestLimitConfig bounds what one client can ask of the service; defaults sit far above what the front end
 // and the MCP plugin need.
 type RequestLimitConfig struct {
@@ -247,6 +261,8 @@ type ApplicationConfig struct {
 	// timeout so the replay reports a timeout itself.
 	BacktestTimeAllowance time.Duration
 	BackgroundJobsEnabled bool
+	Replica               ReplicaConfig
+	JobLeadership         JobLeadershipConfig
 	Ingestion             IngestionConfig
 	ContractIngestion     ContractIngestionConfig
 	LiveFollow            LiveFollowConfig
@@ -288,8 +304,18 @@ func Load() ApplicationConfig {
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
-		TaiwanStock:           taiwanStockConfig,
-		MarketRules:           marketRules(taiwanStockConfig),
+		// Kubernetes sets HOSTNAME to the pod name, so replicas are told apart without extra settings.
+		Replica: ReplicaConfig{Name: stringWithDefault("REPLICA_NAME", hostnameOrRandomName())},
+		JobLeadership: JobLeadershipConfig{
+			LeaseDuration: time.Duration(
+				positiveIntWithDefault("JOB_LEADERSHIP_LEASE_SECONDS", 30)) * time.Second,
+			RenewInterval: time.Duration(
+				positiveIntWithDefault("JOB_LEADERSHIP_RENEW_INTERVAL_SECONDS", 10)) * time.Second,
+			SafetyMargin: time.Duration(
+				positiveIntWithDefault("JOB_LEADERSHIP_SAFETY_MARGIN_SECONDS", 5)) * time.Second,
+		},
+		TaiwanStock: taiwanStockConfig,
+		MarketRules: marketRules(taiwanStockConfig),
 		Ingestion: IngestionConfig{
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
@@ -567,6 +593,16 @@ func jobIntervalWithDefault(key string, defaultValue int, unit time.Duration) ti
 	}
 
 	return time.Duration(value) * unit
+}
+
+// hostnameOrRandomName falls back to a random name so two replicas never share one by accident.
+func hostnameOrRandomName() string {
+	hostname, hostnameError := os.Hostname()
+	if hostnameError == nil && hostname != "" {
+		return hostname
+	}
+
+	return "replica-" + rand.Text()
 }
 
 func stringWithDefault(key string, defaultValue string) string {

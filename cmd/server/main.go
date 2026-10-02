@@ -79,18 +79,27 @@ func main() {
 		context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopListeningForSignals()
 
+	// Only a replica that runs background jobs may hold the duty, or it would hold it while doing nothing.
+	jobLeadershipApplication := jobLeadershipApplicationFor(database, applicationConfig)
+	dutyHolder := jobLeadershipApplication
+	if !applicationConfig.BackgroundJobsEnabled {
+		dutyHolder = nil
+	}
+
 	if serveError := serve(
 		shutdownSignalled,
 		newServer(applicationConfig, engine),
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
 				applicationConfig,
+				jobLeadershipApplication,
 				liveFollows.spot,
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
 				strategyBotRunApplication,
 				contractSeries)),
 		liveFollows.Stop,
+		dutyHolder,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)
 	}

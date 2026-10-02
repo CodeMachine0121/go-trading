@@ -831,8 +831,21 @@ func assistantQueriesFor(
 	}
 }
 
+// jobLeadershipApplicationFor decides which replica runs the once-per-system jobs.
+func jobLeadershipApplicationFor(
+	database *gorm.DB, applicationConfig config.ApplicationConfig,
+) *application.JobLeadershipApplication {
+	return application.NewJobLeadershipApplication(service.NewJobLeadershipService(
+		persistence.NewJobLeadershipLeaseRepository(database),
+		clock.NewSystemClockProxy(),
+		domains.NewJobLeadershipTermDomain(
+			applicationConfig.JobLeadership.LeaseDuration, applicationConfig.JobLeadership.SafetyMargin),
+		applicationConfig.Replica.Name))
+}
+
 func backgroundJobsFor(
 	applicationConfig config.ApplicationConfig,
+	jobLeadershipApplication *application.JobLeadershipApplication,
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
@@ -858,7 +871,12 @@ func backgroundJobsFor(
 	strategyBotScanJob := job.NewStrategyBotScanJob(
 		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
 
+	// First, so the duty is being kept fresh before any job asks about it.
+	jobLeadershipLeaseJob := job.NewJobLeadershipLeaseJob(
+		jobLeadershipApplication, applicationConfig.JobLeadership.RenewInterval)
+
 	backgroundJobs := []domaininterface.IBackgroundJob{
+		jobLeadershipLeaseJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
 	}
 
