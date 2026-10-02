@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -99,17 +100,37 @@ func TestPendingMessageDomainAfterAnAttempt(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			message := domains.NewPendingMessageDomain(aQueuedMessage(vo.PendingMessageSending, testCase.attemptCount))
 
-			assert.Equal(t, testCase.expected, message.AfterAttempt(testCase.deliveryResult, attemptedAt))
+			assert.Equal(t, testCase.expected, message.AfterAttempt(testCase.deliveryResult, nil, attemptedAt))
 		})
 	}
 }
 
-func TestPendingMessageDomainARemovedDeliverySettingIsRefused(t *testing.T) {
-	message := domains.NewPendingMessageDomain(aQueuedMessage(vo.PendingMessageSending, 0))
+func TestPendingMessageDomainAfterAnAttemptThatFailedOnThisSide(t *testing.T) {
+	testCases := []struct {
+		name         string
+		deliverError error
+		expected     vo.PendingMessageAttemptOutcomeVo
+	}{
+		{
+			name: "a removed delivery setting is refused and halts the bot", deliverError: domains.ErrTelegramDeliveryNotConfigured,
+			expected: vo.PendingMessageAttemptOutcomeVo{
+				Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured},
+		},
+		{
+			name: "any other failure on this side is retried, never halts", deliverError: errors.New("the request could not be built"),
+			expected: vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptRetry, AttemptCount: 1,
+				NextAttemptAt: time.Date(2026, 10, 2, 8, 0, 2, 0, time.UTC)},
+		},
+	}
 
-	assert.Equal(t, vo.PendingMessageAttemptOutcomeVo{
-		Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured,
-	}, message.AfterMissingDeliverySetting())
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			message := domains.NewPendingMessageDomain(aQueuedMessage(vo.PendingMessageSending, 0))
+
+			assert.Equal(t, testCase.expected,
+				message.AfterAttempt(vo.DeliveryResultVo{}, testCase.deliverError, attemptedAt))
+		})
+	}
 }
 
 func TestPendingMessageDomainOnlyARoundMessageMakesItsBotForget(t *testing.T) {

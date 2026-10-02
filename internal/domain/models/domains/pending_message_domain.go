@@ -1,6 +1,7 @@
 package domains
 
 import (
+	"errors"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -112,15 +113,27 @@ func (pendingMessageDomain PendingMessageDomain) ForgetsSignalWhenAbandoned() bo
 		pendingMessageDomain.message.Signal != ""
 }
 
-// AfterAttempt halts only on failures the owner must fix; everything else waits twice as long as last time, or as long as the destination asked if that is longer.
+// AfterAttempt halts only on failures the owner must fix: a token or chat Telegram refused, or a delivery setting the owner removed.
+// A failure on this side (unreadable setting, unbuildable request) and every other refusal wait twice as long as last time, or as long as the destination asked if that is longer.
 func (pendingMessageDomain PendingMessageDomain) AfterAttempt(
-	deliveryResult vo.DeliveryResultVo, now time.Time,
+	deliveryResult vo.DeliveryResultVo, deliverError error, now time.Time,
 ) vo.PendingMessageAttemptOutcomeVo {
-	if deliveryResult.FailureReason == vo.DeliveryFailureNone {
+	if errors.Is(deliverError, ErrTelegramDeliveryNotConfigured) {
+		return vo.PendingMessageAttemptOutcomeVo{
+			Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured,
+		}
+	}
+
+	failureReason := deliveryResult.FailureReason
+	if deliverError != nil {
+		failureReason = vo.DeliveryFailureUnreachable
+	}
+
+	if failureReason == vo.DeliveryFailureNone {
 		return vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptSent}
 	}
 
-	deliveryFailure := NewStrategyBotDeliveryFailureDomain(deliveryResult.FailureReason)
+	deliveryFailure := NewStrategyBotDeliveryFailureDomain(failureReason)
 	if deliveryFailure.HaltsTheBot() {
 		return vo.PendingMessageAttemptOutcomeVo{
 			Kind: vo.PendingMessageAttemptRefused, HaltReason: deliveryFailure.HaltReason(),
@@ -141,12 +154,5 @@ func (pendingMessageDomain PendingMessageDomain) AfterAttempt(
 		Kind:          vo.PendingMessageAttemptRetry,
 		AttemptCount:  pendingMessageDomain.message.AttemptCount + 1,
 		NextAttemptAt: now.Add(max(retryWait, deliveryResult.RetryAfter)),
-	}
-}
-
-// AfterMissingDeliverySetting is a refusal: the owner removed where to send, and waiting will not bring it back.
-func (pendingMessageDomain PendingMessageDomain) AfterMissingDeliverySetting() vo.PendingMessageAttemptOutcomeVo {
-	return vo.PendingMessageAttemptOutcomeVo{
-		Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured,
 	}
 }

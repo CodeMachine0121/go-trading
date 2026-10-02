@@ -108,27 +108,66 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 				return
 			}
 
+			// The signal is forgotten before giving up, so a crash between the two can only cause a resend, never a lost signal.
 			if head.IsExpiredAt(now) {
-				pendingMessageService.giveUpExpired(executionContext, head, now)
+				if head.ForgetsSignalWhenAbandoned() {
+					if forgetError := pendingMessageService.strategyBotRepository.ForgetSentSignal(
+						executionContext, head.StrategyBotID(), head.Signal()); forgetError != nil {
+						log.Printf("pending message %d expired but its bot could not forget the signal: %v",
+							head.ID(), forgetError)
+
+						return
+					}
+				}
+
+				if abandonError := pendingMessageService.pendingMessageRepository.Abandon(
+					executionContext, head.ID(), pendingMessageService.replicaName, pendingMessageExpiredReason,
+					now); abandonError != nil {
+					log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
+
+					return
+				}
+
+				log.Printf("pending message %d given up: not sent before it stopped mattering", head.ID())
 
 				return
 			}
 
 			deliveryResult, deliverError := pendingMessageService.telegramDeliveryService.DeliverPendingMessage(
 				executionContext, head.RecipientUserID(), head.Text())
+			outcome := head.AfterAttempt(deliveryResult, deliverError, now)
 
-			outcome := head.AfterAttempt(deliveryResult, now)
-			if errors.Is(deliverError, domains.ErrTelegramDeliveryNotConfigured) {
-				outcome = head.AfterMissingDeliverySetting()
-			} else if deliverError != nil {
-				// A failure on this side (unreadable setting, unbuildable request) is retried: only a refusal Telegram gave can halt a bot.
-				outcome = head.AfterAttempt(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable}, now)
-			}
+			switch outcome.Kind {
+			case vo.PendingMessageAttemptSent:
+				if markError := pendingMessageService.pendingMessageRepository.MarkSent(
+					executionContext, head.ID(), pendingMessageService.replicaName, now); markError != nil {
+					// Left sending, so it is sent again once the claim runs out: a repeat beats a silent loss.
+					log.Printf("pending message %d was sent but could not be marked so: %v", head.ID(), markError)
+				}
 
-			if pendingMessageService.settle(executionContext, head, outcome, now) {
 				deliveredMutex.Lock()
 				defer deliveredMutex.Unlock()
 				deliveredCount++
+			case vo.PendingMessageAttemptRefused:
+				if haltError := pendingMessageService.haltBot(
+					executionContext, head.StrategyBotID(), outcome.HaltReason); haltError != nil {
+					log.Printf("pending message %d was refused but its bot could not be halted: %v",
+						head.ID(), haltError)
+
+					return
+				}
+
+				if abandonError := pendingMessageService.pendingMessageRepository.Abandon(
+					executionContext, head.ID(), pendingMessageService.replicaName, string(outcome.HaltReason),
+					now); abandonError != nil {
+					log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
+				}
+			default:
+				if rescheduleError := pendingMessageService.pendingMessageRepository.Reschedule(
+					executionContext, head.ID(), pendingMessageService.replicaName, outcome.AttemptCount,
+					outcome.NextAttemptAt); rescheduleError != nil {
+					log.Printf("pending message %d could not be put back to wait: %v", head.ID(), rescheduleError)
+				}
 			}
 		}()
 	}
@@ -138,73 +177,8 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 	return deliveredCount, nil
 }
 
-// giveUpExpired forgets the signal before abandoning, so a crash between the two can only cause a resend, never a lost signal.
-func (pendingMessageService *PendingMessageService) giveUpExpired(
-	executionContext context.Context, head domains.PendingMessageDomain, now time.Time,
-) {
-	if head.ForgetsSignalWhenAbandoned() {
-		if forgetError := pendingMessageService.strategyBotRepository.ForgetSentSignal(
-			executionContext, head.StrategyBotID(), head.Signal()); forgetError != nil {
-			log.Printf("pending message %d expired but its bot could not forget the signal: %v",
-				head.ID(), forgetError)
-
-			return
-		}
-	}
-
-	if abandonError := pendingMessageService.pendingMessageRepository.Abandon(
-		executionContext, head.ID(), pendingMessageService.replicaName, pendingMessageExpiredReason,
-		now); abandonError != nil {
-		log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
-
-		return
-	}
-
-	log.Printf("pending message %d given up: not sent before it stopped mattering", head.ID())
-}
-
-// settle records what one attempt came to and reports whether the message arrived.
-func (pendingMessageService *PendingMessageService) settle(
-	executionContext context.Context, head domains.PendingMessageDomain,
-	outcome vo.PendingMessageAttemptOutcomeVo, now time.Time,
-) bool {
-	replicaName := pendingMessageService.replicaName
-
-	switch outcome.Kind {
-	case vo.PendingMessageAttemptSent:
-		if markError := pendingMessageService.pendingMessageRepository.MarkSent(
-			executionContext, head.ID(), replicaName, now); markError != nil {
-			// Left sending, so it is sent again once the claim runs out: a repeat beats a silent loss.
-			log.Printf("pending message %d was sent but could not be marked so: %v", head.ID(), markError)
-		}
-
-		return true
-	case vo.PendingMessageAttemptRefused:
-		if haltError := pendingMessageService.haltBot(
-			executionContext, head.StrategyBotID(), outcome.HaltReason); haltError != nil {
-			log.Printf("pending message %d was refused but its bot could not be halted: %v", head.ID(), haltError)
-
-			return false
-		}
-
-		if abandonError := pendingMessageService.pendingMessageRepository.Abandon(
-			executionContext, head.ID(), replicaName, string(outcome.HaltReason), now); abandonError != nil {
-			log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
-		}
-
-		return false
-	default:
-		if rescheduleError := pendingMessageService.pendingMessageRepository.Reschedule(
-			executionContext, head.ID(), replicaName, outcome.AttemptCount,
-			outcome.NextAttemptAt); rescheduleError != nil {
-			log.Printf("pending message %d could not be put back to wait: %v", head.ID(), rescheduleError)
-		}
-
-		return false
-	}
-}
-
 // haltBot stops a running bot under the row lock a round being booked also takes, so neither overwrites the other; a bot already stopped is left as it is.
+// It exists to scope that transaction: the lock must be let go before the message is settled.
 func (pendingMessageService *PendingMessageService) haltBot(
 	executionContext context.Context, strategyBotID uint, haltReason vo.StrategyBotHaltReasonVo,
 ) error {
