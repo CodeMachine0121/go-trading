@@ -366,3 +366,124 @@ func TestPendingMessageDispatchDropsWhatSettledAWeekAgoOnEveryLook(t *testing.T)
 	require.NoError(t, dispatchError)
 	assert.Equal(t, []time.Time{sevenDaysBefore}, *underTest.trimmedBefore)
 }
+
+var dispatchStorageFailure = errors.New("the database went away")
+
+func TestPendingMessageDispatchReportsATrimItCannotDo(t *testing.T) {
+	controller := gomock.NewController(t)
+	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(controller)
+	pendingMessageRepository.EXPECT().DeleteSettledBefore(gomock.Any(), gomock.Any()).Return(dispatchStorageFailure)
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	clockProxy.EXPECT().Now().Return(dispatchNow).AnyTimes()
+	dispatchApplication := application.NewPendingMessageDispatchApplication(service.NewPendingMessageService(
+		pendingMessageRepository, mocks.NewMockIStrategyBotRepository(controller),
+		mocks.NewMockITransactionRepository(controller), nil, clockProxy, dispatchReplica, 2*time.Minute, 8))
+
+	_, dispatchError := dispatchApplication.DispatchPendingMessages(t.Context())
+
+	assert.ErrorIs(t, dispatchError, dispatchStorageFailure)
+}
+
+func TestPendingMessageDispatchLeavesAMessageItCouldNotTake(t *testing.T) {
+	underTest := newPendingMessageDispatchUnderTest(t)
+	underTest.queueHolds(aDueRoundMessage())
+	underTest.pendingMessageRepository.EXPECT().Claim(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, dispatchStorageFailure)
+	// No Deliver expectation: a message not taken is never sent.
+
+	deliveredCount, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
+
+	require.NoError(t, dispatchError)
+	assert.Equal(t, 0, deliveredCount)
+}
+
+func TestPendingMessageDispatchKeepsAnExpiredMessageWhileItsBotCannotForget(t *testing.T) {
+	underTest := newPendingMessageDispatchUnderTest(t)
+	expired := aDueRoundMessage()
+	expired.ExpiresAt = dispatchNow
+	underTest.queueHolds(expired)
+	underTest.claimSucceeds()
+	underTest.strategyBotRepository.EXPECT().ForgetSentSignal(gomock.Any(), queuedBotID, string(vo.SignalBuy)).
+		Return(dispatchStorageFailure)
+	// No Abandon expectation: the message stays taken, so it is given up only once its bot has forgotten.
+
+	_, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
+
+	require.NoError(t, dispatchError)
+}
+
+func TestPendingMessageDispatchCarriesOnWhenAWriteAfterSendingFails(t *testing.T) {
+	testCases := []struct {
+		name    string
+		arrange func(underTest pendingMessageDispatchUnderTest)
+	}{
+		{
+			name: "an expired message cannot be marked given up",
+			arrange: func(underTest pendingMessageDispatchUnderTest) {
+				expired := aDueRoundMessage()
+				expired.Kind = string(vo.PendingMessageLifecycle)
+				expired.ExpiresAt = dispatchNow
+				underTest.queueHolds(expired)
+				underTest.claimSucceeds()
+				underTest.pendingMessageRepository.EXPECT().
+					Abandon(gomock.Any(), queuedMessageID, dispatchReplica, "expired", dispatchNow).
+					Return(dispatchStorageFailure)
+			},
+		},
+		{
+			name: "a refused message cannot be marked given up",
+			arrange: func(underTest pendingMessageDispatchUnderTest) {
+				underTest.queueHolds(aDueRoundMessage())
+				underTest.claimSucceeds()
+				underTest.recipientHasADeliverySetting()
+				underTest.telegramAnswers(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureCredentialRejected})
+				underTest.strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), queuedBotID).
+					Return(aBotThatIs(vo.StrategyBotStopped), nil)
+				underTest.pendingMessageRepository.EXPECT().
+					Abandon(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(dispatchStorageFailure)
+			},
+		},
+		{
+			name: "a failed message cannot be put back to wait",
+			arrange: func(underTest pendingMessageDispatchUnderTest) {
+				underTest.queueHolds(aDueRoundMessage())
+				underTest.claimSucceeds()
+				underTest.recipientHasADeliverySetting()
+				underTest.telegramAnswers(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable})
+				underTest.pendingMessageRepository.EXPECT().
+					Reschedule(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(dispatchStorageFailure)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newPendingMessageDispatchUnderTest(t)
+			testCase.arrange(underTest)
+
+			deliveredCount, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
+
+			require.NoError(t, dispatchError)
+			assert.Equal(t, 0, deliveredCount)
+		})
+	}
+}
+
+func TestPendingMessageDispatchGivesUpARefusedMessageForABotThatIsGone(t *testing.T) {
+	underTest := newPendingMessageDispatchUnderTest(t)
+	underTest.queueHolds(aDueRoundMessage())
+	underTest.claimSucceeds()
+	underTest.recipientHasADeliverySetting()
+	underTest.telegramAnswers(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureDestinationNotFound})
+	underTest.strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), queuedBotID).
+		Return(entities.StrategyBot{}, domains.StrategyBotNotFound(queuedBotID))
+	underTest.pendingMessageRepository.EXPECT().
+		Abandon(gomock.Any(), queuedMessageID, dispatchReplica, string(vo.StrategyBotHaltDestinationNotFound), dispatchNow).
+		Return(nil)
+
+	_, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
+
+	require.NoError(t, dispatchError)
+}

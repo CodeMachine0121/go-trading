@@ -84,3 +84,9 @@ func TestBackgroundJobsForRefreshesTheMaintenanceMarginLadderOnlyWithAnAccount(t
 		})
 	}
 }
+
+func TestJobLeadershipApplicationForStartsOffDuty(t *testing.T) {
+	jobLeadership := jobLeadershipApplicationFor(nil, config.Load())
+
+	assert.False(t, jobLeadership.IsLeader(), "a replica is on duty only once it has taken the lease")
+}

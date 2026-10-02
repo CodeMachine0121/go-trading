@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -229,5 +230,60 @@ func nextEvent(t *testing.T, events <-chan string) string {
 		t.Fatal("an expected step never happened")
 
 		return ""
+	}
+}
+
+func TestServeStillStartsAndStopsWhenTheDutyCannotBeTakenOrGivenBack(t *testing.T) {
+	mockController := gomock.NewController(t)
+	leaseRepository := mocks.NewMockIJobLeadershipLeaseRepository(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)).AnyTimes()
+	// Taken once so there is a duty to give back, then the storage fails both ways.
+	leaseRepository.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(true, nil)
+	leaseRepository.EXPECT().Release(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("storage unavailable"))
+	jobLeadership := application.NewJobLeadershipApplication(service.NewJobLeadershipService(
+		leaseRepository, clockProxy, domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second), "replica-a"))
+
+	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
+	serveFinished := make(chan error, 1)
+	go func() {
+		serveFinished <- serve(shutdownSignalled, listeningOnAnyFreePort(),
+			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}), func() {}, jobLeadership)
+	}()
+	signalShutdown()
+
+	select {
+	case serveError := <-serveFinished:
+		assert.NoError(t, serveError)
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return after shutdown was signalled")
+	}
+}
+
+func TestServeStillStartsWhenTheDutyCannotBeTaken(t *testing.T) {
+	mockController := gomock.NewController(t)
+	leaseRepository := mocks.NewMockIJobLeadershipLeaseRepository(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)).AnyTimes()
+	leaseRepository.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, errors.New("storage unavailable"))
+	// No Release expectation: a replica that never held the duty has nothing to give back.
+	jobLeadership := application.NewJobLeadershipApplication(service.NewJobLeadershipService(
+		leaseRepository, clockProxy, domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second), "replica-a"))
+
+	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
+	serveFinished := make(chan error, 1)
+	go func() {
+		serveFinished <- serve(shutdownSignalled, listeningOnAnyFreePort(),
+			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{}), func() {}, jobLeadership)
+	}()
+	signalShutdown()
+
+	select {
+	case serveError := <-serveFinished:
+		assert.NoError(t, serveError)
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return after shutdown was signalled")
 	}
 }

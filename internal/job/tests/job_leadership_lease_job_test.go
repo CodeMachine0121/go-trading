@@ -2,6 +2,7 @@ package job_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -40,4 +41,59 @@ func TestJobLeadershipLeaseJobRenewsOnStartAndNeverReleasesOnStop(t *testing.T) 
 	leaseJob.Stop()
 
 	assert.True(t, leadership.IsLeader())
+}
+
+func TestJobLeadershipLeaseJobSaysWhenTheDutyIsLostOrCannotBeRenewed(t *testing.T) {
+	testCases := []struct {
+		name          string
+		acquireError  error
+		expectedWords string
+	}{
+		{name: "another replica took the duty", expectedWords: "job leadership lost"},
+		{name: "the duty could not be renewed", acquireError: errors.New("storage unavailable"),
+			expectedWords: "could not be renewed"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorded := captureRecords(t)
+			mockController := gomock.NewController(t)
+			leaseRepository := mocks.NewMockIJobLeadershipLeaseRepository(mockController)
+			clockProxy := mocks.NewMockIClockProxy(mockController)
+			clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+			firstRenewal := leaseRepository.EXPECT().
+				Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil)
+			leaseRepository.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(false, testCase.acquireError).After(firstRenewal).AnyTimes()
+			leaseJob := job.NewJobLeadershipLeaseJob(application.NewJobLeadershipApplication(
+				service.NewJobLeadershipService(leaseRepository, clockProxy,
+					domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second), "replica-a")),
+				testInterval)
+			t.Cleanup(leaseJob.Stop)
+
+			leaseJob.Start(t.Context())
+
+			recorded.waitFor(t, "job leadership gained")
+			recorded.waitFor(t, testCase.expectedWords)
+		})
+	}
+}
+
+func TestPendingMessageDispatchJobSaysWhenTheQueueCannotBeRead(t *testing.T) {
+	recorded := captureRecords(t)
+	mockController := gomock.NewController(t)
+	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(mockController)
+	pendingMessageRepository.EXPECT().DeleteSettledBefore(gomock.Any(), gomock.Any()).
+		Return(errors.New("storage unavailable")).AnyTimes()
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+	dispatchJob := job.NewPendingMessageDispatchJob(application.NewPendingMessageDispatchApplication(
+		service.NewPendingMessageService(pendingMessageRepository, mocks.NewMockIStrategyBotRepository(mockController),
+			mocks.NewMockITransactionRepository(mockController), nil, clockProxy, "replica-a", 2*time.Minute, 8)),
+		time.Hour)
+	t.Cleanup(dispatchJob.Stop)
+
+	dispatchJob.Start(t.Context())
+
+	assert.Contains(t, recorded.waitFor(t, "could not be sent this round"), "storage unavailable")
 }

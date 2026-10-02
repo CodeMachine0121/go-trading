@@ -86,8 +86,12 @@ type strategyBotRunUnderTest struct {
 	contractFundingRateSettlementRepository *mocks.MockIContractFundingRateSettlementRepository
 	// queue is what the rounds queued to say, checked against expectQueuedMessage when the test ends.
 	queue *roundMessageQueue
+	// appendFailure and enqueueFailure make booking a round in fail at that write.
+	appendFailure  *error
+	enqueueFailure *error
 	// claimHeldElsewhere makes a hand-pressed round find another replica already running the bot.
 	claimHeldElsewhere *bool
+	claimFailure       *error
 	// releasedClaims lists every bot whose round claim this replica freed.
 	releasedClaims *[]uint
 	// Held by pointer so a test can edit the rules and the next round sees the change.
@@ -108,9 +112,14 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	// 歷史寫入與這些測試無關，一律放行。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(controller)
 	appendedRunRecords := []dto.StrategyBotRunRecordWriteDto{}
+	appendFailure := error(nil)
+	enqueueFailure := error(nil)
 	strategyBotRunRecordRepository.EXPECT().
 		Append(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, writeDto dto.StrategyBotRunRecordWriteDto) (int, error) {
+			if appendFailure != nil {
+				return 0, appendFailure
+			}
 			appendedRunRecords = append(appendedRunRecords, writeDto)
 
 			return bookedRunNumber, nil
@@ -122,6 +131,9 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(controller)
 	pendingMessageRepository.EXPECT().Enqueue(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, pendingMessage entities.PendingMessage) error {
+			if enqueueFailure != nil {
+				return enqueueFailure
+			}
 			queue.add(pendingMessage)
 
 			return nil
@@ -143,9 +155,14 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 
 	// 讓測試能模擬「別的分身正在跑的時候按下去」。
 	claimHeldElsewhere := false
+	claimFailure := error(nil)
 	strategyBotRepository.EXPECT().
 		ClaimOne(gomock.Any(), strategyBotID, thisReplicaName, botRunNow, botRoundClaimedUntil).
 		DoAndReturn(func(context.Context, uint, string, time.Time, time.Time) (bool, error) {
+			if claimFailure != nil {
+				return false, claimFailure
+			}
+
 			return !claimHeldElsewhere, nil
 		}).AnyTimes()
 	// Every round frees its claim when it is booked in, applied or not.
@@ -237,6 +254,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		kCandleRepository:            kCandleRepository,
 		indicatorScriptProxy:         indicatorScriptProxy,
 		queue:                        queue,
+		appendFailure:                &appendFailure,
+		enqueueFailure:               &enqueueFailure,
 		strategyScriptRepository:     strategyScriptRepository,
 		telegramDeliveryRepository:   telegramDeliveryRepository,
 		kCandleContractRepository:    kCandleContractRepository,
@@ -246,6 +265,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		claimHeldElsewhere:                      &claimHeldElsewhere,
+		claimFailure:                            &claimFailure,
 		releasedClaims:                          &releasedClaims,
 		tradingStrategy:                         &tradingStrategy,
 		tradingStrategyFailure:                  &tradingStrategyFailure,
@@ -1187,4 +1207,58 @@ func TestStrategyBotRunApplicationQueuesTheHaltNoticeWithTheRoundThatHaltedIt(t 
 	require.Len(t, queued, 1)
 	assert.Equal(t, string(vo.PendingMessageLifecycle), queued[0].Kind)
 	assert.Nil(t, queued[0].RoundDueAt)
+}
+
+func TestStrategyBotRunApplicationReportsARoundItCouldNotBookIn(t *testing.T) {
+	testCases := []struct {
+		name        string
+		haltRules   bool
+		failAppend  bool
+		failEnqueue bool
+	}{
+		{name: "the history could not be written", failAppend: true},
+		{name: "the round's message could not be queued", failEnqueue: true},
+		{name: "the halt notice could not be queued", haltRules: true, failEnqueue: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newStrategyBotRunUnderTest(t)
+			underTest.strategyBotRepository.EXPECT().
+				ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
+				Return([]entities.StrategyBot{aDueBot("")}, nil)
+			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(aDueBot(""), nil).AnyTimes()
+			underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
+			if testCase.haltRules {
+				*underTest.tradingStrategyFailure = domains.TradingStrategyNotFound(botsTradingStrategyID)
+			} else {
+				underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
+				underTest.kCandleRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
+					Return([]entities.KCandle{kCandleAt(at(9, 10), "64180.5")}, nil)
+			}
+			if testCase.failAppend {
+				*underTest.appendFailure = errors.New("history unavailable")
+			}
+			if testCase.failEnqueue {
+				*underTest.enqueueFailure = errors.New("queue unavailable")
+			}
+
+			_, runError := underTest.strategyBotRunApplication.RunDueRounds(t.Context())
+
+			// The round counts as not booked: nothing it wanted to say is left queued.
+			require.NoError(t, runError)
+			assert.Empty(t, underTest.queuedMessages())
+		})
+	}
+}
+
+func TestStrategyBotRunApplicationReportsAHandPressedRoundItCouldNotClaim(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(aDueBot(""), nil)
+	*underTest.claimFailure = errors.New("the database went away")
+
+	_, runError := underTest.strategyBotRunApplication.RunRoundNow(t.Context(), strategyBotOwnerID, strategyBotID)
+
+	require.Error(t, runError)
+	assert.NotErrorIs(t, runError, domains.ErrStrategyBotAlreadyRunningARound)
 }

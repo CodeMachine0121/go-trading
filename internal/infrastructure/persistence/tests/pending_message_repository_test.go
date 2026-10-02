@@ -263,3 +263,26 @@ func TestTransactionRepositoryNestedWorkRollsBackWithTheOuterWork(t *testing.T) 
 	require.Error(t, atomicError)
 	assert.Empty(t, testBed.storedMessages(t))
 }
+
+func TestOutboxAndDutyStorageSaySoWhenStorageCannotAnswer(t *testing.T) {
+	database := closedDatabase(t)
+	pendingMessageRepository := persistence.NewPendingMessageRepository(database)
+	leaseRepository := persistence.NewJobLeadershipLeaseRepository(database)
+	strategyBotRepository := persistence.NewStrategyBotRepository(database)
+
+	assert.Error(t, pendingMessageRepository.Enqueue(t.Context(), entities.PendingMessage{}))
+	_, findError := pendingMessageRepository.FindUnsettled(t.Context(), 10)
+	assert.Error(t, findError)
+	_, claimError := pendingMessageRepository.Claim(t.Context(), 1, "replica-a", queuedAt, queuedAt)
+	assert.Error(t, claimError)
+	assert.Error(t, pendingMessageRepository.MarkSent(t.Context(), 1, "replica-a", queuedAt))
+	assert.Error(t, pendingMessageRepository.Reschedule(t.Context(), 1, "replica-a", 1, queuedAt))
+	assert.Error(t, pendingMessageRepository.Abandon(t.Context(), 1, "replica-a", "expired", queuedAt))
+	assert.Error(t, pendingMessageRepository.DeleteSettledBefore(t.Context(), queuedAt))
+	_, acquireError := leaseRepository.Acquire(t.Context(), "background-jobs", "replica-a", queuedAt, queuedAt)
+	assert.Error(t, acquireError)
+	assert.Error(t, leaseRepository.Release(t.Context(), "background-jobs", "replica-a"))
+	_, lockedError := strategyBotRepository.FindOneLocked(t.Context(), 1)
+	assert.Error(t, lockedError)
+	assert.Error(t, strategyBotRepository.ForgetSentSignal(t.Context(), 1, "buy"))
+}
