@@ -12,11 +12,11 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// pendingMessageReadLimit bounds one look at the queue; a person with a long backlog only delays others by one look.
+// pendingMessageReadLimit bounds one look at the queue; since each person contributes only their oldest message and anything already expired, it is reached only with this many people waiting at once.
 const pendingMessageReadLimit = 500
 
-// pendingMessageExpiredReason is recorded on a message given up because it was too late to matter.
-const pendingMessageExpiredReason = "expired"
+// pendingMessageTrimInterval spaces out dropping old settled messages, which every replica does and which would otherwise contend with deleting a bot on every tick.
+const pendingMessageTrimInterval = time.Minute
 
 // PendingMessageService sends what bots have queued, from any replica, at least once each.
 type PendingMessageService struct {
@@ -29,6 +29,9 @@ type PendingMessageService struct {
 	// sendTimeout is how long a replica holds a message it is sending; past it, another replica sends it again.
 	sendTimeout             time.Duration
 	maxConcurrentDeliveries int
+
+	trimMutex     sync.Mutex
+	lastTrimmedAt time.Time
 }
 
 func NewPendingMessageService(
@@ -64,31 +67,34 @@ func (pendingMessageService *PendingMessageService) EnqueueLifecycleMessage(
 
 // DispatchPendingMessages sends each person's oldest due message and reports how many arrived.
 // A failure on one message is logged and left for its claim to run out, so it never stops the others.
+// Each message reads the clock when its turn comes, so a long batch never claims with a deadline already past.
 func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 	executionContext context.Context,
 ) (int, error) {
-	now := pendingMessageService.clockProxy.Now()
+	lookedAt := pendingMessageService.clockProxy.Now()
 
 	// Trimmed here rather than by its own schedule, so there is no second job that could stop running.
-	if trimError := pendingMessageService.pendingMessageRepository.DeleteSettledBefore(
-		executionContext, now.Add(-domains.PendingMessageRetention)); trimError != nil {
-		return 0, trimError
+	if pendingMessageService.isTrimDue(lookedAt) {
+		if trimError := pendingMessageService.pendingMessageRepository.DeleteSettledBefore(
+			executionContext, lookedAt.Add(-domains.PendingMessageRetention)); trimError != nil {
+			return 0, trimError
+		}
 	}
 
-	unsettled, findError := pendingMessageService.pendingMessageRepository.FindUnsettled(
-		executionContext, pendingMessageReadLimit)
+	candidates, findError := pendingMessageService.pendingMessageRepository.FindDispatchCandidates(
+		executionContext, lookedAt, pendingMessageReadLimit)
 	if findError != nil {
 		return 0, findError
 	}
 
-	heads := domains.NewPendingMessageQueueDomain(unsettled).DueAt(now)
+	dueMessages := domains.NewPendingMessageQueueDomain(candidates).DueAt(lookedAt)
 
 	deliveredCount := 0
 	deliveredMutex := sync.Mutex{}
 	waitGroup := sync.WaitGroup{}
 	deliverySlots := make(chan struct{}, pendingMessageService.maxConcurrentDeliveries)
 
-	for _, head := range heads {
+	for _, dueMessage := range dueMessages {
 		waitGroup.Add(1)
 		deliverySlots <- struct{}{}
 
@@ -96,84 +102,109 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 			defer waitGroup.Done()
 			defer func() { <-deliverySlots }()
 
+			claimedAt := pendingMessageService.clockProxy.Now()
+			replicaName := pendingMessageService.replicaName
+
 			claimed, claimError := pendingMessageService.pendingMessageRepository.Claim(
-				executionContext, head.ID(), pendingMessageService.replicaName, now,
-				now.Add(pendingMessageService.sendTimeout))
+				executionContext, dueMessage.ID(), replicaName, claimedAt,
+				claimedAt.Add(pendingMessageService.sendTimeout))
 			if claimError != nil {
-				log.Printf("pending message %d could not be taken: %v", head.ID(), claimError)
+				log.Printf("pending message %d could not be taken: %v", dueMessage.ID(), claimError)
 
 				return
 			}
 			if !claimed {
 				return
 			}
-			if head.IsBeingSentAgain() {
-				log.Printf("pending message %d is being sent again: the replica sending it never said how it went", head.ID())
+			if dueMessage.IsBeingSentAgain() {
+				log.Printf("pending message %d is being sent again: the replica sending it never said how it went",
+					dueMessage.ID())
 			}
 
 			// The signal is forgotten before giving up, so a crash between the two can only cause a resend, never a lost signal.
-			if head.IsExpiredAt(now) {
-				if head.ForgetsSignalWhenAbandoned() {
+			if dueMessage.IsExpiredAt(claimedAt) {
+				if roundDueAt, speaksForARound := dueMessage.RoundDueAt(); speaksForARound &&
+					dueMessage.ForgetsSignalWhenAbandoned() {
 					if forgetError := pendingMessageService.strategyBotRepository.ForgetSentSignal(
-						executionContext, head.StrategyBotID(), head.Signal()); forgetError != nil {
+						executionContext, dueMessage.StrategyBotID(), roundDueAt); forgetError != nil {
 						log.Printf("pending message %d expired but its bot could not forget the signal: %v",
-							head.ID(), forgetError)
+							dueMessage.ID(), forgetError)
 
 						return
 					}
 				}
 
 				if abandonError := pendingMessageService.pendingMessageRepository.Abandon(
-					executionContext, head.ID(), pendingMessageService.replicaName, pendingMessageExpiredReason,
-					now); abandonError != nil {
-					log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
+					executionContext, dueMessage.ID(), replicaName, vo.PendingMessageAbandonedExpired,
+					claimedAt); abandonError != nil {
+					log.Printf("pending message %d could not be given up: %v", dueMessage.ID(), abandonError)
 
 					return
 				}
 
-				log.Printf("pending message %d given up: not sent before it stopped mattering", head.ID())
+				log.Printf("pending message %d given up: not sent before it stopped mattering", dueMessage.ID())
 
 				return
 			}
 
 			deliveryResult, deliverError := pendingMessageService.telegramDeliveryService.DeliverPendingMessage(
-				executionContext, head.RecipientUserID(), head.Text())
-			outcome := head.AfterAttempt(deliveryResult, deliverError, now)
+				executionContext, dueMessage.RecipientUserID(), dueMessage.Text())
+			settledAt := pendingMessageService.clockProxy.Now()
+			outcome := dueMessage.AfterAttempt(deliveryResult, deliverError, settledAt)
 
 			switch outcome.Kind {
 			case vo.PendingMessageAttemptSent:
 				if markError := pendingMessageService.pendingMessageRepository.MarkSent(
-					executionContext, head.ID(), pendingMessageService.replicaName, now); markError != nil {
+					executionContext, dueMessage.ID(), replicaName, settledAt); markError != nil {
 					// Left sending, so it is sent again once the claim runs out: a repeat beats a silent loss.
-					log.Printf("pending message %d was sent but could not be marked so: %v", head.ID(), markError)
+					log.Printf("pending message %d was sent but could not be marked so: %v", dueMessage.ID(), markError)
 				}
 
 				deliveredMutex.Lock()
 				defer deliveredMutex.Unlock()
 				deliveredCount++
 			case vo.PendingMessageAttemptRefused:
-				if haltError := pendingMessageService.haltBot(
-					executionContext, head.StrategyBotID(), outcome.HaltReason); haltError != nil {
+				// Halted under the row lock a round being booked also takes, so neither overwrites the other; a bot already stopped or gone is left as it is.
+				haltError := pendingMessageService.transactionRepository.Atomically(executionContext,
+					func(transactionContext context.Context) error {
+						bot, findError := pendingMessageService.strategyBotRepository.FindOneLocked(
+							transactionContext, dueMessage.StrategyBotID())
+						if errors.Is(findError, domains.ErrStrategyBotNotFound) {
+							return nil
+						}
+						if findError != nil {
+							return findError
+						}
+
+						runState := domains.NewStrategyBotRunStateDomain(bot)
+						if !runState.IsRunning() {
+							return nil
+						}
+
+						return pendingMessageService.strategyBotRepository.UpdateRunState(
+							transactionContext, runState.Halt(outcome.HaltReason, settledAt))
+					})
+				if haltError != nil {
 					log.Printf("pending message %d was refused but its bot could not be halted: %v",
-						head.ID(), haltError)
+						dueMessage.ID(), haltError)
 
 					return
 				}
 
 				if abandonError := pendingMessageService.pendingMessageRepository.Abandon(
-					executionContext, head.ID(), pendingMessageService.replicaName, string(outcome.HaltReason),
-					now); abandonError != nil {
-					log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
+					executionContext, dueMessage.ID(), replicaName, outcome.AbandonReason,
+					settledAt); abandonError != nil {
+					log.Printf("pending message %d could not be given up: %v", dueMessage.ID(), abandonError)
 
 					return
 				}
 
-				log.Printf("pending message %d given up and its bot halted: %s", head.ID(), outcome.HaltReason)
+				log.Printf("pending message %d given up and its bot halted: %s", dueMessage.ID(), outcome.HaltReason)
 			default:
 				if rescheduleError := pendingMessageService.pendingMessageRepository.Reschedule(
-					executionContext, head.ID(), pendingMessageService.replicaName, outcome.AttemptCount,
+					executionContext, dueMessage.ID(), replicaName, outcome.AttemptCount,
 					outcome.NextAttemptAt); rescheduleError != nil {
-					log.Printf("pending message %d could not be put back to wait: %v", head.ID(), rescheduleError)
+					log.Printf("pending message %d could not be put back to wait: %v", dueMessage.ID(), rescheduleError)
 				}
 			}
 		}()
@@ -184,28 +215,16 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 	return deliveredCount, nil
 }
 
-// haltBot stops a running bot under the row lock a round being booked also takes, so neither overwrites the other; a bot already stopped is left as it is.
-// It exists to scope that transaction: the lock must be let go before the message is settled.
-func (pendingMessageService *PendingMessageService) haltBot(
-	executionContext context.Context, strategyBotID uint, haltReason vo.StrategyBotHaltReasonVo,
-) error {
-	return pendingMessageService.transactionRepository.Atomically(executionContext,
-		func(transactionContext context.Context) error {
-			bot, findError := pendingMessageService.strategyBotRepository.FindOneLocked(
-				transactionContext, strategyBotID)
-			if errors.Is(findError, domains.ErrStrategyBotNotFound) {
-				return nil
-			}
-			if findError != nil {
-				return findError
-			}
+// isTrimDue exists to scope the trim lock with defer: it decides and records the trim in one hold, so two concurrent looks never both trim.
+func (pendingMessageService *PendingMessageService) isTrimDue(now time.Time) bool {
+	pendingMessageService.trimMutex.Lock()
+	defer pendingMessageService.trimMutex.Unlock()
 
-			runState := domains.NewStrategyBotRunStateDomain(bot)
-			if !runState.IsRunning() {
-				return nil
-			}
+	if !pendingMessageService.lastTrimmedAt.IsZero() &&
+		now.Sub(pendingMessageService.lastTrimmedAt) < pendingMessageTrimInterval {
+		return false
+	}
+	pendingMessageService.lastTrimmedAt = now
 
-			return pendingMessageService.strategyBotRepository.UpdateRunState(
-				transactionContext, runState.Halt(haltReason))
-		})
+	return true
 }

@@ -52,7 +52,7 @@ func NewStrategyBotRoundHaltedOutcome(
 	return StrategyBotRoundOutcomeDomain{haltReason: haltReason}
 }
 
-// NewStrategyBotRoundConcludedOutcome takes the signal actually sent to Telegram, empty when nothing was sent.
+// NewStrategyBotRoundConcludedOutcome takes the signal the round queued a message for, empty when it queued none.
 func NewStrategyBotRoundConcludedOutcome(
 	verdict vo.StrategyBotVerdictVo, sentSignal vo.SignalVo, conflicting bool,
 ) StrategyBotRoundOutcomeDomain {
@@ -81,10 +81,10 @@ func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResul
 
 // ApplyTo writes the outcome onto the bot's run state and returns the record to store.
 func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) ApplyTo(
-	runStateDomain StrategyBotRunStateDomain, now time.Time,
+	runStateDomain StrategyBotRunStateDomain, dueAt time.Time, now time.Time,
 ) entities.StrategyBot {
 	if strategyBotRoundOutcomeDomain.haltReason != vo.StrategyBotHaltNone {
-		return runStateDomain.Halt(strategyBotRoundOutcomeDomain.haltReason)
+		return runStateDomain.Halt(strategyBotRoundOutcomeDomain.haltReason, now)
 	}
 
 	if strategyBotRoundOutcomeDomain.skipped {
@@ -92,5 +92,5 @@ func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) ApplyTo(
 	}
 
 	return runStateDomain.RoundFinished(
-		now, strategyBotRoundOutcomeDomain.sentSignal, strategyBotRoundOutcomeDomain.conflicting)
+		dueAt, now, strategyBotRoundOutcomeDomain.sentSignal, strategyBotRoundOutcomeDomain.conflicting)
 }

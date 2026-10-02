@@ -201,14 +201,15 @@ func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 	result := strategyBotRepository.database.within(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: bot.ID}).
-		Select("run_state", "next_run_at", "last_sent_signal", "halt_reason", "conflicting").
+		Select("run_state", "next_run_at", "last_sent_signal", "last_sent_round_due_at", "halt_reason", "conflicting").
 		// UpdateColumns rather than Updates, which would bump UpdatedAt on every round even though nothing was modified.
 		UpdateColumns(entities.StrategyBot{
-			RunState:       bot.RunState,
-			NextRunAt:      bot.NextRunAt,
-			LastSentSignal: bot.LastSentSignal,
-			HaltReason:     bot.HaltReason,
-			Conflicting:    bot.Conflicting,
+			RunState:           bot.RunState,
+			NextRunAt:          bot.NextRunAt,
+			LastSentSignal:     bot.LastSentSignal,
+			LastSentRoundDueAt: bot.LastSentRoundDueAt,
+			HaltReason:         bot.HaltReason,
+			Conflicting:        bot.Conflicting,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("update strategy bot run state: %w", result.Error)
@@ -390,15 +391,15 @@ func (strategyBotRepository *StrategyBotRepository) FindOneLocked(
 	return bot, nil
 }
 
-// ForgetSentSignal clears the last sent signal only while it is still signal, so a newer round's signal is never lost.
+// ForgetSentSignal clears the last sent signal only while it still comes from the round due at roundDueAt, so a later round's signal is never lost.
 func (strategyBotRepository *StrategyBotRepository) ForgetSentSignal(
-	executionContext context.Context, id uint, signal string,
+	executionContext context.Context, id uint, roundDueAt time.Time,
 ) error {
 	result := strategyBotRepository.database.within(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: id}).
-		Where(clause.Eq{Column: "last_sent_signal", Value: signal}).
-		Select("last_sent_signal").
+		Where(clause.Eq{Column: "last_sent_round_due_at", Value: roundDueAt.UTC()}).
+		Select("last_sent_signal", "last_sent_round_due_at").
 		UpdateColumns(entities.StrategyBot{})
 	if result.Error != nil {
 		return fmt.Errorf("forget strategy bot sent signal: %w", result.Error)

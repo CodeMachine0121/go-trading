@@ -13,10 +13,11 @@ const (
 	PendingMessageAttemptRefused PendingMessageAttemptOutcomeKindVo = "refused"
 )
 
-// PendingMessageAttemptOutcomeVo carries a retry's wait or a refusal's halt reason, never both.
+// PendingMessageAttemptOutcomeVo carries a retry's wait or a refusal's halt and abandon reasons, never both.
 type PendingMessageAttemptOutcomeVo struct {
 	Kind          PendingMessageAttemptOutcomeKindVo
 	AttemptCount  int
 	NextAttemptAt time.Time
 	HaltReason    StrategyBotHaltReasonVo
+	AbandonReason PendingMessageAbandonReasonVo
 }

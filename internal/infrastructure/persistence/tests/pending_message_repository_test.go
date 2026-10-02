@@ -3,6 +3,7 @@ package persistence_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ func TestPendingMessageRepositoryOnlyTheSenderSettlesAMessage(t *testing.T) {
 			require.NoError(t, testBed.repository.MarkSent(t.Context(), messageID, testCase.settledBy, queuedAt))
 
 			assert.Equal(t, string(testCase.expectedStatus), testBed.storedMessages(t)[0].Status)
-			unsettled, findError := testBed.repository.FindUnsettled(t.Context(), 10)
+			unsettled, findError := testBed.repository.FindDispatchCandidates(t.Context(), queuedAt, 10)
 			require.NoError(t, findError)
 			assert.Equal(t, testCase.expectUnsettle, len(unsettled) == 1)
 		})
@@ -165,8 +166,7 @@ func TestPendingMessageRepositoryRescheduleAndAbandon(t *testing.T) {
 
 	require.NoError(t, testBed.repository.Reschedule(
 		t.Context(), stored[0].ID, "replica-a", 3, queuedAt.Add(8*time.Second)))
-	require.NoError(t, testBed.repository.Abandon(
-		t.Context(), stored[1].ID, "replica-a", "expired", queuedAt))
+	require.NoError(t, testBed.repository.Abandon(t.Context(), stored[1].ID, "replica-a", vo.PendingMessageAbandonedExpired, queuedAt))
 
 	settled := testBed.storedMessages(t)
 	assert.Equal(t, string(vo.PendingMessageReady), settled[0].Status)
@@ -175,22 +175,39 @@ func TestPendingMessageRepositoryRescheduleAndAbandon(t *testing.T) {
 	assert.Empty(t, settled[0].ClaimedBy)
 	assert.Equal(t, string(vo.PendingMessageAbandoned), settled[1].Status)
 	assert.Equal(t, "expired", settled[1].AbandonReason)
-	unsettled, findError := testBed.repository.FindUnsettled(t.Context(), 10)
+	unsettled, findError := testBed.repository.FindDispatchCandidates(t.Context(), queuedAt, 10)
 	require.NoError(t, findError)
 	assert.Equal(t, []string{"Run 52"}, textsOf(unsettled))
 }
 
-func TestPendingMessageRepositoryFindsUnsettledInQueueOrderUpToALimit(t *testing.T) {
+func TestPendingMessageRepositoryOffersEachPersonsOldestMessageAndAnyExpiredOne(t *testing.T) {
 	testBed := newPendingMessageTestBed(t)
-	for index, text := range []string{"first", "second", "third"} {
-		require.NoError(t, testBed.repository.Enqueue(t.Context(),
-			testBed.aRoundMessage(queuedAt.Add(time.Duration(index)*time.Minute), text)))
+	strangerID := aSecondOwner(t, testBed.database)
+	strangersBot := aBotRow("別人的")
+	strangersBot.OwnerID = strangerID
+	strangersBotRow, saveError := persistence.NewStrategyBotRepository(testBed.database).Save(t.Context(), strangersBot)
+	require.NoError(t, saveError)
+	// One person's long backlog, and one message of theirs already past its deadline.
+	for index := range 5 {
+		message := testBed.aRoundMessage(queuedAt.Add(time.Duration(index)*time.Minute), fmt.Sprintf("backlog %d", index))
+		if index == 3 {
+			message.ExpiresAt = queuedAt
+		}
+		require.NoError(t, testBed.repository.Enqueue(t.Context(), message))
 	}
+	strangersMessage := testBed.aRoundMessage(queuedAt, "stranger")
+	strangersMessage.StrategyBotID = strangersBotRow.ID
+	strangersMessage.RecipientUserID = strangerID
+	require.NoError(t, testBed.repository.Enqueue(t.Context(), strangersMessage))
 
-	unsettled, findError := testBed.repository.FindUnsettled(t.Context(), 2)
+	candidates, findError := testBed.repository.FindDispatchCandidates(t.Context(), queuedAt, 2)
 	require.NoError(t, findError)
 
-	assert.Equal(t, []string{"first", "second"}, textsOf(unsettled))
+	// The limit of two still reaches the other person, because the backlog contributes only its head and its expired one.
+	assert.Equal(t, []string{"backlog 0", "backlog 3"}, textsOf(candidates))
+	everything, everythingError := testBed.repository.FindDispatchCandidates(t.Context(), queuedAt, 10)
+	require.NoError(t, everythingError)
+	assert.Equal(t, []string{"backlog 0", "backlog 3", "stranger"}, textsOf(everything))
 }
 
 func TestPendingMessageRepositoryDropsOnlyWhatSettledLongEnoughAgo(t *testing.T) {
@@ -202,8 +219,7 @@ func TestPendingMessageRepositoryDropsOnlyWhatSettledLongEnoughAgo(t *testing.T)
 	_, _ = testBed.repository.Claim(t.Context(), stored[0].ID, "replica-a", queuedAt, queuedAt.Add(2*time.Minute))
 	_, _ = testBed.repository.Claim(t.Context(), stored[1].ID, "replica-a", queuedAt, queuedAt.Add(2*time.Minute))
 	require.NoError(t, testBed.repository.MarkSent(t.Context(), stored[0].ID, "replica-a", queuedAt.Add(-8*24*time.Hour)))
-	require.NoError(t, testBed.repository.Abandon(
-		t.Context(), stored[1].ID, "replica-a", "expired", queuedAt.Add(-6*24*time.Hour)))
+	require.NoError(t, testBed.repository.Abandon(t.Context(), stored[1].ID, "replica-a", vo.PendingMessageAbandonedExpired, queuedAt.Add(-6*24*time.Hour)))
 
 	require.NoError(t, testBed.repository.DeleteSettledBefore(t.Context(), queuedAt.Add(-7*24*time.Hour)))
 
@@ -272,20 +288,20 @@ func TestOutboxAndDutyStorageSaySoWhenStorageCannotAnswer(t *testing.T) {
 	strategyBotRepository := persistence.NewStrategyBotRepository(database)
 
 	assert.Error(t, pendingMessageRepository.Enqueue(t.Context(), entities.PendingMessage{}))
-	_, findError := pendingMessageRepository.FindUnsettled(t.Context(), 10)
+	_, findError := pendingMessageRepository.FindDispatchCandidates(t.Context(), queuedAt, 10)
 	assert.Error(t, findError)
 	_, claimError := pendingMessageRepository.Claim(t.Context(), 1, "replica-a", queuedAt, queuedAt)
 	assert.Error(t, claimError)
 	assert.Error(t, pendingMessageRepository.MarkSent(t.Context(), 1, "replica-a", queuedAt))
 	assert.Error(t, pendingMessageRepository.Reschedule(t.Context(), 1, "replica-a", 1, queuedAt))
-	assert.Error(t, pendingMessageRepository.Abandon(t.Context(), 1, "replica-a", "expired", queuedAt))
+	assert.Error(t, pendingMessageRepository.Abandon(t.Context(), 1, "replica-a", vo.PendingMessageAbandonedExpired, queuedAt))
 	assert.Error(t, pendingMessageRepository.DeleteSettledBefore(t.Context(), queuedAt))
 	_, acquireError := leaseRepository.Acquire(t.Context(), "background-jobs", "replica-a", queuedAt, queuedAt)
 	assert.Error(t, acquireError)
 	assert.Error(t, leaseRepository.Release(t.Context(), "background-jobs", "replica-a"))
 	_, lockedError := strategyBotRepository.FindOneLocked(t.Context(), 1)
 	assert.Error(t, lockedError)
-	assert.Error(t, strategyBotRepository.ForgetSentSignal(t.Context(), 1, "buy"))
+	assert.Error(t, strategyBotRepository.ForgetSentSignal(t.Context(), 1, queuedAt))
 }
 
 // A round is booked through three repositories; this proves all three roll back together, which the round's own tests cannot since they mock the transaction.

@@ -84,8 +84,13 @@ func (pendingMessageDomain PendingMessageDomain) Text() string {
 	return pendingMessageDomain.message.Text
 }
 
-func (pendingMessageDomain PendingMessageDomain) Signal() string {
-	return pendingMessageDomain.message.Signal
+// RoundDueAt is the round the message speaks for; a bot's message about itself speaks for none.
+func (pendingMessageDomain PendingMessageDomain) RoundDueAt() (time.Time, bool) {
+	if pendingMessageDomain.message.RoundDueAt == nil {
+		return time.Time{}, false
+	}
+
+	return *pendingMessageDomain.message.RoundDueAt, true
 }
 
 // IsExpiredAt counts the deadline itself as too late.
@@ -115,7 +120,7 @@ func (pendingMessageDomain PendingMessageDomain) IsBeingSentAgain() bool {
 // ForgetsSignalWhenAbandoned is true only for a round's message: its bot must not go on believing the owner heard a signal that never arrived.
 func (pendingMessageDomain PendingMessageDomain) ForgetsSignalWhenAbandoned() bool {
 	return vo.PendingMessageKindVo(pendingMessageDomain.message.Kind) == vo.PendingMessageRound &&
-		pendingMessageDomain.message.Signal != ""
+		pendingMessageDomain.message.Signal != "" && pendingMessageDomain.message.RoundDueAt != nil
 }
 
 // AfterAttempt halts only on failures the owner must fix: a token or chat Telegram refused, or a delivery setting the owner removed.
@@ -126,6 +131,7 @@ func (pendingMessageDomain PendingMessageDomain) AfterAttempt(
 	if errors.Is(deliverError, ErrTelegramDeliveryNotConfigured) {
 		return vo.PendingMessageAttemptOutcomeVo{
 			Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured,
+			AbandonReason: vo.PendingMessageAbandonedDeliveryNotConfigured,
 		}
 	}
 
@@ -138,10 +144,17 @@ func (pendingMessageDomain PendingMessageDomain) AfterAttempt(
 		return vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptSent}
 	}
 
-	deliveryFailure := NewStrategyBotDeliveryFailureDomain(failureReason)
-	if deliveryFailure.HaltsTheBot() {
+	// A refused token or chat is the only refusal that halts; everything else may fix itself.
+	switch failureReason {
+	case vo.DeliveryFailureCredentialRejected:
 		return vo.PendingMessageAttemptOutcomeVo{
-			Kind: vo.PendingMessageAttemptRefused, HaltReason: deliveryFailure.HaltReason(),
+			Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltCredentialRejected,
+			AbandonReason: vo.PendingMessageAbandonedCredentialRejected,
+		}
+	case vo.DeliveryFailureDestinationNotFound:
+		return vo.PendingMessageAttemptOutcomeVo{
+			Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDestinationNotFound,
+			AbandonReason: vo.PendingMessageAbandonedDestinationNotFound,
 		}
 	}
 

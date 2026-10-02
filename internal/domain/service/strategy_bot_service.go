@@ -472,7 +472,7 @@ func (strategyBotService *StrategyBotService) RecordRound(
 			}
 
 			ranAt := strategyBotService.clockProxy.Now()
-			endedBot := outcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), ranAt)
+			endedBot := outcome.ApplyTo(domains.NewStrategyBotRunStateDomain(storedBot), dueAt, ranAt)
 
 			if updateError := strategyBotService.strategyBotRepository.UpdateRunState(
 				transactionContext, endedBot); updateError != nil {

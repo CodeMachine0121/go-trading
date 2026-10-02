@@ -59,6 +59,7 @@ func (strategyBotRunStateDomain StrategyBotRunStateDomain) Start(now time.Time) 
 	startedBot.RunState = string(vo.StrategyBotRunning)
 	startedBot.NextRunAt = now.UTC()
 	startedBot.LastSentSignal = ""
+	startedBot.LastSentRoundDueAt = nil
 	startedBot.HaltReason = string(vo.StrategyBotHaltNone)
 	startedBot.Conflicting = false
 
@@ -74,19 +75,21 @@ func (strategyBotRunStateDomain StrategyBotRunStateDomain) Stop() entities.Strat
 }
 
 // Halt keeps the reason until the next start; the list is the only place it can be seen since some halts are delivery failures.
+// It moves the due time to now, so a round some replica is still working on can no longer be booked onto the stopped bot.
 func (strategyBotRunStateDomain StrategyBotRunStateDomain) Halt(
-	haltReason vo.StrategyBotHaltReasonVo,
+	haltReason vo.StrategyBotHaltReasonVo, now time.Time,
 ) entities.StrategyBot {
 	haltedBot := strategyBotRunStateDomain.bot
 	haltedBot.RunState = string(vo.StrategyBotStopped)
 	haltedBot.HaltReason = string(haltReason)
+	haltedBot.NextRunAt = now.UTC()
 
 	return haltedBot
 }
 
-// RoundFinished schedules from now so missed rounds are never made up, and moves the last sent signal only when a message was actually delivered.
+// RoundFinished schedules from now so missed rounds are never made up, and moves the last sent signal, with the round that said it, only when the round queued a message.
 func (strategyBotRunStateDomain StrategyBotRunStateDomain) RoundFinished(
-	now time.Time, sentSignal vo.SignalVo, conflicting bool,
+	dueAt time.Time, now time.Time, sentSignal vo.SignalVo, conflicting bool,
 ) entities.StrategyBot {
 	finishedBot := strategyBotRunStateDomain.bot
 	finishedBot.NextRunAt = now.UTC().Add(
@@ -94,7 +97,9 @@ func (strategyBotRunStateDomain StrategyBotRunStateDomain) RoundFinished(
 	finishedBot.Conflicting = conflicting
 
 	if sentSignal != "" {
+		dueAtUtc := dueAt.UTC()
 		finishedBot.LastSentSignal = string(sentSignal)
+		finishedBot.LastSentRoundDueAt = &dueAtUtc
 	}
 
 	return finishedBot

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 //go:generate go tool mockgen -source=i_pending_message_repository.go -destination=mocks/mock_i_pending_message_repository.go -package=mocks
@@ -14,8 +15,11 @@ type IPendingMessageRepository interface {
 	// Enqueue takes part in a surrounding transaction; a second message for the same round is silently dropped.
 	Enqueue(executionContext context.Context, pendingMessage entities.PendingMessage) error
 
-	// FindUnsettled returns ready and sending messages in the order they were queued, at most limit.
-	FindUnsettled(executionContext context.Context, limit int) ([]entities.PendingMessage, error)
+	// FindDispatchCandidates returns, oldest first and at most limit, each person's oldest unsettled message plus every unsettled one already expired at moment.
+	// Reading only these keeps a person with a long backlog from crowding everyone else out of a look at the queue.
+	FindDispatchCandidates(
+		executionContext context.Context, moment time.Time, limit int,
+	) ([]entities.PendingMessage, error)
 
 	// Claim takes the message for claimant when it is ready and due at moment, or its sender's claim ran out by moment; false means another replica has it.
 	Claim(
@@ -29,7 +33,10 @@ type IPendingMessageRepository interface {
 		executionContext context.Context, id uint, claimant string, attemptCount int, nextAttemptAt time.Time,
 	) error
 
-	Abandon(executionContext context.Context, id uint, claimant string, reason string, settledAt time.Time) error
+	Abandon(
+		executionContext context.Context, id uint, claimant string, reason vo.PendingMessageAbandonReasonVo,
+		settledAt time.Time,
+	) error
 
 	// DeleteSettledBefore drops sent and abandoned messages settled before cutoff.
 	DeleteSettledBefore(executionContext context.Context, cutoff time.Time) error

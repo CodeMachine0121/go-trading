@@ -36,24 +36,46 @@ func (pendingMessageRepository *PendingMessageRepository) Enqueue(
 	return nil
 }
 
-func (pendingMessageRepository *PendingMessageRepository) FindUnsettled(
-	executionContext context.Context, limit int,
+// FindDispatchCandidates reads the head of each person's queue in its own step, so the second read is bounded by people, not by how much one of them has queued.
+func (pendingMessageRepository *PendingMessageRepository) FindDispatchCandidates(
+	executionContext context.Context, moment time.Time, limit int,
 ) ([]entities.PendingMessage, error) {
-	pendingMessages := []entities.PendingMessage{}
+	unsettled := clause.Or(
+		clause.Eq{Column: "status", Value: string(vo.PendingMessageReady)},
+		clause.Eq{Column: "status", Value: string(vo.PendingMessageSending)},
+	)
 
-	result := pendingMessageRepository.database.within(executionContext).
-		Where(clause.Or(
-			clause.Eq{Column: "status", Value: string(vo.PendingMessageReady)},
-			clause.Eq{Column: "status", Value: string(vo.PendingMessageSending)},
-		)).
-		Order("id ASC").
-		Limit(limit).
-		Find(&pendingMessages)
-	if result.Error != nil {
-		return nil, fmt.Errorf("find unsettled pending messages: %w", result.Error)
+	headIDs := []uint{}
+	if headError := pendingMessageRepository.database.within(executionContext).
+		Model(&entities.PendingMessage{}).
+		Where(unsettled).
+		Group("recipient_user_id").
+		Pluck("MIN(id)", &headIDs).Error; headError != nil {
+		return nil, fmt.Errorf("find heads of pending message queues: %w", headError)
 	}
 
-	return pendingMessages, nil
+	candidates := []entities.PendingMessage{}
+	candidateCondition := clause.Expression(clause.Lte{Column: "expires_at", Value: moment.UTC()})
+	if len(headIDs) > 0 {
+		// GORM's IN clause takes its values loosely typed, as elsewhere in this package.
+		headIDValues := make([]any, 0, len(headIDs))
+		for _, headID := range headIDs {
+			headIDValues = append(headIDValues, headID)
+		}
+		candidateCondition = clause.Or(clause.IN{Column: "id", Values: headIDValues}, candidateCondition)
+	}
+
+	result := pendingMessageRepository.database.within(executionContext).
+		Where(unsettled).
+		Where(candidateCondition).
+		Order("id ASC").
+		Limit(limit).
+		Find(&candidates)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find pending message candidates: %w", result.Error)
+	}
+
+	return candidates, nil
 }
 
 // Claim is one conditional update, so of two replicas reaching for one message exactly one gets it.
@@ -107,14 +129,15 @@ func (pendingMessageRepository *PendingMessageRepository) Reschedule(
 }
 
 func (pendingMessageRepository *PendingMessageRepository) Abandon(
-	executionContext context.Context, id uint, claimant string, reason string, settledAt time.Time,
+	executionContext context.Context, id uint, claimant string, reason vo.PendingMessageAbandonReasonVo,
+	settledAt time.Time,
 ) error {
 	settledAtUtc := settledAt.UTC()
 
 	return pendingMessageRepository.settle(executionContext, id, claimant, "abandon pending message",
 		[]string{"status", "claimed_by", "claimed_until", "abandon_reason", "settled_at"},
 		entities.PendingMessage{
-			Status: string(vo.PendingMessageAbandoned), AbandonReason: reason, SettledAt: &settledAtUtc,
+			Status: string(vo.PendingMessageAbandoned), AbandonReason: string(reason), SettledAt: &settledAtUtc,
 		})
 }
 

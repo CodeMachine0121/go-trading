@@ -58,8 +58,8 @@ type IStrategyBotRepository interface {
 	// FindOneLocked reads the bot and holds it against other writers until the surrounding transaction ends; outside one it is a plain read.
 	FindOneLocked(executionContext context.Context, id uint) (entities.StrategyBot, error)
 
-	// ForgetSentSignal clears the last sent signal only while it is still signal.
-	ForgetSentSignal(executionContext context.Context, id uint, signal string) error
+	// ForgetSentSignal clears the last sent signal only while it still comes from the round due at roundDueAt.
+	ForgetSentSignal(executionContext context.Context, id uint, roundDueAt time.Time) error
 
 	// ReleaseRoundClaim frees the bot only when claimant still holds it, so a late finisher never frees a newer claim.
 	ReleaseRoundClaim(executionContext context.Context, id uint, claimant string) error

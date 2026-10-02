@@ -206,13 +206,15 @@ func TestStrategyBotRepositoryAReleasedBotIsClaimableAgainAtOnce(t *testing.T) {
 }
 
 func TestStrategyBotRepositoryForgetSentSignal(t *testing.T) {
+	roundSaidIt := claimNow.Add(-5 * time.Minute)
 	testCases := []struct {
 		name           string
-		forgotten      vo.SignalVo
+		forgottenRound time.Time
 		expectedSignal string
 	}{
-		{name: "the signal a message carried is forgotten", forgotten: vo.SignalBuy, expectedSignal: ""},
-		{name: "a newer signal is kept", forgotten: vo.SignalSell, expectedSignal: string(vo.SignalBuy)},
+		{name: "the round whose message is given up is forgotten", forgottenRound: roundSaidIt, expectedSignal: ""},
+		{name: "a later round that said the signal again is kept", forgottenRound: roundSaidIt.Add(-5 * time.Minute),
+			expectedSignal: string(vo.SignalBuy)},
 	}
 
 	for _, testCase := range testCases {
@@ -221,9 +223,10 @@ func TestStrategyBotRepositoryForgetSentSignal(t *testing.T) {
 			repository := persistence.NewStrategyBotRepository(database)
 			bot := aDueRunningBot(t, repository, "X")
 			bot.LastSentSignal = string(vo.SignalBuy)
+			bot.LastSentRoundDueAt = &roundSaidIt
 			require.NoError(t, repository.UpdateRunState(t.Context(), bot))
 
-			require.NoError(t, repository.ForgetSentSignal(t.Context(), bot.ID, string(testCase.forgotten)))
+			require.NoError(t, repository.ForgetSentSignal(t.Context(), bot.ID, testCase.forgottenRound))
 
 			stored, findError := repository.FindOne(t.Context(), bot.ID)
 			require.NoError(t, findError)

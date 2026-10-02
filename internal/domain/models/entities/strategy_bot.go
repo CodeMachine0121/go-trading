@@ -36,6 +36,8 @@ type StrategyBot struct {
 	NextRunAt time.Time `gorm:"type:timestamptz;index:idx_strategy_bots_run_state_next_run_at,priority:2"`
 	// LastSentSignal is cleared on start so the first conclusion after starting is always sent.
 	LastSentSignal string `gorm:"size:16;not null;default:''"`
+	// LastSentRoundDueAt names the round whose message carried LastSentSignal, so a message given up forgets the signal only if no later round has said it since.
+	LastSentRoundDueAt *time.Time `gorm:"type:timestamptz"`
 	// HaltReason is empty unless the system stopped this bot itself.
 	HaltReason string `gorm:"size:32;not null;default:''"`
 	// Conflicting is not a halt; it clears on the next non-conflicting round.

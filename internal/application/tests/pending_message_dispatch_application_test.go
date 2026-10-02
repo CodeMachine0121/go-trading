@@ -78,9 +78,15 @@ func newPendingMessageDispatchUnderTest(t *testing.T) pendingMessageDispatchUnde
 	}
 }
 
+// queuedRoundDueAt is the round the queued message speaks for.
+var queuedRoundDueAt = time.Date(2026, 10, 2, 7, 55, 0, 0, time.UTC)
+
 func aDueRoundMessage() entities.PendingMessage {
+	roundDueAt := queuedRoundDueAt
+
 	return entities.PendingMessage{
-		ID: queuedMessageID, StrategyBotID: queuedBotID, RecipientUserID: queuedRecipient,
+		RoundDueAt: &roundDueAt,
+		ID:         queuedMessageID, StrategyBotID: queuedBotID, RecipientUserID: queuedRecipient,
 		Kind: string(vo.PendingMessageRound), Signal: string(vo.SignalBuy), Text: queuedRoundText,
 		Status: string(vo.PendingMessageReady), NextAttemptAt: dispatchNow,
 		ExpiresAt: dispatchNow.Add(5 * time.Minute),
@@ -88,7 +94,7 @@ func aDueRoundMessage() entities.PendingMessage {
 }
 
 func (underTest pendingMessageDispatchUnderTest) queueHolds(messages ...entities.PendingMessage) {
-	underTest.pendingMessageRepository.EXPECT().FindUnsettled(gomock.Any(), gomock.Any()).Return(messages, nil)
+	underTest.pendingMessageRepository.EXPECT().FindDispatchCandidates(gomock.Any(), gomock.Any(), gomock.Any()).Return(messages, nil)
 }
 
 func (underTest pendingMessageDispatchUnderTest) claimSucceeds() {
@@ -227,7 +233,7 @@ func TestPendingMessageDispatchHaltsTheBotOnARefusalThatWillNotFixItself(t *test
 					return nil
 				})
 			underTest.pendingMessageRepository.EXPECT().
-				Abandon(gomock.Any(), queuedMessageID, dispatchReplica, string(testCase.expectedHaltReason), dispatchNow).
+				Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonReasonVo(testCase.expectedHaltReason), dispatchNow).
 				Return(nil)
 
 			deliveredCount, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
@@ -248,7 +254,7 @@ func TestPendingMessageDispatchOnlyAbandonsWhenTheBotIsAlreadyStopped(t *testing
 		Return(aBotThatIs(vo.StrategyBotStopped), nil)
 	// No UpdateRunState expectation: a stopped bot is left as it is.
 	underTest.pendingMessageRepository.EXPECT().
-		Abandon(gomock.Any(), queuedMessageID, dispatchReplica, string(vo.StrategyBotHaltCredentialRejected), dispatchNow).
+		Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonedCredentialRejected, dispatchNow).
 		Return(nil)
 
 	_, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
@@ -296,10 +302,10 @@ func TestPendingMessageDispatchGivesUpAMessageThatCameTooLate(t *testing.T) {
 			forgetCall := (*gomock.Call)(nil)
 			if testCase.expectsForget {
 				forgetCall = underTest.strategyBotRepository.EXPECT().
-					ForgetSentSignal(gomock.Any(), queuedBotID, string(vo.SignalBuy)).Return(nil)
+					ForgetSentSignal(gomock.Any(), queuedBotID, queuedRoundDueAt).Return(nil)
 			}
 			abandonCall := underTest.pendingMessageRepository.EXPECT().
-				Abandon(gomock.Any(), queuedMessageID, dispatchReplica, "expired", dispatchNow).Return(nil)
+				Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonedExpired, dispatchNow).Return(nil)
 			if forgetCall != nil {
 				abandonCall.After(forgetCall)
 			}
@@ -334,7 +340,7 @@ func TestPendingMessageDispatchSendsEachPersonsMessagesInOrder(t *testing.T) {
 
 func TestPendingMessageDispatchReportsAQueueItCannotRead(t *testing.T) {
 	underTest := newPendingMessageDispatchUnderTest(t)
-	underTest.pendingMessageRepository.EXPECT().FindUnsettled(gomock.Any(), gomock.Any()).
+	underTest.pendingMessageRepository.EXPECT().FindDispatchCandidates(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("the database went away"))
 
 	_, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
@@ -403,7 +409,7 @@ func TestPendingMessageDispatchKeepsAnExpiredMessageWhileItsBotCannotForget(t *t
 	expired.ExpiresAt = dispatchNow
 	underTest.queueHolds(expired)
 	underTest.claimSucceeds()
-	underTest.strategyBotRepository.EXPECT().ForgetSentSignal(gomock.Any(), queuedBotID, string(vo.SignalBuy)).
+	underTest.strategyBotRepository.EXPECT().ForgetSentSignal(gomock.Any(), queuedBotID, queuedRoundDueAt).
 		Return(dispatchStorageFailure)
 	// No Abandon expectation: the message stays taken, so it is given up only once its bot has forgotten.
 
@@ -426,7 +432,7 @@ func TestPendingMessageDispatchCarriesOnWhenAWriteAfterSendingFails(t *testing.T
 				underTest.queueHolds(expired)
 				underTest.claimSucceeds()
 				underTest.pendingMessageRepository.EXPECT().
-					Abandon(gomock.Any(), queuedMessageID, dispatchReplica, "expired", dispatchNow).
+					Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonedExpired, dispatchNow).
 					Return(dispatchStorageFailure)
 			},
 		},
@@ -480,10 +486,67 @@ func TestPendingMessageDispatchGivesUpARefusedMessageForABotThatIsGone(t *testin
 	underTest.strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), queuedBotID).
 		Return(entities.StrategyBot{}, domains.StrategyBotNotFound(queuedBotID))
 	underTest.pendingMessageRepository.EXPECT().
-		Abandon(gomock.Any(), queuedMessageID, dispatchReplica, string(vo.StrategyBotHaltDestinationNotFound), dispatchNow).
+		Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonedDestinationNotFound, dispatchNow).
 		Return(nil)
 
 	_, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
+
+	require.NoError(t, dispatchError)
+}
+
+// sequencedDispatch is a dispatcher whose clock answers the given moments in turn, then keeps the last.
+func sequencedDispatch(
+	t *testing.T, moments ...time.Time,
+) (*application.PendingMessageDispatchApplication, *mocks.MockIPendingMessageRepository, *[]time.Time) {
+	controller := gomock.NewController(t)
+	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(controller)
+	trimmedBefore := []time.Time{}
+	pendingMessageRepository.EXPECT().DeleteSettledBefore(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, cutoff time.Time) error {
+			trimmedBefore = append(trimmedBefore, cutoff)
+
+			return nil
+		}).AnyTimes()
+	clockProxy := mocks.NewMockIClockProxy(controller)
+	readCount := 0
+	clockProxy.EXPECT().Now().DoAndReturn(func() time.Time {
+		moment := moments[min(readCount, len(moments)-1)]
+		readCount++
+
+		return moment
+	}).AnyTimes()
+
+	return application.NewPendingMessageDispatchApplication(service.NewPendingMessageService(
+			pendingMessageRepository, mocks.NewMockIStrategyBotRepository(controller),
+			mocks.NewMockITransactionRepository(controller), nil, clockProxy, dispatchReplica, 2*time.Minute, 8)),
+		pendingMessageRepository, &trimmedBefore
+}
+
+func TestPendingMessageDispatchTrimsAtMostOnceAMinute(t *testing.T) {
+	dispatchApplication, pendingMessageRepository, trimmedBefore := sequencedDispatch(t,
+		dispatchNow, dispatchNow.Add(30*time.Second), dispatchNow.Add(time.Minute))
+	pendingMessageRepository.EXPECT().FindDispatchCandidates(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).Times(3)
+
+	for range 3 {
+		_, dispatchError := dispatchApplication.DispatchPendingMessages(t.Context())
+		require.NoError(t, dispatchError)
+	}
+
+	assert.Equal(t, []time.Time{sevenDaysBefore, sevenDaysBefore.Add(time.Minute)}, *trimmedBefore)
+}
+
+func TestPendingMessageDispatchTakesEachMessageAtTheMomentItsTurnComes(t *testing.T) {
+	turnCameAt := dispatchNow.Add(3 * time.Minute)
+	dispatchApplication, pendingMessageRepository, _ := sequencedDispatch(t, dispatchNow, turnCameAt)
+	pendingMessageRepository.EXPECT().FindDispatchCandidates(gomock.Any(), dispatchNow, gomock.Any()).
+		Return([]entities.PendingMessage{aDueRoundMessage()}, nil)
+	// Claimed until two minutes after its own turn, not after the look at the queue, which is already past.
+	pendingMessageRepository.EXPECT().
+		Claim(gomock.Any(), queuedMessageID, dispatchReplica, turnCameAt, turnCameAt.Add(2*time.Minute)).
+		Return(false, nil)
+
+	_, dispatchError := dispatchApplication.DispatchPendingMessages(t.Context())
 
 	require.NoError(t, dispatchError)
 }

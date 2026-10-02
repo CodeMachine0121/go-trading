@@ -205,17 +205,17 @@ func (mr *MockIStrategyBotRepositoryMockRecorder) FindOneLocked(executionContext
 }
 
 // ForgetSentSignal mocks base method.
-func (m *MockIStrategyBotRepository) ForgetSentSignal(executionContext context.Context, id uint, signal string) error {
+func (m *MockIStrategyBotRepository) ForgetSentSignal(executionContext context.Context, id uint, roundDueAt time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ForgetSentSignal", executionContext, id, signal)
+	ret := m.ctrl.Call(m, "ForgetSentSignal", executionContext, id, roundDueAt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ForgetSentSignal indicates an expected call of ForgetSentSignal.
-func (mr *MockIStrategyBotRepositoryMockRecorder) ForgetSentSignal(executionContext, id, signal any) *gomock.Call {
+func (mr *MockIStrategyBotRepositoryMockRecorder) ForgetSentSignal(executionContext, id, roundDueAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForgetSentSignal", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ForgetSentSignal), executionContext, id, signal)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForgetSentSignal", reflect.TypeOf((*MockIStrategyBotRepository)(nil).ForgetSentSignal), executionContext, id, roundDueAt)
 }
 
 // ReleaseRoundClaim mocks base method.

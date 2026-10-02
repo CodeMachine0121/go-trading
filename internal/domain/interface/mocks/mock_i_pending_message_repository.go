@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -43,7 +44,7 @@ func (m *MockIPendingMessageRepository) EXPECT() *MockIPendingMessageRepositoryM
 }
 
 // Abandon mocks base method.
-func (m *MockIPendingMessageRepository) Abandon(executionContext context.Context, id uint, claimant, reason string, settledAt time.Time) error {
+func (m *MockIPendingMessageRepository) Abandon(executionContext context.Context, id uint, claimant string, reason vo.PendingMessageAbandonReasonVo, settledAt time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Abandon", executionContext, id, claimant, reason, settledAt)
 	ret0, _ := ret[0].(error)
@@ -99,19 +100,19 @@ func (mr *MockIPendingMessageRepositoryMockRecorder) Enqueue(executionContext, p
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockIPendingMessageRepository)(nil).Enqueue), executionContext, pendingMessage)
 }
 
-// FindUnsettled mocks base method.
-func (m *MockIPendingMessageRepository) FindUnsettled(executionContext context.Context, limit int) ([]entities.PendingMessage, error) {
+// FindDispatchCandidates mocks base method.
+func (m *MockIPendingMessageRepository) FindDispatchCandidates(executionContext context.Context, moment time.Time, limit int) ([]entities.PendingMessage, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindUnsettled", executionContext, limit)
+	ret := m.ctrl.Call(m, "FindDispatchCandidates", executionContext, moment, limit)
 	ret0, _ := ret[0].([]entities.PendingMessage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindUnsettled indicates an expected call of FindUnsettled.
-func (mr *MockIPendingMessageRepositoryMockRecorder) FindUnsettled(executionContext, limit any) *gomock.Call {
+// FindDispatchCandidates indicates an expected call of FindDispatchCandidates.
+func (mr *MockIPendingMessageRepositoryMockRecorder) FindDispatchCandidates(executionContext, moment, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindUnsettled", reflect.TypeOf((*MockIPendingMessageRepository)(nil).FindUnsettled), executionContext, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDispatchCandidates", reflect.TypeOf((*MockIPendingMessageRepository)(nil).FindDispatchCandidates), executionContext, moment, limit)
 }
 
 // MarkSent mocks base method.

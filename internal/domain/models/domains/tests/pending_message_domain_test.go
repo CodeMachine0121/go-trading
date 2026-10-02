@@ -15,8 +15,11 @@ import (
 var attemptedAt = time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)
 
 func aQueuedMessage(status vo.PendingMessageStatusVo, attemptCount int) entities.PendingMessage {
+	roundDueAt := time.Date(2026, 10, 2, 7, 59, 0, 0, time.UTC)
+
 	return entities.PendingMessage{
-		ID: 1, StrategyBotID: 3, RecipientUserID: 7, Kind: string(vo.PendingMessageRound),
+		RoundDueAt: &roundDueAt,
+		ID:         1, StrategyBotID: 3, RecipientUserID: 7, Kind: string(vo.PendingMessageRound),
 		Signal: string(vo.SignalBuy), Text: "🔖 Run 52", Status: string(status), AttemptCount: attemptCount,
 		NextAttemptAt: attemptedAt, ExpiresAt: time.Date(2026, 10, 2, 8, 5, 0, 0, time.UTC),
 	}
@@ -95,13 +98,13 @@ func TestPendingMessageDomainAfterAnAttempt(t *testing.T) {
 			name:           "a rejected token is refused and halts the bot",
 			deliveryResult: vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureCredentialRejected},
 			expected: vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptRefused,
-				HaltReason: vo.StrategyBotHaltCredentialRejected},
+				HaltReason: vo.StrategyBotHaltCredentialRejected, AbandonReason: vo.PendingMessageAbandonedCredentialRejected},
 		},
 		{
 			name:           "an unknown chat is refused and halts the bot",
 			deliveryResult: vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureDestinationNotFound},
 			expected: vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptRefused,
-				HaltReason: vo.StrategyBotHaltDestinationNotFound},
+				HaltReason: vo.StrategyBotHaltDestinationNotFound, AbandonReason: vo.PendingMessageAbandonedDestinationNotFound},
 		},
 	}
 
@@ -127,7 +130,8 @@ func TestPendingMessageDomainAfterAnAttemptThatFailedOnThisSide(t *testing.T) {
 		{
 			name: "a removed delivery setting is refused and halts the bot", deliverError: domains.ErrTelegramDeliveryNotConfigured,
 			expected: vo.PendingMessageAttemptOutcomeVo{
-				Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured},
+				Kind: vo.PendingMessageAttemptRefused, HaltReason: vo.StrategyBotHaltDeliveryNotConfigured,
+				AbandonReason: vo.PendingMessageAbandonedDeliveryNotConfigured},
 		},
 		{
 			name: "any other failure on this side is retried, never halts", deliverError: errors.New("the request could not be built"),

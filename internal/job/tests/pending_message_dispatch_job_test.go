@@ -18,8 +18,8 @@ func TestPendingMessageDispatchJobLooksAtTheQueueOnStartAndThenEveryInterval(t *
 	looks := make(chan string, 64)
 	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(mockController)
 	pendingMessageRepository.EXPECT().DeleteSettledBefore(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	pendingMessageRepository.EXPECT().FindUnsettled(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(context.Context, int) ([]entities.PendingMessage, error) {
+	pendingMessageRepository.EXPECT().FindDispatchCandidates(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, time.Time, int) ([]entities.PendingMessage, error) {
 			looks <- "look"
 
 			return []entities.PendingMessage{}, nil
