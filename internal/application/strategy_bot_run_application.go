@@ -7,7 +7,6 @@ import (
 	"time"
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -30,14 +29,14 @@ type StrategyBotRunApplication struct {
 	strategyScriptService               *service.StrategyScriptService
 	indicatorCalculationService         *service.IndicatorCalculationService
 	contractIndicatorCalculationService *service.ContractIndicatorCalculationService
-	telegramDeliveryService             *service.TelegramDeliveryService
 	kCandleService                      *service.KCandleService
 	kCandleContractService              *service.KCandleContractService
 	tradeJournalLinkService             *service.TradeJournalLinkService
 	clockProxy                          domaininterface.IClockProxy
-	roundGuard                          *StrategyBotRoundGuard
-	maxConcurrentRounds                 int
-	roundTimeout                        time.Duration
+	// replicaName is who this replica's round claims say is running the bot.
+	replicaName         string
+	maxConcurrentRounds int
+	roundTimeout        time.Duration
 }
 
 func NewStrategyBotRunApplication(
@@ -46,12 +45,11 @@ func NewStrategyBotRunApplication(
 	strategyScriptService *service.StrategyScriptService,
 	indicatorCalculationService *service.IndicatorCalculationService,
 	contractIndicatorCalculationService *service.ContractIndicatorCalculationService,
-	telegramDeliveryService *service.TelegramDeliveryService,
 	kCandleService *service.KCandleService,
 	kCandleContractService *service.KCandleContractService,
 	tradeJournalLinkService *service.TradeJournalLinkService,
 	clockProxy domaininterface.IClockProxy,
-	roundGuard *StrategyBotRoundGuard,
+	replicaName string,
 	maxConcurrentRounds int,
 	roundTimeout time.Duration,
 ) *StrategyBotRunApplication {
@@ -61,12 +59,11 @@ func NewStrategyBotRunApplication(
 		strategyScriptService:               strategyScriptService,
 		indicatorCalculationService:         indicatorCalculationService,
 		contractIndicatorCalculationService: contractIndicatorCalculationService,
-		telegramDeliveryService:             telegramDeliveryService,
 		kCandleService:                      kCandleService,
 		kCandleContractService:              kCandleContractService,
 		tradeJournalLinkService:             tradeJournalLinkService,
 		clockProxy:                          clockProxy,
-		roundGuard:                          roundGuard,
+		replicaName:                         replicaName,
 		maxConcurrentRounds:                 maxConcurrentRounds,
 		roundTimeout:                        roundTimeout,
 	}
@@ -77,10 +74,12 @@ func NewStrategyBotRunApplication(
 func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	executionContext context.Context,
 ) (int, error) {
-	dueBots, findError := strategyBotRunApplication.strategyBotService.FindDueStrategyBots(
-		executionContext, strategyBotRunApplication.maxConcurrentRounds)
-	if findError != nil {
-		return 0, findError
+	// Claimed rather than just read, so no other replica runs these bots until this one is done with them.
+	dueBots, claimError := strategyBotRunApplication.strategyBotService.ClaimDueStrategyBots(
+		executionContext, strategyBotRunApplication.maxConcurrentRounds,
+		strategyBotRunApplication.replicaName, strategyBotRunApplication.roundClaimDuration())
+	if claimError != nil {
+		return 0, claimError
 	}
 
 	// A full batch means some due bots wait for the next scan, which is otherwise invisible.
@@ -93,27 +92,14 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunDueRounds(
 	waitGroup := sync.WaitGroup{}
 	roundsRun := 0
 	roundsRunMutex := sync.Mutex{}
-	// Deduplicated here because the guard only catches a bot still mid-round, so a batch
-	// naming a bot twice would slip past it whenever the first round finished quickly.
-	scannedBotIDs := map[uint]struct{}{}
 
 	for index := range dueBots {
 		botDto := dueBots[index]
-
-		if _, alreadyScanned := scannedBotIDs[botDto.ID]; alreadyScanned {
-			continue
-		}
-		scannedBotIDs[botDto.ID] = struct{}{}
-
-		if !strategyBotRunApplication.roundGuard.TryEnter(botDto.ID) {
-			continue
-		}
 
 		waitGroup.Add(1)
 
 		go func() {
 			defer waitGroup.Done()
-			defer strategyBotRunApplication.roundGuard.Leave(botDto.ID)
 
 			roundContext, endRound := context.WithTimeout(
 				executionContext, strategyBotRunApplication.roundDeadlineFor(botDto))
@@ -144,11 +130,12 @@ func (strategyBotRunApplication *StrategyBotRunApplication) RunRoundNow(
 		return dto.StrategyBotDto{}, findError
 	}
 
-	// Shares the scan's claim so a hand-pressed and a scheduled round are never in flight together.
-	if !strategyBotRunApplication.roundGuard.TryEnter(id) {
-		return dto.StrategyBotDto{}, domains.StrategyBotAlreadyRunningARound()
+	// Shares the scan's claim so a hand-pressed and a scheduled round are never in flight together, on any replica.
+	if claimError := strategyBotRunApplication.strategyBotService.ClaimStrategyBot(
+		executionContext, id, strategyBotRunApplication.replicaName,
+		strategyBotRunApplication.roundClaimDuration()); claimError != nil {
+		return dto.StrategyBotDto{}, claimError
 	}
-	defer strategyBotRunApplication.roundGuard.Leave(id)
 
 	roundContext, endRound := context.WithTimeout(
 		executionContext, strategyBotRunApplication.roundDeadlineFor(botDto))
@@ -167,26 +154,30 @@ func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 ) {
 	outcomeDto := strategyBotRunApplication.playRound(roundContext, botDto)
 
-	// Derived from the scan context, not the round's, so a slow round cannot starve the one
-	// write that keeps its bot from re-running and re-sending every scan.
-	recordContext, endRecord := context.WithTimeout(scanContext, strategyBotRecordTimeout)
+	// Its own deadline, not the round's and not the caller's: a slow round or a hand-pressed request
+	// the caller gave up on must not cancel the one write that books the round and frees its claim.
+	recordContext, endRecord := context.WithTimeout(
+		context.WithoutCancel(scanContext), strategyBotRecordTimeout)
 	defer endRecord()
 
-	endedBot, applied, recordError := strategyBotRunApplication.strategyBotService.RecordRound(
-		recordContext, botDto.ID, botDto.NextRunAt, outcomeDto)
-	if recordError != nil {
-		log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
-
+	// The round's message and any halt notice are queued in the same write, so nothing is said here.
+	_, _, recordError := strategyBotRunApplication.strategyBotService.RecordRound(
+		recordContext, botDto.ID, botDto.NextRunAt, strategyBotRunApplication.replicaName, outcomeDto)
+	if recordError == nil {
 		return
 	}
+	log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
 
-	// Announce a halt only when this round caused it; the attempt fails harmlessly when the
-	// halt reason is the message path itself being broken.
-	if applied && endedBot.HaltReason != "" {
-		_, _ = strategyBotRunApplication.telegramDeliveryService.SendMessage(
-			recordContext, endedBot.OwnerID,
-			strategyBotRunApplication.strategyBotService.WriteStoppedMessage(endedBot))
+	// The release rolled back with the booking; freed on its own so the bot is not kept from every replica until the claim runs out.
+	if releaseError := strategyBotRunApplication.strategyBotService.ReleaseStrategyBotClaim(
+		recordContext, botDto.ID, strategyBotRunApplication.replicaName); releaseError != nil {
+		log.Printf("strategy bot %d: could not free its claim: %v", botDto.ID, releaseError)
 	}
+}
+
+// roundClaimDuration outlasts the longest a round may take plus booking it in, so a live round's claim never lapses.
+func (strategyBotRunApplication *StrategyBotRunApplication) roundClaimDuration() time.Duration {
+	return strategyBotRunApplication.roundTimeout + strategyBotRecordTimeout
 }
 
 // roundDeadlineFor is the shorter of the bot's trigger interval and the configured ceiling,
@@ -268,34 +259,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 		return concludedRound(decision.Verdict, "", decision.Conflicting)
 	}
 
-	// The owner may have deleted the bot while the round was working; never send for a deleted bot.
-	if !strategyBotRunApplication.stillWaitingForThisRound(executionContext, botDto) {
-		log.Printf("strategy bot %d: round abandoned — it is no longer waiting for this one",
-			botDto.ID)
-
-		return skippedRound()
-	}
-
-	sentRound, deliveryFailure, deliverError := strategyBotRunApplication.sendRoundMessage(
+	// A bot deleted or restarted meanwhile is caught when the round is booked in, before anything is queued.
+	suggestedRound := strategyBotRunApplication.composeRoundMessage(
 		executionContext, botDto, tradingStrategyDto, reference, decision, sourceSignals)
-	if deliverError != nil {
-		// This side failing to ask (not Telegram refusing), e.g. the owner removed their delivery setting.
-		return strategyBotRunApplication.strategyBotService.ReadRoundFailure(deliverError)
-	}
 
-	deliveryOutcome := strategyBotRunApplication.strategyBotService.ReadDeliveryFailure(
-		string(deliveryFailure))
-	if deliveryOutcome.Kind != roundSkipped {
-		return deliveryOutcome
-	}
-
-	// An undelivered message leaves the last sent signal unchanged so the next round retries,
-	// but the suggestion is still recorded in history.
-	if deliveryFailure != vo.DeliveryFailureNone {
-		return suggestingRound(decision.Verdict, "", decision.Conflicting, sentRound)
-	}
-
-	return suggestingRound(decision.Verdict, decision.Verdict, decision.Conflicting, sentRound)
+	return suggestingRound(decision.Verdict, decision.Conflicting, suggestedRound)
 }
 
 // roundSkipped is the outcome kind that changes nothing but when the bot is next due.
@@ -306,43 +274,31 @@ func skippedRound() dto.StrategyBotRoundOutcomeDto {
 	return dto.StrategyBotRoundOutcomeDto{Kind: roundSkipped}
 }
 
-func concludedRound(verdict string, sentSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
+func concludedRound(verdict string, saidSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
 	return dto.StrategyBotRoundOutcomeDto{
 		Kind:        "concluded",
 		Verdict:     verdict,
-		SentSignal:  sentSignal,
+		SentSignal:  saidSignal,
 		Conflicting: conflicting,
 	}
 }
 
-// suggestingRound is a concluded round that also records the position plan it sent and, with a journal link, the reference price the link prefills.
+// suggestingRound is a concluded round that says its verdict: it carries the message to queue, the position plan it suggests and, with a journal link, the reference price the link prefills.
 func suggestingRound(
-	verdict string, sentSignal string, conflicting bool, sentRound dto.StrategyBotRoundDto,
+	verdict string, conflicting bool, suggestedRound dto.StrategyBotRoundDto,
 ) dto.StrategyBotRoundOutcomeDto {
-	outcomeDto := concludedRound(verdict, sentSignal, conflicting)
-	outcomeDto.PositionPlan = sentRound.PositionPlan
-	outcomeDto.HasPositionPlan = sentRound.HasPositionPlan
+	outcomeDto := concludedRound(verdict, verdict, conflicting)
+	outcomeDto.Round = suggestedRound
+	outcomeDto.HasMessage = true
+	outcomeDto.PositionPlan = suggestedRound.PositionPlan
+	outcomeDto.HasPositionPlan = suggestedRound.HasPositionPlan
 
-	if sentRound.JournalLinkIdentifier != "" {
-		outcomeDto.JournalLinkIdentifier = sentRound.JournalLinkIdentifier
-		outcomeDto.ReferencePrice = decimal.NullDecimal{Decimal: sentRound.ReferencePrice, Valid: sentRound.HasReference}
+	if suggestedRound.JournalLinkIdentifier != "" {
+		outcomeDto.JournalLinkIdentifier = suggestedRound.JournalLinkIdentifier
+		outcomeDto.ReferencePrice = decimal.NullDecimal{Decimal: suggestedRound.ReferencePrice, Valid: suggestedRound.HasReference}
 	}
 
 	return outcomeDto
-}
-
-// stillWaitingForThisRound reports whether the bot still exists and still awaits this round;
-// a failed read answers no, erring toward staying quiet.
-func (strategyBotRunApplication *StrategyBotRunApplication) stillWaitingForThisRound(
-	executionContext context.Context, botDto dto.StrategyBotDto,
-) bool {
-	current, findError := strategyBotRunApplication.strategyBotService.GetStrategyBot(
-		executionContext, botDto.OwnerID, botDto.ID)
-	if findError != nil {
-		return false
-	}
-
-	return current.NextRunAt.Equal(botDto.NextRunAt)
 }
 
 // readSignals asks every source concurrently and returns the first failure, since a
@@ -426,13 +382,13 @@ func (strategyBotRunApplication *StrategyBotRunApplication) readSignals(
 	return signalsByLabel, sourceSignals, nil
 }
 
-// sendRoundMessage sends the round's message and returns the round as sent; an
-// unreadable reference price still sends, since the conclusion matters more than the price.
-func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
+// composeRoundMessage works out everything the round's message says; an unreadable reference
+// price still yields a message, since the conclusion matters more than the price.
+func (strategyBotRunApplication *StrategyBotRunApplication) composeRoundMessage(
 	executionContext context.Context, botDto dto.StrategyBotDto,
 	tradingStrategyDto dto.TradingStrategyDto, reference dto.StrategyBotRoundDto,
 	decision dto.StrategyBotRoundDecisionDto, sourceSignals []dto.StrategyBotSourceSignalDto,
-) (dto.StrategyBotRoundDto, vo.DeliveryFailureReasonVo, error) {
+) dto.StrategyBotRoundDto {
 	round := dto.StrategyBotRoundDto{
 		BotName:             botDto.Name,
 		Symbol:              botDto.Symbol,
@@ -459,12 +415,5 @@ func (strategyBotRunApplication *StrategyBotRunApplication) sendRoundMessage(
 
 	// Planned once so the message and the history carry identical figures.
 	round = strategyBotRunApplication.strategyBotService.PlanRoundPosition(executionContext, round)
-	round = strategyBotRunApplication.tradeJournalLinkService.OfferJournalLink(round)
-
-	deliveryFailure, deliverError := strategyBotRunApplication.telegramDeliveryService.SendMessage(
-		executionContext,
-		botDto.OwnerID,
-		strategyBotRunApplication.strategyBotService.WriteRoundMessage(round))
-
-	return round, deliveryFailure, deliverError
+	return strategyBotRunApplication.tradeJournalLinkService.OfferJournalLink(round)
 }

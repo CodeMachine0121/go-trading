@@ -22,8 +22,10 @@ type IConversationRepository interface {
 	FindAllOwnedBy(executionContext context.Context, ownerID uint) ([]entities.Conversation, error)
 	// CompleteTurn writes only the ending fields (answer, cost, lookups, failure), never the question; ErrConversationNotFound means the conversation was deleted mid-answer.
 	CompleteTurn(executionContext context.Context, turn entities.AssistantTurn) error
-	// FailAllRunningTurns runs at startup because in-flight answers live only in memory and die with the process.
-	FailAllRunningTurns(executionContext context.Context, reason string) (int, error)
+	// FailRunningTurnsOutside fails running turns whose replica is not among liveReplicaNames: in-flight answers live only in that replica's memory and die with it.
+	FailRunningTurnsOutside(
+		executionContext context.Context, liveReplicaNames []string, reason string,
+	) (int, error)
 	// SumUsageBetween sums [from, to); failed exchanges record no usage.
 	SumUsageBetween(executionContext context.Context, from time.Time, to time.Time) (int, error)
 }

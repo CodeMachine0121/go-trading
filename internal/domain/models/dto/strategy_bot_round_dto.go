@@ -31,6 +31,8 @@ type StrategyBotRoundDto struct {
 	// JournalLinkUrl is blank unless the round suggests opening a contract position.
 	JournalLinkIdentifier string
 	JournalLinkUrl        string
+	// RunNumber is the round's place in its bot's history, known only once the round is booked in; zero prints no number.
+	RunNumber int
 }
 
 type StrategyBotSourceSignalDto struct {

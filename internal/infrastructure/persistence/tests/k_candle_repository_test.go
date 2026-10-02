@@ -68,6 +68,14 @@ func newTestDatabase(t *testing.T) *gorm.DB {
 		Delete(&entities.ContractPositionStatistic{}).Error)
 	require.NoError(t, clearedDatabase.WithContext(t.Context()).
 		Delete(&entities.ContractMaintenanceMarginTier{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.JobLeadershipLease{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.PendingMessage{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.ReplicaHeartbeat{}).Error)
+	require.NoError(t, clearedDatabase.WithContext(t.Context()).
+		Delete(&entities.LiveKCandleSnapshot{}).Error)
 
 	return database
 }

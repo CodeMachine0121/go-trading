@@ -14,6 +14,9 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
+// liveKCandleSnapshotRetention keeps snapshots long enough for a relay that reconnected after a short outage, and no longer.
+const liveKCandleSnapshotRetention = 10 * time.Minute
+
 // ErrKCandleFollowStopped lets callers tell "shutting down" apart from "this market cannot be followed".
 var ErrKCandleFollowStopped = errors.New("k candle follow stopped")
 
@@ -25,6 +28,9 @@ type KCandleFollowService struct {
 	marketCatalogDomain     domains.MarketCatalogDomain
 	updateIntervalCeiling   time.Duration
 	feed                    *kCandleFollowFeed
+	// relayFeed follows a roster from what the replica on duty saw, for a replica off duty.
+	relayFeed                     *kCandleFollowFeed
+	liveKCandleSnapshotRepository _interface.ILiveKCandleSnapshotRepository
 
 	mutex   sync.Mutex
 	follows map[string]*kCandleFollowSymbol
@@ -42,18 +48,24 @@ func NewKCandleFollowService(
 	updateIntervalCeiling time.Duration,
 	quietTimeout time.Duration,
 	maximumRetryDelay time.Duration,
+	liveKCandleSnapshotRepository _interface.ILiveKCandleSnapshotRepository,
+	relayInterval time.Duration,
 ) *KCandleFollowService {
 	kCandleFollowService := &KCandleFollowService{
-		kCandleRepository:       kCandleRepository,
-		tradingSymbolRepository: tradingSymbolRepository,
-		clockProxy:              clockProxy,
-		marketCatalogDomain:     marketCatalogDomain,
-		updateIntervalCeiling:   updateIntervalCeiling,
-		follows:                 make(map[string]*kCandleFollowSymbol),
-		channels:                make(map[string]*kCandleFollowChannel),
+		liveKCandleSnapshotRepository: liveKCandleSnapshotRepository,
+		kCandleRepository:             kCandleRepository,
+		tradingSymbolRepository:       tradingSymbolRepository,
+		clockProxy:                    clockProxy,
+		marketCatalogDomain:           marketCatalogDomain,
+		updateIntervalCeiling:         updateIntervalCeiling,
+		follows:                       make(map[string]*kCandleFollowSymbol),
+		channels:                      make(map[string]*kCandleFollowChannel),
 	}
 	kCandleFollowService.feed = newKCandleFollowFeed(
 		liveMarketDataProxy, clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.report)
+	kCandleFollowService.relayFeed = newKCandleFollowFeed(
+		newKCandleSnapshotRelay(liveKCandleSnapshotRepository, clockProxy, relayInterval, quietTimeout),
+		clockProxy, quietTimeout, maximumRetryDelay, kCandleFollowService.reportRelayed)
 
 	return kCandleFollowService
 }
@@ -101,7 +113,7 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 		kCandleFollowService.openChannel(
 			executionContext,
 			vo.NewLiveFollowChannelVo(marketDomain.Value(), []string{symbol}),
-			map[string]*kCandleFollowSymbol{symbol: follow})
+			map[string]*kCandleFollowSymbol{symbol: follow}, false)
 	}
 
 	viewerId, updates := follow.join()
@@ -117,10 +129,24 @@ func (kCandleFollowService *KCandleFollowService) WatchKCandles(
 	return updates, nil
 }
 
-// RefreshFixedFollows gives the live places of ceiling-limited markets to the earliest-registered watched symbols.
+// RefreshFixedFollows gives the live places of ceiling-limited markets to the earliest-registered watched symbols, followed from the source; only the replica on duty does this.
 // Places are released before new ones are taken, because exceeding the source's limit even briefly drops every place.
 func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 	executionContext context.Context,
+) error {
+	return kCandleFollowService.followRoster(executionContext, false)
+}
+
+// RefreshRelayedFollows follows the same roster from what the replica on duty saw, for a replica off duty, so its viewers see live updates without spending a place.
+func (kCandleFollowService *KCandleFollowService) RefreshRelayedFollows(
+	executionContext context.Context,
+) error {
+	return kCandleFollowService.followRoster(executionContext, true)
+}
+
+// followRoster, shared by both ways of following a roster, swaps any line of the other way for one of this way.
+func (kCandleFollowService *KCandleFollowService) followRoster(
+	executionContext context.Context, relayed bool,
 ) error {
 	watchedSymbols, findError := kCandleFollowService.tradingSymbolRepository.FindWatched(
 		executionContext)
@@ -137,8 +163,19 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 
 	wantedChannels := rosterDomain.Channels()
 
+	kCandleFollowService.retireUnwantedChannels(wantedChannels, relayed, currentTime)
+
+	kCandleFollowService.startMissingChannels(executionContext, wantedChannels, relayed)
+
+	return nil
+}
+
+// retireUnwantedChannels ends rostered lines the wanted roster no longer names and tells their viewers why.
+func (kCandleFollowService *KCandleFollowService) retireUnwantedChannels(
+	wantedChannels []vo.LiveFollowChannelVo, relayed bool, currentTime time.Time,
+) {
 	// Lines and symbols are retired separately: a roster change replaces a line, but symbols on both old and new lines must not be told they lost their place.
-	departing, retired := kCandleFollowService.takeDepartedChannels(wantedChannels)
+	departing, retired := kCandleFollowService.takeDepartedChannels(wantedChannels, relayed)
 
 	retiredSymbols := make(map[string]bool, len(retired))
 	for _, retiredFollow := range retired {
@@ -161,16 +198,12 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 
 		retiredFollow.end()
 	}
-
-	kCandleFollowService.startMissingChannels(executionContext, wantedChannels)
-
-	return nil
 }
 
 // takeDepartedChannels removes rostered channels whose key the roster no longer wants and returns them to be ended outside the lock.
 // It exists to scope the lock with defer, since ending a line can wait out a thirty-second retry.
 func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
-	wantedChannels []vo.LiveFollowChannelVo,
+	wantedChannels []vo.LiveFollowChannelVo, relayed bool,
 ) ([]*kCandleFollowChannel, []*kCandleFollowSymbol) {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
@@ -191,7 +224,8 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 	departing := make([]*kCandleFollowChannel, 0)
 	retired := make([]*kCandleFollowSymbol, 0)
 	for key, openChannel := range kCandleFollowService.channels {
-		if isWantedChannel[key] || !openChannel.isRostered() {
+		// A wanted line followed the other way is replaced too, so a replica never follows the source off duty or relays on duty.
+		if (isWantedChannel[key] && openChannel.relayed == relayed) || !openChannel.isRostered() {
 			continue
 		}
 
@@ -214,7 +248,7 @@ func (kCandleFollowService *KCandleFollowService) takeDepartedChannels(
 
 // startMissingChannels opens every wanted channel not already open, as a separate method to scope the second lock hold.
 func (kCandleFollowService *KCandleFollowService) startMissingChannels(
-	executionContext context.Context, wantedChannels []vo.LiveFollowChannelVo,
+	executionContext context.Context, wantedChannels []vo.LiveFollowChannelVo, relayed bool,
 ) {
 	kCandleFollowService.mutex.Lock()
 	defer kCandleFollowService.mutex.Unlock()
@@ -242,7 +276,7 @@ func (kCandleFollowService *KCandleFollowService) startMissingChannels(
 			follows[symbol] = follow
 		}
 
-		kCandleFollowService.openChannel(executionContext, wantedChannel, follows)
+		kCandleFollowService.openChannel(executionContext, wantedChannel, follows, relayed)
 	}
 }
 
@@ -251,11 +285,17 @@ func (kCandleFollowService *KCandleFollowService) openChannel(
 	executionContext context.Context,
 	channel vo.LiveFollowChannelVo,
 	follows map[string]*kCandleFollowSymbol,
+	relayed bool,
 ) {
 	channelContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
-	openChannel := newKCandleFollowChannel(channel, follows, cancel)
+	openChannel := newKCandleFollowChannel(channel, follows, cancel, relayed)
 	kCandleFollowService.channels[channel.Key] = openChannel
 
+	if relayed {
+		go kCandleFollowService.relayFeed.keep(channelContext, openChannel)
+
+		return
+	}
 	go kCandleFollowService.feed.keep(channelContext, openChannel)
 }
 
@@ -350,18 +390,43 @@ func (kCandleFollowService *KCandleFollowService) leave(
 	}
 }
 
-// report passes the candle on through the throttle and stores it once closed.
+// report passes the candle on through the throttle and stores it once closed; a rostered candle is also handed to the replicas off duty.
 func (kCandleFollowService *KCandleFollowService) report(
 	executionContext context.Context,
 	follow *kCandleFollowSymbol,
 	liveKCandle vo.LiveKCandleVo,
 ) {
 	now := kCandleFollowService.clockProxy.Now()
+
+	if follow.isOnARoster {
+		if saveError := kCandleFollowService.liveKCandleSnapshotRepository.Save(executionContext,
+			domains.NewLiveKCandleSnapshotDomain(liveKCandle, now).ToEntity()); saveError != nil {
+			log.Printf("live k candle follow: %s could not be passed on to the other replicas: %v",
+				liveKCandle.Symbol, saveError)
+		}
+		// Trimmed as each minute closes, so the table holds only what a relay could still be reading.
+		if liveKCandle.Closed {
+			if trimError := kCandleFollowService.liveKCandleSnapshotRepository.DeleteObservedBefore(
+				executionContext, now.Add(-liveKCandleSnapshotRetention)); trimError != nil {
+				log.Printf("live k candle follow: old snapshots could not be dropped: %v", trimError)
+			}
+		}
+	}
+
 	if !follow.pass(liveKCandle, now) || !liveKCandle.Closed {
 		return
 	}
 
 	kCandleFollowService.store(executionContext, liveKCandle, now)
+}
+
+// reportRelayed only passes the candle on: the replica on duty already stores the closed one.
+func (kCandleFollowService *KCandleFollowService) reportRelayed(
+	_ context.Context,
+	follow *kCandleFollowSymbol,
+	liveKCandle vo.LiveKCandleVo,
+) {
+	follow.pass(liveKCandle, kCandleFollowService.clockProxy.Now())
 }
 
 // store saves a closed candle through the ordinary K candle rules, only logging failures because the scheduled round will cover them.

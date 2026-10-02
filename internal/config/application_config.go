@@ -2,6 +2,7 @@ package config
 
 import (
 	"cmp"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"strconv"
@@ -98,8 +99,10 @@ type ContractIngestionConfig struct {
 type LiveFollowConfig struct {
 	UpdateIntervalCeiling time.Duration
 	QuietTimeout          time.Duration
-	MaximumRetryDelay     time.Duration
-	MarketDataStreamUrl   string
+	// RelayInterval is how often a replica off duty reads the live candles the replica on duty passed on.
+	RelayInterval       time.Duration
+	MaximumRetryDelay   time.Duration
+	MarketDataStreamUrl string
 	// ContractMarketDataStreamUrl is the only contract-specific live setting; the timing rules are
 	// market-independent.
 	ContractMarketDataStreamUrl string
@@ -203,6 +206,28 @@ type StrategyBotConfig struct {
 	RoundTimeout        time.Duration
 }
 
+// ReplicaConfig names this server among its replicas; the name only says who holds a lease or claim right now.
+type ReplicaConfig struct {
+	Name string
+	// HeartbeatInterval is how often this replica says it is alive; three missed beats make its unfinished work count as interrupted.
+	HeartbeatInterval time.Duration
+}
+
+// JobLeadershipConfig tunes how the replica on duty is chosen; the lease must outlast a renewal plus the safety margin.
+type JobLeadershipConfig struct {
+	LeaseDuration time.Duration
+	RenewInterval time.Duration
+	// SafetyMargin is how much earlier than the stored lease a replica stops acting as on duty.
+	SafetyMargin time.Duration
+}
+
+// PendingMessageConfig tunes how queued bot messages are sent; SendTimeout must outlast one Telegram request, or a slow send is sent twice.
+type PendingMessageConfig struct {
+	DispatchInterval        time.Duration
+	SendTimeout             time.Duration
+	MaxConcurrentDeliveries int
+}
+
 // RequestLimitConfig bounds what one client can ask of the service; defaults sit far above what the front end
 // and the MCP plugin need.
 type RequestLimitConfig struct {
@@ -247,6 +272,9 @@ type ApplicationConfig struct {
 	// timeout so the replay reports a timeout itself.
 	BacktestTimeAllowance time.Duration
 	BackgroundJobsEnabled bool
+	Replica               ReplicaConfig
+	JobLeadership         JobLeadershipConfig
+	PendingMessage        PendingMessageConfig
 	Ingestion             IngestionConfig
 	ContractIngestion     ContractIngestionConfig
 	LiveFollow            LiveFollowConfig
@@ -268,7 +296,39 @@ type ApplicationConfig struct {
 	Database        DatabaseConfig
 }
 
+// Load reads every setting; timing settings that contradict each other are corrected rather than trusted, since each mistake would fail silently.
 func Load() ApplicationConfig {
+	applicationConfig := loadAsWritten()
+	applicationConfig.JobLeadership = applicationConfig.JobLeadership.consistent()
+	applicationConfig.PendingMessage = applicationConfig.PendingMessage.outlasting(applicationConfig.Telegram.RequestTimeout)
+
+	return applicationConfig
+}
+
+// consistent keeps renewals well inside the time a replica trusts its duty, or the duty would lapse between renewals and pass back and forth.
+func (jobLeadershipConfig JobLeadershipConfig) consistent() JobLeadershipConfig {
+	trustedFor := jobLeadershipConfig.LeaseDuration - jobLeadershipConfig.SafetyMargin
+	if jobLeadershipConfig.SafetyMargin <= 0 || trustedFor <= 0 {
+		jobLeadershipConfig.SafetyMargin = jobLeadershipConfig.LeaseDuration / 6
+		trustedFor = jobLeadershipConfig.LeaseDuration - jobLeadershipConfig.SafetyMargin
+	}
+	if jobLeadershipConfig.RenewInterval*2 > trustedFor {
+		jobLeadershipConfig.RenewInterval = trustedFor / 2
+	}
+
+	return jobLeadershipConfig
+}
+
+// outlasting keeps a send's claim longer than one Telegram request, or a slow send would be sent again by another replica while still in flight.
+func (pendingMessageConfig PendingMessageConfig) outlasting(telegramRequestTimeout time.Duration) PendingMessageConfig {
+	if pendingMessageConfig.SendTimeout <= 2*telegramRequestTimeout {
+		pendingMessageConfig.SendTimeout = 2*telegramRequestTimeout + 10*time.Second
+	}
+
+	return pendingMessageConfig
+}
+
+func loadAsWritten() ApplicationConfig {
 	taiwanStockConfig := loadTaiwanStockConfig()
 	frontendBaseUrl := strings.TrimRight(stringWithDefault("FRONTEND_BASE_URL", "http://localhost:3000"), "/")
 
@@ -288,8 +348,29 @@ func Load() ApplicationConfig {
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
-		TaiwanStock:           taiwanStockConfig,
-		MarketRules:           marketRules(taiwanStockConfig),
+		// The host name (the pod name in Kubernetes) with a random tail, so replicas are told apart without extra settings.
+		Replica: ReplicaConfig{
+			Name: stringWithDefault("REPLICA_NAME", hostnameOrRandomName()),
+			HeartbeatInterval: time.Duration(
+				positiveIntWithDefault("REPLICA_HEARTBEAT_INTERVAL_SECONDS", 10)) * time.Second,
+		},
+		JobLeadership: JobLeadershipConfig{
+			LeaseDuration: time.Duration(
+				positiveIntWithDefault("JOB_LEADERSHIP_LEASE_SECONDS", 30)) * time.Second,
+			RenewInterval: time.Duration(
+				positiveIntWithDefault("JOB_LEADERSHIP_RENEW_INTERVAL_SECONDS", 10)) * time.Second,
+			SafetyMargin: time.Duration(
+				positiveIntWithDefault("JOB_LEADERSHIP_SAFETY_MARGIN_SECONDS", 5)) * time.Second,
+		},
+		PendingMessage: PendingMessageConfig{
+			DispatchInterval: time.Duration(
+				positiveIntWithDefault("PENDING_MESSAGE_DISPATCH_INTERVAL_SECONDS", 2)) * time.Second,
+			SendTimeout: time.Duration(
+				positiveIntWithDefault("PENDING_MESSAGE_SEND_TIMEOUT_SECONDS", 120)) * time.Second,
+			MaxConcurrentDeliveries: positiveIntWithDefault("PENDING_MESSAGE_MAX_CONCURRENT_DELIVERIES", 8),
+		},
+		TaiwanStock: taiwanStockConfig,
+		MarketRules: marketRules(taiwanStockConfig),
 		Ingestion: IngestionConfig{
 			RoundCandleCount: positiveIntWithDefault("KCANDLE_INGESTION_ROUND_CANDLE_COUNT", 25),
 			BackfillLookback: time.Duration(
@@ -372,6 +453,8 @@ func Load() ApplicationConfig {
 				"CONTRACT_MARKET_DATA_REQUESTS_PER_MINUTE", 300),
 		},
 		LiveFollow: LiveFollowConfig{
+			RelayInterval: time.Duration(
+				positiveIntWithDefault("LIVE_FOLLOW_RELAY_INTERVAL_SECONDS", 2)) * time.Second,
 			UpdateIntervalCeiling: time.Duration(
 				positiveIntWithDefault("LIVE_UPDATE_INTERVAL_CEILING_SECONDS", 10)) * time.Second,
 			QuietTimeout: time.Duration(
@@ -567,6 +650,16 @@ func jobIntervalWithDefault(key string, defaultValue int, unit time.Duration) ti
 	}
 
 	return time.Duration(value) * unit
+}
+
+// hostnameOrRandomName adds a random tail to the host name, so two processes on one host never share a name and never both believe they hold the duty.
+func hostnameOrRandomName() string {
+	hostname, hostnameError := os.Hostname()
+	if hostnameError != nil || hostname == "" {
+		hostname = "replica"
+	}
+
+	return hostname + "-" + rand.Text()[:8]
 }
 
 func stringWithDefault(key string, defaultValue string) string {

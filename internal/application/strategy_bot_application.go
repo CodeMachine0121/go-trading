@@ -2,17 +2,19 @@ package application
 
 import (
 	"context"
+	"log"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyBotApplication joins the bot, trading strategy, delivery and trading key services, since a domain service does not call another.
+// StrategyBotApplication joins the bot, trading strategy, delivery, trading key and pending message services for the bot's own use cases.
 type StrategyBotApplication struct {
 	strategyBotService       *service.StrategyBotService
 	tradingStrategyService   *service.TradingStrategyService
 	telegramDeliveryService  *service.TelegramDeliveryService
 	binanceTradingKeyService *service.BinanceTradingKeyService
+	pendingMessageService    *service.PendingMessageService
 }
 
 func NewStrategyBotApplication(
@@ -20,12 +22,14 @@ func NewStrategyBotApplication(
 	tradingStrategyService *service.TradingStrategyService,
 	telegramDeliveryService *service.TelegramDeliveryService,
 	binanceTradingKeyService *service.BinanceTradingKeyService,
+	pendingMessageService *service.PendingMessageService,
 ) *StrategyBotApplication {
 	return &StrategyBotApplication{
 		strategyBotService:       strategyBotService,
 		tradingStrategyService:   tradingStrategyService,
 		telegramDeliveryService:  telegramDeliveryService,
 		binanceTradingKeyService: binanceTradingKeyService,
+		pendingMessageService:    pendingMessageService,
 	}
 }
 
@@ -94,7 +98,7 @@ func (strategyBotApplication *StrategyBotApplication) StartStrategyBot(
 
 	if justStarted {
 		strategyBotApplication.announce(
-			executionContext, viewerID,
+			executionContext, startedBot,
 			strategyBotApplication.strategyBotService.WriteStartedMessage(startedBot))
 	}
 
@@ -112,7 +116,7 @@ func (strategyBotApplication *StrategyBotApplication) StopStrategyBot(
 
 	if justStopped {
 		strategyBotApplication.announce(
-			executionContext, viewerID,
+			executionContext, stoppedBot,
 			strategyBotApplication.strategyBotService.WriteStoppedMessage(stoppedBot))
 	}
 
@@ -145,12 +149,14 @@ func (strategyBotApplication *StrategyBotApplication) ListRunRecords(
 		executionContext, viewerID, id)
 }
 
-// announce sends a bot notification and ignores failure, since the action it reports has already happened.
+// announce queues a bot notification and only logs a failure, since the action it reports has already happened.
 func (strategyBotApplication *StrategyBotApplication) announce(
-	executionContext context.Context, viewerID uint, message string,
+	executionContext context.Context, botDto dto.StrategyBotDto, message string,
 ) {
-	_, _ = strategyBotApplication.telegramDeliveryService.SendMessage(
-		executionContext, viewerID, message)
+	if enqueueError := strategyBotApplication.pendingMessageService.EnqueueLifecycleMessage(
+		executionContext, botDto.ID, botDto.OwnerID, message); enqueueError != nil {
+		log.Printf("strategy bot %d: could not queue its notification: %v", botDto.ID, enqueueError)
+	}
 }
 
 // readFollowedTradingStrategy fails for someone else's strategy with the same error as a missing one, so the field can't probe other users' strategies; naming nothing passes here.

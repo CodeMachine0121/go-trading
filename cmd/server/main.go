@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/CodeMachine0121/go-trading/internal/config"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/CodeMachine0121/go-trading/internal/job"
@@ -34,43 +35,21 @@ func main() {
 
 	engine := gin.Default()
 	liveFollows, kCandleIngestionApplication, kCandleContractIngestionApplication,
-		strategyBotRunApplication, assistantConversationApplication,
+		strategyBotJobs, interruptedWorkApplication,
 		contractSeries := registerRoutes(engine, database, applicationConfig)
 
-	// In-flight answers live only in this process, so any left by the last run are stale; swept at
-	// startup because a crash never reaches a shutdown hook, and a failed sweep is logged, not fatal.
-	interruptedAnswerCount, sweepError := assistantConversationApplication.FailInterruptedAnswers(
-		context.Background())
+	// Said alive before sweeping, then whatever is still running without a live replica behind it is marked failed:
+	// a crash never reaches a shutdown hook, and other replicas' work in flight is left alone. A failure is logged, not fatal.
+	if beatError := interruptedWorkApplication.BeatHeartbeat(context.Background()); beatError != nil {
+		log.Printf("failed to record this replica's heartbeat at startup: %v", beatError)
+	}
+	interrupted, sweepError := interruptedWorkApplication.FailWorkLeftByLastRun(context.Background())
 	if sweepError != nil {
-		log.Printf("failed to clear answers interrupted by the last shutdown: %v", sweepError)
+		log.Printf("failed to clear work interrupted by a vanished replica: %v", sweepError)
 	}
-	if interruptedAnswerCount > 0 {
-		log.Printf("cleared %d assistant answer(s) interrupted by the last shutdown",
-			interruptedAnswerCount)
-	}
-
-	// History syncs are driven by this process too, so any still marked fetching are orphaned.
-	interruptedSyncCount, syncSweepError := kCandleIngestionApplication.FailInterruptedHistorySyncs(
-		context.Background())
-	if syncSweepError != nil {
-		log.Printf("failed to clear history syncs interrupted by the last shutdown: %v",
-			syncSweepError)
-	}
-	if interruptedSyncCount > 0 {
-		log.Printf("cleared %d k candle history sync(s) interrupted by the last shutdown",
-			interruptedSyncCount)
-	}
-
-	// Contract syncs live in their own table, so the sweep above cannot see them.
-	interruptedContractSyncCount, contractSyncSweepError := kCandleContractIngestionApplication.
-		FailInterruptedHistorySyncs(context.Background())
-	if contractSyncSweepError != nil {
-		log.Printf("failed to clear contract history syncs interrupted by the last shutdown: %v",
-			contractSyncSweepError)
-	}
-	if interruptedContractSyncCount > 0 {
-		log.Printf("cleared %d contract k candle history sync(s) interrupted by the last shutdown",
-			interruptedContractSyncCount)
+	if interrupted != (dto.InterruptedWorkDto{}) {
+		log.Printf("cleared work interrupted by a vanished replica: %d answer(s), %d history sync(s), "+
+			"%d contract history sync(s)", interrupted.Answers, interrupted.HistorySyncs, interrupted.ContractHistorySyncs)
 	}
 
 	// Listened for before anything starts, so an interrupt during the startup backfill takes the
@@ -79,18 +58,31 @@ func main() {
 		context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopListeningForSignals()
 
+	// Only a replica that runs background jobs may hold the duty, or it would hold it while doing nothing.
+	jobLeadershipApplication := jobLeadershipApplicationFor(database, applicationConfig)
+	dutyHolder := jobLeadershipApplication
+	if !applicationConfig.BackgroundJobsEnabled {
+		dutyHolder = nil
+		// Bot messages are queued by any replica but sent only by one running background jobs.
+		log.Println("background jobs are off on this replica: it queues bot messages but sends none, " +
+			"so at least one replica must run with background jobs on")
+	}
+
 	if serveError := serve(
 		shutdownSignalled,
 		newServer(applicationConfig, engine),
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
 				applicationConfig,
+				jobLeadershipApplication,
+				interruptedWorkApplication,
 				liveFollows.spot,
 				kCandleIngestionApplication,
 				kCandleContractIngestionApplication,
-				strategyBotRunApplication,
+				strategyBotJobs,
 				contractSeries)),
 		liveFollows.Stop,
+		dutyHolder,
 	); serveError != nil {
 		log.Fatalf("failed to serve: %v", serveError)
 	}

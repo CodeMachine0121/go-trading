@@ -24,16 +24,42 @@ func aBotToRecordAgainst(t *testing.T, database *gorm.DB) uint {
 	return savedBot.ID
 }
 
+// requireAppended fails the test on a failed append and hands back the round's number.
+func requireAppended(t *testing.T) func(int, error) int {
+	t.Helper()
+
+	return func(runNumber int, appendError error) int {
+		t.Helper()
+		require.NoError(t, appendError)
+
+		return runNumber
+	}
+}
+
+func TestStrategyBotRunRecordRepositoryHandsBackEachRoundsNumber(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	botID := aBotToRecordAgainst(t, database)
+	repository := persistence.NewStrategyBotRunRecordRepository(database)
+
+	firstNumber := requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
+	secondNumber := requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy"}))
+
+	assert.Equal(t, 1, firstNumber)
+	assert.Equal(t, 2, secondNumber)
+}
+
 func TestStrategyBotRunRecordRepositoryNumbersEachRoundInTurn(t *testing.T) {
 	database := newStrategyBotTestDatabase(t)
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy"}))
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell"}))
 
 	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
@@ -52,7 +78,7 @@ func TestStrategyBotRunRecordRepositoryKeepsOnlyTheLastFifty(t *testing.T) {
 
 	// 保留筆數有上限，否則一天 288 輪的表只會長不會縮。
 	for round := 0; round < 55; round++ {
-		require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 			StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
 	}
 
@@ -81,9 +107,9 @@ func TestStrategyBotRunRecordRepositoryKeepsEachBotsHistoryToItself(t *testing.T
 	secondBot, saveError := botRepository.Save(t.Context(), aBotRow("收盤反轉"))
 	require.NoError(t, saveError)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: firstBotID, RanAt: runRecordRanAt, Result: "buy"}))
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: secondBot.ID, RanAt: runRecordRanAt, Result: "sell"}))
 
 	firstHistory, findError := repository.FindLatestByBot(t.Context(), firstBotID)
@@ -104,7 +130,7 @@ func TestStrategyBotRunRecordRepositoryLosesTheHistoryWithTheBot(t *testing.T) {
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy"}))
 	require.NoError(t, persistence.NewStrategyBotRepository(database).Delete(t.Context(), botID))
 
@@ -118,8 +144,9 @@ func TestStrategyBotRunRecordRepositoryLosesTheHistoryWithTheBot(t *testing.T) {
 func TestStrategyBotRunRecordRepositorySaysSoWhenStorageCannotAnswer(t *testing.T) {
 	repository := persistence.NewStrategyBotRunRecordRepository(closedDatabase(t))
 
-	assert.Error(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
-		StrategyBotID: 1, RanAt: runRecordRanAt, Result: "buy"}))
+	_, appendError := repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+		StrategyBotID: 1, RanAt: runRecordRanAt, Result: "buy"})
+	assert.Error(t, appendError)
 
 	_, findError := repository.FindLatestByBot(t.Context(), 1)
 	assert.Error(t, findError)
@@ -143,7 +170,7 @@ func TestStrategyBotRunRecordRepositoryAppendRemembersWhatTheRoundSuggested(t *t
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "sell",
 		HasPositionPlan: true,
 		PositionPlan: dto.PositionPlanDto{
@@ -172,7 +199,7 @@ func TestStrategyBotRunRecordRepositoryAppendRemembersNothingWhenNothingWasSugge
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "hold"}))
 
 	runRecords, findError := repository.FindLatestByBot(t.Context(), botID)
@@ -194,7 +221,7 @@ func TestStrategyBotRunRecordRepositoryAppendRemembersNothingForAnUnaffordableSt
 	botID := aBotToRecordAgainst(t, database)
 	repository := persistence.NewStrategyBotRunRecordRepository(database)
 
-	require.NoError(t, repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
+	requireAppended(t)(repository.Append(t.Context(), dto.StrategyBotRunRecordWriteDto{
 		StrategyBotID: botID, RanAt: runRecordRanAt, Result: "buy",
 		HasPositionPlan: true,
 		PositionPlan: dto.PositionPlanDto{

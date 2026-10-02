@@ -71,19 +71,19 @@ func (mr *MockIConversationRepositoryMockRecorder) CompleteTurn(executionContext
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteTurn", reflect.TypeOf((*MockIConversationRepository)(nil).CompleteTurn), executionContext, turn)
 }
 
-// FailAllRunningTurns mocks base method.
-func (m *MockIConversationRepository) FailAllRunningTurns(executionContext context.Context, reason string) (int, error) {
+// FailRunningTurnsOutside mocks base method.
+func (m *MockIConversationRepository) FailRunningTurnsOutside(executionContext context.Context, liveReplicaNames []string, reason string) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FailAllRunningTurns", executionContext, reason)
+	ret := m.ctrl.Call(m, "FailRunningTurnsOutside", executionContext, liveReplicaNames, reason)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FailAllRunningTurns indicates an expected call of FailAllRunningTurns.
-func (mr *MockIConversationRepositoryMockRecorder) FailAllRunningTurns(executionContext, reason any) *gomock.Call {
+// FailRunningTurnsOutside indicates an expected call of FailRunningTurnsOutside.
+func (mr *MockIConversationRepositoryMockRecorder) FailRunningTurnsOutside(executionContext, liveReplicaNames, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailAllRunningTurns", reflect.TypeOf((*MockIConversationRepository)(nil).FailAllRunningTurns), executionContext, reason)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailRunningTurnsOutside", reflect.TypeOf((*MockIConversationRepository)(nil).FailRunningTurnsOutside), executionContext, liveReplicaNames, reason)
 }
 
 // FindAllOwnedBy mocks base method.

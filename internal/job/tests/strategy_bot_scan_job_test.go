@@ -36,11 +36,10 @@ func newStrategyBotScanJobUnderTest(
 	strategyBotRepository := mocks.NewMockIStrategyBotRepository(mockController)
 	// 歷史每一輪都會寫，但寫入成敗不是這些測試關心的事。
 	strategyBotRunRecordRepository := mocks.NewMockIStrategyBotRunRecordRepository(mockController)
-	strategyBotRunRecordRepository.EXPECT().
-		Append(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	strategyBotRepository.EXPECT().FindDue(gomock.Any(), scanNow, gomock.Any()).
+	strategyBotRunRecordRepository.EXPECT().Append(gomock.Any(), gomock.Any()).Return(1, nil).AnyTimes()
+	strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), scanNow, gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
-			_ context.Context, _ time.Time, _ int,
+			_ context.Context, _ time.Time, _ int, _ string, _ time.Time,
 		) ([]entities.StrategyBot, error) {
 			select {
 			case scans <- struct{}{}:
@@ -66,7 +65,7 @@ func newStrategyBotScanJobUnderTest(
 				strategyBotRepository, strategyBotRunRecordRepository,
 				mocks.NewMockIContractTradingSymbolRepository(mockController),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
-				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController), nil, nil,
 				clockProxy),
 			service.NewTradingStrategyService(
 				mocks.NewMockITradingStrategyRepository(mockController)),
@@ -84,10 +83,6 @@ func newStrategyBotScanJobUnderTest(
 				mocks.NewMockIContractIndicatorScriptProxy(mockController), clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				1000),
-			service.NewTelegramDeliveryService(
-				mocks.NewMockITelegramDeliveryRepository(mockController),
-				mocks.NewMockISecretSealProxy(mockController),
-				mocks.NewMockIMessageDeliveryProxy(mockController)),
 			service.NewKCandleService(
 				kCandleRepository, tradingSymbolRepository, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
@@ -99,7 +94,7 @@ func newStrategyBotScanJobUnderTest(
 			service.NewTradeJournalLinkService(
 				mocks.NewMockIOpaqueIdentifierProxy(mockController), nil, nil, "https://app.example.com"),
 			clockProxy,
-			application.NewStrategyBotRoundGuard(),
+			"replica-under-test",
 			4,
 			time.Minute,
 		),

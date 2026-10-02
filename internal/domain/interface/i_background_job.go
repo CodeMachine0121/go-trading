@@ -8,4 +8,6 @@ import "context"
 type IBackgroundJob interface {
 	Start(executionContext context.Context)
 	Stop()
+	// Finished closes once the job has stopped, by Stop or by its context, and its in-flight round has ended.
+	Finished() <-chan struct{}
 }

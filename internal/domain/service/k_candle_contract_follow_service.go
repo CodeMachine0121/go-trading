@@ -94,7 +94,7 @@ func (kCandleContractFollowService *KCandleContractFollowService) WatchKCandleCo
 		channel := vo.NewLiveFollowChannelVo(vo.MarketCrypto, []string{contractSymbol.Value()})
 		channelContext, cancel := context.WithCancel(context.WithoutCancel(executionContext))
 		openChannel := newKCandleFollowChannel(
-			channel, map[string]*kCandleFollowSymbol{contractSymbol.Value(): follow}, cancel)
+			channel, map[string]*kCandleFollowSymbol{contractSymbol.Value(): follow}, cancel, false)
 		kCandleContractFollowService.channels[channel.Key] = openChannel
 
 		go kCandleContractFollowService.feed.keep(channelContext, openChannel)

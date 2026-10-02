@@ -11,6 +11,8 @@ type repeatingRound struct {
 	interval time.Duration
 	runRound func(executionContext context.Context)
 	done     chan struct{}
+	// finished closes when the job's goroutine has returned, in-flight round included.
+	finished chan struct{}
 	stopOnce func()
 }
 
@@ -23,6 +25,7 @@ func newRepeatingRound(
 		interval: interval,
 		runRound: runRound,
 		done:     done,
+		finished: make(chan struct{}),
 		stopOnce: sync.OnceFunc(func() { close(done) }),
 	}
 }
@@ -37,6 +40,8 @@ func (repeatingRound *repeatingRound) Stop() {
 }
 
 func (repeatingRound *repeatingRound) run(executionContext context.Context) {
+	defer close(repeatingRound.finished)
+
 	repeatingRound.runRound(executionContext)
 
 	ticker := time.NewTicker(repeatingRound.interval)
@@ -61,4 +66,9 @@ func (repeatingRound *repeatingRound) run(executionContext context.Context) {
 			repeatingRound.runRound(executionContext)
 		}
 	}
+}
+
+// Finished closes once the job has stopped and its in-flight round has ended.
+func (repeatingRound *repeatingRound) Finished() <-chan struct{} {
+	return repeatingRound.finished
 }

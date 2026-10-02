@@ -58,7 +58,7 @@ func newChatRouterUnderTest(t *testing.T) chatRouterUnderTest {
 				assistantProxy,
 				[]domaininterface.IAssistantQuery{},
 				clockProxy,
-				20, 8, 300000, 2000,
+				20, 8, 300000, 2000, "replica-under-test",
 			)))
 
 	// The auth middleware is mounted as in production, since a conversation belongs to whoever asked.

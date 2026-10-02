@@ -354,7 +354,7 @@ func TestConversationRepositoryCompleteTurnReportsAnExchangeThatIsNotThere(t *te
 	require.ErrorIs(t, completeError, domains.ErrConversationNotFound)
 }
 
-func TestConversationRepositoryFailAllRunningTurnsSweepsWhatAShutdownCutOff(t *testing.T) {
+func TestConversationRepositoryFailRunningTurnsOutsideSweepsWhatAShutdownCutOff(t *testing.T) {
 	// Answers are written in-process only, so a row left running after a restart must be swept.
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
@@ -367,8 +367,8 @@ func TestConversationRepositoryFailAllRunningTurnsSweepsWhatAShutdownCutOff(t *t
 	})
 	require.NoError(t, saveError)
 
-	sweptCount, sweepError := conversationRepository.FailAllRunningTurns(
-		t.Context(), "系統重新啟動時中斷了這則回答，請再問一次")
+	sweptCount, sweepError := conversationRepository.FailRunningTurnsOutside(
+		t.Context(), nil, "系統重新啟動時中斷了這則回答，請再問一次")
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 1, sweptCount)
@@ -382,10 +382,10 @@ func TestConversationRepositoryFailAllRunningTurnsSweepsWhatAShutdownCutOff(t *t
 	assert.Contains(t, readBackConversation.Turns[1].FailureReason, "重新啟動")
 }
 
-func TestConversationRepositoryFailAllRunningTurnsFindsNothingToSweepOnACleanStart(t *testing.T) {
+func TestConversationRepositoryFailRunningTurnsOutsideFindsNothingToSweepOnACleanStart(t *testing.T) {
 	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
 
-	sweptCount, sweepError := conversationRepository.FailAllRunningTurns(t.Context(), "中斷了")
+	sweptCount, sweepError := conversationRepository.FailRunningTurnsOutside(t.Context(), nil, "中斷了")
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 0, sweptCount)
@@ -457,4 +457,24 @@ func TestConversationRepositoryLetsTwoConversationsBeWrittenAtOnce(t *testing.T)
 		})
 		require.NoError(t, saveError)
 	}
+}
+
+func TestConversationRepositorySweepSparesAnswersOfReplicasStillAlive(t *testing.T) {
+	conversationRepository := persistence.NewConversationRepository(newTestDatabase(t))
+	savedConversation, saveError := conversationRepository.Save(t.Context(), entities.Conversation{
+		LastActiveAt: momentAt(10, 0),
+		Turns: []entities.AssistantTurn{
+			{Ask: "別台還在寫的", Status: "running", ReplicaName: "replica-alive", CreatedAt: momentAt(10, 1)},
+		},
+	})
+	require.NoError(t, saveError)
+
+	sweptCount, sweepError := conversationRepository.FailRunningTurnsOutside(
+		t.Context(), []string{"replica-alive"}, "中斷了")
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 0, sweptCount)
+	readBack, findError := conversationRepository.FindOne(t.Context(), savedConversation.ID)
+	require.NoError(t, findError)
+	assert.Equal(t, "running", readBack.Turns[0].Status)
 }

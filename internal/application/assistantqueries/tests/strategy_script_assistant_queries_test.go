@@ -49,7 +49,7 @@ func newStrategyScriptAssistantQueriesUnderTest(t *testing.T) strategyScriptAssi
 			mocks.NewMockIStrategyBotRunRecordRepository(controller),
 			mocks.NewMockIContractTradingSymbolRepository(controller),
 			mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
-			mocks.NewMockIContractFundingRateSettlementRepository(controller),
+			mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, nil,
 			mocks.NewMockIClockProxy(controller)))
 
 	revision := newAssistantRevisionUnderTest(controller, strategyScriptApplication, nil)

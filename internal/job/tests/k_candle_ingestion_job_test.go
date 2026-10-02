@@ -42,6 +42,14 @@ type jobUnderTest struct {
 func newJobUnderTest(t *testing.T, symbols []string) jobUnderTest {
 	t.Helper()
 
+	return newJobUnderTestWith(t, symbols, onDuty(t))
+}
+
+func newJobUnderTestWith(
+	t *testing.T, symbols []string, jobLeadershipApplication *application.JobLeadershipApplication,
+) jobUnderTest {
+	t.Helper()
+
 	mockController := gomock.NewController(t)
 	kCandleRepository := mocks.NewMockIKCandleRepository(mockController)
 	marketDataProxy := mocks.NewMockIMarketDataProxy(mockController)
@@ -80,8 +88,8 @@ func newJobUnderTest(t *testing.T, symbols []string) jobUnderTest {
 			service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, 2)),
-		testInterval)
+				roundCandleCount, lookback, 2, "replica-under-test")),
+		jobLeadershipApplication, testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
 	return jobUnderTest{job: ingestionJob, stages: stages, backfillSymbols: backfillSymbols}
@@ -220,8 +228,8 @@ func newSlowJobUnderTest(t *testing.T) slowJobUnderTest {
 			service.NewKCandleIngestionService(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-				roundCandleCount, lookback, 2)),
-		testInterval)
+				roundCandleCount, lookback, 2, "replica-under-test")),
+		onDuty(t), testInterval)
 	// Released first so a failing test cannot leave the round blocked.
 	t.Cleanup(releaseTheRound)
 	t.Cleanup(ingestionJob.Stop)
@@ -244,4 +252,42 @@ func TestAJobToldToStopStartsNoRoundFromATickThatWasAlreadyWaiting(t *testing.T)
 	time.Sleep(10 * testInterval)
 
 	assert.Empty(t, underTest.stages, "a job told to stop began another round")
+}
+
+func TestTheJobFetchesNothingWhileThisReplicaIsOffDuty(t *testing.T) {
+	duty := newDuty(t, false)
+	underTest := newJobUnderTestWith(t, []string{"BTCUSDT"}, duty.application)
+
+	underTest.job.Start(t.Context())
+	duty.waitForChecks(t, 3)
+
+	assert.Empty(t, underTest.stages)
+}
+
+func TestTheJobBackfillsFirstWhenItComesOnDuty(t *testing.T) {
+	duty := newDuty(t, false)
+	underTest := newJobUnderTestWith(t, []string{"BTCUSDT"}, duty.application)
+	underTest.job.Start(t.Context())
+	duty.waitForChecks(t, 2)
+
+	duty.set(t, true)
+
+	assert.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	assert.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
+}
+
+func TestTheJobBackfillsAgainOnEveryReturnToDuty(t *testing.T) {
+	duty := newDuty(t, true)
+	underTest := newJobUnderTestWith(t, []string{"BTCUSDT"}, duty.application)
+	underTest.job.Start(t.Context())
+	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
+
+	duty.set(t, false)
+	duty.waitForChecks(t, 2)
+	drain(underTest.stages)
+	duty.set(t, true)
+
+	assert.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	assert.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
 }

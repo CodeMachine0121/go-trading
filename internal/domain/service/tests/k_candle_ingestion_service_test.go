@@ -103,7 +103,7 @@ func newIngestionUnderTest(t *testing.T, currentTime time.Time) ingestionUnderTe
 	return ingestionUnderTest{
 		clock: movingClock, service: service.NewKCandleIngestionService(
 			kCandleRepository, historySyncRunRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
-			ingestionMarketCatalog(), roundCandleCount, lookback, 2),
+			ingestionMarketCatalog(), roundCandleCount, lookback, 2, "replica-under-test"),
 		kCandleRepository:        kCandleRepository,
 		historySyncRunRepository: historySyncRunRepository,
 		tradingSymbolRepository:  tradingSymbolRepository,
@@ -571,7 +571,7 @@ func TestBothUseCasesRefuseToRunOnAnUnusableCandleCount(t *testing.T) {
 				mocks.NewMockIKCandleHistorySyncRunRepository(mockController),
 				mocks.NewMockITradingSymbolRepository(mockController),
 				mocks.NewMockIMarketDataProxy(mockController),
-				clockProxy, ingestionMarketCatalog(), 0, lookback, 2)
+				clockProxy, ingestionMarketCatalog(), 0, lookback, 2, "replica-under-test")
 
 			report, runError := testCase.run(ingestionService)
 
@@ -609,7 +609,7 @@ func TestTheNextRoundRefillsWhatAFailedRoundMissed(t *testing.T) {
 	historySyncRunRepository := mocks.NewMockIKCandleHistorySyncRunRepository(mockController)
 	underTest := ingestionUnderTest{service: service.NewKCandleIngestionService(
 		kCandleRepository, historySyncRunRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
-		ingestionMarketCatalog(), roundCandleCount, lookback, 2),
+		ingestionMarketCatalog(), roundCandleCount, lookback, 2, "replica-under-test"),
 		kCandleRepository:       kCandleRepository,
 		tradingSymbolRepository: tradingSymbolRepository,
 		marketDataProxy:         marketDataProxy,
@@ -1182,6 +1182,12 @@ func TestSyncingHistoryAsksForTheWholeStretchTheCallerNamed(t *testing.T) {
 
 	_, startError := underTest.service.StartHistorySyncFor(
 		t.Context(), historySyncOf("BTCUSDT", 2), historyCeilingDays)
+
+	// The run is named for this replica, so only this replica vanishing marks it interrupted.
+	runs.mutex.Lock()
+	require.NotEmpty(t, runs.written)
+	assert.Equal(t, "replica-under-test", runs.written[0].ReplicaName)
+	runs.mutex.Unlock()
 
 	require.NoError(t, startError)
 	endedRun := runs.awaitEnding(t)
@@ -1880,12 +1886,12 @@ func TestGettingAHistorySyncNobodyStartedIsToldApartFromOneThatBroke(t *testing.
 }
 
 func TestClearingInterruptedHistorySyncsSaysHowManyThereWere(t *testing.T) {
-	// Runs live only in this process, so any still recorded as running has nothing fetching for it.
+	// Runs live only in the replica that started them, so a run whose replica is gone has nothing fetching for it.
 	underTest := newIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.historySyncRunRepository.EXPECT().
-		FailAllRunning(gomock.Any(), gomock.Any(), gomock.Any()).Return(3, nil)
+		FailRunningOutside(gomock.Any(), []string{"replica-b"}, gomock.Any(), gomock.Any()).Return(3, nil)
 
-	clearedCount, sweepError := underTest.service.FailInterruptedHistorySyncs(t.Context())
+	clearedCount, sweepError := underTest.service.FailInterruptedHistorySyncs(t.Context(), []string{"replica-b"})
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 3, clearedCount)

@@ -74,6 +74,11 @@ func (strategyBotMessageDomain StrategyBotMessageDomain) Text() string {
 		lines = append(lines, "", fmt.Sprintf("📝 記到交易日誌：%s", strategyBotMessageDomain.round.JournalLinkUrl))
 	}
 
+	// Last, so a message sent twice after a replica died mid-send reads as the same round, not a second signal.
+	if strategyBotMessageDomain.round.RunNumber > 0 {
+		lines = append(lines, "", fmt.Sprintf("🔖 Run %d", strategyBotMessageDomain.round.RunNumber))
+	}
+
 	return strings.Join(lines, "\n")
 }
 

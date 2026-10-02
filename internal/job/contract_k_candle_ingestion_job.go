@@ -11,25 +11,35 @@ import (
 )
 
 // ContractKCandleIngestionJob backfills before keeping up, and is separate from the spot job so one venue's failures cannot stall the other.
+// Like the spot job it works only on duty and backfills again on every return to duty.
 type ContractKCandleIngestionJob struct {
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication
+	jobLeadershipApplication            *application.JobLeadershipApplication
 	interval                            time.Duration
 	done                                chan struct{}
-	stopOnce                            func()
+	// finished closes when the job's goroutine has returned, in-flight round included.
+	finished chan struct{}
+	stopOnce func()
+	// needsBackfill is touched only by the job's own goroutine.
+	needsBackfill bool
 }
 
 // NewContractKCandleIngestionJob reads the watched contracts afresh each round.
 func NewContractKCandleIngestionJob(
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
+	jobLeadershipApplication *application.JobLeadershipApplication,
 	interval time.Duration,
 ) *ContractKCandleIngestionJob {
 	done := make(chan struct{})
 
 	return &ContractKCandleIngestionJob{
 		kCandleContractIngestionApplication: kCandleContractIngestionApplication,
+		jobLeadershipApplication:            jobLeadershipApplication,
 		interval:                            interval,
 		done:                                done,
+		finished:                            make(chan struct{}),
 		stopOnce:                            sync.OnceFunc(func() { close(done) }),
+		needsBackfill:                       true,
 	}
 }
 
@@ -44,13 +54,13 @@ func (contractKCandleIngestionJob *ContractKCandleIngestionJob) Stop() {
 	contractKCandleIngestionJob.stopOnce()
 }
 
-// run finishes the backfill before starting rounds so the two never write the same candle.
+// run finishes each backfill before the next round so the two never write the same candle.
 func (contractKCandleIngestionJob *ContractKCandleIngestionJob) run(
 	executionContext context.Context,
 ) {
-	backfillReport, backfillError := contractKCandleIngestionJob.
-		kCandleContractIngestionApplication.RunBackfill(executionContext)
-	contractKCandleIngestionJob.report("startup backfill", backfillReport, backfillError)
+	defer close(contractKCandleIngestionJob.finished)
+
+	contractKCandleIngestionJob.runRound(executionContext)
 
 	ticker := time.NewTicker(contractKCandleIngestionJob.interval)
 	defer ticker.Stop()
@@ -71,11 +81,32 @@ func (contractKCandleIngestionJob *ContractKCandleIngestionJob) run(
 			default:
 			}
 
-			roundReport, roundError := contractKCandleIngestionJob.
-				kCandleContractIngestionApplication.RunScheduledRound(executionContext)
-			contractKCandleIngestionJob.report("scheduled round", roundReport, roundError)
+			contractKCandleIngestionJob.runRound(executionContext)
 		}
 	}
+}
+
+// runRound, shared by the first round and every tick, backfills on the first round on duty and keeps up afterwards; off duty it only remembers to backfill.
+func (contractKCandleIngestionJob *ContractKCandleIngestionJob) runRound(executionContext context.Context) {
+	if !contractKCandleIngestionJob.jobLeadershipApplication.IsLeader() {
+		contractKCandleIngestionJob.needsBackfill = true
+
+		return
+	}
+
+	if contractKCandleIngestionJob.needsBackfill {
+		backfillReport, backfillError := contractKCandleIngestionJob.
+			kCandleContractIngestionApplication.RunBackfill(executionContext)
+		contractKCandleIngestionJob.report("backfill", backfillReport, backfillError)
+		// Kept when the backfill could not run, so the next round tries again instead of leaving the gap.
+		contractKCandleIngestionJob.needsBackfill = backfillError != nil
+
+		return
+	}
+
+	roundReport, roundError := contractKCandleIngestionJob.
+		kCandleContractIngestionApplication.RunScheduledRound(executionContext)
+	contractKCandleIngestionJob.report("scheduled round", roundReport, roundError)
 }
 
 // report logs only failures.
@@ -102,4 +133,9 @@ func (contractKCandleIngestionJob *ContractKCandleIngestionJob) report(
 				skippedKCandle.OpenTime.Format(time.RFC3339), skippedKCandle.Reason)
 		}
 	}
+}
+
+// Finished closes once the job has stopped and its in-flight round has ended.
+func (contractKCandleIngestionJob *ContractKCandleIngestionJob) Finished() <-chan struct{} {
+	return contractKCandleIngestionJob.finished
 }

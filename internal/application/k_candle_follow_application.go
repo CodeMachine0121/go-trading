@@ -31,6 +31,13 @@ func (kCandleFollowApplication *KCandleFollowApplication) RefreshFixedFollows(
 	return kCandleFollowApplication.kCandleFollowService.RefreshFixedFollows(executionContext)
 }
 
+// RefreshRelayedFollows follows the roster from what the replica on duty saw, for a replica off duty.
+func (kCandleFollowApplication *KCandleFollowApplication) RefreshRelayedFollows(
+	executionContext context.Context,
+) error {
+	return kCandleFollowApplication.kCandleFollowService.RefreshRelayedFollows(executionContext)
+}
+
 func (kCandleFollowApplication *KCandleFollowApplication) Stop() {
 	kCandleFollowApplication.kCandleFollowService.Stop()
 }

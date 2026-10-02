@@ -150,10 +150,12 @@ func TestAssistantExchangeToStartedTurnReservesThePlaceTheAnswerWillGo(t *testin
 	// Written before the assistant is asked, so an in-progress answer is visible and a restart can sweep it up.
 	exchange := anExchange(8)
 
-	turn := exchange.ToStartedTurn(time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC))
+	turn := exchange.ToStartedTurn(time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC), "replica-a")
 
 	assert.Equal(t, "BTCUSDT 最近走勢如何", turn.Ask)
 	assert.Equal(t, string(vo.AssistantTurnRunning), turn.Status)
+	// Named so only this replica vanishing can mark the answer interrupted.
+	assert.Equal(t, "replica-a", turn.ReplicaName)
 	assert.Empty(t, turn.Answer)
 	assert.Equal(t, 0, turn.Usage)
 	assert.Equal(t, time.Date(2026, 9, 4, 10, 30, 0, 0, time.UTC), turn.CreatedAt)
@@ -217,7 +219,7 @@ func TestAssistantExchangeToAnsweredTurnMarksAnAnswerThatRanOutOfQueries(t *test
 func TestAssistantExchangeToStartedTurnStoresTheMomentInUniversalTime(t *testing.T) {
 	elsewhere := time.FixedZone("UTC+8", 8*60*60)
 
-	turn := anExchange(8).ToStartedTurn(time.Date(2026, 9, 4, 18, 0, 0, 0, elsewhere))
+	turn := anExchange(8).ToStartedTurn(time.Date(2026, 9, 4, 18, 0, 0, 0, elsewhere), "replica-a")
 
 	assert.Equal(t, time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC), turn.CreatedAt.UTC())
 	assert.Equal(t, time.UTC, turn.CreatedAt.Location())

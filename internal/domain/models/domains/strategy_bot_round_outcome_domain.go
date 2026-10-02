@@ -52,12 +52,17 @@ func NewStrategyBotRoundHaltedOutcome(
 	return StrategyBotRoundOutcomeDomain{haltReason: haltReason}
 }
 
-// NewStrategyBotRoundConcludedOutcome takes the signal actually sent to Telegram, empty when nothing was sent.
+// NewStrategyBotRoundConcludedOutcome takes the signal the round queued a message for, empty when it queued none.
 func NewStrategyBotRoundConcludedOutcome(
 	verdict vo.StrategyBotVerdictVo, sentSignal vo.SignalVo, conflicting bool,
 ) StrategyBotRoundOutcomeDomain {
 	return StrategyBotRoundOutcomeDomain{
 		verdict: verdict, sentSignal: sentSignal, conflicting: conflicting}
+}
+
+// HaltsTheBot is true when this round is what stops the bot.
+func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) HaltsTheBot() bool {
+	return strategyBotRoundOutcomeDomain.haltReason != vo.StrategyBotHaltNone
 }
 
 // RecordedResult comes from the verdict, not the sent signal, and keeps conflict distinct from hold because a conflicted bot needs its owner to change a condition.
@@ -76,10 +81,10 @@ func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) RecordedResul
 
 // ApplyTo writes the outcome onto the bot's run state and returns the record to store.
 func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) ApplyTo(
-	runStateDomain StrategyBotRunStateDomain, now time.Time,
+	runStateDomain StrategyBotRunStateDomain, dueAt time.Time, now time.Time,
 ) entities.StrategyBot {
 	if strategyBotRoundOutcomeDomain.haltReason != vo.StrategyBotHaltNone {
-		return runStateDomain.Halt(strategyBotRoundOutcomeDomain.haltReason)
+		return runStateDomain.Halt(strategyBotRoundOutcomeDomain.haltReason, now)
 	}
 
 	if strategyBotRoundOutcomeDomain.skipped {
@@ -87,5 +92,5 @@ func (strategyBotRoundOutcomeDomain StrategyBotRoundOutcomeDomain) ApplyTo(
 	}
 
 	return runStateDomain.RoundFinished(
-		now, strategyBotRoundOutcomeDomain.sentSignal, strategyBotRoundOutcomeDomain.conflicting)
+		dueAt, now, strategyBotRoundOutcomeDomain.sentSignal, strategyBotRoundOutcomeDomain.conflicting)
 }

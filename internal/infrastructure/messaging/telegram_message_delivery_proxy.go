@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
@@ -32,13 +33,13 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) Deliver(
 	executionContext context.Context,
 	credential vo.MessageDeliveryCredentialVo,
 	message string,
-) (vo.DeliveryFailureReasonVo, error) {
+) (vo.DeliveryResultVo, error) {
 	body, encodeError := json.Marshal(telegramSendMessageRequest{
 		ChatID: credential.ChatID,
 		Text:   message,
 	})
 	if encodeError != nil {
-		return vo.DeliveryFailureUnreachable, fmt.Errorf("build message: %w", encodeError)
+		return vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable}, fmt.Errorf("build message: %w", encodeError)
 	}
 
 	request, buildError := http.NewRequestWithContext(executionContext, http.MethodPost,
@@ -46,7 +47,7 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) Deliver(
 		bytes.NewReader(body))
 	if buildError != nil {
 		// The address is omitted because it carries the token.
-		return vo.DeliveryFailureUnreachable, errors.New("build message request failed")
+		return vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable}, errors.New("build message request failed")
 	}
 	request.Header.Set("Content-Type", "application/json")
 
@@ -54,23 +55,33 @@ func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) Deliver(
 	if requestError != nil {
 		// A timeout is reported distinctly from an unreachable service.
 		if errors.Is(requestError, context.DeadlineExceeded) {
-			return vo.DeliveryFailureTimedOut, nil
+			return vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureTimedOut}, nil
 		}
 
-		return vo.DeliveryFailureUnreachable, nil
+		return vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable}, nil
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	return telegramMessageDeliveryProxy.reasonFrom(response), nil
+	sendMessageResponse := telegramSendMessageResponse{}
+	decodeError := json.NewDecoder(response.Body).Decode(&sendMessageResponse)
+
+	// Being told to slow down is a temporary refusal, so it reads as unreachable and carries the wait Telegram asked for.
+	if response.StatusCode == http.StatusTooManyRequests {
+		return vo.DeliveryResultVo{
+			FailureReason: vo.DeliveryFailureUnreachable,
+			RetryAfter:    time.Duration(sendMessageResponse.Parameters.RetryAfter) * time.Second,
+		}, nil
+	}
+
+	return vo.DeliveryResultVo{
+		FailureReason: telegramMessageDeliveryProxy.reasonFrom(response, sendMessageResponse, decodeError),
+	}, nil
 }
 
 // reasonFrom treats an undecodable answer as unreachable rather than an error.
 func (telegramMessageDeliveryProxy *TelegramMessageDeliveryProxy) reasonFrom(
-	response *http.Response,
+	response *http.Response, sendMessageResponse telegramSendMessageResponse, decodeError error,
 ) vo.DeliveryFailureReasonVo {
-	sendMessageResponse := telegramSendMessageResponse{}
-	decodeError := json.NewDecoder(response.Body).Decode(&sendMessageResponse)
-
 	if decodeError == nil && sendMessageResponse.Ok {
 		return vo.DeliveryFailureNone
 	}

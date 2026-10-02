@@ -161,8 +161,8 @@ func TestContractHistorySyncRunRepositoryReadsARunBackAndSweepsAnInterruptedOne(
 	require.NoError(t, startError)
 	sweptAt := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 
-	sweptCount, sweepError := runRepository.FailAllRunning(
-		t.Context(), "interrupted by restart", sweptAt)
+	sweptCount, sweepError := runRepository.FailRunningOutside(
+		t.Context(), nil, "interrupted by restart", sweptAt)
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 1, sweptCount)
@@ -218,7 +218,7 @@ func TestContractHistorySyncRunRepositorySaysSoWhenStorageIsUnreachable(t *testi
 
 	_, saveError := runRepository.Save(t.Context(), runningContractSyncRun("BTCUSDT"))
 	_, _, findError := runRepository.FindOne(t.Context(), 1)
-	_, sweepError := runRepository.FailAllRunning(t.Context(), "boom", time.Now().UTC())
+	_, sweepError := runRepository.FailRunningOutside(t.Context(), nil, "boom", time.Now().UTC())
 	_, countError := runRepository.CountRunning(t.Context())
 
 	for _, storageError := range []error{saveError, findError, sweepError, countError} {
@@ -319,4 +319,20 @@ func TestContractTradingSymbolRepositoryRefreshRecordsNothingWhenOneContractCann
 	assert.ErrorContains(t, refreshError, "save contract trading specifications")
 	bitcoin, _, _ := symbolRepository.FindBySymbol(t.Context(), "BTCUSDT")
 	assert.False(t, bitcoin.TickSize.Valid)
+}
+
+func TestContractHistorySyncSweepSparesRunsOfReplicasStillAlive(t *testing.T) {
+	runRepository := persistence.NewKCandleContractHistorySyncRunRepository(newTestDatabase(t))
+	aliveRun := runningContractSyncRun("BTCUSDT")
+	aliveRun.ReplicaName = "replica-alive"
+	aliveRun, saveError := runRepository.Save(t.Context(), aliveRun)
+	require.NoError(t, saveError)
+
+	sweptCount, sweepError := runRepository.FailRunningOutside(
+		t.Context(), []string{"replica-alive"}, "interrupted by restart", time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC))
+
+	require.NoError(t, sweepError)
+	assert.Equal(t, 0, sweptCount)
+	storedRun, _, _ := runRepository.FindOne(t.Context(), aliveRun.ID)
+	assert.Equal(t, string(vo.KCandleHistorySyncRunning), storedRun.Status)
 }

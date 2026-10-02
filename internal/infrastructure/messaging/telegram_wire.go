@@ -10,9 +10,15 @@ type telegramSendMessageRequest struct {
 
 // telegramSendMessageResponse keeps Description because it is the only way to tell a rejected token from an unknown chat.
 type telegramSendMessageResponse struct {
-	Ok          bool   `json:"ok"`
-	ErrorCode   int    `json:"error_code"`
-	Description string `json:"description"`
+	Ok          bool                       `json:"ok"`
+	ErrorCode   int                        `json:"error_code"`
+	Description string                     `json:"description"`
+	Parameters  telegramResponseParameters `json:"parameters"`
+}
+
+// telegramResponseParameters carries retry_after, the seconds Telegram wants a sender to wait after being told to slow down.
+type telegramResponseParameters struct {
+	RetryAfter int `json:"retry_after"`
 }
 
 // unknownChatDescriptions are the phrases that blame the chat rather than the token; Telegram offers no structured way to tell them apart.

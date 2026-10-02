@@ -297,3 +297,25 @@ func TestStrategyBotMessagePutsTheSuggestionBeforeTheWorking(t *testing.T) {
 		strings.Index(message, "📐 建議部位"), strings.Index(message, "📊 各來源怎麼說"))
 	assert.Less(t, strings.Index(message, "💰 參考價"), strings.Index(message, "📐 建議部位"))
 }
+
+func TestStrategyBotMessageDomainEndsWithTheRoundsNumber(t *testing.T) {
+	testCases := []struct {
+		name         string
+		runNumber    int
+		expectSuffix bool
+	}{
+		{name: "a booked round prints its number last", runNumber: 52, expectSuffix: true},
+		{name: "a round not yet numbered prints no number", runNumber: 0, expectSuffix: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			text := domains.NewStrategyBotMessageDomain(dto.StrategyBotRoundDto{
+				BotName: "早盤突破", Symbol: "BTCUSDT", Verdict: string(vo.SignalBuy), RunNumber: testCase.runNumber,
+			}).Text()
+
+			assert.Equal(t, testCase.expectSuffix, strings.HasSuffix(text, "\n\n🔖 Run 52"), text)
+			assert.Equal(t, testCase.expectSuffix, strings.Contains(text, "Run "), text)
+		})
+	}
+}

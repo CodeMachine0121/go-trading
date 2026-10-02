@@ -63,7 +63,7 @@ func newTradingStrategyAssistantQueriesUnderTest(t *testing.T) tradingStrategyAs
 			strategyBotRepository, strategyBotRunRecordRepository,
 			mocks.NewMockIContractTradingSymbolRepository(controller),
 			mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
-			mocks.NewMockIContractFundingRateSettlementRepository(controller),
+			mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, nil,
 			clockProxy),
 	)
 
@@ -351,7 +351,7 @@ func TestTradingStrategyCreateAssistantQueryHandsBackTheRefusalWhenASourceNamesA
 				mocks.NewMockIStrategyBotRunRecordRepository(controller),
 				mocks.NewMockIContractTradingSymbolRepository(controller),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
-				mocks.NewMockIContractFundingRateSettlementRepository(controller),
+				mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, nil,
 				mocks.NewMockIClockProxy(controller)),
 		),
 		// Refused before anything is stored, so nothing is remembered as created.

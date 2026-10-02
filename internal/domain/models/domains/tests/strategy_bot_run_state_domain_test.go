@@ -49,10 +49,13 @@ func TestStrategyBotRunStateStopAndHaltDifferOnlyInWhetherAnybodyHasToFixSomethi
 	assert.Equal(t, string(vo.StrategyBotStopped), stoppedBot.RunState)
 	assert.Empty(t, stoppedBot.HaltReason)
 
+	haltedAt := time.Date(2026, 9, 16, 13, 2, 0, 0, time.UTC)
 	haltedBot := domains.NewStrategyBotRunStateDomain(aStoredBot(vo.StrategyBotRunning)).Halt(
-		vo.StrategyBotHaltCredentialRejected)
+		vo.StrategyBotHaltCredentialRejected, haltedAt)
 	assert.Equal(t, string(vo.StrategyBotStopped), haltedBot.RunState)
 	assert.Equal(t, string(vo.StrategyBotHaltCredentialRejected), haltedBot.HaltReason)
+	// Moved so a round still in flight for the bot can no longer be booked onto it.
+	assert.Equal(t, haltedAt, haltedBot.NextRunAt)
 }
 
 func TestStrategyBotRunStateRequireEditable(t *testing.T) {
@@ -114,6 +117,7 @@ func TestStrategyBotRunStateRequireStartable(t *testing.T) {
 
 func TestStrategyBotRunStateRoundFinished(t *testing.T) {
 	now := time.Date(2026, 9, 16, 13, 0, 0, 0, time.UTC)
+	roundDueAt := time.Date(2026, 9, 16, 12, 59, 0, 0, time.UTC)
 
 	testCases := []struct {
 		name                   string
@@ -150,9 +154,16 @@ func TestStrategyBotRunStateRoundFinished(t *testing.T) {
 			storedBot.LastSentSignal = testCase.lastSentSignal
 
 			finishedBot := domains.NewStrategyBotRunStateDomain(storedBot).RoundFinished(
-				now, testCase.sentSignal, testCase.conflicting)
+				roundDueAt, now, testCase.sentSignal, testCase.conflicting)
 
 			assert.Equal(t, testCase.expectedLastSentSignal, finishedBot.LastSentSignal)
+			// The round that said the signal is remembered with it, so only that round's message can make the bot forget it.
+			if testCase.sentSignal != "" {
+				require.NotNil(t, finishedBot.LastSentRoundDueAt)
+				assert.Equal(t, roundDueAt, *finishedBot.LastSentRoundDueAt)
+			} else {
+				assert.Nil(t, finishedBot.LastSentRoundDueAt)
+			}
 			assert.Equal(t, testCase.conflicting, finishedBot.Conflicting)
 			// Measured from the round that ran, not the one that was due, so missed rounds
 			// are never made up.
@@ -241,7 +252,7 @@ func TestStrategyBotRoundOutcomeApplyTo(t *testing.T) {
 			storedBot.Conflicting = true
 
 			endedBot := testCase.outcome.ApplyTo(
-				domains.NewStrategyBotRunStateDomain(storedBot), now)
+				domains.NewStrategyBotRunStateDomain(storedBot), now.Add(-time.Minute), now)
 
 			assert.Equal(t, string(testCase.expectedRunState), endedBot.RunState)
 			assert.Equal(t, string(testCase.expectedHaltReason), endedBot.HaltReason)

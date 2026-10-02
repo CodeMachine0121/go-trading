@@ -146,7 +146,7 @@ func newContractHistorySyncUnderTestCounting(
 			service.NewContractPositionStatisticService(
 				statisticRepository, symbolRepository,
 				mocks.NewMockIContractPositionStatisticProxy(mockController),
-				archiveProxy, clockProxy, 1000), 2),
+				archiveProxy, clockProxy, 1000), 2, "replica-under-test"),
 		kCandleContractRepository: kCandleContractRepository,
 		syncRunRepository:         syncRunRepository,
 		symbolRepository:          symbolRepository,
@@ -375,6 +375,8 @@ func TestContractBackfillForOneContractRefusesABlankName(t *testing.T) {
 // contractHistorySyncRuns collects every run write so a case can wait for the run to close rather than guess how long it takes.
 type contractHistorySyncRuns struct {
 	ended chan entities.KCandleContractHistorySyncRun
+	// started is the first write, made before any fetching.
+	started chan entities.KCandleContractHistorySyncRun
 }
 
 func (runs *contractHistorySyncRuns) record(
@@ -382,6 +384,10 @@ func (runs *contractHistorySyncRuns) record(
 ) (entities.KCandleContractHistorySyncRun, error) {
 	if syncRun.ID == 0 {
 		syncRun.ID = 1
+		select {
+		case runs.started <- syncRun:
+		default:
+		}
 	}
 	if syncRun.FinishedAt != nil {
 		select {
@@ -407,7 +413,9 @@ func (runs *contractHistorySyncRuns) awaitEnding(t *testing.T) entities.KCandleC
 }
 
 func (underTest contractIngestionUnderTest) recordsEveryContractSyncRun() *contractHistorySyncRuns {
-	runs := &contractHistorySyncRuns{ended: make(chan entities.KCandleContractHistorySyncRun, 1)}
+	runs := &contractHistorySyncRuns{
+		ended: make(chan entities.KCandleContractHistorySyncRun, 1), started: make(chan entities.KCandleContractHistorySyncRun, 1),
+	}
 	underTest.syncRunRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(
 			_ context.Context, syncRun entities.KCandleContractHistorySyncRun,
@@ -445,6 +453,8 @@ func TestContractHistorySyncAnswersBeforeItHasFetchedAnything(t *testing.T) {
 	require.NoError(t, startError)
 	assert.NotZero(t, startedRun.ID)
 	assert.Equal(t, string(vo.KCandleHistorySyncRunning), startedRun.Status)
+	// Named for this replica, so only this replica vanishing marks the run interrupted.
+	assert.Equal(t, "replica-under-test", (<-runs.started).ReplicaName)
 	close(letGo)
 	runs.awaitEnding(t)
 }
@@ -602,10 +612,10 @@ func TestContractHistorySyncRunIsReadableByItsNumber(t *testing.T) {
 func TestContractHistorySyncSweepsTheRunsARestartCutOff(t *testing.T) {
 	underTest := newContractIngestionUnderTest(t, ingestionAt(9, 7, 30))
 	underTest.syncRunRepository.EXPECT().
-		FailAllRunning(gomock.Any(), "interrupted by restart", ingestionAt(9, 7, 30)).
+		FailRunningOutside(gomock.Any(), []string{"replica-b"}, "interrupted by restart", ingestionAt(9, 7, 30)).
 		Return(2, nil)
 
-	sweptCount, sweepError := underTest.service.FailInterruptedHistorySyncs(t.Context())
+	sweptCount, sweepError := underTest.service.FailInterruptedHistorySyncs(t.Context(), []string{"replica-b"})
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 2, sweptCount)
@@ -625,7 +635,7 @@ func TestContractRoundRefusesRulesItCannotSettle(t *testing.T) {
 		mocks.NewMockIContractMarketDataProxy(mockController),
 		clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		0, lookback, nil, 2)
+		0, lookback, nil, 2, "replica-under-test")
 
 	_, roundError := brokenService.RunScheduledRound(t.Context())
 	_, backfillError := brokenService.RunBackfill(t.Context())
@@ -989,7 +999,7 @@ func TestContractHistorySyncStartsNothingWhenTheRunningSyncsCannotBeCounted(t *t
 		mocks.NewMockIKCandleContractRepository(mockController), syncRunRepository, symbolRepository,
 		mocks.NewMockIContractMarketDataProxy(mockController), clockProxy,
 		domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
-		roundCandleCount, lookback, nil, 2)
+		roundCandleCount, lookback, nil, 2, "replica-under-test")
 
 	_, startError := ingestionService.StartHistorySyncFor(
 		t.Context(), dto.KCandleHistorySyncDto{Symbol: "ETHUSDT", LookbackDays: 2},

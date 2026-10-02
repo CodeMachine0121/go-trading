@@ -80,28 +80,21 @@ func (underTest strategyBotRunUnderTest) expectTheContractsLatestCandle(closePri
 func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("64000.5")
 
 	dueBot := aDueContractBot(string(vo.SignalSell))
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
 
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			assert.Contains(t, message, "🟢【做多】合約突破 · BTCUSDT 永續合約")
-			assert.Contains(t, message, "⚙️ 交易模式 多空反手")
-			assert.Contains(t, message, "💰 參考價 64000.5")
-			assert.Contains(t, message, "那一根一分鐘合約 K 線的收盤價")
-
-			return vo.DeliveryFailureNone, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "🟢【做多】合約突破 · BTCUSDT 永續合約")
+		assert.Contains(t, message, "⚙️ 交易模式 多空反手")
+		assert.Contains(t, message, "💰 參考價 64000.5")
+		assert.Contains(t, message, "那一根一分鐘合約 K 線的收盤價")
+	})
 
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
@@ -121,12 +114,11 @@ func TestStrategyBotRunApplicationRunsAContractBotOverContractBars(t *testing.T)
 func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectTheContractsLatestCandle("100")
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 
 	dueBot := aDueContractBot(string(vo.SignalBuy))
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil)
@@ -142,25 +134,18 @@ func TestStrategyBotRunApplicationDoesNotRepeatAContractConclusion(t *testing.T)
 func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectTheContractsLatestCandle("100")
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		Return(entities.StrategyScript{}, domains.StrategyScriptNotFound(9)).AnyTimes()
 
 	dueBot := aDueContractBot("")
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			assert.Contains(t, message, "【已停擺】合約突破 · BTCUSDT 永續合約")
-
-			return vo.DeliveryFailureNone, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "【已停擺】合約突破 · BTCUSDT 永續合約")
+	})
 	underTest.strategyBotRepository.EXPECT().
 		UpdateRunState(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, bot entities.StrategyBot) error {
@@ -180,7 +165,6 @@ func TestStrategyBotRunApplicationHaltsAContractBotWhoseScriptIsGone(t *testing.
 func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("100")
 
@@ -188,26 +172,20 @@ func TestStrategyBotRunApplicationSuggestsAContractPositionAndRemembersIt(t *tes
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
 	dueBot.PositionPlanStopLossPercentage = decimal.NewFromInt(2)
 	dueBot.PositionPlanLeverage = decimal.NewFromInt(5)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
 	underTest.expectTheVenue(aContractSpecification(), nil, "0.0001")
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
-			assert.Contains(t, message, "　・數量 50")
-			assert.Contains(t, message, "止損 98（往下，虧 100）")
-			assert.Contains(t, message, "　・預估強平價 80.4（往下，用最小那一級估算）")
-			assert.Contains(t, message, "　・資金費率 0.01%（最近一次結算）：每 8 小時約付 0.5（估算）")
-			assert.Contains(t, message,
-				"📝 記到交易日誌：https://app.example.com/contract-trade-journal/new?journalLink=round-link-1")
-
-			return vo.DeliveryFailureNone, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "保證金 1000（5 倍槓桿，名目 5000）")
+		assert.Contains(t, message, "　・數量 50")
+		assert.Contains(t, message, "止損 98（往下，虧 100）")
+		assert.Contains(t, message, "　・預估強平價 80.4（往下，用最小那一級估算）")
+		assert.Contains(t, message, "　・資金費率 0.01%（最近一次結算）：每 8 小時約付 0.5（估算）")
+		assert.Contains(t, message,
+			"📝 記到交易日誌：https://app.example.com/contract-trade-journal/new?journalLink=round-link-1")
+	})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	underTest.strategyBotRunApplication.RunDueRounds(t.Context())
@@ -286,13 +264,12 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
 			underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-			underTest.expectDeliverySetting()
 			underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 				Return(testCase.storedCandles, testCase.readError)
 			underTest.expectNoRoundMessage()
 
 			dueBot := aDueContractBot(string(vo.SignalSell))
-			underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+			underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 				Return([]entities.StrategyBot{dueBot}, nil)
 			underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 				Return(dueBot, nil).AnyTimes()
@@ -317,28 +294,21 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWithNoCandleToGoBy(t *testi
 func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongOnly)
-	underTest.expectDeliverySetting()
 	underTest.expectContractSources(vo.SignalSell, vo.SignalHold)
 	underTest.expectTheContractsLatestCandle("100")
 
 	dueBot := aDueContractBot(string(vo.SignalBuy))
 	dueBot.PositionPlanCapital = decimal.NewFromInt(1000)
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
-	underTest.messageDeliveryProxy.EXPECT().
-		Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, _ vo.MessageDeliveryCredentialVo, message string,
-		) (vo.DeliveryFailureReasonVo, error) {
-			assert.Contains(t, message, "⚪【平多】合約突破 · BTCUSDT 永續合約")
-			assert.Contains(t, message, "⚙️ 交易模式 只做多")
-			assert.NotContains(t, message, "建議部位")
-			assert.NotContains(t, message, "記到交易日誌")
-
-			return vo.DeliveryFailureNone, nil
-		})
+	underTest.expectQueuedMessage(func(message string) {
+		assert.Contains(t, message, "⚪【平多】合約突破 · BTCUSDT 永續合約")
+		assert.Contains(t, message, "⚙️ 交易模式 只做多")
+		assert.NotContains(t, message, "建議部位")
+		assert.NotContains(t, message, "記到交易日誌")
+	})
 	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil)
 
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
@@ -355,14 +325,13 @@ func TestStrategyBotRunApplicationReadsAContractConclusionByTheRulesTradingMode(
 func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	// Three hours before the round, and nothing since.
 	underTest.kCandleContractRepository.EXPECT().FindLatest(gomock.Any(), "BTCUSDT", 1).
 		Return(storedContractCandlesAt(at(6, 0)), nil)
 	underTest.expectNoRoundMessage()
 
 	dueBot := aDueContractBot(string(vo.SignalSell))
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()
@@ -388,7 +357,6 @@ func TestStrategyBotRunApplicationSkipsAContractRoundWhoseCandlesStoppedArriving
 func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
 			return entities.StrategyScript{
@@ -403,11 +371,10 @@ func TestStrategyBotRunApplicationReadsTheContractMarketOncePerSource(t *testing
 		Execute(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(map[string]vo.IndicatorValueVo{vo.SignalIndicatorKey: {Signal: vo.SignalBuy}}, nil).Times(2)
 	underTest.expectTheContractsLatestCandle("100")
-	underTest.messageDeliveryProxy.EXPECT().Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(vo.DeliveryFailureNone, nil)
+	underTest.expectQueuedMessage(func(string) {})
 
 	dueBot := aDueContractBot("")
-	underTest.strategyBotRepository.EXPECT().FindDue(gomock.Any(), botRunNow, 4).
+	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{dueBot}, nil)
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 		Return(dueBot, nil).AnyTimes()

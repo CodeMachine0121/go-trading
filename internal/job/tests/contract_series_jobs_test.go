@@ -57,7 +57,8 @@ func watchlistSignalling(
 	return symbolRepository
 }
 
-func newFundingRateJobUnderTest(t *testing.T, venueError error, watchlistError error) seriesJobUnderTest {
+func newFundingRateJobUnderTest(
+	t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication, venueError error, watchlistError error) seriesJobUnderTest {
 	t.Helper()
 
 	mockController := gomock.NewController(t)
@@ -81,13 +82,14 @@ func newFundingRateJobUnderTest(t *testing.T, venueError error, watchlistError e
 		application.NewContractFundingRateApplication(service.NewContractFundingRateService(
 			settlementRepository, watchlistSignalling(mockController, rounds, watchlistError),
 			fundingRateProxy, clockProxy, 1000)),
-		testInterval)
+		jobLeadershipApplication, testInterval)
 	t.Cleanup(fundingRateJob.Stop)
 
 	return seriesJobUnderTest{job: fundingRateJob, rounds: rounds}
 }
 
-func newPositionStatisticJobUnderTest(t *testing.T, venueError error) seriesJobUnderTest {
+func newPositionStatisticJobUnderTest(
+	t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication, venueError error) seriesJobUnderTest {
 	t.Helper()
 
 	mockController := gomock.NewController(t)
@@ -106,13 +108,14 @@ func newPositionStatisticJobUnderTest(t *testing.T, venueError error) seriesJobU
 		application.NewContractPositionStatisticApplication(service.NewContractPositionStatisticService(
 			statisticRepository, watchlistSignalling(mockController, rounds, nil),
 			statisticProxy, mocks.NewMockIContractPositionStatisticArchiveProxy(mockController), clockProxy, 1000)),
-		testInterval)
+		jobLeadershipApplication, testInterval)
 	t.Cleanup(positionStatisticJob.Stop)
 
 	return seriesJobUnderTest{job: positionStatisticJob, rounds: rounds}
 }
 
-func newSpecificationRefreshJobUnderTest(t *testing.T, catalogueError error) seriesJobUnderTest {
+func newSpecificationRefreshJobUnderTest(
+	t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication, catalogueError error) seriesJobUnderTest {
 	t.Helper()
 
 	mockController := gomock.NewController(t)
@@ -129,7 +132,7 @@ func newSpecificationRefreshJobUnderTest(t *testing.T, catalogueError error) ser
 				watchlistSignalling(mockController, rounds, nil),
 				mocks.NewMockIKCandleContractRepository(mockController), lookupProxy, clockProxy),
 			nil, nil, nil, nil),
-		testInterval)
+		jobLeadershipApplication, testInterval)
 	t.Cleanup(refreshJob.Stop)
 
 	return seriesJobUnderTest{job: refreshJob, rounds: rounds}
@@ -137,9 +140,9 @@ func newSpecificationRefreshJobUnderTest(t *testing.T, catalogueError error) ser
 
 func everySeriesJob(t *testing.T) map[string]func() seriesJobUnderTest {
 	return map[string]func() seriesJobUnderTest{
-		"資金費率":   func() seriesJobUnderTest { return newFundingRateJobUnderTest(t, nil, nil) },
-		"持倉統計":   func() seriesJobUnderTest { return newPositionStatisticJobUnderTest(t, nil) },
-		"交易規格刷新": func() seriesJobUnderTest { return newSpecificationRefreshJobUnderTest(t, nil) },
+		"資金費率":   func() seriesJobUnderTest { return newFundingRateJobUnderTest(t, onDuty(t), nil, nil) },
+		"持倉統計":   func() seriesJobUnderTest { return newPositionStatisticJobUnderTest(t, onDuty(t), nil) },
+		"交易規格刷新": func() seriesJobUnderTest { return newSpecificationRefreshJobUnderTest(t, onDuty(t), nil) },
 	}
 }
 
@@ -158,7 +161,7 @@ func TestEverySeriesJobRunsARoundOnStartAndThenEveryInterval(t *testing.T) {
 }
 
 func TestEverySeriesJobRunsTheStartRoundBeforeTheFirstTick(t *testing.T) {
-	underTest := newFundingRateJobUnderTest(t, nil, nil)
+	underTest := newFundingRateJobUnderTest(t, onDuty(t), nil, nil)
 	started := time.Now()
 
 	underTest.job.Start(t.Context())
@@ -186,7 +189,7 @@ func TestAStoppedSeriesJobRunsNoFurtherRounds(t *testing.T) {
 }
 
 func TestASeriesJobWhoseContextIsDoneRunsNoFurtherRounds(t *testing.T) {
-	underTest := newPositionStatisticJobUnderTest(t, nil)
+	underTest := newPositionStatisticJobUnderTest(t, onDuty(t), nil)
 	abandonedContext, abandon := context.WithCancel(t.Context())
 
 	underTest.job.Start(abandonedContext)
@@ -206,22 +209,22 @@ func TestTheSeriesJobsWriteDownWhatWentWrongWithoutStopping(t *testing.T) {
 		recorded string
 	}{
 		{name: "資金費率來源不答話", build: func(t *testing.T) seriesJobUnderTest {
-			return newFundingRateJobUnderTest(t, errors.New("funding venue unreachable"), nil)
+			return newFundingRateJobUnderTest(t, onDuty(t), errors.New("funding venue unreachable"), nil)
 		}, recorded: "contract funding rate round got no answer for BTCUSDT: funding venue unreachable"},
 		{name: "資金費率有一筆不合規則", build: func(t *testing.T) seriesJobUnderTest {
-			return newFundingRateJobUnderTest(t, nil, nil)
+			return newFundingRateJobUnderTest(t, onDuty(t), nil, nil)
 		}, recorded: "contract funding rate round skipped BTCUSDT"},
 		{name: "資金費率讀不到名單", build: func(t *testing.T) seriesJobUnderTest {
-			return newFundingRateJobUnderTest(t, nil, errors.New("watchlist unreadable"))
+			return newFundingRateJobUnderTest(t, onDuty(t), nil, errors.New("watchlist unreadable"))
 		}, recorded: "contract funding rate round did not run: watchlist unreadable"},
 		{name: "持倉統計來源不答話", build: func(t *testing.T) seriesJobUnderTest {
-			return newPositionStatisticJobUnderTest(t, errors.New("statistics venue unreachable"))
+			return newPositionStatisticJobUnderTest(t, onDuty(t), errors.New("statistics venue unreachable"))
 		}, recorded: "contract position statistic round got no answer for BTCUSDT: statistics venue unreachable"},
 		{name: "交易規格來源不答話", build: func(t *testing.T) seriesJobUnderTest {
-			return newSpecificationRefreshJobUnderTest(t, errors.New("catalogue unreachable"))
+			return newSpecificationRefreshJobUnderTest(t, onDuty(t), errors.New("catalogue unreachable"))
 		}, recorded: "contract trading specification refresh did not run"},
 		{name: "交易規格刷新完成", build: func(t *testing.T) seriesJobUnderTest {
-			return newSpecificationRefreshJobUnderTest(t, nil)
+			return newSpecificationRefreshJobUnderTest(t, onDuty(t), nil)
 		}, recorded: "contract trading specification refresh updated 0 contracts"},
 	}
 
@@ -262,7 +265,7 @@ func fundingRateJobWithASlowRound(t *testing.T) (startableJob, chan string, chan
 		application.NewContractFundingRateApplication(service.NewContractFundingRateService(
 			mocks.NewMockIContractFundingRateSettlementRepository(mockController), symbolRepository,
 			mocks.NewMockIContractFundingRateProxy(mockController), clockProxy, 1000)),
-		testInterval)
+		onDuty(t), testInterval)
 
 	return fundingRateJob, rounds, release
 }
@@ -300,7 +303,8 @@ func TestASeriesJobStoppedDuringALongRoundRunsNoRoundAfterIt(t *testing.T) {
 	}
 }
 
-func newMarginTierRefreshJobUnderTest(t *testing.T, fetchError error, ladders []vo.ContractMaintenanceMarginLadderVo) seriesJobUnderTest {
+func newMarginTierRefreshJobUnderTest(
+	t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication, fetchError error, ladders []vo.ContractMaintenanceMarginLadderVo) seriesJobUnderTest {
 	t.Helper()
 
 	mockController := gomock.NewController(t)
@@ -323,7 +327,7 @@ func newMarginTierRefreshJobUnderTest(t *testing.T, fetchError error, ladders []
 	refreshJob := job.NewContractMaintenanceMarginTierRefreshJob(
 		application.NewContractMaintenanceMarginTierApplication(service.NewContractMaintenanceMarginTierService(
 			tierRepository, symbolRepository, tierProxy, clockProxy)),
-		testInterval)
+		jobLeadershipApplication, testInterval)
 	t.Cleanup(refreshJob.Stop)
 
 	return seriesJobUnderTest{job: refreshJob, rounds: rounds}
@@ -352,13 +356,42 @@ func TestTheMaintenanceMarginJobRefreshesOnStartAndEveryIntervalAndSaysWhatHappe
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			recorded := captureRecords(t)
-			underTest := newMarginTierRefreshJobUnderTest(t, testCase.fetchError, testCase.ladders)
+			underTest := newMarginTierRefreshJobUnderTest(t, onDuty(t), testCase.fetchError, testCase.ladders)
 
 			underTest.job.Start(t.Context())
 
 			recorded.waitFor(t, testCase.recorded)
 			require.Equal(t, "round", nextFrom(t, underTest.rounds))
 			require.Equal(t, "round", nextFrom(t, underTest.rounds))
+		})
+	}
+}
+
+func TestEverySeriesJobDoesNothingWhileThisReplicaIsOffDuty(t *testing.T) {
+	builders := map[string]func(*application.JobLeadershipApplication) seriesJobUnderTest{
+		"資金費率": func(duty *application.JobLeadershipApplication) seriesJobUnderTest {
+			return newFundingRateJobUnderTest(t, duty, nil, nil)
+		},
+		"持倉統計": func(duty *application.JobLeadershipApplication) seriesJobUnderTest {
+			return newPositionStatisticJobUnderTest(t, duty, nil)
+		},
+		"交易規格刷新": func(duty *application.JobLeadershipApplication) seriesJobUnderTest {
+			return newSpecificationRefreshJobUnderTest(t, duty, nil)
+		},
+		"維持保證金分級": func(duty *application.JobLeadershipApplication) seriesJobUnderTest {
+			return newMarginTierRefreshJobUnderTest(t, duty, nil, nil)
+		},
+	}
+
+	for name, build := range builders {
+		t.Run(name, func(t *testing.T) {
+			duty := newDuty(t, false)
+			underTest := build(duty.application)
+
+			underTest.job.Start(t.Context())
+			duty.waitForChecks(t, 3)
+
+			assert.Empty(t, underTest.rounds)
 		})
 	}
 }

@@ -116,13 +116,15 @@ func (assistantExchangeDomain AssistantExchangeDomain) RecordRound(
 }
 
 // ToStartedTurn is stored before the assistant is asked, so the answer is visible while being written.
+// It names the replica writing the answer, which is the only one that can finish it.
 func (assistantExchangeDomain AssistantExchangeDomain) ToStartedTurn(
-	at time.Time,
+	at time.Time, replicaName string,
 ) entities.AssistantTurn {
 	return entities.AssistantTurn{
-		Ask:       assistantExchangeDomain.ask,
-		Status:    string(vo.AssistantTurnRunning),
-		CreatedAt: at.UTC(),
+		Ask:         assistantExchangeDomain.ask,
+		Status:      string(vo.AssistantTurnRunning),
+		ReplicaName: replicaName,
+		CreatedAt:   at.UTC(),
 	}
 }
 

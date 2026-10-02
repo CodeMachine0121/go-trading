@@ -15,25 +15,35 @@ import (
 const KCandleIngestionInterval = domains.KCandleInterval
 
 // KCandleIngestionJob backfills before keeping up, in one job so the ordering is sequential code.
+// It works only while this replica is on duty, and backfills again on every return to duty to close the handover gap.
 type KCandleIngestionJob struct {
 	kCandleIngestionApplication *application.KCandleIngestionApplication
+	jobLeadershipApplication    *application.JobLeadershipApplication
 	interval                    time.Duration
 	done                        chan struct{}
-	stopOnce                    func()
+	// finished closes when the job's goroutine has returned, in-flight round included.
+	finished chan struct{}
+	stopOnce func()
+	// needsBackfill is touched only by the job's own goroutine.
+	needsBackfill bool
 }
 
 // NewKCandleIngestionJob reads the watched markets afresh each round.
 func NewKCandleIngestionJob(
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
+	jobLeadershipApplication *application.JobLeadershipApplication,
 	interval time.Duration,
 ) *KCandleIngestionJob {
 	done := make(chan struct{})
 
 	return &KCandleIngestionJob{
 		kCandleIngestionApplication: kCandleIngestionApplication,
+		jobLeadershipApplication:    jobLeadershipApplication,
 		interval:                    interval,
 		done:                        done,
+		finished:                    make(chan struct{}),
 		stopOnce:                    sync.OnceFunc(func() { close(done) }),
+		needsBackfill:               true,
 	}
 }
 
@@ -47,11 +57,11 @@ func (kCandleIngestionJob *KCandleIngestionJob) Stop() {
 	kCandleIngestionJob.stopOnce()
 }
 
-// run finishes the backfill before starting rounds so the two never write the same candle.
+// run finishes each backfill before the next round so the two never write the same candle.
 func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Context) {
-	backfillReport, backfillError := kCandleIngestionJob.kCandleIngestionApplication.
-		RunBackfill(executionContext)
-	kCandleIngestionJob.report("startup backfill", backfillReport, backfillError)
+	defer close(kCandleIngestionJob.finished)
+
+	kCandleIngestionJob.runRound(executionContext)
 
 	ticker := time.NewTicker(kCandleIngestionJob.interval)
 	defer ticker.Stop()
@@ -73,11 +83,32 @@ func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Con
 			default:
 			}
 
-			roundReport, roundError := kCandleIngestionJob.kCandleIngestionApplication.
-				RunScheduledRound(executionContext)
-			kCandleIngestionJob.report("scheduled round", roundReport, roundError)
+			kCandleIngestionJob.runRound(executionContext)
 		}
 	}
+}
+
+// runRound, shared by the first round and every tick, backfills on the first round on duty and keeps up afterwards; off duty it only remembers to backfill.
+func (kCandleIngestionJob *KCandleIngestionJob) runRound(executionContext context.Context) {
+	if !kCandleIngestionJob.jobLeadershipApplication.IsLeader() {
+		kCandleIngestionJob.needsBackfill = true
+
+		return
+	}
+
+	if kCandleIngestionJob.needsBackfill {
+		backfillReport, backfillError := kCandleIngestionJob.kCandleIngestionApplication.
+			RunBackfill(executionContext)
+		kCandleIngestionJob.report("backfill", backfillReport, backfillError)
+		// Kept when the backfill could not run, so the next round tries again instead of leaving the gap.
+		kCandleIngestionJob.needsBackfill = backfillError != nil
+
+		return
+	}
+
+	roundReport, roundError := kCandleIngestionJob.kCandleIngestionApplication.
+		RunScheduledRound(executionContext)
+	kCandleIngestionJob.report("scheduled round", roundReport, roundError)
 }
 
 // report logs only failures.
@@ -103,4 +134,9 @@ func (kCandleIngestionJob *KCandleIngestionJob) report(
 				skippedKCandle.OpenTime.Format(time.RFC3339), skippedKCandle.Reason)
 		}
 	}
+}
+
+// Finished closes once the job has stopped and its in-flight round has ended.
+func (kCandleIngestionJob *KCandleIngestionJob) Finished() <-chan struct{} {
+	return kCandleIngestionJob.finished
 }

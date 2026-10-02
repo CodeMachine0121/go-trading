@@ -48,7 +48,7 @@ func newHistorySyncRouterUnderTest(t *testing.T) historySyncRouterUnderTest {
 			kCandleRepository, historySyncRunRepository, tradingSymbolRepository, marketDataProxy, clockProxy,
 			domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{
 				vo.MarketCrypto: {},
-			}), 5, time.Hour, 2)),
+			}), 5, time.Hour, 2, "replica-under-test")),
 		historySyncCeilingDays)
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)

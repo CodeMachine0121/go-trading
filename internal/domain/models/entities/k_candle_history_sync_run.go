@@ -15,6 +15,8 @@ type KCandleHistorySyncRun struct {
 	// LookbackDays is kept so a finished run still states the requested stretch.
 	LookbackDays int    `gorm:"not null"`
 	Status       string `gorm:"type:text;not null;index:idx_k_candle_history_sync_runs_status"`
+	// ReplicaName is the replica running the sync, so only that replica vanishing marks it interrupted.
+	ReplicaName string `gorm:"size:255;not null;default:''"`
 	// Progress is counted in chunks, the unit the run actually advances in.
 	TotalChunks     int `gorm:"not null"`
 	CompletedChunks int `gorm:"not null"`

@@ -24,14 +24,6 @@ func (assistantConversationApplication *AssistantConversationApplication) Ask(
 	return assistantConversationApplication.assistantConversationService.Ask(executionContext, askDto)
 }
 
-// FailInterruptedAnswers fails answers the last shutdown cut off; it runs at startup because a crash never gets to tidy up.
-func (assistantConversationApplication *AssistantConversationApplication) FailInterruptedAnswers(
-	executionContext context.Context,
-) (int, error) {
-	return assistantConversationApplication.assistantConversationService.FailInterruptedAnswers(
-		executionContext)
-}
-
 func (assistantConversationApplication *AssistantConversationApplication) ListConversations(
 	executionContext context.Context, viewerID uint,
 ) ([]dto.ConversationSummaryDto, error) {

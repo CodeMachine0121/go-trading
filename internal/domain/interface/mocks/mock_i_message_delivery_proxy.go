@@ -42,10 +42,10 @@ func (m *MockIMessageDeliveryProxy) EXPECT() *MockIMessageDeliveryProxyMockRecor
 }
 
 // Deliver mocks base method.
-func (m *MockIMessageDeliveryProxy) Deliver(executionContext context.Context, credential vo.MessageDeliveryCredentialVo, message string) (vo.DeliveryFailureReasonVo, error) {
+func (m *MockIMessageDeliveryProxy) Deliver(executionContext context.Context, credential vo.MessageDeliveryCredentialVo, message string) (vo.DeliveryResultVo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Deliver", executionContext, credential, message)
-	ret0, _ := ret[0].(vo.DeliveryFailureReasonVo)
+	ret0, _ := ret[0].(vo.DeliveryResultVo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

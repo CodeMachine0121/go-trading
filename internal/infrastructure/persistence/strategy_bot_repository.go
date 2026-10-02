@@ -15,12 +15,13 @@ import (
 )
 
 // StrategyBotRepository stores bots; their rules live with the trading strategy they reference.
+// It reads through ambientTransactionDatabase so a booked round can land in one transaction with what it caused.
 type StrategyBotRepository struct {
-	database *gorm.DB
+	database ambientTransactionDatabase
 }
 
 func NewStrategyBotRepository(database *gorm.DB) *StrategyBotRepository {
-	return &StrategyBotRepository{database: database}
+	return &StrategyBotRepository{database: ambientTransactionDatabase{root: database}}
 }
 
 func (strategyBotRepository *StrategyBotRepository) Save(
@@ -32,7 +33,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 	botRow.RunRecords = nil
 
 	if botRow.ID == 0 {
-		createError := strategyBotRepository.database.WithContext(executionContext).
+		createError := strategyBotRepository.database.within(executionContext).
 			Omit(clause.Associations).Create(&botRow).Error
 		if createError != nil {
 			return entities.StrategyBot{}, strategyBotRepository.writeFailureOf(createError, bot.Name)
@@ -42,7 +43,7 @@ func (strategyBotRepository *StrategyBotRepository) Save(
 	}
 
 	// Named columns keep a rewrite from touching lifecycle fields or the immutable market kind, and make empty values written rather than skipped.
-	updates := strategyBotRepository.database.WithContext(executionContext).
+	updates := strategyBotRepository.database.within(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: botRow.ID}).
 		Select(
@@ -93,7 +94,7 @@ func (strategyBotRepository *StrategyBotRepository) FindOne(
 	bot := entities.StrategyBot{}
 
 	// A string condition, because GORM drops zero-valued struct fields and ID zero would match the first bot.
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "id", Value: id}).
 		First(&bot)
@@ -112,7 +113,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 ) ([]entities.StrategyBot, error) {
 	bots := []entities.StrategyBot{}
 
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Preload("TradingStrategy").
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Order("name ASC").
@@ -128,7 +129,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByOwner(
 func (strategyBotRepository *StrategyBotRepository) FindAllByStrategyScript(
 	executionContext context.Context, strategyScriptID uint,
 ) ([]entities.StrategyBot, error) {
-	database := strategyBotRepository.database.WithContext(executionContext)
+	database := strategyBotRepository.database.within(executionContext)
 
 	tradingStrategyIDs := []uint{}
 	pluckResult := database.
@@ -168,7 +169,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByTradingStrategy(
 ) ([]entities.StrategyBot, error) {
 	bots := []entities.StrategyBot{}
 
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Where(clause.Eq{Column: "trading_strategy_id", Value: tradingStrategyID}).
 		Order("name ASC").
 		Find(&bots)
@@ -183,7 +184,7 @@ func (strategyBotRepository *StrategyBotRepository) FindAllByTradingStrategy(
 func (strategyBotRepository *StrategyBotRepository) Delete(
 	executionContext context.Context, id uint,
 ) error {
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Where(clause.Eq{Column: "id", Value: id}).
 		Delete(&entities.StrategyBot{})
 	if result.Error != nil {
@@ -197,17 +198,18 @@ func (strategyBotRepository *StrategyBotRepository) Delete(
 func (strategyBotRepository *StrategyBotRepository) UpdateRunState(
 	executionContext context.Context, bot entities.StrategyBot,
 ) error {
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: bot.ID}).
-		Select("run_state", "next_run_at", "last_sent_signal", "halt_reason", "conflicting").
+		Select("run_state", "next_run_at", "last_sent_signal", "last_sent_round_due_at", "halt_reason", "conflicting").
 		// UpdateColumns rather than Updates, which would bump UpdatedAt on every round even though nothing was modified.
 		UpdateColumns(entities.StrategyBot{
-			RunState:       bot.RunState,
-			NextRunAt:      bot.NextRunAt,
-			LastSentSignal: bot.LastSentSignal,
-			HaltReason:     bot.HaltReason,
-			Conflicting:    bot.Conflicting,
+			RunState:           bot.RunState,
+			NextRunAt:          bot.NextRunAt,
+			LastSentSignal:     bot.LastSentSignal,
+			LastSentRoundDueAt: bot.LastSentRoundDueAt,
+			HaltReason:         bot.HaltReason,
+			Conflicting:        bot.Conflicting,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("update strategy bot run state: %w", result.Error)
@@ -221,7 +223,7 @@ func (strategyBotRepository *StrategyBotRepository) CountRunningByOwner(
 ) (int, error) {
 	runningBotCount := int64(0)
 
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID}).
 		Where(clause.Eq{Column: "run_state", Value: string(vo.StrategyBotRunning)}).
@@ -237,7 +239,7 @@ func (strategyBotRepository *StrategyBotRepository) CountRunningByOwner(
 func (strategyBotRepository *StrategyBotRepository) EnableAutoOrder(
 	executionContext context.Context, id uint, ownerID uint, binanceTradingKeyConfiguredAt time.Time,
 ) error {
-	return strategyBotRepository.database.WithContext(executionContext).Transaction(
+	return strategyBotRepository.database.within(executionContext).Transaction(
 		func(transaction *gorm.DB) error {
 			heldKeys := []entities.BinanceTradingKey{}
 			lockResult := transaction.
@@ -268,7 +270,7 @@ func (strategyBotRepository *StrategyBotRepository) EnableAutoOrder(
 func (strategyBotRepository *StrategyBotRepository) DisableAutoOrder(
 	executionContext context.Context, id uint,
 ) error {
-	result := strategyBotRepository.database.WithContext(executionContext).
+	result := strategyBotRepository.database.within(executionContext).
 		Model(&entities.StrategyBot{}).
 		Where(clause.Eq{Column: "id", Value: id}).
 		UpdateColumn("auto_order_enabled", false)
@@ -279,22 +281,129 @@ func (strategyBotRepository *StrategyBotRepository) DisableAutoOrder(
 	return nil
 }
 
-// FindDue returns at most limit due running bots, oldest due first.
-func (strategyBotRepository *StrategyBotRepository) FindDue(
-	executionContext context.Context, moment time.Time, limit int,
+// ClaimDue picks and claims in one transaction: the row locks skip whatever another replica is claiming right now, and the claim columns keep it out of later scans until it expires.
+func (strategyBotRepository *StrategyBotRepository) ClaimDue(
+	executionContext context.Context, moment time.Time, limit int, claimant string, claimedUntil time.Time,
 ) ([]entities.StrategyBot, error) {
-	bots := []entities.StrategyBot{}
+	claimedBots := []entities.StrategyBot{}
+	claimedUntilUtc := claimedUntil.UTC()
 
-	result := strategyBotRepository.database.WithContext(executionContext).
-		Preload("TradingStrategy").
-		Where(clause.Eq{Column: "run_state", Value: string(vo.StrategyBotRunning)}).
-		Where(clause.Lte{Column: "next_run_at", Value: moment.UTC()}).
-		Order("next_run_at ASC").
-		Limit(limit).
-		Find(&bots)
-	if result.Error != nil {
-		return nil, fmt.Errorf("find due strategy bots: %w", result.Error)
+	transactionError := strategyBotRepository.database.within(executionContext).Transaction(
+		func(transaction *gorm.DB) error {
+			dueIDs := []uint{}
+			if pickError := transaction.Model(&entities.StrategyBot{}).
+				Clauses(clause.Locking{
+					Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked,
+				}).
+				Where(clause.Eq{Column: "run_state", Value: string(vo.StrategyBotRunning)}).
+				Where(clause.Lte{Column: "next_run_at", Value: moment.UTC()}).
+				Where(strategyBotRepository.unclaimedAt(moment)).
+				Order("next_run_at ASC").
+				Limit(limit).
+				Pluck("id", &dueIDs).Error; pickError != nil {
+				return pickError
+			}
+			if len(dueIDs) == 0 {
+				return nil
+			}
+
+			// A slice of primary keys is GORM's own form of "id IN (...)".
+			if claimError := transaction.Model(&entities.StrategyBot{}).
+				Where(dueIDs).
+				Select("round_claimed_by", "round_claimed_until").
+				UpdateColumns(entities.StrategyBot{
+					RoundClaimedBy: claimant, RoundClaimedUntil: &claimedUntilUtc,
+				}).Error; claimError != nil {
+				return claimError
+			}
+
+			return transaction.Preload("TradingStrategy").
+				Order("next_run_at ASC").
+				Find(&claimedBots, dueIDs).Error
+		})
+	if transactionError != nil {
+		return nil, fmt.Errorf("claim due strategy bots: %w", transactionError)
 	}
 
-	return bots, nil
+	return claimedBots, nil
+}
+
+// ClaimOne is one conditional update, so two replicas pressing at once cannot both win.
+func (strategyBotRepository *StrategyBotRepository) ClaimOne(
+	executionContext context.Context, id uint, claimant string, moment time.Time, claimedUntil time.Time,
+) (bool, error) {
+	claimedUntilUtc := claimedUntil.UTC()
+
+	result := strategyBotRepository.database.within(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		Where(strategyBotRepository.unclaimedAt(moment)).
+		Select("round_claimed_by", "round_claimed_until").
+		UpdateColumns(entities.StrategyBot{RoundClaimedBy: claimant, RoundClaimedUntil: &claimedUntilUtc})
+	if result.Error != nil {
+		return false, fmt.Errorf("claim strategy bot: %w", result.Error)
+	}
+
+	return result.RowsAffected == 1, nil
+}
+
+func (strategyBotRepository *StrategyBotRepository) ReleaseRoundClaim(
+	executionContext context.Context, id uint, claimant string,
+) error {
+	result := strategyBotRepository.database.within(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		Where(clause.Eq{Column: "round_claimed_by", Value: claimant}).
+		Select("round_claimed_by", "round_claimed_until").
+		UpdateColumns(entities.StrategyBot{})
+	if result.Error != nil {
+		return fmt.Errorf("release strategy bot round claim: %w", result.Error)
+	}
+
+	return nil
+}
+
+// unclaimedAt matches a bot nobody has claimed, or whose claim had run out by moment.
+func (strategyBotRepository *StrategyBotRepository) unclaimedAt(moment time.Time) clause.Expression {
+	return clause.Or(
+		clause.Eq{Column: "round_claimed_until", Value: nil},
+		clause.Lt{Column: "round_claimed_until", Value: moment.UTC()},
+	)
+}
+
+// FindOneLocked holds the bot's row until the surrounding transaction ends, so a round being booked and a halt from a failed send never overwrite each other.
+func (strategyBotRepository *StrategyBotRepository) FindOneLocked(
+	executionContext context.Context, id uint,
+) (entities.StrategyBot, error) {
+	bot := entities.StrategyBot{}
+
+	result := strategyBotRepository.database.within(executionContext).
+		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		First(&bot)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return entities.StrategyBot{}, domains.StrategyBotNotFound(id)
+	}
+	if result.Error != nil {
+		return entities.StrategyBot{}, fmt.Errorf("find strategy bot for update: %w", result.Error)
+	}
+
+	return bot, nil
+}
+
+// ForgetSentSignal clears the last sent signal only while it still comes from the round due at roundDueAt, so a later round's signal is never lost.
+func (strategyBotRepository *StrategyBotRepository) ForgetSentSignal(
+	executionContext context.Context, id uint, roundDueAt time.Time,
+) error {
+	result := strategyBotRepository.database.within(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		Where(clause.Eq{Column: "last_sent_round_due_at", Value: roundDueAt.UTC()}).
+		Select("last_sent_signal", "last_sent_round_due_at").
+		UpdateColumns(entities.StrategyBot{})
+	if result.Error != nil {
+		return fmt.Errorf("forget strategy bot sent signal: %w", result.Error)
+	}
+
+	return nil
 }

@@ -57,19 +57,19 @@ func (mr *MockIKCandleContractHistorySyncRunRepositoryMockRecorder) CountRunning
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRunning", reflect.TypeOf((*MockIKCandleContractHistorySyncRunRepository)(nil).CountRunning), executionContext)
 }
 
-// FailAllRunning mocks base method.
-func (m *MockIKCandleContractHistorySyncRunRepository) FailAllRunning(executionContext context.Context, reason string, finishedAt time.Time) (int, error) {
+// FailRunningOutside mocks base method.
+func (m *MockIKCandleContractHistorySyncRunRepository) FailRunningOutside(executionContext context.Context, liveReplicaNames []string, reason string, finishedAt time.Time) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FailAllRunning", executionContext, reason, finishedAt)
+	ret := m.ctrl.Call(m, "FailRunningOutside", executionContext, liveReplicaNames, reason, finishedAt)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FailAllRunning indicates an expected call of FailAllRunning.
-func (mr *MockIKCandleContractHistorySyncRunRepositoryMockRecorder) FailAllRunning(executionContext, reason, finishedAt any) *gomock.Call {
+// FailRunningOutside indicates an expected call of FailRunningOutside.
+func (mr *MockIKCandleContractHistorySyncRunRepositoryMockRecorder) FailRunningOutside(executionContext, liveReplicaNames, reason, finishedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailAllRunning", reflect.TypeOf((*MockIKCandleContractHistorySyncRunRepository)(nil).FailAllRunning), executionContext, reason, finishedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailRunningOutside", reflect.TypeOf((*MockIKCandleContractHistorySyncRunRepository)(nil).FailRunningOutside), executionContext, liveReplicaNames, reason, finishedAt)
 }
 
 // FindOne mocks base method.

@@ -14,7 +14,9 @@ type StrategyBotScanJob struct {
 	strategyBotRunApplication *application.StrategyBotRunApplication
 	interval                  time.Duration
 	done                      chan struct{}
-	stopOnce                  func()
+	// finished closes when the job's goroutine has returned, in-flight round included.
+	finished chan struct{}
+	stopOnce func()
 }
 
 func NewStrategyBotScanJob(
@@ -27,6 +29,7 @@ func NewStrategyBotScanJob(
 		strategyBotRunApplication: strategyBotRunApplication,
 		interval:                  interval,
 		done:                      done,
+		finished:                  make(chan struct{}),
 		stopOnce:                  sync.OnceFunc(func() { close(done) }),
 	}
 }
@@ -36,12 +39,14 @@ func (strategyBotScanJob *StrategyBotScanJob) Start(executionContext context.Con
 	go strategyBotScanJob.run(executionContext)
 }
 
-// Stop lets in-flight rounds finish, since a half-done round could resend a message.
+// Stop takes no further scan; rounds in flight end on their own, booked or not, and Finished says when.
 func (strategyBotScanJob *StrategyBotScanJob) Stop() {
 	strategyBotScanJob.stopOnce()
 }
 
 func (strategyBotScanJob *StrategyBotScanJob) run(executionContext context.Context) {
+	defer close(strategyBotScanJob.finished)
+
 	ticker := time.NewTicker(strategyBotScanJob.interval)
 	defer ticker.Stop()
 
@@ -70,4 +75,9 @@ func (strategyBotScanJob *StrategyBotScanJob) scanOnce(executionContext context.
 	if roundsRun > 0 {
 		log.Printf("strategy bot scan ran %d round(s)", roundsRun)
 	}
+}
+
+// Finished closes once the job has stopped and its in-flight round has ended.
+func (strategyBotScanJob *StrategyBotScanJob) Finished() <-chan struct{} {
+	return strategyBotScanJob.finished
 }

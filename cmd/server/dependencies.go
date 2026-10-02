@@ -36,8 +36,8 @@ func registerRoutes(
 	liveFollowApplications,
 	*application.KCandleIngestionApplication,
 	*application.KCandleContractIngestionApplication,
-	*application.StrategyBotRunApplication,
-	*application.AssistantConversationApplication,
+	strategyBotJobApplications,
+	*application.InterruptedWorkApplication,
 	contractSeriesApplications,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
@@ -111,7 +111,7 @@ func registerRoutes(
 		domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 		applicationConfig.Ingestion.RoundCandleCount,
 		applicationConfig.Ingestion.BackfillLookback,
-		applicationConfig.Ingestion.HistorySyncMaxConcurrentSyncs,
+		applicationConfig.Ingestion.HistorySyncMaxConcurrentSyncs, applicationConfig.Replica.Name,
 	)
 	kCandleIngestionApplication := application.NewKCandleIngestionApplication(kCandleIngestionService)
 
@@ -181,7 +181,7 @@ func registerRoutes(
 		applicationConfig.ContractIngestion.RoundCandleCount,
 		applicationConfig.ContractIngestion.BackfillLookback,
 		contractPositionStatisticService,
-		applicationConfig.ContractIngestion.HistorySyncMaxConcurrentSyncs,
+		applicationConfig.ContractIngestion.HistorySyncMaxConcurrentSyncs, applicationConfig.Replica.Name,
 	)
 	kCandleContractIngestionApplication := application.NewKCandleContractIngestionApplication(
 		contractKCandleIngestionService)
@@ -302,6 +302,8 @@ func registerRoutes(
 		contractTradingSymbolRepository,
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		persistence.NewContractFundingRateSettlementRepository(database),
+		persistence.NewPendingMessageRepository(database),
+		persistence.NewTransactionRepository(database),
 		clock.NewSystemClockProxy(),
 	)
 
@@ -519,6 +521,9 @@ func registerRoutes(
 		applicationConfig.LiveFollow.UpdateIntervalCeiling,
 		applicationConfig.LiveFollow.QuietTimeout,
 		applicationConfig.LiveFollow.MaximumRetryDelay,
+		// Off duty, a roster is followed from what the replica on duty saw.
+		persistence.NewLiveKCandleSnapshotRepository(database),
+		applicationConfig.LiveFollow.RelayInterval,
 	)
 
 	kCandleFollowApplication := application.NewKCandleFollowApplication(kCandleFollowService)
@@ -669,33 +674,32 @@ func registerRoutes(
 		),
 	)
 
-	assistantConversationApplication := application.NewAssistantConversationApplication(
-		service.NewAssistantConversationService(
-			persistence.NewConversationRepository(database),
-			assistant.NewClaudeAssistantProxy(
-				applicationConfig.Assistant.ApiKey,
-				applicationConfig.Assistant.Model,
-				applicationConfig.Assistant.Effort,
-				applicationConfig.Assistant.BaseUrl,
-				applicationConfig.Assistant.ResponseTimeout,
-			),
-			assistantQueriesFor(
-				tradingSymbolApplication,
-				kCandleApplication,
-				indicatorCalculationApplication,
-				strategyScriptApplication,
-				tradingStrategyApplication,
-				tradingStrategyBacktestApplication,
-				assistantRevisionApplication,
-				applicationConfig.Assistant.CandleLimit,
-			),
-			clock.NewSystemClockProxy(),
-			applicationConfig.Assistant.RecentMessageLimit,
-			applicationConfig.Assistant.QueryLimit,
-			applicationConfig.Assistant.DailyUsageAllowance,
-			applicationConfig.Assistant.AnswerLengthLimit,
+	assistantConversationService := service.NewAssistantConversationService(
+		persistence.NewConversationRepository(database),
+		assistant.NewClaudeAssistantProxy(
+			applicationConfig.Assistant.ApiKey,
+			applicationConfig.Assistant.Model,
+			applicationConfig.Assistant.Effort,
+			applicationConfig.Assistant.BaseUrl,
+			applicationConfig.Assistant.ResponseTimeout,
 		),
+		assistantQueriesFor(
+			tradingSymbolApplication,
+			kCandleApplication,
+			indicatorCalculationApplication,
+			strategyScriptApplication,
+			tradingStrategyApplication,
+			tradingStrategyBacktestApplication,
+			assistantRevisionApplication,
+			applicationConfig.Assistant.CandleLimit,
+		),
+		clock.NewSystemClockProxy(),
+		applicationConfig.Assistant.RecentMessageLimit,
+		applicationConfig.Assistant.QueryLimit,
+		applicationConfig.Assistant.DailyUsageAllowance,
+		applicationConfig.Assistant.AnswerLengthLimit, applicationConfig.Replica.Name,
 	)
+	assistantConversationApplication := application.NewAssistantConversationApplication(assistantConversationService)
 
 	assistantConversationController := controller.NewAssistantConversationController(
 		assistantConversationApplication)
@@ -733,7 +737,6 @@ func registerRoutes(
 			domains.NewMarketCatalogDomain(applicationConfig.MarketRules),
 			applicationConfig.KCandleQueryMaxResults,
 		),
-		telegramDeliveryService,
 		kCandleService,
 		kCandleContractService,
 		service.NewTradeJournalLinkService(
@@ -742,10 +745,23 @@ func registerRoutes(
 			persistence.NewStrategyBotRepository(database),
 			applicationConfig.FrontendBaseUrl),
 		clock.NewSystemClockProxy(),
-		application.NewStrategyBotRoundGuard(),
+		applicationConfig.Replica.Name,
 		applicationConfig.StrategyBot.MaxConcurrentRounds,
 		applicationConfig.StrategyBot.RoundTimeout,
 	)
+
+	// Every replica sends queued messages; the queue hands each one to a single replica at a time.
+	pendingMessageService := service.NewPendingMessageService(
+		persistence.NewPendingMessageRepository(database),
+		persistence.NewStrategyBotRepository(database),
+		persistence.NewTransactionRepository(database),
+		telegramDeliveryService,
+		clock.NewSystemClockProxy(),
+		applicationConfig.Replica.Name,
+		applicationConfig.PendingMessage.SendTimeout,
+		applicationConfig.PendingMessage.MaxConcurrentDeliveries,
+	)
+	pendingMessageDispatchApplication := application.NewPendingMessageDispatchApplication(pendingMessageService)
 
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
@@ -753,6 +769,7 @@ func registerRoutes(
 			tradingStrategyService,
 			telegramDeliveryService,
 			binanceTradingKeyService,
+			pendingMessageService,
 		),
 		strategyBotRunApplication,
 	)
@@ -774,8 +791,15 @@ func registerRoutes(
 
 	return liveFollowApplications{spot: kCandleFollowApplication, contract: kCandleContractFollowApplication},
 		kCandleIngestionApplication,
-		kCandleContractIngestionApplication, strategyBotRunApplication,
-		assistantConversationApplication,
+		kCandleContractIngestionApplication,
+		strategyBotJobApplications{
+			run: strategyBotRunApplication, pendingMessageDispatch: pendingMessageDispatchApplication,
+		},
+		application.NewInterruptedWorkApplication(
+			service.NewReplicaPresenceService(
+				persistence.NewReplicaHeartbeatRepository(database), clock.NewSystemClockProxy(),
+				applicationConfig.Replica.Name, applicationConfig.Replica.HeartbeatInterval),
+			assistantConversationService, kCandleIngestionService, contractKCandleIngestionService),
 		contractSeriesApplications{
 			fundingRate:       contractFundingRateApplication,
 			positionStatistic: contractPositionStatisticApplication,
@@ -792,6 +816,12 @@ type liveFollowApplications struct {
 func (liveFollowApplications liveFollowApplications) Stop() {
 	liveFollowApplications.spot.Stop()
 	liveFollowApplications.contract.Stop()
+}
+
+// strategyBotJobApplications groups the bot use cases that run as background jobs.
+type strategyBotJobApplications struct {
+	run                    *application.StrategyBotRunApplication
+	pendingMessageDispatch *application.PendingMessageDispatchApplication
 }
 
 // contractSeriesApplications groups the contract use cases that run their own background rounds.
@@ -831,56 +861,90 @@ func assistantQueriesFor(
 	}
 }
 
+// jobLeadershipApplicationFor decides which replica runs the once-per-system jobs.
+func jobLeadershipApplicationFor(
+	database *gorm.DB, applicationConfig config.ApplicationConfig,
+) *application.JobLeadershipApplication {
+	return application.NewJobLeadershipApplication(service.NewJobLeadershipService(
+		persistence.NewJobLeadershipLeaseRepository(database),
+		clock.NewSystemClockProxy(),
+		domains.NewJobLeadershipTermDomain(
+			applicationConfig.JobLeadership.LeaseDuration, applicationConfig.JobLeadership.SafetyMargin),
+		applicationConfig.Replica.Name))
+}
+
 func backgroundJobsFor(
 	applicationConfig config.ApplicationConfig,
+	jobLeadershipApplication *application.JobLeadershipApplication,
+	interruptedWorkApplication *application.InterruptedWorkApplication,
 	kCandleFollowApplication *application.KCandleFollowApplication,
 	kCandleIngestionApplication *application.KCandleIngestionApplication,
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
-	strategyBotRunApplication *application.StrategyBotRunApplication,
+	strategyBotJobs strategyBotJobApplications,
 	contractSeries contractSeriesApplications,
 ) []domaininterface.IBackgroundJob {
+	// The one job the switch does not turn off: a replica serving requests is alive whether or not it does background work.
+	replicaHeartbeatJob := job.NewReplicaHeartbeatJob(
+		interruptedWorkApplication, applicationConfig.Replica.HeartbeatInterval)
 	if !applicationConfig.BackgroundJobsEnabled {
-		return []domaininterface.IBackgroundJob{}
+		return []domaininterface.IBackgroundJob{replicaHeartbeatJob}
 	}
 
 	kCandleIngestionJob := job.NewKCandleIngestionJob(
-		kCandleIngestionApplication, job.KCandleIngestionInterval)
+		kCandleIngestionApplication, jobLeadershipApplication, job.KCandleIngestionInterval)
 
 	// Separate from the spot round so one unresponsive venue cannot hold up the other.
 	contractKCandleIngestionJob := job.NewContractKCandleIngestionJob(
-		kCandleContractIngestionApplication, job.KCandleIngestionInterval)
+		kCandleContractIngestionApplication, jobLeadershipApplication, job.KCandleIngestionInterval)
 
 	// Its own job so a stalled ingestion round cannot delay a market that has just opened.
 	liveFollowRosterJob := job.NewLiveFollowRosterJob(
-		kCandleFollowApplication, job.LiveFollowRosterInterval)
+		kCandleFollowApplication, jobLeadershipApplication, job.LiveFollowRosterInterval,
+		// Half the duty's safety margin, so a replica leaving duty lets go of the places, refresh included,
+		// before the next replica can take the duty and the places.
+		applicationConfig.JobLeadership.SafetyMargin/2)
 
 	// One scan over stored bot state rather than a goroutine per bot, so a restart loses at most one interval.
 	strategyBotScanJob := job.NewStrategyBotScanJob(
-		strategyBotRunApplication, applicationConfig.StrategyBot.ScanInterval)
+		strategyBotJobs.run, applicationConfig.StrategyBot.ScanInterval)
+
+	// On every replica, beside the scans that queue the messages.
+	pendingMessageDispatchJob := job.NewPendingMessageDispatchJob(
+		strategyBotJobs.pendingMessageDispatch, applicationConfig.PendingMessage.DispatchInterval)
+
+	// First, so the duty is being kept fresh before any job asks about it.
+	jobLeadershipLeaseJob := job.NewJobLeadershipLeaseJob(
+		jobLeadershipApplication, applicationConfig.JobLeadership.RenewInterval)
+
+	// On duty, so what a vanished replica left running is marked failed without waiting for a restart.
+	interruptedWorkSweepJob := job.NewInterruptedWorkSweepJob(
+		interruptedWorkApplication, jobLeadershipApplication, job.InterruptedWorkSweepInterval)
 
 	backgroundJobs := []domaininterface.IBackgroundJob{
+		replicaHeartbeatJob, jobLeadershipLeaseJob, interruptedWorkSweepJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
+		pendingMessageDispatchJob,
 	}
 
 	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.
 	contractIngestion := applicationConfig.ContractIngestion
 	if contractIngestion.FundingRateIngestionInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractFundingRateIngestionJob(
-			contractSeries.fundingRate, contractIngestion.FundingRateIngestionInterval))
+			contractSeries.fundingRate, jobLeadershipApplication, contractIngestion.FundingRateIngestionInterval))
 	}
 	if contractIngestion.PositionStatisticIngestionInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractPositionStatisticIngestionJob(
-			contractSeries.positionStatistic, contractIngestion.PositionStatisticIngestionInterval))
+			contractSeries.positionStatistic, jobLeadershipApplication, contractIngestion.PositionStatisticIngestionInterval))
 	}
 	if contractIngestion.TradingSpecificationRefreshInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractTradingSpecificationRefreshJob(
-			contractSeries.tradingSymbol, contractIngestion.TradingSpecificationRefreshInterval))
+			contractSeries.tradingSymbol, jobLeadershipApplication, contractIngestion.TradingSpecificationRefreshInterval))
 	}
 
 	// Only with account credentials; without them the round could ask nothing.
 	if contractIngestion.MaintenanceMarginTierRefreshInterval > 0 && contractIngestion.HasAccountCredentials() {
 		backgroundJobs = append(backgroundJobs, job.NewContractMaintenanceMarginTierRefreshJob(
-			contractSeries.maintenanceMargin, contractIngestion.MaintenanceMarginTierRefreshInterval))
+			contractSeries.maintenanceMargin, jobLeadershipApplication, contractIngestion.MaintenanceMarginTierRefreshInterval))
 	}
 
 	return backgroundJobs

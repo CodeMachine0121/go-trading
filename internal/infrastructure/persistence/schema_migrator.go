@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -107,6 +108,10 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.SpotTradeRecord{},
 		&entities.SpotTradeFill{},
 		&entities.SpotTradeNote{},
+		&entities.JobLeadershipLease{},
+		&entities.PendingMessage{},
+		&entities.ReplicaHeartbeat{},
+		&entities.LiveKCandleSnapshot{},
 	}
 
 	// Rename before syncing, or AutoMigrate would create empty new tables beside the old ones.
@@ -778,4 +783,21 @@ func (schemaMigrator *SchemaMigrator) ownersOf(transaction *gorm.DB, model any) 
 	}
 
 	return owners, nil
+}
+
+// schemaMigrationLockKey names the one Postgres advisory lock every migration takes; any fixed number works as long as it never changes.
+const schemaMigrationLockKey = 7_301_002
+
+// Exclusively runs work while holding a database-wide lock, so replicas starting together migrate one after another instead of colliding.
+// It is the one statement here written by hand: GORM has no API for advisory locks. The key is passed as a parameter, never spliced in.
+// The lock belongs to one connection, held for the whole of work, and is let go when that connection is returned.
+func (schemaMigrator *SchemaMigrator) Exclusively(executionContext context.Context, work func() error) error {
+	return schemaMigrator.database.WithContext(executionContext).Connection(func(lockHolder *gorm.DB) error {
+		if lockError := lockHolder.Exec("SELECT pg_advisory_lock(?)", schemaMigrationLockKey).Error; lockError != nil {
+			return fmt.Errorf("wait for other migrations: %w", lockError)
+		}
+		defer lockHolder.Exec("SELECT pg_advisory_unlock(?)", schemaMigrationLockKey)
+
+		return work()
+	})
 }

@@ -36,10 +36,15 @@ type StrategyBot struct {
 	NextRunAt time.Time `gorm:"type:timestamptz;index:idx_strategy_bots_run_state_next_run_at,priority:2"`
 	// LastSentSignal is cleared on start so the first conclusion after starting is always sent.
 	LastSentSignal string `gorm:"size:16;not null;default:''"`
+	// LastSentRoundDueAt names the round whose message carried LastSentSignal, so a message given up forgets the signal only if no later round has said it since.
+	LastSentRoundDueAt *time.Time `gorm:"type:timestamptz"`
 	// HaltReason is empty unless the system stopped this bot itself.
 	HaltReason string `gorm:"size:32;not null;default:''"`
 	// Conflicting is not a halt; it clears on the next non-conflicting round.
 	Conflicting bool `gorm:"not null;default:false"`
+	// RoundClaimedBy and RoundClaimedUntil say which replica is running this bot's round and until when; a claim past its time is free to take, so a replica that dies mid-round never strands its bot.
+	RoundClaimedBy    string     `gorm:"size:255;not null;default:''"`
+	RoundClaimedUntil *time.Time `gorm:"type:timestamptz"`
 	// AutoOrderEnabled is off for every existing bot; neither Save nor UpdateRunState names it, so only the switch routes change it.
 	AutoOrderEnabled bool      `gorm:"not null;default:false"`
 	CreatedAt        time.Time `gorm:"type:timestamptz;not null"`
@@ -50,6 +55,8 @@ type StrategyBot struct {
 	TradingStrategy TradingStrategy `gorm:"foreignKey:TradingStrategyID;references:ID;constraint:-"`
 	// RunRecords is declared only so deleting a bot cascades to its history.
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
+	// PendingMessages is declared only so deleting a bot drops what it has not said yet.
+	PendingMessages []PendingMessage `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 }
 
 func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSettingsDto {

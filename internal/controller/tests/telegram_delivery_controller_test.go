@@ -250,7 +250,7 @@ func TestTelegramDeliveryRouterSendTestMessage(t *testing.T) {
 		expectStoredSettingOpened(fixture)
 		fixture.messageDeliveryProxy.EXPECT().
 			Deliver(gomock.Any(), gomock.Any(), "哈囉").
-			Return(vo.DeliveryFailureNone, nil)
+			Return(vo.DeliveryResultVo{}, nil)
 
 		response := fixture.send(http.MethodPost,
 			"/users/me/telegram-delivery/test-message", `{"message":"哈囉"}`, true)
@@ -279,7 +279,7 @@ func TestTelegramDeliveryRouterSendTestMessage(t *testing.T) {
 				expectStoredSettingOpened(fixture)
 				fixture.messageDeliveryProxy.EXPECT().
 					Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(testCase.reason, nil)
+					Return(vo.DeliveryResultVo{FailureReason: testCase.reason}, nil)
 
 				response := fixture.send(http.MethodPost,
 					"/users/me/telegram-delivery/test-message", `{"message":"哈囉"}`, true)
@@ -345,7 +345,7 @@ func TestTelegramDeliveryRouterSendTestMessage(t *testing.T) {
 		expectStoredSettingOpened(fixture)
 		fixture.messageDeliveryProxy.EXPECT().
 			Deliver(gomock.Any(), gomock.Any(), gomock.Any()).
-			Return(vo.DeliveryFailureUnreachable, errors.New("build message request failed"))
+			Return(vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable}, errors.New("build message request failed"))
 
 		response := fixture.send(http.MethodPost,
 			"/users/me/telegram-delivery/test-message", `{"message":"哈囉"}`, true)

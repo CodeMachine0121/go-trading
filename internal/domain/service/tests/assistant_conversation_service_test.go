@@ -74,7 +74,7 @@ func newAssistantConversationServiceUnderTest(
 			20,
 			queryLimit,
 			dailyUsageAllowance,
-			2000,
+			2000, "replica-under-test",
 		),
 		conversationRepository: conversationRepository,
 		assistantProxy:         assistantProxy,
@@ -173,6 +173,8 @@ func TestAskStartsAConversationWhenTheQuestionNamesNone(t *testing.T) {
 	// A conversation stored without an owner would be readable by everybody.
 	assert.Equal(t, uint(3), savedConversation.OwnerID)
 	require.Len(t, savedConversation.Turns, 1)
+	// Named for this replica, so only this replica vanishing marks the answer interrupted.
+	assert.Equal(t, "replica-under-test", savedConversation.Turns[0].ReplicaName)
 	assert.Equal(t, "BTCUSDT 最近走勢如何", savedConversation.Turns[0].Ask)
 	assert.Equal(t, askedAt, savedConversation.LastActiveAt)
 
@@ -733,15 +735,15 @@ func TestFailInterruptedAnswersClearsWhatTheLastShutdownCutOff(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
 
 	sweptReason := ""
-	fixture.conversationRepository.EXPECT().FailAllRunningTurns(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, reason string) (int, error) {
+	fixture.conversationRepository.EXPECT().FailRunningTurnsOutside(gomock.Any(), []string{"replica-b"}, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ []string, reason string) (int, error) {
 			sweptReason = reason
 
 			return 3, nil
 		})
 
 	interruptedCount, sweepError := fixture.assistantConversationService.FailInterruptedAnswers(
-		t.Context())
+		t.Context(), []string{"replica-b"})
 
 	require.NoError(t, sweepError)
 	assert.Equal(t, 3, interruptedCount)
@@ -750,10 +752,10 @@ func TestFailInterruptedAnswersClearsWhatTheLastShutdownCutOff(t *testing.T) {
 
 func TestFailInterruptedAnswersReportsAFailureToSweep(t *testing.T) {
 	fixture := newAssistantConversationServiceUnderTest(t, 8, 300000)
-	fixture.conversationRepository.EXPECT().FailAllRunningTurns(gomock.Any(), gomock.Any()).
+	fixture.conversationRepository.EXPECT().FailRunningTurnsOutside(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(0, errors.New("storage unavailable"))
 
-	_, sweepError := fixture.assistantConversationService.FailInterruptedAnswers(t.Context())
+	_, sweepError := fixture.assistantConversationService.FailInterruptedAnswers(t.Context(), nil)
 
 	require.Error(t, sweepError)
 }

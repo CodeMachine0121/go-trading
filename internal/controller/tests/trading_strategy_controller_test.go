@@ -55,7 +55,7 @@ func newTradingStrategyRouterUnderTest(t *testing.T) tradingStrategyRouterUnderT
 				strategyBotRepository, strategyBotRunRecordRepository,
 				mocks.NewMockIContractTradingSymbolRepository(mockController),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(mockController),
-				mocks.NewMockIContractFundingRateSettlementRepository(mockController),
+				mocks.NewMockIContractFundingRateSettlementRepository(mockController), nil, nil,
 				clockProxy),
 		))
 
