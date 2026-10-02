@@ -107,6 +107,11 @@ func (pendingMessageDomain PendingMessageDomain) IsDispatchableAt(now time.Time)
 	}
 }
 
+// IsBeingSentAgain is a message another replica took and never settled, which is the one way a person can receive a message twice.
+func (pendingMessageDomain PendingMessageDomain) IsBeingSentAgain() bool {
+	return vo.PendingMessageStatusVo(pendingMessageDomain.message.Status) == vo.PendingMessageSending
+}
+
 // ForgetsSignalWhenAbandoned is true only for a round's message: its bot must not go on believing the owner heard a signal that never arrived.
 func (pendingMessageDomain PendingMessageDomain) ForgetsSignalWhenAbandoned() bool {
 	return vo.PendingMessageKindVo(pendingMessageDomain.message.Kind) == vo.PendingMessageRound &&
@@ -150,9 +155,15 @@ func (pendingMessageDomain PendingMessageDomain) AfterAttempt(
 		}
 	}
 
+	// Never waits past the deadline, so a message that cannot get through is given up as soon as it stops mattering.
+	nextAttemptAt := now.Add(max(retryWait, deliveryResult.RetryAfter))
+	if nextAttemptAt.After(pendingMessageDomain.message.ExpiresAt) {
+		nextAttemptAt = pendingMessageDomain.message.ExpiresAt
+	}
+
 	return vo.PendingMessageAttemptOutcomeVo{
 		Kind:          vo.PendingMessageAttemptRetry,
 		AttemptCount:  pendingMessageDomain.message.AttemptCount + 1,
-		NextAttemptAt: now.Add(max(retryWait, deliveryResult.RetryAfter)),
+		NextAttemptAt: nextAttemptAt,
 	}
 }

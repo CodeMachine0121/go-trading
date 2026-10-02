@@ -16,22 +16,24 @@ func NewPendingMessageQueueDomain(messages []entities.PendingMessage) PendingMes
 	return PendingMessageQueueDomain{messages: messages}
 }
 
-// HeadsDispatchableAt is each person's oldest unsettled message, when it may be sent now; a later one waits until the earlier is sent or given up.
-func (pendingMessageQueueDomain PendingMessageQueueDomain) HeadsDispatchableAt(now time.Time) []PendingMessageDomain {
+// DueAt is each person's oldest unsettled message when it may be sent now, plus any later one that has already expired:
+// an expired message is never sent, so giving it up cannot break the order, and holding it back would keep its bot believing a signal arrived.
+func (pendingMessageQueueDomain PendingMessageQueueDomain) DueAt(now time.Time) []PendingMessageDomain {
 	reachedRecipients := map[uint]bool{}
-	heads := []PendingMessageDomain{}
+	due := []PendingMessageDomain{}
 
 	for _, message := range pendingMessageQueueDomain.messages {
-		if reachedRecipients[message.RecipientUserID] {
-			continue
-		}
+		candidate := NewPendingMessageDomain(message)
+		isHead := !reachedRecipients[message.RecipientUserID]
 		reachedRecipients[message.RecipientUserID] = true
 
-		head := NewPendingMessageDomain(message)
-		if head.IsDispatchableAt(now) {
-			heads = append(heads, head)
+		if !candidate.IsDispatchableAt(now) {
+			continue
+		}
+		if isHead || candidate.IsExpiredAt(now) {
+			due = append(due, candidate)
 		}
 	}
 
-	return heads
+	return due
 }

@@ -46,7 +46,9 @@ func TestPendingMessageDomainAfterAnAttempt(t *testing.T) {
 		name           string
 		attemptCount   int
 		deliveryResult vo.DeliveryResultVo
-		expected       vo.PendingMessageAttemptOutcomeVo
+		// expiresAt overrides the queued message's deadline, which is otherwise five minutes on.
+		expiresAt time.Time
+		expected  vo.PendingMessageAttemptOutcomeVo
 	}{
 		{
 			name: "a delivered message is sent", deliveryResult: vo.DeliveryResultVo{},
@@ -83,6 +85,13 @@ func TestPendingMessageDomainAfterAnAttempt(t *testing.T) {
 				NextAttemptAt: time.Date(2026, 10, 2, 8, 1, 4, 0, time.UTC)},
 		},
 		{
+			name: "a wait never runs past the message's deadline", attemptCount: 20,
+			deliveryResult: vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureUnreachable},
+			expiresAt:      time.Date(2026, 10, 2, 8, 1, 0, 0, time.UTC),
+			expected: vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptRetry, AttemptCount: 21,
+				NextAttemptAt: time.Date(2026, 10, 2, 8, 1, 0, 0, time.UTC)},
+		},
+		{
 			name:           "a rejected token is refused and halts the bot",
 			deliveryResult: vo.DeliveryResultVo{FailureReason: vo.DeliveryFailureCredentialRejected},
 			expected: vo.PendingMessageAttemptOutcomeVo{Kind: vo.PendingMessageAttemptRefused,
@@ -98,7 +107,11 @@ func TestPendingMessageDomainAfterAnAttempt(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			message := domains.NewPendingMessageDomain(aQueuedMessage(vo.PendingMessageSending, testCase.attemptCount))
+			queued := aQueuedMessage(vo.PendingMessageSending, testCase.attemptCount)
+			if !testCase.expiresAt.IsZero() {
+				queued.ExpiresAt = testCase.expiresAt
+			}
+			message := domains.NewPendingMessageDomain(queued)
 
 			assert.Equal(t, testCase.expected, message.AfterAttempt(testCase.deliveryResult, nil, attemptedAt))
 		})
@@ -219,9 +232,9 @@ func TestPendingMessageQueueDomainSendsEachPersonsOldestMessageFirst(t *testing.
 		{
 			name: "one head per person, people never wait on each other",
 			messages: []entities.PendingMessage{
-				{ID: 1, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt},
-				{ID: 2, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt},
-				{ID: 3, RecipientUserID: 2, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt},
+				{ID: 1, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt, ExpiresAt: attemptedAt.Add(time.Hour)},
+				{ID: 2, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt, ExpiresAt: attemptedAt.Add(time.Hour)},
+				{ID: 3, RecipientUserID: 2, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt, ExpiresAt: attemptedAt.Add(time.Hour)},
 			},
 			expectedIDs: []uint{1, 3},
 		},
@@ -229,17 +242,29 @@ func TestPendingMessageQueueDomainSendsEachPersonsOldestMessageFirst(t *testing.
 			name: "a later message waits while the earlier one is still waiting to be retried",
 			messages: []entities.PendingMessage{
 				{ID: 1, RecipientUserID: 1, Status: string(vo.PendingMessageReady),
-					NextAttemptAt: attemptedAt.Add(time.Minute)},
-				{ID: 2, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt},
+					NextAttemptAt: attemptedAt.Add(time.Minute), ExpiresAt: attemptedAt.Add(time.Hour)},
+				{ID: 2, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt, ExpiresAt: attemptedAt.Add(time.Hour)},
 			},
 			expectedIDs: []uint{},
+		},
+		{
+			name: "a later message that already expired is let through to be given up",
+			messages: []entities.PendingMessage{
+				{ID: 1, RecipientUserID: 1, Status: string(vo.PendingMessageReady),
+					NextAttemptAt: attemptedAt.Add(time.Minute), ExpiresAt: attemptedAt.Add(time.Hour)},
+				{ID: 2, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt,
+					ExpiresAt: attemptedAt},
+				{ID: 3, RecipientUserID: 1, Status: string(vo.PendingMessageReady), NextAttemptAt: attemptedAt,
+					ExpiresAt: attemptedAt.Add(time.Hour)},
+			},
+			expectedIDs: []uint{2},
 		},
 		{name: "an empty queue has nothing to send", messages: nil, expectedIDs: []uint{}},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			heads := domains.NewPendingMessageQueueDomain(testCase.messages).HeadsDispatchableAt(attemptedAt)
+			heads := domains.NewPendingMessageQueueDomain(testCase.messages).DueAt(attemptedAt)
 
 			headIDs := []uint{}
 			for _, head := range heads {

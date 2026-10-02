@@ -40,7 +40,7 @@ func NewJobLeadershipService(
 }
 
 // Renew takes or extends the duty; the time is read before the write so a slow write only shortens how long this replica trusts it.
-// A failed write counts as not renewed, since the replica can no longer show it still holds the lease.
+// A failed write counts as not renewed: the duty is kept only until the last successful renewal runs out, never extended.
 func (jobLeadershipService *JobLeadershipService) Renew(
 	executionContext context.Context,
 ) (dto.JobLeadershipChangeDto, error) {
@@ -53,8 +53,18 @@ func (jobLeadershipService *JobLeadershipService) Renew(
 	jobLeadershipService.mutex.Lock()
 	defer jobLeadershipService.mutex.Unlock()
 
+	if acquireError != nil {
+		// Reported as lost only once the last successful renewal has run out.
+		ranOut := jobLeadershipService.held && !acquiredAt.Before(jobLeadershipService.heldUntil)
+		if ranOut {
+			jobLeadershipService.held = false
+		}
+
+		return dto.JobLeadershipChangeDto{Lost: ranOut}, acquireError
+	}
+
 	wasHeld := jobLeadershipService.held
-	jobLeadershipService.held = acquireError == nil && acquired
+	jobLeadershipService.held = acquired
 	jobLeadershipService.heldUntil = jobLeadershipService.term.HeldUntil(acquiredAt)
 
 	change := dto.JobLeadershipChangeDto{
@@ -62,7 +72,7 @@ func (jobLeadershipService *JobLeadershipService) Renew(
 		Lost:   wasHeld && !jobLeadershipService.held,
 	}
 
-	return change, acquireError
+	return change, nil
 }
 
 func (jobLeadershipService *JobLeadershipService) IsLeader() bool {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/infrastructure/persistence"
@@ -285,4 +286,34 @@ func TestOutboxAndDutyStorageSaySoWhenStorageCannotAnswer(t *testing.T) {
 	_, lockedError := strategyBotRepository.FindOneLocked(t.Context(), 1)
 	assert.Error(t, lockedError)
 	assert.Error(t, strategyBotRepository.ForgetSentSignal(t.Context(), 1, "buy"))
+}
+
+// A round is booked through three repositories; this proves all three roll back together, which the round's own tests cannot since they mock the transaction.
+func TestTransactionRepositoryRollsBackARoundsStateHistoryAndMessageTogether(t *testing.T) {
+	testBed := newPendingMessageTestBed(t)
+	strategyBotRepository := persistence.NewStrategyBotRepository(testBed.database)
+	strategyBotRunRecordRepository := persistence.NewStrategyBotRunRecordRepository(testBed.database)
+	transactionRepository := persistence.NewTransactionRepository(testBed.database)
+
+	atomicError := transactionRepository.Atomically(t.Context(), func(transactionContext context.Context) error {
+		bot, findError := strategyBotRepository.FindOneLocked(transactionContext, testBed.botID)
+		require.NoError(t, findError)
+		bot.LastSentSignal = string(vo.SignalBuy)
+		require.NoError(t, strategyBotRepository.UpdateRunState(transactionContext, bot))
+		_, appendError := strategyBotRunRecordRepository.Append(transactionContext, dto.StrategyBotRunRecordWriteDto{
+			StrategyBotID: testBed.botID, RanAt: queuedAt, Result: "buy"})
+		require.NoError(t, appendError)
+		require.NoError(t, testBed.repository.Enqueue(transactionContext, testBed.aRoundMessage(queuedAt, "Run 1")))
+
+		return errors.New("the round could not be booked")
+	})
+
+	require.Error(t, atomicError)
+	storedBot, findError := strategyBotRepository.FindOne(t.Context(), testBed.botID)
+	require.NoError(t, findError)
+	assert.Empty(t, storedBot.LastSentSignal)
+	history, historyError := strategyBotRunRecordRepository.FindLatestByBot(t.Context(), testBed.botID)
+	require.NoError(t, historyError)
+	assert.Empty(t, history)
+	assert.Empty(t, testBed.storedMessages(t))
 }

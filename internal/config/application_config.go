@@ -312,7 +312,7 @@ func Load() ApplicationConfig {
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
-		// Kubernetes sets HOSTNAME to the pod name, so replicas are told apart without extra settings.
+		// The host name (the pod name in Kubernetes) with a random tail, so replicas are told apart without extra settings.
 		Replica: ReplicaConfig{Name: stringWithDefault("REPLICA_NAME", hostnameOrRandomName())},
 		JobLeadership: JobLeadershipConfig{
 			LeaseDuration: time.Duration(
@@ -610,14 +610,14 @@ func jobIntervalWithDefault(key string, defaultValue int, unit time.Duration) ti
 	return time.Duration(value) * unit
 }
 
-// hostnameOrRandomName falls back to a random name so two replicas never share one by accident.
+// hostnameOrRandomName adds a random tail to the host name, so two processes on one host never share a name and never both believe they hold the duty.
 func hostnameOrRandomName() string {
 	hostname, hostnameError := os.Hostname()
-	if hostnameError == nil && hostname != "" {
-		return hostname
+	if hostnameError != nil || hostname == "" {
+		hostname = "replica"
 	}
 
-	return "replica-" + rand.Text()
+	return hostname + "-" + rand.Text()[:8]
 }
 
 func stringWithDefault(key string, defaultValue string) string {

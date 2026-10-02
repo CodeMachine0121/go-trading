@@ -105,5 +105,9 @@ func releaseLeadership(
 	if releaseError := jobLeadership.ReleaseLeadership(release); releaseError != nil {
 		log.Printf("job leadership could not be given back; the next replica waits out the lease: %v",
 			releaseError)
+
+		return
 	}
+
+	log.Printf("job leadership given back, if this replica held it")
 }

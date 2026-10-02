@@ -81,7 +81,7 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 		return 0, findError
 	}
 
-	heads := domains.NewPendingMessageQueueDomain(unsettled).HeadsDispatchableAt(now)
+	heads := domains.NewPendingMessageQueueDomain(unsettled).DueAt(now)
 
 	deliveredCount := 0
 	deliveredMutex := sync.Mutex{}
@@ -106,6 +106,9 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 			}
 			if !claimed {
 				return
+			}
+			if head.IsBeingSentAgain() {
+				log.Printf("pending message %d is being sent again: the replica sending it never said how it went", head.ID())
 			}
 
 			// The signal is forgotten before giving up, so a crash between the two can only cause a resend, never a lost signal.
@@ -161,7 +164,11 @@ func (pendingMessageService *PendingMessageService) DispatchPendingMessages(
 					executionContext, head.ID(), pendingMessageService.replicaName, string(outcome.HaltReason),
 					now); abandonError != nil {
 					log.Printf("pending message %d could not be given up: %v", head.ID(), abandonError)
+
+					return
 				}
+
+				log.Printf("pending message %d given up and its bot halted: %s", head.ID(), outcome.HaltReason)
 			default:
 				if rescheduleError := pendingMessageService.pendingMessageRepository.Reschedule(
 					executionContext, head.ID(), pendingMessageService.replicaName, outcome.AttemptCount,

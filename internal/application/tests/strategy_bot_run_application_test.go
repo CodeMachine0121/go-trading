@@ -428,6 +428,8 @@ func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *t
 	_, runError := underTest.strategyBotRunApplication.RunDueRounds(context.Background())
 
 	require.NoError(t, runError)
+	// The round is still booked in; only the message is left out.
+	assert.Len(t, *underTest.appendedRunRecords, 1)
 }
 
 func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {

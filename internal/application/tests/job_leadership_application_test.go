@@ -106,8 +106,8 @@ func TestJobLeadershipApplicationRenewal(t *testing.T) {
 			expectedLeader: false, expectedChange: dto.JobLeadershipChangeDto{Lost: true},
 		},
 		{
-			name: "a leader whose renewal fails stops at once", previouslyHeld: true, acquireError: leaseStorageFailure,
-			expectedLeader: false, expectedChange: dto.JobLeadershipChangeDto{Lost: true},
+			name: "a leader whose renewal fails keeps the duty until its last renewal runs out", previouslyHeld: true,
+			acquireError: leaseStorageFailure, expectedLeader: true, expectedChange: dto.JobLeadershipChangeDto{},
 		},
 	}
 
@@ -151,4 +151,56 @@ func TestJobLeadershipApplicationReleaseDoesNothingWhenNeverOnDuty(t *testing.T)
 	// No Release expectation: the mock fails the test if it is called.
 
 	require.NoError(t, underTest.jobLeadershipApplication.ReleaseLeadership(t.Context()))
+}
+
+func TestJobLeadershipApplicationAFailedRenewalAfterTheCutoffReportsTheLoss(t *testing.T) {
+	underTest := newJobLeadershipApplicationUnderTest(t)
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), renewedAt, gomock.Any()).Return(true, nil)
+	_, _ = underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+	underTest.clock.now = renewedAtPlus26s
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), renewedAtPlus26s, gomock.Any()).Return(false, leaseStorageFailure)
+
+	change, renewError := underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+
+	assert.ErrorIs(t, renewError, leaseStorageFailure)
+	assert.Equal(t, dto.JobLeadershipChangeDto{Lost: true}, change)
+	assert.False(t, underTest.jobLeadershipApplication.IsLeader())
+}
+
+func TestJobLeadershipApplicationAFailedRenewalNeverExtendsTheDuty(t *testing.T) {
+	underTest := newJobLeadershipApplicationUnderTest(t)
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), renewedAt, gomock.Any()).Return(true, nil)
+	_, _ = underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+	underTest.clock.now = renewedAtPlus24s
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), renewedAtPlus24s, gomock.Any()).Return(false, leaseStorageFailure)
+	_, _ = underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+
+	underTest.clock.now = renewedAtPlus26s
+
+	assert.False(t, underTest.jobLeadershipApplication.IsLeader(),
+		"the failed renewal at 24 seconds must not move the cutoff past 25")
+}
+
+func TestJobLeadershipApplicationWinningTheDutyBackAfterItRanOutIsAGain(t *testing.T) {
+	underTest := newJobLeadershipApplicationUnderTest(t)
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), renewedAt, gomock.Any()).Return(true, nil)
+	_, _ = underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+	underTest.clock.now = renewedAtPlus26s
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), renewedAtPlus26s, gomock.Any()).Return(false, leaseStorageFailure)
+	_, _ = underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+	wonBackAt := renewedAtPlus26s.Add(10 * time.Second)
+	underTest.clock.now = wonBackAt
+	underTest.jobLeadershipLeaseRepository.EXPECT().
+		Acquire(gomock.Any(), gomock.Any(), gomock.Any(), wonBackAt, gomock.Any()).Return(true, nil)
+
+	change, renewError := underTest.jobLeadershipApplication.RenewLeadership(t.Context())
+
+	require.NoError(t, renewError)
+	assert.Equal(t, dto.JobLeadershipChangeDto{Gained: true}, change)
 }

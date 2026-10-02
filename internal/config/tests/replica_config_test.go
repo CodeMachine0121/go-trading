@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,24 +11,20 @@ import (
 )
 
 func TestLoadNamesTheReplica(t *testing.T) {
+	t.Setenv("REPLICA_NAME", "go-trading-0")
+
+	assert.Equal(t, "go-trading-0", config.Load().Replica.Name)
+}
+
+func TestLoadGivesEveryProcessOnAHostItsOwnName(t *testing.T) {
 	hostname, _ := os.Hostname()
-	testCases := []struct {
-		name         string
-		replicaName  string
-		expectedName string
-	}{
-		{name: "an explicit name is taken as given", replicaName: "go-trading-0", expectedName: "go-trading-0"},
-		{name: "without one the host name is used, which is the pod name in Kubernetes", replicaName: "",
-			expectedName: hostname},
-	}
+	t.Setenv("REPLICA_NAME", "")
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Setenv("REPLICA_NAME", testCase.replicaName)
+	firstName := config.Load().Replica.Name
+	secondName := config.Load().Replica.Name
 
-			assert.Equal(t, testCase.expectedName, config.Load().Replica.Name)
-		})
-	}
+	assert.True(t, strings.HasPrefix(firstName, hostname+"-"), firstName)
+	assert.NotEqual(t, firstName, secondName, "two processes on one host must not share a name")
 }
 
 func TestLoadAppliesTheJobLeadershipDefaults(t *testing.T) {

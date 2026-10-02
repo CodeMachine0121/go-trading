@@ -124,7 +124,7 @@ curl localhost:8080/health
 | `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
 | `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
-| `REPLICA_NAME` | 主機名稱（Kubernetes 裡就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
+| `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
 | `JOB_LEADERSHIP_LEASE_SECONDS` | `30` | 值班租期；值班分身倒下時，最久這麼久之後別台接手 |
 | `JOB_LEADERSHIP_RENEW_INTERVAL_SECONDS` | `10` | 值班分身多久續期一次；必須遠小於租期 |
 | `JOB_LEADERSHIP_SAFETY_MARGIN_SECONDS` | `5` | 比租期提早多久就當作自己已不在值班，吸收分身之間的時鐘誤差 |
