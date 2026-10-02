@@ -28,6 +28,15 @@ type rosterJobUnderTest struct {
 func newRosterJobUnderTest(t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication) rosterJobUnderTest {
 	t.Helper()
 
+	return newRosterJobUnderTestEvery(t, jobLeadershipApplication, testInterval)
+}
+
+// newRosterJobUnderTestEvery looks at the duty every test interval but refreshes the roster only every interval.
+func newRosterJobUnderTestEvery(
+	t *testing.T, jobLeadershipApplication *application.JobLeadershipApplication, interval time.Duration,
+) rosterJobUnderTest {
+	t.Helper()
+
 	mockController := gomock.NewController(t)
 	rosterReads := make(chan string, 256)
 	liveMarketDataProxy := mocks.NewMockILiveMarketDataProxy(mockController)
@@ -62,7 +71,7 @@ func newRosterJobUnderTest(t *testing.T, jobLeadershipApplication *application.J
 	t.Cleanup(followService.Stop)
 
 	rosterJob := job.NewLiveFollowRosterJob(
-		application.NewKCandleFollowApplication(followService), jobLeadershipApplication, testInterval)
+		application.NewKCandleFollowApplication(followService), jobLeadershipApplication, interval, testInterval)
 	t.Cleanup(rosterJob.Stop)
 
 	return rosterJobUnderTest{job: rosterJob, followService: followService, rosterReads: rosterReads}
@@ -92,4 +101,22 @@ func TestTheRosterJobLetsGoOfTheRosterWhenThisReplicaLeavesDuty(t *testing.T) {
 	drain(underTest.rosterReads)
 	time.Sleep(5 * testInterval)
 	assert.Empty(t, underTest.rosterReads, "off duty, the roster is not read at all")
+}
+
+func TestTheRosterJobRefreshesOnlyEveryIntervalButLetsGoAtTheNextDutyCheck(t *testing.T) {
+	duty := newDuty(t, true)
+	underTest := newRosterJobUnderTestEvery(t, duty.application, time.Hour)
+	underTest.job.Start(t.Context())
+	assert.Equal(t, "roster", nextFrom(t, underTest.rosterReads))
+
+	time.Sleep(10 * testInterval)
+	assert.Empty(t, underTest.rosterReads, "within the interval the roster is not read again")
+
+	duty.set(t, false)
+	assert.Eventually(t, func() bool { return underTest.followService.FollowedSymbolCount() == 0 },
+		time.Second, 5*time.Millisecond, "leaving duty lets go of the roster at the next duty check, not the next interval")
+
+	duty.set(t, true)
+	assert.Equal(t, "roster", nextFrom(t, underTest.rosterReads),
+		"coming back on duty follows the roster at once")
 }

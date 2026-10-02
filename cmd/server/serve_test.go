@@ -188,14 +188,19 @@ func TestServeTakesTheDutyBeforeTheJobsStartAndGivesItBackAfterTheyAreCutOff(t *
 			return nil
 		})
 	backgroundJob := mocks.NewMockIBackgroundJob(mockController)
+	roundEnded := make(chan struct{})
 	backgroundJob.EXPECT().Start(gomock.Any()).Do(func(executionContext context.Context) {
 		events <- "started"
 		go func() {
 			<-executionContext.Done()
-			events <- "cut off"
+			// The round notices the cut-off a moment later; the duty must not be given back before it has.
+			time.Sleep(50 * time.Millisecond)
+			events <- "round ended"
+			close(roundEnded)
 		}()
 	})
 	backgroundJob.EXPECT().Stop()
+	backgroundJob.EXPECT().Finished().Return(roundEnded)
 	jobLeadership := application.NewJobLeadershipApplication(service.NewJobLeadershipService(
 		leaseRepository, clockProxy, domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second), "replica-a"))
 
@@ -215,7 +220,7 @@ func TestServeTakesTheDutyBeforeTheJobsStartAndGivesItBackAfterTheyAreCutOff(t *
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not return after shutdown was signalled")
 	}
-	assert.Equal(t, "cut off", nextEvent(t, events))
+	assert.Equal(t, "round ended", nextEvent(t, events))
 	assert.Equal(t, "released", nextEvent(t, events))
 }
 
@@ -284,6 +289,37 @@ func TestServeStillStartsWhenTheDutyCannotBeTaken(t *testing.T) {
 	case serveError := <-serveFinished:
 		assert.NoError(t, serveError)
 	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return after shutdown was signalled")
+	}
+}
+
+func TestServeKeepsTheDutyWhenARoundWillNotEnd(t *testing.T) {
+	mockController := gomock.NewController(t)
+	leaseRepository := mocks.NewMockIJobLeadershipLeaseRepository(mockController)
+	clockProxy := mocks.NewMockIClockProxy(mockController)
+	clockProxy.EXPECT().Now().Return(time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)).AnyTimes()
+	leaseRepository.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(true, nil)
+	// No Release expectation: a round still running keeps the duty until the lease runs out.
+	backgroundJob := mocks.NewMockIBackgroundJob(mockController)
+	backgroundJob.EXPECT().Start(gomock.Any())
+	backgroundJob.EXPECT().Stop()
+	backgroundJob.EXPECT().Finished().Return(make(chan struct{}))
+	jobLeadership := application.NewJobLeadershipApplication(service.NewJobLeadershipService(
+		leaseRepository, clockProxy, domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second), "replica-a"))
+
+	shutdownSignalled, signalShutdown := context.WithCancel(t.Context())
+	serveFinished := make(chan error, 1)
+	go func() {
+		serveFinished <- serve(shutdownSignalled, listeningOnAnyFreePort(),
+			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}), func() {}, jobLeadership)
+	}()
+	signalShutdown()
+
+	select {
+	case serveError := <-serveFinished:
+		assert.NoError(t, serveError)
+	case <-time.After(20 * time.Second):
 		t.Fatal("serve did not return after shutdown was signalled")
 	}
 }

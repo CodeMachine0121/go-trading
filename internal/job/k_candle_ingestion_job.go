@@ -21,7 +21,9 @@ type KCandleIngestionJob struct {
 	jobLeadershipApplication    *application.JobLeadershipApplication
 	interval                    time.Duration
 	done                        chan struct{}
-	stopOnce                    func()
+	// finished closes when the job's goroutine has returned, in-flight round included.
+	finished chan struct{}
+	stopOnce func()
 	// needsBackfill is touched only by the job's own goroutine.
 	needsBackfill bool
 }
@@ -39,6 +41,7 @@ func NewKCandleIngestionJob(
 		jobLeadershipApplication:    jobLeadershipApplication,
 		interval:                    interval,
 		done:                        done,
+		finished:                    make(chan struct{}),
 		stopOnce:                    sync.OnceFunc(func() { close(done) }),
 		needsBackfill:               true,
 	}
@@ -56,6 +59,8 @@ func (kCandleIngestionJob *KCandleIngestionJob) Stop() {
 
 // run finishes each backfill before the next round so the two never write the same candle.
 func (kCandleIngestionJob *KCandleIngestionJob) run(executionContext context.Context) {
+	defer close(kCandleIngestionJob.finished)
+
 	kCandleIngestionJob.runRound(executionContext)
 
 	ticker := time.NewTicker(kCandleIngestionJob.interval)
@@ -129,4 +134,9 @@ func (kCandleIngestionJob *KCandleIngestionJob) report(
 				skippedKCandle.OpenTime.Format(time.RFC3339), skippedKCandle.Reason)
 		}
 	}
+}
+
+// Finished closes once the job has stopped and its in-flight round has ended.
+func (kCandleIngestionJob *KCandleIngestionJob) Finished() <-chan struct{} {
+	return kCandleIngestionJob.finished
 }

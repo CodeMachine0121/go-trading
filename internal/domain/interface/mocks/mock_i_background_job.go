@@ -40,6 +40,20 @@ func (m *MockIBackgroundJob) EXPECT() *MockIBackgroundJobMockRecorder {
 	return m.recorder
 }
 
+// Finished mocks base method.
+func (m *MockIBackgroundJob) Finished() <-chan struct{} {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Finished")
+	ret0, _ := ret[0].(<-chan struct{})
+	return ret0
+}
+
+// Finished indicates an expected call of Finished.
+func (mr *MockIBackgroundJobMockRecorder) Finished() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Finished", reflect.TypeOf((*MockIBackgroundJob)(nil).Finished))
+}
+
 // Start mocks base method.
 func (m *MockIBackgroundJob) Start(executionContext context.Context) {
 	m.ctrl.T.Helper()

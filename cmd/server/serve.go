@@ -27,6 +27,9 @@ func newServer(applicationConfig config.ApplicationConfig, handler http.Handler)
 	}
 }
 
+// backgroundRoundEndGrace bounds how long shutdown waits for cut-off rounds to notice; every call they make takes the cancelled context, so it is short.
+const backgroundRoundEndGrace = 10 * time.Second
+
 // leadershipCallTimeout bounds the duty calls made outside any job, so a stalled database cannot hold up start or exit.
 const leadershipCallTimeout = 5 * time.Second
 
@@ -50,7 +53,7 @@ func serve(
 ) error {
 	backgroundJobWork, giveUpOnBackgroundJobWork := context.WithCancel(context.Background())
 	defer giveUpOnBackgroundJobWork()
-	defer releaseLeadership(jobLeadership, giveUpOnBackgroundJobWork)
+	defer releaseLeadership(jobLeadership, backgroundJobManager, giveUpOnBackgroundJobWork)
 
 	if jobLeadership != nil {
 		renewal, endRenewal := context.WithTimeout(context.Background(), leadershipCallTimeout)
@@ -89,15 +92,28 @@ func serve(
 	return nil
 }
 
-// releaseLeadership cuts off the job rounds first and only then gives the duty back.
+// releaseLeadership cuts off the job rounds, waits until they have actually ended, and only then gives the duty back.
 func releaseLeadership(
-	jobLeadership *application.JobLeadershipApplication, giveUpOnBackgroundJobWork context.CancelFunc,
+	jobLeadership *application.JobLeadershipApplication,
+	backgroundJobManager *job.BackgroundJobManager,
+	giveUpOnBackgroundJobWork context.CancelFunc,
 ) {
 	if jobLeadership == nil {
 		return
 	}
 
 	giveUpOnBackgroundJobWork()
+
+	waiting, endWaiting := context.WithTimeout(context.Background(), backgroundRoundEndGrace)
+	defer endWaiting()
+
+	// A round that will not end in time keeps the duty: the lease then runs out on its own, which is the safe way round.
+	if !backgroundJobManager.WaitAll(waiting) {
+		log.Printf("job leadership kept: a background round did not end within %s, so the lease is left to run out",
+			backgroundRoundEndGrace)
+
+		return
+	}
 
 	release, endRelease := context.WithTimeout(context.Background(), leadershipCallTimeout)
 	defer endRelease()

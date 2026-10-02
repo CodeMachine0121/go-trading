@@ -292,7 +292,39 @@ type ApplicationConfig struct {
 	Database        DatabaseConfig
 }
 
+// Load reads every setting; timing settings that contradict each other are corrected rather than trusted, since each mistake would fail silently.
 func Load() ApplicationConfig {
+	applicationConfig := loadAsWritten()
+	applicationConfig.JobLeadership = applicationConfig.JobLeadership.consistent()
+	applicationConfig.PendingMessage = applicationConfig.PendingMessage.outlasting(applicationConfig.Telegram.RequestTimeout)
+
+	return applicationConfig
+}
+
+// consistent keeps renewals well inside the time a replica trusts its duty, or the duty would lapse between renewals and pass back and forth.
+func (jobLeadershipConfig JobLeadershipConfig) consistent() JobLeadershipConfig {
+	trustedFor := jobLeadershipConfig.LeaseDuration - jobLeadershipConfig.SafetyMargin
+	if jobLeadershipConfig.SafetyMargin <= 0 || trustedFor <= 0 {
+		jobLeadershipConfig.SafetyMargin = jobLeadershipConfig.LeaseDuration / 6
+		trustedFor = jobLeadershipConfig.LeaseDuration - jobLeadershipConfig.SafetyMargin
+	}
+	if jobLeadershipConfig.RenewInterval*2 > trustedFor {
+		jobLeadershipConfig.RenewInterval = trustedFor / 2
+	}
+
+	return jobLeadershipConfig
+}
+
+// outlasting keeps a send's claim longer than one Telegram request, or a slow send would be sent again by another replica while still in flight.
+func (pendingMessageConfig PendingMessageConfig) outlasting(telegramRequestTimeout time.Duration) PendingMessageConfig {
+	if pendingMessageConfig.SendTimeout <= 2*telegramRequestTimeout {
+		pendingMessageConfig.SendTimeout = 2*telegramRequestTimeout + 10*time.Second
+	}
+
+	return pendingMessageConfig
+}
+
+func loadAsWritten() ApplicationConfig {
 	taiwanStockConfig := loadTaiwanStockConfig()
 	frontendBaseUrl := strings.TrimRight(stringWithDefault("FRONTEND_BASE_URL", "http://localhost:3000"), "/")
 

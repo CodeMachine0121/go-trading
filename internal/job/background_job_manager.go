@@ -27,3 +27,16 @@ func (backgroundJobManager *BackgroundJobManager) StopAll() {
 		backgroundJob.Stop()
 	}
 }
+
+// WaitAll waits until every job's in-flight round has ended, or the context gives up first; it is how the caller knows nothing is still running.
+func (backgroundJobManager *BackgroundJobManager) WaitAll(executionContext context.Context) bool {
+	for _, backgroundJob := range backgroundJobManager.backgroundJobs {
+		select {
+		case <-backgroundJob.Finished():
+		case <-executionContext.Done():
+			return false
+		}
+	}
+
+	return true
+}

@@ -889,7 +889,8 @@ func backgroundJobsFor(
 
 	// Its own job so a stalled ingestion round cannot delay a market that has just opened.
 	liveFollowRosterJob := job.NewLiveFollowRosterJob(
-		kCandleFollowApplication, jobLeadershipApplication, job.LiveFollowRosterInterval)
+		kCandleFollowApplication, jobLeadershipApplication, job.LiveFollowRosterInterval,
+		job.LiveFollowRosterDutyCheckInterval)
 
 	// One scan over stored bot state rather than a goroutine per bot, so a restart loses at most one interval.
 	strategyBotScanJob := job.NewStrategyBotScanJob(

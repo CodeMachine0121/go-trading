@@ -17,7 +17,9 @@ type ContractKCandleIngestionJob struct {
 	jobLeadershipApplication            *application.JobLeadershipApplication
 	interval                            time.Duration
 	done                                chan struct{}
-	stopOnce                            func()
+	// finished closes when the job's goroutine has returned, in-flight round included.
+	finished chan struct{}
+	stopOnce func()
 	// needsBackfill is touched only by the job's own goroutine.
 	needsBackfill bool
 }
@@ -35,6 +37,7 @@ func NewContractKCandleIngestionJob(
 		jobLeadershipApplication:            jobLeadershipApplication,
 		interval:                            interval,
 		done:                                done,
+		finished:                            make(chan struct{}),
 		stopOnce:                            sync.OnceFunc(func() { close(done) }),
 		needsBackfill:                       true,
 	}
@@ -55,6 +58,8 @@ func (contractKCandleIngestionJob *ContractKCandleIngestionJob) Stop() {
 func (contractKCandleIngestionJob *ContractKCandleIngestionJob) run(
 	executionContext context.Context,
 ) {
+	defer close(contractKCandleIngestionJob.finished)
+
 	contractKCandleIngestionJob.runRound(executionContext)
 
 	ticker := time.NewTicker(contractKCandleIngestionJob.interval)
@@ -128,4 +133,9 @@ func (contractKCandleIngestionJob *ContractKCandleIngestionJob) report(
 				skippedKCandle.OpenTime.Format(time.RFC3339), skippedKCandle.Reason)
 		}
 	}
+}
+
+// Finished closes once the job has stopped and its in-flight round has ended.
+func (contractKCandleIngestionJob *ContractKCandleIngestionJob) Finished() <-chan struct{} {
+	return contractKCandleIngestionJob.finished
 }
