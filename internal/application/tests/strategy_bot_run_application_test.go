@@ -89,6 +89,8 @@ type strategyBotRunUnderTest struct {
 	// appendFailure and enqueueFailure make booking a round in fail at that write.
 	appendFailure  *error
 	enqueueFailure *error
+	// bookedOnACancelledContext is set when a round is booked on a context already cancelled.
+	bookedOnACancelledContext *bool
 	// claimHeldElsewhere makes a hand-pressed round find another replica already running the bot.
 	claimHeldElsewhere *bool
 	claimFailure       *error
@@ -140,8 +142,13 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		}).AnyTimes()
 	// Booking a round in is one transaction; the mock runs it inline, so the real rollback is a storage test.
 	transactionRepository := mocks.NewMockITransactionRepository(controller)
+	bookedOnACancelledContext := false
 	transactionRepository.EXPECT().Atomically(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(executionContext context.Context, work func(context.Context) error) error {
+			if executionContext.Err() != nil {
+				bookedOnACancelledContext = true
+			}
+
 			return work(executionContext)
 		}).AnyTimes()
 	// The locked read answers whatever the plain read is set up to answer in each test.
@@ -255,6 +262,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		indicatorScriptProxy:         indicatorScriptProxy,
 		queue:                        queue,
 		appendFailure:                &appendFailure,
+		bookedOnACancelledContext:    &bookedOnACancelledContext,
 		enqueueFailure:               &enqueueFailure,
 		strategyScriptRepository:     strategyScriptRepository,
 		telegramDeliveryRepository:   telegramDeliveryRepository,
@@ -1247,9 +1255,10 @@ func TestStrategyBotRunApplicationReportsARoundItCouldNotBookIn(t *testing.T) {
 
 			_, runError := underTest.strategyBotRunApplication.RunDueRounds(t.Context())
 
-			// The round counts as not booked: nothing it wanted to say is left queued.
+			// The round counts as not booked: nothing it wanted to say is left queued, and its claim is freed on its own.
 			require.NoError(t, runError)
 			assert.Empty(t, underTest.queuedMessages())
+			assert.Equal(t, []uint{strategyBotID}, *underTest.releasedClaims)
 		})
 	}
 }
@@ -1263,4 +1272,19 @@ func TestStrategyBotRunApplicationReportsAHandPressedRoundItCouldNotClaim(t *tes
 
 	require.Error(t, runError)
 	assert.NotErrorIs(t, runError, domains.ErrStrategyBotAlreadyRunningARound)
+}
+
+func TestStrategyBotRunApplicationBooksAHandPressedRoundTheCallerGaveUpOn(t *testing.T) {
+	underTest := newStrategyBotRunUnderTest(t)
+	underTest.expectSources(vo.SignalHold, vo.SignalHold)
+	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).Return(aDueBot(""), nil).AnyTimes()
+	underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	requestContext, giveUp := context.WithCancel(t.Context())
+	giveUp()
+
+	_, _ = underTest.strategyBotRunApplication.RunRoundNow(requestContext, strategyBotOwnerID, strategyBotID)
+
+	assert.False(t, *underTest.bookedOnACancelledContext,
+		"the round must be booked on its own deadline, or its claim would be kept from every replica")
+	assert.Equal(t, []uint{strategyBotID}, *underTest.releasedClaims)
 }

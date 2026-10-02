@@ -93,7 +93,8 @@ func (contractKCandleIngestionJob *ContractKCandleIngestionJob) runRound(executi
 		backfillReport, backfillError := contractKCandleIngestionJob.
 			kCandleContractIngestionApplication.RunBackfill(executionContext)
 		contractKCandleIngestionJob.report("backfill", backfillReport, backfillError)
-		contractKCandleIngestionJob.needsBackfill = false
+		// Kept when the backfill could not run, so the next round tries again instead of leaving the gap.
+		contractKCandleIngestionJob.needsBackfill = backfillError != nil
 
 		return
 	}

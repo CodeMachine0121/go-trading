@@ -95,7 +95,8 @@ func (kCandleIngestionJob *KCandleIngestionJob) runRound(executionContext contex
 		backfillReport, backfillError := kCandleIngestionJob.kCandleIngestionApplication.
 			RunBackfill(executionContext)
 		kCandleIngestionJob.report("backfill", backfillReport, backfillError)
-		kCandleIngestionJob.needsBackfill = false
+		// Kept when the backfill could not run, so the next round tries again instead of leaving the gap.
+		kCandleIngestionJob.needsBackfill = backfillError != nil
 
 		return
 	}

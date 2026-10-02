@@ -326,3 +326,16 @@ func TestTheContractJobBackfillsAgainOnEveryReturnToDuty(t *testing.T) {
 	assert.Equal(t, "backfill", nextFrom(t, underTest.stages))
 	assert.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
 }
+
+func TestTheContractJobTriesABackfillThatCouldNotRunAgainNextRound(t *testing.T) {
+	recorded := captureRecords(t)
+	ingestionJob := contractJobReaching(t,
+		func() ([]entities.ContractTradingSymbol, error) { return nil, assertAJobError },
+		func() ([]vo.ContractMarketKCandleVo, error) { return nil, nil })
+
+	ingestionJob.Start(t.Context())
+
+	recorded.waitFor(t, "contract k candle backfill did not run")
+	assert.Contains(t, recorded.waitFor(t, "did not run"), "backfill",
+		"the round after a failed backfill backfills again rather than keeping up over the gap")
+}

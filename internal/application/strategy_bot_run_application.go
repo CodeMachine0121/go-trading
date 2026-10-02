@@ -154,16 +154,24 @@ func (strategyBotRunApplication *StrategyBotRunApplication) runOneRound(
 ) {
 	outcomeDto := strategyBotRunApplication.playRound(roundContext, botDto)
 
-	// Derived from the scan context, not the round's, so a slow round cannot starve the one
-	// write that keeps its bot from re-running and re-sending every scan.
-	recordContext, endRecord := context.WithTimeout(scanContext, strategyBotRecordTimeout)
+	// Its own deadline, not the round's and not the caller's: a slow round or a hand-pressed request
+	// the caller gave up on must not cancel the one write that books the round and frees its claim.
+	recordContext, endRecord := context.WithTimeout(
+		context.WithoutCancel(scanContext), strategyBotRecordTimeout)
 	defer endRecord()
 
 	// The round's message and any halt notice are queued in the same write, so nothing is said here.
-	if _, _, recordError := strategyBotRunApplication.strategyBotService.RecordRound(
-		recordContext, botDto.ID, botDto.NextRunAt, strategyBotRunApplication.replicaName,
-		outcomeDto); recordError != nil {
-		log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
+	_, _, recordError := strategyBotRunApplication.strategyBotService.RecordRound(
+		recordContext, botDto.ID, botDto.NextRunAt, strategyBotRunApplication.replicaName, outcomeDto)
+	if recordError == nil {
+		return
+	}
+	log.Printf("strategy bot %d: could not record its round: %v", botDto.ID, recordError)
+
+	// The release rolled back with the booking; freed on its own so the bot is not kept from every replica until the claim runs out.
+	if releaseError := strategyBotRunApplication.strategyBotService.ReleaseStrategyBotClaim(
+		recordContext, botDto.ID, strategyBotRunApplication.replicaName); releaseError != nil {
+		log.Printf("strategy bot %d: could not free its claim: %v", botDto.ID, releaseError)
 	}
 }
 
@@ -255,7 +263,7 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	suggestedRound := strategyBotRunApplication.composeRoundMessage(
 		executionContext, botDto, tradingStrategyDto, reference, decision, sourceSignals)
 
-	return suggestingRound(decision.Verdict, decision.Verdict, decision.Conflicting, suggestedRound)
+	return suggestingRound(decision.Verdict, decision.Conflicting, suggestedRound)
 }
 
 // roundSkipped is the outcome kind that changes nothing but when the bot is next due.
@@ -266,28 +274,28 @@ func skippedRound() dto.StrategyBotRoundOutcomeDto {
 	return dto.StrategyBotRoundOutcomeDto{Kind: roundSkipped}
 }
 
-func concludedRound(verdict string, sentSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
+func concludedRound(verdict string, saidSignal string, conflicting bool) dto.StrategyBotRoundOutcomeDto {
 	return dto.StrategyBotRoundOutcomeDto{
 		Kind:        "concluded",
 		Verdict:     verdict,
-		SentSignal:  sentSignal,
+		SentSignal:  saidSignal,
 		Conflicting: conflicting,
 	}
 }
 
-// suggestingRound is a concluded round that also records the position plan it sent and, with a journal link, the reference price the link prefills.
+// suggestingRound is a concluded round that says its verdict: it carries the message to queue, the position plan it suggests and, with a journal link, the reference price the link prefills.
 func suggestingRound(
-	verdict string, sentSignal string, conflicting bool, sentRound dto.StrategyBotRoundDto,
+	verdict string, conflicting bool, suggestedRound dto.StrategyBotRoundDto,
 ) dto.StrategyBotRoundOutcomeDto {
-	outcomeDto := concludedRound(verdict, sentSignal, conflicting)
-	outcomeDto.Round = sentRound
+	outcomeDto := concludedRound(verdict, verdict, conflicting)
+	outcomeDto.Round = suggestedRound
 	outcomeDto.HasMessage = true
-	outcomeDto.PositionPlan = sentRound.PositionPlan
-	outcomeDto.HasPositionPlan = sentRound.HasPositionPlan
+	outcomeDto.PositionPlan = suggestedRound.PositionPlan
+	outcomeDto.HasPositionPlan = suggestedRound.HasPositionPlan
 
-	if sentRound.JournalLinkIdentifier != "" {
-		outcomeDto.JournalLinkIdentifier = sentRound.JournalLinkIdentifier
-		outcomeDto.ReferencePrice = decimal.NullDecimal{Decimal: sentRound.ReferencePrice, Valid: sentRound.HasReference}
+	if suggestedRound.JournalLinkIdentifier != "" {
+		outcomeDto.JournalLinkIdentifier = suggestedRound.JournalLinkIdentifier
+		outcomeDto.ReferencePrice = decimal.NullDecimal{Decimal: suggestedRound.ReferencePrice, Valid: suggestedRound.HasReference}
 	}
 
 	return outcomeDto

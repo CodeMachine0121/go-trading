@@ -202,3 +202,15 @@ func waitForFetch(t *testing.T, fetched chan struct{}) {
 		t.Fatal("the job never reached the market source")
 	}
 }
+
+func TestABackfillThatCouldNotRunIsTriedAgainNextRound(t *testing.T) {
+	recorded := captureRecords(t)
+
+	startJobEvery(t, 20*time.Millisecond, 0, func(_ context.Context, window vo.KCandleFetchWindowVo) ([]vo.MarketKCandleVo, error) {
+		return []vo.MarketKCandleVo{}, nil
+	})
+
+	recorded.waitFor(t, "backfill did not run")
+	assert.Contains(t, recorded.waitFor(t, "did not run"), "backfill",
+		"the round after a failed backfill backfills again rather than keeping up over the gap")
+}

@@ -337,6 +337,13 @@ func (strategyBotService *StrategyBotService) ClaimDueStrategyBots(
 	return botDtos, nil
 }
 
+// ReleaseStrategyBotClaim frees claimant's claim on a bot whose round could not be booked in.
+func (strategyBotService *StrategyBotService) ReleaseStrategyBotClaim(
+	executionContext context.Context, id uint, claimant string,
+) error {
+	return strategyBotService.strategyBotRepository.ReleaseRoundClaim(executionContext, id, claimant)
+}
+
 // ClaimStrategyBot claims one bot for a round asked for by hand; a bot some replica is already running refuses.
 func (strategyBotService *StrategyBotService) ClaimStrategyBot(
 	executionContext context.Context, id uint, claimant string, claimDuration time.Duration,
