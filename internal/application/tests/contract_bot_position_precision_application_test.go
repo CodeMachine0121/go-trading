@@ -17,7 +17,6 @@ import (
 func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("100")
 	coarseTicks := aContractSpecification()
@@ -48,7 +47,6 @@ func TestStrategyBotRunApplicationRemembersTheRoundedContractStop(t *testing.T) 
 func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("100")
 
@@ -75,7 +73,6 @@ func TestStrategyBotRunApplicationReadsNoVenueForAStakeItCannotPutDown(t *testin
 func TestStrategyBotRunApplicationStillSuggestsWhenTheVenueCannotBeRead(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.makeTheRulesContract(vo.ContractTradingModeLongShort)
-	underTest.expectDeliverySetting()
 	underTest.expectContractSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.expectTheContractsLatestCandle("100")
 	storageFailure := errors.New("the database went away")

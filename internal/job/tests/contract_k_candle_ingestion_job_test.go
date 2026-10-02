@@ -303,10 +303,11 @@ func TestTheContractJobWritesDownEveryCandleItHadToSkip(t *testing.T) {
 }
 
 func TestTheContractJobFetchesNothingWhileThisReplicaIsOffDuty(t *testing.T) {
-	underTest := newContractJobUnderTestWith(t, []string{"BTCUSDT"}, newDuty(t, false).application)
+	duty := newDuty(t, false)
+	underTest := newContractJobUnderTestWith(t, []string{"BTCUSDT"}, duty.application)
 
 	underTest.job.Start(t.Context())
-	time.Sleep(10 * testInterval)
+	duty.waitForChecks(t, 3)
 
 	assert.Empty(t, underTest.stages)
 }
@@ -319,7 +320,7 @@ func TestTheContractJobBackfillsAgainOnEveryReturnToDuty(t *testing.T) {
 	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
 
 	duty.set(t, false)
-	time.Sleep(5 * testInterval)
+	duty.waitForChecks(t, 2)
 	drain(underTest.stages)
 	duty.set(t, true)
 

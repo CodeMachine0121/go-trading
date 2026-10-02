@@ -9,9 +9,9 @@ type StrategyBotRoundOutcomeDto struct {
 	Kind       string
 	HaltReason string
 	// Verdict is buy, sell, none or conflict and is kept apart from SentSignal so history
-	// records every round's view, not just what was sent.
+	// records every round's view, not just what it queued to say.
 	Verdict string
-	// SentSignal is empty when nothing was sent.
+	// SentSignal is the signal the round queued a message for, empty when it queued none.
 	SentSignal  string
 	Conflicting bool
 	// PositionPlan travels with the outcome so history keeps the figures this round used

@@ -39,7 +39,7 @@ func (strategyBotScanJob *StrategyBotScanJob) Start(executionContext context.Con
 	go strategyBotScanJob.run(executionContext)
 }
 
-// Stop lets in-flight rounds finish, since a half-done round could resend a message.
+// Stop takes no further scan; rounds in flight end on their own, booked or not, and Finished says when.
 func (strategyBotScanJob *StrategyBotScanJob) Stop() {
 	strategyBotScanJob.stopOnce()
 }

@@ -385,10 +385,11 @@ func TestEverySeriesJobDoesNothingWhileThisReplicaIsOffDuty(t *testing.T) {
 
 	for name, build := range builders {
 		t.Run(name, func(t *testing.T) {
-			underTest := build(newDuty(t, false).application)
+			duty := newDuty(t, false)
+			underTest := build(duty.application)
 
 			underTest.job.Start(t.Context())
-			time.Sleep(10 * testInterval)
+			duty.waitForChecks(t, 3)
 
 			assert.Empty(t, underTest.rounds)
 		})

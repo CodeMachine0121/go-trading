@@ -75,12 +75,14 @@ func (jobLeadershipService *JobLeadershipService) Renew(
 	return change, nil
 }
 
+// IsLeader reads the clock on every question, held or not, so each question is a moment the answer can be checked against.
 func (jobLeadershipService *JobLeadershipService) IsLeader() bool {
+	now := jobLeadershipService.clockProxy.Now()
+
 	jobLeadershipService.mutex.Lock()
 	defer jobLeadershipService.mutex.Unlock()
 
-	return jobLeadershipService.held &&
-		jobLeadershipService.clockProxy.Now().Before(jobLeadershipService.heldUntil)
+	return jobLeadershipService.held && now.Before(jobLeadershipService.heldUntil)
 }
 
 // Release gives the duty back so the next replica need not wait out the lease, and reports whether there was one to give.

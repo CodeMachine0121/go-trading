@@ -18,6 +18,8 @@ import (
 type switchableDuty struct {
 	application *application.JobLeadershipApplication
 	held        *atomic.Bool
+	// clockReads ticks on every clock read, which every duty question makes, so a test can wait for real checks instead of sleeping.
+	clockReads chan struct{}
 }
 
 func newDuty(t *testing.T, onDuty bool) switchableDuty {
@@ -31,10 +33,19 @@ func newDuty(t *testing.T, onDuty bool) switchableDuty {
 		DoAndReturn(func(context.Context, string, string, time.Time, time.Time) (bool, error) {
 			return held.Load(), nil
 		}).AnyTimes()
+	clockReads := make(chan struct{}, 1024)
 	clockProxy := mocks.NewMockIClockProxy(mockController)
-	clockProxy.EXPECT().Now().Return(currentTime).AnyTimes()
+	clockProxy.EXPECT().Now().DoAndReturn(func() time.Time {
+		select {
+		case clockReads <- struct{}{}:
+		default:
+		}
+
+		return currentTime
+	}).AnyTimes()
 
 	duty := switchableDuty{
+		clockReads: clockReads,
 		application: application.NewJobLeadershipApplication(service.NewJobLeadershipService(
 			leaseRepository, clockProxy, domains.NewJobLeadershipTermDomain(30*time.Second, 5*time.Second),
 			"replica-under-test")),
@@ -57,4 +68,26 @@ func (switchableDuty switchableDuty) set(t *testing.T, onDuty bool) {
 	switchableDuty.held.Store(onDuty)
 	_, renewError := switchableDuty.application.RenewLeadership(t.Context())
 	require.NoError(t, renewError)
+}
+
+// waitForChecks waits until the job has asked about its duty count more times from now on.
+func (switchableDuty switchableDuty) waitForChecks(t *testing.T, count int) {
+	t.Helper()
+
+	for {
+		select {
+		case <-switchableDuty.clockReads:
+			continue
+		default:
+		}
+
+		break
+	}
+	for range count {
+		select {
+		case <-switchableDuty.clockReads:
+		case <-time.After(2 * time.Second):
+			t.Fatal("the job stopped asking about its duty")
+		}
+	}
 }

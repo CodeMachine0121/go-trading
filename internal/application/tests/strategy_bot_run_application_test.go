@@ -27,6 +27,15 @@ var botRunNow = at(9, 15)
 // botRoundClaimedUntil is the one-minute round ceiling plus the fifteen seconds that booking a round in may take.
 var botRoundClaimedUntil = at(9, 16).Add(15 * time.Second)
 
+// insideTransaction marks the context the mocked transaction hands its work, so a write made outside the transaction shows.
+type insideTransaction struct{}
+
+func isInsideTransaction(executionContext context.Context) bool {
+	marked, isMarked := executionContext.Value(insideTransaction{}).(bool)
+
+	return isMarked && marked
+}
+
 // bookedRunNumber is the number the history hands every round booked in these tests.
 const bookedRunNumber = 52
 
@@ -78,7 +87,6 @@ type strategyBotRunUnderTest struct {
 	kCandleRepository                       *mocks.MockIKCandleRepository
 	indicatorScriptProxy                    *mocks.MockIIndicatorScriptProxy
 	strategyScriptRepository                *mocks.MockIStrategyScriptRepository
-	telegramDeliveryRepository              *mocks.MockITelegramDeliveryRepository
 	kCandleContractRepository               *mocks.MockIKCandleContractRepository
 	contractIndicatorScriptProxy            *mocks.MockIContractIndicatorScriptProxy
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
@@ -118,7 +126,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	enqueueFailure := error(nil)
 	strategyBotRunRecordRepository.EXPECT().
 		Append(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, writeDto dto.StrategyBotRunRecordWriteDto) (int, error) {
+		DoAndReturn(func(executionContext context.Context, writeDto dto.StrategyBotRunRecordWriteDto) (int, error) {
+			assert.True(t, isInsideTransaction(executionContext), "a round's history is written outside its transaction")
 			if appendFailure != nil {
 				return 0, appendFailure
 			}
@@ -132,7 +141,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	queue := newRoundMessageQueue(t)
 	pendingMessageRepository := mocks.NewMockIPendingMessageRepository(controller)
 	pendingMessageRepository.EXPECT().Enqueue(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, pendingMessage entities.PendingMessage) error {
+		DoAndReturn(func(executionContext context.Context, pendingMessage entities.PendingMessage) error {
+			assert.True(t, isInsideTransaction(executionContext), "a round's message is queued outside its transaction")
 			if enqueueFailure != nil {
 				return enqueueFailure
 			}
@@ -149,11 +159,13 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 				bookedOnACancelledContext = true
 			}
 
-			return work(executionContext)
+			return work(context.WithValue(executionContext, insideTransaction{}, true))
 		}).AnyTimes()
 	// The locked read answers whatever the plain read is set up to answer in each test.
 	strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(executionContext context.Context, id uint) (entities.StrategyBot, error) {
+			assert.True(t, isInsideTransaction(executionContext), "the bot is locked outside the round's transaction")
+
 			return strategyBotRepository.FindOne(executionContext, id)
 		}).AnyTimes()
 
@@ -197,8 +209,6 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			return entities.PublishedStrategyScript{}, domains.ErrStrategyScriptNotPublished
 		}).AnyTimes()
 
-	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
-
 	tradingStrategy := aDueTradingStrategy()
 	tradingStrategyFailure := error(nil)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(controller)
@@ -210,9 +220,6 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 
 			return tradingStrategy, nil
 		}).AnyTimes()
-
-	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
-	secretSealProxy.EXPECT().Unseal("sealed").Return("the-token", nil).AnyTimes()
 
 	// 只有合約機器人會讀到；資金費率與持倉統計與這些測試無關。
 	kCandleContractRepository := mocks.NewMockIKCandleContractRepository(controller)
@@ -265,7 +272,6 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		bookedOnACancelledContext:    &bookedOnACancelledContext,
 		enqueueFailure:               &enqueueFailure,
 		strategyScriptRepository:     strategyScriptRepository,
-		telegramDeliveryRepository:   telegramDeliveryRepository,
 		kCandleContractRepository:    kCandleContractRepository,
 		contractIndicatorScriptProxy: contractIndicatorScriptProxy,
 
@@ -299,13 +305,6 @@ func (underTest strategyBotRunUnderTest) queuedMessages() []entities.PendingMess
 	defer underTest.queue.mutex.Unlock()
 
 	return append([]entities.PendingMessage{}, underTest.queue.queued...)
-}
-
-func (underTest strategyBotRunUnderTest) expectDeliverySetting() {
-	underTest.telegramDeliveryRepository.EXPECT().FindOneByUser(gomock.Any(), gomock.Any()).
-		Return(entities.TelegramDelivery{
-			UserID: strategyBotOwnerID, SealedBotToken: "sealed", ChatID: "987654",
-		}, nil).AnyTimes()
 }
 
 func aDueBot(lastSentSignal string) entities.StrategyBot {
@@ -388,7 +387,6 @@ func scriptOfStrategyScript(id uint) string {
 
 func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -421,7 +419,6 @@ func TestStrategyBotRunApplicationSendsAConclusionThatChanged(t *testing.T) {
 
 func TestStrategyBotRunApplicationSaysNothingWhenTheConclusionHasNotChanged(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -452,7 +449,6 @@ func TestStrategyBotRunApplicationMarksAConflictAndSaysNothing(t *testing.T) {
 			SourceLabel: "A", ExpectedSignal: string(vo.SignalSell)},
 	}
 
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalSell, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -503,7 +499,6 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
-			underTest.expectDeliverySetting()
 			if testCase.strategyScriptFound.Publication != nil {
 				underTest.publishedStrategyScriptIDs[testCase.strategyScriptFound.ID] = true
 			}
@@ -534,7 +529,6 @@ func TestStrategyBotRunApplicationHaltsForFailuresThatWillNeverFixThemselves(t *
 
 func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
@@ -571,7 +565,6 @@ func TestStrategyBotRunApplicationHaltsWhenAScriptWillNotRun(t *testing.T) {
 
 func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
@@ -609,7 +602,6 @@ func TestStrategyBotRunApplicationKeepsRunningWhenTheCandlesAreNotThereYet(t *te
 
 func TestStrategyBotRunApplicationStillSendsWhenThereIsNoPriceToQuote(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -655,7 +647,6 @@ func TestStrategyBotRunApplicationReportsAFailedScan(t *testing.T) {
 
 func TestStrategyBotRunApplicationSkipsARoundWhoseStoredConditionNoLongerReads(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	// A condition naming an undeclared label is not user-correctable, so it skips rather than halts.
@@ -694,7 +685,6 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 		{
 			name: "the bot cannot be read back to record the round",
 			arrange: func(underTest strategyBotRunUnderTest) {
-				underTest.expectDeliverySetting()
 				underTest.expectSources(vo.SignalHold, vo.SignalHold)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(entities.StrategyBot{}, errors.New("the database went away"))
@@ -703,7 +693,6 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 		{
 			name: "the round cannot be written back",
 			arrange: func(underTest strategyBotRunUnderTest) {
-				underTest.expectDeliverySetting()
 				underTest.expectSources(vo.SignalHold, vo.SignalHold)
 				underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
 					Return(aDueBot(""), nil).AnyTimes()
@@ -745,7 +734,6 @@ func TestStrategyBotRunApplicationCarriesOnWhenARoundCannotBeBookedIn(t *testing
 
 func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerReads(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	brokenBot := aDueBot("")
@@ -770,7 +758,6 @@ func TestStrategyBotRunApplicationSkipsARoundWhoseStoredSellConditionNoLongerRea
 
 func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -793,7 +780,6 @@ func TestStrategyBotRunApplicationStillSendsWhenNoCandleIsStoredAtAll(t *testing
 
 func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 
 	underTest.strategyScriptRepository.EXPECT().FindOne(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id uint) (entities.StrategyScript, error) {
@@ -841,7 +827,6 @@ func TestStrategyBotRunApplicationReadsEachSourceAtItsOwnCoarseness(t *testing.T
 
 func TestStrategyBotRunApplicationSaysNothingForABotDeletedMidRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
@@ -862,7 +847,6 @@ func TestStrategyBotRunApplicationSaysNothingForABotDeletedMidRound(t *testing.T
 
 func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	// 這一輪開始後擁有者停了又啟動，NextRunAt 被設成現在、上次訊號被清空。
@@ -889,7 +873,6 @@ func TestStrategyBotRunApplicationDoesNotUndoARestartThatHappenedMidRound(t *tes
 
 func TestStrategyBotRunApplicationRunsARoundByHandDownTheSamePath(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	underTest.strategyBotRepository.EXPECT().FindOne(gomock.Any(), strategyBotID).
@@ -911,7 +894,6 @@ func TestStrategyBotRunApplicationRunsARoundByHandDownTheSamePath(t *testing.T) 
 
 func TestStrategyBotRunApplicationRunsAStoppedBotByHand(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	stoppedBot := aDueBot("")
@@ -973,7 +955,6 @@ func TestStrategyBotRunApplicationHaltsABotWhoseRulesAreGone(t *testing.T) {
 		Return(aDueBot(""), nil)
 	*underTest.tradingStrategyFailure = domains.TradingStrategyNotFound(botsTradingStrategyID)
 	// The halt message names its reason.
-	underTest.expectDeliverySetting()
 	underTest.expectQueuedMessage(func(message string) {
 		assert.Contains(t, message, "那一份交易策略找不到了")
 	})
@@ -1006,7 +987,6 @@ func aPositionPlannedDueBot() entities.StrategyBot {
 // The planned figures reach both the message and the history, computed once so they cannot disagree.
 func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 
 	plannedBot := aPositionPlannedDueBot()
@@ -1041,7 +1021,6 @@ func TestStrategyBotRunApplicationSuggestsAPositionAndRemembersIt(t *testing.T) 
 // A spot bot's buy or exit carries a link to the spot journal, and the round remembers the price the link prefills.
 func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 	underTest.strategyBotRepository.EXPECT().ClaimDue(gomock.Any(), botRunNow, 4, thisReplicaName, botRoundClaimedUntil).
 		Return([]entities.StrategyBot{aDueBot("")}, nil)
@@ -1069,7 +1048,6 @@ func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) 
 // The auto-order switch has no effect yet: a switched-on bot still only speaks, exactly once, through Telegram.
 func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
-	underTest.expectDeliverySetting()
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 	switchedOnBot := aDueBot("")
 	switchedOnBot.AutoOrderEnabled = true
@@ -1109,7 +1087,6 @@ func TestStrategyBotRunApplicationFreesTheClaimOfEveryRoundItBooks(t *testing.T)
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			underTest := newStrategyBotRunUnderTest(t)
-			underTest.expectDeliverySetting()
 			underTest.expectSources(vo.SignalHold, vo.SignalHold)
 			storedBot := aDueBot("")
 			storedBot.NextRunAt = testCase.storedNextRun

@@ -254,3 +254,36 @@ func TestStrategyBotRepositoryFindOneLockedReadsTheBotInsideATransaction(t *test
 
 	require.NoError(t, readError)
 }
+
+func TestStrategyBotRepositoryALockedBotIsSkippedByOtherReplicasUntilTheLockEnds(t *testing.T) {
+	database := newStrategyBotTestDatabase(t)
+	repository := persistence.NewStrategyBotRepository(database)
+	bot := aDueRunningBot(t, repository, "X")
+	locked := make(chan struct{})
+	letGo := make(chan struct{})
+	lockingDone := make(chan error, 1)
+
+	go func() {
+		lockingDone <- persistence.NewTransactionRepository(database).Atomically(t.Context(),
+			func(transactionContext context.Context) error {
+				if _, findError := repository.FindOneLocked(transactionContext, bot.ID); findError != nil {
+					return findError
+				}
+				close(locked)
+				<-letGo
+
+				return nil
+			})
+	}()
+	<-locked
+
+	whileLocked, claimError := repository.ClaimDue(t.Context(), claimNow, 10, "replica-b", claimNow.Add(2*time.Minute))
+	require.NoError(t, claimError)
+	close(letGo)
+	require.NoError(t, <-lockingDone)
+	afterwards, afterError := repository.ClaimDue(t.Context(), claimNow, 10, "replica-b", claimNow.Add(2*time.Minute))
+	require.NoError(t, afterError)
+
+	assert.Empty(t, namesOf(whileLocked), "a bot whose round is being booked is skipped, not waited for")
+	assert.Equal(t, []string{"X"}, namesOf(afterwards))
+}

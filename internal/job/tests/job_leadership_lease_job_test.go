@@ -40,7 +40,8 @@ func TestJobLeadershipLeaseJobRenewsOnStartAndNeverReleasesOnStop(t *testing.T) 
 	}
 	leaseJob.Stop()
 
-	assert.True(t, leadership.IsLeader())
+	// The renewal is seen inside the lease call, a moment before the duty is recorded.
+	assert.Eventually(t, leadership.IsLeader, time.Second, 5*time.Millisecond)
 }
 
 func TestJobLeadershipLeaseJobSaysWhenTheDutyIsLostOrCannotBeRenewed(t *testing.T) {

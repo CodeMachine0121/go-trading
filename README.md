@@ -69,12 +69,14 @@ curl localhost:8080/health
 服務可以同時開多台分身（例如 Kubernetes 的多個 replica），共用同一個 Postgres：
 
 - **抓行情這類全系統一份的工作只在值班分身上跑。** 值班靠資料庫裡的一張租約決定，不需要 Kubernetes API 權限。
-  值班分身倒下時，別台最晚在租期（30 秒）後接手，接手的第一輪先回補缺口。
+  值班分身倒下時，別台最晚約 40 秒（租期 30 秒加上一次續期間隔）後接手，接手的第一輪先回補缺口。
 - **策略機器人的每一輪只由一台分身跑。** 每台分身都會掃描，撈到期機器人的同時就認領；被認領的別台會跳過。
 - **機器人的訊息先寫進待送訊息，跟那一輪的結果同一個交易**，再由任一台分身寄出。
   寄到一半倒下的訊息會被重寄（至少一次），所以極少數情況下會收到兩則一樣的，訊息最後一行的 `🔖 Run N` 一樣就是同一則。
 
 部署端需要：
+
+- **至少一台分身開著背景工作**（`BACKGROUND_JOBS_ENABLED=true`）。機器人的訊息由任何一台寫下，但只由開著背景工作的分身寄出。
 
 - 每台分身有不同的名字（Kubernetes 預設的 `HOSTNAME` 就是 pod 名稱，不必另外設定）。
 - `terminationGracePeriodSeconds` 大於 15 秒的排空時間，讓關機順序跑完。
@@ -125,11 +127,11 @@ curl localhost:8080/health
 | `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | 一次重演的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止、回 `422`，不交出半張成績單 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
 | `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
-| `JOB_LEADERSHIP_LEASE_SECONDS` | `30` | 值班租期；值班分身倒下時，最久這麼久之後別台接手 |
-| `JOB_LEADERSHIP_RENEW_INTERVAL_SECONDS` | `10` | 值班分身多久續期一次；必須遠小於租期 |
+| `JOB_LEADERSHIP_LEASE_SECONDS` | `30` | 值班租期；值班分身倒下時，別台最晚在租期加上一次續期間隔後接手 |
+| `JOB_LEADERSHIP_RENEW_INTERVAL_SECONDS` | `10` | 值班分身多久續期一次；超過（租期 − 提早量）的一半時，啟動時自動縮短 |
 | `JOB_LEADERSHIP_SAFETY_MARGIN_SECONDS` | `5` | 比租期提早多久就當作自己已不在值班，吸收分身之間的時鐘誤差 |
 | `PENDING_MESSAGE_DISPATCH_INTERVAL_SECONDS` | `2` | 每台分身多久看一次待送訊息 |
-| `PENDING_MESSAGE_SEND_TIMEOUT_SECONDS` | `120` | 一則訊息被拿去寄之後多久沒有結果就重寄；必須大於 `TELEGRAM_REQUEST_TIMEOUT_SECONDS`，否則慢的那一次會被寄兩遍 |
+| `PENDING_MESSAGE_SEND_TIMEOUT_SECONDS` | `120` | 一則訊息被拿去寄之後多久沒有結果就重寄；不足兩倍 `TELEGRAM_REQUEST_TIMEOUT_SECONDS` 時啟動時自動加長，否則慢的那一次會被寄兩遍 |
 | `PENDING_MESSAGE_MAX_CONCURRENT_DELIVERIES` | `8` | 一台分身同時寄幾則（不同使用者之間；同一位使用者永遠一則一則依序寄） |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |

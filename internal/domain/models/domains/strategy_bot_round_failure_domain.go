@@ -29,24 +29,6 @@ func NewStrategyBotRoundFailureDomain(roundError error) StrategyBotRoundFailureD
 		errors.Is(roundError, ErrIndicatorParameterNotDeclared):
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltScriptFailed}
 
-	case errors.Is(roundError, ErrTelegramDeliveryNotConfigured):
-		return StrategyBotRoundFailureDomain{
-			haltReason: vo.StrategyBotHaltDeliveryNotConfigured}
-
-	default:
-		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltNone}
-	}
-}
-
-// NewStrategyBotDeliveryFailureDomain halts on a rejected token or unknown chat (the owner must fix them) and skips on unreachable Telegram.
-func NewStrategyBotDeliveryFailureDomain(
-	failureReason vo.DeliveryFailureReasonVo,
-) StrategyBotRoundFailureDomain {
-	switch failureReason {
-	case vo.DeliveryFailureCredentialRejected:
-		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltCredentialRejected}
-	case vo.DeliveryFailureDestinationNotFound:
-		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltDestinationNotFound}
 	default:
 		return StrategyBotRoundFailureDomain{haltReason: vo.StrategyBotHaltNone}
 	}

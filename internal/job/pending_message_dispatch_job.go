@@ -8,7 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/application"
 )
 
-// PendingMessageDispatchJob sends queued bot messages every few seconds on every replica; Stop lets the batch in hand finish so nothing is left half sent.
+// PendingMessageDispatchJob sends queued bot messages every few seconds on every replica; a batch cut off mid-send leaves its messages claimed, and they are sent again once the claim runs out.
 type PendingMessageDispatchJob struct {
 	*repeatingRound
 }

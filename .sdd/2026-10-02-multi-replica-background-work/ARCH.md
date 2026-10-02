@@ -193,4 +193,7 @@ flowchart TD
   - **台股固定跟盤只在值班 replica 上**：台股的即時跟盤名額有上限，不能每台都跟。觀看者連到非值班 replica 時拿到「目前不可用」、退回每分鐘輪詢。要讓每台都能轉播，需要跨 replica 的即時轉送（例如 Postgres `LISTEN/NOTIFY`），另開切片。
   - **啟動善後不分 replica**：`FailInterruptedAnswers`、`FailInterruptedHistorySyncs` 在每台啟動時把所有「進行中」標成失敗，會誤傷別台正在跑的。修法是讓這些列記錄負責的 replica 與心跳，只掃心跳過期的；另開切片。
   - 一輪改成「先組好訊息再記下」：被刪除或重啟中的 bot 仍會多讀一次參考價（以前在組訊息前就放棄），之後在記下時才被擋掉、不寫任何東西。
+- **刻意的例外（code review 後記錄）：**
+  - `ITransactionRepository` 不對應任何 entity：它是跨 repository 的交易邊界（unit of work），放在 Repository 角色是因為它只碰自家資料庫；naming.md「Repository 以聚合命名」對它不適用，其餘 repository 仍一 entity 一個。
+  - `PendingMessageService` 呼叫 `TelegramDeliveryService.DeliverPendingMessage`：開鎖金鑰只能有一個呼叫點（`deliver`），把寄送拆到 application 會讓呼叫端每則訊息自己串三個呼叫。codebase 既有先例：`ContractKCandleIngestionService` 持有 `ContractPositionStatisticService`。
 - **Open decisions (for implementation):** 無。

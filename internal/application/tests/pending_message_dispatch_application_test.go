@@ -49,7 +49,7 @@ func newPendingMessageDispatchUnderTest(t *testing.T) pendingMessageDispatchUnde
 	transactionRepository := mocks.NewMockITransactionRepository(controller)
 	transactionRepository.EXPECT().Atomically(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(executionContext context.Context, work func(context.Context) error) error {
-			return work(executionContext)
+			return work(context.WithValue(executionContext, insideTransaction{}, true))
 		}).AnyTimes()
 	telegramDeliveryRepository := mocks.NewMockITelegramDeliveryRepository(controller)
 	secretSealProxy := mocks.NewMockISecretSealProxy(controller)
@@ -224,17 +224,23 @@ func TestPendingMessageDispatchHaltsTheBotOnARefusalThatWillNotFixItself(t *test
 					Return(entities.TelegramDelivery{}, domains.ErrTelegramDeliveryNotConfigured)
 			}
 			underTest.strategyBotRepository.EXPECT().FindOneLocked(gomock.Any(), queuedBotID).
-				Return(aBotThatIs(vo.StrategyBotRunning), nil)
-			underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, halted entities.StrategyBot) error {
+				DoAndReturn(func(executionContext context.Context, _ uint) (entities.StrategyBot, error) {
+					assert.True(t, isInsideTransaction(executionContext), "the bot is locked outside the halt's transaction")
+
+					return aBotThatIs(vo.StrategyBotRunning), nil
+				})
+			halted := underTest.strategyBotRepository.EXPECT().UpdateRunState(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(executionContext context.Context, halted entities.StrategyBot) error {
+					assert.True(t, isInsideTransaction(executionContext), "the bot is halted outside its transaction")
 					assert.Equal(t, string(vo.StrategyBotStopped), halted.RunState)
 					assert.Equal(t, string(testCase.expectedHaltReason), halted.HaltReason)
 
 					return nil
 				})
+			// Given up only once the bot is halted, so a crash in between sends the refusal again rather than losing the halt.
 			underTest.pendingMessageRepository.EXPECT().
 				Abandon(gomock.Any(), queuedMessageID, dispatchReplica, vo.PendingMessageAbandonReasonVo(testCase.expectedHaltReason), dispatchNow).
-				Return(nil)
+				Return(nil).After(halted)
 
 			deliveredCount, dispatchError := underTest.dispatchApplication.DispatchPendingMessages(t.Context())
 

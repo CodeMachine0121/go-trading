@@ -8,7 +8,7 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// StrategyBotApplication joins the bot, trading strategy, delivery and trading key services, since a domain service does not call another.
+// StrategyBotApplication joins the bot, trading strategy, delivery, trading key and pending message services for the bot's own use cases.
 type StrategyBotApplication struct {
 	strategyBotService       *service.StrategyBotService
 	tradingStrategyService   *service.TradingStrategyService

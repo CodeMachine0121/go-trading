@@ -99,7 +99,7 @@ func TestTheRosterJobLetsGoOfTheRosterWhenThisReplicaLeavesDuty(t *testing.T) {
 	assert.Eventually(t, func() bool { return underTest.followService.FollowedSymbolCount() == 0 },
 		time.Second, 5*time.Millisecond)
 	drain(underTest.rosterReads)
-	time.Sleep(5 * testInterval)
+	duty.waitForChecks(t, 3)
 	assert.Empty(t, underTest.rosterReads, "off duty, the roster is not read at all")
 }
 
@@ -109,7 +109,7 @@ func TestTheRosterJobRefreshesOnlyEveryIntervalButLetsGoAtTheNextDutyCheck(t *te
 	underTest.job.Start(t.Context())
 	assert.Equal(t, "roster", nextFrom(t, underTest.rosterReads))
 
-	time.Sleep(10 * testInterval)
+	duty.waitForChecks(t, 3)
 	assert.Empty(t, underTest.rosterReads, "within the interval the roster is not read again")
 
 	duty.set(t, false)
