@@ -204,8 +204,8 @@ func TestServeTakesTheDutyBeforeTheJobsStartAndGivesItBackAfterTheyAreCutOff(t *
 		serveFinished <- serve(shutdownSignalled, listeningOnAnyFreePort(),
 			job.NewBackgroundJobManager([]domaininterface.IBackgroundJob{backgroundJob}), func() {}, jobLeadership)
 	}()
-	assert.Equal(t, "acquired", <-events)
-	assert.Equal(t, "started", <-events)
+	assert.Equal(t, "acquired", nextEvent(t, events))
+	assert.Equal(t, "started", nextEvent(t, events))
 	signalShutdown()
 
 	select {
@@ -214,6 +214,20 @@ func TestServeTakesTheDutyBeforeTheJobsStartAndGivesItBackAfterTheyAreCutOff(t *
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not return after shutdown was signalled")
 	}
-	assert.Equal(t, "cut off", <-events)
-	assert.Equal(t, "released", <-events)
+	assert.Equal(t, "cut off", nextEvent(t, events))
+	assert.Equal(t, "released", nextEvent(t, events))
+}
+
+// nextEvent fails instead of hanging when an expected step never happens.
+func nextEvent(t *testing.T, events <-chan string) string {
+	t.Helper()
+
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(5 * time.Second):
+		t.Fatal("an expected step never happened")
+
+		return ""
+	}
 }

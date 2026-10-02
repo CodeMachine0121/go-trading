@@ -857,15 +857,15 @@ func backgroundJobsFor(
 	}
 
 	kCandleIngestionJob := job.NewKCandleIngestionJob(
-		kCandleIngestionApplication, job.KCandleIngestionInterval)
+		kCandleIngestionApplication, jobLeadershipApplication, job.KCandleIngestionInterval)
 
 	// Separate from the spot round so one unresponsive venue cannot hold up the other.
 	contractKCandleIngestionJob := job.NewContractKCandleIngestionJob(
-		kCandleContractIngestionApplication, job.KCandleIngestionInterval)
+		kCandleContractIngestionApplication, jobLeadershipApplication, job.KCandleIngestionInterval)
 
 	// Its own job so a stalled ingestion round cannot delay a market that has just opened.
 	liveFollowRosterJob := job.NewLiveFollowRosterJob(
-		kCandleFollowApplication, job.LiveFollowRosterInterval)
+		kCandleFollowApplication, jobLeadershipApplication, job.LiveFollowRosterInterval)
 
 	// One scan over stored bot state rather than a goroutine per bot, so a restart loses at most one interval.
 	strategyBotScanJob := job.NewStrategyBotScanJob(
@@ -884,21 +884,21 @@ func backgroundJobsFor(
 	contractIngestion := applicationConfig.ContractIngestion
 	if contractIngestion.FundingRateIngestionInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractFundingRateIngestionJob(
-			contractSeries.fundingRate, contractIngestion.FundingRateIngestionInterval))
+			contractSeries.fundingRate, jobLeadershipApplication, contractIngestion.FundingRateIngestionInterval))
 	}
 	if contractIngestion.PositionStatisticIngestionInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractPositionStatisticIngestionJob(
-			contractSeries.positionStatistic, contractIngestion.PositionStatisticIngestionInterval))
+			contractSeries.positionStatistic, jobLeadershipApplication, contractIngestion.PositionStatisticIngestionInterval))
 	}
 	if contractIngestion.TradingSpecificationRefreshInterval > 0 {
 		backgroundJobs = append(backgroundJobs, job.NewContractTradingSpecificationRefreshJob(
-			contractSeries.tradingSymbol, contractIngestion.TradingSpecificationRefreshInterval))
+			contractSeries.tradingSymbol, jobLeadershipApplication, contractIngestion.TradingSpecificationRefreshInterval))
 	}
 
 	// Only with account credentials; without them the round could ask nothing.
 	if contractIngestion.MaintenanceMarginTierRefreshInterval > 0 && contractIngestion.HasAccountCredentials() {
 		backgroundJobs = append(backgroundJobs, job.NewContractMaintenanceMarginTierRefreshJob(
-			contractSeries.maintenanceMargin, contractIngestion.MaintenanceMarginTierRefreshInterval))
+			contractSeries.maintenanceMargin, jobLeadershipApplication, contractIngestion.MaintenanceMarginTierRefreshInterval))
 	}
 
 	return backgroundJobs

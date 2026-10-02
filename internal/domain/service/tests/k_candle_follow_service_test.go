@@ -1655,3 +1655,37 @@ func TestAViewerOfAnUnwatchedSymbolIsToldSoEvenWhenNothingCapsTheMarket(t *testi
 	// Still two: watching an unwatched symbol must not start following it.
 	assert.Equal(t, 2, testBed.service.FollowedSymbolCount())
 }
+
+func TestReleasingFixedFollowsEndsEveryRosteredFollow(t *testing.T) {
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+	testBed.watching("2330", "2454")
+	require.NoError(t, testBed.service.RefreshFixedFollows(t.Context()))
+	require.Equal(t, 2, testBed.service.FollowedSymbolCount())
+
+	testBed.service.ReleaseFixedFollows()
+
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}
+
+func TestReleasingFixedFollowsLeavesAFollowOpenedForAViewer(t *testing.T) {
+	feed := newLiveFeed()
+	testBed := newFollowTestBed(t, func(string) (<-chan vo.LiveKCandleVo, error) {
+		return feed.kCandles, nil
+	})
+	viewer, leave := context.WithCancel(context.Background())
+	defer leave()
+	_, watchError := testBed.service.WatchKCandles(viewer, "BTCUSDT")
+	require.NoError(t, watchError)
+
+	testBed.service.ReleaseFixedFollows()
+
+	assert.Equal(t, 1, testBed.service.FollowedSymbolCount())
+}
+
+func TestReleasingFixedFollowsWithNoneOpenChangesNothing(t *testing.T) {
+	testBed := newTaiwanFollowTestBed(t, taipeiFollowAt(t, "2026-09-08T10:00:00+08:00"))
+
+	testBed.service.ReleaseFixedFollows()
+
+	assert.Equal(t, 0, testBed.service.FollowedSymbolCount())
+}

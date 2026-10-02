@@ -31,6 +31,11 @@ func (kCandleFollowApplication *KCandleFollowApplication) RefreshFixedFollows(
 	return kCandleFollowApplication.kCandleFollowService.RefreshFixedFollows(executionContext)
 }
 
+// ReleaseFixedFollows ends the rostered follows, for a replica that is no longer on duty.
+func (kCandleFollowApplication *KCandleFollowApplication) ReleaseFixedFollows() {
+	kCandleFollowApplication.kCandleFollowService.ReleaseFixedFollows()
+}
+
 func (kCandleFollowApplication *KCandleFollowApplication) Stop() {
 	kCandleFollowApplication.kCandleFollowService.Stop()
 }

@@ -31,6 +31,14 @@ type contractJobUnderTest struct {
 func newContractJobUnderTest(t *testing.T, symbols []string) contractJobUnderTest {
 	t.Helper()
 
+	return newContractJobUnderTestWith(t, symbols, onDuty(t))
+}
+
+func newContractJobUnderTestWith(
+	t *testing.T, symbols []string, jobLeadershipApplication *application.JobLeadershipApplication,
+) contractJobUnderTest {
+	t.Helper()
+
 	mockController := gomock.NewController(t)
 	candleRepository := mocks.NewMockIKCandleContractRepository(mockController)
 	marketDataProxy := mocks.NewMockIContractMarketDataProxy(mockController)
@@ -77,7 +85,7 @@ func newContractJobUnderTest(t *testing.T, symbols []string) contractJobUnderTes
 				symbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback, nil, 2)),
-		testInterval)
+		jobLeadershipApplication, testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
 	return contractJobUnderTest{
@@ -175,7 +183,7 @@ func TestTheContractJobWritesDownWhatWentWrongWithoutStopping(t *testing.T) {
 				symbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback, nil, 2)),
-		testInterval)
+		onDuty(t), testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
 	ingestionJob.Start(t.Context())
@@ -227,7 +235,7 @@ func contractJobReaching(
 				symbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback, nil, 2)),
-		testInterval)
+		onDuty(t), testInterval)
 	t.Cleanup(ingestionJob.Stop)
 
 	return ingestionJob
@@ -292,4 +300,29 @@ func TestTheContractJobWritesDownEveryCandleItHadToSkip(t *testing.T) {
 			t.Fatal("跳過整批 K 線時，job 應該照樣繼續跑下一輪")
 		}
 	}
+}
+
+func TestTheContractJobFetchesNothingWhileThisReplicaIsOffDuty(t *testing.T) {
+	underTest := newContractJobUnderTestWith(t, []string{"BTCUSDT"}, newDuty(t, false).application)
+
+	underTest.job.Start(t.Context())
+	time.Sleep(10 * testInterval)
+
+	assert.Empty(t, underTest.stages)
+}
+
+func TestTheContractJobBackfillsAgainOnEveryReturnToDuty(t *testing.T) {
+	duty := newDuty(t, true)
+	underTest := newContractJobUnderTestWith(t, []string{"BTCUSDT"}, duty.application)
+	underTest.job.Start(t.Context())
+	require.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	require.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
+
+	duty.set(t, false)
+	time.Sleep(5 * testInterval)
+	drain(underTest.stages)
+	duty.set(t, true)
+
+	assert.Equal(t, "backfill", nextFrom(t, underTest.stages))
+	assert.Equal(t, "scheduled round", nextFrom(t, underTest.stages))
 }

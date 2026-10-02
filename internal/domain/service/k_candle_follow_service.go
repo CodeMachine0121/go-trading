@@ -137,6 +137,22 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 
 	wantedChannels := rosterDomain.Channels()
 
+	kCandleFollowService.retireUnwantedChannels(wantedChannels, currentTime)
+
+	kCandleFollowService.startMissingChannels(executionContext, wantedChannels)
+
+	return nil
+}
+
+// ReleaseFixedFollows ends every rostered follow, for a replica that is no longer on duty; follows opened for viewers stay.
+func (kCandleFollowService *KCandleFollowService) ReleaseFixedFollows() {
+	kCandleFollowService.retireUnwantedChannels(nil, kCandleFollowService.clockProxy.Now())
+}
+
+// retireUnwantedChannels ends rostered lines the wanted roster no longer names and tells their viewers why.
+func (kCandleFollowService *KCandleFollowService) retireUnwantedChannels(
+	wantedChannels []vo.LiveFollowChannelVo, currentTime time.Time,
+) {
 	// Lines and symbols are retired separately: a roster change replaces a line, but symbols on both old and new lines must not be told they lost their place.
 	departing, retired := kCandleFollowService.takeDepartedChannels(wantedChannels)
 
@@ -161,10 +177,6 @@ func (kCandleFollowService *KCandleFollowService) RefreshFixedFollows(
 
 		retiredFollow.end()
 	}
-
-	kCandleFollowService.startMissingChannels(executionContext, wantedChannels)
-
-	return nil
 }
 
 // takeDepartedChannels removes rostered channels whose key the roster no longer wants and returns them to be ended outside the lock.

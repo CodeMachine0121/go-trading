@@ -9,16 +9,22 @@ import (
 )
 
 // ContractMaintenanceMarginTierRefreshJob refreshes maintenance margin tiers on start and every interval; it is only assembled when an account is configured.
+// It works only while this replica is on duty.
 type ContractMaintenanceMarginTierRefreshJob struct {
 	*repeatingRound
 }
 
 func NewContractMaintenanceMarginTierRefreshJob(
 	tierApplication *application.ContractMaintenanceMarginTierApplication,
+	jobLeadershipApplication *application.JobLeadershipApplication,
 	interval time.Duration,
 ) *ContractMaintenanceMarginTierRefreshJob {
 	return &ContractMaintenanceMarginTierRefreshJob{repeatingRound: newRepeatingRound(interval,
 		func(executionContext context.Context) {
+			if !jobLeadershipApplication.IsLeader() {
+				return
+			}
+
 			refreshReport, refreshError := tierApplication.RefreshLadders(executionContext)
 			if refreshError != nil {
 				log.Printf("contract maintenance margin refresh did not run: %v", refreshError)

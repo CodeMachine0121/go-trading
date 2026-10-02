@@ -113,7 +113,7 @@ func startJobEvery(
 				kCandleRepository, mocks.NewMockIKCandleHistorySyncRunRepository(mockController), tradingSymbolRepository, marketDataProxy, clockProxy,
 				domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}}),
 				roundCandleCount, lookback, 2)),
-		interval)
+		onDuty(t), interval)
 	t.Cleanup(ingestionJob.Stop)
 	ingestionJob.Start(t.Context())
 }
@@ -152,7 +152,7 @@ func TestTheJobRecordsARunThatCouldNotHappenAtAll(t *testing.T) {
 		return []vo.MarketKCandleVo{}, nil
 	})
 
-	assert.Contains(t, recorded.waitFor(t, "did not run"), "startup backfill")
+	assert.Contains(t, recorded.waitFor(t, "did not run"), "backfill")
 }
 
 func TestRoundsKeepComingAfterAWholeRoundFails(t *testing.T) {
@@ -164,7 +164,7 @@ func TestRoundsKeepComingAfterAWholeRoundFails(t *testing.T) {
 		})
 
 	// A failed backfill and a failed round must not stop the next round.
-	recorded.waitFor(t, "startup backfill got no answer")
+	recorded.waitFor(t, "backfill got no answer")
 	recorded.waitFor(t, "scheduled round got no answer")
 	assert.Contains(t, recorded.waitFor(t, "scheduled round got no answer"), "BTCUSDT")
 }

@@ -13,8 +13,10 @@ import (
 const LiveFollowRosterInterval = 5 * time.Minute
 
 // LiveFollowRosterJob is separate from ingestion so a slow ingestion round cannot delay following a newly opened market.
+// Only the replica on duty follows the roster, since a market caps how many symbols can be followed at once.
 type LiveFollowRosterJob struct {
 	kCandleFollowApplication *application.KCandleFollowApplication
+	jobLeadershipApplication *application.JobLeadershipApplication
 	interval                 time.Duration
 	done                     chan struct{}
 	stopOnce                 func()
@@ -22,12 +24,14 @@ type LiveFollowRosterJob struct {
 
 func NewLiveFollowRosterJob(
 	kCandleFollowApplication *application.KCandleFollowApplication,
+	jobLeadershipApplication *application.JobLeadershipApplication,
 	interval time.Duration,
 ) *LiveFollowRosterJob {
 	done := make(chan struct{})
 
 	return &LiveFollowRosterJob{
 		kCandleFollowApplication: kCandleFollowApplication,
+		jobLeadershipApplication: jobLeadershipApplication,
 		interval:                 interval,
 		done:                     done,
 		stopOnce:                 sync.OnceFunc(func() { close(done) }),
@@ -71,8 +75,14 @@ func (liveFollowRosterJob *LiveFollowRosterJob) run(executionContext context.Con
 	}
 }
 
-// refresh logs only failures.
+// refresh logs only failures; off duty it lets go of the roster so the replica on duty can take the places.
 func (liveFollowRosterJob *LiveFollowRosterJob) refresh(executionContext context.Context) {
+	if !liveFollowRosterJob.jobLeadershipApplication.IsLeader() {
+		liveFollowRosterJob.kCandleFollowApplication.ReleaseFixedFollows()
+
+		return
+	}
+
 	if refreshError := liveFollowRosterJob.kCandleFollowApplication.
 		RefreshFixedFollows(executionContext); refreshError != nil {
 		log.Printf("live follow roster did not run: %v", refreshError)
