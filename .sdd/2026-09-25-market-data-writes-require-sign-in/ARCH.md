@@ -1,5 +1,7 @@
 # 改動行情資料須先登入 — Architecture Design
 
+> **2026-10-03 更正：** 「看行情不必登入」這一半已經收回——查 K 線、彙總、單根、即時跟盤、交易標的清單與合約補充資料現在**同樣要已開通的登入**（沒帶或壞掉的身分證明回 401、待開通回 403）。理由：開著等於任何知道主機位址的人都能不經帳號、不受每人用量限制地拉走整份存下的行情，而操作台與外掛本來就都要登入。本切片中描述「看」公開的段落保留作為當時的決定，以此更正為準。
+
 **Status:** Confirmed
 **Source PRD:** `.sdd/2026-09-25-market-data-writes-require-sign-in/PRD.md`
 **Tech context:** Go · Gin · Clean / Onion Architecture；組裝根 `cmd/server/dependencies.go`
