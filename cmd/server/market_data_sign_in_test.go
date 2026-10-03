@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -115,7 +116,7 @@ func TestApprovingAConnectorRequiresSignInButDenyingDoesNot(t *testing.T) {
 		"/oauth/authorization-requests/request-1/denial", ""))
 }
 
-func TestReadingMarketDataStaysPublic(t *testing.T) {
+func TestReadingMarketDataRequiresSignIn(t *testing.T) {
 	engine := newMountedEngine(t)
 	expiredProof := expiredAccessToken(t)
 
@@ -137,10 +138,44 @@ func TestReadingMarketDataStaysPublic(t *testing.T) {
 
 	for _, target := range marketDataReads {
 		t.Run(target, func(t *testing.T) {
-			assert.NotEqual(t, http.StatusUnauthorized,
+			assert.Equal(t, http.StatusUnauthorized,
 				requestMounted(engine, http.MethodGet, target, ""), "without a proof")
-			assert.NotEqual(t, http.StatusUnauthorized,
+			assert.Equal(t, http.StatusUnauthorized,
 				requestMounted(engine, http.MethodGet, target, expiredProof), "with an expired proof")
 		})
 	}
 }
+
+// A route added later without the sign-in gate fails here unless it is named as deliberately open.
+func TestEveryRouteButTheDeliberatelyOpenOnesRequiresSignIn(t *testing.T) {
+	t.Setenv("RATE_LIMIT_BURST", "10000")
+	engine := newMountedEngine(t)
+
+	deliberatelyOpen := map[string]bool{
+		"GET /health":               true,
+		"POST /users":               true,
+		"POST /sessions":            true,
+		"POST /sessions/renewal":    true,
+		"POST /sessions/revocation": true,
+		"GET /users/me":             true,
+		"GET /.well-known/oauth-authorization-server":          true,
+		"POST /oauth/register":                                 true,
+		"GET /oauth/authorize":                                 true,
+		"GET /oauth/authorization-requests/:requestId":         true,
+		"POST /oauth/authorization-requests/:requestId/denial": true,
+		"POST /oauth/token":                                    true,
+		"POST /oauth/introspection":                            true,
+	}
+
+	for _, route := range engine.Routes() {
+		if deliberatelyOpen[route.Method+" "+route.Path] {
+			continue
+		}
+		target := routeParameter.ReplaceAllString(route.Path, "1")
+		t.Run(route.Method+" "+route.Path, func(t *testing.T) {
+			assert.Equal(t, http.StatusUnauthorized, requestMounted(engine, route.Method, target, ""))
+		})
+	}
+}
+
+var routeParameter = regexp.MustCompile(`:[A-Za-z]+`)
