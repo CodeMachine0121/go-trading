@@ -72,7 +72,7 @@ func registerRoutes(
 	)
 	userApplication := application.NewUserApplication(userService)
 
-	// Reading market data is public; changing it, and everything a person owns, needs an activated sign-in.
+	// Everything but health, sign-in and connector authorization needs an activated sign-in, reading market data included.
 	authenticationMiddleware := middlewares.NewAuthenticationMiddleware(userApplication)
 	requiresSignIn := authenticationMiddleware.Handle
 	requiresWebSignIn := authenticationMiddleware.HandleWebSignIn
@@ -95,9 +95,9 @@ func registerRoutes(
 	kCandleController := controller.NewKCandleController(kCandleApplication)
 
 	engine.POST("/k-candles", requiresSignIn, kCandleController.CreateKCandle)
-	engine.GET("/k-candles", kCandleController.GetKCandlesInRange)
-	engine.GET("/k-candles/series", kCandleController.GetKCandleSeries)
-	engine.GET("/k-candles/:symbol/:openTime", kCandleController.GetKCandle)
+	engine.GET("/k-candles", requiresSignIn, kCandleController.GetKCandlesInRange)
+	engine.GET("/k-candles/series", requiresSignIn, kCandleController.GetKCandleSeries)
+	engine.GET("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.GetKCandle)
 	engine.PUT("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.UpdateKCandle)
 	engine.DELETE("/k-candles/:symbol/:openTime", requiresSignIn, kCandleController.DeleteKCandle)
 
@@ -139,7 +139,7 @@ func registerRoutes(
 
 	tradingSymbolController := controller.NewTradingSymbolController(tradingSymbolApplication)
 
-	engine.GET("/trading-symbols", tradingSymbolController.ListTradingSymbols)
+	engine.GET("/trading-symbols", requiresSignIn, tradingSymbolController.ListTradingSymbols)
 
 	engine.POST("/watchlist", requiresSignIn, tradingSymbolController.AddToWatchlist)
 	engine.DELETE("/watchlist/:symbol", requiresSignIn, tradingSymbolController.RemoveFromWatchlist)
@@ -224,8 +224,8 @@ func registerRoutes(
 		application.NewKCandleContractApplication(kCandleContractService))
 
 	engine.POST("/contract-k-candles", requiresSignIn, kCandleContractController.CreateKCandleContract)
-	engine.GET("/contract-k-candles", kCandleContractController.GetKCandleContractsInRange)
-	engine.GET("/contract-k-candles/series", kCandleContractController.GetKCandleContractSeries)
+	engine.GET("/contract-k-candles", requiresSignIn, kCandleContractController.GetKCandleContractsInRange)
+	engine.GET("/contract-k-candles/series", requiresSignIn, kCandleContractController.GetKCandleContractSeries)
 	engine.POST("/contract-k-candles/backfill", requiresSignIn,
 		controller.NewKCandleContractBackfillController(
 			kCandleContractIngestionApplication).CatchUpSymbol)
@@ -239,7 +239,7 @@ func registerRoutes(
 		kCandleContractHistorySyncController.StartSymbolHistorySync)
 	engine.GET("/contract-k-candles/history/:id", requiresSignIn,
 		kCandleContractHistorySyncController.GetSymbolHistorySync)
-	engine.GET("/contract-k-candles/:symbol/:openTime",
+	engine.GET("/contract-k-candles/:symbol/:openTime", requiresSignIn,
 		kCandleContractController.GetKCandleContract)
 	engine.PUT("/contract-k-candles/:symbol/:openTime", requiresSignIn,
 		kCandleContractController.UpdateKCandleContract)
@@ -250,15 +250,15 @@ func registerRoutes(
 		contractFundingRateService)
 	contractPositionStatisticApplication := application.NewContractPositionStatisticApplication(
 		contractPositionStatisticService)
-	engine.GET("/contract-funding-rate-settlements",
+	engine.GET("/contract-funding-rate-settlements", requiresSignIn,
 		controller.NewContractFundingRateSettlementController(
 			contractFundingRateApplication).GetSettlementsInRange)
 	contractMaintenanceMarginTierApplication := application.NewContractMaintenanceMarginTierApplication(
 		contractMaintenanceMarginTierService)
-	engine.GET("/contract-maintenance-margin-tiers",
+	engine.GET("/contract-maintenance-margin-tiers", requiresSignIn,
 		controller.NewContractMaintenanceMarginTierController(
 			contractMaintenanceMarginTierApplication).GetTiers)
-	engine.GET("/contract-position-statistics",
+	engine.GET("/contract-position-statistics", requiresSignIn,
 		controller.NewContractPositionStatisticController(
 			contractPositionStatisticApplication).GetStatisticsInRange)
 
@@ -282,7 +282,7 @@ func registerRoutes(
 	contractTradingSymbolController := controller.NewContractTradingSymbolController(
 		contractTradingSymbolApplication)
 
-	engine.GET("/contract-trading-symbols",
+	engine.GET("/contract-trading-symbols", requiresSignIn,
 		contractTradingSymbolController.ListContractTradingSymbols)
 	engine.POST("/contract-watchlist", requiresSignIn, contractTradingSymbolController.AddToWatchlist)
 	engine.DELETE("/contract-watchlist/:symbol", requiresSignIn,
@@ -542,8 +542,8 @@ func registerRoutes(
 
 	kCandleFollowController := controller.NewKCandleFollowController(
 		kCandleFollowApplication, kCandleContractFollowApplication)
-	engine.GET("/k-candles/live", requestGuards.liveStream, kCandleFollowController.WatchKCandles)
-	engine.GET("/contract-k-candles/live", requestGuards.liveStream,
+	engine.GET("/k-candles/live", requiresSignIn, requestGuards.liveStream, kCandleFollowController.WatchKCandles)
+	engine.GET("/contract-k-candles/live", requiresSignIn, requestGuards.liveStream,
 		kCandleFollowController.WatchKCandleContracts)
 
 	tradingStrategyService := service.NewTradingStrategyService(
