@@ -107,3 +107,20 @@ Oracle: Acceptance Criteria（39 clauses）＋ Core Business Rules（10）＋ NF
 - **修正後：50/52 ✅（96.2%）、🟡 2、其餘 0。**
 
 Note: static conformance audit against the Acceptance Criteria — it judges test assertions and code paths against the spec's expected outcome, not by running the full suite.
+
+
+## Code review 後的更新（2026-10-04）
+
+Code review（PR #102）指出「先撤止損止盈再平倉」會在平倉沒成時讓倉位失去保護。已改為「平倉成交後才撤」，並同步更新 BRIEF／PRD／ARCH／ORACLE。
+
+| 條款 | 變更 | 測試 | 狀態 |
+|---|---|---|---|
+| AC-16 平多成交後才撤止損止盈 | 順序改為平倉 → 撤單 | `TestAnAutoOrderClosesOnlyWhatTheBotOpened`（`gomock.InOrder(closing, cancels…)`） | ✅ conforms |
+| AC-16a 平倉沒成，止損止盈留著（新） | 平倉被拒／讀倉位被拒／過時都不撤 | `TestACloseThatDoesNotGoThroughLeavesTheGuardsStanding` | ✅ conforms |
+| AC-16b 平倉成交但止損撤不掉（新） | 照樣記下平倉 | `TestAGuardTheVenueRefusesToTakeDownStillLetsTheCloseBeRecorded` | ✅ conforms |
+| AC-18 平空成交後撤單 | 同上 | `TestAnAutoOrderClosesAShortByBuyingBack` | ✅ conforms |
+| AC-20a 反手平倉後開倉來不及（新） | partiallyDone，不再記成放棄 | `TestAReverseWhoseOpenIsHeldBackAfterItsCloseSaysItClosed`、`TestAReverseThatFoundNothingToCloseIsGivenUpWhenItsOpenIsTooLate` | ✅ conforms |
+| BR 止損掛單不確定仍記下 | 持倉保留那張單的 id | `TestAProtectiveOrderStillStuckAfterAWhileIsHandedToTheOwner`、`TestAProtectiveOrderTheVenueRefusedIsNotTakenDownLater` | ✅ conforms |
+| BR 金鑰驗證正常不全面關閉 | 改為一般拒絕 | `TestARejectionAGoodKeyContradictsSwitchesNothingOff` | ✅ conforms |
+
+另：`AUTO_ORDER_EXECUTION_TIMEOUT_SECONDS` 預設由 150 改為 70、`AUTO_ORDER_REQUEST_TIMEOUT_SECONDS` 由 10 改為 5，讓分身掛掉時那一筆在 2 分鐘下單時限內還來得及被別台接手。
