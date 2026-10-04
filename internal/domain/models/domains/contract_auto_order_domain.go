@@ -412,7 +412,7 @@ func (orderDomain ContractAutoOrderDomain) SettledByFailure(
 	switch call.Failure {
 	case vo.ContractOrderFailureKeyRejected:
 		return orderDomain.withOpenFailure(
-				"幣安不接受你的交易金鑰，已關掉你所有機器人的自動下單，請重存幣安交易金鑰", now),
+				"幣安不接受你的交易金鑰，已關掉你所有機器人的自動下單，請重存金鑰", now),
 			[]string{}, true
 	case vo.ContractOrderFailureNoContractPermission:
 		return orderDomain.withOpenFailure(

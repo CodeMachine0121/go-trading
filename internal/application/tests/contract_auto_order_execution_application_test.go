@@ -286,8 +286,8 @@ func (underTest autoOrderExecutionUnderTest) leverageIsSet() {
 func (underTest autoOrderExecutionUnderTest) marketOrderFills(
 	t *testing.T, side vo.ContractOrderSideVo, quantity string, reduceOnly bool, clientOrderID string,
 	filledQuantity string, averagePrice string,
-) {
-	underTest.contractOrderProxy.EXPECT().PlaceMarketOrder(gomock.Any(), theCredential, gomock.Any()).
+) *gomock.Call {
+	return underTest.contractOrderProxy.EXPECT().PlaceMarketOrder(gomock.Any(), theCredential, gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ vo.TradingKeyCredentialVo, order vo.ContractMarketOrderVo) (vo.ContractOrderFillVo, vo.ContractOrderCallVo) {
 			assert.Equal(t, "BTCUSDT", order.Symbol)
 			assert.Equal(t, side, order.Side)
@@ -326,11 +326,15 @@ func (underTest autoOrderExecutionUnderTest) protectiveOrderAnswers(
 		})
 }
 
-func (underTest autoOrderExecutionUnderTest) protectiveOrdersAreTakenDown(clientOrderIDs ...string) {
+func (underTest autoOrderExecutionUnderTest) protectiveOrdersAreTakenDown(clientOrderIDs ...string) []any {
+	cancels := []any{}
 	for _, clientOrderID := range clientOrderIDs {
-		underTest.contractOrderProxy.EXPECT().CancelProtectiveOrder(gomock.Any(), theCredential, "BTCUSDT", clientOrderID).
-			Return(vo.ContractOrderCallVo{})
+		cancels = append(cancels, underTest.contractOrderProxy.EXPECT().
+			CancelProtectiveOrder(gomock.Any(), theCredential, "BTCUSDT", clientOrderID).
+			Return(vo.ContractOrderCallVo{}))
 	}
+
+	return cancels
 }
 
 func (underTest autoOrderExecutionUnderTest) venueHolds(longQuantity string, shortQuantity string) {
@@ -482,10 +486,12 @@ func TestAnAutoOrderClosesOnlyWhatTheBotOpened(t *testing.T) {
 			underTest.botHolds("long", testCase.botQuantity, earlierStopLossID, earlierTakeProfitID)
 			underTest.venueHasNo(closeClientOrderID)
 			underTest.accountIsOneWay()
-			underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+			cancels := underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 			underTest.venueHolds(testCase.venueLong, "0")
-			underTest.marketOrderFills(t, vo.ContractOrderSideSell, testCase.expectedQuantity, true, closeClientOrderID,
-				testCase.expectedQuantity, "84000")
+			closing := underTest.marketOrderFills(t, vo.ContractOrderSideSell, testCase.expectedQuantity, true,
+				closeClientOrderID, testCase.expectedQuantity, "84000")
+			// The guard comes down before the close, or it could fire against a position already gone.
+			gomock.InOrder(append(cancels, closing)...)
 
 			underTest.execute(t)
 
@@ -546,9 +552,10 @@ func TestAnAutoOrderClosesAShortByBuyingBack(t *testing.T) {
 	underTest.botHolds("short", "0.002", earlierStopLossID, earlierTakeProfitID)
 	underTest.venueHasNo(closeClientOrderID)
 	underTest.accountIsOneWay()
-	underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+	cancels := underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 	underTest.venueHolds("0", "0.002")
-	underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", true, closeClientOrderID, "0.002", "84000")
+	closing := underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", true, closeClientOrderID, "0.002", "84000")
+	gomock.InOrder(append(cancels, closing)...)
 
 	underTest.execute(t)
 
@@ -563,10 +570,11 @@ func TestAnAutoOrderReversesByClosingThenOpening(t *testing.T) {
 	underTest.venueHasNo(closeClientOrderID)
 	underTest.accountIsOneWay()
 	underTest.venueHolds("0.002", "0")
-	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
+	closing := underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
 	underTest.venueHasNo(openClientOrderID)
 	underTest.leverageIsSet()
-	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.003", false, openClientOrderID, "0.003", "84000")
+	opening := underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.003", false, openClientOrderID, "0.003", "84000")
+	gomock.InOrder(closing, opening)
 
 	underTest.execute(t)
 
@@ -610,7 +618,7 @@ func TestAnAutoOrderFindingThePositionGoneSendsNoClose(t *testing.T) {
 
 	settled := underTest.lastSaved(t)
 	assert.Equal(t, string(vo.ContractAutoOrderNotPlaced), settled.Outcome)
-	assert.Contains(t, settled.Reason, "幣安上已沒有這筆倉位")
+	assert.Equal(t, "幣安上已沒有這筆倉位（可能已觸發止損或止盈）", settled.Reason)
 	assert.Empty(t, underTest.lastPosition(t).Direction)
 }
 
@@ -736,7 +744,7 @@ func TestAKeyTheVenueRejectsSwitchesOffEveryAutoOrder(t *testing.T) {
 
 	settled := underTest.lastSaved(t)
 	assert.Equal(t, string(vo.ContractAutoOrderNotPlaced), settled.Outcome)
-	assert.Contains(t, settled.Reason, "重存")
+	assert.Equal(t, "幣安不接受你的交易金鑰，已關掉你所有機器人的自動下單，請重存金鑰", settled.Reason)
 	require.Len(t, *underTest.switchedOff, 1)
 	assert.Empty(t, (*underTest.switchedOff)[0])
 }
