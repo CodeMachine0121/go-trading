@@ -303,6 +303,7 @@ func registerRoutes(
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		persistence.NewContractFundingRateSettlementRepository(database),
 		persistence.NewPendingMessageRepository(database),
+		persistence.NewContractAutoOrderRepository(database),
 		persistence.NewTransactionRepository(database),
 		clock.NewSystemClockProxy(),
 	)

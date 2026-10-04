@@ -21,8 +21,10 @@ type StrategyBotService struct {
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository
 	pendingMessageRepository                domaininterface.IPendingMessageRepository
-	transactionRepository                   domaininterface.ITransactionRepository
-	clockProxy                              domaininterface.IClockProxy
+	// contractAutoOrderRepository queues a round's auto order in the round's own transaction and reads results back beside the round.
+	contractAutoOrderRepository domaininterface.IContractAutoOrderRepository
+	transactionRepository       domaininterface.ITransactionRepository
+	clockProxy                  domaininterface.IClockProxy
 }
 
 func NewStrategyBotService(
@@ -32,6 +34,7 @@ func NewStrategyBotService(
 	contractMaintenanceMarginTierRepository domaininterface.IContractMaintenanceMarginTierRepository,
 	contractFundingRateSettlementRepository domaininterface.IContractFundingRateSettlementRepository,
 	pendingMessageRepository domaininterface.IPendingMessageRepository,
+	contractAutoOrderRepository domaininterface.IContractAutoOrderRepository,
 	transactionRepository domaininterface.ITransactionRepository,
 	clockProxy domaininterface.IClockProxy,
 ) *StrategyBotService {
@@ -42,6 +45,7 @@ func NewStrategyBotService(
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
 		contractFundingRateSettlementRepository: contractFundingRateSettlementRepository,
 		pendingMessageRepository:                pendingMessageRepository,
+		contractAutoOrderRepository:             contractAutoOrderRepository,
 		transactionRepository:                   transactionRepository,
 		clockProxy:                              clockProxy,
 	}
@@ -452,6 +456,13 @@ func (strategyBotService *StrategyBotService) PlanRoundPosition(
 	return round
 }
 
+// PlanAutoOrderIntent works out what a contract round would do with real money from the round already planned, so the order matches the message; false for spot rounds.
+func (strategyBotService *StrategyBotService) PlanAutoOrderIntent(
+	round dto.StrategyBotRoundDto,
+) (dto.ContractAutoOrderIntentDto, bool) {
+	return domains.NewContractAutoOrderIntentDomain(round).ToDto()
+}
+
 // RecordRound applies any round outcome through one method, so no exit can forget to reschedule the bot and leave it due forever.
 // The bot's new state, the round's history, what the round has to say and the release of claimant's claim land in one transaction, so an owner is never told of a round the bot did not keep, nor kept in the dark about one it did.
 // It reports whether the outcome was applied; a bot that moved on meanwhile is left untouched.
@@ -510,6 +521,18 @@ func (strategyBotService *StrategyBotService) RecordRound(
 						id, storedBot.OwnerID, dueAt, vo.SignalVo(outcomeDto.SentSignal),
 						domains.NewStrategyBotMessageDomain(round).Text(),
 						time.Duration(storedBot.TriggerIntervalMinutes)*time.Minute, ranAt,
+					).ToEntity()); enqueueError != nil {
+					return enqueueError
+				}
+			}
+
+			// Judged on the locked row, not the round's snapshot: a bot stopped, or switched off, while the round ran sends nothing.
+			// Only contract rounds carry an intent, so spot bots never get this far.
+			if outcomeDto.HasMessage && outcomeDto.HasAutoOrderIntent && storedBot.AutoOrderEnabled &&
+				storedBot.RunState == string(vo.StrategyBotRunning) {
+				if enqueueError := strategyBotService.contractAutoOrderRepository.Enqueue(transactionContext,
+					domains.NewQueuedContractAutoOrderDomain(
+						id, storedBot.OwnerID, storedBot.Symbol, dueAt, runNumber, outcomeDto.AutoOrderIntent, ranAt,
 					).ToEntity()); enqueueError != nil {
 					return enqueueError
 				}
@@ -575,9 +598,29 @@ func (strategyBotService *StrategyBotService) ListRunRecords(
 		return nil, listError
 	}
 
+	runNumbers := make([]int, 0, len(runRecords))
+	for _, runRecord := range runRecords {
+		runNumbers = append(runNumbers, runRecord.RunNumber)
+	}
+
+	contractAutoOrders, findOrdersError := strategyBotService.contractAutoOrderRepository.FindByBotRunNumbers(
+		executionContext, id, runNumbers)
+	if findOrdersError != nil {
+		return nil, findOrdersError
+	}
+
+	autoOrderResults := map[int]dto.ContractAutoOrderResultDto{}
+	for _, contractAutoOrder := range contractAutoOrders {
+		autoOrderResults[contractAutoOrder.RunNumber] = domains.NewContractAutoOrderDomain(contractAutoOrder).ToResultDto()
+	}
+
 	runRecordDtos := make([]dto.StrategyBotRunRecordDto, 0, len(runRecords))
 	for _, runRecord := range runRecords {
-		runRecordDtos = append(runRecordDtos, runRecord.ToDto())
+		runRecordDto := runRecord.ToDto()
+		if autoOrderResult, hasAutoOrder := autoOrderResults[runRecord.RunNumber]; hasAutoOrder {
+			runRecordDto.AutoOrder = &autoOrderResult
+		}
+		runRecordDtos = append(runRecordDtos, runRecordDto)
 	}
 
 	return runRecordDtos, nil

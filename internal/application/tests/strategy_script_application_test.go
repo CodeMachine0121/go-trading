@@ -54,7 +54,7 @@ func newStrategyScriptApplicationUnderTest(t *testing.T) strategyScriptApplicati
 				mocks.NewMockIStrategyBotRunRecordRepository(controller),
 				mocks.NewMockIContractTradingSymbolRepository(controller),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
-				mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, nil,
+				mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, contractAutoOrderRepositoryNotInvolved(t), nil,
 				mocks.NewMockIClockProxy(controller))),
 		strategyScriptRepository:          strategyScriptRepository,
 		publishedStrategyScriptRepository: publishedStrategyScriptRepository,

@@ -43,6 +43,9 @@ type strategyBotApplicationUnderTest struct {
 	// Consulted when saving a contract bot: is the contract followed, and how much leverage may it carry.
 	contractTradingSymbolRepository         *mocks.MockIContractTradingSymbolRepository
 	contractMaintenanceMarginTierRepository *mocks.MockIContractMaintenanceMarginTierRepository
+	// storedAutoOrders are what the rounds' auto orders read back as; autoOrderReadFailure makes reading them fail.
+	storedAutoOrders     *[]entities.ContractAutoOrder
+	autoOrderReadFailure *error
 }
 
 // newStrategyBotApplicationUnderTest wires real domain services, mocking only storage, the seal, the carrier and the clock.
@@ -82,6 +85,14 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	contractFundingRateSettlementRepository := mocks.NewMockIContractFundingRateSettlementRepository(controller)
+	// The rounds' auto orders, read back beside the history; none unless a test stores some.
+	storedAutoOrders := []entities.ContractAutoOrder{}
+	autoOrderReadFailure := error(nil)
+	contractAutoOrderRepository := mocks.NewMockIContractAutoOrderRepository(controller)
+	contractAutoOrderRepository.EXPECT().FindByBotRunNumbers(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(context.Context, uint, []int) ([]entities.ContractAutoOrder, error) {
+			return storedAutoOrders, autoOrderReadFailure
+		}).AnyTimes()
 
 	telegramDeliveryService := service.NewTelegramDeliveryService(
 		telegramDeliveryRepository, secretSealProxy, messageDeliveryProxy)
@@ -91,7 +102,7 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository,
 				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-				contractFundingRateSettlementRepository, nil, nil, clockProxy),
+				contractFundingRateSettlementRepository, nil, contractAutoOrderRepository, nil, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			telegramDeliveryService,
 			service.NewBinanceTradingKeyService(
@@ -114,6 +125,8 @@ func newStrategyBotApplicationUnderTest(t *testing.T) strategyBotApplicationUnde
 
 		contractTradingSymbolRepository:         contractTradingSymbolRepository,
 		contractMaintenanceMarginTierRepository: contractMaintenanceMarginTierRepository,
+		storedAutoOrders:                        &storedAutoOrders,
+		autoOrderReadFailure:                    &autoOrderReadFailure,
 	}
 }
 

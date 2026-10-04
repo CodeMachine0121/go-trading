@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 //go:generate go tool mockgen -source=i_strategy_bot_repository.go -destination=mocks/mock_i_strategy_bot_repository.go -package=mocks
@@ -44,6 +45,12 @@ type IStrategyBotRepository interface {
 	) error
 
 	DisableAutoOrder(executionContext context.Context, id uint) error
+
+	// DisableAutoOrderByOwner switches auto order off on the owner's bots of the given market data kinds, or on all of them when none is given; it takes part in a surrounding transaction.
+	DisableAutoOrderByOwner(executionContext context.Context, ownerID uint, marketDataKinds []string) error
+
+	// UpdateAutoOrderPosition writes only the bot's own auto-order position and takes part in a surrounding transaction.
+	UpdateAutoOrderPosition(executionContext context.Context, id uint, position vo.AutoOrderPositionVo) error
 
 	// ClaimDue claims for claimant, until claimedUntil, up to limit running bots due at or before moment that no other replica holds a live claim on, oldest due first; rows another replica is claiming at this instant are skipped, never waited for.
 	ClaimDue(

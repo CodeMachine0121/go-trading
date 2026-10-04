@@ -30,8 +30,10 @@ type StrategyBotDto struct {
 	HaltReason string `json:"haltReason,omitempty"`
 	// Conflicting is not a halt and clears once a round stops conflicting.
 	Conflicting bool `json:"conflicting"`
-	// AutoOrderEnabled has no effect on rounds yet; no order is ever placed.
-	AutoOrderEnabled bool      `json:"autoOrderEnabled"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	// AutoOrderEnabled lets a running contract bot open and close positions with its owner's Binance trading key; on spot bots it has no effect yet.
+	AutoOrderEnabled bool `json:"autoOrderEnabled"`
+	// AutoOrderPosition is what a contract bot opened itself and still holds; spot bots have none.
+	AutoOrderPosition *AutoOrderPositionDto `json:"autoOrderPosition,omitempty"`
+	CreatedAt         time.Time             `json:"createdAt"`
+	UpdatedAt         time.Time             `json:"updatedAt"`
 }

@@ -76,7 +76,7 @@ func newStrategyBotRouterUnderTest(t *testing.T) strategyBotRouterUnderTest {
 	strategyBotService := service.NewStrategyBotService(
 		strategyBotRepository, strategyBotRunRecordRepository,
 		contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-		contractFundingRateSettlementRepository, nil, nil, clockProxy)
+		contractFundingRateSettlementRepository, nil, contractAutoOrderRepositoryNotInvolved(t), nil, clockProxy)
 	strategyScriptService := service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository)
 	tradingStrategyRepository := mocks.NewMockITradingStrategyRepository(mockController)
 	tradingStrategyService := service.NewTradingStrategyService(tradingStrategyRepository)

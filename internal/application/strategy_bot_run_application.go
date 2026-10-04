@@ -263,7 +263,11 @@ func (strategyBotRunApplication *StrategyBotRunApplication) playRound(
 	suggestedRound := strategyBotRunApplication.composeRoundMessage(
 		executionContext, botDto, tradingStrategyDto, reference, decision, sourceSignals)
 
-	return suggestingRound(decision.Verdict, decision.Conflicting, suggestedRound)
+	outcomeDto := suggestingRound(decision.Verdict, decision.Conflicting, suggestedRound)
+	outcomeDto.AutoOrderIntent, outcomeDto.HasAutoOrderIntent = strategyBotRunApplication.strategyBotService.
+		PlanAutoOrderIntent(suggestedRound)
+
+	return outcomeDto
 }
 
 // roundSkipped is the outcome kind that changes nothing but when the bot is next due.

@@ -22,4 +22,6 @@ type StrategyBotRunRecordDto struct {
 	SuggestedDirection string           `json:"suggestedDirection,omitempty"`
 	SuggestedLeverage  *decimal.Decimal `json:"suggestedLeverage,omitempty"`
 	SuggestedNotional  *decimal.Decimal `json:"suggestedNotional,omitempty"`
+	// AutoOrder appears only on rounds that queued an auto order.
+	AutoOrder *ContractAutoOrderResultDto `json:"autoOrder,omitempty"`
 }

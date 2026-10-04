@@ -64,6 +64,18 @@ func NewLifecyclePendingMessageDomain(
 	})
 }
 
+// NewAutoOrderPendingMessageDomain queues what an auto order did; it stays worth sending as long as a bot's message about itself, since it describes money already moved.
+func NewAutoOrderPendingMessageDomain(
+	strategyBotID uint, recipientUserID uint, text string, now time.Time,
+) PendingMessageDomain {
+	return NewPendingMessageDomain(entities.PendingMessage{
+		StrategyBotID: strategyBotID, RecipientUserID: recipientUserID,
+		Kind: string(vo.PendingMessageAutoOrder), Text: text,
+		Status: string(vo.PendingMessageReady), NextAttemptAt: now.UTC(),
+		ExpiresAt: now.UTC().Add(pendingMessageLifecycleDeadline), CreatedAt: now.UTC(),
+	})
+}
+
 func (pendingMessageDomain PendingMessageDomain) ToEntity() entities.PendingMessage {
 	return pendingMessageDomain.message
 }
