@@ -305,3 +305,22 @@ func TestAFlatPositionIsStoredWithoutADirection(t *testing.T) {
 	stored, _ := repository.FindOne(t.Context(), testBed.botID)
 	assert.Empty(t, stored.AutoOrderPositionDirection)
 }
+
+// Pulling the brake stops new orders; what the bot already opened is still its own to close later.
+func TestSwitchingAutoOrderOffLeavesTheBotsOwnPositionAlone(t *testing.T) {
+	testBed := newContractAutoOrderTestBed(t)
+	repository := persistence.NewStrategyBotRepository(testBed.database)
+	require.NoError(t, repository.UpdateAutoOrderPosition(t.Context(), testBed.botID, vo.AutoOrderPositionVo{
+		Direction: vo.TargetPositionLong, Quantity: decimal.RequireFromString("0.002"),
+		StopLossClientID: "gt-ao-41-sl", TakeProfitClientID: "gt-ao-41-tp",
+	}))
+
+	require.NoError(t, repository.DisableAutoOrder(t.Context(), testBed.botID))
+
+	switchedOff, _ := repository.FindOne(t.Context(), testBed.botID)
+	assert.False(t, switchedOff.AutoOrderEnabled)
+	assert.Equal(t, "long", switchedOff.AutoOrderPositionDirection)
+	assert.True(t, switchedOff.AutoOrderPositionQuantity.Equal(decimal.RequireFromString("0.002")))
+	assert.Equal(t, "gt-ao-41-sl", switchedOff.AutoOrderStopLossClientID)
+	assert.Equal(t, "gt-ao-41-tp", switchedOff.AutoOrderTakeProfitClientID)
+}
