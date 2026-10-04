@@ -167,6 +167,11 @@ func (orderDomain ContractAutoOrderDomain) RefusalToSend(
 		return orderDomain, false
 	}
 
+	// A reverse whose close already went through did something real; saying it gave up would hide that the bot is now flat.
+	if orderDomain.order.CloseDone && !orderDomain.order.ClosePositionVanished {
+		return orderDomain.withOpenFailure(reason, now), true
+	}
+
 	return orderDomain.settledAs(vo.ContractAutoOrderAbandoned, reason, now), true
 }
 
@@ -338,8 +343,10 @@ func (orderDomain ContractAutoOrderDomain) MayKeepTryingProtectionAt(now time.Ti
 }
 
 // AfterProtection records which protective orders are in place and hands their ids to the bot's position, so its next close takes them down.
+// An unconfirmed one counts as missing, since the owner cannot rely on it, but its id is kept too: if the venue did take it, the next close must still take it down.
 func (orderDomain ContractAutoOrderDomain) AfterProtection(
 	position vo.AutoOrderPositionVo, placed map[vo.ContractProtectiveOrderKindVo]bool,
+	unconfirmed map[vo.ContractProtectiveOrderKindVo]bool,
 ) (ContractAutoOrderDomain, vo.AutoOrderPositionVo) {
 	order := orderDomain.order
 	order.StopLossPlaced = order.StopLossPrice.Valid && placed[vo.ContractProtectiveOrderStopLoss]
@@ -349,11 +356,11 @@ func (orderDomain ContractAutoOrderDomain) AfterProtection(
 	order.ProtectionDone = true
 
 	position.StopLossClientID = ""
-	if order.StopLossPlaced {
+	if order.StopLossPlaced || (order.StopLossPrice.Valid && unconfirmed[vo.ContractProtectiveOrderStopLoss]) {
 		position.StopLossClientID = orderDomain.clientOrderID("sl")
 	}
 	position.TakeProfitClientID = ""
-	if order.TakeProfitPlaced {
+	if order.TakeProfitPlaced || (order.TakeProfitPrice.Valid && unconfirmed[vo.ContractProtectiveOrderTakeProfit]) {
 		position.TakeProfitClientID = orderDomain.clientOrderID("tp")
 	}
 

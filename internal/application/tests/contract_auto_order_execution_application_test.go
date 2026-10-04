@@ -486,12 +486,12 @@ func TestAnAutoOrderClosesOnlyWhatTheBotOpened(t *testing.T) {
 			underTest.botHolds("long", testCase.botQuantity, earlierStopLossID, earlierTakeProfitID)
 			underTest.venueHasNo(closeClientOrderID)
 			underTest.accountIsOneWay()
-			cancels := underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 			underTest.venueHolds(testCase.venueLong, "0")
 			closing := underTest.marketOrderFills(t, vo.ContractOrderSideSell, testCase.expectedQuantity, true,
 				closeClientOrderID, testCase.expectedQuantity, "84000")
-			// The guard comes down before the close, or it could fire against a position already gone.
-			gomock.InOrder(append(cancels, closing)...)
+			cancels := underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+			// The guards come down only once the position is gone, so a close that never happens leaves it guarded.
+			gomock.InOrder(append([]any{closing}, cancels...)...)
 
 			underTest.execute(t)
 
@@ -552,10 +552,10 @@ func TestAnAutoOrderClosesAShortByBuyingBack(t *testing.T) {
 	underTest.botHolds("short", "0.002", earlierStopLossID, earlierTakeProfitID)
 	underTest.venueHasNo(closeClientOrderID)
 	underTest.accountIsOneWay()
-	cancels := underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 	underTest.venueHolds("0", "0.002")
 	closing := underTest.marketOrderFills(t, vo.ContractOrderSideBuy, "0.002", true, closeClientOrderID, "0.002", "84000")
-	gomock.InOrder(append(cancels, closing)...)
+	cancels := underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+	gomock.InOrder(append([]any{closing}, cancels...)...)
 
 	underTest.execute(t)
 
@@ -611,8 +611,8 @@ func TestAnAutoOrderFindingThePositionGoneSendsNoClose(t *testing.T) {
 	underTest.botHolds("long", "0.002", earlierStopLossID, earlierTakeProfitID)
 	underTest.venueHasNo(closeClientOrderID)
 	underTest.accountIsOneWay()
-	underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 	underTest.venueHolds("0", "0")
+	underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 
 	underTest.execute(t)
 
@@ -765,6 +765,25 @@ func TestAKeyWithoutContractTradingSwitchesOffOnlyContractBots(t *testing.T) {
 	assert.Equal(t, []string{string(vo.MarketDataKindContractKCandle)}, (*underTest.switchedOff)[0])
 }
 
+func TestARejectionAGoodKeyContradictsSwitchesNothingOff(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	underTest.queues(anAutoOrder("long", "0.002", "0", "0"))
+	underTest.venueHasNo(openClientOrderID)
+	underTest.accountIsOneWay()
+	underTest.leverageIsSet()
+	underTest.marketOrderAnswers(vo.ContractOrderCallVo{
+		Failure: vo.ContractOrderFailureKeyRejected, ExchangeMessage: "Invalid API-key, IP, or permissions for action."})
+	underTest.verificationProxy.EXPECT().VerifyTradingKey(gomock.Any(), theCredential).
+		Return(vo.TradingKeyVerificationVo{SpotTradingEnabled: true, ContractTradingEnabled: true}, nil)
+
+	underTest.execute(t)
+
+	settled := underTest.lastSaved(t)
+	assert.Equal(t, string(vo.ContractAutoOrderNotPlaced), settled.Outcome)
+	assert.Equal(t, "幣安拒絕：Invalid API-key, IP, or permissions for action.", settled.Reason)
+	assert.Empty(t, *underTest.switchedOff)
+}
+
 func TestAnAutoOrderSendsNothingOnceTheBrakeIsPulled(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -834,6 +853,21 @@ func TestAProtectiveOrderStillStuckAfterAWhileIsHandedToTheOwner(t *testing.T) {
 	settled := underTest.lastSaved(t)
 	assert.Equal(t, string(vo.ContractAutoOrderFilled), settled.Outcome)
 	assert.True(t, settled.ProtectionMissing)
+	// The venue may have taken it after all; the bot's next close must still take it down.
+	assert.Equal(t, stopLossClientID, underTest.lastPosition(t).StopLossClientID)
+}
+
+func TestAProtectiveOrderTheVenueRefusedIsNotTakenDownLater(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	underTest.queues(anOpenedOrder())
+	underTest.botHolds("long", "0.002", "", "")
+	underTest.protectiveOrderAnswers(t, vo.ContractProtectiveOrderStopLoss, vo.ContractOrderSideSell,
+		"83725", "0.002", stopLossClientID, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureVenueRefused})
+
+	underTest.execute(t)
+
+	assert.True(t, underTest.lastSaved(t).ProtectionMissing)
+	assert.Empty(t, underTest.lastPosition(t).StopLossClientID)
 }
 
 func TestAFractionalLeverageIsNeverSentToTheVenue(t *testing.T) {

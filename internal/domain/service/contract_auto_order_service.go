@@ -216,7 +216,8 @@ func (contractAutoOrderService *ContractAutoOrderService) prepare(
 	return run, nil
 }
 
-// close takes down the bot's protective orders and closes what it opened, unless the venue already has it closed under this order's id.
+// close closes what the bot opened, unless the venue already has it closed under this order's id, and only then takes down the orders that guarded it.
+// The guards stay up until the position is gone: a close that is refused, waits or runs out of time never leaves an open position unguarded.
 func (contractAutoOrderService *ContractAutoOrderService) close(
 	callContext context.Context, run *orderRun,
 ) (contractAutoOrderStepOutcome, error) {
@@ -224,7 +225,7 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 		fill, findCall := contractAutoOrderService.contractOrderProxy.FindMarketOrder(
 			callContext, run.credential, run.order.Symbol(), run.order.CloseClientOrderID())
 		if findCall.Failure == vo.ContractOrderFailureNone {
-			return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
+			return contractAutoOrderService.takeDownGuards(callContext, run, func() {
 				run.order, run.position = run.order.AfterClose(run.position, fill)
 			})
 		}
@@ -237,14 +238,6 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 		return outcome, refuseError
 	}
 
-	for _, clientID := range run.order.ProtectiveClientIDsOf(run.position) {
-		cancelCall := contractAutoOrderService.contractOrderProxy.CancelProtectiveOrder(
-			callContext, run.credential, run.order.Symbol(), clientID)
-		if cancelCall.Failure != vo.ContractOrderFailureNone {
-			return contractAutoOrderService.fail(callContext, *run, cancelCall)
-		}
-	}
-
 	exchangePosition, positionCall := contractAutoOrderService.contractOrderProxy.ReadPosition(
 		callContext, run.credential, run.order.Symbol())
 	if positionCall.Failure != vo.ContractOrderFailureNone {
@@ -253,7 +246,7 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 
 	closeOrder, hasSomethingToClose := run.order.CloseOrderFor(run.position, exchangePosition)
 	if !hasSomethingToClose {
-		return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
+		return contractAutoOrderService.takeDownGuards(callContext, run, func() {
 			run.order, run.position = run.order.AfterCloseVanished(run.position)
 		})
 	}
@@ -263,9 +256,30 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 		return contractAutoOrderService.fail(callContext, *run, placeCall)
 	}
 
-	return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
+	return contractAutoOrderService.takeDownGuards(callContext, run, func() {
 		run.order, run.position = run.order.AfterClose(run.position, fill)
 	})
+}
+
+// takeDownGuards cancels the orders that guarded a position already gone at the venue, then records the close.
+// A cancel that may not have gone through is retried: the close is found again by its id, and a guard left behind could later close a new position on the same side.
+// A cancel the venue refuses outright is left to the owner, since the close itself went through and must be recorded.
+func (contractAutoOrderService *ContractAutoOrderService) takeDownGuards(
+	callContext context.Context, run *orderRun, applyClose func(),
+) (contractAutoOrderStepOutcome, error) {
+	for _, clientID := range run.order.ProtectiveClientIDsOf(run.position) {
+		cancelCall := contractAutoOrderService.contractOrderProxy.CancelProtectiveOrder(
+			callContext, run.credential, run.order.Symbol(), clientID)
+		if cancelCall.Failure == vo.ContractOrderFailureUncertain {
+			return stepWaits, contractAutoOrderService.reschedule(callContext, *run)
+		}
+		if cancelCall.Failure != vo.ContractOrderFailureNone {
+			log.Printf("contract auto order %d: a guard of the closed position was not taken down: %s %s %s",
+				run.order.ID(), clientID, cancelCall.Failure, cancelCall.ExchangeMessage)
+		}
+	}
+
+	return stepContinues, contractAutoOrderService.recordStep(callContext, run, applyClose)
 }
 
 // open sets the contract to isolated margin at the bot's leverage and opens the target side, unless the venue already has it opened under this order's id.
@@ -314,6 +328,7 @@ func (contractAutoOrderService *ContractAutoOrderService) protect(
 	callContext context.Context, run *orderRun,
 ) (contractAutoOrderStepOutcome, error) {
 	placed := map[vo.ContractProtectiveOrderKindVo]bool{}
+	unconfirmed := map[vo.ContractProtectiveOrderKindVo]bool{}
 
 	for _, protectiveOrder := range run.order.ProtectiveOrders() {
 		if !run.hasCredential {
@@ -335,13 +350,14 @@ func (contractAutoOrderService *ContractAutoOrderService) protect(
 			run.order.MayKeepTryingProtectionAt(contractAutoOrderService.clockProxy.Now()):
 			return stepWaits, contractAutoOrderService.reschedule(callContext, *run)
 		default:
+			unconfirmed[protectiveOrder.Kind] = call.Failure == vo.ContractOrderFailureUncertain
 			log.Printf("contract auto order %d: a protective order was not placed: %s %s",
 				run.order.ID(), call.Failure, call.ExchangeMessage)
 		}
 	}
 
 	return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
-		run.order, run.position = run.order.AfterProtection(run.position, placed)
+		run.order, run.position = run.order.AfterProtection(run.position, placed, unconfirmed)
 	})
 }
 
@@ -392,6 +408,9 @@ func (contractAutoOrderService *ContractAutoOrderService) fail(
 			return stepWaits, contractAutoOrderService.reschedule(callContext, run)
 		case verification.FailureReason == vo.TradingKeyVerificationFailureNone && !verification.ContractTradingEnabled:
 			call.Failure = vo.ContractOrderFailureNoContractPermission
+		case verification.FailureReason == vo.TradingKeyVerificationFailureNone:
+			// The key works and may trade contracts, so this refusal says nothing about the key; switching every bot off on it would punish a good key.
+			call.Failure = vo.ContractOrderFailureOtherRefusal
 		}
 	}
 

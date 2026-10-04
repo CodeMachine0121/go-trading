@@ -188,6 +188,8 @@ func TestACloseTheVenueAlreadyFilledIsNotSentAgain(t *testing.T) {
 			ExecutedQuantity: decimal.RequireFromString("0.002"), AveragePrice: decimal.NewFromInt(84000),
 		}, vo.ContractOrderCallVo{})
 
+	underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
+
 	underTest.execute(t)
 
 	assert.Empty(t, underTest.lastPosition(t).Direction)
@@ -207,13 +209,17 @@ func TestAnAutoOrderWaitsWhenAnyStepOfACloseGetsNoClearAnswer(t *testing.T) {
 		{name: "撤保護單", answer: func(underTest autoOrderExecutionUnderTest) {
 			underTest.venueHasNo(closeClientOrderID)
 			underTest.accountIsOneWay()
+			underTest.venueHolds("0.002", "0")
+			underTest.contractOrderProxy.EXPECT().PlaceMarketOrder(gomock.Any(), theCredential, gomock.Any()).
+				Return(vo.ContractOrderFillVo{
+					ExecutedQuantity: decimal.RequireFromString("0.002"), AveragePrice: decimal.NewFromInt(84000),
+				}, vo.ContractOrderCallVo{})
 			underTest.contractOrderProxy.EXPECT().CancelProtectiveOrder(gomock.Any(), theCredential, "BTCUSDT", earlierStopLossID).
 				Return(uncertain)
 		}},
 		{name: "讀倉位", answer: func(underTest autoOrderExecutionUnderTest) {
 			underTest.venueHasNo(closeClientOrderID)
 			underTest.accountIsOneWay()
-			underTest.protectiveOrdersAreTakenDown(earlierStopLossID, earlierTakeProfitID)
 			underTest.contractOrderProxy.EXPECT().ReadPosition(gomock.Any(), theCredential, "BTCUSDT").
 				Return(vo.ContractExchangePositionVo{}, uncertain)
 		}},
@@ -427,4 +433,115 @@ func TestAnAutoOrderWhoseSwitchesCannotBeTurnedOffIsNotSettled(t *testing.T) {
 	require.NoError(t, executeError)
 	assert.Zero(t, settledCount)
 	assert.Empty(t, *underTest.messages)
+}
+
+// A close that does not go through leaves the old guards standing: the position is still open and still needs them.
+func TestACloseThatDoesNotGoThroughLeavesTheGuardsStanding(t *testing.T) {
+	testCases := []struct {
+		name   string
+		answer func(underTest autoOrderExecutionUnderTest)
+	}{
+		{name: "平倉單被拒", answer: func(underTest autoOrderExecutionUnderTest) {
+			underTest.venueHasNo(closeClientOrderID)
+			underTest.accountIsOneWay()
+			underTest.venueHolds("0.002", "0")
+			underTest.marketOrderAnswers(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureInsufficientBalance})
+		}},
+		{name: "讀倉位被拒", answer: func(underTest autoOrderExecutionUnderTest) {
+			underTest.venueHasNo(closeClientOrderID)
+			underTest.accountIsOneWay()
+			underTest.contractOrderProxy.EXPECT().ReadPosition(gomock.Any(), theCredential, "BTCUSDT").
+				Return(vo.ContractExchangePositionVo{}, vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureVenueRefused})
+		}},
+		{name: "過了下單時限", answer: func(underTest autoOrderExecutionUnderTest) {
+			*underTest.now = autoOrderRoundRanAt.Add(2 * time.Minute)
+			underTest.venueHasNo(closeClientOrderID)
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newAutoOrderExecutionUnderTest(t)
+			underTest.queues(anAutoOrder("flat", "", "0", "0"))
+			underTest.botHolds("long", "0.002", earlierStopLossID, earlierTakeProfitID)
+			testCase.answer(underTest)
+
+			// No cancel is expected: the strict mock fails the test on any.
+			underTest.execute(t)
+
+			assert.Equal(t, string(vo.ContractAutoOrderSettled), underTest.lastSaved(t).Status)
+			assert.Empty(t, *underTest.positions)
+		})
+	}
+}
+
+func TestAGuardTheVenueRefusesToTakeDownStillLetsTheCloseBeRecorded(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	underTest.queues(anAutoOrder("flat", "", "0", "0"))
+	underTest.botHolds("long", "0.002", earlierStopLossID, "")
+	underTest.venueHasNo(closeClientOrderID)
+	underTest.accountIsOneWay()
+	underTest.venueHolds("0.002", "0")
+	underTest.marketOrderFills(t, vo.ContractOrderSideSell, "0.002", true, closeClientOrderID, "0.002", "84000")
+	underTest.contractOrderProxy.EXPECT().CancelProtectiveOrder(gomock.Any(), theCredential, "BTCUSDT", earlierStopLossID).
+		Return(vo.ContractOrderCallVo{Failure: vo.ContractOrderFailureVenueRefused, ExchangeMessage: "X"})
+
+	underTest.execute(t)
+
+	assert.Equal(t, string(vo.ContractAutoOrderFilled), underTest.lastSaved(t).Outcome)
+	assert.Empty(t, underTest.lastPosition(t).Direction)
+}
+
+// A reverse whose close went through and whose open came too late, or was stopped, did something real and says so.
+func TestAReverseWhoseOpenIsHeldBackAfterItsCloseSaysItClosed(t *testing.T) {
+	testCases := []struct {
+		name           string
+		holdBack       func(underTest autoOrderExecutionUnderTest)
+		expectedReason string
+	}{
+		{name: "過了下單時限", holdBack: func(underTest autoOrderExecutionUnderTest) {
+			*underTest.now = autoOrderRoundRanAt.Add(2 * time.Minute)
+		}, expectedReason: "已平倉，但做空沒開成：訊號已經過時，沒有下單"},
+		{name: "機器人已停止", holdBack: func(underTest autoOrderExecutionUnderTest) {
+			underTest.bot.RunState = string(vo.StrategyBotStopped)
+		}, expectedReason: "已平倉，但做空沒開成：機器人已停止，沒有下單"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			underTest := newAutoOrderExecutionUnderTest(t)
+			closed := anAutoOrder("short", "0.003", "0", "0")
+			closed.CloseDone = true
+			closed.ClosedDirection = "long"
+			closed.ClosedQuantity = decimal.NewNullDecimal(decimal.RequireFromString("0.002"))
+			closed.CloseAveragePrice = decimal.NewNullDecimal(decimal.NewFromInt(84000))
+			underTest.queues(closed)
+			testCase.holdBack(underTest)
+			underTest.venueHasNo(openClientOrderID)
+
+			underTest.execute(t)
+
+			settled := underTest.lastSaved(t)
+			assert.Equal(t, string(vo.ContractAutoOrderPartiallyDone), settled.Outcome)
+			assert.Equal(t, testCase.expectedReason, settled.Reason)
+		})
+	}
+}
+
+// A reverse that found its old side already gone did nothing itself, so an open held back after it is simply given up.
+func TestAReverseThatFoundNothingToCloseIsGivenUpWhenItsOpenIsTooLate(t *testing.T) {
+	underTest := newAutoOrderExecutionUnderTest(t)
+	vanished := anAutoOrder("short", "0.003", "0", "0")
+	vanished.CloseDone = true
+	vanished.ClosedDirection = "long"
+	vanished.ClosePositionVanished = true
+	underTest.queues(vanished)
+	*underTest.now = autoOrderRoundRanAt.Add(2 * time.Minute)
+	underTest.venueHasNo(openClientOrderID)
+
+	underTest.execute(t)
+
+	settled := underTest.lastSaved(t)
+	assert.Equal(t, string(vo.ContractAutoOrderAbandoned), settled.Outcome)
+	assert.Equal(t, "訊號已經過時，沒有下單", settled.Reason)
 }
