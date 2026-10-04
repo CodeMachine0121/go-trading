@@ -9,7 +9,6 @@ import (
 
 	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/shopspring/decimal"
 )
@@ -121,21 +120,6 @@ func (contractAutoOrderService *ContractAutoOrderService) ExecuteDueAutoOrders(
 	return settledCount, nil
 }
 
-// orderRun is one replica's hold on one order: what it holds the order with and what it has learnt along the way.
-type orderRun struct {
-	order         domains.ContractAutoOrderDomain
-	position      vo.AutoOrderPositionVo
-	bot           entities.StrategyBot
-	credential    vo.TradingKeyCredentialVo
-	hasCredential bool
-	// unsealable is a stored key this system could not open, which no retry fixes.
-	unsealable       bool
-	tickSize         decimal.Decimal
-	accountChecked   bool
-	botRunning       bool
-	autoOrderEnabled bool
-}
-
 // execute claims the order and walks it through its steps until it settles or has to wait; it reports whether it settled.
 func (contractAutoOrderService *ContractAutoOrderService) execute(
 	executionContext context.Context, order domains.ContractAutoOrderDomain,
@@ -160,22 +144,23 @@ func (contractAutoOrderService *ContractAutoOrderService) execute(
 	}
 
 	for {
+		outcome := stepSettled
+		stepError := error(nil)
+
 		switch run.order.NextStep(run.position) {
 		case domains.ContractAutoOrderStepClose:
-			if waiting, settled, closeError := contractAutoOrderService.close(callContext, &run); waiting || settled || closeError != nil {
-				return settled, closeError
-			}
+			outcome, stepError = contractAutoOrderService.close(callContext, &run)
 		case domains.ContractAutoOrderStepOpen:
-			if waiting, settled, openError := contractAutoOrderService.open(callContext, &run); waiting || settled || openError != nil {
-				return settled, openError
-			}
+			outcome, stepError = contractAutoOrderService.open(callContext, &run)
 		case domains.ContractAutoOrderStepProtect:
-			if waiting, protectError := contractAutoOrderService.protect(callContext, &run); waiting || protectError != nil {
-				return false, protectError
-			}
+			outcome, stepError = contractAutoOrderService.protect(callContext, &run)
 		default:
-			return true, contractAutoOrderService.settle(executionContext, run,
+			stepError = contractAutoOrderService.settle(executionContext, run,
 				run.order.Settled(run.position, contractAutoOrderService.clockProxy.Now()), nil, false)
+		}
+
+		if stepError != nil || outcome != stepContinues {
+			return outcome == stepSettled && stepError == nil, stepError
 		}
 	}
 }
@@ -234,12 +219,12 @@ func (contractAutoOrderService *ContractAutoOrderService) prepare(
 // close takes down the bot's protective orders and closes what it opened, unless the venue already has it closed under this order's id.
 func (contractAutoOrderService *ContractAutoOrderService) close(
 	callContext context.Context, run *orderRun,
-) (bool, bool, error) {
+) (contractAutoOrderStepOutcome, error) {
 	if run.hasCredential {
 		fill, findCall := contractAutoOrderService.contractOrderProxy.FindMarketOrder(
 			callContext, run.credential, run.order.Symbol(), run.order.CloseClientOrderID())
 		if findCall.Failure == vo.ContractOrderFailureNone {
-			return false, false, contractAutoOrderService.recordStep(callContext, run, func() {
+			return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
 				run.order, run.position = run.order.AfterClose(run.position, fill)
 			})
 		}
@@ -248,8 +233,8 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 		}
 	}
 
-	if waiting, settled, refuseError := contractAutoOrderService.refuseToSend(callContext, run); waiting || settled || refuseError != nil {
-		return waiting, settled, refuseError
+	if outcome, refuseError := contractAutoOrderService.refuseToSend(callContext, run); outcome != stepContinues || refuseError != nil {
+		return outcome, refuseError
 	}
 
 	for _, clientID := range run.order.ProtectiveClientIDsOf(run.position) {
@@ -268,7 +253,7 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 
 	closeOrder, hasSomethingToClose := run.order.CloseOrderFor(run.position, exchangePosition)
 	if !hasSomethingToClose {
-		return false, false, contractAutoOrderService.recordStep(callContext, run, func() {
+		return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
 			run.order, run.position = run.order.AfterCloseVanished(run.position)
 		})
 	}
@@ -278,7 +263,7 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 		return contractAutoOrderService.fail(callContext, *run, placeCall)
 	}
 
-	return false, false, contractAutoOrderService.recordStep(callContext, run, func() {
+	return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
 		run.order, run.position = run.order.AfterClose(run.position, fill)
 	})
 }
@@ -286,12 +271,12 @@ func (contractAutoOrderService *ContractAutoOrderService) close(
 // open sets the contract to isolated margin at the bot's leverage and opens the target side, unless the venue already has it opened under this order's id.
 func (contractAutoOrderService *ContractAutoOrderService) open(
 	callContext context.Context, run *orderRun,
-) (bool, bool, error) {
+) (contractAutoOrderStepOutcome, error) {
 	if run.hasCredential {
 		fill, findCall := contractAutoOrderService.contractOrderProxy.FindMarketOrder(
 			callContext, run.credential, run.order.Symbol(), run.order.OpenClientOrderID())
 		if findCall.Failure == vo.ContractOrderFailureNone {
-			return false, false, contractAutoOrderService.recordStep(callContext, run, func() {
+			return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
 				run.order, run.position = run.order.AfterOpen(
 					run.position, fill, run.tickSize, contractAutoOrderService.clockProxy.Now())
 			})
@@ -301,8 +286,8 @@ func (contractAutoOrderService *ContractAutoOrderService) open(
 		}
 	}
 
-	if waiting, settled, refuseError := contractAutoOrderService.refuseToSend(callContext, run); waiting || settled || refuseError != nil {
-		return waiting, settled, refuseError
+	if outcome, refuseError := contractAutoOrderService.refuseToSend(callContext, run); outcome != stepContinues || refuseError != nil {
+		return outcome, refuseError
 	}
 
 	prepareCall := contractAutoOrderService.contractOrderProxy.PrepareIsolatedLeverage(
@@ -317,7 +302,7 @@ func (contractAutoOrderService *ContractAutoOrderService) open(
 		return contractAutoOrderService.fail(callContext, *run, placeCall)
 	}
 
-	return false, false, contractAutoOrderService.recordStep(callContext, run, func() {
+	return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
 		run.order, run.position = run.order.AfterOpen(
 			run.position, fill, run.tickSize, contractAutoOrderService.clockProxy.Now())
 	})
@@ -327,7 +312,7 @@ func (contractAutoOrderService *ContractAutoOrderService) open(
 // The brakes are not consulted here: the position is already open, and leaving it unguarded is never what pulling a brake means.
 func (contractAutoOrderService *ContractAutoOrderService) protect(
 	callContext context.Context, run *orderRun,
-) (bool, error) {
+) (contractAutoOrderStepOutcome, error) {
 	placed := map[vo.ContractProtectiveOrderKindVo]bool{}
 
 	for _, protectiveOrder := range run.order.ProtectiveOrders() {
@@ -348,14 +333,14 @@ func (contractAutoOrderService *ContractAutoOrderService) protect(
 			placed[protectiveOrder.Kind] = true
 		case call.Failure == vo.ContractOrderFailureUncertain &&
 			run.order.MayKeepTryingProtectionAt(contractAutoOrderService.clockProxy.Now()):
-			return true, contractAutoOrderService.reschedule(callContext, *run)
+			return stepWaits, contractAutoOrderService.reschedule(callContext, *run)
 		default:
 			log.Printf("contract auto order %d: a protective order was not placed: %s %s",
 				run.order.ID(), call.Failure, call.ExchangeMessage)
 		}
 	}
 
-	return false, contractAutoOrderService.recordStep(callContext, run, func() {
+	return stepContinues, contractAutoOrderService.recordStep(callContext, run, func() {
 		run.order, run.position = run.order.AfterProtection(run.position, placed)
 	})
 }
@@ -363,18 +348,18 @@ func (contractAutoOrderService *ContractAutoOrderService) protect(
 // refuseToSend is asked right before a market order the venue has no record of; it settles the order when none may go out, and checks once that the account holds one net position.
 func (contractAutoOrderService *ContractAutoOrderService) refuseToSend(
 	callContext context.Context, run *orderRun,
-) (bool, bool, error) {
+) (contractAutoOrderStepOutcome, error) {
 	now := contractAutoOrderService.clockProxy.Now()
 	if run.unsealable {
-		return false, true, contractAutoOrderService.settle(callContext, *run, run.order.SettledUnsealable(now), nil, false)
+		return stepSettled, contractAutoOrderService.settle(callContext, *run, run.order.SettledUnsealable(now), nil, false)
 	}
 	if refused, isRefused := run.order.RefusalToSend(
 		now, run.botRunning, run.autoOrderEnabled, run.hasCredential); isRefused {
-		return false, true, contractAutoOrderService.settle(callContext, *run, refused, nil, false)
+		return stepSettled, contractAutoOrderService.settle(callContext, *run, refused, nil, false)
 	}
 
 	if run.accountChecked {
-		return false, false, nil
+		return stepContinues, nil
 	}
 
 	isHedgeMode, modeCall := contractAutoOrderService.contractOrderProxy.ReadPositionMode(callContext, run.credential)
@@ -382,19 +367,19 @@ func (contractAutoOrderService *ContractAutoOrderService) refuseToSend(
 		return contractAutoOrderService.fail(callContext, *run, modeCall)
 	}
 	if isHedgeMode {
-		return false, true, contractAutoOrderService.settle(callContext, *run, run.order.SettledInHedgeMode(now), nil, false)
+		return stepSettled, contractAutoOrderService.settle(callContext, *run, run.order.SettledInHedgeMode(now), nil, false)
 	}
 	run.accountChecked = true
 
-	return false, false, nil
+	return stepContinues, nil
 }
 
 // fail waits on an answer that may come right and settles on a refusal; a rejected key is asked about once more to tell a dead key from a missing contract permission.
 func (contractAutoOrderService *ContractAutoOrderService) fail(
 	callContext context.Context, run orderRun, call vo.ContractOrderCallVo,
-) (bool, bool, error) {
+) (contractAutoOrderStepOutcome, error) {
 	if call.Failure == vo.ContractOrderFailureUncertain {
-		return true, false, contractAutoOrderService.reschedule(callContext, run)
+		return stepWaits, contractAutoOrderService.reschedule(callContext, run)
 	}
 
 	if call.Failure == vo.ContractOrderFailureKeyRejected {
@@ -404,7 +389,7 @@ func (contractAutoOrderService *ContractAutoOrderService) fail(
 		case verifyError != nil ||
 			verification.FailureReason == vo.TradingKeyVerificationFailureUnreachable ||
 			verification.FailureReason == vo.TradingKeyVerificationFailureTimedOut:
-			return true, false, contractAutoOrderService.reschedule(callContext, run)
+			return stepWaits, contractAutoOrderService.reschedule(callContext, run)
 		case verification.FailureReason == vo.TradingKeyVerificationFailureNone && !verification.ContractTradingEnabled:
 			call.Failure = vo.ContractOrderFailureNoContractPermission
 		}
@@ -412,7 +397,7 @@ func (contractAutoOrderService *ContractAutoOrderService) fail(
 
 	settledOrder, switchOffKinds, switchesOff := run.order.SettledByFailure(call, contractAutoOrderService.clockProxy.Now())
 
-	return false, true, contractAutoOrderService.settle(callContext, run, settledOrder, switchOffKinds, switchesOff)
+	return stepSettled, contractAutoOrderService.settle(callContext, run, settledOrder, switchOffKinds, switchesOff)
 }
 
 // recordStep applies a finished step and writes it back with the bot's position in one transaction, so the two never disagree.
