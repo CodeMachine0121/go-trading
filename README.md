@@ -136,6 +136,11 @@ curl localhost:8080/health
 | `PENDING_MESSAGE_DISPATCH_INTERVAL_SECONDS` | `2` | 每台分身多久看一次待送訊息 |
 | `PENDING_MESSAGE_SEND_TIMEOUT_SECONDS` | `120` | 一則訊息被拿去寄之後多久沒有結果就重寄；不足兩倍 `TELEGRAM_REQUEST_TIMEOUT_SECONDS` 時啟動時自動加長，否則慢的那一次會被寄兩遍 |
 | `PENDING_MESSAGE_MAX_CONCURRENT_DELIVERIES` | `8` | 一台分身同時寄幾則（不同使用者之間；同一位使用者永遠一則一則依序寄） |
+| `AUTO_ORDER_CONTRACT_API_BASE_URL` | `https://fapi.binance.com` | 合約機器人自動下單送到哪裡（幣安 USDT 永續合約） |
+| `AUTO_ORDER_REQUEST_TIMEOUT_SECONDS` | `10` | 自動下單每一個幣安請求的等待上限 |
+| `AUTO_ORDER_DISPATCH_INTERVAL_SECONDS` | `5` | 每台分身多久看一次待執行的自動下單 |
+| `AUTO_ORDER_EXECUTION_TIMEOUT_SECONDS` | `150` | 一筆自動下單被一台分身拿著多久；不足 14 倍 `AUTO_ORDER_REQUEST_TIMEOUT_SECONDS` 時啟動時自動加長，否則慢的那一筆會被別台接手 |
+| `AUTO_ORDER_MAX_CONCURRENT_EXECUTIONS` | `8` | 一台分身同時執行幾筆（不同機器人之間；同一台機器人永遠一筆一筆依序執行） |
 | `KCANDLE_INGESTION_ROUND_CANDLE_COUNT` | `25` | 每輪針對單一交易標的取回幾根已收完的 K 線。**它同時決定「整個市場推定休市」要多久的沉默才算數**——25 根 × 一分鐘 = 25 分鐘 |
 | `KCANDLE_INGESTION_BACKFILL_LOOKBACK_HOURS` | `24` | 啟動回補最多往回幾小時 |
 | `KCANDLE_HISTORY_SYNC_MAX_LOOKBACK_DAYS` | `3650` | `POST /k-candles/history` 一次最多往回抓幾天。打錯字的防線，不是成本上限 |
