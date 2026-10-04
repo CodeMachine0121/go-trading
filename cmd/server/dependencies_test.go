@@ -16,7 +16,7 @@ func TestBackgroundJobsForRespectsTheSwitch(t *testing.T) {
 		{name: "switched off leaves only the heartbeat, since the replica still serves", switchValue: "false", expectedJobCount: 1},
 		{
 			name:        "switched on assembles the work the system does on its own",
-			switchValue: "true", expectedJobCount: 11,
+			switchValue: "true", expectedJobCount: 12,
 		},
 	}
 
@@ -38,9 +38,9 @@ func TestBackgroundJobsForLeavesOutAContractSeriesJobSwitchedOff(t *testing.T) {
 		switchedOff      string
 		expectedJobCount int
 	}{
-		{name: "資金費率", switchedOff: "CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", expectedJobCount: 10},
-		{name: "持倉統計", switchedOff: "CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", expectedJobCount: 10},
-		{name: "交易規格", switchedOff: "CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", expectedJobCount: 10},
+		{name: "資金費率", switchedOff: "CONTRACT_FUNDING_RATE_INGESTION_INTERVAL_MINUTES", expectedJobCount: 11},
+		{name: "持倉統計", switchedOff: "CONTRACT_POSITION_STATISTIC_INGESTION_INTERVAL_MINUTES", expectedJobCount: 11},
+		{name: "交易規格", switchedOff: "CONTRACT_TRADING_SPECIFICATION_REFRESH_INTERVAL_HOURS", expectedJobCount: 11},
 	}
 
 	for _, testCase := range testCases {
@@ -64,10 +64,10 @@ func TestBackgroundJobsForRefreshesTheMaintenanceMarginLadderOnlyWithAnAccount(t
 		interval         string
 		expectedJobCount int
 	}{
-		{name: "沒有帳戶金鑰", expectedJobCount: 11},
-		{name: "只有一半的金鑰", apiKey: "key", expectedJobCount: 11},
-		{name: "有帳戶金鑰", apiKey: "key", apiSecret: "secret", expectedJobCount: 12},
-		{name: "有金鑰但停用", apiKey: "key", apiSecret: "secret", interval: "0", expectedJobCount: 11},
+		{name: "沒有帳戶金鑰", expectedJobCount: 12},
+		{name: "只有一半的金鑰", apiKey: "key", expectedJobCount: 12},
+		{name: "有帳戶金鑰", apiKey: "key", apiSecret: "secret", expectedJobCount: 13},
+		{name: "有金鑰但停用", apiKey: "key", apiSecret: "secret", interval: "0", expectedJobCount: 12},
 	}
 
 	for _, testCase := range testCases {

@@ -48,7 +48,7 @@ func newTradingStrategyApplicationUnderTest(t *testing.T) tradingStrategyApplica
 				strategyBotRepository, strategyBotRunRecordRepository,
 				mocks.NewMockIContractTradingSymbolRepository(controller),
 				mocks.NewMockIContractMaintenanceMarginTierRepository(controller),
-				mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, nil,
+				mocks.NewMockIContractFundingRateSettlementRepository(controller), nil, contractAutoOrderRepositoryNotInvolved(t), nil,
 				clockProxy),
 		),
 		tradingStrategyRepository:         tradingStrategyRepository,

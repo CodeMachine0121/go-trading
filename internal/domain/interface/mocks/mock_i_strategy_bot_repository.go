@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
+	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -113,6 +114,20 @@ func (m *MockIStrategyBotRepository) DisableAutoOrder(executionContext context.C
 func (mr *MockIStrategyBotRepositoryMockRecorder) DisableAutoOrder(executionContext, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableAutoOrder", reflect.TypeOf((*MockIStrategyBotRepository)(nil).DisableAutoOrder), executionContext, id)
+}
+
+// DisableAutoOrderByOwner mocks base method.
+func (m *MockIStrategyBotRepository) DisableAutoOrderByOwner(executionContext context.Context, ownerID uint, marketDataKinds []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisableAutoOrderByOwner", executionContext, ownerID, marketDataKinds)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DisableAutoOrderByOwner indicates an expected call of DisableAutoOrderByOwner.
+func (mr *MockIStrategyBotRepositoryMockRecorder) DisableAutoOrderByOwner(executionContext, ownerID, marketDataKinds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableAutoOrderByOwner", reflect.TypeOf((*MockIStrategyBotRepository)(nil).DisableAutoOrderByOwner), executionContext, ownerID, marketDataKinds)
 }
 
 // EnableAutoOrder mocks base method.
@@ -245,6 +260,20 @@ func (m *MockIStrategyBotRepository) Save(executionContext context.Context, bot 
 func (mr *MockIStrategyBotRepositoryMockRecorder) Save(executionContext, bot any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIStrategyBotRepository)(nil).Save), executionContext, bot)
+}
+
+// UpdateAutoOrderPosition mocks base method.
+func (m *MockIStrategyBotRepository) UpdateAutoOrderPosition(executionContext context.Context, id uint, position vo.AutoOrderPositionVo) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAutoOrderPosition", executionContext, id, position)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAutoOrderPosition indicates an expected call of UpdateAutoOrderPosition.
+func (mr *MockIStrategyBotRepositoryMockRecorder) UpdateAutoOrderPosition(executionContext, id, position any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAutoOrderPosition", reflect.TypeOf((*MockIStrategyBotRepository)(nil).UpdateAutoOrderPosition), executionContext, id, position)
 }
 
 // UpdateRunState mocks base method.

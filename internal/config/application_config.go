@@ -197,6 +197,28 @@ type BinanceTradingConfig struct {
 	RequestTimeout time.Duration
 }
 
+// AutoOrderConfig tunes how auto orders are carried out on the contract venue; ExecutionTimeout must outlast every request one order may make, or a slow order is resumed by another replica while still in flight.
+// It should also stay well inside the two-minute send deadline: an order left by a dying replica is only resumed once its claim runs out, and by then an unsent order may already be too late to send.
+type AutoOrderConfig struct {
+	ContractApiBaseUrl      string
+	RequestTimeout          time.Duration
+	DispatchInterval        time.Duration
+	ExecutionTimeout        time.Duration
+	MaxConcurrentExecutions int
+}
+
+// autoOrderRequestsPerExecution is the most venue requests one order makes: a lookup, the account mode, two cancels, the position, the close, a lookup, margin and leverage, the open, and two lookups and two placements to protect it.
+const autoOrderRequestsPerExecution = 14
+
+// outlasting keeps an order's claim longer than all the requests it may make.
+func (autoOrderConfig AutoOrderConfig) outlasting() AutoOrderConfig {
+	if floor := autoOrderRequestsPerExecution * autoOrderConfig.RequestTimeout; autoOrderConfig.ExecutionTimeout < floor {
+		autoOrderConfig.ExecutionTimeout = floor
+	}
+
+	return autoOrderConfig
+}
+
 // StrategyBotConfig holds deployment tuning; limits that define bot semantics live in the domain.
 type StrategyBotConfig struct {
 	// ScanInterval matches the shortest bot trigger interval.
@@ -288,6 +310,7 @@ type ApplicationConfig struct {
 	Secrets                SecretsConfig
 	Telegram               TelegramConfig
 	BinanceTrading         BinanceTradingConfig
+	AutoOrder              AutoOrderConfig
 	StrategyBot            StrategyBotConfig
 	RequestLimit           RequestLimitConfig
 	ConnectorAuthorization ConnectorAuthorizationConfig
@@ -301,6 +324,7 @@ func Load() ApplicationConfig {
 	applicationConfig := loadAsWritten()
 	applicationConfig.JobLeadership = applicationConfig.JobLeadership.consistent()
 	applicationConfig.PendingMessage = applicationConfig.PendingMessage.outlasting(applicationConfig.Telegram.RequestTimeout)
+	applicationConfig.AutoOrder = applicationConfig.AutoOrder.outlasting()
 
 	return applicationConfig
 }
@@ -524,6 +548,16 @@ func loadAsWritten() ApplicationConfig {
 			ApiBaseUrl: stringWithDefault("BINANCE_TRADING_API_BASE_URL", "https://api.binance.com"),
 			RequestTimeout: time.Duration(
 				positiveIntWithDefault("BINANCE_TRADING_KEY_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+		},
+		AutoOrder: AutoOrderConfig{
+			ContractApiBaseUrl: stringWithDefault("AUTO_ORDER_CONTRACT_API_BASE_URL", "https://fapi.binance.com"),
+			RequestTimeout: time.Duration(
+				positiveIntWithDefault("AUTO_ORDER_REQUEST_TIMEOUT_SECONDS", 5)) * time.Second,
+			DispatchInterval: time.Duration(
+				positiveIntWithDefault("AUTO_ORDER_DISPATCH_INTERVAL_SECONDS", 5)) * time.Second,
+			ExecutionTimeout: time.Duration(
+				positiveIntWithDefault("AUTO_ORDER_EXECUTION_TIMEOUT_SECONDS", 70)) * time.Second,
+			MaxConcurrentExecutions: positiveIntWithDefault("AUTO_ORDER_MAX_CONCURRENT_EXECUTIONS", 8),
 		},
 		StrategyBot: StrategyBotConfig{
 			ScanInterval: time.Duration(

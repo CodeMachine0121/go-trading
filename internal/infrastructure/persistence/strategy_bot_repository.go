@@ -281,6 +281,56 @@ func (strategyBotRepository *StrategyBotRepository) DisableAutoOrder(
 	return nil
 }
 
+// DisableAutoOrderByOwner leaves UpdatedAt alone, like DisableAutoOrder, and narrows to the given market data kinds when any are given.
+func (strategyBotRepository *StrategyBotRepository) DisableAutoOrderByOwner(
+	executionContext context.Context, ownerID uint, marketDataKinds []string,
+) error {
+	query := strategyBotRepository.database.within(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "owner_id", Value: ownerID})
+	if len(marketDataKinds) > 0 {
+		// The ORM's IN clause only takes untyped values.
+		kinds := make([]any, 0, len(marketDataKinds))
+		for _, marketDataKind := range marketDataKinds {
+			kinds = append(kinds, marketDataKind)
+		}
+		query = query.Where(clause.IN{Column: "market_data_kind", Values: kinds})
+	}
+
+	if result := query.UpdateColumn("auto_order_enabled", false); result.Error != nil {
+		return fmt.Errorf("disable auto order of owner: %w", result.Error)
+	}
+
+	return nil
+}
+
+// UpdateAutoOrderPosition writes only the bot's own position columns, so neither a rewrite nor a round can disturb what auto orders opened.
+func (strategyBotRepository *StrategyBotRepository) UpdateAutoOrderPosition(
+	executionContext context.Context, id uint, position vo.AutoOrderPositionVo,
+) error {
+	direction := string(position.Direction)
+	if direction == string(vo.TargetPositionFlat) {
+		direction = ""
+	}
+
+	result := strategyBotRepository.database.within(executionContext).
+		Model(&entities.StrategyBot{}).
+		Where(clause.Eq{Column: "id", Value: id}).
+		Select("auto_order_position_direction", "auto_order_position_quantity",
+			"auto_order_stop_loss_client_id", "auto_order_take_profit_client_id").
+		UpdateColumns(entities.StrategyBot{
+			AutoOrderPositionDirection:  direction,
+			AutoOrderPositionQuantity:   position.Quantity,
+			AutoOrderStopLossClientID:   position.StopLossClientID,
+			AutoOrderTakeProfitClientID: position.TakeProfitClientID,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("update strategy bot auto order position: %w", result.Error)
+	}
+
+	return nil
+}
+
 // ClaimDue picks and claims in one transaction: the row locks skip whatever another replica is claiming right now, and the claim columns keep it out of later scans until it expires.
 func (strategyBotRepository *StrategyBotRepository) ClaimDue(
 	executionContext context.Context, moment time.Time, limit int, claimant string, claimedUntil time.Time,

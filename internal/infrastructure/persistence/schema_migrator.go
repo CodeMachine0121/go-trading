@@ -110,6 +110,7 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.SpotTradeNote{},
 		&entities.JobLeadershipLease{},
 		&entities.PendingMessage{},
+		&entities.ContractAutoOrder{},
 		&entities.ReplicaHeartbeat{},
 		&entities.LiveKCandleSnapshot{},
 	}

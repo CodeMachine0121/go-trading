@@ -303,6 +303,7 @@ func registerRoutes(
 		persistence.NewContractMaintenanceMarginTierRepository(database),
 		persistence.NewContractFundingRateSettlementRepository(database),
 		persistence.NewPendingMessageRepository(database),
+		persistence.NewContractAutoOrderRepository(database),
 		persistence.NewTransactionRepository(database),
 		clock.NewSystemClockProxy(),
 	)
@@ -763,6 +764,32 @@ func registerRoutes(
 	)
 	pendingMessageDispatchApplication := application.NewPendingMessageDispatchApplication(pendingMessageService)
 
+	// Every replica carries out queued auto orders; the queue hands each one to a single replica at a time.
+	contractAutoOrderExecutionApplication := application.NewContractAutoOrderExecutionApplication(
+		service.NewContractAutoOrderService(
+			persistence.NewContractAutoOrderRepository(database),
+			persistence.NewStrategyBotRepository(database),
+			persistence.NewBinanceTradingKeyRepository(database),
+			contractTradingSymbolRepository,
+			persistence.NewPendingMessageRepository(database),
+			persistence.NewTransactionRepository(database),
+			secretSealProxy,
+			exchange.NewBinanceContractOrderProxy(
+				applicationConfig.AutoOrder.ContractApiBaseUrl,
+				&http.Client{Timeout: applicationConfig.AutoOrder.RequestTimeout},
+				clock.NewSystemClockProxy(),
+			),
+			exchange.NewBinanceTradingKeyVerificationProxy(
+				applicationConfig.BinanceTrading.ApiBaseUrl,
+				&http.Client{Timeout: applicationConfig.BinanceTrading.RequestTimeout},
+				clock.NewSystemClockProxy(),
+			),
+			clock.NewSystemClockProxy(),
+			applicationConfig.Replica.Name,
+			applicationConfig.AutoOrder.ExecutionTimeout,
+			applicationConfig.AutoOrder.MaxConcurrentExecutions,
+		))
+
 	strategyBotController := controller.NewStrategyBotController(
 		application.NewStrategyBotApplication(
 			strategyBotService,
@@ -794,6 +821,7 @@ func registerRoutes(
 		kCandleContractIngestionApplication,
 		strategyBotJobApplications{
 			run: strategyBotRunApplication, pendingMessageDispatch: pendingMessageDispatchApplication,
+			contractAutoOrderExecution: contractAutoOrderExecutionApplication,
 		},
 		application.NewInterruptedWorkApplication(
 			service.NewReplicaPresenceService(
@@ -822,6 +850,8 @@ func (liveFollowApplications liveFollowApplications) Stop() {
 type strategyBotJobApplications struct {
 	run                    *application.StrategyBotRunApplication
 	pendingMessageDispatch *application.PendingMessageDispatchApplication
+	// contractAutoOrderExecution carries out the auto orders contract rounds queue.
+	contractAutoOrderExecution *application.ContractAutoOrderExecutionApplication
 }
 
 // contractSeriesApplications groups the contract use cases that run their own background rounds.
@@ -912,6 +942,10 @@ func backgroundJobsFor(
 	pendingMessageDispatchJob := job.NewPendingMessageDispatchJob(
 		strategyBotJobs.pendingMessageDispatch, applicationConfig.PendingMessage.DispatchInterval)
 
+	// On every replica too, beside the scans that queue the orders.
+	contractAutoOrderExecutionJob := job.NewContractAutoOrderExecutionJob(
+		strategyBotJobs.contractAutoOrderExecution, applicationConfig.AutoOrder.DispatchInterval)
+
 	// First, so the duty is being kept fresh before any job asks about it.
 	jobLeadershipLeaseJob := job.NewJobLeadershipLeaseJob(
 		jobLeadershipApplication, applicationConfig.JobLeadership.RenewInterval)
@@ -923,7 +957,7 @@ func backgroundJobsFor(
 	backgroundJobs := []domaininterface.IBackgroundJob{
 		replicaHeartbeatJob, jobLeadershipLeaseJob, interruptedWorkSweepJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
-		pendingMessageDispatchJob,
+		pendingMessageDispatchJob, contractAutoOrderExecutionJob,
 	}
 
 	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.

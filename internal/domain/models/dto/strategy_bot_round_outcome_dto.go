@@ -24,4 +24,7 @@ type StrategyBotRoundOutcomeDto struct {
 	// Round is what the round's message says, written when the round is booked in; only set when HasMessage.
 	Round      StrategyBotRoundDto
 	HasMessage bool
+	// AutoOrderIntent is what a contract round would do with real money; whether it is queued is decided when the round is booked in.
+	AutoOrderIntent    ContractAutoOrderIntentDto
+	HasAutoOrderIntent bool
 }

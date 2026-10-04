@@ -6,4 +6,6 @@ type PendingMessageKindVo string
 const (
 	PendingMessageRound     PendingMessageKindVo = "round"
 	PendingMessageLifecycle PendingMessageKindVo = "lifecycle"
+	// PendingMessageAutoOrder reports what an auto order did; it speaks for no round, so it never takes a round's place in the queue.
+	PendingMessageAutoOrder PendingMessageKindVo = "autoOrder"
 )

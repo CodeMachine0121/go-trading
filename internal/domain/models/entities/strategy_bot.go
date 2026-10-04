@@ -46,9 +46,14 @@ type StrategyBot struct {
 	RoundClaimedBy    string     `gorm:"size:255;not null;default:''"`
 	RoundClaimedUntil *time.Time `gorm:"type:timestamptz"`
 	// AutoOrderEnabled is off for every existing bot; neither Save nor UpdateRunState names it, so only the switch routes change it.
-	AutoOrderEnabled bool      `gorm:"not null;default:false"`
-	CreatedAt        time.Time `gorm:"type:timestamptz;not null"`
-	UpdatedAt        time.Time `gorm:"type:timestamptz;not null"`
+	AutoOrderEnabled bool `gorm:"not null;default:false"`
+	// AutoOrderPosition* is what the bot opened with auto orders and has not closed: a direction (empty when flat), a quantity and the protective orders guarding it. Neither Save nor UpdateRunState names them.
+	AutoOrderPositionDirection  string          `gorm:"size:8;not null;default:''"`
+	AutoOrderPositionQuantity   decimal.Decimal `gorm:"type:numeric(38,18);not null;default:0"`
+	AutoOrderStopLossClientID   string          `gorm:"size:64;not null;default:''"`
+	AutoOrderTakeProfitClientID string          `gorm:"size:64;not null;default:''"`
+	CreatedAt                   time.Time       `gorm:"type:timestamptz;not null"`
+	UpdatedAt                   time.Time       `gorm:"type:timestamptz;not null"`
 
 	Owner User `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	// TradingStrategy has no constraint so it adds no foreign key; see TradingStrategyID.
@@ -57,6 +62,18 @@ type StrategyBot struct {
 	RunRecords []StrategyBotRunRecord `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
 	// PendingMessages is declared only so deleting a bot drops what it has not said yet.
 	PendingMessages []PendingMessage `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
+	// ContractAutoOrders is declared only so deleting a bot drops the orders it has not carried out.
+	ContractAutoOrders []ContractAutoOrder `gorm:"foreignKey:StrategyBotID;constraint:OnDelete:CASCADE"`
+}
+
+// AutoOrderPositionVo reads the bot's own position together with the orders guarding it.
+func (strategyBot StrategyBot) ToAutoOrderPositionVo() vo.AutoOrderPositionVo {
+	return vo.AutoOrderPositionVo{
+		Direction:          vo.TargetPositionVo(strategyBot.AutoOrderPositionDirection),
+		Quantity:           strategyBot.AutoOrderPositionQuantity,
+		StopLossClientID:   strategyBot.AutoOrderStopLossClientID,
+		TakeProfitClientID: strategyBot.AutoOrderTakeProfitClientID,
+	}
 }
 
 func (strategyBot StrategyBot) PositionPlanSettingsDto() dto.PositionPlanSettingsDto {
@@ -81,6 +98,14 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		marketDataKind = string(vo.MarketDataKindKCandle)
 	}
 
+	var autoOrderPosition *dto.AutoOrderPositionDto
+	if marketDataKind == string(vo.MarketDataKindContractKCandle) {
+		autoOrderPosition = &dto.AutoOrderPositionDto{
+			Direction: strategyBot.AutoOrderPositionDirection,
+			Quantity:  strategyBot.AutoOrderPositionQuantity,
+		}
+	}
+
 	return dto.StrategyBotDto{
 		ID:                     strategyBot.ID,
 		OwnerID:                strategyBot.OwnerID,
@@ -97,6 +122,7 @@ func (strategyBot StrategyBot) ToDto() dto.StrategyBotDto {
 		HaltReason:             strategyBot.HaltReason,
 		Conflicting:            strategyBot.Conflicting,
 		AutoOrderEnabled:       strategyBot.AutoOrderEnabled,
+		AutoOrderPosition:      autoOrderPosition,
 		CreatedAt:              strategyBot.CreatedAt.UTC(),
 		UpdatedAt:              strategyBot.UpdatedAt.UTC(),
 	}

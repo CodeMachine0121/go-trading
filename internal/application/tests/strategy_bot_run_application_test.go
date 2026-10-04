@@ -111,7 +111,10 @@ type strategyBotRunUnderTest struct {
 	appendedRunRecords *[]dto.StrategyBotRunRecordWriteDto
 	// publishedStrategyScriptIDs are on the marketplace; everything else reads as unpublished.
 	publishedStrategyScriptIDs map[uint]bool
-	t                          *testing.T
+	// queuedAutoOrders are every auto order rounds queued, in order; autoOrderEnqueueFailure makes queuing one fail.
+	queuedAutoOrders        *[]entities.ContractAutoOrder
+	autoOrderEnqueueFailure *error
+	t                       *testing.T
 }
 
 // newStrategyBotRunUnderTest wires the real services a round goes through, mocking only storage, script execution and the carrier.
@@ -235,6 +238,19 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 	contractTradingSymbolRepository := mocks.NewMockIContractTradingSymbolRepository(controller)
 	contractMaintenanceMarginTierRepository := mocks.NewMockIContractMaintenanceMarginTierRepository(controller)
 	marketCatalog := domains.NewMarketCatalogDomain(map[vo.MarketVo]vo.MarketRulesVo{vo.MarketCrypto: {}})
+	queuedAutoOrders := []entities.ContractAutoOrder{}
+	autoOrderEnqueueFailure := error(nil)
+	contractAutoOrderRepository := mocks.NewMockIContractAutoOrderRepository(controller)
+	contractAutoOrderRepository.EXPECT().Enqueue(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(executionContext context.Context, contractAutoOrder entities.ContractAutoOrder) error {
+			assert.True(t, isInsideTransaction(executionContext), "an auto order is queued outside its round's transaction")
+			if autoOrderEnqueueFailure != nil {
+				return autoOrderEnqueueFailure
+			}
+			queuedAutoOrders = append(queuedAutoOrders, contractAutoOrder)
+
+			return nil
+		}).AnyTimes()
 	opaqueIdentifierProxy := mocks.NewMockIOpaqueIdentifierProxy(controller)
 	opaqueIdentifierProxy.EXPECT().Mint().Return(vo.OpaqueIdentifierVo{Value: "round-link-1"}, nil).AnyTimes()
 
@@ -243,7 +259,7 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 			service.NewStrategyBotService(
 				strategyBotRepository, strategyBotRunRecordRepository,
 				contractTradingSymbolRepository, contractMaintenanceMarginTierRepository,
-				contractFundingRateSettlementRepository, pendingMessageRepository, transactionRepository, clockProxy),
+				contractFundingRateSettlementRepository, pendingMessageRepository, contractAutoOrderRepository, transactionRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			service.NewIndicatorCalculationService(
@@ -286,6 +302,8 @@ func newStrategyBotRunUnderTest(t *testing.T) strategyBotRunUnderTest {
 		appendedRunRecords:                      &appendedRunRecords,
 		t:                                       t,
 		publishedStrategyScriptIDs:              publishedStrategyScriptIDs,
+		queuedAutoOrders:                        &queuedAutoOrders,
+		autoOrderEnqueueFailure:                 &autoOrderEnqueueFailure,
 	}
 }
 
@@ -1045,8 +1063,8 @@ func TestStrategyBotRunApplicationLinksASpotRoundToTheSpotJournal(t *testing.T) 
 	assert.Equal(t, "64180.5", recorded.ReferencePrice.Decimal.String())
 }
 
-// The auto-order switch has no effect yet: a switched-on bot still only speaks, exactly once, through Telegram.
-func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *testing.T) {
+// A spot bot's auto-order switch has no effect yet: switched on, it still only speaks, exactly once, through Telegram.
+func TestStrategyBotRunApplicationSpotBotStillOnlySpeaksWithAutoOrderSwitchedOn(t *testing.T) {
 	underTest := newStrategyBotRunUnderTest(t)
 	underTest.expectSources(vo.SignalBuy, vo.SignalBuy)
 	switchedOnBot := aDueBot("")
@@ -1073,6 +1091,7 @@ func TestStrategyBotRunApplicationStillOnlySpeaksWithAutoOrderSwitchedOn(t *test
 
 	require.NoError(t, runError)
 	assert.Equal(t, 1, roundsRun)
+	assert.Empty(t, *underTest.queuedAutoOrders)
 }
 
 func TestStrategyBotRunApplicationFreesTheClaimOfEveryRoundItBooks(t *testing.T) {
