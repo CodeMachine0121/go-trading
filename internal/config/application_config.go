@@ -198,6 +198,7 @@ type BinanceTradingConfig struct {
 }
 
 // AutoOrderConfig tunes how auto orders are carried out on the contract venue; ExecutionTimeout must outlast every request one order may make, or a slow order is resumed by another replica while still in flight.
+// It should also stay well inside the two-minute send deadline: an order left by a dying replica is only resumed once its claim runs out, and by then an unsent order may already be too late to send.
 type AutoOrderConfig struct {
 	ContractApiBaseUrl      string
 	RequestTimeout          time.Duration
@@ -551,11 +552,11 @@ func loadAsWritten() ApplicationConfig {
 		AutoOrder: AutoOrderConfig{
 			ContractApiBaseUrl: stringWithDefault("AUTO_ORDER_CONTRACT_API_BASE_URL", "https://fapi.binance.com"),
 			RequestTimeout: time.Duration(
-				positiveIntWithDefault("AUTO_ORDER_REQUEST_TIMEOUT_SECONDS", 10)) * time.Second,
+				positiveIntWithDefault("AUTO_ORDER_REQUEST_TIMEOUT_SECONDS", 5)) * time.Second,
 			DispatchInterval: time.Duration(
 				positiveIntWithDefault("AUTO_ORDER_DISPATCH_INTERVAL_SECONDS", 5)) * time.Second,
 			ExecutionTimeout: time.Duration(
-				positiveIntWithDefault("AUTO_ORDER_EXECUTION_TIMEOUT_SECONDS", 150)) * time.Second,
+				positiveIntWithDefault("AUTO_ORDER_EXECUTION_TIMEOUT_SECONDS", 70)) * time.Second,
 			MaxConcurrentExecutions: positiveIntWithDefault("AUTO_ORDER_MAX_CONCURRENT_EXECUTIONS", 8),
 		},
 		StrategyBot: StrategyBotConfig{
