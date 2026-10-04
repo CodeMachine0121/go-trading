@@ -14507,7 +14507,7 @@
                 }
               ]
             },
-            "description": "只列出其中一種機器人；不給即全部列出。"
+            "description": "只列出其中一種機器人；不給即全部列出。\n\n每一台合約機器人另帶 autoOrderPosition（direction：long／short，空手時為空字串；quantity）：它用自動下單**自己開出來、還沒平掉**的那一份，不含使用者在幣安上自己開的倉位。現貨機器人沒有這一格。"
           },
           "event": [
             {
@@ -14520,6 +14520,11 @@
                   "    const bots = pm.response.json();",
                   "    pm.expect(bots.length).to.be.above(0);",
                   "    bots.forEach(function (bot) { pm.expect(bot.marketDataKind).to.eql(\"contractKCandle\"); });",
+                  "    bots.forEach(function (bot) {",
+                  "        pm.expect(bot.autoOrderPosition, \"合約機器人帶著自己開出的倉位\").to.be.an(\"object\");",
+                  "        pm.expect(bot.autoOrderPosition).to.have.property(\"direction\");",
+                  "        pm.expect(bot.autoOrderPosition).to.have.property(\"quantity\");",
+                  "    });",
                   "});"
                 ]
               }
@@ -15397,7 +15402,7 @@
                 "runs"
               ]
             },
-            "description": "不等排程，現在就跑一輪。它走的是排程那一輪完全同一條路——不然按下去看到的，就不代表它自己跑會做的事。已停止的也跑得動：派它出去之前先試一次，是最普通的做法。"
+            "description": "不等排程，現在就跑一輪。它走的是排程那一輪完全同一條路——不然按下去看到的，就不代表它自己跑會做的事。已停止的也跑得動：派它出去之前先試一次，是最普通的做法。\n\n**真錢**：執行中、自動下單開著的合約機器人，手動跑的這一輪與排程那一輪一樣會在幣安下單。**已停止的機器人手動跑一輪一律不下單**——那是試跑。"
           },
           "event": [
             {
@@ -15430,7 +15435,7 @@
                 "runs"
               ]
             },
-            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。\n\n合約機器人那一輪有建議部位時，每一筆另帶 suggestedDirection（long／short）、suggestedLeverage、suggestedNotional；現貨機器人與交易所不收的那一輪不帶。"
+            "description": "一台機器人跑過哪幾輪，最新的排前面。剛建好還沒跑過的回空清單——那是狀態，不是錯誤。\n\n合約機器人那一輪有建議部位時，每一筆另帶 suggestedDirection（long／short）、suggestedLeverage、suggestedNotional；現貨機器人與交易所不收的那一輪不帶。\n\n那一輪排入了自動下單委託時（合約機器人、執行中、自動下單開著、結論改變），另帶 autoOrder：status（pending 等待下單／filled 成交／partiallyDone 平倉了但新方向沒開成／notPlaced 沒有下單／abandoned 放棄）、action（做多、做空、平多、平空、反手做多、反手做空、平倉）、closedQuantity、closeAveragePrice、openedDirection、openedQuantity、openAveragePrice、stopLossPrice、takeProfitPrice、protectionMissing（開了倉但止損或止盈沒掛上）、reason。"
           },
           "event": [
             {
