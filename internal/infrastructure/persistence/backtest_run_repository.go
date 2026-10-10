@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"gorm.io/gorm"
@@ -53,19 +54,19 @@ func (backtestRunRepository *BacktestRunRepository) FindOneOwned(
 }
 
 func (backtestRunRepository *BacktestRunRepository) FindPageByOwner(
-	executionContext context.Context, ownerID uint, filter vo.BacktestRunListFilterVo,
+	executionContext context.Context, ownerID uint, query dto.BacktestRunListQueryDto,
 ) ([]entities.BacktestRun, int64, error) {
 	matching := backtestRunRepository.database.within(executionContext).
 		Model(&entities.BacktestRun{}).
 		Where(clause.Eq{Column: "owner_id", Value: ownerID})
-	if filter.Status != "" {
-		matching = matching.Where(clause.Eq{Column: "status", Value: filter.Status})
+	if query.Status != "" {
+		matching = matching.Where(clause.Eq{Column: "status", Value: query.Status})
 	}
-	if filter.StrategyScriptID != 0 {
-		matching = matching.Where(clause.Eq{Column: "strategy_script_id", Value: filter.StrategyScriptID})
+	if query.StrategyScriptID != 0 {
+		matching = matching.Where(clause.Eq{Column: "strategy_script_id", Value: query.StrategyScriptID})
 	}
-	if filter.TradingStrategyID != 0 {
-		matching = matching.Where(clause.Eq{Column: "trading_strategy_id", Value: filter.TradingStrategyID})
+	if query.TradingStrategyID != 0 {
+		matching = matching.Where(clause.Eq{Column: "trading_strategy_id", Value: query.TradingStrategyID})
 	}
 
 	totalCount := int64(0)
@@ -76,7 +77,7 @@ func (backtestRunRepository *BacktestRunRepository) FindPageByOwner(
 	backtestRuns := []entities.BacktestRun{}
 	listed := matching.Session(&gorm.Session{}).
 		Order("id DESC").
-		Limit(filter.Limit).
+		Limit(query.Limit).
 		Find(&backtestRuns)
 	if listed.Error != nil {
 		return nil, 0, fmt.Errorf("list backtest runs: %w", listed.Error)

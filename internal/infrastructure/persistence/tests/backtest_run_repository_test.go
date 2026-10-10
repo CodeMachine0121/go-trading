@@ -113,17 +113,17 @@ func TestBacktestRunRepositoryListsNewestFirstWithTheWholeCount(t *testing.T) {
 
 	testCases := []struct {
 		name               string
-		filter             vo.BacktestRunListFilterVo
+		filter             dto.BacktestRunListQueryDto
 		expectedFirstID    uint
 		expectedLength     int
 		expectedTotalCount int64
 	}{
 		{
-			name: "the newest twenty of twenty-five", filter: vo.BacktestRunListFilterVo{Limit: 20},
+			name: "the newest twenty of twenty-five", filter: dto.BacktestRunListQueryDto{Limit: 20},
 			expectedFirstID: savedIDs[24], expectedLength: 20, expectedTotalCount: 25,
 		},
 		{
-			name: "only the failed ones", filter: vo.BacktestRunListFilterVo{Status: "failed", Limit: 20},
+			name: "only the failed ones", filter: dto.BacktestRunListQueryDto{Status: "failed", Limit: 20},
 			expectedFirstID: savedIDs[2], expectedLength: 3, expectedTotalCount: 3,
 		},
 	}
@@ -157,9 +157,9 @@ func TestBacktestRunRepositoryListsTheRunsOfOneScriptOrOneStrategy(t *testing.T)
 	require.NoError(t, secondError)
 
 	byScript, scriptCount, scriptError := repository.FindPageByOwner(t.Context(), backtestRunOwnerID,
-		vo.BacktestRunListFilterVo{StrategyScriptID: strategyScriptID, Limit: 20})
+		dto.BacktestRunListQueryDto{StrategyScriptID: strategyScriptID, Limit: 20})
 	byStrategy, strategyCount, strategyError := repository.FindPageByOwner(t.Context(), backtestRunOwnerID,
-		vo.BacktestRunListFilterVo{TradingStrategyID: tradingStrategyID, Limit: 20})
+		dto.BacktestRunListQueryDto{TradingStrategyID: tradingStrategyID, Limit: 20})
 
 	require.NoError(t, scriptError)
 	require.NoError(t, strategyError)

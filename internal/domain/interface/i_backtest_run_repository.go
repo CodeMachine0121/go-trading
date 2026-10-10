@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
-	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
 //go:generate go tool mockgen -source=i_backtest_run_repository.go -destination=mocks/mock_i_backtest_run_repository.go -package=mocks
@@ -15,7 +15,7 @@ type IBacktestRunRepository interface {
 	Save(executionContext context.Context, backtestRun entities.BacktestRun) (entities.BacktestRun, error)
 	FindOneOwned(executionContext context.Context, ownerID uint, id uint) (entities.BacktestRun, bool, error)
 	FindPageByOwner(
-		executionContext context.Context, ownerID uint, filter vo.BacktestRunListFilterVo,
+		executionContext context.Context, ownerID uint, query dto.BacktestRunListQueryDto,
 	) ([]entities.BacktestRun, int64, error)
 	// CountActiveByOwner counts queued and running runs, the only ones the owner limit is about.
 	CountActiveByOwner(executionContext context.Context, ownerID uint) (int, error)

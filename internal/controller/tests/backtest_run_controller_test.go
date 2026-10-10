@@ -248,16 +248,16 @@ func TestListBacktestRunsEndpoint(t *testing.T) {
 	testCases := []struct {
 		name           string
 		target         string
-		expectedFilter vo.BacktestRunListFilterVo
+		expectedFilter dto.BacktestRunListQueryDto
 	}{
-		{name: "no limit is twenty", target: "/backtest-runs", expectedFilter: vo.BacktestRunListFilterVo{Limit: 20}},
+		{name: "no limit is twenty", target: "/backtest-runs", expectedFilter: dto.BacktestRunListQueryDto{Limit: 20}},
 		{name: "five hundred is two hundred", target: "/backtest-runs?limit=500",
-			expectedFilter: vo.BacktestRunListFilterVo{Limit: 200}},
+			expectedFilter: dto.BacktestRunListQueryDto{Limit: 200}},
 		{name: "an unreadable limit is twenty", target: "/backtest-runs?limit=many",
-			expectedFilter: vo.BacktestRunListFilterVo{Limit: 20}},
+			expectedFilter: dto.BacktestRunListQueryDto{Limit: 20}},
 		{name: "status and source filters pass through",
 			target: "/backtest-runs?status=failed&strategyScriptId=88&tradingStrategyId=7&limit=5",
-			expectedFilter: vo.BacktestRunListFilterVo{
+			expectedFilter: dto.BacktestRunListQueryDto{
 				Status: "failed", StrategyScriptID: 88, TradingStrategyID: 7, Limit: 5,
 			}},
 	}

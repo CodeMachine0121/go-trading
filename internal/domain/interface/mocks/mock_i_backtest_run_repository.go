@@ -14,8 +14,8 @@ import (
 	reflect "reflect"
 	time "time"
 
+	dto "github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	entities "github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
-	vo "github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -136,9 +136,9 @@ func (mr *MockIBacktestRunRepositoryMockRecorder) FindOneOwned(executionContext,
 }
 
 // FindPageByOwner mocks base method.
-func (m *MockIBacktestRunRepository) FindPageByOwner(executionContext context.Context, ownerID uint, filter vo.BacktestRunListFilterVo) ([]entities.BacktestRun, int64, error) {
+func (m *MockIBacktestRunRepository) FindPageByOwner(executionContext context.Context, ownerID uint, query dto.BacktestRunListQueryDto) ([]entities.BacktestRun, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindPageByOwner", executionContext, ownerID, filter)
+	ret := m.ctrl.Call(m, "FindPageByOwner", executionContext, ownerID, query)
 	ret0, _ := ret[0].([]entities.BacktestRun)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
@@ -146,9 +146,9 @@ func (m *MockIBacktestRunRepository) FindPageByOwner(executionContext context.Co
 }
 
 // FindPageByOwner indicates an expected call of FindPageByOwner.
-func (mr *MockIBacktestRunRepositoryMockRecorder) FindPageByOwner(executionContext, ownerID, filter any) *gomock.Call {
+func (mr *MockIBacktestRunRepositoryMockRecorder) FindPageByOwner(executionContext, ownerID, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindPageByOwner", reflect.TypeOf((*MockIBacktestRunRepository)(nil).FindPageByOwner), executionContext, ownerID, filter)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindPageByOwner", reflect.TypeOf((*MockIBacktestRunRepository)(nil).FindPageByOwner), executionContext, ownerID, query)
 }
 
 // Save mocks base method.

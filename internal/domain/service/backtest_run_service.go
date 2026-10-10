@@ -105,19 +105,13 @@ func (backtestRunService *BacktestRunService) Submit(
 func (backtestRunService *BacktestRunService) List(
 	executionContext context.Context, ownerID uint, query dto.BacktestRunListQueryDto,
 ) (dto.BacktestRunPageDto, error) {
-	limit := query.Limit
-	if limit <= 0 {
-		limit = backtestRunListDefaultLimit
+	if query.Limit <= 0 {
+		query.Limit = backtestRunListDefaultLimit
 	}
-	limit = min(limit, backtestRunListMaximumLimit)
+	query.Limit = min(query.Limit, backtestRunListMaximumLimit)
 
 	backtestRuns, totalCount, findError := backtestRunService.backtestRunRepository.FindPageByOwner(
-		executionContext, ownerID, vo.BacktestRunListFilterVo{
-			Status:            query.Status,
-			StrategyScriptID:  query.StrategyScriptID,
-			TradingStrategyID: query.TradingStrategyID,
-			Limit:             limit,
-		})
+		executionContext, ownerID, query)
 	if findError != nil {
 		return dto.BacktestRunPageDto{}, findError
 	}
