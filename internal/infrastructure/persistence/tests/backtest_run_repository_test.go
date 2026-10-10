@@ -255,7 +255,9 @@ func TestBacktestRunRepositoryGivesEachQueuedRunToExactlyOneReplica(t *testing.T
 
 func TestBacktestRunRepositoryFindsNothingToClaimWhenNothingIsQueued(t *testing.T) {
 	repository := persistence.NewBacktestRunRepository(newBacktestRunTestDatabase(t))
+	cancelledAt := backtestRunSubmittedAt.Add(time.Minute)
 	savedBacktestRunIn(t, repository, aQueuedBacktestRun(backtestRunOwnerID, 0), vo.BacktestRunRunning, "replica-a", nil)
+	savedBacktestRunIn(t, repository, aQueuedBacktestRun(backtestRunOwnerID, 1), vo.BacktestRunCancelled, "", &cancelledAt)
 
 	_, wasClaimed, claimError := repository.ClaimOldestQueued(t.Context(), "replica-b", backtestRunSubmittedAt)
 
@@ -438,12 +440,18 @@ func TestBacktestRunResultRepositoryKeepsEachReportWhole(t *testing.T) {
 					Symbol: "BTCUSDT", UsedCandleCount: 35000,
 					Summary:     dto.BacktestSummaryDto{FinalEquity: decimal.RequireFromString("12550.5"), WinRate: &winRate},
 					EquityCurve: []dto.EquityPointDto{{Equity: decimal.RequireFromString("10000")}},
+					InSample:    &dto.BacktestResultDto{UsedCandleCount: 28000},
+					Validation:  &dto.BacktestResultDto{UsedCandleCount: 7000},
 				}}
 			},
 			check: func(t *testing.T, found entities.BacktestRunResult) {
 				require.NotNil(t, found.SpotResult)
 				assert.Nil(t, found.ContractResult)
 				assert.Equal(t, 35000, found.SpotResult.UsedCandleCount)
+				require.NotNil(t, found.SpotResult.InSample)
+				require.NotNil(t, found.SpotResult.Validation)
+				assert.Equal(t, 28000, found.SpotResult.InSample.UsedCandleCount)
+				assert.Equal(t, 7000, found.SpotResult.Validation.UsedCandleCount)
 				assert.True(t, decimal.RequireFromString("12550.5").Equal(found.SpotResult.Summary.FinalEquity))
 				assert.Len(t, found.SpotResult.EquityCurve, 1)
 			},

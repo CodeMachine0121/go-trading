@@ -86,7 +86,9 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 	}
 	contractReport := dto.ContractBacktestResultDto{
 		Symbol: "BTCUSDT", Interval: "1h", TradingMode: "longShort", Leverage: decimal.NewFromInt(5),
-		ClosedTrades: []dto.ContractClosedTradeDto{}, EquityCurve: []dto.EquityPointDto{}, FillTiming: "close",
+		ClosedTrades: []dto.ContractClosedTradeDto{}, EquityCurve: []dto.EquityPointDto{}, FillTiming: "nextOpen",
+		InSample:   &dto.ContractBacktestResultDto{Symbol: "BTCUSDT", UsedCandleCount: 3, TradingMode: "longShort"},
+		Validation: &dto.ContractBacktestResultDto{Symbol: "BTCUSDT", UsedCandleCount: 1, TradingMode: "longShort"},
 	}
 	testCases := []struct {
 		name         string
@@ -95,6 +97,8 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 		expectedJSON any
 		leverage     any
 		tradingMode  any
+		// splitForValidation pins that both replayed parts come back with the report.
+		splitForValidation bool
 	}{
 		{
 			name:         "a spot run",
@@ -106,7 +110,7 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 			name:         "a contract run",
 			backtestRun:  aSucceededBacktestRun(12, vo.BacktestRunContractScript),
 			result:       entities.BacktestRunResult{BacktestRunID: 12, ContractResult: &contractReport},
-			expectedJSON: contractReport, leverage: "5", tradingMode: "longShort",
+			expectedJSON: contractReport, leverage: "5", tradingMode: "longShort", splitForValidation: true,
 		},
 	}
 
@@ -135,6 +139,11 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 			assert.Equal(t, float64(4), fields["tradeCount"])
 			assert.Equal(t, testCase.leverage, fields["leverage"])
 			assert.Equal(t, testCase.tradingMode, fields["tradingMode"])
+			if testCase.splitForValidation {
+				result := fields["result"].(map[string]any)
+				assert.Contains(t, result, "inSample")
+				assert.Contains(t, result, "validation")
+			}
 		})
 	}
 }

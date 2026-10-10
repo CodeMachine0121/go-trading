@@ -248,3 +248,15 @@ func TestSubmitBacktestEndpointNeedsASignedInCaller(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, response.Code)
 }
+
+func TestSubmitBacktestEndpointWhenTheRunCannotBeRecorded(t *testing.T) {
+	fixture := newBacktestRouterUnderTest(t)
+	fixture.runs.ownerHasActive(0)
+	fixture.runs.runRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+		Return(entities.BacktestRun{}, assert.AnError)
+
+	response := fixture.post(backtestBody)
+
+	assert.Equal(t, http.StatusBadGateway, response.Code)
+	assert.NotContains(t, response.Body.String(), `"id"`)
+}
