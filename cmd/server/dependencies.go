@@ -39,6 +39,7 @@ func registerRoutes(
 	strategyBotJobApplications,
 	*application.InterruptedWorkApplication,
 	contractSeriesApplications,
+	*application.BacktestRunApplication,
 ) {
 	engine.Use(middlewares.NewCorsMiddleware(applicationConfig.CorsAllowedOrigins).Handle)
 	requestGuards := guardRequests(engine, applicationConfig)
@@ -413,11 +414,18 @@ func registerRoutes(
 		applicationConfig.BacktestRun.TimeAllowance,
 		applicationConfig.BacktestRun.ProgressWriteEveryBars,
 	)
+	backtestRunApplication := application.NewBacktestRunApplication(
+		backtestRunService, applicationConfig.BacktestRun.WorkerCount, applicationConfig.BacktestRun.Retention)
 
 	backtestController := controller.NewBacktestController(application.NewBacktestApplication(
 		strategyScriptService, backtestService, contractBacktestService, backtestRunService))
 	engine.POST("/backtests", requiresSignIn, backtestController.SubmitBacktest)
 	engine.POST("/contract-backtests", requiresSignIn, backtestController.SubmitContractBacktest)
+
+	backtestRunController := controller.NewBacktestRunController(backtestRunApplication)
+	engine.GET("/backtest-runs", requiresSignIn, backtestRunController.ListRuns)
+	engine.GET("/backtest-runs/:id", requiresSignIn, backtestRunController.GetRun)
+	engine.POST("/backtest-runs/:id/cancel", requiresSignIn, backtestRunController.CancelRun)
 
 	userController := controller.NewUserController(userApplication)
 
@@ -851,7 +859,8 @@ func registerRoutes(
 			positionStatistic: contractPositionStatisticApplication,
 			tradingSymbol:     contractTradingSymbolApplication,
 			maintenanceMargin: contractMaintenanceMarginTierApplication,
-		}
+		},
+		backtestRunApplication
 }
 
 type liveFollowApplications struct {
@@ -930,6 +939,7 @@ func backgroundJobsFor(
 	kCandleContractIngestionApplication *application.KCandleContractIngestionApplication,
 	strategyBotJobs strategyBotJobApplications,
 	contractSeries contractSeriesApplications,
+	backtestRunApplication *application.BacktestRunApplication,
 ) []domaininterface.IBackgroundJob {
 	// The one job the switch does not turn off: a replica serving requests is alive whether or not it does background work.
 	replicaHeartbeatJob := job.NewReplicaHeartbeatJob(
@@ -972,10 +982,18 @@ func backgroundJobsFor(
 	interruptedWorkSweepJob := job.NewInterruptedWorkSweepJob(
 		interruptedWorkApplication, jobLeadershipApplication, job.InterruptedWorkSweepInterval)
 
+	// On every replica: each takes queued replays up to its own worker count.
+	backtestRunWorkerJob := job.NewBacktestRunWorkerJob(
+		backtestRunApplication, applicationConfig.BacktestRun.PollInterval)
+
+	// On duty, since clearing out ended runs needs doing once.
+	backtestRunRetentionJob := job.NewBacktestRunRetentionJob(
+		backtestRunApplication, jobLeadershipApplication, job.BacktestRunRetentionInterval)
+
 	backgroundJobs := []domaininterface.IBackgroundJob{
 		replicaHeartbeatJob, jobLeadershipLeaseJob, interruptedWorkSweepJob,
 		kCandleIngestionJob, contractKCandleIngestionJob, liveFollowRosterJob, strategyBotScanJob,
-		pendingMessageDispatchJob, contractAutoOrderExecutionJob,
+		pendingMessageDispatchJob, contractAutoOrderExecutionJob, backtestRunWorkerJob, backtestRunRetentionJob,
 	}
 
 	// Each contract series is its own job so a slow one cannot hold up the others; each can be switched off alone.
