@@ -69,7 +69,7 @@ func newInterruptedWorkJobsUnderTest(t *testing.T) interruptedWorkJobsUnderTest 
 				mocks.NewMockIContractMarketDataProxy(controller), clockProxy, catalog, 5, 24*time.Hour, nil, 2, "replica-a"),
 			service.NewBacktestRunService(backtestRunRepository, mocks.NewMockIBacktestRunResultRepository(controller),
 				mocks.NewMockITransactionRepository(controller), clockProxy, nil, nil,
-				domains.NewBacktestRunAdmissionDomain(3), "replica-a", 30*time.Minute, 100)),
+				domains.NewBacktestRunAdmissionDomain(3), "replica-a", 30*time.Minute, 100, time.Minute)),
 		beats:  beats,
 		sweeps: sweeps,
 	}

@@ -33,6 +33,7 @@ type BacktestRunService struct {
 	replicaName                 string
 	timeAllowance               time.Duration
 	progressWriteEveryBars      int
+	statusCheckInterval         time.Duration
 	// runningCount is how many runners this replica has in flight, the figure the worker job compares with its cap.
 	runningCount atomic.Int32
 	runners      sync.Map
@@ -51,6 +52,7 @@ func NewBacktestRunService(
 	replicaName string,
 	timeAllowance time.Duration,
 	progressWriteEveryBars int,
+	statusCheckInterval time.Duration,
 ) *BacktestRunService {
 	return &BacktestRunService{
 		backtestRunRepository:       backtestRunRepository,
@@ -63,6 +65,7 @@ func NewBacktestRunService(
 		replicaName:                 replicaName,
 		timeAllowance:               timeAllowance,
 		progressWriteEveryBars:      max(progressWriteEveryBars, 1),
+		statusCheckInterval:         max(statusCheckInterval, time.Millisecond),
 	}
 }
 
@@ -165,7 +168,7 @@ func (backtestRunService *BacktestRunService) Get(
 	}
 }
 
-// Cancel ends a queued or running run of this owner; a running one is stopped by its runner at its next progress write.
+// Cancel ends a queued or running run of this owner; a runner on this replica is stopped at once, one elsewhere at its next status check.
 func (backtestRunService *BacktestRunService) Cancel(
 	executionContext context.Context, ownerID uint, id uint,
 ) (dto.BacktestRunDto, error) {
@@ -192,6 +195,9 @@ func (backtestRunService *BacktestRunService) Cancel(
 	// Ended between the read and the write, which is the same refusal as reading it ended.
 	if !wasActive {
 		return dto.BacktestRunDto{}, domains.ErrBacktestRunAlreadyEnded
+	}
+	if runner, isRunningHere := backtestRunService.runners.Load(id); isRunningHere {
+		runner.(*backtestRunner).cancel()
 	}
 
 	return cancelled.ToDto(), nil

@@ -72,5 +72,5 @@ func newQueueingBacktestRunService(
 		store.runRepository, store.resultRepository, transactionRepository, clockProxy,
 		backtestService, contractBacktestService,
 		domains.NewBacktestRunAdmissionDomain(backtestRunOwnerActiveLimit),
-		"replica-test", 30*time.Minute, 100)
+		"replica-test", 30*time.Minute, 100, time.Minute)
 }

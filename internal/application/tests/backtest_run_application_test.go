@@ -61,7 +61,7 @@ func newBacktestRunWorkersUnderTest(t *testing.T, workerCount int) backtestRunWo
 	return backtestRunWorkersUnderTest{
 		backtestRunApplication: application.NewBacktestRunApplication(service.NewBacktestRunService(
 			runRepository, mocks.NewMockIBacktestRunResultRepository(controller), transactionRepository, clockProxy,
-			backtestService, nil, domains.NewBacktestRunAdmissionDomain(3), "replica-a", time.Minute, 100),
+			backtestService, nil, domains.NewBacktestRunAdmissionDomain(3), "replica-a", time.Minute, 100, time.Minute),
 			workerCount, 30*24*time.Hour),
 		runRepository: runRepository,
 		finishOne:     finishOne,

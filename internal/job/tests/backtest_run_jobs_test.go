@@ -81,7 +81,7 @@ func newBacktestRunJobsUnderTest(t *testing.T) backtestRunJobsUnderTest {
 		backtestRunApplication: application.NewBacktestRunApplication(service.NewBacktestRunService(
 			runRepository, mocks.NewMockIBacktestRunResultRepository(controller), transactionRepository, clockProxy,
 			service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, 1000, 0), nil,
-			domains.NewBacktestRunAdmissionDomain(3), "replica-a", time.Minute, 100), 2, 30*24*time.Hour),
+			domains.NewBacktestRunAdmissionDomain(3), "replica-a", time.Minute, 100, time.Minute), 2, 30*24*time.Hour),
 		runRepository: runRepository,
 		replaying:     replaying,
 		endingsMutex:  endingsMutex,

@@ -46,7 +46,7 @@ func newRouterBacktestRuns(
 			runRepository, resultRepository, transactionRepository, clockProxy,
 			backtestService, contractBacktestService,
 			domains.NewBacktestRunAdmissionDomain(routerBacktestRunOwnerActiveLimit),
-			"replica-a", 30*time.Minute, 100),
+			"replica-a", 30*time.Minute, 100, time.Minute),
 		runRepository:    runRepository,
 		resultRepository: resultRepository,
 	}

@@ -18,6 +18,7 @@ func TestLoadAppliesTheBacktestRunDefaultsWhenNothingIsSet(t *testing.T) {
 		Retention:              30 * 24 * time.Hour,
 		PollInterval:           2 * time.Second,
 		ProgressWriteEveryBars: 100,
+		StatusCheckInterval:    2 * time.Second,
 	}, applicationConfig.BacktestRun)
 	assert.Equal(t, 200, applicationConfig.BacktestDefaultWarmupBarCount)
 }
@@ -29,6 +30,7 @@ func TestLoadReadsTheBacktestRunSettings(t *testing.T) {
 	t.Setenv("BACKTEST_RUN_RETENTION_DAYS", "7")
 	t.Setenv("BACKTEST_RUN_POLL_INTERVAL_SECONDS", "10")
 	t.Setenv("BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS", "500")
+	t.Setenv("BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS", "5")
 	t.Setenv("BACKTEST_DEFAULT_WARMUP_BAR_COUNT", "1000")
 
 	applicationConfig := config.Load()
@@ -40,6 +42,7 @@ func TestLoadReadsTheBacktestRunSettings(t *testing.T) {
 		Retention:              7 * 24 * time.Hour,
 		PollInterval:           10 * time.Second,
 		ProgressWriteEveryBars: 500,
+		StatusCheckInterval:    5 * time.Second,
 	}, applicationConfig.BacktestRun)
 	assert.Equal(t, 1000, applicationConfig.BacktestDefaultWarmupBarCount)
 }

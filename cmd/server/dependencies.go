@@ -413,6 +413,7 @@ func registerRoutes(
 		applicationConfig.Replica.Name,
 		applicationConfig.BacktestRun.TimeAllowance,
 		applicationConfig.BacktestRun.ProgressWriteEveryBars,
+		applicationConfig.BacktestRun.StatusCheckInterval,
 	)
 	backtestRunApplication := application.NewBacktestRunApplication(
 		backtestRunService, applicationConfig.BacktestRun.WorkerCount, applicationConfig.BacktestRun.Retention)

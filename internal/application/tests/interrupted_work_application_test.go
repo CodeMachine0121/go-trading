@@ -56,7 +56,7 @@ func newInterruptedWorkUnderTest(t *testing.T) interruptedWorkUnderTest {
 			service.NewBacktestRunService(
 				backtestRunRepository, mocks.NewMockIBacktestRunResultRepository(controller),
 				mocks.NewMockITransactionRepository(controller), clockProxy, nil, nil,
-				domains.NewBacktestRunAdmissionDomain(3), thisSweepingReplica, 30*time.Minute, 100)),
+				domains.NewBacktestRunAdmissionDomain(3), thisSweepingReplica, 30*time.Minute, 100, time.Minute)),
 		replicaHeartbeatRepository:    replicaHeartbeatRepository,
 		conversationRepository:        conversationRepository,
 		historySyncRunRepository:      historySyncRunRepository,

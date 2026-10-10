@@ -133,6 +133,7 @@ curl localhost:8080/health
 | `BACKTEST_RUN_RETENTION_DAYS` | `30` | 結束的輪次（連同成績單）保留幾天，從結束時間起算；未結束的不清 |
 | `BACKTEST_RUN_POLL_INTERVAL_SECONDS` | `2` | 每台分身多久看一次排隊中的輪次 |
 | `BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS` | `100` | 進行中的輪次每處理幾格寫一次進度 |
+| `BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS` | `2` | 進行中的輪次每隔幾秒重讀一次自己的狀態；在別台分身被取消的輪次最晚這麼久停下、讓出位置 |
 | `BACKGROUND_JOBS_ENABLED` | `true` | 背景工作總開關；`false` 時完全不回補、不自動抓取，也**不參與值班**、不寄待送訊息 |
 | `REPLICA_NAME` | 主機名稱加一段亂數（Kubernetes 裡主機名稱就是 pod 名稱） | 這台分身的名字，只用來標記「值班與認領現在是誰拿著」。多台分身不可同名 |
 | `LIVE_FOLLOW_RELAY_INTERVAL_SECONDS` | `2` | 不在值班的分身多久讀一次值班分身寫下的台股即時 K 線 |

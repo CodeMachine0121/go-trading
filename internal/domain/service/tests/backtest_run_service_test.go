@@ -43,6 +43,15 @@ func newBacktestRunServiceUnderTest(
 	t *testing.T, timeAllowance time.Duration, progressWriteEveryBars int, replay scriptReplay,
 ) *backtestRunServiceUnderTest {
 	t.Helper()
+
+	return newBacktestRunServiceCheckingStatusEvery(t, time.Minute, timeAllowance, progressWriteEveryBars, replay)
+}
+
+func newBacktestRunServiceCheckingStatusEvery(
+	t *testing.T, statusCheckInterval time.Duration, timeAllowance time.Duration, progressWriteEveryBars int,
+	replay scriptReplay,
+) *backtestRunServiceUnderTest {
+	t.Helper()
 	controller := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(backtestRunServiceNow).AnyTimes()
@@ -90,19 +99,45 @@ func newBacktestRunServiceUnderTest(
 		fixture.runRepository, fixture.resultRepository, transactionRepository, clockProxy,
 		service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, 1000, 0),
 		newContractBacktestServiceUnderTest(t, func(contractBacktestServiceMocks) {}),
-		domains.NewBacktestRunAdmissionDomain(3), "replica-a", timeAllowance, progressWriteEveryBars)
+		domains.NewBacktestRunAdmissionDomain(3), "replica-a", timeAllowance, progressWriteEveryBars,
+		statusCheckInterval)
 
 	return fixture
 }
 
 // queueHolds makes the next claim hand over a run of the given kind and request.
 func (fixture *backtestRunServiceUnderTest) queueHolds(kind vo.BacktestRunKindVo, request dto.BacktestRunRequestDto) {
-	startedAt := backtestRunServiceNow
 	fixture.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), "replica-a", backtestRunServiceNow).
-		Return(entities.BacktestRun{
-			ID: claimedBacktestRunID, OwnerID: 1, Kind: string(kind), Request: request,
-			Status: string(vo.BacktestRunRunning), ReplicaName: "replica-a", StartedAt: &startedAt,
-		}, true, nil)
+		Return(claimedBacktestRun(kind, request, vo.BacktestRunRunning), true, nil)
+}
+
+func claimedBacktestRun(
+	kind vo.BacktestRunKindVo, request dto.BacktestRunRequestDto, status vo.BacktestRunStatusVo,
+) entities.BacktestRun {
+	startedAt := backtestRunServiceNow
+
+	return entities.BacktestRun{
+		ID: claimedBacktestRunID, OwnerID: 1, Kind: string(kind), Request: request,
+		Status: string(status), ReplicaName: "replica-a", StartedAt: &startedAt,
+	}
+}
+
+func (fixture *backtestRunServiceUnderTest) writtenSoFar() []entities.BacktestRun {
+	fixture.writesMutex.Lock()
+	defer fixture.writesMutex.Unlock()
+
+	return append([]entities.BacktestRun{}, fixture.writes...)
+}
+
+func (fixture *backtestRunServiceUnderTest) claim(t *testing.T) {
+	t.Helper()
+	claimed, err := fixture.backtestRunService.ClaimAndRun(t.Context())
+	require.NoError(t, err)
+	require.True(t, claimed)
+}
+
+func (fixture *backtestRunServiceUnderTest) runnerHasEnded() bool {
+	return fixture.backtestRunService.RunningCount() == 0
 }
 
 func (fixture *backtestRunServiceUnderTest) claimAndWaitForTheEnding(t *testing.T) entities.BacktestRun {
@@ -403,4 +438,157 @@ func TestBacktestRunnerFailsAStretchWithNoCandlesInTheRefusalsOwnWords(t *testin
 
 	assert.Equal(t, "failed", ending.Status)
 	assert.Contains(t, ending.FailureReason, "湊不出足夠的 K 線")
+}
+
+// progressStillArriving returns once its context ends while a second goroutine, like the proxy's reader, keeps reporting bars.
+func progressStillArriving(t *testing.T) scriptReplay {
+	return func(executionContext context.Context, _ []vo.KCandleVo, progress domaininterface.IReplayProgressSink,
+	) ([]map[string]vo.IndicatorValueVo, error) {
+		stopReporting := make(chan struct{})
+		reportingStopped := make(chan struct{})
+		go func() {
+			defer close(reportingStopped)
+			for completedBarCount := 1; ; completedBarCount++ {
+				select {
+				case <-stopReporting:
+					return
+				default:
+					progress.ReplayAdvanced(completedBarCount, 1_000_000)
+				}
+			}
+		}()
+		t.Cleanup(func() {
+			close(stopReporting)
+			<-reportingStopped
+		})
+		<-executionContext.Done()
+
+		return nil, errors.New("算式已中止，因為發動它的請求已經結束")
+	}
+}
+
+func TestBacktestRunnerEndsConsistentlyWhileProgressIsStillArriving(t *testing.T) {
+	testCases := []struct {
+		name          string
+		timeAllowance time.Duration
+		stop          func(t *testing.T, fixture *backtestRunServiceUnderTest)
+		// expectedEnding is the reason of the one closing write, or empty when a cancelled run writes no ending.
+		expectedEnding string
+	}{
+		{
+			name: "the allowance running out", timeAllowance: 20 * time.Millisecond,
+			stop:           func(*testing.T, *backtestRunServiceUnderTest) {},
+			expectedEnding: "超過時間上限",
+		},
+		{
+			name: "the owner cancelling", timeAllowance: time.Minute,
+			stop: func(t *testing.T, fixture *backtestRunServiceUnderTest) {
+				fixture.runRepository.EXPECT().FindOneOwned(gomock.Any(), uint(1), claimedBacktestRunID).
+					Return(claimedBacktestRun(vo.BacktestRunSpotScript, spotScriptRun(), vo.BacktestRunRunning), true, nil)
+				fixture.runRepository.EXPECT().CancelIfActive(gomock.Any(), gomock.Any()).Return(true, nil)
+				require.Eventually(t, func() bool { return len(fixture.writtenSoFar()) > 0 },
+					5*time.Second, time.Millisecond)
+
+				_, err := fixture.backtestRunService.Cancel(t.Context(), 1, claimedBacktestRunID)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newBacktestRunServiceUnderTest(t, testCase.timeAllowance, 1, progressStillArriving(t))
+			fixture.queueHolds(vo.BacktestRunSpotScript, spotScriptRun())
+			fixture.claim(t)
+
+			testCase.stop(t, fixture)
+
+			require.Eventually(t, fixture.runnerHasEnded, 5*time.Second, time.Millisecond)
+			writesAtTheEnd := fixture.writtenSoFar()
+			time.Sleep(20 * time.Millisecond)
+			assert.Equal(t, writesAtTheEnd, fixture.writtenSoFar(), "nothing is written once the run has ended")
+			closingWrites := []entities.BacktestRun{}
+			for _, write := range writesAtTheEnd {
+				if write.Status != "running" {
+					closingWrites = append(closingWrites, write)
+				}
+			}
+			if testCase.expectedEnding == "" {
+				assert.Empty(t, closingWrites)
+				return
+			}
+			require.Len(t, closingWrites, 1)
+			assert.Equal(t, closingWrites[0], writesAtTheEnd[len(writesAtTheEnd)-1])
+			assert.Equal(t, "failed", closingWrites[0].Status)
+			assert.Equal(t, testCase.expectedEnding, closingWrites[0].FailureReason)
+		})
+	}
+}
+
+// blockedBeforeAnyProgress waits like a replay stuck for a compartment or on the candle read, reporting nothing.
+func blockedBeforeAnyProgress(executionContext context.Context, _ []vo.KCandleVo, _ domaininterface.IReplayProgressSink,
+) ([]map[string]vo.IndicatorValueVo, error) {
+	<-executionContext.Done()
+
+	return nil, errors.New("算式已中止，因為發動它的請求已經結束")
+}
+
+func TestBacktestRunnerStopsPromptlyOnceItsRunIsCancelled(t *testing.T) {
+	testCases := []struct {
+		name                string
+		statusCheckInterval time.Duration
+		cancel              func(t *testing.T, fixture *backtestRunServiceUnderTest)
+	}{
+		{
+			name: "cancelled on another replica, seen at the next status check", statusCheckInterval: 20 * time.Millisecond,
+			cancel: func(_ *testing.T, fixture *backtestRunServiceUnderTest) {
+				fixture.runRepository.EXPECT().FindOneOwned(gomock.Any(), uint(1), claimedBacktestRunID).
+					Return(claimedBacktestRun(vo.BacktestRunSpotScript, spotScriptRun(), vo.BacktestRunCancelled), true, nil).
+					MinTimes(1)
+			},
+		},
+		{
+			name: "cancelled on this replica, stopped at once", statusCheckInterval: time.Minute,
+			cancel: func(t *testing.T, fixture *backtestRunServiceUnderTest) {
+				fixture.runRepository.EXPECT().FindOneOwned(gomock.Any(), uint(1), claimedBacktestRunID).
+					Return(claimedBacktestRun(vo.BacktestRunSpotScript, spotScriptRun(), vo.BacktestRunRunning), true, nil)
+				fixture.runRepository.EXPECT().CancelIfActive(gomock.Any(), gomock.Any()).Return(true, nil)
+
+				_, err := fixture.backtestRunService.Cancel(t.Context(), 1, claimedBacktestRunID)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newBacktestRunServiceCheckingStatusEvery(
+				t, testCase.statusCheckInterval, time.Minute, 1, blockedBeforeAnyProgress)
+			fixture.queueHolds(vo.BacktestRunSpotScript, spotScriptRun())
+			fixture.claim(t)
+
+			testCase.cancel(t, fixture)
+
+			require.Eventually(t, fixture.runnerHasEnded, 10*testCase.statusCheckInterval+time.Second, time.Millisecond)
+			assert.Empty(t, fixture.writtenSoFar())
+		})
+	}
+}
+
+func TestBacktestRunnerKeepsReplayingWhileItsRunIsStillRunningHere(t *testing.T) {
+	fixture := newBacktestRunServiceCheckingStatusEvery(t, 5*time.Millisecond, time.Minute, 100,
+		func(executionContext context.Context, kCandles []vo.KCandleVo, progress domaininterface.IReplayProgressSink,
+		) ([]map[string]vo.IndicatorValueVo, error) {
+			time.Sleep(50 * time.Millisecond)
+			return buyingThenSelling(executionContext, kCandles, progress)
+		})
+	fixture.runRepository.EXPECT().FindOneOwned(gomock.Any(), uint(1), claimedBacktestRunID).
+		Return(claimedBacktestRun(vo.BacktestRunSpotScript, spotScriptRun(), vo.BacktestRunRunning), true, nil).
+		AnyTimes()
+	fixture.resultRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
+	fixture.queueHolds(vo.BacktestRunSpotScript, spotScriptRun())
+
+	ending := fixture.claimAndWaitForTheEnding(t)
+
+	assert.Equal(t, "succeeded", ending.Status, ending.FailureReason)
 }

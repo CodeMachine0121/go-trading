@@ -239,6 +239,8 @@ type BacktestRunConfig struct {
 	PollInterval time.Duration
 	// ProgressWriteEveryBars spaces the progress writes so a long replay does not write a row per bar.
 	ProgressWriteEveryBars int
+	// StatusCheckInterval is how soon a run cancelled on another replica stops using this replica's worker place.
+	StatusCheckInterval time.Duration
 }
 
 // ReplicaConfig names this server among its replicas; the name only says who holds a lease or claim right now.
@@ -398,6 +400,8 @@ func loadAsWritten() ApplicationConfig {
 			PollInterval: time.Duration(
 				positiveIntWithDefault("BACKTEST_RUN_POLL_INTERVAL_SECONDS", 2)) * time.Second,
 			ProgressWriteEveryBars: positiveIntWithDefault("BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS", 100),
+			StatusCheckInterval: time.Duration(
+				positiveIntWithDefault("BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS", 2)) * time.Second,
 		},
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		// The host name (the pod name in Kubernetes) with a random tail, so replicas are told apart without extra settings.
