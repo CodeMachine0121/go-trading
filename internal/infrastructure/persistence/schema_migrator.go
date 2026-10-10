@@ -113,6 +113,8 @@ func (schemaMigrator *SchemaMigrator) Migrate() ([]string, error) {
 		&entities.ContractAutoOrder{},
 		&entities.ReplicaHeartbeat{},
 		&entities.LiveKCandleSnapshot{},
+		&entities.BacktestRun{},
+		&entities.BacktestRunResult{},
 	}
 
 	// Rename before syncing, or AutoMigrate would create empty new tables beside the old ones.
