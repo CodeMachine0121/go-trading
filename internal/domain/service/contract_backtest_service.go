@@ -82,13 +82,13 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	requestDto dto.ContractBacktestRequestDto,
 	progress domaininterface.IReplayProgressSink,
 ) (dto.ContractBacktestResultDto, error) {
-	allowance := newReplayAllowance(requestDto.TimeAllowance)
-	replayContext, stopReplaying := allowance.bound(executionContext)
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
 	defer stopReplaying()
 
 	tradingRules, rulesError := contractBacktestService.readTradingRules(replayContext, requestDto.Symbol)
 	if rulesError != nil {
-		return dto.ContractBacktestResultDto{}, allowance.refusalFor(replayContext, rulesError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
 	if requestDto.DefaultWarmupBarCount == 0 {
@@ -103,7 +103,7 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
 		replayContext, contractBacktestDomain)
 	if readError != nil {
-		return dto.ContractBacktestResultDto{}, allowance.refusalFor(replayContext, readError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
 	}
 
 	perBarIndicatorValues, executionError := contractBacktestService.contractIndicatorScriptProxy.ExecuteForEachCandle(
@@ -114,7 +114,7 @@ func (contractBacktestService *ContractBacktestService) RunContractBacktest(
 		contractBacktestDomain.Parameters(),
 		progress)
 	if executionError != nil {
-		return dto.ContractBacktestResultDto{}, allowance.refusalFor(replayContext, executionError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 	}
 
 	return contractBacktestDomain.ReplayOver(
@@ -127,13 +127,13 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	requestDto dto.ContractTradingStrategyBacktestRequestDto,
 	progress domaininterface.IReplayProgressSink,
 ) (dto.ContractBacktestResultDto, error) {
-	allowance := newReplayAllowance(requestDto.TimeAllowance)
-	replayContext, stopReplaying := allowance.bound(executionContext)
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
 	defer stopReplaying()
 
 	tradingRules, rulesError := contractBacktestService.readTradingRules(replayContext, requestDto.Symbol)
 	if rulesError != nil {
-		return dto.ContractBacktestResultDto{}, allowance.refusalFor(replayContext, rulesError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, rulesError)
 	}
 
 	if requestDto.DefaultWarmupBarCount == 0 {
@@ -149,7 +149,7 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 	alignment, contractKCandles, settlements, readError := contractBacktestService.readReplayBars(
 		replayContext, contractBacktestDomain)
 	if readError != nil {
-		return dto.ContractBacktestResultDto{}, allowance.refusalFor(replayContext, readError)
+		return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, readError)
 	}
 
 	sourceCount := strategyBacktestDomain.SourceCount()
@@ -164,7 +164,7 @@ func (contractBacktestService *ContractBacktestService) RunContractTradingStrate
 			newSourceReplayProgress(progress, sourceIndex, sourceCount))
 		// One failing source ends the replay; missing signals would silently make conditions false.
 		if executionError != nil {
-			return dto.ContractBacktestResultDto{}, allowance.refusalFor(replayContext, executionError)
+			return dto.ContractBacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 		}
 
 		signalsBySource = append(signalsBySource, signalsOf(perBarIndicatorValues))

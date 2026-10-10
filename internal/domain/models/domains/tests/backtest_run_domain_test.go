@@ -1,6 +1,7 @@
 package domains_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -106,15 +107,46 @@ func TestBacktestRunLifeFromClaimToEnding(t *testing.T) {
 	})
 
 	t.Run("a failure keeps the reason in the person's words and no figures", func(t *testing.T) {
-		failed := claimed.Failed("算式執行失敗：除以零", backtestRunMoment.Add(time.Hour))
+		failed := claimed.FailedFor(errors.New("算式執行失敗：除以零"), false, backtestRunMoment.Add(time.Hour))
 
 		runDto := failed.ToDto()
 		assert.Equal(t, "failed", runDto.Status)
 		assert.Equal(t, "算式執行失敗：除以零", runDto.FailureReason)
 		assert.Nil(t, runDto.TotalReturnRate)
 		assert.Nil(t, runDto.TradeCount)
+		require.NotNil(t, runDto.FinishedAt)
+		assert.Equal(t, backtestRunMoment.Add(time.Hour), *runDto.FinishedAt)
 		assert.False(t, failed.IsActive())
 	})
+}
+
+func TestBacktestRunFailureNamesWhyInThePersonsWords(t *testing.T) {
+	testCases := []struct {
+		name           string
+		replayError    error
+		interrupted    bool
+		expectedReason string
+	}{
+		{name: "the script failing keeps its own words", replayError: errors.New("算式執行失敗：除以零"),
+			expectedReason: "算式執行失敗：除以零"},
+		{name: "running past the allowance", replayError: domains.BacktestTimeAllowanceSpent(30 * time.Minute),
+			expectedReason: "超過時間上限"},
+		{name: "the replay breaking down", replayError: domains.ErrBacktestRunBrokeDown,
+			expectedReason: "回測服務壞掉了，這筆沒有跑完"},
+		{name: "a graceful stop reads as a restart whatever the replay said", interrupted: true,
+			replayError: errors.New("算式已中止，因為發動它的請求已經結束"), expectedReason: "被重新啟動打斷"},
+		{name: "a graceful stop beats the allowance", interrupted: true,
+			replayError: domains.BacktestTimeAllowanceSpent(30 * time.Minute), expectedReason: "被重新啟動打斷"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			failed := aBacktestRunIn("running").FailedFor(testCase.replayError, testCase.interrupted, backtestRunMoment)
+
+			assert.Equal(t, "failed", failed.ToDto().Status)
+			assert.Equal(t, testCase.expectedReason, failed.ToDto().FailureReason)
+		})
+	}
 }
 
 func TestSubmittedBacktestRunDescribesWhatItReplays(t *testing.T) {

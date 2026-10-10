@@ -19,10 +19,10 @@ type IBacktestRunRepository interface {
 	) ([]entities.BacktestRun, int64, error)
 	// CountActiveByOwner counts queued and running runs, the only ones the owner limit is about.
 	CountActiveByOwner(executionContext context.Context, ownerID uint) (int, error)
-	// ClaimOldestQueued moves the oldest queued run to running under this replica's name, or reports there was none; two replicas never get the same run.
-	ClaimOldestQueued(
-		executionContext context.Context, replicaName string, startedAt time.Time,
-	) (entities.BacktestRun, bool, error)
+	// LockOldestQueued reads the oldest queued run and locks it until the surrounding transaction ends, skipping runs another replica holds, so two replicas never claim the same run.
+	LockOldestQueued(executionContext context.Context) (entities.BacktestRun, bool, error)
+	// SaveClaim writes the claimed run's status, replica and start.
+	SaveClaim(executionContext context.Context, backtestRun entities.BacktestRun) error
 	// UpdateIfRunning writes the run's progress or ending only while it is still running under the same replica, and says whether it was.
 	UpdateIfRunning(executionContext context.Context, backtestRun entities.BacktestRun) (bool, error)
 	// CancelIfActive ends a queued or running run and says whether it was still active.

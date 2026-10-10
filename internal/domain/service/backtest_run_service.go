@@ -205,16 +205,29 @@ func (backtestRunService *BacktestRunService) Cancel(
 
 // ClaimAndRun takes the oldest queued run, if any, and replays it in the background under this replica's name.
 func (backtestRunService *BacktestRunService) ClaimAndRun(executionContext context.Context) (bool, error) {
-	claimed, wasClaimed, claimError := backtestRunService.backtestRunRepository.ClaimOldestQueued(
-		executionContext, backtestRunService.replicaName, backtestRunService.clockProxy.Now())
+	claimed := domains.BacktestRunDomain{}
+	wasClaimed := false
+	claimError := backtestRunService.transactionRepository.Atomically(executionContext,
+		func(transactionContext context.Context) error {
+			queued, found, lockError := backtestRunService.backtestRunRepository.LockOldestQueued(transactionContext)
+			if lockError != nil || !found {
+				return lockError
+			}
+
+			claimed = domains.NewBacktestRunDomain(queued).Claimed(
+				backtestRunService.replicaName, backtestRunService.clockProxy.Now())
+			wasClaimed = true
+
+			return backtestRunService.backtestRunRepository.SaveClaim(transactionContext, claimed.ToEntity())
+		})
 	if claimError != nil || !wasClaimed {
 		return false, claimError
 	}
 
-	runner := newBacktestRunner(backtestRunService, domains.NewBacktestRunDomain(claimed))
+	runner := newBacktestRunner(backtestRunService, claimed)
 	backtestRunService.runningCount.Add(1)
 	backtestRunService.runnersEnded.Add(1)
-	backtestRunService.runners.Store(claimed.ID, runner)
+	backtestRunService.runners.Store(claimed.ToEntity().ID, runner)
 	go runner.run()
 
 	return true, nil

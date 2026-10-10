@@ -71,18 +71,19 @@ func newBacktestRunWorkersUnderTest(t *testing.T, workerCount int) backtestRunWo
 // queueHoldsRuns hands out this many queued runs, oldest first, then reports the queue empty.
 func (underTest backtestRunWorkersUnderTest) queueHoldsRuns(runCount int) {
 	nextID := uint(0)
-	underTest.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), "replica-a", gomock.Any()).
-		DoAndReturn(func(context.Context, string, time.Time) (entities.BacktestRun, bool, error) {
+	underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).
+		DoAndReturn(func(context.Context) (entities.BacktestRun, bool, error) {
 			if int(nextID) == runCount {
 				return entities.BacktestRun{}, false, nil
 			}
 			nextID++
 			requestDto := replayRequestDto()
 			return entities.BacktestRun{
-				ID: nextID, Kind: string(vo.BacktestRunSpotScript), Status: string(vo.BacktestRunRunning),
-				ReplicaName: "replica-a", Request: dto.BacktestRunRequestDto{SpotScript: &requestDto},
+				ID: nextID, Kind: string(vo.BacktestRunSpotScript), Status: string(vo.BacktestRunQueued),
+				Request: dto.BacktestRunRequestDto{SpotScript: &requestDto},
 			}, true, nil
 		}).AnyTimes()
+	underTest.runRepository.EXPECT().SaveClaim(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 }
 
 func TestRunClaimedBacktestsFillsOnlyTheFreeWorkerPlaces(t *testing.T) {
@@ -107,7 +108,7 @@ func TestRunClaimedBacktestsFillsOnlyTheFreeWorkerPlaces(t *testing.T) {
 
 func TestRunClaimedBacktestsPassesOnAQueueThatCannotBeRead(t *testing.T) {
 	underTest := newBacktestRunWorkersUnderTest(t, 2)
-	underTest.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), gomock.Any(), gomock.Any()).
+	underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).
 		Return(entities.BacktestRun{}, false, errors.New("storage unavailable"))
 
 	started, err := underTest.backtestRunApplication.RunClaimedBacktests(t.Context())

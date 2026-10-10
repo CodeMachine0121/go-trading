@@ -7,6 +7,9 @@ import (
 
 var ErrBacktestRunNotFound = errors.New("backtest run not found")
 
+// ErrBacktestRunBrokeDown stands for a replay that panicked, so its run ends without exposing the panic.
+var ErrBacktestRunBrokeDown = errors.New("backtest run broke down")
+
 // ErrBacktestRunAlreadyEnded refuses a cancel once a run has reached a final status.
 var ErrBacktestRunAlreadyEnded = errors.New("這筆回測已經結束，不能取消")
 

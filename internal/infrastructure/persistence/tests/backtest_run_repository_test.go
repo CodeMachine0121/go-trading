@@ -1,10 +1,12 @@
 package persistence_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
@@ -63,6 +65,28 @@ func savedBacktestRunIn(
 	require.NoError(t, saveError)
 
 	return saved
+}
+
+// claimOldestQueued claims as a replica does: lock the oldest queued run, move it to running, save the claim, in one transaction.
+func claimOldestQueued(
+	t *testing.T, database *gorm.DB, replicaName string, startedAt time.Time,
+) (entities.BacktestRun, bool, error) {
+	repository := persistence.NewBacktestRunRepository(database)
+	claimed := entities.BacktestRun{}
+	wasClaimed := false
+	claimError := persistence.NewTransactionRepository(database).Atomically(t.Context(),
+		func(transactionContext context.Context) error {
+			queued, found, lockError := repository.LockOldestQueued(transactionContext)
+			if lockError != nil || !found {
+				return lockError
+			}
+			claimed = domains.NewBacktestRunDomain(queued).Claimed(replicaName, startedAt).ToEntity()
+			wasClaimed = true
+
+			return repository.SaveClaim(transactionContext, claimed)
+		})
+
+	return claimed, wasClaimed, claimError
 }
 
 func TestBacktestRunRepositoryKeepsTheRequestAndShowsARunOnlyToItsOwner(t *testing.T) {
@@ -188,14 +212,15 @@ func TestBacktestRunRepositoryCountsOnlyQueuedAndRunningRunsOfOneOwner(t *testin
 }
 
 func TestBacktestRunRepositoryClaimsTheOldestQueuedRun(t *testing.T) {
-	repository := persistence.NewBacktestRunRepository(newBacktestRunTestDatabase(t))
+	database := newBacktestRunTestDatabase(t)
+	repository := persistence.NewBacktestRunRepository(database)
 	oldest, firstError := repository.Save(t.Context(), aQueuedBacktestRun(otherBacktestRunOwnerID, 0))
 	require.NoError(t, firstError)
 	_, secondError := repository.Save(t.Context(), aQueuedBacktestRun(backtestRunOwnerID, 1))
 	require.NoError(t, secondError)
 	claimedAt := backtestRunSubmittedAt.Add(time.Minute)
 
-	claimed, wasClaimed, claimError := repository.ClaimOldestQueued(t.Context(), "replica-a", claimedAt)
+	claimed, wasClaimed, claimError := claimOldestQueued(t, database, "replica-a", claimedAt)
 
 	require.NoError(t, claimError)
 	require.True(t, wasClaimed)
@@ -209,7 +234,8 @@ func TestBacktestRunRepositoryClaimsTheOldestQueuedRun(t *testing.T) {
 
 func TestBacktestRunRepositoryGivesEachQueuedRunToExactlyOneReplica(t *testing.T) {
 	const queuedRunCount, replicaCount = 12, 6
-	repository := persistence.NewBacktestRunRepository(newBacktestRunTestDatabase(t))
+	database := newBacktestRunTestDatabase(t)
+	repository := persistence.NewBacktestRunRepository(database)
 	for minute := range queuedRunCount {
 		_, saveError := repository.Save(t.Context(), aQueuedBacktestRun(backtestRunOwnerID, minute))
 		require.NoError(t, saveError)
@@ -227,8 +253,8 @@ func TestBacktestRunRepositoryGivesEachQueuedRunToExactlyOneReplica(t *testing.T
 			defer finishing.Done()
 			starting.Wait()
 			for {
-				claimed, wasClaimed, claimError := repository.ClaimOldestQueued(
-					t.Context(), "replica-"+string(rune('a'+replicaIndex)), backtestRunSubmittedAt)
+				claimed, wasClaimed, claimError := claimOldestQueued(
+					t, database, "replica-"+string(rune('a'+replicaIndex)), backtestRunSubmittedAt)
 				claimsMutex.Lock()
 				if claimError != nil {
 					claimErrors = append(claimErrors, claimError)
@@ -254,12 +280,13 @@ func TestBacktestRunRepositoryGivesEachQueuedRunToExactlyOneReplica(t *testing.T
 }
 
 func TestBacktestRunRepositoryFindsNothingToClaimWhenNothingIsQueued(t *testing.T) {
-	repository := persistence.NewBacktestRunRepository(newBacktestRunTestDatabase(t))
+	database := newBacktestRunTestDatabase(t)
+	repository := persistence.NewBacktestRunRepository(database)
 	cancelledAt := backtestRunSubmittedAt.Add(time.Minute)
 	savedBacktestRunIn(t, repository, aQueuedBacktestRun(backtestRunOwnerID, 0), vo.BacktestRunRunning, "replica-a", nil)
 	savedBacktestRunIn(t, repository, aQueuedBacktestRun(backtestRunOwnerID, 1), vo.BacktestRunCancelled, "", &cancelledAt)
 
-	_, wasClaimed, claimError := repository.ClaimOldestQueued(t.Context(), "replica-b", backtestRunSubmittedAt)
+	_, wasClaimed, claimError := claimOldestQueued(t, database, "replica-b", backtestRunSubmittedAt)
 
 	require.NoError(t, claimError)
 	assert.False(t, wasClaimed)

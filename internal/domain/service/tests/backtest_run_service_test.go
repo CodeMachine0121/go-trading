@@ -108,8 +108,11 @@ func newBacktestRunServiceCheckingStatusEvery(
 
 // queueHolds makes the next claim hand over a run of the given kind and request.
 func (fixture *backtestRunServiceUnderTest) queueHolds(kind vo.BacktestRunKindVo, request dto.BacktestRunRequestDto) {
-	fixture.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), "replica-a", backtestRunServiceNow).
-		Return(claimedBacktestRun(kind, request, vo.BacktestRunRunning), true, nil)
+	queued := claimedBacktestRun(kind, request, vo.BacktestRunQueued)
+	queued.ReplicaName, queued.StartedAt = "", nil
+	fixture.runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(queued, true, nil)
+	fixture.runRepository.EXPECT().SaveClaim(gomock.Any(), claimedBacktestRun(kind, request, vo.BacktestRunRunning)).
+		Return(nil)
 }
 
 func claimedBacktestRun(
@@ -391,18 +394,37 @@ func TestBacktestRunnerOnAGracefulStopMarksItsRunInterrupted(t *testing.T) {
 func TestBacktestRunServiceClaimsNothingFromAnEmptyQueue(t *testing.T) {
 	testCases := []struct {
 		name          string
-		claimError    error
+		expectations  func(runRepository *mocks.MockIBacktestRunRepository)
 		expectedError error
 	}{
-		{name: "nothing queued"},
-		{name: "the queue unreadable", claimError: errStorageUnavailable, expectedError: errStorageUnavailable},
+		{
+			name: "nothing queued",
+			expectations: func(runRepository *mocks.MockIBacktestRunRepository) {
+				runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(entities.BacktestRun{}, false, nil)
+			},
+		},
+		{
+			name: "the queue unreadable",
+			expectations: func(runRepository *mocks.MockIBacktestRunRepository) {
+				runRepository.EXPECT().LockOldestQueued(gomock.Any()).Return(entities.BacktestRun{}, false, errStorageUnavailable)
+			},
+			expectedError: errStorageUnavailable,
+		},
+		{
+			name: "the claim not saved",
+			expectations: func(runRepository *mocks.MockIBacktestRunRepository) {
+				runRepository.EXPECT().LockOldestQueued(gomock.Any()).
+					Return(entities.BacktestRun{ID: claimedBacktestRunID, Status: string(vo.BacktestRunQueued)}, true, nil)
+				runRepository.EXPECT().SaveClaim(gomock.Any(), gomock.Any()).Return(errStorageUnavailable)
+			},
+			expectedError: errStorageUnavailable,
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newBacktestRunServiceUnderTest(t, time.Minute, 100, buyingThenSelling)
-			fixture.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), "replica-a", gomock.Any()).
-				Return(entities.BacktestRun{}, false, testCase.claimError)
+			testCase.expectations(fixture.runRepository)
 
 			claimed, err := fixture.backtestRunService.ClaimAndRun(t.Context())
 

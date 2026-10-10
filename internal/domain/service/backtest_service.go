@@ -59,8 +59,8 @@ func (backtestService *BacktestService) RunBacktest(
 	requestDto dto.BacktestRequestDto,
 	progress domaininterface.IReplayProgressSink,
 ) (dto.BacktestResultDto, error) {
-	allowance := newReplayAllowance(requestDto.TimeAllowance)
-	replayContext, stopReplaying := allowance.bound(executionContext)
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
 	defer stopReplaying()
 
 	if requestDto.DefaultWarmupBarCount == 0 {
@@ -75,12 +75,12 @@ func (backtestService *BacktestService) RunBacktest(
 	kCandles, findError := backtestService.kCandleRepository.FindInRange(
 		replayContext, backtestDomain.KCandleQuery(), backtestDomain.SourceCandleLimit())
 	if findError != nil {
-		return dto.BacktestResultDto{}, allowance.refusalFor(replayContext, findError)
+		return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, findError)
 	}
 
 	inputKCandles, selectionError := backtestDomain.SelectInputCandles(kCandles)
 	if selectionError != nil {
-		return dto.BacktestResultDto{}, allowance.refusalFor(replayContext, selectionError)
+		return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, selectionError)
 	}
 
 	perCandleIndicatorValues, executionError := backtestService.indicatorScriptProxy.ExecuteForEachCandle(
@@ -91,7 +91,7 @@ func (backtestService *BacktestService) RunBacktest(
 		backtestDomain.Parameters(),
 		progress)
 	if executionError != nil {
-		return dto.BacktestResultDto{}, allowance.refusalFor(replayContext, executionError)
+		return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 	}
 
 	return backtestDomain.ReplayOver(
@@ -104,8 +104,8 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 	requestDto dto.TradingStrategyBacktestRequestDto,
 	progress domaininterface.IReplayProgressSink,
 ) (dto.BacktestResultDto, error) {
-	allowance := newReplayAllowance(requestDto.TimeAllowance)
-	replayContext, stopReplaying := allowance.bound(executionContext)
+	allowance := domains.NewReplayAllowanceDomain(requestDto.TimeAllowance)
+	replayContext, stopReplaying := allowance.Bound(executionContext)
 	defer stopReplaying()
 
 	if requestDto.DefaultWarmupBarCount == 0 {
@@ -122,12 +122,12 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 		tradingStrategyBacktestDomain.KCandleQuery(),
 		tradingStrategyBacktestDomain.SourceCandleLimit())
 	if findError != nil {
-		return dto.BacktestResultDto{}, allowance.refusalFor(replayContext, findError)
+		return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, findError)
 	}
 
 	inputKCandles, selectionError := tradingStrategyBacktestDomain.SelectInputCandles(kCandles)
 	if selectionError != nil {
-		return dto.BacktestResultDto{}, allowance.refusalFor(replayContext, selectionError)
+		return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, selectionError)
 	}
 
 	sourceCount := tradingStrategyBacktestDomain.SourceCount()
@@ -142,7 +142,7 @@ func (backtestService *BacktestService) RunTradingStrategyBacktest(
 			newSourceReplayProgress(progress, sourceIndex, sourceCount))
 		// One failing source ends the replay; missing signals would silently make conditions false.
 		if executionError != nil {
-			return dto.BacktestResultDto{}, allowance.refusalFor(replayContext, executionError)
+			return dto.BacktestResultDto{}, allowance.RefusalFor(replayContext, executionError)
 		}
 
 		signalsBySource = append(signalsBySource, signalsOf(perCandleIndicatorValues))

@@ -95,13 +95,14 @@ func (underTest backtestRunJobsUnderTest) queueHoldsOneRun() {
 		StartTime: currentTime.Add(-5 * time.Hour), EndTime: currentTime.Add(-2 * time.Hour),
 		Script: "the script", InitialCapital: decimal.NewFromInt(10000), PositionSizingMode: "allIn",
 	}
-	underTest.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), "replica-a", gomock.Any()).
+	underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).
 		Return(entities.BacktestRun{
-			ID: 27, Kind: string(vo.BacktestRunSpotScript), Status: string(vo.BacktestRunRunning),
-			ReplicaName: "replica-a", Request: dto.BacktestRunRequestDto{SpotScript: &requestDto},
+			ID: 27, Kind: string(vo.BacktestRunSpotScript), Status: string(vo.BacktestRunQueued),
+			Request: dto.BacktestRunRequestDto{SpotScript: &requestDto},
 		}, true, nil)
-	underTest.runRepository.EXPECT().ClaimOldestQueued(gomock.Any(), "replica-a", gomock.Any()).
+	underTest.runRepository.EXPECT().LockOldestQueued(gomock.Any()).
 		Return(entities.BacktestRun{}, false, nil).AnyTimes()
+	underTest.runRepository.EXPECT().SaveClaim(gomock.Any(), gomock.Any()).Return(nil)
 }
 
 func (underTest backtestRunJobsUnderTest) lastEnding(t *testing.T) entities.BacktestRun {

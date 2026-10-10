@@ -1,6 +1,7 @@
 package domains
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,8 +11,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestRunInterruptedReason is written on a run whose replica is gone; the request is kept, so it can simply be submitted again.
-const BacktestRunInterruptedReason = "被重新啟動打斷"
+const (
+	// BacktestRunInterruptedReason is written on a run whose replica is gone; the request is kept, so it can simply be submitted again.
+	BacktestRunInterruptedReason   = "被重新啟動打斷"
+	backtestRunBrokeDownReason     = "回測服務壞掉了，這筆沒有跑完"
+	backtestRunOverAllowanceReason = "超過時間上限"
+)
 
 // BacktestRunDomain is one run's life: queued, claimed by a replica, advancing, then succeeded, failed or cancelled; final statuses never change.
 type BacktestRunDomain struct {
@@ -158,8 +163,20 @@ func (backtestRunDomain BacktestRunDomain) Succeeded(
 	return backtestRunDomain
 }
 
-// Failed closes the run with why, in the words the person reads.
-func (backtestRunDomain BacktestRunDomain) Failed(reason string, finishedAt time.Time) BacktestRunDomain {
+// FailedFor closes the run with why it did not finish, in the words the person reads; a stop for a restart says so whatever the replay reported.
+func (backtestRunDomain BacktestRunDomain) FailedFor(
+	replayError error, interrupted bool, finishedAt time.Time,
+) BacktestRunDomain {
+	reason := backtestRunBrokeDownReason
+	switch {
+	case interrupted:
+		reason = BacktestRunInterruptedReason
+	case errors.Is(replayError, ErrBacktestTimeAllowanceSpent):
+		reason = backtestRunOverAllowanceReason
+	case replayError != nil && !errors.Is(replayError, ErrBacktestRunBrokeDown):
+		reason = replayError.Error()
+	}
+
 	finishedAtUtc := finishedAt.UTC()
 	backtestRunDomain.backtestRun.Status = string(vo.BacktestRunFailed)
 	backtestRunDomain.backtestRun.FailureReason = reason
@@ -190,22 +207,23 @@ func (backtestRunDomain BacktestRunDomain) ToEntity() entities.BacktestRun {
 func (backtestRunDomain BacktestRunDomain) ToDto() dto.BacktestRunDto {
 	backtestRun := backtestRunDomain.backtestRun
 
-	var leverage *decimal.Decimal
-	var tradingMode *string
-	var startedAt, finishedAt *time.Time
-	if backtestRun.StartedAt != nil {
-		startedAtUtc := backtestRun.StartedAt.UTC()
-		startedAt = &startedAtUtc
-	}
-	if backtestRun.FinishedAt != nil {
-		finishedAtUtc := backtestRun.FinishedAt.UTC()
-		finishedAt = &finishedAtUtc
-	}
+	leverage := (*decimal.Decimal)(nil)
+	tradingMode := (*string)(nil)
 	if backtestRun.Leverage.Valid {
 		leverageValue := backtestRun.Leverage.Decimal
 		leverage = &leverageValue
 		tradingModeValue := backtestRun.TradingMode
 		tradingMode = &tradingModeValue
+	}
+	startedAt := (*time.Time)(nil)
+	if backtestRun.StartedAt != nil {
+		startedAtUtc := backtestRun.StartedAt.UTC()
+		startedAt = &startedAtUtc
+	}
+	finishedAt := (*time.Time)(nil)
+	if backtestRun.FinishedAt != nil {
+		finishedAtUtc := backtestRun.FinishedAt.UTC()
+		finishedAt = &finishedAtUtc
 	}
 
 	return dto.BacktestRunDto{

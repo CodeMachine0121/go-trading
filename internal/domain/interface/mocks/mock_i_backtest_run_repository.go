@@ -58,22 +58,6 @@ func (mr *MockIBacktestRunRepositoryMockRecorder) CancelIfActive(executionContex
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelIfActive", reflect.TypeOf((*MockIBacktestRunRepository)(nil).CancelIfActive), executionContext, backtestRun)
 }
 
-// ClaimOldestQueued mocks base method.
-func (m *MockIBacktestRunRepository) ClaimOldestQueued(executionContext context.Context, replicaName string, startedAt time.Time) (entities.BacktestRun, bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClaimOldestQueued", executionContext, replicaName, startedAt)
-	ret0, _ := ret[0].(entities.BacktestRun)
-	ret1, _ := ret[1].(bool)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// ClaimOldestQueued indicates an expected call of ClaimOldestQueued.
-func (mr *MockIBacktestRunRepositoryMockRecorder) ClaimOldestQueued(executionContext, replicaName, startedAt any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimOldestQueued", reflect.TypeOf((*MockIBacktestRunRepository)(nil).ClaimOldestQueued), executionContext, replicaName, startedAt)
-}
-
 // CountActiveByOwner mocks base method.
 func (m *MockIBacktestRunRepository) CountActiveByOwner(executionContext context.Context, ownerID uint) (int, error) {
 	m.ctrl.T.Helper()
@@ -151,6 +135,22 @@ func (mr *MockIBacktestRunRepositoryMockRecorder) FindPageByOwner(executionConte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindPageByOwner", reflect.TypeOf((*MockIBacktestRunRepository)(nil).FindPageByOwner), executionContext, ownerID, query)
 }
 
+// LockOldestQueued mocks base method.
+func (m *MockIBacktestRunRepository) LockOldestQueued(executionContext context.Context) (entities.BacktestRun, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockOldestQueued", executionContext)
+	ret0, _ := ret[0].(entities.BacktestRun)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// LockOldestQueued indicates an expected call of LockOldestQueued.
+func (mr *MockIBacktestRunRepositoryMockRecorder) LockOldestQueued(executionContext any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockOldestQueued", reflect.TypeOf((*MockIBacktestRunRepository)(nil).LockOldestQueued), executionContext)
+}
+
 // Save mocks base method.
 func (m *MockIBacktestRunRepository) Save(executionContext context.Context, backtestRun entities.BacktestRun) (entities.BacktestRun, error) {
 	m.ctrl.T.Helper()
@@ -164,6 +164,20 @@ func (m *MockIBacktestRunRepository) Save(executionContext context.Context, back
 func (mr *MockIBacktestRunRepositoryMockRecorder) Save(executionContext, backtestRun any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockIBacktestRunRepository)(nil).Save), executionContext, backtestRun)
+}
+
+// SaveClaim mocks base method.
+func (m *MockIBacktestRunRepository) SaveClaim(executionContext context.Context, backtestRun entities.BacktestRun) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveClaim", executionContext, backtestRun)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveClaim indicates an expected call of SaveClaim.
+func (mr *MockIBacktestRunRepositoryMockRecorder) SaveClaim(executionContext, backtestRun any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveClaim", reflect.TypeOf((*MockIBacktestRunRepository)(nil).SaveClaim), executionContext, backtestRun)
 }
 
 // UpdateIfRunning mocks base method.

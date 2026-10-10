@@ -14,12 +14,8 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-const (
-	backtestRunBrokeDown     = "回測服務壞掉了，這筆沒有跑完"
-	backtestRunOverAllowance = "超過時間上限"
-	// backtestRunWriteTimeout keeps a stuck database from holding a runner, and with it a graceful stop, forever.
-	backtestRunWriteTimeout = 10 * time.Second
-)
+// backtestRunWriteTimeout keeps a stuck database from holding a runner, and with it a graceful stop, forever.
+const backtestRunWriteTimeout = 10 * time.Second
 
 type backtestRunner struct {
 	backtestRunService *BacktestRunService
@@ -62,7 +58,7 @@ func (backtestRunner *backtestRunner) run() {
 	defer func() {
 		if panicValue := recover(); panicValue != nil {
 			log.Printf("backtest run %d panicked: %v\n%s", backtestRunner.backtestRunID, panicValue, debug.Stack())
-			backtestRunner.end(errBacktestRunBrokeDown, dto.BacktestRunSummaryDto{}, nil)
+			backtestRunner.end(domains.ErrBacktestRunBrokeDown, dto.BacktestRunSummaryDto{}, nil)
 		}
 	}()
 	go backtestRunner.watchForCancellation()
@@ -196,19 +192,10 @@ func (backtestRunner *backtestRunner) end(
 
 	service := backtestRunner.backtestRunService
 	now := service.clockProxy.Now()
-	switch {
-	case replayError == nil:
+	if replayError == nil {
 		backtestRunner.backtestRun = backtestRunner.backtestRun.Succeeded(summary, now)
-	case backtestRunner.interrupted:
-		backtestRunner.backtestRun = backtestRunner.backtestRun.Failed(domains.BacktestRunInterruptedReason, now)
-	case errors.Is(replayError, errBacktestRunBrokeDown):
-		backtestRunner.backtestRun = backtestRunner.backtestRun.Failed(backtestRunBrokeDown, now)
-	case errors.Is(replayError, domains.ErrBacktestTimeAllowanceSpent):
-		backtestRunner.backtestRun = backtestRunner.backtestRun.Failed(backtestRunOverAllowance, now)
-	default:
-		backtestRunner.backtestRun = backtestRunner.backtestRun.Failed(replayError.Error(), now)
-	}
-	if replayError != nil {
+	} else {
+		backtestRunner.backtestRun = backtestRunner.backtestRun.FailedFor(replayError, backtestRunner.interrupted, now)
 		result = nil
 	}
 	ending := backtestRunner.backtestRun.ToEntity()
@@ -228,5 +215,3 @@ func (backtestRunner *backtestRunner) end(
 		log.Printf("backtest run %d ending could not be written: %v", backtestRunner.backtestRunID, writeError)
 	}
 }
-
-var errBacktestRunBrokeDown = errors.New("backtest run broke down")

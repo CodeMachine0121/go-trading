@@ -104,46 +104,41 @@ func (backtestRunRepository *BacktestRunRepository) CountActiveByOwner(
 	return int(activeCount), nil
 }
 
-// ClaimOldestQueued locks the oldest queued row with SKIP LOCKED, so replicas claiming at once each get a different run.
-func (backtestRunRepository *BacktestRunRepository) ClaimOldestQueued(
-	executionContext context.Context, replicaName string, startedAt time.Time,
+// LockOldestQueued must run inside a transaction, which holds the row lock until the claim is saved.
+func (backtestRunRepository *BacktestRunRepository) LockOldestQueued(
+	executionContext context.Context,
 ) (entities.BacktestRun, bool, error) {
-	claimed := entities.BacktestRun{}
-	wasClaimed := false
-	startedAtUtc := startedAt.UTC()
-
-	transactionError := backtestRunRepository.database.within(executionContext).Transaction(
-		func(transaction *gorm.DB) error {
-			picked := transaction.
-				Clauses(clause.Locking{
-					Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked,
-				}).
-				Where(clause.Eq{Column: "status", Value: string(vo.BacktestRunQueued)}).
-				Order("id ASC").
-				First(&claimed)
-			if errors.Is(picked.Error, gorm.ErrRecordNotFound) {
-				return nil
-			}
-			if picked.Error != nil {
-				return picked.Error
-			}
-
-			claimed.Status = string(vo.BacktestRunRunning)
-			claimed.ReplicaName = replicaName
-			claimed.StartedAt = &startedAtUtc
-			wasClaimed = true
-
-			return transaction.Model(&claimed).
-				Select("status", "replica_name", "started_at").
-				UpdateColumns(entities.BacktestRun{
-					Status: claimed.Status, ReplicaName: replicaName, StartedAt: &startedAtUtc,
-				}).Error
-		})
-	if transactionError != nil {
-		return entities.BacktestRun{}, false, fmt.Errorf("claim queued backtest run: %w", transactionError)
+	queued := entities.BacktestRun{}
+	picked := backtestRunRepository.database.within(executionContext).
+		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked}).
+		Where(clause.Eq{Column: "status", Value: string(vo.BacktestRunQueued)}).
+		Order("id ASC").
+		First(&queued)
+	if errors.Is(picked.Error, gorm.ErrRecordNotFound) {
+		return entities.BacktestRun{}, false, nil
+	}
+	if picked.Error != nil {
+		return entities.BacktestRun{}, false, fmt.Errorf("lock queued backtest run: %w", picked.Error)
 	}
 
-	return claimed, wasClaimed, nil
+	return queued, true, nil
+}
+
+func (backtestRunRepository *BacktestRunRepository) SaveClaim(
+	executionContext context.Context, backtestRun entities.BacktestRun,
+) error {
+	claimed := backtestRunRepository.database.within(executionContext).
+		Model(&entities.BacktestRun{}).
+		Where(clause.Eq{Column: "id", Value: backtestRun.ID}).
+		Select("status", "replica_name", "started_at").
+		UpdateColumns(entities.BacktestRun{
+			Status: backtestRun.Status, ReplicaName: backtestRun.ReplicaName, StartedAt: backtestRun.StartedAt,
+		})
+	if claimed.Error != nil {
+		return fmt.Errorf("claim queued backtest run: %w", claimed.Error)
+	}
+
+	return nil
 }
 
 // UpdateIfRunning only touches a row still running under the same replica, so a cancel or a sweep is never overwritten by a late write.
