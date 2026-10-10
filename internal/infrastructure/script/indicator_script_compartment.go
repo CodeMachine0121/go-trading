@@ -66,6 +66,11 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) executeForEa
 	if runError != nil {
 		return nil, runError
 	}
+	// A short answer would leave bars without signals, so it fails the replay rather than reaching the replay's indexing.
+	if len(outcome.perElementValues) != len(input) {
+		return nil, fmt.Errorf("%w: 算式執行失敗：算式隔間交回 %d 根的結果，應有 %d 根",
+			domains.ErrIndicatorScriptFailed, len(outcome.perElementValues), len(input))
+	}
 
 	return outcome.perElementValues, nil
 }

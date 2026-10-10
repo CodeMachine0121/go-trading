@@ -167,9 +167,11 @@ func NewBacktestDomain(
 	}, nil
 }
 
-// warmedUpAtLeast widens the warm-up for a replay whose scripts, read elsewhere, look further back than this request declares.
-func (backtestDomain BacktestDomain) warmedUpAtLeast(barCount int) BacktestDomain {
-	backtestDomain.warmupBarCount = max(backtestDomain.warmupBarCount, barCount)
+// warmedUpFor applies the look-back declared by scripts read elsewhere, keeping the default only when none declares one, as a single script does.
+func (backtestDomain BacktestDomain) warmedUpFor(declaredLookbackCount int) BacktestDomain {
+	if declaredLookbackCount > 0 {
+		backtestDomain.warmupBarCount = declaredLookbackCount
+	}
 
 	return backtestDomain
 }

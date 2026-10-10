@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
+	"github.com/CodeMachine0121/go-trading/internal/infrastructure/script"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -33,5 +35,38 @@ func TestReplayReportsEveryBarAsItIsComputed(t *testing.T) {
 	defer reportsMutex.Unlock()
 	for index, completedCount := range completedCounts {
 		assert.Equal(t, index+1, completedCount)
+	}
+}
+
+func TestReplayAnsweredForFewerBarsThanItWasGivenFails(t *testing.T) {
+	isolation := isolationWith(2 * time.Second)
+	isolation.WorkerEnvironment = []string{shortAnswerRoleVariable + "=1"}
+
+	testCases := []struct {
+		name   string
+		replay func() (int, error)
+	}{
+		{name: "a spot replay", replay: func() (int, error) {
+			perCandleIndicatorValues, err := script.NewYaegiIndicatorScriptProxy(isolation).ExecuteForEachCandle(
+				t.Context(), candleCountScript, resultTypeOf(t, "float"),
+				candlesWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
+			return len(perCandleIndicatorValues), err
+		}},
+		{name: "a contract replay", replay: func() (int, error) {
+			perCandleIndicatorValues, err := script.NewYaegiContractIndicatorScriptProxy(isolation).ExecuteForEachCandle(
+				t.Context(), averageCloseOfContractBarsScript, resultTypeOf(t, "float"),
+				contractBarsWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
+			return len(perCandleIndicatorValues), err
+		}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			answeredCount, err := testCase.replay()
+
+			require.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
+			assert.Contains(t, err.Error(), "交回 1 根的結果，應有 3 根")
+			assert.Zero(t, answeredCount)
+		})
 	}
 }
