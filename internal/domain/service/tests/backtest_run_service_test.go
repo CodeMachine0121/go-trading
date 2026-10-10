@@ -391,3 +391,16 @@ func TestBacktestRunServiceSweepsAndClearsOut(t *testing.T) {
 		assert.Equal(t, 1, deletedCount)
 	})
 }
+
+func TestBacktestRunnerFailsAStretchWithNoCandlesInTheRefusalsOwnWords(t *testing.T) {
+	fixture := newBacktestRunServiceUnderTest(t, time.Minute, 100, buyingThenSelling)
+	emptyStretch := spotScriptRun()
+	emptyStretch.SpotScript.StartTime = contractBacktestServiceStart.Add(12 * time.Hour)
+	emptyStretch.SpotScript.EndTime = contractBacktestServiceStart.Add(16 * time.Hour)
+	fixture.queueHolds(vo.BacktestRunSpotScript, emptyStretch)
+
+	ending := fixture.claimAndWaitForTheEnding(t)
+
+	assert.Equal(t, "failed", ending.Status)
+	assert.Contains(t, ending.FailureReason, "湊不出足夠的 K 線")
+}
