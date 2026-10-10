@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
@@ -46,14 +47,8 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Su
 	tradingStrategyID uint,
 	requestDto dto.TradingStrategyBacktestRequestDto,
 ) (dto.BacktestRunDto, error) {
-	tradingStrategyDto, findError := tradingStrategyBacktestApplication.tradingStrategyService.
-		GetTradingStrategy(executionContext, viewerID, tradingStrategyID)
-	if findError != nil {
-		return dto.BacktestRunDto{}, findError
-	}
-
-	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.strategyScriptService.ResolveSignalSources(
-		executionContext, viewerID, tradingStrategyDto)
+	tradingStrategyDto, resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.
+		resolveTradingStrategy(executionContext, viewerID, tradingStrategyID)
 	if resolveError != nil {
 		return dto.BacktestRunDto{}, resolveError
 	}
@@ -83,14 +78,8 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Su
 	tradingStrategyID uint,
 	requestDto dto.ContractTradingStrategyBacktestRequestDto,
 ) (dto.BacktestRunDto, error) {
-	tradingStrategyDto, findError := tradingStrategyBacktestApplication.tradingStrategyService.
-		GetTradingStrategy(executionContext, viewerID, tradingStrategyID)
-	if findError != nil {
-		return dto.BacktestRunDto{}, findError
-	}
-
-	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.strategyScriptService.ResolveSignalSources(
-		executionContext, viewerID, tradingStrategyDto)
+	tradingStrategyDto, resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.
+		resolveTradingStrategy(executionContext, viewerID, tradingStrategyID)
 	if resolveError != nil {
 		return dto.BacktestRunDto{}, resolveError
 	}
@@ -122,14 +111,8 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 	tradingStrategyID uint,
 	requestDto dto.TradingStrategyBacktestRequestDto,
 ) (dto.BacktestResultDto, error) {
-	tradingStrategyDto, findError := tradingStrategyBacktestApplication.tradingStrategyService.
-		GetTradingStrategy(executionContext, viewerID, tradingStrategyID)
-	if findError != nil {
-		return dto.BacktestResultDto{}, findError
-	}
-
-	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.strategyScriptService.ResolveSignalSources(
-		executionContext, viewerID, tradingStrategyDto)
+	tradingStrategyDto, resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.
+		resolveTradingStrategy(executionContext, viewerID, tradingStrategyID)
 	if resolveError != nil {
 		return dto.BacktestResultDto{}, resolveError
 	}
@@ -144,4 +127,20 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Ru
 		executionContext, requestDto, nil)
 
 	return resultDto, authorship.AttributeFailure(replayError)
+}
+
+// resolveTradingStrategy reads the viewer's strategy with every source's script; a strategy or script the viewer may not read fails like a missing one.
+func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) resolveTradingStrategy(
+	executionContext context.Context, viewerID uint, tradingStrategyID uint,
+) (dto.TradingStrategyDto, []dto.ResolvedSignalSourceDto, domains.StrategyScriptAuthorshipDomain, error) {
+	tradingStrategyDto, findError := tradingStrategyBacktestApplication.tradingStrategyService.
+		GetTradingStrategy(executionContext, viewerID, tradingStrategyID)
+	if findError != nil {
+		return dto.TradingStrategyDto{}, nil, domains.StrategyScriptAuthorshipDomain{}, findError
+	}
+
+	resolvedSources, authorship, resolveError := tradingStrategyBacktestApplication.strategyScriptService.
+		ResolveSignalSources(executionContext, viewerID, tradingStrategyDto)
+
+	return tradingStrategyDto, resolvedSources, authorship, resolveError
 }
