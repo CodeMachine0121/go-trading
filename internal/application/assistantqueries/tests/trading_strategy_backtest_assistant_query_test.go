@@ -60,7 +60,7 @@ func newTradingStrategyBacktestAssistantQueryUnderTest(
 		service.NewTradingStrategyService(tradingStrategyRepository),
 		service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewBacktestService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute), nil)
+			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), nil, nil, time.Minute)
 
 	return tradingStrategyBacktestAssistantQueryUnderTest{
 		backtestAssistantQuery: assistantqueries.NewTradingStrategyBacktestAssistantQuery(
@@ -174,7 +174,7 @@ func TestTradingStrategyBacktestAssistantQueryHandsBackTheReportCard(t *testing.
 			replayedCandle(0, "100"), replayedCandle(1, "110"), replayedCandle(2, "120"),
 		}, nil)
 	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(replaySignals(vo.SignalBuy, vo.SignalHold, vo.SignalSell), nil)
 
 	report, _ := fixture.replay(t, aReplayArgument)
@@ -199,7 +199,7 @@ func TestTradingStrategyBacktestAssistantQueryLeavesTheEquityCurveOut(t *testing
 			replayedCandle(0, "100"), replayedCandle(1, "110"),
 		}, nil)
 	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(replaySignals(vo.SignalHold, vo.SignalHold), nil)
 
 	_, outcome := fixture.replay(t, aReplayArgument)
@@ -218,7 +218,7 @@ func TestTradingStrategyBacktestAssistantQueryAlwaysReportsTheConflictCount(t *t
 			replayedCandle(0, "100"), replayedCandle(1, "110"), replayedCandle(2, "120"),
 		}, nil)
 	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(replaySignals(vo.SignalBuy, vo.SignalBuy, vo.SignalBuy), nil)
 
 	report, outcome := fixture.replay(t, aReplayArgument)
@@ -307,7 +307,7 @@ func TestTradingStrategyBacktestAssistantQueryCapsTheTradesItHandsOverAndSaysSo(
 	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(candles, nil)
 	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(replaySignals(signals...), nil)
 
 	report, outcome := fixture.replay(t, `{
@@ -335,7 +335,7 @@ func TestTradingStrategyBacktestAssistantQuerySaysNothingAboutTruncationWhenNoth
 			replayedCandle(0, "100"), replayedCandle(1, "110"), replayedCandle(2, "120"),
 		}, nil)
 	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(replaySignals(vo.SignalBuy, vo.SignalHold, vo.SignalSell), nil)
 
 	_, outcome := fixture.replay(t, aReplayArgument)
@@ -354,7 +354,7 @@ func TestTradingStrategyBacktestAssistantQueryReplaysSpot(t *testing.T) {
 			replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
 		}, nil)
 	fixture.indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
 	report, _ := fixture.replay(t, aReplayArgument)
@@ -380,7 +380,7 @@ func TestTradingStrategyBacktestAssistantQueryChargesWhatTheAssistantSaysItCosts
 				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(replaySignals(vo.SignalBuy, vo.SignalSell, vo.SignalHold), nil)
 
 		report, _ := fixture.replay(t, `{
@@ -454,7 +454,7 @@ func TestTradingStrategyBacktestAssistantQuerySimulatesTheExitDistancesItWasGive
 				replayedCandle(0, "100"), replayedCandle(1, "120"), replayedCandle(2, "90"),
 			}, nil)
 		fixture.indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(replaySignals(vo.SignalBuy, vo.SignalHold, vo.SignalHold), nil)
 
 		report, _ := fixture.replay(t, `{

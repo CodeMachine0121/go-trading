@@ -78,7 +78,7 @@ func newContractTradeRouterUnderTest(t *testing.T) contractTradeRouterUnderTest 
 				kCandleContractRepository, fundingRateSettlementRepository,
 				mocks.NewMockIContractPositionStatisticRepository(mockController), contractTradingSymbolRepository,
 				maintenanceMarginTierRepository, mocks.NewMockIContractIndicatorScriptProxy(mockController),
-				clockProxy, 1000, time.Minute)),
+				clockProxy, 1000, 0), time.Minute),
 	)
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)

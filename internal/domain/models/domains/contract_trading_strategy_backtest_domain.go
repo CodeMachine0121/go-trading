@@ -50,6 +50,8 @@ func NewContractTradingStrategyBacktestDomain(
 		return ContractTradingStrategyBacktestDomain{}, contractBacktestError
 	}
 
+	contractBacktest.backtest = contractBacktest.backtest.warmedUpAtLeast(sources.MaximumLookbackCount())
+
 	return ContractTradingStrategyBacktestDomain{contractBacktest: contractBacktest, sources: sources}, nil
 }
 

@@ -228,6 +228,19 @@ type StrategyBotConfig struct {
 	RoundTimeout        time.Duration
 }
 
+// BacktestRunConfig sizes the background replay queue: how many runs one replica replays at once, how many one person may have waiting, and how long a run may take and be kept.
+type BacktestRunConfig struct {
+	WorkerCount      int
+	OwnerActiveLimit int
+	// TimeAllowance bounds one background replay; it is independent of the on-demand allowance that sits under the reverse proxy's timeout.
+	TimeAllowance time.Duration
+	Retention     time.Duration
+	// PollInterval is how often a replica looks at the queue; the first look after a submit is at most this late.
+	PollInterval time.Duration
+	// ProgressWriteEveryBars spaces the progress writes so a long replay does not write a row per bar.
+	ProgressWriteEveryBars int
+}
+
 // ReplicaConfig names this server among its replicas; the name only says who holds a lease or claim right now.
 type ReplicaConfig struct {
 	Name string
@@ -290,17 +303,20 @@ type ApplicationConfig struct {
 	IndicatorScriptMaxConcurrentCompartments int
 	// BacktestMaxCandleCount limits buckets per replay, separately from the single-query ceiling.
 	BacktestMaxCandleCount int
-	// BacktestTimeAllowance covers the whole replay and sits below the common 100s reverse-proxy
-	// timeout so the replay reports a timeout itself.
+	// BacktestTimeAllowance covers an on-demand replay someone waits on (trade journal comparison, assistant)
+	// and sits below the common 100s reverse-proxy timeout so the replay reports a timeout itself.
 	BacktestTimeAllowance time.Duration
-	BackgroundJobsEnabled bool
-	Replica               ReplicaConfig
-	JobLeadership         JobLeadershipConfig
-	PendingMessage        PendingMessageConfig
-	Ingestion             IngestionConfig
-	ContractIngestion     ContractIngestionConfig
-	LiveFollow            LiveFollowConfig
-	TaiwanStock           TaiwanStockConfig
+	// BacktestDefaultWarmupBarCount is read before a replay's stretch when its script declares no look-back count.
+	BacktestDefaultWarmupBarCount int
+	BacktestRun                   BacktestRunConfig
+	BackgroundJobsEnabled         bool
+	Replica                       ReplicaConfig
+	JobLeadership                 JobLeadershipConfig
+	PendingMessage                PendingMessageConfig
+	Ingestion                     IngestionConfig
+	ContractIngestion             ContractIngestionConfig
+	LiveFollow                    LiveFollowConfig
+	TaiwanStock                   TaiwanStockConfig
 	// MarketRules maps each market to its behaviour so nothing branches on market identity.
 	MarketRules            map[vo.MarketVo]vo.MarketRulesVo
 	Assistant              AssistantConfig
@@ -371,6 +387,18 @@ func loadAsWritten() ApplicationConfig {
 		BacktestMaxCandleCount: positiveIntWithDefault("BACKTEST_MAX_CANDLE_COUNT", 50000),
 		BacktestTimeAllowance: time.Duration(
 			positiveIntWithDefault("BACKTEST_TIME_ALLOWANCE_SECONDS", 90)) * time.Second,
+		BacktestDefaultWarmupBarCount: positiveIntWithDefault("BACKTEST_DEFAULT_WARMUP_BAR_COUNT", 200),
+		BacktestRun: BacktestRunConfig{
+			WorkerCount:      positiveIntWithDefault("BACKTEST_RUN_WORKER_COUNT", 2),
+			OwnerActiveLimit: positiveIntWithDefault("BACKTEST_RUN_OWNER_ACTIVE_LIMIT", 3),
+			TimeAllowance: time.Duration(
+				positiveIntWithDefault("BACKTEST_RUN_TIME_ALLOWANCE_MINUTES", 30)) * time.Minute,
+			Retention: time.Duration(
+				positiveIntWithDefault("BACKTEST_RUN_RETENTION_DAYS", 30)) * 24 * time.Hour,
+			PollInterval: time.Duration(
+				positiveIntWithDefault("BACKTEST_RUN_POLL_INTERVAL_SECONDS", 2)) * time.Second,
+			ProgressWriteEveryBars: positiveIntWithDefault("BACKTEST_RUN_PROGRESS_WRITE_EVERY_BARS", 100),
+		},
 		BackgroundJobsEnabled: boolWithDefault("BACKGROUND_JOBS_ENABLED", true),
 		// The host name (the pod name in Kubernetes) with a random tail, so replicas are told apart without extra settings.
 		Replica: ReplicaConfig{

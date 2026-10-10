@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -24,7 +25,7 @@ const replayTimeAllowanceUnderTest = 20 * time.Millisecond
 // aScriptOutlastingItsAllowance blocks until the caller stops waiting, like a script over a very long stretch.
 func aScriptOutlastingItsAllowance[Input any](
 	executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
-	_ []Input, _ domains.StrategyScriptParametersDomain,
+	_ []Input, _ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
 ) ([]map[string]vo.IndicatorValueVo, error) {
 	<-executionContext.Done()
 
@@ -51,19 +52,20 @@ func TestSpotReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 		Return(spotStoredCandles(), nil).AnyTimes()
 	indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 	indicatorScriptProxy.EXPECT().
-		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(aScriptOutlastingItsAllowance[vo.KCandleVo]).AnyTimes()
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(contractBacktestServiceStart.Add(24 * time.Hour)).AnyTimes()
 	backtestService := service.NewBacktestService(
-		kCandleRepository, indicatorScriptProxy, clockProxy, 1000, replayTimeAllowanceUnderTest)
+		kCandleRepository, indicatorScriptProxy, clockProxy, 1000, 0)
 
 	t.Run("replaying a script", func(t *testing.T) {
 		_, err := backtestService.RunBacktest(context.Background(), dto.BacktestRequestDto{
 			Symbol: "BTCUSDT", AggregationInterval: "1h",
 			StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
 			Script: "the script", InitialCapital: decimal.NewFromInt(10000),
-		})
+			TimeAllowance: replayTimeAllowanceUnderTest,
+		}, nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 		assert.Contains(t, err.Error(), "0.02 秒")
@@ -79,7 +81,8 @@ func TestSpotReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 			BuyCondition:   dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "buy"},
 			SellCondition:  dto.TradingStrategyConditionDto{SourceLabel: "A", Signal: "sell"},
 			InitialCapital: decimal.NewFromInt(10000),
-		})
+			TimeAllowance:  replayTimeAllowanceUnderTest,
+		}, nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 	})
@@ -92,7 +95,8 @@ func TestSpotReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 			Symbol: "BTCUSDT", AggregationInterval: "1h",
 			StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
 			Script: "the script", InitialCapital: decimal.NewFromInt(10000),
-		})
+			TimeAllowance: replayTimeAllowanceUnderTest,
+		}, nil)
 
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
@@ -102,24 +106,27 @@ func TestSpotReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 func TestContractReplayStopsWhenItsTimeAllowanceRunsOut(t *testing.T) {
 	stopsSlowly := func(boundaries contractBacktestServiceMocks) {
 		boundaries.contractIndicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(aScriptOutlastingItsAllowance[vo.ContractKCandleVo])
 	}
 
 	t.Run("replaying a script", func(t *testing.T) {
-		contractBacktestService := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest, stopsSlowly)
+		contractBacktestService := newContractBacktestServiceUnderTest(t, stopsSlowly)
+		requestDto := contractBacktestServiceRequest()
+		requestDto.TimeAllowance = replayTimeAllowanceUnderTest
 
-		_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+		_, err := contractBacktestService.RunContractBacktest(context.Background(), requestDto, nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 		assert.Contains(t, err.Error(), "0.02 秒")
 	})
 
 	t.Run("replaying a trading strategy", func(t *testing.T) {
-		contractBacktestService := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest, stopsSlowly)
+		contractBacktestService := newContractBacktestServiceUnderTest(t, stopsSlowly)
+		requestDto := contractTradingStrategyBacktestServiceRequest()
+		requestDto.TimeAllowance = replayTimeAllowanceUnderTest
 
-		_, err := contractBacktestService.RunContractTradingStrategyBacktest(
-			context.Background(), contractTradingStrategyBacktestServiceRequest())
+		_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
 
 		require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 	})
@@ -129,10 +136,11 @@ func TestContractReplayAllowanceCoversEverySourceTogether(t *testing.T) {
 	// Each source takes 15ms on its own — within 20ms alone, beyond it together.
 	takesFifteenMilliseconds := func(boundaries contractBacktestServiceMocks) {
 		boundaries.contractIndicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(
 				executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
 				contractKCandles []vo.ContractKCandleVo, _ domains.StrategyScriptParametersDomain,
+				_ domaininterface.IReplayProgressSink,
 			) ([]map[string]vo.IndicatorValueVo, error) {
 				select {
 				case <-executionContext.Done():
@@ -153,9 +161,10 @@ func TestContractReplayAllowanceCoversEverySourceTogether(t *testing.T) {
 		Label: "B", AggregationInterval: "1h", Script: "the script", MarketDataKind: "contractKCandle",
 	})
 
-	contractBacktestService := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest, takesFifteenMilliseconds)
+	requestDto.TimeAllowance = replayTimeAllowanceUnderTest
+	contractBacktestService := newContractBacktestServiceUnderTest(t, takesFifteenMilliseconds)
 
-	_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto)
+	_, err := contractBacktestService.RunContractTradingStrategyBacktest(context.Background(), requestDto, nil)
 
 	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 }
@@ -163,7 +172,7 @@ func TestContractReplayAllowanceCoversEverySourceTogether(t *testing.T) {
 func TestContractSplitReplayRunsTheScriptOnceOverTheWholeHistory(t *testing.T) {
 	onceOverEveryBar := func(boundaries contractBacktestServiceMocks) {
 		boundaries.contractIndicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Len(2), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Len(2), gomock.Any(), gomock.Any()).
 			Return([]map[string]vo.IndicatorValueVo{
 				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
 				{vo.SignalIndicatorKey: {Signal: vo.SignalHold}},
@@ -172,8 +181,8 @@ func TestContractSplitReplayRunsTheScriptOnceOverTheWholeHistory(t *testing.T) {
 	requestDto := contractBacktestServiceRequest()
 	requestDto.ValidationStartTime = contractBacktestServiceStart.Add(time.Hour)
 
-	resultDto, err := newContractBacktestServiceWithin(t, time.Minute, onceOverEveryBar).
-		RunContractBacktest(context.Background(), requestDto)
+	resultDto, err := newContractBacktestServiceUnderTest(t, onceOverEveryBar).
+		RunContractBacktest(context.Background(), requestDto, nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, resultDto.Validation)
@@ -192,13 +201,14 @@ func TestSpotReplayAllowanceCoversReadingTheMarket(t *testing.T) {
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(contractBacktestServiceStart.Add(24 * time.Hour)).AnyTimes()
 	backtestService := service.NewBacktestService(
-		kCandleRepository, mocks.NewMockIIndicatorScriptProxy(controller), clockProxy, 1000, replayTimeAllowanceUnderTest)
+		kCandleRepository, mocks.NewMockIIndicatorScriptProxy(controller), clockProxy, 1000, 0)
 
 	_, err := backtestService.RunBacktest(context.Background(), dto.BacktestRequestDto{
 		Symbol: "BTCUSDT", AggregationInterval: "1h",
 		StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
 		Script: "the script", InitialCapital: decimal.NewFromInt(10000),
-	})
+		TimeAllowance: replayTimeAllowanceUnderTest,
+	}, nil)
 
 	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 }
@@ -213,8 +223,10 @@ func TestContractReplayAllowanceCoversReadingTheMarket(t *testing.T) {
 			})
 	}
 
-	_, err := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest, readsSlowly).
-		RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+	requestDto := contractBacktestServiceRequest()
+	requestDto.TimeAllowance = replayTimeAllowanceUnderTest
+
+	_, err := newContractBacktestServiceUnderTest(t, readsSlowly).RunContractBacktest(context.Background(), requestDto, nil)
 
 	require.ErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
 }
@@ -222,7 +234,7 @@ func TestContractReplayAllowanceCoversReadingTheMarket(t *testing.T) {
 // neverGivenACompartment waits out the allowance for a compartment slot, as the script proxy does when every slot stays taken.
 func neverGivenACompartment[Input any](
 	executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain,
-	_ []Input, _ domains.StrategyScriptParametersDomain,
+	_ []Input, _ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
 ) ([]map[string]vo.IndicatorValueVo, error) {
 	<-executionContext.Done()
 
@@ -237,29 +249,32 @@ func TestReplayWaitingOutItsAllowanceForACompartmentIsReportedAsBusy(t *testing.
 			Return(spotStoredCandles(), nil)
 		indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 		indicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(neverGivenACompartment[vo.KCandleVo])
 		clockProxy := mocks.NewMockIClockProxy(controller)
 		clockProxy.EXPECT().Now().Return(contractBacktestServiceStart.Add(24 * time.Hour)).AnyTimes()
 
 		_, err := service.NewBacktestService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, 1000, replayTimeAllowanceUnderTest,
+			kCandleRepository, indicatorScriptProxy, clockProxy, 1000, 0,
 		).RunBacktest(context.Background(), dto.BacktestRequestDto{
 			Symbol: "BTCUSDT", AggregationInterval: "1h",
 			StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
 			Script: "the script", InitialCapital: decimal.NewFromInt(10000),
-		})
+			TimeAllowance: replayTimeAllowanceUnderTest,
+		}, nil)
 		return err
 	}
 	contractReplay := func(t *testing.T) error {
-		contractBacktestService := newContractBacktestServiceWithin(t, replayTimeAllowanceUnderTest,
+		contractBacktestService := newContractBacktestServiceUnderTest(t,
 			func(boundaries contractBacktestServiceMocks) {
 				boundaries.contractIndicatorScriptProxy.EXPECT().
-					ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(neverGivenACompartment[vo.ContractKCandleVo])
 			})
+		requestDto := contractBacktestServiceRequest()
+		requestDto.TimeAllowance = replayTimeAllowanceUnderTest
 
-		_, err := contractBacktestService.RunContractBacktest(context.Background(), contractBacktestServiceRequest())
+		_, err := contractBacktestService.RunContractBacktest(context.Background(), requestDto, nil)
 		return err
 	}
 

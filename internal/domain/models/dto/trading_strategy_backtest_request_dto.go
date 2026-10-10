@@ -40,7 +40,9 @@ type TradingStrategyBacktestRequestDto struct {
 	// FillTiming is close (blank) or nextOpen.
 	FillTiming string
 	// ValidationStartTime splits the replay for validation; zero is no split.
-	ValidationStartTime time.Time
+	ValidationStartTime   time.Time
+	TimeAllowance         time.Duration
+	DefaultWarmupBarCount int
 }
 
 // ResolvedSignalSourceDto has its script pre-fetched because read access is checked outside
@@ -74,9 +76,11 @@ func (requestDto TradingStrategyBacktestRequestDto) ToBacktestRequestDto(
 		Leverage:              requestDto.Leverage,
 		MaintenanceMarginRate: requestDto.MaintenanceMarginRate,
 
-		EntryCostPercentage: requestDto.EntryCostPercentage,
-		ExitCostPercentage:  requestDto.ExitCostPercentage,
-		FillTiming:          requestDto.FillTiming,
-		ValidationStartTime: requestDto.ValidationStartTime,
+		EntryCostPercentage:   requestDto.EntryCostPercentage,
+		ExitCostPercentage:    requestDto.ExitCostPercentage,
+		FillTiming:            requestDto.FillTiming,
+		ValidationStartTime:   requestDto.ValidationStartTime,
+		TimeAllowance:         requestDto.TimeAllowance,
+		DefaultWarmupBarCount: requestDto.DefaultWarmupBarCount,
 	}
 }

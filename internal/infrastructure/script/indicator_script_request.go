@@ -26,7 +26,7 @@ type indicatorScriptRequestHeader struct {
 
 // answer serves the request inside the compartment, setting the OS memory cap before the script is read.
 func (header indicatorScriptRequestHeader) answer(
-	headerError error, decoder *gob.Decoder,
+	headerError error, decoder *gob.Decoder, emitElement func(indicatorScriptResponse) error,
 ) indicatorScriptResponse {
 	if headerError != nil {
 		return newFailedIndicatorScriptResponse(fmt.Errorf(
@@ -75,12 +75,12 @@ func (header indicatorScriptRequestHeader) answer(
 		return indicatorScriptRunner[vo.KCandleVo]{
 			executionTimeout: header.ExecutionTimeout,
 			input:            spotIndicatorScriptInput,
-		}.answer(decoder)
+		}.answer(decoder, emitElement)
 	case contractIndicatorScriptInput.marketKind:
 		return indicatorScriptRunner[vo.ContractKCandleVo]{
 			executionTimeout: header.ExecutionTimeout,
 			input:            contractIndicatorScriptInput,
-		}.answer(decoder)
+		}.answer(decoder, emitElement)
 	default:
 		return newFailedIndicatorScriptResponse(fmt.Errorf(
 			"%w: 算式執行失敗：認不得的行情種類 %q", domains.ErrIndicatorScriptFailed, header.MarketKind))

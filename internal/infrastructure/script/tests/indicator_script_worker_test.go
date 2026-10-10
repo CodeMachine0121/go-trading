@@ -52,7 +52,8 @@ type workerContractRequest struct {
 
 type workerResponse struct {
 	Values                  map[string]workerValue
-	PerElementValues        []map[string]workerValue
+	ElementValues           map[string]workerValue
+	IsElement               bool
 	FailureMessage          string
 	HasFailure              bool
 	UndeclaredParameterName string
@@ -161,15 +162,28 @@ func TestWorkerServesTheRequestItWasStartedFor(t *testing.T) {
 		assert.Equal(t, []float64{120}, response.Values["close"].Numbers)
 	})
 
-	t.Run("a replay answers with one set of values per element, in order", func(t *testing.T) {
-		response := serveInProcess(t, workerRequest{
-			Script: lastClosePriceScript, ResultType: "float", ForEachElement: true,
-			Input: candlesWithClosePrices(100, 110, 120),
-		})
+	t.Run("a replay sends one message per element, in order, then a closing one", func(t *testing.T) {
+		var output bytes.Buffer
+		exitCode := script.NewIndicatorScriptWorker().Serve(sealedInput(t,
+			workerRequestHeader{MarketKind: "kCandle", ExecutionTimeout: 2 * time.Second}, workerRequest{
+				Script: lastClosePriceScript, ResultType: "float", ForEachElement: true,
+				Input: candlesWithClosePrices(100, 110, 120),
+			}), &output)
+		require.Equal(t, 0, exitCode)
 
-		require.Len(t, response.PerElementValues, 3)
-		assert.Equal(t, []float64{100}, response.PerElementValues[0]["close"].Numbers)
-		assert.Equal(t, []float64{120}, response.PerElementValues[2]["close"].Numbers)
+		decoder := gob.NewDecoder(&output)
+		closePrices := []float64{}
+		for {
+			var message workerResponse
+			require.NoError(t, decoder.Decode(&message))
+			if !message.IsElement {
+				assert.False(t, message.HasFailure)
+				break
+			}
+			closePrices = append(closePrices, message.ElementValues["close"].Numbers...)
+		}
+
+		assert.Equal(t, []float64{100, 110, 120}, closePrices)
 	})
 
 	t.Run("an empty series is sent as a series that is there", func(t *testing.T) {
@@ -239,8 +253,8 @@ func Calculate(data []indicator.KCandle) map[string]float64 {
 			Input: candlesWithClosePrices(100),
 		})
 
+		assert.False(t, response.IsElement)
 		assert.True(t, response.HasFailure)
-		assert.Nil(t, response.PerElementValues)
 	})
 }
 

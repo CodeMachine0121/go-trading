@@ -61,35 +61,37 @@ func (runner indicatorScriptRunner[Input]) execute(
 	return preparedScript.runOver(executionContext, isolatedInput)
 }
 
-// executeForEachElement reads the script once and runs it per element over a growing prefix, each with its own allowance; the first failure aborts with no partial result.
+// executeForEachElement reads the script once and runs it per element over a growing prefix, each with its own allowance, handing each bar's values on as it goes; the first failure aborts the rest.
 func (runner indicatorScriptRunner[Input]) executeForEachElement(
 	executionContext context.Context,
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
 	input []Input,
 	parameters domains.StrategyScriptParametersDomain,
-) ([]map[string]vo.IndicatorValueVo, error) {
+	onElement func(map[string]vo.IndicatorValueVo) error,
+) error {
 	preparedScript, prepareError := runner.prepare(script, resultType, parameters)
 	if prepareError != nil {
-		return nil, prepareError
+		return prepareError
 	}
 
 	// Each run sees a copy capped to its length, so the script cannot re-slice to read or rewrite future candles.
 	isolatedInput := make([]Input, len(input))
 	copy(isolatedInput, input)
 
-	perElementIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(input))
 	for elementCount := 1; elementCount <= len(input); elementCount++ {
 		indicatorValues, executionError := preparedScript.runOver(
 			executionContext, isolatedInput[:elementCount:elementCount])
 		if executionError != nil {
-			return nil, executionError
+			return executionError
 		}
 
-		perElementIndicatorValues = append(perElementIndicatorValues, indicatorValues)
+		if emitError := onElement(indicatorValues); emitError != nil {
+			return emitError
+		}
 	}
 
-	return perElementIndicatorValues, nil
+	return nil
 }
 
 // prepare builds the interpreter, evaluates the source and checks the entry-point signature, so broken scripts fail before any data is read.
@@ -225,7 +227,9 @@ func (preparedScript *preparedScript[Input]) runOver(
 }
 
 // answer runs the compartment's single request and always returns a response, since only a response can cross back.
-func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicatorScriptResponse {
+func (runner indicatorScriptRunner[Input]) answer(
+	decoder *gob.Decoder, emitElement func(indicatorScriptResponse) error,
+) indicatorScriptResponse {
 	var request indicatorScriptRequest[Input]
 	if decodeError := decoder.Decode(&request); decodeError != nil {
 		return newFailedIndicatorScriptResponse(fmt.Errorf(
@@ -248,18 +252,16 @@ func (runner indicatorScriptRunner[Input]) answer(decoder *gob.Decoder) indicato
 
 	// The caller cannot cancel from inside the compartment; the service kills the whole process instead.
 	if request.ForEachElement {
-		perElementIndicatorValues, replayError := runner.executeForEachElement(
-			context.Background(), request.Script, resultType, request.Input, parameters)
+		replayError := runner.executeForEachElement(
+			context.Background(), request.Script, resultType, request.Input, parameters,
+			func(indicatorValues map[string]vo.IndicatorValueVo) error {
+				return emitElement(newElementIndicatorScriptResponse(indicatorValues))
+			})
 		if replayError != nil {
 			return newFailedIndicatorScriptResponse(replayError)
 		}
 
-		perElementValues := make([]indicatorValuesWire, 0, len(perElementIndicatorValues))
-		for _, indicatorValues := range perElementIndicatorValues {
-			perElementValues = append(perElementValues, newIndicatorValuesWire(indicatorValues))
-		}
-
-		return indicatorScriptResponse{PerElementValues: perElementValues}
+		return indicatorScriptResponse{}
 	}
 
 	indicatorValues, executionError := runner.execute(

@@ -152,7 +152,7 @@ func Calculate(data []indicator.ContractKCandle) map[string]float64 {
 func TestContractExecuteForEachCandleRunsOnceOverEveryGrowingStretch(t *testing.T) {
 	perBarValues, err := contractIndicatorScriptProxy(2*time.Second).
 		ExecuteForEachCandle(t.Context(), averageCloseOfContractBarsScript, resultTypeOf(t, "float"),
-			contractBarsWithClosePrices(100, 110, 120), noStrategyScriptParameters(t))
+			contractBarsWithClosePrices(100, 110, 120), noStrategyScriptParameters(t), nil)
 
 	require.NoError(t, err)
 	require.Len(t, perBarValues, 3)
@@ -164,7 +164,7 @@ func TestContractExecuteForEachCandleRunsOnceOverEveryGrowingStretch(t *testing.
 func TestContractExecuteForEachCandleReportsABrokenScriptBeforeAnyBar(t *testing.T) {
 	perBarValues, err := contractIndicatorScriptProxy(2*time.Second).
 		ExecuteForEachCandle(t.Context(), "this is not go", resultTypeOf(t, "float"),
-			contractBarsWithClosePrices(100), noStrategyScriptParameters(t))
+			contractBarsWithClosePrices(100), noStrategyScriptParameters(t), nil)
 
 	require.ErrorIs(t, err, domains.ErrIndicatorScriptFailed)
 	assert.Nil(t, perBarValues)

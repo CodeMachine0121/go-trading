@@ -113,30 +113,39 @@ func (contractBacktestDomain ContractBacktestDomain) SelectInput(
 		}
 	}
 
-	if len(finishedBuckets) < minimumBacktestKCandleCount {
-		return ContractKCandleAlignmentDomain{}, notEnoughKCandlesForBacktest(len(finishedBuckets))
+	tradedBuckets := finishedBuckets[contractBacktestDomain.tradeStartIndex(finishedBuckets):]
+	if len(tradedBuckets) < minimumBacktestKCandleCount {
+		return ContractKCandleAlignmentDomain{}, notEnoughKCandlesForBacktest(len(tradedBuckets))
 	}
 
 	// Refuse a split lacking a bar on either side before any script runs.
-	if _, splitError := contractBacktestDomain.splitIndexOf(finishedBuckets); splitError != nil {
+	if _, splitError := contractBacktestDomain.splitIndexOf(tradedBuckets); splitError != nil {
 		return ContractKCandleAlignmentDomain{}, splitError
 	}
 
 	return newContractKCandleAlignmentDomain(contractBacktestDomain.backtest.interval, finishedBuckets), nil
 }
 
+func (contractBacktestDomain ContractBacktestDomain) tradeStartIndex(buckets []dto.KCandleContractDto) int {
+	return contractBacktestDomain.backtest.tradeStartIndex(contractBacktestDomain.openTimesOf(buckets))
+}
+
 // splitIndexOf returns the full length for an unsplit replay.
-func (contractBacktestDomain ContractBacktestDomain) splitIndexOf(buckets []dto.KCandleContractDto) (int, error) {
+func (contractBacktestDomain ContractBacktestDomain) splitIndexOf(tradedBuckets []dto.KCandleContractDto) (int, error) {
 	if !contractBacktestDomain.backtest.segments.IsSplit() {
-		return len(buckets), nil
+		return len(tradedBuckets), nil
 	}
 
+	return contractBacktestDomain.backtest.segments.SplitIndex(contractBacktestDomain.openTimesOf(tradedBuckets))
+}
+
+func (contractBacktestDomain ContractBacktestDomain) openTimesOf(buckets []dto.KCandleContractDto) []time.Time {
 	openTimes := make([]time.Time, 0, len(buckets))
 	for _, bucket := range buckets {
 		openTimes = append(openTimes, bucket.OpenTime.UTC())
 	}
 
-	return contractBacktestDomain.backtest.segments.SplitIndex(openTimes)
+	return openTimes
 }
 
 // ReplayOver replays the bars with funding settlements and, when split, each part again from the initial capital and flat.
@@ -151,6 +160,12 @@ func (contractBacktestDomain ContractBacktestDomain) ReplayOver(
 	if conflictedFlags == nil {
 		conflictedFlags = make([]bool, len(buckets))
 	}
+
+	// The warm-up bars shaped the signals but are never traded, so the report starts at the stretch.
+	tradeStartIndex := contractBacktestDomain.tradeStartIndex(buckets)
+	buckets = buckets[tradeStartIndex:]
+	signals = signals[tradeStartIndex:]
+	conflictedFlags = conflictedFlags[tradeStartIndex:]
 
 	replayed := func(
 		partBuckets []dto.KCandleContractDto, partSignals []SignalDomain, partConflictedFlags []bool,

@@ -9,12 +9,14 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
 
-// indicatorScriptResponse holds exactly one of single-run values, replay values, or a failure.
+// indicatorScriptResponse is one message from the compartment: a replay sends one element message per bar as it goes, then a closing message that holds single-run values, nothing, or a failure.
 type indicatorScriptResponse struct {
-	Values           indicatorValuesWire
-	PerElementValues []indicatorValuesWire
-	FailureMessage   string
-	HasFailure       bool
+	Values indicatorValuesWire
+	// ElementValues is one bar's values of a replay; IsElement marks the message as such rather than the closing one.
+	ElementValues  indicatorValuesWire
+	IsElement      bool
+	FailureMessage string
+	HasFailure     bool
 	// UndeclaredParameterName is a separate field so callers never parse it out of the message.
 	UndeclaredParameterName string
 	HasUndeclaredParameter  bool
@@ -38,13 +40,8 @@ func (response indicatorScriptResponse) values() map[string]vo.IndicatorValueVo 
 	return response.Values.toIndicatorValues()
 }
 
-func (response indicatorScriptResponse) perElementValues() []map[string]vo.IndicatorValueVo {
-	perElementIndicatorValues := make([]map[string]vo.IndicatorValueVo, 0, len(response.PerElementValues))
-	for _, elementValues := range response.PerElementValues {
-		perElementIndicatorValues = append(perElementIndicatorValues, elementValues.toIndicatorValues())
-	}
-
-	return perElementIndicatorValues
+func newElementIndicatorScriptResponse(indicatorValues map[string]vo.IndicatorValueVo) indicatorScriptResponse {
+	return indicatorScriptResponse{ElementValues: newIndicatorValuesWire(indicatorValues), IsElement: true}
 }
 
 func newFailedIndicatorScriptResponse(runError error) indicatorScriptResponse {

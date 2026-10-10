@@ -380,13 +380,13 @@ func registerRoutes(
 	engine.POST("/contract-indicator-calculations", requiresSignIn,
 		indicatorCalculationController.CalculateContractIndicator)
 
-	// A backtest stores nothing and has its own candle ceiling and whole-run time allowance.
+	// A replay has its own candle ceiling; its time allowance comes with each request, on-demand or queued.
 	backtestService := service.NewBacktestService(
 		kCandleRepository,
 		script.NewYaegiIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
 		applicationConfig.BacktestMaxCandleCount,
-		applicationConfig.BacktestTimeAllowance,
+		applicationConfig.BacktestDefaultWarmupBarCount,
 	)
 
 	contractBacktestService := service.NewContractBacktestService(
@@ -398,13 +398,26 @@ func registerRoutes(
 		script.NewYaegiContractIndicatorScriptProxy(indicatorScriptIsolation),
 		clock.NewSystemClockProxy(),
 		applicationConfig.BacktestMaxCandleCount,
-		applicationConfig.BacktestTimeAllowance,
+		applicationConfig.BacktestDefaultWarmupBarCount,
 	)
 
-	backtestController := controller.NewBacktestController(
-		application.NewBacktestApplication(strategyScriptService, backtestService, contractBacktestService))
-	engine.POST("/backtests", requiresSignIn, backtestController.RunBacktest)
-	engine.POST("/contract-backtests", requiresSignIn, backtestController.RunContractBacktest)
+	backtestRunService := service.NewBacktestRunService(
+		persistence.NewBacktestRunRepository(database),
+		persistence.NewBacktestRunResultRepository(database),
+		persistence.NewTransactionRepository(database),
+		clock.NewSystemClockProxy(),
+		backtestService,
+		contractBacktestService,
+		domains.NewBacktestRunAdmissionDomain(applicationConfig.BacktestRun.OwnerActiveLimit),
+		applicationConfig.Replica.Name,
+		applicationConfig.BacktestRun.TimeAllowance,
+		applicationConfig.BacktestRun.ProgressWriteEveryBars,
+	)
+
+	backtestController := controller.NewBacktestController(application.NewBacktestApplication(
+		strategyScriptService, backtestService, contractBacktestService, backtestRunService))
+	engine.POST("/backtests", requiresSignIn, backtestController.SubmitBacktest)
+	engine.POST("/contract-backtests", requiresSignIn, backtestController.SubmitContractBacktest)
 
 	userController := controller.NewUserController(userApplication)
 
@@ -569,14 +582,16 @@ func registerRoutes(
 		strategyScriptService,
 		backtestService,
 		contractBacktestService,
+		backtestRunService,
+		applicationConfig.BacktestTimeAllowance,
 	)
 
 	tradingStrategyBacktestController := controller.NewTradingStrategyBacktestController(
 		tradingStrategyBacktestApplication)
 	engine.POST("/trading-strategies/:id/backtests", requiresSignIn,
-		tradingStrategyBacktestController.RunTradingStrategyBacktest)
+		tradingStrategyBacktestController.SubmitTradingStrategyBacktest)
 	engine.POST("/trading-strategies/:id/contract-backtests", requiresSignIn,
-		tradingStrategyBacktestController.RunContractTradingStrategyBacktest)
+		tradingStrategyBacktestController.SubmitContractTradingStrategyBacktest)
 
 	contractTradeRecordRepository := persistence.NewContractTradeRecordRepository(database)
 	tradeTagRepository := persistence.NewTradeTagRepository(database)
@@ -601,7 +616,8 @@ func registerRoutes(
 	contractTradeRecordController := controller.NewContractTradeRecordController(
 		application.NewContractTradeJournalApplication(contractTradeJournalService, tradeJournalLinkService),
 		application.NewContractTradeLiveComparisonApplication(
-			contractTradeJournalService, tradingStrategyService, strategyScriptService, contractBacktestService),
+			contractTradeJournalService, tradingStrategyService, strategyScriptService, contractBacktestService,
+			applicationConfig.BacktestTimeAllowance),
 	)
 	engine.POST("/contract-trade-records", requiresSignIn, contractTradeRecordController.RecordTrade)
 	engine.GET("/contract-trade-records", requiresSignIn, contractTradeRecordController.ListTrades)
@@ -632,7 +648,8 @@ func registerRoutes(
 	spotTradeRecordController := controller.NewSpotTradeRecordController(
 		application.NewSpotTradeJournalApplication(spotTradeJournalService, tradeJournalLinkService),
 		application.NewSpotTradeLiveComparisonApplication(
-			spotTradeJournalService, tradingStrategyService, strategyScriptService, backtestService),
+			spotTradeJournalService, tradingStrategyService, strategyScriptService, backtestService,
+			applicationConfig.BacktestTimeAllowance),
 	)
 	engine.POST("/spot-trade-records", requiresSignIn, spotTradeRecordController.RecordTrade)
 	engine.GET("/spot-trade-records", requiresSignIn, spotTradeRecordController.ListTrades)
@@ -827,7 +844,8 @@ func registerRoutes(
 			service.NewReplicaPresenceService(
 				persistence.NewReplicaHeartbeatRepository(database), clock.NewSystemClockProxy(),
 				applicationConfig.Replica.Name, applicationConfig.Replica.HeartbeatInterval),
-			assistantConversationService, kCandleIngestionService, contractKCandleIngestionService),
+			assistantConversationService, kCandleIngestionService, contractKCandleIngestionService,
+			backtestRunService),
 		contractSeriesApplications{
 			fundingRate:       contractFundingRateApplication,
 			positionStatistic: contractPositionStatisticApplication,

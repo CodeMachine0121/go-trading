@@ -33,27 +33,31 @@ type ContractBacktestRequestDto struct {
 	// MaintenanceMarginRate is carried only to be refused, since the symbol's margin ladder
 	// decides it.
 	MaintenanceMarginRate decimal.Decimal
+	TimeAllowance         time.Duration
+	DefaultWarmupBarCount int
 }
 
 // ToBacktestRequestDto extracts the spot-compatible part so it is validated by the same
 // rules as a spot replay.
 func (requestDto ContractBacktestRequestDto) ToBacktestRequestDto() BacktestRequestDto {
 	return BacktestRequestDto{
-		Symbol:               requestDto.Symbol,
-		AggregationInterval:  requestDto.AggregationInterval,
-		StartTime:            requestDto.StartTime,
-		EndTime:              requestDto.EndTime,
-		Script:               requestDto.Script,
-		Parameters:           requestDto.Parameters,
-		ParameterValues:      requestDto.ParameterValues,
-		InitialCapital:       requestDto.InitialCapital,
-		PositionSizingMode:   requestDto.PositionSizingMode,
-		PositionSizingValue:  requestDto.PositionSizingValue,
-		StopLossPercentage:   requestDto.StopLossPercentage,
-		TakeProfitPercentage: requestDto.TakeProfitPercentage,
-		EntryCostPercentage:  requestDto.EntryCostPercentage,
-		ExitCostPercentage:   requestDto.ExitCostPercentage,
-		FillTiming:           requestDto.FillTiming,
-		ValidationStartTime:  requestDto.ValidationStartTime,
+		Symbol:                requestDto.Symbol,
+		AggregationInterval:   requestDto.AggregationInterval,
+		StartTime:             requestDto.StartTime,
+		EndTime:               requestDto.EndTime,
+		Script:                requestDto.Script,
+		Parameters:            requestDto.Parameters,
+		ParameterValues:       requestDto.ParameterValues,
+		InitialCapital:        requestDto.InitialCapital,
+		PositionSizingMode:    requestDto.PositionSizingMode,
+		PositionSizingValue:   requestDto.PositionSizingValue,
+		StopLossPercentage:    requestDto.StopLossPercentage,
+		TakeProfitPercentage:  requestDto.TakeProfitPercentage,
+		EntryCostPercentage:   requestDto.EntryCostPercentage,
+		ExitCostPercentage:    requestDto.ExitCostPercentage,
+		FillTiming:            requestDto.FillTiming,
+		ValidationStartTime:   requestDto.ValidationStartTime,
+		TimeAllowance:         requestDto.TimeAllowance,
+		DefaultWarmupBarCount: requestDto.DefaultWarmupBarCount,
 	}
 }

@@ -170,7 +170,7 @@ func TestTradingStrategyBacktestApplicationMarksAReplayWithAnyForeignSourceAsFor
 			indicatorScriptProxy := mocks.NewMockIIndicatorScriptProxy(controller)
 			scriptFailure := fmt.Errorf("%w: 算式執行失敗：%s", domains.ErrIndicatorScriptFailed, injectedFailureWording)
 			indicatorScriptProxy.EXPECT().
-				ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(nil, scriptFailure).AnyTimes()
 			clockProxy := mocks.NewMockIClockProxy(controller)
 			clockProxy.EXPECT().Now().Return(backtestNow).AnyTimes()
@@ -187,8 +187,8 @@ func TestTradingStrategyBacktestApplicationMarksAReplayWithAnyForeignSourceAsFor
 				service.NewTradingStrategyService(tradingStrategyRepository),
 				service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 				service.NewBacktestService(
-					kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute),
-				nil)
+					kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0),
+				nil, nil, time.Minute)
 
 			_, err := tradingStrategyBacktestApplication.RunTradingStrategyBacktest(
 				t.Context(), backtestViewerID, replayedTradingStrategyID, tradingStrategyBacktestRequestDto())
@@ -224,8 +224,8 @@ func TestTradingStrategyBacktestApplicationRefusesToReplaySomeoneElsesScript(t *
 		service.NewStrategyScriptService(withPublication, publishedStrategyScriptRepository),
 		service.NewBacktestService(
 			mocks.NewMockIKCandleRepository(controller), mocks.NewMockIIndicatorScriptProxy(controller),
-			mocks.NewMockIClockProxy(controller), queryMaxResults, time.Minute),
-		nil)
+			mocks.NewMockIClockProxy(controller), queryMaxResults, 0),
+		nil, nil, time.Minute)
 
 	_, err := tradingStrategyBacktestApplication.RunTradingStrategyBacktest(
 		t.Context(), backtestViewerID, replayedTradingStrategyID, tradingStrategyBacktestRequestDto())

@@ -26,6 +26,8 @@ type BacktestDomain struct {
 	startTime      time.Time
 	// readCutoff excludes the still-running last bucket: only buckets opened strictly before it are replayed.
 	readCutoff time.Time
+	// warmupBarCount is read before the stretch so indicators are settled on its first bar; those bars are never traded.
+	warmupBarCount int
 }
 
 // effectiveEndTime treats a zero or future end as now, since the market cannot be read past the present.
@@ -146,6 +148,11 @@ func NewBacktestDomain(
 				bucketCount, maxCandleCount))
 	}
 
+	warmupBarCount := parameters.MaximumLookbackCount()
+	if warmupBarCount == 0 {
+		warmupBarCount = max(requestDto.DefaultWarmupBarCount, 0)
+	}
+
 	return BacktestDomain{
 		symbol:         tradingSymbol.Value(),
 		interval:       interval,
@@ -156,7 +163,37 @@ func NewBacktestDomain(
 		segments:       segments,
 		startTime:      startTime,
 		readCutoff:     readCutoff,
+		warmupBarCount: warmupBarCount,
 	}, nil
+}
+
+// warmedUpAtLeast widens the warm-up for a replay whose scripts, read elsewhere, look further back than this request declares.
+func (backtestDomain BacktestDomain) warmedUpAtLeast(barCount int) BacktestDomain {
+	backtestDomain.warmupBarCount = max(backtestDomain.warmupBarCount, barCount)
+
+	return backtestDomain
+}
+
+// readStart is where reading begins: the whole warm-up before the stretch, or the stretch itself when there is none.
+func (backtestDomain BacktestDomain) readStart() time.Time {
+	if backtestDomain.warmupBarCount == 0 {
+		return backtestDomain.startTime
+	}
+
+	return backtestDomain.interval.BucketStart(backtestDomain.startTime).Add(
+		-time.Duration(backtestDomain.warmupBarCount) * backtestDomain.interval.duration)
+}
+
+// tradeStartIndex is the first bar on or after the stretch's own first bucket; everything before it is warm-up.
+func (backtestDomain BacktestDomain) tradeStartIndex(barOpenTimes []time.Time) int {
+	tradeStart := backtestDomain.interval.BucketStart(backtestDomain.startTime)
+	for barIndex, barOpenTime := range barOpenTimes {
+		if !barOpenTime.Before(tradeStart) {
+			return barIndex
+		}
+	}
+
+	return len(barOpenTimes)
 }
 
 func (backtestDomain BacktestDomain) Symbol() string {
@@ -177,11 +214,11 @@ func (backtestDomain BacktestDomain) ResultType() IndicatorResultTypeDomain {
 	return IndicatorResultTypeDomain{value: vo.IndicatorResultTypeSignal}
 }
 
-// KCandleQuery reads up to and including the cut-off (one harmless extra candle); the replay itself excludes it.
+// KCandleQuery reads from the warm-up up to and including the cut-off (one harmless extra candle); the replay itself excludes it.
 func (backtestDomain BacktestDomain) KCandleQuery() KCandleQueryDomain {
 	return KCandleQueryDomain{
 		symbol:    backtestDomain.symbol,
-		startTime: backtestDomain.startTime,
+		startTime: backtestDomain.readStart(),
 		endTime:   backtestDomain.readCutoff,
 	}
 }
@@ -189,7 +226,7 @@ func (backtestDomain BacktestDomain) KCandleQuery() KCandleQueryDomain {
 // SourceCandleLimit allows one spare bucket so the read is never cut short yet stays bounded.
 func (backtestDomain BacktestDomain) SourceCandleLimit() int {
 	return backtestDomain.interval.SourceCandleCount(
-		backtestDomain.interval.BucketCount(backtestDomain.startTime, backtestDomain.readCutoff) +
+		backtestDomain.interval.BucketCount(backtestDomain.readStart(), backtestDomain.readCutoff) +
 			spareBucketCount)
 }
 
@@ -209,12 +246,13 @@ func (backtestDomain BacktestDomain) SelectInputCandles(
 		inputKCandleVos = append(inputKCandleVos, bucket.ToVo())
 	}
 
-	if len(inputKCandleVos) < minimumBacktestKCandleCount {
-		return nil, notEnoughKCandlesForBacktest(len(inputKCandleVos))
+	tradedKCandleVos := inputKCandleVos[backtestDomain.tradeStartIndex(backtestDomain.openTimesOf(inputKCandleVos)):]
+	if len(tradedKCandleVos) < minimumBacktestKCandleCount {
+		return nil, notEnoughKCandlesForBacktest(len(tradedKCandleVos))
 	}
 
 	// Refuse a split lacking a bar on either side before any script runs.
-	if _, splitError := backtestDomain.splitIndexOf(inputKCandleVos); splitError != nil {
+	if _, splitError := backtestDomain.splitIndexOf(tradedKCandleVos); splitError != nil {
 		return nil, splitError
 	}
 
@@ -222,17 +260,21 @@ func (backtestDomain BacktestDomain) SelectInputCandles(
 }
 
 // splitIndexOf returns the full length for an unsplit replay.
-func (backtestDomain BacktestDomain) splitIndexOf(inputKCandles []vo.KCandleVo) (int, error) {
+func (backtestDomain BacktestDomain) splitIndexOf(tradedKCandles []vo.KCandleVo) (int, error) {
 	if !backtestDomain.segments.IsSplit() {
-		return len(inputKCandles), nil
+		return len(tradedKCandles), nil
 	}
 
-	openTimes := make([]time.Time, 0, len(inputKCandles))
-	for _, inputKCandle := range inputKCandles {
-		openTimes = append(openTimes, time.Unix(inputKCandle.OpenTimeUnixSeconds, 0).UTC())
+	return backtestDomain.segments.SplitIndex(backtestDomain.openTimesOf(tradedKCandles))
+}
+
+func (backtestDomain BacktestDomain) openTimesOf(kCandles []vo.KCandleVo) []time.Time {
+	openTimes := make([]time.Time, 0, len(kCandles))
+	for _, kCandle := range kCandles {
+		openTimes = append(openTimes, time.Unix(kCandle.OpenTimeUnixSeconds, 0).UTC())
 	}
 
-	return backtestDomain.segments.SplitIndex(openTimes)
+	return openTimes
 }
 
 // ReplayOver replays the whole stretch and, when split, each part again from the initial capital, using the same signals throughout.
@@ -243,6 +285,12 @@ func (backtestDomain BacktestDomain) ReplayOver(
 	if conflictedFlags == nil {
 		conflictedFlags = make([]bool, len(inputKCandles))
 	}
+
+	// The warm-up bars shaped the signals but are never traded, so the report starts at the stretch.
+	tradeStartIndex := backtestDomain.tradeStartIndex(backtestDomain.openTimesOf(inputKCandles))
+	inputKCandles = inputKCandles[tradeStartIndex:]
+	signals = signals[tradeStartIndex:]
+	conflictedFlags = conflictedFlags[tradeStartIndex:]
 
 	replayed := func(
 		partKCandles []vo.KCandleVo, partSignals []SignalDomain, partConflictedFlags []bool,

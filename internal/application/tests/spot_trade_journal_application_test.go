@@ -732,7 +732,7 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 				tradingStrategyRepository, mocks.NewMockITradingSymbolRepository(controller), kCandleRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
-			service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, time.Minute))
+			service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), time.Minute)
 
 		return comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository,
 			kCandleRepository, indicatorScriptProxy
@@ -750,12 +750,12 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 		strategyScriptRepository.EXPECT().FindOne(gomock.Any(), spotScriptID).Return(entities.StrategyScript{
 			ID: spotScriptID, OwnerID: backtestViewerID, Script: "the script", MarketDataKind: "kCandle"}, nil).AnyTimes()
 		kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return([]entities.KCandle{
-			{Symbol: "2330", OpenTime: backtestStart, Open: decimal.NewFromInt(100), High: decimal.NewFromInt(100),
+			{Symbol: "2330", OpenTime: backtestStart.AddDate(0, 0, 1), Open: decimal.NewFromInt(100), High: decimal.NewFromInt(100),
 				Low: decimal.NewFromInt(100), Close: decimal.NewFromInt(100), Volume: decimal.NewFromInt(1)},
-			{Symbol: "2330", OpenTime: backtestStart.Add(time.Hour), Open: decimal.NewFromInt(110), High: decimal.NewFromInt(110),
+			{Symbol: "2330", OpenTime: backtestStart.AddDate(0, 0, 1).Add(time.Hour), Open: decimal.NewFromInt(110), High: decimal.NewFromInt(110),
 				Low: decimal.NewFromInt(110), Close: decimal.NewFromInt(110), Volume: decimal.NewFromInt(1)},
 		}, nil).AnyTimes()
-		indicatorScriptProxy.EXPECT().ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any()).
+		indicatorScriptProxy.EXPECT().ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Any(), gomock.Any(), nil).
 			Return(signalsSaying(vo.SignalBuy, vo.SignalSell), nil).AnyTimes()
 
 		comparison, err := comparisonApplication.CompareWithBacktest(context.Background(), backtestViewerID, spotTradingStrategyID)

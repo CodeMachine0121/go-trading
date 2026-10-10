@@ -68,7 +68,7 @@ func newLiveComparisonUnderTest(t *testing.T) liveComparisonUnderTest {
 		service.NewContractBacktestService(
 			fixture.kCandleContractRepository, fundingRateSettlementRepository, positionStatisticRepository,
 			fixture.contractTradingSymbolRepository, maintenanceMarginTierRepository,
-			fixture.contractIndicatorScriptProxy, clockProxy, queryMaxResults, time.Minute),
+			fixture.contractIndicatorScriptProxy, clockProxy, queryMaxResults, 0), time.Minute,
 	)
 
 	return fixture
@@ -130,15 +130,15 @@ func TestContractTradeLiveComparisonApplication(t *testing.T) {
 			Return(entities.ContractTradingSymbol{}, false, nil).AnyTimes()
 		fixture.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).Return(
 			[]entities.KCandleContract{
-				{Symbol: "BTCUSDT", OpenTime: backtestStart, Open: decimal.NewFromInt(100), High: decimal.NewFromInt(100),
+				{Symbol: "BTCUSDT", OpenTime: backtestStart.AddDate(0, 0, 1), Open: decimal.NewFromInt(100), High: decimal.NewFromInt(100),
 					Low: decimal.NewFromInt(100), Close: decimal.NewFromInt(100), MarkOpen: decimal.NewFromInt(100),
 					MarkHigh: decimal.NewFromInt(100), MarkLow: decimal.NewFromInt(100), MarkClose: decimal.NewFromInt(100)},
-				{Symbol: "BTCUSDT", OpenTime: backtestStart.Add(time.Hour), Open: decimal.NewFromInt(90), High: decimal.NewFromInt(90),
+				{Symbol: "BTCUSDT", OpenTime: backtestStart.AddDate(0, 0, 1).Add(time.Hour), Open: decimal.NewFromInt(90), High: decimal.NewFromInt(90),
 					Low: decimal.NewFromInt(90), Close: decimal.NewFromInt(90), MarkOpen: decimal.NewFromInt(90),
 					MarkHigh: decimal.NewFromInt(90), MarkLow: decimal.NewFromInt(90), MarkClose: decimal.NewFromInt(90)},
 			}, nil)
 		fixture.contractIndicatorScriptProxy.EXPECT().
-			ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Len(2), gomock.Any()).
+			ExecuteForEachCandle(gomock.Any(), "the script", gomock.Any(), gomock.Len(2), gomock.Any(), nil).
 			Return(signalsSaying(vo.SignalSell, vo.SignalBuy), nil)
 
 		comparison, err := fixture.application.CompareWithBacktest(

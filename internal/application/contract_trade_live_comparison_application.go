@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -15,6 +16,8 @@ type ContractTradeLiveComparisonApplication struct {
 	tradingStrategyService      *service.TradingStrategyService
 	strategyScriptService       *service.StrategyScriptService
 	contractBacktestService     *service.ContractBacktestService
+	// onDemandAllowance bounds each replay, since the person is waiting on the answer.
+	onDemandAllowance time.Duration
 }
 
 func NewContractTradeLiveComparisonApplication(
@@ -22,12 +25,14 @@ func NewContractTradeLiveComparisonApplication(
 	tradingStrategyService *service.TradingStrategyService,
 	strategyScriptService *service.StrategyScriptService,
 	contractBacktestService *service.ContractBacktestService,
+	onDemandAllowance time.Duration,
 ) *ContractTradeLiveComparisonApplication {
 	return &ContractTradeLiveComparisonApplication{
 		contractTradeJournalService: contractTradeJournalService,
 		tradingStrategyService:      tradingStrategyService,
 		strategyScriptService:       strategyScriptService,
 		contractBacktestService:     contractBacktestService,
+		onDemandAllowance:           onDemandAllowance,
 	}
 }
 
@@ -80,9 +85,10 @@ func (comparisonApplication *ContractTradeLiveComparisonApplication) CompareWith
 		requestDto.SellCondition = tradingStrategyDto.SellCondition
 		requestDto.TradingStrategyMarketDataKind = tradingStrategyDto.MarketDataKind
 		requestDto.TradingStrategyTradingMode = tradingStrategyDto.TradingMode
+		requestDto.TimeAllowance = comparisonApplication.onDemandAllowance
 
 		resultDto, replayError := comparisonApplication.contractBacktestService.RunContractTradingStrategyBacktest(
-			executionContext, requestDto)
+			executionContext, requestDto, nil)
 		if replayError != nil {
 			attempts = append(attempts, dto.ContractTradeBacktestAttemptDto{
 				FailureReason: authorship.AttributeFailure(replayError).Error(),

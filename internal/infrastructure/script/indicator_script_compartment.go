@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/vo"
 )
@@ -33,55 +34,61 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) execute(
 	input []Input,
 	parameters domains.StrategyScriptParametersDomain,
 ) (map[string]vo.IndicatorValueVo, error) {
-	response, runError := indicatorScriptCompartment.run(executionContext, indicatorScriptRequest[Input]{
+	outcome, runError := indicatorScriptCompartment.run(executionContext, indicatorScriptRequest[Input]{
 		Script:     script,
 		ResultType: string(resultType.Value()),
 		Parameters: parameters.ToDtos(),
 		Input:      input,
-	}, 1)
+	}, 1, nil)
 	if runError != nil {
 		return nil, runError
 	}
 
-	return response.values(), nil
+	return outcome.closing.values(), nil
 }
 
-// executeForEachElement runs the whole replay in one compartment so the script is read only once.
+// executeForEachElement runs the whole replay in one compartment so the script is read only once; each bar's values arrive as they are computed, so progress is reported as it happens.
 func (indicatorScriptCompartment indicatorScriptCompartment[Input]) executeForEachElement(
 	executionContext context.Context,
 	script string,
 	resultType domains.IndicatorResultTypeDomain,
 	input []Input,
 	parameters domains.StrategyScriptParametersDomain,
+	progress domaininterface.IReplayProgressSink,
 ) ([]map[string]vo.IndicatorValueVo, error) {
-	response, runError := indicatorScriptCompartment.run(executionContext, indicatorScriptRequest[Input]{
+	outcome, runError := indicatorScriptCompartment.run(executionContext, indicatorScriptRequest[Input]{
 		Script:         script,
 		ResultType:     string(resultType.Value()),
 		Parameters:     parameters.ToDtos(),
 		ForEachElement: true,
 		Input:          input,
-	}, len(input))
+	}, len(input), progress)
 	if runError != nil {
 		return nil, runError
 	}
 
-	return response.perElementValues(), nil
+	return outcome.perElementValues, nil
 }
 
+// compartmentOutcome is what the reader goroutine hands back: every element message collected, then the closing message or why reading stopped.
 type compartmentOutcome struct {
-	response  indicatorScriptResponse
-	readError error
+	perElementValues []map[string]vo.IndicatorValueVo
+	closing          indicatorScriptResponse
+	readError        error
 }
 
-// run starts one compartment; runCount scales the outermost time limit.
+// run starts one compartment; runCount scales the outermost time limit and is the total every element message is measured against.
 func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
-	executionContext context.Context, request indicatorScriptRequest[Input], runCount int,
-) (indicatorScriptResponse, error) {
+	executionContext context.Context,
+	request indicatorScriptRequest[Input],
+	runCount int,
+	progress domaininterface.IReplayProgressSink,
+) (compartmentOutcome, error) {
 	isolation := indicatorScriptCompartment.isolation
 
 	if takeError := isolation.CompartmentSlots.take(
 		executionContext, isolation.ServesStrategyBotRounds); takeError != nil {
-		return indicatorScriptResponse{}, takeError
+		return compartmentOutcome{}, takeError
 	}
 	// Deferred first so the slot is returned only after the child has been reaped on every path.
 	defer isolation.CompartmentSlots.release()
@@ -104,7 +111,7 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 		startError = command.Start()
 	}
 	if startError != nil {
-		return indicatorScriptResponse{}, fmt.Errorf(
+		return compartmentOutcome{}, fmt.Errorf(
 			"%w: 算式執行失敗：算式隔間無法啟動：%v", domains.ErrIndicatorScriptFailed, startError)
 	}
 
@@ -123,9 +130,21 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 
 	outcomes := make(chan compartmentOutcome, 1)
 	go func() {
-		var response indicatorScriptResponse
-		readError := gob.NewDecoder(answerPipe).Decode(&response)
-		outcomes <- compartmentOutcome{response: response, readError: readError}
+		decoder := gob.NewDecoder(answerPipe)
+		outcome := compartmentOutcome{perElementValues: make([]map[string]vo.IndicatorValueVo, 0, runCount)}
+		for {
+			var message indicatorScriptResponse
+			if outcome.readError = decoder.Decode(&message); outcome.readError != nil || !message.IsElement {
+				outcome.closing = message
+				outcomes <- outcome
+				return
+			}
+
+			outcome.perElementValues = append(outcome.perElementValues, message.ElementValues.toIndicatorValues())
+			if progress != nil {
+				progress.ReplayAdvanced(len(outcome.perElementValues), runCount)
+			}
+		}
 	}()
 
 	outermostLimit := time.NewTimer(allowance)
@@ -135,25 +154,25 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) run(
 	case <-executionContext.Done():
 		_ = command.Process.Kill()
 		_ = command.Wait()
-		return indicatorScriptResponse{}, fmt.Errorf(
+		return compartmentOutcome{}, fmt.Errorf(
 			"%w: 算式已中止，因為發動它的請求已經結束", domains.ErrIndicatorScriptFailed)
 	case <-outermostLimit.C:
 		_ = command.Process.Kill()
 		_ = command.Wait()
-		return indicatorScriptResponse{}, fmt.Errorf(
+		return compartmentOutcome{}, fmt.Errorf(
 			"%w: 算式在 %s 內未能算完，已中止", domains.ErrIndicatorScriptFailed, isolation.ExecutionTimeout)
 	case outcome := <-outcomes:
 		_ = command.Wait()
 		if outcome.readError == nil {
-			return outcome.response, outcome.response.failure()
+			return outcome, outcome.closing.failure()
 		}
 		if strings.Contains(deathNotice.String(), outOfMemoryMark) {
-			return indicatorScriptResponse{}, fmt.Errorf(
+			return compartmentOutcome{}, fmt.Errorf(
 				"%w: 算式超出記憶體上限（%dMB），已中止",
 				domains.ErrIndicatorScriptFailed, isolation.MemoryLimitBytes/(1<<20))
 		}
 
-		return indicatorScriptResponse{}, fmt.Errorf(
+		return compartmentOutcome{}, fmt.Errorf(
 			"%w: 算式執行失敗：算式隔間意外結束", domains.ErrIndicatorScriptFailed)
 	}
 }

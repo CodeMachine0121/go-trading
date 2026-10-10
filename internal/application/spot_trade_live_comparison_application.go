@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/dto"
@@ -15,6 +16,8 @@ type SpotTradeLiveComparisonApplication struct {
 	tradingStrategyService  *service.TradingStrategyService
 	strategyScriptService   *service.StrategyScriptService
 	backtestService         *service.BacktestService
+	// onDemandAllowance bounds each replay, since the person is waiting on the answer.
+	onDemandAllowance time.Duration
 }
 
 func NewSpotTradeLiveComparisonApplication(
@@ -22,12 +25,14 @@ func NewSpotTradeLiveComparisonApplication(
 	tradingStrategyService *service.TradingStrategyService,
 	strategyScriptService *service.StrategyScriptService,
 	backtestService *service.BacktestService,
+	onDemandAllowance time.Duration,
 ) *SpotTradeLiveComparisonApplication {
 	return &SpotTradeLiveComparisonApplication{
 		spotTradeJournalService: spotTradeJournalService,
 		tradingStrategyService:  tradingStrategyService,
 		strategyScriptService:   strategyScriptService,
 		backtestService:         backtestService,
+		onDemandAllowance:       onDemandAllowance,
 	}
 }
 
@@ -79,9 +84,10 @@ func (comparisonApplication *SpotTradeLiveComparisonApplication) CompareWithBack
 		requestDto.BuyCondition = tradingStrategyDto.BuyCondition
 		requestDto.SellCondition = tradingStrategyDto.SellCondition
 		requestDto.TradingStrategyMarketDataKind = tradingStrategyDto.MarketDataKind
+		requestDto.TimeAllowance = comparisonApplication.onDemandAllowance
 
 		resultDto, replayError := comparisonApplication.backtestService.RunTradingStrategyBacktest(
-			executionContext, requestDto)
+			executionContext, requestDto, nil)
 		if replayError != nil {
 			attempts = append(attempts, dto.SpotTradeBacktestAttemptDto{
 				FailureReason: authorship.AttributeFailure(replayError).Error(),

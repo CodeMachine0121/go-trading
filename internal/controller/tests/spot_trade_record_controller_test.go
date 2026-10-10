@@ -65,7 +65,7 @@ func newSpotTradeRouterUnderTest(t *testing.T) spotTradeRouterUnderTest {
 				mocks.NewMockIStrategyScriptRepository(mockController),
 				mocks.NewMockIPublishedStrategyScriptRepository(mockController)),
 			service.NewBacktestService(kCandleRepository, mocks.NewMockIIndicatorScriptProxy(mockController),
-				clockProxy, 1000, time.Minute)),
+				clockProxy, 1000, 0), time.Minute),
 	)
 
 	requiresSignIn := doorOpenFor(t, signedInViewerID)
