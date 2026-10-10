@@ -3,12 +3,14 @@ package assistantqueries_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/CodeMachine0121/go-trading/internal/application"
 	"github.com/CodeMachine0121/go-trading/internal/application/assistantqueries"
+	domaininterface "github.com/CodeMachine0121/go-trading/internal/domain/interface"
 	"github.com/CodeMachine0121/go-trading/internal/domain/interface/mocks"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/domains"
 	"github.com/CodeMachine0121/go-trading/internal/domain/models/entities"
@@ -37,6 +39,12 @@ type tradingStrategyBacktestAssistantQueryUnderTest struct {
 func newTradingStrategyBacktestAssistantQueryUnderTest(
 	t *testing.T,
 ) tradingStrategyBacktestAssistantQueryUnderTest {
+	return newTradingStrategyBacktestAssistantQueryAllowing(t, time.Minute)
+}
+
+func newTradingStrategyBacktestAssistantQueryAllowing(
+	t *testing.T, onDemandAllowance time.Duration,
+) tradingStrategyBacktestAssistantQueryUnderTest {
 	controller := gomock.NewController(t)
 
 	kCandleRepository := mocks.NewMockIKCandleRepository(controller)
@@ -60,7 +68,7 @@ func newTradingStrategyBacktestAssistantQueryUnderTest(
 		service.NewTradingStrategyService(tradingStrategyRepository),
 		service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 		service.NewBacktestService(
-			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), nil, nil, time.Minute)
+			kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), nil, nil, onDemandAllowance)
 
 	return tradingStrategyBacktestAssistantQueryUnderTest{
 		backtestAssistantQuery: assistantqueries.NewTradingStrategyBacktestAssistantQuery(
@@ -241,6 +249,28 @@ func TestTradingStrategyBacktestAssistantQueryHandsBackTheCoarsenessRefusal(t *t
 	require.Error(t, runError)
 	assert.Contains(t, runError.Error(), "1h")
 	assert.Contains(t, runError.Error(), "5m")
+}
+
+func TestTradingStrategyBacktestAssistantQueryIsCutOffByTheOnDemandAllowance(t *testing.T) {
+	fixture := newTradingStrategyBacktestAssistantQueryAllowing(t, 20*time.Millisecond)
+	fixture.tradingStrategyRepository.EXPECT().
+		FindOne(gomock.Any(), assistantTradingStrategyID).
+		Return(aReplayableTradingStrategy("1h"), nil)
+	fixture.kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]entities.KCandle{replayedCandle(0, "100"), replayedCandle(1, "110")}, nil)
+	fixture.indicatorScriptProxy.EXPECT().
+		ExecuteForEachCandle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			executionContext context.Context, _ string, _ domains.IndicatorResultTypeDomain, _ []vo.KCandleVo,
+			_ domains.StrategyScriptParametersDomain, _ domaininterface.IReplayProgressSink,
+		) ([]map[string]vo.IndicatorValueVo, error) {
+			<-executionContext.Done()
+			return nil, errors.New("算式已中止，因為發動它的請求已經結束")
+		})
+
+	_, runError := fixture.backtestAssistantQuery.Run(t.Context(), assistantOrigin, aReplayArgument)
+
+	require.ErrorIs(t, runError, domains.ErrBacktestTimeAllowanceSpent)
 }
 
 func TestTradingStrategyBacktestAssistantQueryAnswersSomebodyElsesAsNotFound(t *testing.T) {

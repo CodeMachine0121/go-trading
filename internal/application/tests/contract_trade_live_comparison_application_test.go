@@ -28,6 +28,10 @@ type liveComparisonUnderTest struct {
 }
 
 func newLiveComparisonUnderTest(t *testing.T) liveComparisonUnderTest {
+	return newLiveComparisonAllowing(t, time.Minute)
+}
+
+func newLiveComparisonAllowing(t *testing.T, onDemandAllowance time.Duration) liveComparisonUnderTest {
 	controller := gomock.NewController(t)
 	clockProxy := mocks.NewMockIClockProxy(controller)
 	clockProxy.EXPECT().Now().Return(backtestStart.Add(30 * 24 * time.Hour)).AnyTimes()
@@ -68,7 +72,7 @@ func newLiveComparisonUnderTest(t *testing.T) liveComparisonUnderTest {
 		service.NewContractBacktestService(
 			fixture.kCandleContractRepository, fundingRateSettlementRepository, positionStatisticRepository,
 			fixture.contractTradingSymbolRepository, maintenanceMarginTierRepository,
-			fixture.contractIndicatorScriptProxy, clockProxy, queryMaxResults, 0), time.Minute,
+			fixture.contractIndicatorScriptProxy, clockProxy, queryMaxResults, 0), onDemandAllowance,
 	)
 
 	return fixture
@@ -108,6 +112,35 @@ func slippedLinkedTrade(trade entities.ContractTradeRecord, referencePrice strin
 }
 
 func TestContractTradeLiveComparisonApplication(t *testing.T) {
+	t.Run("a replay outlasting the on-demand allowance is cut off by it", func(t *testing.T) {
+		fixture := newLiveComparisonAllowing(t, 20*time.Millisecond)
+		fixture.theScriptIsOwned()
+		fixture.contractTradeRecordRepository.EXPECT().
+			FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, contractReplayTradingStrategyID).
+			Return([]entities.ContractTradeRecord{aLinkedClosedTrade(1, "BTCUSDT", "short", "100", "90", 10, 2)}, nil)
+		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
+			Return(aContractTradingStrategy("contractKCandle", "shortOnly"), nil)
+		specifiedAt := backtestStart
+		fixture.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").Return(entities.ContractTradingSymbol{
+			Symbol: "BTCUSDT", TickSize: percentage("0.01"), QuantityStep: percentage("0.001"),
+			MinimumQuantity: percentage("0.001"), MinimumNotional: percentage("5"),
+			MaintenanceMarginRate: percentage("0.005"), SpecificationUpdatedAt: &specifiedAt,
+		}, true, nil).AnyTimes()
+		fixture.kCandleContractRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(executionContext context.Context, _ domains.KCandleQueryDomain, _ int) ([]entities.KCandleContract, error) {
+				<-executionContext.Done()
+				return nil, executionContext.Err()
+			})
+
+		comparison, err := fixture.application.CompareWithBacktest(
+			context.Background(), backtestViewerID, contractReplayTradingStrategyID)
+
+		require.NoError(t, err)
+		require.Len(t, comparison.Rows, 1)
+		assert.Nil(t, comparison.Rows[0].Backtest)
+		assert.Contains(t, comparison.Rows[0].BacktestUnavailableReason, "重演在 0.02 秒內沒跑完")
+	})
+
 	t.Run("each symbol is replayed over the stretch its trades covered", func(t *testing.T) {
 		fixture := newLiveComparisonUnderTest(t)
 		fixture.theScriptIsOwned()

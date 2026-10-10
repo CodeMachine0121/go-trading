@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -291,6 +292,15 @@ func TestBacktestRunnerEndsAFailureWithItsReason(t *testing.T) {
 			replay: func(executionContext context.Context, _ []vo.KCandleVo, _ domaininterface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
 				<-executionContext.Done()
 				return nil, errors.New("stopped")
+			},
+			expectedReason: "超過時間上限",
+		},
+		{
+			name: "waiting the whole allowance for a compartment", timeAllowance: 20 * time.Millisecond,
+			kind: vo.BacktestRunSpotScript,
+			replay: func(executionContext context.Context, _ []vo.KCandleVo, _ domaininterface.IReplayProgressSink) ([]map[string]vo.IndicatorValueVo, error) {
+				<-executionContext.Done()
+				return nil, fmt.Errorf("%w: 算式隔間目前全數忙碌中，請稍後再試", domains.ErrIndicatorScriptCompartmentsBusy)
 			},
 			expectedReason: "超過時間上限",
 		},

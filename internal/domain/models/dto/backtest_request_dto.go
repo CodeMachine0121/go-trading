@@ -44,7 +44,7 @@ type BacktestRequestDto struct {
 	FillTiming string
 	// ValidationStartTime splits the replay for validation; zero is no split.
 	ValidationStartTime time.Time
-	// TimeAllowance bounds the whole replay; zero leaves the service's usual allowance in force.
+	// TimeAllowance bounds the whole replay; zero sets no bound beyond the caller's context.
 	TimeAllowance time.Duration
 	// DefaultWarmupBarCount is read before the stretch when the script declares no look-back count.
 	DefaultWarmupBarCount int

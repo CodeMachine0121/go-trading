@@ -241,8 +241,8 @@ func neverGivenACompartment[Input any](
 	return nil, fmt.Errorf("%w: every slot stayed taken", domains.ErrIndicatorScriptCompartmentsBusy)
 }
 
-func TestReplayWaitingOutItsAllowanceForACompartmentIsReportedAsBusy(t *testing.T) {
-	spotReplay := func(t *testing.T) error {
+func TestReplayWaitingForACompartmentIsBlamedOnWhoeverStoppedTheWait(t *testing.T) {
+	spotReplay := func(t *testing.T, executionContext context.Context) error {
 		controller := gomock.NewController(t)
 		kCandleRepository := mocks.NewMockIKCandleRepository(controller)
 		kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -256,7 +256,7 @@ func TestReplayWaitingOutItsAllowanceForACompartmentIsReportedAsBusy(t *testing.
 
 		_, err := service.NewBacktestService(
 			kCandleRepository, indicatorScriptProxy, clockProxy, 1000, 0,
-		).RunBacktest(context.Background(), dto.BacktestRequestDto{
+		).RunBacktest(executionContext, dto.BacktestRequestDto{
 			Symbol: "BTCUSDT", AggregationInterval: "1h",
 			StartTime: contractBacktestServiceStart, EndTime: contractBacktestServiceStart.Add(4 * time.Hour),
 			Script: "the script", InitialCapital: decimal.NewFromInt(10000),
@@ -264,7 +264,7 @@ func TestReplayWaitingOutItsAllowanceForACompartmentIsReportedAsBusy(t *testing.
 		}, nil)
 		return err
 	}
-	contractReplay := func(t *testing.T) error {
+	contractReplay := func(t *testing.T, executionContext context.Context) error {
 		contractBacktestService := newContractBacktestServiceUnderTest(t,
 			func(boundaries contractBacktestServiceMocks) {
 				boundaries.contractIndicatorScriptProxy.EXPECT().
@@ -274,24 +274,39 @@ func TestReplayWaitingOutItsAllowanceForACompartmentIsReportedAsBusy(t *testing.
 		requestDto := contractBacktestServiceRequest()
 		requestDto.TimeAllowance = replayTimeAllowanceUnderTest
 
-		_, err := contractBacktestService.RunContractBacktest(context.Background(), requestDto, nil)
+		_, err := contractBacktestService.RunContractBacktest(executionContext, requestDto, nil)
 		return err
 	}
+	callerGivingUpFirst := func(t *testing.T) context.Context {
+		callerContext, giveUp := context.WithTimeout(context.Background(), replayTimeAllowanceUnderTest/4)
+		t.Cleanup(giveUp)
+		return callerContext
+	}
+	callerWaiting := func(*testing.T) context.Context { return context.Background() }
 
 	testCases := []struct {
-		name   string
-		replay func(t *testing.T) error
+		name          string
+		replay        func(t *testing.T, executionContext context.Context) error
+		caller        func(t *testing.T) context.Context
+		expectedError error
+		unexpected    error
 	}{
-		{name: "a spot replay", replay: spotReplay},
-		{name: "a contract replay", replay: contractReplay},
+		{name: "a spot replay that waits out its allowance", replay: spotReplay, caller: callerWaiting,
+			expectedError: domains.ErrBacktestTimeAllowanceSpent, unexpected: domains.ErrIndicatorScriptCompartmentsBusy},
+		{name: "a contract replay that waits out its allowance", replay: contractReplay, caller: callerWaiting,
+			expectedError: domains.ErrBacktestTimeAllowanceSpent, unexpected: domains.ErrIndicatorScriptCompartmentsBusy},
+		{name: "a spot replay whose caller gives up waiting", replay: spotReplay, caller: callerGivingUpFirst,
+			expectedError: domains.ErrIndicatorScriptCompartmentsBusy, unexpected: domains.ErrBacktestTimeAllowanceSpent},
+		{name: "a contract replay whose caller gives up waiting", replay: contractReplay, caller: callerGivingUpFirst,
+			expectedError: domains.ErrIndicatorScriptCompartmentsBusy, unexpected: domains.ErrBacktestTimeAllowanceSpent},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.replay(t)
+			err := testCase.replay(t, testCase.caller(t))
 
-			require.ErrorIs(t, err, domains.ErrIndicatorScriptCompartmentsBusy)
-			assert.NotErrorIs(t, err, domains.ErrBacktestTimeAllowanceSpent)
+			require.ErrorIs(t, err, testCase.expectedError)
+			assert.NotErrorIs(t, err, testCase.unexpected)
 		})
 	}
 }

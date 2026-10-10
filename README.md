@@ -126,7 +126,7 @@ curl localhost:8080/health
 | `INDICATOR_SCRIPT_MAX_CONCURRENT_COMPARTMENTS` | `6` | 整個服務同時最多幾個算式隔間在跑；滿了就排隊（機器人輪次排在最前），在呼叫端時限內等不到空位回 `503`。乘上算式記憶體上限必須留得下服務本身的記憶體 |
 | `BACKTEST_MAX_CANDLE_COUNT` | `50000` | 一次重演最多走幾個刻度區間（重演自己的上限，不與單次查詢共用）；超過即拒絕 |
 | `BACKTEST_TIME_ALLOWANCE_SECONDS` | `90` | **當場算**的重演（交易日誌的實盤 vs 回測、行情助手的回測）的整體允許時間（讀取行情與所有信號來源的算式合計）；超過即整次中止，不交出半張成績單 |
-| `BACKTEST_DEFAULT_WARMUP_BAR_COUNT` | `200` | 腳本沒有宣告回看根數時，重演在區間起點之前先讀幾根當暖機；暖機那一段只算指標、不交易、不入成績單 |
+| `BACKTEST_DEFAULT_WARMUP_BAR_COUNT` | `200` | 腳本沒有宣告回看根數時，重演在區間起點之前先讀幾根當暖機；暖機那一段只算指標、不交易、不入成績單。**當場算的重演也會暖機**：實盤 vs 回測與行情助手的回測同樣先讀區間前最多「回看根數」（或這個預設值）根，都算在 `BACKTEST_TIME_ALLOWANCE_SECONDS` 裡，所以回看很長的腳本做比對會比較久、也比較容易碰到上限 |
 | `BACKTEST_RUN_WORKER_COUNT` | `2` | 每台分身同時跑幾筆背景回測輪次；滿了其餘的排隊 |
 | `BACKTEST_RUN_OWNER_ACTIVE_LIMIT` | `3` | 每人同時最多幾筆輪次在排隊或進行中；滿了送出回 `429` |
 | `BACKTEST_RUN_TIME_ALLOWANCE_MINUTES` | `30` | 一筆背景回測輪次的時間上限，從進行中開始算；超過收成失敗「超過時間上限」 |

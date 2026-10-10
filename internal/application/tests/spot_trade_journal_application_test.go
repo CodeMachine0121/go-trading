@@ -712,7 +712,7 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 		},
 	}
 
-	newComparison := func(t *testing.T) (*application.SpotTradeLiveComparisonApplication, *mocks.MockISpotTradeRecordRepository,
+	newComparison := func(t *testing.T, onDemandAllowance time.Duration) (*application.SpotTradeLiveComparisonApplication, *mocks.MockISpotTradeRecordRepository,
 		*mocks.MockITradingStrategyRepository, *mocks.MockIStrategyScriptRepository, *mocks.MockIKCandleRepository,
 		*mocks.MockIIndicatorScriptProxy) {
 		controller := gomock.NewController(t)
@@ -732,7 +732,8 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 				tradingStrategyRepository, mocks.NewMockITradingSymbolRepository(controller), kCandleRepository, clockProxy),
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
-			service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0), time.Minute)
+			service.NewBacktestService(kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0),
+			onDemandAllowance)
 
 		return comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository,
 			kCandleRepository, indicatorScriptProxy
@@ -740,7 +741,7 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 
 	t.Run("each symbol is replayed without costs beside its live figures", func(t *testing.T) {
 		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository,
-			kCandleRepository, indicatorScriptProxy := newComparison(t)
+			kCandleRepository, indicatorScriptProxy := newComparison(t, time.Minute)
 		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, spotTradingStrategyID).
 			Return([]entities.SpotTradeRecord{
 				aLinkedClosedSpotTrade(1, "2330", "100", "110", 2),
@@ -773,8 +774,30 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 		assert.InDelta(t, 1.0, *row.Backtest.WinRate, 0.0001)
 	})
 
+	t.Run("a replay outlasting the on-demand allowance is cut off by it", func(t *testing.T) {
+		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository,
+			kCandleRepository, _ := newComparison(t, 20*time.Millisecond)
+		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, spotTradingStrategyID).
+			Return([]entities.SpotTradeRecord{aLinkedClosedSpotTrade(1, "2330", "100", "110", 2)}, nil)
+		tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), spotTradingStrategyID).Return(spotTradingStrategy, nil)
+		strategyScriptRepository.EXPECT().FindOne(gomock.Any(), spotScriptID).Return(entities.StrategyScript{
+			ID: spotScriptID, OwnerID: backtestViewerID, Script: "the script", MarketDataKind: "kCandle"}, nil).AnyTimes()
+		kCandleRepository.EXPECT().FindInRange(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(executionContext context.Context, _ domains.KCandleQueryDomain, _ int) ([]entities.KCandle, error) {
+				<-executionContext.Done()
+				return nil, executionContext.Err()
+			})
+
+		comparison, err := comparisonApplication.CompareWithBacktest(context.Background(), backtestViewerID, spotTradingStrategyID)
+
+		require.NoError(t, err)
+		require.Len(t, comparison.Rows, 1)
+		assert.Nil(t, comparison.Rows[0].Backtest)
+		assert.Contains(t, comparison.Rows[0].BacktestUnavailableReason, "重演在 0.02 秒內沒跑完")
+	})
+
 	t.Run("a deleted strategy keeps its live figures without replaying", func(t *testing.T) {
-		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, _, _, _ := newComparison(t)
+		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, _, _, _ := newComparison(t, time.Minute)
 		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, spotTradingStrategyID).
 			Return([]entities.SpotTradeRecord{aLinkedClosedSpotTrade(1, "2330", "100", "110", 2)}, nil)
 		tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), spotTradingStrategyID).
@@ -788,7 +811,7 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 	})
 
 	t.Run("sources that cannot be resolved leave the row without a replay", func(t *testing.T) {
-		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository, _, _ := newComparison(t)
+		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository, _, _ := newComparison(t, time.Minute)
 		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, spotTradingStrategyID).
 			Return([]entities.SpotTradeRecord{aLinkedClosedSpotTrade(1, "2330", "100", "110", 2)}, nil)
 		tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), spotTradingStrategyID).Return(spotTradingStrategy, nil)
@@ -804,7 +827,7 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 
 	t.Run("a replay that fails costs only its own row, and failed reads come back", func(t *testing.T) {
 		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, strategyScriptRepository,
-			kCandleRepository, _ := newComparison(t)
+			kCandleRepository, _ := newComparison(t, time.Minute)
 		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, spotTradingStrategyID).
 			Return([]entities.SpotTradeRecord{aLinkedClosedSpotTrade(1, "2330", "100", "110", 2)}, nil)
 		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, uint(99)).
@@ -824,7 +847,7 @@ func TestSpotTradeLiveComparisonApplication(t *testing.T) {
 	})
 
 	t.Run("a strategy that is not the person's and has no trades is not found", func(t *testing.T) {
-		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, _, _, _ := newComparison(t)
+		comparisonApplication, spotTradeRecordRepository, tradingStrategyRepository, _, _, _ := newComparison(t, time.Minute)
 		spotTradeRecordRepository.EXPECT().FindClosedByOwnerAndTradingStrategy(gomock.Any(), backtestViewerID, spotTradingStrategyID).
 			Return(nil, nil)
 		tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), spotTradingStrategyID).

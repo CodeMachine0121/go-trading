@@ -28,12 +28,8 @@ func (replayAllowance replayAllowance) bound(executionContext context.Context) (
 	return context.WithTimeoutCause(executionContext, replayAllowance.duration, errReplayTimeAllowanceSpent)
 }
 
-// refusalFor explains an unfinished replay, with an actionable message when the allowance ran out.
+// refusalFor explains an unfinished replay; the allowance running out is named first, even when it ran out waiting for a compartment.
 func (replayAllowance replayAllowance) refusalFor(replayContext context.Context, executionError error) error {
-	// Waiting for a compartment is not cured by asking for less, so it is not blamed on the allowance.
-	if errors.Is(executionError, domains.ErrIndicatorScriptCompartmentsBusy) {
-		return executionError
-	}
 	if errors.Is(context.Cause(replayContext), errReplayTimeAllowanceSpent) {
 		return domains.BacktestTimeAllowanceSpent(replayAllowance.duration)
 	}
