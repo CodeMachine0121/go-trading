@@ -166,7 +166,6 @@ func (backtestRunner *backtestRunner) cancel() {
 	backtestRunner.stopReplaying()
 }
 
-// interrupt is a graceful stop: the replay is cut off and the ending reads as a restart.
 func (backtestRunner *backtestRunner) interrupt() {
 	backtestRunner.progressMutex.Lock()
 	backtestRunner.interrupted = true
@@ -175,7 +174,7 @@ func (backtestRunner *backtestRunner) interrupt() {
 	backtestRunner.stopReplaying()
 }
 
-// end moves the run from whatever state it reached to its ending under the lock, then writes it with, for a success, the report in the same transaction; a refused ending means the run was cancelled or swept meanwhile and the report is dropped.
+// end derives the ending from the run's current state under the lock; a refused write means the run was cancelled or swept meanwhile, so the report is dropped.
 func (backtestRunner *backtestRunner) end(
 	replayError error, summary dto.BacktestRunSummaryDto, result *entities.BacktestRunResult,
 ) {

@@ -12,8 +12,7 @@ import (
 type BacktestRunWorkerJob struct {
 	*repeatingRound
 	backtestRunApplication *application.BacktestRunApplication
-	// finished closes after the polling has ended and every run in flight has written its ending.
-	finished chan struct{}
+	finished               chan struct{}
 }
 
 func NewBacktestRunWorkerJob(

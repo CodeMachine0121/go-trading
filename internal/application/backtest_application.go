@@ -9,7 +9,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// BacktestApplication turns a strategy script replay request into a queued run: it resolves the script, judges the request as the replay would, and only then records the run.
 type BacktestApplication struct {
 	strategyScriptService   *service.StrategyScriptService
 	backtestService         *service.BacktestService
@@ -60,7 +59,6 @@ func (backtestApplication *BacktestApplication) SubmitBacktest(
 	})
 }
 
-// SubmitContractBacktest queues a contract replay with the same gates as SubmitBacktest.
 func (backtestApplication *BacktestApplication) SubmitContractBacktest(
 	executionContext context.Context,
 	viewerID uint,

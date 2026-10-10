@@ -228,7 +228,6 @@ type StrategyBotConfig struct {
 	RoundTimeout        time.Duration
 }
 
-// BacktestRunConfig sizes the background replay queue: how many runs one replica replays at once, how many one person may have waiting, and how long a run may take and be kept.
 type BacktestRunConfig struct {
 	WorkerCount      int
 	OwnerActiveLimit int
@@ -236,8 +235,7 @@ type BacktestRunConfig struct {
 	TimeAllowance time.Duration
 	Retention     time.Duration
 	// PollInterval is how often a replica looks at the queue; the first look after a submit is at most this late.
-	PollInterval time.Duration
-	// ProgressWriteEveryBars spaces the progress writes so a long replay does not write a row per bar.
+	PollInterval           time.Duration
 	ProgressWriteEveryBars int
 	// StatusCheckInterval is how soon a run cancelled on another replica stops using this replica's worker place.
 	StatusCheckInterval time.Duration
@@ -307,8 +305,7 @@ type ApplicationConfig struct {
 	BacktestMaxCandleCount int
 	// BacktestTimeAllowance covers an on-demand replay someone waits on (trade journal comparison, assistant)
 	// and sits below the common 100s reverse-proxy timeout so the replay reports a timeout itself.
-	BacktestTimeAllowance time.Duration
-	// BacktestDefaultWarmupBarCount is read before a replay's stretch when its script declares no look-back count.
+	BacktestTimeAllowance         time.Duration
 	BacktestDefaultWarmupBarCount int
 	BacktestRun                   BacktestRunConfig
 	BackgroundJobsEnabled         bool

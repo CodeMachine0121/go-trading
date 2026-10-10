@@ -32,6 +32,7 @@ type scriptReplay func(
 
 type backtestRunServiceUnderTest struct {
 	backtestRunService *service.BacktestRunService
+	clockProxy         *mocks.MockIClockProxy
 	runRepository      *mocks.MockIBacktestRunRepository
 	resultRepository   *mocks.MockIBacktestRunResultRepository
 	writesMutex        sync.Mutex
@@ -85,6 +86,7 @@ func newBacktestRunServiceCheckingStatusEvery(
 		}).AnyTimes()
 
 	fixture := &backtestRunServiceUnderTest{
+		clockProxy:       clockProxy,
 		runRepository:    mocks.NewMockIBacktestRunRepository(controller),
 		resultRepository: mocks.NewMockIBacktestRunResultRepository(controller),
 		stillRunning:     func(entities.BacktestRun) bool { return true },
@@ -623,4 +625,24 @@ func TestBacktestRunnerKeepsReplayingWhileItsRunIsStillRunningHere(t *testing.T)
 	ending := fixture.claimAndWaitForTheEnding(t)
 
 	assert.Equal(t, "succeeded", ending.Status, ending.FailureReason)
+}
+
+func TestBacktestRunServiceAnswersAWaitingReadOnceWaitingIsStopped(t *testing.T) {
+	fixture := newBacktestRunServiceUnderTest(t, time.Minute, 100, buyingThenSelling)
+	running := claimedBacktestRun(vo.BacktestRunSpotScript, spotScriptRun(), vo.BacktestRunRunning)
+	fixture.runRepository.EXPECT().FindOneOwned(gomock.Any(), uint(1), claimedBacktestRunID).
+		Return(running, true, nil).Times(3)
+	sleeps := 0
+	fixture.clockProxy.EXPECT().Sleep(time.Second).Do(func(time.Duration) {
+		sleeps++
+		if sleeps == 2 {
+			fixture.backtestRunService.StopWaiting()
+		}
+	}).Times(2)
+
+	detail, err := fixture.backtestRunService.Get(t.Context(), 1, claimedBacktestRunID, time.Minute)
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", detail.Status)
+	assert.Nil(t, detail.Result)
 }

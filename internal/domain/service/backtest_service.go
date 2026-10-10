@@ -11,11 +11,10 @@ import (
 
 // BacktestService is the application layer's only entry point for replaying strategy scripts over past market data; it only sequences the domain steps.
 type BacktestService struct {
-	kCandleRepository    domaininterface.IKCandleRepository
-	indicatorScriptProxy domaininterface.IIndicatorScriptProxy
-	clockProxy           domaininterface.IClockProxy
-	maxCandleCount       int
-	// defaultWarmupBarCount is read before the stretch when a script declares no look-back count.
+	kCandleRepository     domaininterface.IKCandleRepository
+	indicatorScriptProxy  domaininterface.IIndicatorScriptProxy
+	clockProxy            domaininterface.IClockProxy
+	maxCandleCount        int
 	defaultWarmupBarCount int
 }
 
@@ -43,7 +42,6 @@ func (backtestService *BacktestService) ValidateBacktest(requestDto dto.Backtest
 	return validationError
 }
 
-// ValidateTradingStrategyBacktest is ValidateBacktest for a whole trading strategy.
 func (backtestService *BacktestService) ValidateTradingStrategyBacktest(
 	requestDto dto.TradingStrategyBacktestRequestDto,
 ) error {

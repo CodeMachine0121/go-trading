@@ -1,6 +1,5 @@
 package vo
 
-// BacktestRunKindVo says which of the four replays a run is, and so which request it carries.
 type BacktestRunKindVo string
 
 const (

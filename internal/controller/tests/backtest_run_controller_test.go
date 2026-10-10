@@ -90,27 +90,29 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 		InSample:   &dto.ContractBacktestResultDto{Symbol: "BTCUSDT", UsedCandleCount: 3, TradingMode: "longShort"},
 		Validation: &dto.ContractBacktestResultDto{Symbol: "BTCUSDT", UsedCandleCount: 1, TradingMode: "longShort"},
 	}
+	contractLeverage, contractTradingMode := "5", "longShort"
 	testCases := []struct {
-		name         string
-		backtestRun  entities.BacktestRun
-		result       entities.BacktestRunResult
-		expectedJSON any
-		leverage     any
-		tradingMode  any
+		name                string
+		backtestRun         entities.BacktestRun
+		result              entities.BacktestRunResult
+		expectedResult      dto.BacktestRunResultDto
+		expectedLeverage    *string
+		expectedTradingMode *string
 		// splitForValidation pins that both replayed parts come back with the report.
 		splitForValidation bool
 	}{
 		{
-			name:         "a spot run",
-			backtestRun:  aSucceededBacktestRun(12, vo.BacktestRunSpotScript),
-			result:       entities.BacktestRunResult{BacktestRunID: 12, SpotResult: &spotReport},
-			expectedJSON: spotReport, leverage: nil, tradingMode: nil,
+			name:           "a spot run",
+			backtestRun:    aSucceededBacktestRun(12, vo.BacktestRunSpotScript),
+			result:         entities.BacktestRunResult{BacktestRunID: 12, SpotResult: &spotReport},
+			expectedResult: dto.BacktestRunResultDto{Spot: &spotReport},
 		},
 		{
-			name:         "a contract run",
-			backtestRun:  aSucceededBacktestRun(12, vo.BacktestRunContractScript),
-			result:       entities.BacktestRunResult{BacktestRunID: 12, ContractResult: &contractReport},
-			expectedJSON: contractReport, leverage: "5", tradingMode: "longShort", splitForValidation: true,
+			name:             "a contract run",
+			backtestRun:      aSucceededBacktestRun(12, vo.BacktestRunContractScript),
+			result:           entities.BacktestRunResult{BacktestRunID: 12, ContractResult: &contractReport},
+			expectedResult:   dto.BacktestRunResultDto{Contract: &contractReport},
+			expectedLeverage: &contractLeverage, expectedTradingMode: &contractTradingMode, splitForValidation: true,
 		},
 	}
 
@@ -127,7 +129,7 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 			body := map[string]json.RawMessage{}
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-			expectedResult, marshalError := json.Marshal(testCase.expectedJSON)
+			expectedResult, marshalError := json.Marshal(testCase.expectedResult)
 			require.NoError(t, marshalError)
 			assert.JSONEq(t, string(expectedResult), string(body["result"]))
 			fields := map[string]any{}
@@ -137,8 +139,13 @@ func TestGetBacktestRunEndpointAnswersTheReportExactlyAsTheReplayWrites(t *testi
 			assert.Equal(t, 0.255, fields["totalReturnRate"])
 			assert.Equal(t, 0.101, fields["maximumDrawdown"])
 			assert.Equal(t, float64(4), fields["tradeCount"])
-			assert.Equal(t, testCase.leverage, fields["leverage"])
-			assert.Equal(t, testCase.tradingMode, fields["tradingMode"])
+			contractTerms := struct {
+				Leverage    *string `json:"leverage"`
+				TradingMode *string `json:"tradingMode"`
+			}{}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &contractTerms))
+			assert.Equal(t, testCase.expectedLeverage, contractTerms.Leverage)
+			assert.Equal(t, testCase.expectedTradingMode, contractTerms.TradingMode)
 			if testCase.splitForValidation {
 				result := fields["result"].(map[string]any)
 				assert.Contains(t, result, "inSample")

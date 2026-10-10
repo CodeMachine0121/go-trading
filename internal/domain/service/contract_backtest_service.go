@@ -62,7 +62,6 @@ func (contractBacktestService *ContractBacktestService) ValidateContractBacktest
 	return validationError
 }
 
-// ValidateContractTradingStrategyBacktest is ValidateContractBacktest for a whole contract trading strategy.
 func (contractBacktestService *ContractBacktestService) ValidateContractTradingStrategyBacktest(
 	executionContext context.Context, requestDto dto.ContractTradingStrategyBacktestRequestDto,
 ) error {

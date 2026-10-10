@@ -21,7 +21,6 @@ const (
 	backtestRunWaitPoll    = time.Second
 )
 
-// BacktestRunService owns a run from submission to ending: the queue, the per-owner cap, claiming on this replica, cancelling, sweeping and clearing out; the replay itself is the replay services' business.
 type BacktestRunService struct {
 	backtestRunRepository       domaininterface.IBacktestRunRepository
 	backtestRunResultRepository domaininterface.IBacktestRunResultRepository
@@ -34,11 +33,12 @@ type BacktestRunService struct {
 	timeAllowance               time.Duration
 	progressWriteEveryBars      int
 	statusCheckInterval         time.Duration
-	// runningCount is how many runners this replica has in flight, the figure the worker job compares with its cap.
-	runningCount atomic.Int32
-	runners      sync.Map
-	// runnersEnded lets a graceful stop wait until every runner has written its ending.
-	runnersEnded sync.WaitGroup
+	runningCount                atomic.Int32
+	runners                     sync.Map
+	runnersEnded                sync.WaitGroup
+	// waitingEnded releases reads hanging on for a run to end, so a server shutdown does not wait out their waits.
+	waitingEnded context.Context
+	endWaiting   context.CancelFunc
 }
 
 func NewBacktestRunService(
@@ -54,6 +54,8 @@ func NewBacktestRunService(
 	progressWriteEveryBars int,
 	statusCheckInterval time.Duration,
 ) *BacktestRunService {
+	waitingEnded, endWaiting := context.WithCancel(context.Background())
+
 	return &BacktestRunService{
 		backtestRunRepository:       backtestRunRepository,
 		backtestRunResultRepository: backtestRunResultRepository,
@@ -66,10 +68,11 @@ func NewBacktestRunService(
 		timeAllowance:               timeAllowance,
 		progressWriteEveryBars:      max(progressWriteEveryBars, 1),
 		statusCheckInterval:         max(statusCheckInterval, time.Millisecond),
+		waitingEnded:                waitingEnded,
+		endWaiting:                  endWaiting,
 	}
 }
 
-// Submit records a queued run once the owner is under the cap; the request is already resolved and validated by the caller, so nothing invalid is ever queued.
 func (backtestRunService *BacktestRunService) Submit(
 	executionContext context.Context, ownerID uint, submission dto.BacktestRunSubmissionDto,
 ) (dto.BacktestRunDto, error) {
@@ -104,7 +107,6 @@ func (backtestRunService *BacktestRunService) Submit(
 	return domains.NewBacktestRunDomain(saved).ToDto(), nil
 }
 
-// List is newest first and never carries a report.
 func (backtestRunService *BacktestRunService) List(
 	executionContext context.Context, ownerID uint, query dto.BacktestRunListQueryDto,
 ) (dto.BacktestRunPageDto, error) {
@@ -145,7 +147,7 @@ func (backtestRunService *BacktestRunService) Get(
 
 		runDomain := domains.NewBacktestRunDomain(backtestRun)
 		if runDomain.IsActive() && backtestRunService.clockProxy.Now().Before(deadline) &&
-			executionContext.Err() == nil {
+			executionContext.Err() == nil && backtestRunService.waitingEnded.Err() == nil {
 			backtestRunService.clockProxy.Sleep(backtestRunWaitPoll)
 			continue
 		}
@@ -203,7 +205,6 @@ func (backtestRunService *BacktestRunService) Cancel(
 	return cancelled.ToDto(), nil
 }
 
-// ClaimAndRun takes the oldest queued run, if any, and replays it in the background under this replica's name.
 func (backtestRunService *BacktestRunService) ClaimAndRun(executionContext context.Context) (bool, error) {
 	claimed := domains.BacktestRunDomain{}
 	wasClaimed := false
@@ -233,7 +234,10 @@ func (backtestRunService *BacktestRunService) ClaimAndRun(executionContext conte
 	return true, nil
 }
 
-// RunningCount is how many runs this replica is replaying right now.
+func (backtestRunService *BacktestRunService) StopWaiting() {
+	backtestRunService.endWaiting()
+}
+
 func (backtestRunService *BacktestRunService) RunningCount() int {
 	return int(backtestRunService.runningCount.Load())
 }
@@ -257,7 +261,6 @@ func (backtestRunService *BacktestRunService) FailInterruptedRuns(
 		backtestRunService.clockProxy.Now())
 }
 
-// DeleteExpiredRuns clears runs that ended longer ago than the retention, reports included.
 func (backtestRunService *BacktestRunService) DeleteExpiredRuns(
 	executionContext context.Context, retention time.Duration,
 ) (int, error) {

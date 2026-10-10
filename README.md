@@ -81,7 +81,9 @@ curl localhost:8080/health
 
 部署端需要：
 
-- **至少一台分身開著背景工作**（`BACKGROUND_JOBS_ENABLED=true`）。機器人的訊息由任何一台寫下，但只由開著背景工作的分身寄出。
+- **至少一台分身開著背景工作**（`BACKGROUND_JOBS_ENABLED=true`）。機器人的訊息由任何一台寫下，但只由開著背景工作的分身寄出；
+  背景回測輪次也一樣——任何一台都收得下送出，但只有開著背景工作的分身會認領來跑。每台都關掉時，送出的輪次會一直排隊，
+  而且照樣佔著送出者「同時最多幾筆」（`BACKTEST_RUN_OWNER_ACTIVE_LIMIT`）的名額。關掉背景工作的分身啟動時會在日誌裡寫明它不跑回測輪次。
 - 每台分身有不同的名字（Kubernetes 預設的 `HOSTNAME` 就是 pod 名稱，不必另外設定）。
 - `terminationGracePeriodSeconds` 至少 35 秒：排空請求 15 秒、等背景那一輪結束最多 10 秒、交還值班最多 5 秒，讓關機順序跑完。
 - **節點時鐘要同步**（Kubernetes 節點預設跑 NTP）。值班租約、輪次認領與分身心跳都用各分身自己的時鐘判斷；誤差要遠小於 5 秒的保守提早量。
@@ -272,8 +274,8 @@ curl localhost:8080/health
 | `POST` | `/backtests` | 在現貨帳戶上重演一支策略腳本（指名或自帶算式）。**驗證通過即回 `202` 與一筆回測輪次（`BacktestRunDto`），不等算完**；要求本身有錯當場 `400`／`404`、不留輪次；每人同時上限滿了回 `429`（`ownerActiveLimit`） |
 | `POST` | `/trading-strategies/{id}/backtests` | 在現貨帳戶上重演一份交易策略；同樣回 `202` 與一筆輪次 |
 | `GET` | `/backtest-runs?status=&strategyScriptId=&tradingStrategyId=&limit=` | 列出自己的回測輪次，新到舊，回 `{"runs":[...],"totalCount":n}`；`limit` 預設 20、最多 200，讀不懂用預設。列表只帶摘要（報酬率、最大回撤、交易筆數），不帶成績單 |
-| `GET` | `/backtest-runs/{id}?waitSeconds=` | 看一筆輪次；完成的帶 `result`（與當場回測的成績單一字不差），其餘為 `null`。`waitSeconds`（0–60）讓伺服器每秒重讀一次、直到結束或等滿。別人的或不存在的回 `404` |
-| `POST` | `/backtest-runs/{id}/cancel` | 取消排隊中或進行中的輪次（進行中的在下一次寫進度時停下、不寫成績單）；已結束回 `409`，別人的回 `404` |
+| `GET` | `/backtest-runs/{id}?waitSeconds=` | 看一筆輪次；完成的帶 `result`（與當場回測的成績單一字不差），其餘為 `null`。`waitSeconds`（0–60）讓伺服器每秒重讀一次、直到結束或等滿；伺服器關機時正在等的請求會立刻拿到當下的狀態。別人的或不存在的回 `404` |
+| `POST` | `/backtest-runs/{id}/cancel` | 取消排隊中或進行中的輪次（在這台分身上跑的立刻停下，在別台跑的最晚 `BACKTEST_RUN_STATUS_CHECK_INTERVAL_SECONDS` 秒內停下；都不寫成績單）；已結束回 `409`，別人的回 `404` |
 | `POST` | `/contract-backtests` | 在**逐倉合約帳戶**上重演一支**合約**策略腳本（指名或自帶算式）。body 與 `/backtests` 相同，另收 `leverage`（留白即一倍）、`tradingMode`（`longShort`／`longOnly`／`shortOnly`，留白即多空反手）、`slippagePercentage`（留白即不計）。強平看**標記價格**、維持保證金查**分級**（沒有分級退回交易規格最小那一級）、**資金費率一律計入**、數量照交易規格取整。送 `maintenanceMarginRate` 或指名一支 K 線種類的策略腳本回 `400`。回 `202` 與一筆輪次 |
 | `POST` | `/trading-strategies/{id}/contract-backtests` | 在合約帳戶上重演一份**合約交易策略**；交易模式由那份交易策略自己說，重演時送 `tradingMode` 回 `400`。回 `202` 與一筆輪次 |
 | `GET` | `/k-candles/live?symbol=` | 持續送出該交易標的的即時更新（Server-Sent Events）；每則一個事件 |

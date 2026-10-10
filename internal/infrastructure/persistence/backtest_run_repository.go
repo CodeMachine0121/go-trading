@@ -25,7 +25,7 @@ func NewBacktestRunRepository(database *gorm.DB) *BacktestRunRepository {
 func (backtestRunRepository *BacktestRunRepository) Save(
 	executionContext context.Context, backtestRun entities.BacktestRun,
 ) (entities.BacktestRun, error) {
-	// Counts are named explicitly so zero values are written rather than skipped.
+	// Select("*") writes every column, zero values included, rather than leaving defaulted ones to the database.
 	saved := backtestRunRepository.database.within(executionContext).
 		Omit("Owner", "Result").Select("*").Omit("ID").Save(&backtestRun)
 	if saved.Error != nil {
@@ -169,7 +169,6 @@ func (backtestRunRepository *BacktestRunRepository) UpdateIfRunning(
 	return updated.RowsAffected == 1, nil
 }
 
-// CancelIfActive ends the run only while it is queued or running; the runner then sees its next progress write refused and stops.
 func (backtestRunRepository *BacktestRunRepository) CancelIfActive(
 	executionContext context.Context, backtestRun entities.BacktestRun,
 ) (bool, error) {

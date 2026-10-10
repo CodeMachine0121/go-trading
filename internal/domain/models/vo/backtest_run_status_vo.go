@@ -1,14 +1,11 @@
 package vo
 
-// BacktestRunStatusVo is where one backtest run has got to.
 type BacktestRunStatusVo string
 
 const (
-	// BacktestRunQueued is written when the request is accepted; no replica has taken it yet.
 	BacktestRunQueued    BacktestRunStatusVo = "queued"
 	BacktestRunRunning   BacktestRunStatusVo = "running"
 	BacktestRunSucceeded BacktestRunStatusVo = "succeeded"
-	// BacktestRunFailed covers script failures, the allowance running out, restarts and storage errors.
 	BacktestRunFailed    BacktestRunStatusVo = "failed"
 	BacktestRunCancelled BacktestRunStatusVo = "cancelled"
 )

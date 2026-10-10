@@ -18,7 +18,6 @@ const (
 	backtestRunOverAllowanceReason = "超過時間上限"
 )
 
-// BacktestRunDomain is one run's life: queued, claimed by a replica, advancing, then succeeded, failed or cancelled; final statuses never change.
 type BacktestRunDomain struct {
 	backtestRun entities.BacktestRun
 	status      vo.BacktestRunStatusVo
@@ -34,7 +33,6 @@ func NewBacktestRunDomain(backtestRun entities.BacktestRun) BacktestRunDomain {
 	}
 }
 
-// NewSubmittedBacktestRunDomain describes a freshly accepted request from whichever of the four requests the submission carries.
 func NewSubmittedBacktestRunDomain(
 	ownerID uint, submission dto.BacktestRunSubmissionDto, submittedAt time.Time,
 ) (BacktestRunDomain, error) {
@@ -111,7 +109,6 @@ func (backtestRunDomain BacktestRunDomain) Request() dto.BacktestRunRequestDto {
 	return backtestRunDomain.backtestRun.Request
 }
 
-// IsActive is true while the run still has work ahead: queued or running.
 func (backtestRunDomain BacktestRunDomain) IsActive() bool {
 	return backtestRunDomain.status == vo.BacktestRunQueued || backtestRunDomain.status == vo.BacktestRunRunning
 }
@@ -128,7 +125,6 @@ func (backtestRunDomain BacktestRunDomain) ProgressPercent() int {
 	return min(100, backtestRunDomain.backtestRun.CompletedBarCount*100/backtestRunDomain.backtestRun.TotalBarCount)
 }
 
-// Claimed is the run as a replica takes it off the queue.
 func (backtestRunDomain BacktestRunDomain) Claimed(replicaName string, startedAt time.Time) BacktestRunDomain {
 	startedAtUtc := startedAt.UTC()
 	backtestRunDomain.backtestRun.Status = string(vo.BacktestRunRunning)
@@ -147,7 +143,6 @@ func (backtestRunDomain BacktestRunDomain) Advanced(completedBarCount int, total
 	return backtestRunDomain
 }
 
-// Succeeded closes the run with the headline figures a list shows; the report itself is stored beside the run.
 func (backtestRunDomain BacktestRunDomain) Succeeded(
 	summary dto.BacktestRunSummaryDto, finishedAt time.Time,
 ) BacktestRunDomain {
@@ -186,7 +181,6 @@ func (backtestRunDomain BacktestRunDomain) FailedFor(
 	return backtestRunDomain
 }
 
-// Cancelled ends a queued or running run; a run already ended is refused, since there is nothing left to stop.
 func (backtestRunDomain BacktestRunDomain) Cancelled(cancelledAt time.Time) (BacktestRunDomain, error) {
 	if !backtestRunDomain.IsActive() {
 		return BacktestRunDomain{}, ErrBacktestRunAlreadyEnded
@@ -250,7 +244,6 @@ func (backtestRunDomain BacktestRunDomain) ToDto() dto.BacktestRunDto {
 	}
 }
 
-// ToDetailDto pairs the run with its report; a nil result is right for every status but succeeded.
 func (backtestRunDomain BacktestRunDomain) ToDetailDto(result *dto.BacktestRunResultDto) dto.BacktestRunDetailDto {
 	return dto.BacktestRunDetailDto{BacktestRunDto: backtestRunDomain.ToDto(), Result: result}
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// BacktestRunDto is one run as a list shows it: what it replays, where it has got to, and the headline figures once done; never the report itself.
 type BacktestRunDto struct {
 	ID              uint      `json:"id"`
 	Kind            string    `json:"kind"`
@@ -33,13 +32,11 @@ type BacktestRunDto struct {
 	FailureReason   string   `json:"failureReason"`
 }
 
-// BacktestRunDetailDto is a run with its report, which is nil until the run succeeds.
 type BacktestRunDetailDto struct {
 	BacktestRunDto
 	Result *BacktestRunResultDto `json:"result"`
 }
 
-// BacktestRunResultDto carries whichever report the run's kind produces, each exactly as the on-demand replay answers it.
 type BacktestRunResultDto struct {
 	Spot     *BacktestResultDto
 	Contract *ContractBacktestResultDto
@@ -62,7 +59,6 @@ type BacktestRunPageDto struct {
 	TotalCount int64            `json:"totalCount"`
 }
 
-// BacktestRunListQueryDto is read leniently: an unreadable limit falls back to the default rather than failing the list.
 type BacktestRunListQueryDto struct {
 	Status            string
 	StrategyScriptID  uint
@@ -70,7 +66,6 @@ type BacktestRunListQueryDto struct {
 	Limit             int
 }
 
-// BacktestRunSummaryDto is the handful of figures a finished run keeps on itself for lists.
 type BacktestRunSummaryDto struct {
 	TotalReturnRate float64
 	MaximumDrawdown float64

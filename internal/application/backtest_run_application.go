@@ -8,7 +8,6 @@ import (
 	"github.com/CodeMachine0121/go-trading/internal/domain/service"
 )
 
-// BacktestRunApplication is how people watch and cancel their runs, and how the worker and retention jobs drive them.
 type BacktestRunApplication struct {
 	backtestRunService *service.BacktestRunService
 	workerCount        int
@@ -43,7 +42,6 @@ func (backtestRunApplication *BacktestRunApplication) CancelRun(
 	return backtestRunApplication.backtestRunService.Cancel(executionContext, viewerID, id)
 }
 
-// RunClaimedBacktests fills this replica's free worker places from the queue and says how many runs it started.
 func (backtestRunApplication *BacktestRunApplication) RunClaimedBacktests(
 	executionContext context.Context,
 ) (int, error) {
@@ -59,7 +57,10 @@ func (backtestRunApplication *BacktestRunApplication) RunClaimedBacktests(
 	return startedCount, nil
 }
 
-// StopRunners cuts off this replica's runs on a graceful stop, marking each interrupted.
+func (backtestRunApplication *BacktestRunApplication) StopWaiting() {
+	backtestRunApplication.backtestRunService.StopWaiting()
+}
+
 func (backtestRunApplication *BacktestRunApplication) StopRunners() {
 	backtestRunApplication.backtestRunService.StopRunners()
 }

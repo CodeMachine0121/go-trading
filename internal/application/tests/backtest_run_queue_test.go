@@ -2,7 +2,6 @@ package application_test
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,47 +14,48 @@ import (
 
 const backtestRunOwnerActiveLimit = 3
 
-// backtestRunStore is the queue as mocks: it remembers what was saved so a test can say "nothing was queued" as easily as "this was".
-type backtestRunStore struct {
+// backtestRunQueue lets each case state what it expects of the queue: one run saved, a refusal at the limit, or nothing at all.
+type backtestRunQueue struct {
 	runRepository    *mocks.MockIBacktestRunRepository
 	resultRepository *mocks.MockIBacktestRunResultRepository
-	mutex            sync.Mutex
-	saved            []entities.BacktestRun
-	activeCount      int
 }
 
-func newBacktestRunStore(controller *gomock.Controller) *backtestRunStore {
-	store := &backtestRunStore{
+func newBacktestRunQueue(controller *gomock.Controller) backtestRunQueue {
+	return backtestRunQueue{
 		runRepository:    mocks.NewMockIBacktestRunRepository(controller),
 		resultRepository: mocks.NewMockIBacktestRunResultRepository(controller),
 	}
-	store.runRepository.EXPECT().CountActiveByOwner(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(context.Context, uint) (int, error) { return store.activeCount, nil }).AnyTimes()
-	store.runRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
+}
+
+// acceptsOneRun expects the owner, holding activeCount runs, to have exactly one run saved, and hands back the run as saved.
+func (queue backtestRunQueue) acceptsOneRun(activeCount int) *entities.BacktestRun {
+	saved := &entities.BacktestRun{}
+	queue.runRepository.EXPECT().CountActiveByOwner(gomock.Any(), gomock.Any()).Return(activeCount, nil)
+	queue.runRepository.EXPECT().Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, backtestRun entities.BacktestRun) (entities.BacktestRun, error) {
-			store.mutex.Lock()
-			defer store.mutex.Unlock()
-			backtestRun.ID = uint(len(store.saved) + 1)
-			store.saved = append(store.saved, backtestRun)
-
+			backtestRun.ID = 1
+			*saved = backtestRun
 			return backtestRun, nil
-		}).AnyTimes()
+		})
 
-	return store
+	return saved
 }
 
-func (store *backtestRunStore) savedRuns() []entities.BacktestRun {
-	store.mutex.Lock()
-	defer store.mutex.Unlock()
-
-	return append([]entities.BacktestRun{}, store.saved...)
+func (queue backtestRunQueue) refusesAtTheLimit() {
+	queue.runRepository.EXPECT().CountActiveByOwner(gomock.Any(), gomock.Any()).Return(backtestRunOwnerActiveLimit, nil)
+	queue.runRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
 }
 
-// newQueueingBacktestRunService builds the queue over the store with a transaction that simply runs its work.
+func (queue backtestRunQueue) queuesNothing() {
+	queue.runRepository.EXPECT().CountActiveByOwner(gomock.Any(), gomock.Any()).Times(0)
+	queue.runRepository.EXPECT().Save(gomock.Any(), gomock.Any()).Times(0)
+}
+
+// newQueueingBacktestRunService builds the queue over the mocks with a transaction that simply runs its work.
 func newQueueingBacktestRunService(
 	t *testing.T,
 	controller *gomock.Controller,
-	store *backtestRunStore,
+	queue backtestRunQueue,
 	backtestService *service.BacktestService,
 	contractBacktestService *service.ContractBacktestService,
 ) *service.BacktestRunService {
@@ -69,7 +69,7 @@ func newQueueingBacktestRunService(
 	clockProxy.EXPECT().Now().Return(backtestNow).AnyTimes()
 
 	return service.NewBacktestRunService(
-		store.runRepository, store.resultRepository, transactionRepository, clockProxy,
+		queue.runRepository, queue.resultRepository, transactionRepository, clockProxy,
 		backtestService, contractBacktestService,
 		domains.NewBacktestRunAdmissionDomain(backtestRunOwnerActiveLimit),
 		"replica-test", 30*time.Minute, 100, time.Minute)

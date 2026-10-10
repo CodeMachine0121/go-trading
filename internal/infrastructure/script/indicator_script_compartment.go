@@ -75,7 +75,6 @@ func (indicatorScriptCompartment indicatorScriptCompartment[Input]) executeForEa
 	return outcome.perElementValues, nil
 }
 
-// compartmentOutcome is what the reader goroutine hands back: every element message collected, then the closing message or why reading stopped.
 type compartmentOutcome struct {
 	perElementValues []map[string]vo.IndicatorValueVo
 	closing          indicatorScriptResponse

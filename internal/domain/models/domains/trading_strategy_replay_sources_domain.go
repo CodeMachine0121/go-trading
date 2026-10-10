@@ -102,7 +102,6 @@ func (replaySourcesDomain TradingStrategyReplaySourcesDomain) SharedInterval() s
 	return replaySourcesDomain.sharedInterval
 }
 
-// MaximumLookbackCount is the furthest back any source's script looks, so the replay can warm up that far.
 func (replaySourcesDomain TradingStrategyReplaySourcesDomain) MaximumLookbackCount() int {
 	maximumLookbackCount := 0
 	for _, source := range replaySourcesDomain.sources {

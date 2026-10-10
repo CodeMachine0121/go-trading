@@ -19,7 +19,6 @@ func NewBacktestController(backtestApplication *application.BacktestApplication)
 	return &BacktestController{backtestApplication: backtestApplication}
 }
 
-// SubmitBacktest handles POST /backtests: the request is judged now, the replay runs later, and the run is answered at once.
 func (backtestController *BacktestController) SubmitBacktest(ginContext *gin.Context) {
 	var backtestRequest models.BacktestRequest
 
@@ -46,7 +45,6 @@ func (backtestController *BacktestController) SubmitBacktest(ginContext *gin.Con
 	ginContext.JSON(http.StatusAccepted, runDto)
 }
 
-// SubmitContractBacktest queues a contract strategy script replay and answers the run at once.
 func (backtestController *BacktestController) SubmitContractBacktest(ginContext *gin.Context) {
 	var contractBacktestRequest models.ContractBacktestRequest
 

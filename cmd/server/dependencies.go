@@ -381,7 +381,6 @@ func registerRoutes(
 	engine.POST("/contract-indicator-calculations", requiresSignIn,
 		indicatorCalculationController.CalculateContractIndicator)
 
-	// A replay has its own candle ceiling; its time allowance comes with each request, on-demand or queued.
 	backtestService := service.NewBacktestService(
 		kCandleRepository,
 		script.NewYaegiIndicatorScriptProxy(indicatorScriptIsolation),

@@ -11,8 +11,7 @@ import (
 
 // indicatorScriptResponse is one message from the compartment: a replay sends one element message per bar as it goes, then a closing message that holds single-run values, nothing, or a failure.
 type indicatorScriptResponse struct {
-	Values indicatorValuesWire
-	// ElementValues is one bar's values of a replay; IsElement marks the message as such rather than the closing one.
+	Values         indicatorValuesWire
 	ElementValues  indicatorValuesWire
 	IsElement      bool
 	FailureMessage string

@@ -25,7 +25,6 @@ func NewTradingStrategyBacktestController(
 	}
 }
 
-// SubmitTradingStrategyBacktest handles POST /trading-strategies/:id/backtests: judged now, replayed later, the run answered at once.
 func (controller *TradingStrategyBacktestController) SubmitTradingStrategyBacktest(
 	ginContext *gin.Context,
 ) {
@@ -54,7 +53,6 @@ func (controller *TradingStrategyBacktestController) SubmitTradingStrategyBackte
 	ginContext.JSON(http.StatusAccepted, runDto)
 }
 
-// SubmitContractTradingStrategyBacktest queues a contract trading strategy replay under the strategy's own trading mode.
 func (controller *TradingStrategyBacktestController) SubmitContractTradingStrategyBacktest(
 	ginContext *gin.Context,
 ) {

@@ -43,7 +43,6 @@ func (backtestRunController *BacktestRunController) ListRuns(ginContext *gin.Con
 	ginContext.JSON(http.StatusOK, pageDto)
 }
 
-// GetRun handles GET /backtest-runs/:id; waitSeconds keeps the answer back until the run ends or the wait is spent.
 func (backtestRunController *BacktestRunController) GetRun(ginContext *gin.Context) {
 	id, idIsReadable := backtestRunController.readID(ginContext)
 	if !idIsReadable {
@@ -62,7 +61,6 @@ func (backtestRunController *BacktestRunController) GetRun(ginContext *gin.Conte
 	ginContext.JSON(http.StatusOK, detailDto)
 }
 
-// CancelRun handles POST /backtest-runs/:id/cancel.
 func (backtestRunController *BacktestRunController) CancelRun(ginContext *gin.Context) {
 	id, idIsReadable := backtestRunController.readID(ginContext)
 	if !idIsReadable {

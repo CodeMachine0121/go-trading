@@ -28,7 +28,6 @@ type ContractBacktestResultDto struct {
 	Validation *ContractBacktestResultDto `json:"validation,omitempty"`
 }
 
-// ToBacktestRunSummaryDto is the handful of figures a finished run keeps on itself for lists.
 func (resultDto ContractBacktestResultDto) ToBacktestRunSummaryDto() BacktestRunSummaryDto {
 	return BacktestRunSummaryDto{
 		TotalReturnRate: resultDto.Summary.TotalReturnRate,

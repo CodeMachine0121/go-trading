@@ -18,8 +18,7 @@ type TradingStrategyBacktestApplication struct {
 	backtestService         *service.BacktestService
 	contractBacktestService *service.ContractBacktestService
 	backtestRunService      *service.BacktestRunService
-	// onDemandAllowance bounds a replay someone is waiting on, as the assistant is.
-	onDemandAllowance time.Duration
+	onDemandAllowance       time.Duration
 }
 
 func NewTradingStrategyBacktestApplication(
@@ -40,7 +39,6 @@ func NewTradingStrategyBacktestApplication(
 	}
 }
 
-// SubmitTradingStrategyBacktest queues a spot replay of the strategy once it resolves and passes the replay's own judgement.
 func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) SubmitTradingStrategyBacktest(
 	executionContext context.Context,
 	viewerID uint,
@@ -71,7 +69,6 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Su
 		})
 }
 
-// SubmitContractTradingStrategyBacktest is the contract-account counterpart of SubmitTradingStrategyBacktest.
 func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) SubmitContractTradingStrategyBacktest(
 	executionContext context.Context,
 	viewerID uint,
@@ -103,8 +100,6 @@ func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) Su
 		})
 }
 
-// RunTradingStrategyBacktest replays the strategy on the spot, for callers that need the report now; a strategy that is not
-// this person's fails like a missing one.
 func (tradingStrategyBacktestApplication *TradingStrategyBacktestApplication) RunTradingStrategyBacktest(
 	executionContext context.Context,
 	viewerID uint,

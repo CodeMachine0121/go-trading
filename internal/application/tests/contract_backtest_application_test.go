@@ -28,7 +28,7 @@ type contractBacktestUnderTest struct {
 	backtestApplication                *application.BacktestApplication
 	tradingStrategyBacktestApplication *application.TradingStrategyBacktestApplication
 	contractBacktestService            *service.ContractBacktestService
-	runStore                           *backtestRunStore
+	runQueue                           backtestRunQueue
 	kCandleContractRepository          *mocks.MockIKCandleContractRepository
 	contractTradingSymbolRepository    *mocks.MockIContractTradingSymbolRepository
 	contractIndicatorScriptProxy       *mocks.MockIContractIndicatorScriptProxy
@@ -89,8 +89,8 @@ func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 		queryMaxResults,
 		0,
 	)
-	runStore := newBacktestRunStore(controller)
-	backtestRunService := newQueueingBacktestRunService(t, controller, runStore, backtestService, contractBacktestService)
+	runQueue := newBacktestRunQueue(controller)
+	backtestRunService := newQueueingBacktestRunService(t, controller, runQueue, backtestService, contractBacktestService)
 
 	return contractBacktestUnderTest{
 		backtestApplication: application.NewBacktestApplication(
@@ -99,7 +99,7 @@ func newContractBacktestUnderTest(t *testing.T) contractBacktestUnderTest {
 			service.NewTradingStrategyService(tradingStrategyRepository),
 			strategyScriptService, backtestService, contractBacktestService, backtestRunService, time.Minute),
 		contractBacktestService:         contractBacktestService,
-		runStore:                        runStore,
+		runQueue:                        runQueue,
 		kCandleContractRepository:       kCandleContractRepository,
 		contractTradingSymbolRepository: contractTradingSymbolRepository,
 		contractIndicatorScriptProxy:    contractIndicatorScriptProxy,
@@ -162,6 +162,7 @@ func contractReplayRequestDto() dto.ContractBacktestRequestDto {
 func TestSubmitContractBacktest(t *testing.T) {
 	t.Run("a named contract strategy script is queued with its leverage and trading mode", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(0)
 		fixture.expectTheSymbolIsSpecified()
 
 		runDto, err := fixture.backtestApplication.SubmitContractBacktest(context.Background(), backtestViewerID,
@@ -174,8 +175,7 @@ func TestSubmitContractBacktest(t *testing.T) {
 		assert.True(t, decimal.NewFromInt(5).Equal(*runDto.Leverage))
 		require.NotNil(t, runDto.TradingMode)
 		assert.Equal(t, "longShort", *runDto.TradingMode)
-		require.Len(t, fixture.runStore.savedRuns(), 1)
-		assert.Equal(t, "the script", fixture.runStore.savedRuns()[0].Request.ContractScript.Script)
+		assert.Equal(t, "the script", saved.Request.ContractScript.Script)
 	})
 }
 
@@ -203,17 +203,18 @@ func TestRunContractBacktest(t *testing.T) {
 
 	t.Run("a K candle strategy script is refused for what it is and nothing is queued", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 
 		_, err := fixture.backtestApplication.SubmitContractBacktest(context.Background(), backtestViewerID,
 			namingStrategyScript(t, contractReplayKCandleScriptID), contractBacktestRequestDto())
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptMarketDataKindMismatch)
 		assert.Contains(t, err.Error(), "吃的是 K 線")
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("a symbol without a trading specification is refused and nothing is queued", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		fixture.contractTradingSymbolRepository.EXPECT().FindBySymbol(gomock.Any(), "BTCUSDT").
 			Return(entities.ContractTradingSymbol{}, false, nil)
 
@@ -222,18 +223,17 @@ func TestRunContractBacktest(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 		assert.Contains(t, err.Error(), "還沒有交易規格")
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("a spot replay of a contract strategy script is refused for what it is", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 
 		_, err := fixture.backtestApplication.SubmitBacktest(context.Background(), backtestViewerID,
 			namingStrategyScript(t, contractReplayScriptID), backtestRequestDto())
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptMarketDataKindMismatch)
 		assert.Contains(t, err.Error(), "吃的是合約行情")
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 }
 
@@ -276,6 +276,7 @@ func TestSubmitContractTradingStrategyBacktest(t *testing.T) {
 			Return(signalsSaying(vo.SignalSell, vo.SignalBuy), nil)
 
 		fixture.expectTheSymbolIsSpecified()
+		queued := fixture.runQueue.acceptsOneRun(0)
 		runDto, err := fixture.tradingStrategyBacktestApplication.SubmitContractTradingStrategyBacktest(
 			context.Background(), backtestViewerID, contractReplayTradingStrategyID,
 			contractTradingStrategyBacktestRequestDto())
@@ -286,11 +287,10 @@ func TestSubmitContractTradingStrategyBacktest(t *testing.T) {
 		assert.Equal(t, contractReplayTradingStrategyID, *runDto.TradingStrategyID)
 		require.NotNil(t, runDto.TradingMode)
 		assert.Equal(t, "shortOnly", *runDto.TradingMode)
-		queued := fixture.runStore.savedRuns()
-		require.Len(t, queued, 1)
+		require.NotNil(t, queued.Request.ContractTradingStrategy)
 
 		resultDto, err := fixture.contractBacktestService.RunContractTradingStrategyBacktest(
-			context.Background(), *queued[0].Request.ContractTradingStrategy, nil)
+			context.Background(), *queued.Request.ContractTradingStrategy, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "shortOnly", resultDto.TradingMode)
@@ -307,6 +307,7 @@ func TestSubmitContractTradingStrategyBacktest(t *testing.T) {
 
 	t.Run("a K candle trading strategy cannot be replayed on a contract account", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
 			Return(aContractTradingStrategy("", ""), nil)
 		fixture.expectTheSymbolIsSpecified()
@@ -317,11 +318,11 @@ func TestSubmitContractTradingStrategyBacktest(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 		assert.Contains(t, err.Error(), "吃的是 K 線")
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("a contract trading strategy cannot be replayed on spot", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
 			Return(aContractTradingStrategy("contractKCandle", "longShort"), nil)
 
@@ -331,13 +332,13 @@ func TestSubmitContractTradingStrategyBacktest(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 		assert.Contains(t, err.Error(), "吃的是合約行情")
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 }
 
 func TestSubmitContractBacktestEdges(t *testing.T) {
 	t.Run("a script written in the request is queued as written", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(0)
 		fixture.expectTheSymbolIsSpecified()
 		runSubject, err := domains.NewRunSubjectDomain(0, "written here", "", nil)
 		require.NoError(t, err)
@@ -347,7 +348,7 @@ func TestSubmitContractBacktestEdges(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Nil(t, runDto.StrategyScriptID)
-		assert.Equal(t, "written here", fixture.runStore.savedRuns()[0].Request.ContractScript.Script)
+		assert.Equal(t, "written here", saved.Request.ContractScript.Script)
 	})
 
 	t.Run("a named script whose kind cannot be read is refused", func(t *testing.T) {
@@ -367,6 +368,7 @@ func TestSubmitContractBacktestEdges(t *testing.T) {
 
 	t.Run("a contract trading strategy that is not this person's is not found", func(t *testing.T) {
 		fixture := newContractBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		fixture.tradingStrategyRepository.EXPECT().FindOne(gomock.Any(), contractReplayTradingStrategyID).
 			Return(entities.TradingStrategy{}, domains.ErrTradingStrategyNotFound)
 
@@ -375,7 +377,6 @@ func TestSubmitContractBacktestEdges(t *testing.T) {
 			contractTradingStrategyBacktestRequestDto())
 
 		require.ErrorIs(t, err, domains.ErrTradingStrategyNotFound)
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("a contract trading strategy naming a script nobody may read is not found", func(t *testing.T) {

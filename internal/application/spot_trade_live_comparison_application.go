@@ -16,8 +16,7 @@ type SpotTradeLiveComparisonApplication struct {
 	tradingStrategyService  *service.TradingStrategyService
 	strategyScriptService   *service.StrategyScriptService
 	backtestService         *service.BacktestService
-	// onDemandAllowance bounds each replay, since the person is waiting on the answer.
-	onDemandAllowance time.Duration
+	onDemandAllowance       time.Duration
 }
 
 func NewSpotTradeLiveComparisonApplication(

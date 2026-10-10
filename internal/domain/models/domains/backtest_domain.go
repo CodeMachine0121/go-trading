@@ -176,7 +176,6 @@ func (backtestDomain BacktestDomain) warmedUpFor(declaredLookbackCount int) Back
 	return backtestDomain
 }
 
-// readStart is where reading begins: the whole warm-up before the stretch, or the stretch itself when there is none.
 func (backtestDomain BacktestDomain) readStart() time.Time {
 	if backtestDomain.warmupBarCount == 0 {
 		return backtestDomain.startTime
@@ -186,7 +185,6 @@ func (backtestDomain BacktestDomain) readStart() time.Time {
 		-time.Duration(backtestDomain.warmupBarCount) * backtestDomain.interval.duration)
 }
 
-// tradeStartIndex is the first bar on or after the stretch's own first bucket; everything before it is warm-up.
 func (backtestDomain BacktestDomain) tradeStartIndex(barOpenTimes []time.Time) int {
 	tradeStart := backtestDomain.interval.BucketStart(backtestDomain.startTime)
 	for barIndex, barOpenTime := range barOpenTimes {

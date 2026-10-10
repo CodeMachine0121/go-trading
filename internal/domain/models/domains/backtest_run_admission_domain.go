@@ -7,7 +7,6 @@ type BacktestRunAdmissionDomain struct {
 
 const defaultBacktestRunOwnerActiveLimit = 3
 
-// NewBacktestRunAdmissionDomain falls back to the default for a limit that is not a positive number.
 func NewBacktestRunAdmissionDomain(ownerActiveLimit int) BacktestRunAdmissionDomain {
 	if ownerActiveLimit <= 0 {
 		ownerActiveLimit = defaultBacktestRunOwnerActiveLimit
@@ -16,7 +15,6 @@ func NewBacktestRunAdmissionDomain(ownerActiveLimit int) BacktestRunAdmissionDom
 	return BacktestRunAdmissionDomain{ownerActiveLimit: ownerActiveLimit}
 }
 
-// Admit refuses once the owner's active count has reached the limit, naming the limit so the person knows what to wait for.
 func (admissionDomain BacktestRunAdmissionDomain) Admit(ownerActiveCount int) error {
 	if ownerActiveCount >= admissionDomain.ownerActiveLimit {
 		return &backtestRunOwnerLimitError{limit: admissionDomain.ownerActiveLimit}

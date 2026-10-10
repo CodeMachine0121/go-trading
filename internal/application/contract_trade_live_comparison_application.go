@@ -16,8 +16,7 @@ type ContractTradeLiveComparisonApplication struct {
 	tradingStrategyService      *service.TradingStrategyService
 	strategyScriptService       *service.StrategyScriptService
 	contractBacktestService     *service.ContractBacktestService
-	// onDemandAllowance bounds each replay, since the person is waiting on the answer.
-	onDemandAllowance time.Duration
+	onDemandAllowance           time.Duration
 }
 
 func NewContractTradeLiveComparisonApplication(

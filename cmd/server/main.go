@@ -64,14 +64,19 @@ func main() {
 	dutyHolder := jobLeadershipApplication
 	if !applicationConfig.BackgroundJobsEnabled {
 		dutyHolder = nil
-		// Bot messages are queued by any replica but sent only by one running background jobs.
+		// Bot messages and backtest runs are queued by any replica but handled only by one running background jobs.
 		log.Println("background jobs are off on this replica: it queues bot messages but sends none, " +
 			"so at least one replica must run with background jobs on")
+		log.Println("background jobs are off on this replica: submitted backtest runs stay queued until " +
+			"a replica with background jobs on takes them; this replica will not process any")
 	}
+
+	server := newServer(applicationConfig, engine)
+	server.RegisterOnShutdown(backtestRunApplication.StopWaiting)
 
 	if serveError := serve(
 		shutdownSignalled,
-		newServer(applicationConfig, engine),
+		server,
 		job.NewBackgroundJobManager(
 			backgroundJobsFor(
 				applicationConfig,

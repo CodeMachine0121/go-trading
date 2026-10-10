@@ -34,7 +34,7 @@ const (
 type backtestUnderTest struct {
 	backtestApplication  *application.BacktestApplication
 	backtestService      *service.BacktestService
-	runStore             *backtestRunStore
+	runQueue             backtestRunQueue
 	kCandleRepository    *mocks.MockIKCandleRepository
 	indicatorScriptProxy *mocks.MockIIndicatorScriptProxy
 }
@@ -59,15 +59,15 @@ func newBacktestUnderTest(t *testing.T) backtestUnderTest {
 
 	backtestService := service.NewBacktestService(
 		kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0)
-	runStore := newBacktestRunStore(controller)
+	runQueue := newBacktestRunQueue(controller)
 
 	return backtestUnderTest{
 		backtestApplication: application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			backtestService, nil,
-			newQueueingBacktestRunService(t, controller, runStore, backtestService, nil)),
+			newQueueingBacktestRunService(t, controller, runQueue, backtestService, nil)),
 		backtestService:      backtestService,
-		runStore:             runStore,
+		runQueue:             runQueue,
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
@@ -121,6 +121,7 @@ func signalsSaying(signals ...vo.SignalVo) []map[string]vo.IndicatorValueVo {
 func TestSubmitBacktest(t *testing.T) {
 	t.Run("a well formed request is queued at once, named after its script, without reading any candle", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(0)
 
 		runDto, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
@@ -136,14 +137,13 @@ func TestSubmitBacktest(t *testing.T) {
 		assert.Equal(t, backtestStrategyScriptID, *runDto.StrategyScriptID)
 		assert.Nil(t, runDto.Leverage)
 		assert.Nil(t, runDto.TotalReturnRate)
-		saved := fixture.runStore.savedRuns()
-		require.Len(t, saved, 1)
-		assert.Equal(t, backtestViewerID, saved[0].OwnerID)
-		assert.Equal(t, "the script", saved[0].Request.SpotScript.Script)
+		assert.Equal(t, backtestViewerID, saved.OwnerID)
+		assert.Equal(t, "the script", saved.Request.SpotScript.Script)
 	})
 
 	t.Run("a very short stretch is still queued rather than replayed on the spot", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.acceptsOneRun(0)
 		requestDto := backtestRequestDto()
 		requestDto.EndTime = backtestStart.Add(2 * time.Hour)
 
@@ -156,6 +156,7 @@ func TestSubmitBacktest(t *testing.T) {
 
 	t.Run("an algorithm written in the request is queued with no script to name", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
+		saved := fixture.runQueue.acceptsOneRun(0)
 
 		runDto, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestViewerID, carrying(t, "written here"), backtestRequestDto())
@@ -163,11 +164,12 @@ func TestSubmitBacktest(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, runDto.StrategyScriptID)
 		assert.Equal(t, "", runDto.SubjectName)
-		assert.Equal(t, "written here", fixture.runStore.savedRuns()[0].Request.SpotScript.Script)
+		assert.Equal(t, "written here", saved.Request.SpotScript.Script)
 	})
 
 	t.Run("a stretch that ends before it starts is refused and nothing is queued", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		requestDto := backtestRequestDto()
 		requestDto.StartTime = backtestStart.Add(10 * time.Hour)
 		requestDto.EndTime = backtestStart
@@ -176,11 +178,11 @@ func TestSubmitBacktest(t *testing.T) {
 			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("starting capital of zero is refused and nothing is queued", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		requestDto := backtestRequestDto()
 		requestDto.InitialCapital = decimal.Zero
 
@@ -188,11 +190,11 @@ func TestSubmitBacktest(t *testing.T) {
 			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), requestDto)
 
 		assert.ErrorIs(t, err, domains.ErrBacktestValidation)
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("a knob nobody declared is refused by name and nothing is queued", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
+		fixture.runQueue.queuesNothing()
 		requestDto := backtestRequestDto()
 		requestDto.ParameterValues = []dto.StrategyScriptParameterValueDto{{Name: "不存在的旋鈕", Value: 3}}
 
@@ -201,12 +203,11 @@ func TestSubmitBacktest(t *testing.T) {
 
 		require.ErrorIs(t, err, domains.ErrBacktestValidation)
 		assert.Contains(t, err.Error(), "不存在的旋鈕")
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 
 	t.Run("an owner at the limit is refused with the limit, and the request comes before the limit", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
-		fixture.runStore.activeCount = backtestRunOwnerActiveLimit
+		fixture.runQueue.refusesAtTheLimit()
 
 		_, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
@@ -216,7 +217,6 @@ func TestSubmitBacktest(t *testing.T) {
 		assert.True(t, limitReached)
 		assert.Equal(t, backtestRunOwnerActiveLimit, limit)
 		assert.Contains(t, err.Error(), "你同時最多 3 筆回測在排隊或進行中，等其中一筆結束再送")
-		assert.Empty(t, fixture.runStore.savedRuns())
 
 		invalid := backtestRequestDto()
 		invalid.InitialCapital = decimal.Zero
@@ -229,13 +229,13 @@ func TestSubmitBacktest(t *testing.T) {
 
 	t.Run("one below the limit is still queued", func(t *testing.T) {
 		fixture := newBacktestUnderTest(t)
-		fixture.runStore.activeCount = backtestRunOwnerActiveLimit - 1
+		saved := fixture.runQueue.acceptsOneRun(backtestRunOwnerActiveLimit - 1)
 
 		_, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestViewerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
 
 		require.NoError(t, err)
-		assert.Len(t, fixture.runStore.savedRuns(), 1)
+		assert.Equal(t, backtestViewerID, saved.OwnerID)
 	})
 }
 
@@ -416,23 +416,24 @@ func TestSubmitBacktestWalksTheSameGatesACalculationWalks(t *testing.T) {
 	// Both use cases share the gates through the same service; this proves it on this path.
 	t.Run("somebody else's published strategy script is queued", func(t *testing.T) {
 		fixture := newBacktestGateUnderTest(t, true)
+		saved := fixture.runQueue.acceptsOneRun(0)
 
 		_, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestStrangerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
 
 		require.NoError(t, err)
-		require.Len(t, fixture.runStore.savedRuns(), 1)
-		assert.Equal(t, "the script", fixture.runStore.savedRuns()[0].Request.SpotScript.Script)
+		assert.Equal(t, backtestStrangerID, saved.OwnerID)
+		assert.Equal(t, "the script", saved.Request.SpotScript.Script)
 	})
 
 	t.Run("somebody else's unpublished strategy script is not there", func(t *testing.T) {
 		fixture := newBacktestGateUnderTest(t, false)
+		fixture.runQueue.queuesNothing()
 
 		_, err := fixture.backtestApplication.SubmitBacktest(
 			t.Context(), backtestStrangerID, namingStrategyScript(t, backtestStrategyScriptID), backtestRequestDto())
 
 		require.ErrorIs(t, err, domains.ErrStrategyScriptNotFound)
-		assert.Empty(t, fixture.runStore.savedRuns())
 	})
 }
 
@@ -465,15 +466,15 @@ func newBacktestGateUnderTest(t *testing.T, isPublished bool) backtestUnderTest 
 
 	backtestService := service.NewBacktestService(
 		kCandleRepository, indicatorScriptProxy, clockProxy, queryMaxResults, 0)
-	runStore := newBacktestRunStore(controller)
+	runQueue := newBacktestRunQueue(controller)
 
 	return backtestUnderTest{
 		backtestApplication: application.NewBacktestApplication(
 			service.NewStrategyScriptService(strategyScriptRepository, publishedStrategyScriptRepository),
 			backtestService, nil,
-			newQueueingBacktestRunService(t, controller, runStore, backtestService, nil)),
+			newQueueingBacktestRunService(t, controller, runQueue, backtestService, nil)),
 		backtestService:      backtestService,
-		runStore:             runStore,
+		runQueue:             runQueue,
 		kCandleRepository:    kCandleRepository,
 		indicatorScriptProxy: indicatorScriptProxy,
 	}
